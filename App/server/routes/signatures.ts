@@ -87,8 +87,10 @@ const recipientSchema = z
     id: uuid.optional(),
     key: z.string().trim().min(1).max(255).optional(),
     role: z.enum(SIGNATURE_RECIPIENT_ROLES as [string, ...string[]]),
-    name: z.string().trim().min(1).max(255),
-    email: z.string().trim().email().max(320),
+    // Drafts persist while a Member is still typing. Send-time validation is
+    // deliberately stricter and supplies actionable readiness errors.
+    name: z.string().trim().max(255),
+    email: z.string().trim().max(320),
     routingOrder: z.number().int().min(0).max(10_000).optional(),
   })
   .strict();
@@ -135,7 +137,7 @@ const draftPatchSchema = z
     customerId: uuid.nullable().optional(),
     routingMode: z.enum(["parallel", "ordered"]).optional(),
     expiresAt: optionalExpirationSchema,
-    recipients: z.array(recipientSchema).min(1).max(200).optional(),
+    recipients: z.array(recipientSchema).max(200).optional(),
     fields: z.array(fieldSchema).max(2_000).optional(),
   })
   .strict()
@@ -145,6 +147,12 @@ const draftPatchSchema = z
   .refine((body) => body.fields === undefined || body.recipients !== undefined, {
     message: "Recipients are required when replacing fields",
   });
+
+const sendBodySchema = z
+  .object({
+    expectedUpdatedAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
 
 const listQuerySchema = z
   .object({
@@ -423,11 +431,12 @@ signaturesRouter.post(
 signaturesRouter.post(
   "/signature-envelopes/:envelopeId/send",
   validateParams(envelopeParamsSchema),
-  validateBody(emptyBodySchema),
+  validateBody(sendBodySchema),
   route(async (req, res) => {
     const detail = await sendSignatureEnvelope({
       companyId: companyId(req),
       envelopeId: req.params.envelopeId,
+      expectedUpdatedAt: req.body.expectedUpdatedAt,
       actor: userActor(req),
     });
     res.json(await detailResponse(detail));

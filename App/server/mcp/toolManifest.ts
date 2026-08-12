@@ -1589,7 +1589,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_signature_envelope",
     description:
-      "Read one signature envelope in full, including recipients, normalized PDF field positions, delivery state, and its append-only evidence trail. This never reveals recipient signing tokens or signature values. Needs `read` signing access.",
+      "Read one signature envelope's saved configuration and evidence, including recipients, normalized PDF field positions, delivery state, and its append-only trail. This does not expose the source PDF contents, recipient signing tokens, or signature values. Needs `read` signing access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1692,7 +1692,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "send_signature_envelope",
     description:
-      "Send a reviewed draft signature envelope to its recipients. This starts the evidence trail and sends real invitation emails, so first call `get_signature_envelope` and verify the document, recipients, routing, expiry, and required signer fields. Needs `send` signing access. The AI Employee may dispatch the request but can never consent or sign for a recipient.",
+      "Send a reviewed draft signature envelope to its recipients. This starts the evidence trail and sends real invitation emails, so first call `get_signature_envelope` and verify recipients, routing, expiry, and required-field setup. The tool cannot read the source PDF: a Member must verify document meaning and field placement. Needs `send` signing access. The AI Employee may dispatch the request but can never consent or sign for a recipient.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1700,8 +1700,13 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           description: "Draft envelope UUID from `list_signature_envelopes`.",
         },
+        expectedUpdatedAt: {
+          type: "string",
+          description:
+            "Exact envelope.updatedAt value from the `get_signature_envelope` response you reviewed.",
+        },
       },
-      required: ["envelopeId"],
+      required: ["envelopeId", "expectedUpdatedAt"],
       additionalProperties: false,
     },
   },

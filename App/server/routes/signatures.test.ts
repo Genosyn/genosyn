@@ -317,6 +317,72 @@ describe("signature envelope HTTP routes", () => {
     assert.deepEqual(body.recipients, []);
   });
 
+  test("persists empty and partially entered draft recipients but blocks send", async () => {
+    const pdf = await PDFDocument.create();
+    pdf.addPage([612, 792]).drawText("Incremental draft", { x: 48, y: 730 });
+    const bytes = await pdf.save();
+    const uploadBytes = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(uploadBytes).set(bytes);
+    const form = new FormData();
+    form.append("file", new Blob([uploadBytes], { type: "application/pdf" }), "draft.pdf");
+    form.append("title", "Incremental draft");
+
+    const createdResponse = await fetch(
+      `${baseUrl}/api/companies/${company.id}/signature-envelopes`,
+      { method: "POST", body: form },
+    );
+    assert.equal(createdResponse.status, 201);
+    const created = (await createdResponse.json()) as {
+      envelope: { id: string };
+    };
+    const endpoint = `/api/companies/${company.id}/signature-envelopes/${created.envelope.id}`;
+
+    const metadataOnly = await jsonCall<{
+      envelope: { title: string; updatedAt: string };
+      recipients: unknown[];
+      fields: unknown[];
+    }>("PATCH", endpoint, {
+      title: "Metadata saved first",
+      recipients: [],
+      fields: [],
+    });
+    assert.equal(metadataOnly.status, 200);
+    assert.equal(metadataOnly.body.envelope.title, "Metadata saved first");
+    assert.deepEqual(metadataOnly.body.recipients, []);
+    assert.deepEqual(metadataOnly.body.fields, []);
+
+    const partial = await jsonCall<{
+      envelope: { updatedAt: string };
+      recipients: Array<{ name: string; email: string }>;
+      fields: unknown[];
+    }>("PATCH", endpoint, {
+      recipients: [
+        {
+          key: "signer",
+          role: "signer",
+          name: "",
+          email: "ada@",
+          routingOrder: 0,
+        },
+      ],
+      fields: [],
+    });
+    assert.equal(partial.status, 200);
+    assert.equal(partial.body.recipients[0].name, "");
+    assert.equal(partial.body.recipients[0].email, "ada@");
+    assert.deepEqual(partial.body.fields, []);
+
+    const send = await jsonCall<{ error: string }>("POST", `${endpoint}/send`, {
+      expectedUpdatedAt: partial.body.envelope.updatedAt,
+    });
+    assert.equal(send.status, 400);
+    assert.equal(send.body.error, "Recipient 1 needs a name before sending");
+    const after = await AppDataSource.getRepository(SignatureEnvelope).findOneByOrFail({
+      id: created.envelope.id,
+    });
+    assert.equal(after.status, "draft");
+  });
+
   test("returns every AI employee and reserves access mutations for admins", async () => {
     const employee = await insert(AIEmployee, {
       companyId: company.id,

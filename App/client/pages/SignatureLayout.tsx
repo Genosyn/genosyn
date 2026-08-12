@@ -15,12 +15,12 @@ export default function SignatureLayout({ company }: { company: Company }) {
         </div>
       </div>
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
-        <SidebarLink to={base} end icon={<FileSignature size={14} />} label="Envelopes" />
-        <SidebarLink to={`${base}/new`} icon={<FilePlus2 size={14} />} label="New envelope" />
+        <SidebarLink to={base} end icon={<FileSignature size={14} />} label="Requests" />
+        <SidebarLink to={`${base}/new`} icon={<FilePlus2 size={14} />} label="New request" />
         <SidebarLink to={`${base}/ai-access`} icon={<Bot size={14} />} label="AI access" />
       </nav>
       <div className="border-t border-slate-100 p-3 text-xs leading-5 text-slate-400 dark:border-slate-800 dark:text-slate-500">
-        Every view, signature, and delivery is recorded in the envelope audit trail.
+        Every view, signature, and delivery is recorded in the request audit trail.
       </div>
     </div>
   );

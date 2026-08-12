@@ -13,6 +13,7 @@ import { api, Company, Notification, NotificationKind } from "../lib/api";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "./ui/Avatar";
 import { useCompanySocketSubscription } from "./CompanySocket";
 import { useToast } from "./ui/Toast";
+import { useNavigationGuard } from "./NavigationGuard";
 
 /**
  * Bell + popover panel mounted in the top bar. Reads the per-user feed
@@ -23,6 +24,7 @@ import { useToast } from "./ui/Toast";
  */
 export function NotificationsPanel({ company, meId }: { company: Company; meId: string }) {
   const navigate = useNavigate();
+  const navigationGuard = useNavigationGuard();
   const { background } = useToast();
   const [open, setOpen] = React.useState(false);
   const [count, setCount] = React.useState(0);
@@ -116,7 +118,7 @@ export function NotificationsPanel({ company, meId }: { company: Company; meId: 
         },
       );
     }
-    if (n.link) navigate(n.link);
+    if (n.link && !navigationGuard.request(n.link)) navigate(n.link);
   }
 
   function handleMarkAll() {

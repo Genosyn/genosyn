@@ -238,6 +238,14 @@ describe("catalogue invariants", () => {
       "recipient consent and signature completion must never be exposed to an AI Employee",
     );
     const send = STATIC_TOOLS.find((tool) => tool.name === "send_signature_envelope");
+    const get = STATIC_TOOLS.find((tool) => tool.name === "get_signature_envelope");
+    assert.match(get?.description ?? "", /does not expose the source PDF contents/i);
+    assert.match(send?.description ?? "", /sends real invitation emails/i);
+    assert.match(send?.description ?? "", /verify recipients, routing, expiry/i);
+    assert.match(
+      send?.description ?? "",
+      /Member must verify document meaning and field placement/i,
+    );
     assert.match(send?.description ?? "", /never consent or sign for a recipient/i);
   });
 

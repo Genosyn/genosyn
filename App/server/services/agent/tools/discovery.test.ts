@@ -86,6 +86,10 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "look something up in the knowledge library", expect: "search_resources" },
   { query: "which agreements are still awaiting signature", expect: "list_signature_envelopes" },
   { query: "inspect the signer progress on this contract", expect: "get_signature_envelope" },
+  {
+    query: "check whether this signature request is ready to send",
+    expect: "get_signature_envelope",
+  },
   { query: "prepare this PDF agreement for signature", expect: "draft_signature_envelope" },
   { query: "send the agreement for signature", expect: "send_signature_envelope" },
   { query: "chase the signer for their signature", expect: "remind_signature_recipient" },

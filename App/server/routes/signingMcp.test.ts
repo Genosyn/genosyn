@@ -251,7 +251,10 @@ describe("AI Employee Signing Grants", () => {
     assert.equal(dead.has("send_signature_envelope"), true);
     assert.equal(dead.has("remind_signature_recipient"), true);
     assert.equal(dead.has("void_signature_envelope"), true);
-    const send = await aiCall("send_signature_envelope", { envelopeId: randomUUID() });
+    const send = await aiCall("send_signature_envelope", {
+      envelopeId: randomUUID(),
+      expectedUpdatedAt: new Date().toISOString(),
+    });
     assert.equal(send.status, 403);
     assert.match(send.body.error ?? "", /needs the "send" signing access level/);
 
@@ -332,7 +335,8 @@ describe("AI-native signature envelopes", () => {
     const envelopeId = String(draft.envelope.id);
     const recipientId = String(draft.recipients[0].id);
 
-    const denied = await aiCall("send_signature_envelope", { envelopeId });
+    const expectedUpdatedAt = String(draft.envelope.updatedAt);
+    const denied = await aiCall("send_signature_envelope", { envelopeId, expectedUpdatedAt });
     assert.equal(denied.status, 403);
     assert.equal(await AppDataSource.getRepository(AuditEvent).count(), 1);
 
@@ -340,7 +344,7 @@ describe("AI-native signature envelopes", () => {
     const sent = await aiCall<{
       envelope: Record<string, unknown>;
       recipients: Array<Record<string, unknown>>;
-    }>("send_signature_envelope", { envelopeId });
+    }>("send_signature_envelope", { envelopeId, expectedUpdatedAt });
     assert.equal(sent.status, 200, sent.body.error);
     assert.equal(sent.body.envelope.status, "sent");
     assert.equal("tokenHash" in sent.body.recipients[0], false);

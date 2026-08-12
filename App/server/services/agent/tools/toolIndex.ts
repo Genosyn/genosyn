@@ -944,6 +944,9 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   get_signature_envelope: [
     "inspect contract",
     "read agreement",
+    "review signature request",
+    "signature request readiness",
+    "ready to send",
     "signature progress",
     "signers",
     "e-signature",

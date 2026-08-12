@@ -11,6 +11,7 @@ import {
 } from "../lib/sections";
 import { anotherDialogIsOpen, isTypingTarget, setChordPending } from "../lib/keyboard";
 import { PALETTE_SHORTCUT } from "./CommandPalette";
+import { useNavigationGuard } from "./NavigationGuard";
 import { clsx } from "./ui/clsx";
 
 type KeyboardShortcutsState = {
@@ -77,6 +78,7 @@ export function KeyboardShortcutsProvider({
   children: React.ReactNode;
 }) {
   const navigate = useNavigate();
+  const navigationGuard = useNavigationGuard();
   const [guideOpen, setGuideOpen] = React.useState(false);
   const [chordOpen, setChordOpen] = React.useState(false);
   const chordOpenRef = React.useRef(false);
@@ -125,9 +127,10 @@ export function KeyboardShortcutsProvider({
     (section: SectionItem) => {
       closeChord();
       closeGuide(false);
-      navigate(`/c/${companySlug}${section.path}`);
+      const destination = `/c/${companySlug}${section.path}`;
+      if (!navigationGuard.request(destination)) navigate(destination);
     },
-    [closeChord, closeGuide, companySlug, navigate],
+    [closeChord, closeGuide, companySlug, navigate, navigationGuard],
   );
 
   React.useEffect(() => {

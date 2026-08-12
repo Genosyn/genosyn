@@ -1663,6 +1663,12 @@ Employee workflow in one company-scoped system.
       tenancy, token hashing, immutable state, routing, PDF rendering, audit
       verification, AI grants and public signer endpoints with automated and
       real-browser tests.
+- [x] **Guided signing usability.** Explain the AI access ladder in plain
+      language, confirm before granting autonomous customer-contact access, make
+      the AI handoff save first and let the Member choose an employee, and state
+      its real boundary: AI can inspect saved configuration and evidence or
+      prepare a new request from a shared PDF Resource, but cannot read the
+      source PDF through signing tools, edit an existing draft, or sign.
 
 ### M33 — AI-native accounting
 

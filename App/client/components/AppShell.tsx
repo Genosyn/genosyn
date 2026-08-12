@@ -26,6 +26,7 @@ import { CompanySocketProvider } from "./CompanySocket";
 import { Logo, LogoMark } from "./Logo";
 import { KeyboardShortcutsProvider, useKeyboardShortcuts } from "./KeyboardShortcuts";
 import { NotificationsPanel } from "./NotificationsPanel";
+import { useNavigationGuard } from "./NavigationGuard";
 import { useTheme, Theme } from "./Theme";
 
 /**
@@ -138,6 +139,7 @@ function TopNav({
   const dialog = useDialog();
   const shortcuts = useKeyboardShortcuts();
   const sidebarCtx = React.useContext(ContextualSidebarContext);
+  const navigationGuard = useNavigationGuard();
   const [companyOpen, setCompanyOpen] = React.useState(false);
   const [userOpen, setUserOpen] = React.useState(false);
 
@@ -152,10 +154,15 @@ function TopNav({
     return () => window.removeEventListener("keydown", onKey);
   }, [companyOpen, userOpen]);
 
-  async function logout() {
+  async function performLogout() {
     await api.post("/api/auth/logout");
     await onCompaniesChanged();
     navigate("/login");
+  }
+
+  function logout() {
+    if (navigationGuard.request("/login", () => void performLogout())) return;
+    void performLogout();
   }
 
   const sectionKey = activeSection(location.pathname);
@@ -207,7 +214,8 @@ function TopNav({
                   key={c.id}
                   onClick={() => {
                     setCompanyOpen(false);
-                    navigate(`/c/${c.slug}`);
+                    const destination = `/c/${c.slug}`;
+                    if (!navigationGuard.request(destination)) navigate(destination);
                   }}
                   className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
@@ -226,7 +234,8 @@ function TopNav({
                   try {
                     const c = await api.post<Company>("/api/companies", { name });
                     onCompaniesChanged();
-                    navigate(`/c/${c.slug}`);
+                    const destination = `/c/${c.slug}`;
+                    if (!navigationGuard.request(destination)) navigate(destination);
                   } catch (e) {
                     toast((e as Error).message, "error");
                   }
@@ -246,7 +255,10 @@ function TopNav({
 
       <div className="ml-auto flex items-center gap-2">
         <button
-          onClick={() => navigate(`/c/${current.slug}/help`)}
+          onClick={() => {
+            const destination = `/c/${current.slug}/help`;
+            if (!navigationGuard.request(destination)) navigate(destination);
+          }}
           className={
             "flex h-8 w-8 items-center justify-center rounded-md " +
             (sectionKey === "help"

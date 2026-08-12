@@ -22,6 +22,8 @@ export type PdfCanvasRendererProps = {
   onPageClick?: (pageNumber: number, x: number, y: number) => void;
   onFieldMove?: (fieldId: string, position: FieldPosition) => void;
   renderField?: (field: SignatureField) => React.ReactNode;
+  fieldLabel?: (field: SignatureField) => string;
+  fieldClassName?: (field: SignatureField) => string;
   readOnly?: boolean;
   className?: string;
 };
@@ -38,6 +40,8 @@ export function PdfCanvasRenderer({
   onPageClick,
   onFieldMove,
   renderField,
+  fieldLabel,
+  fieldClassName,
   readOnly = false,
   className = "",
 }: PdfCanvasRendererProps) {
@@ -47,10 +51,11 @@ export function PdfCanvasRenderer({
   React.useEffect(() => {
     let cancelled = false;
     let loaded: PDFDocumentProxy | null = null;
+    const controller = new AbortController();
     setDocument(null);
     setError(null);
 
-    void fetch(sourceUrl, { credentials: "same-origin" })
+    void fetch(sourceUrl, { credentials: "same-origin", signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error(`Could not load this PDF (${response.status}).`);
         const task = getDocument({ data: await response.arrayBuffer() });
@@ -58,11 +63,14 @@ export function PdfCanvasRenderer({
         if (!cancelled) setDocument(loaded);
       })
       .catch((cause: unknown) => {
-        if (!cancelled) setError(messageFor(cause));
+        if (!cancelled && !(cause instanceof DOMException && cause.name === "AbortError")) {
+          setError(messageFor(cause));
+        }
       });
 
     return () => {
       cancelled = true;
+      controller.abort();
       loaded?.cleanup();
     };
   }, [sourceUrl]);
@@ -104,6 +112,8 @@ export function PdfCanvasRenderer({
             onPageClick={onPageClick}
             onFieldMove={onFieldMove}
             renderField={renderField}
+            fieldLabel={fieldLabel}
+            fieldClassName={fieldClassName}
             readOnly={readOnly}
           />
         );
@@ -121,6 +131,8 @@ function PdfPage({
   onPageClick,
   onFieldMove,
   renderField,
+  fieldLabel,
+  fieldClassName,
   readOnly,
 }: {
   document: PDFDocumentProxy;
@@ -131,6 +143,8 @@ function PdfPage({
   onPageClick?: (pageNumber: number, x: number, y: number) => void;
   onFieldMove?: (fieldId: string, position: FieldPosition) => void;
   renderField?: (field: SignatureField) => React.ReactNode;
+  fieldLabel?: (field: SignatureField) => string;
+  fieldClassName?: (field: SignatureField) => string;
   readOnly: boolean;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -267,7 +281,9 @@ function PdfPage({
             <FileText size={28} />
           </div>
         )}
-        {page && shouldRender ? <canvas ref={canvasRef} className="block max-w-full" /> : null}
+        {page && shouldRender ? (
+          <canvas ref={canvasRef} aria-hidden="true" className="block max-w-full" />
+        ) : null}
         {fields.map((field) => (
           <div
             key={field.id}
@@ -278,11 +294,12 @@ function PdfPage({
                 ? undefined
                 : `${SIGNATURE_FIELD_LABELS[field.type]} field. Use arrow keys to move it.`
             }
-            className={`absolute overflow-hidden rounded border text-[10px] shadow-sm ${
+            data-signature-field-id={field.id}
+            className={`absolute overflow-hidden rounded border text-[10px] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
               field.id === selectedFieldId
                 ? "z-20 border-indigo-600 bg-indigo-100/90 ring-2 ring-indigo-400/30 dark:bg-indigo-950/90"
                 : "z-10 border-indigo-300 bg-indigo-50/90 dark:border-indigo-600 dark:bg-indigo-950/80"
-            } ${!readOnly && onFieldMove ? "cursor-move touch-none" : ""}`}
+            } ${!readOnly && onFieldMove ? "cursor-move touch-none" : ""} ${fieldClassName?.(field) ?? ""}`}
             style={{
               left: `${field.x * 100}%`,
               top: `${field.y * 100}%`,
@@ -354,7 +371,7 @@ function PdfPage({
               renderField(field)
             ) : (
               <div className="flex h-full items-center px-2 font-medium text-indigo-700 dark:text-indigo-200">
-                {field.label || SIGNATURE_FIELD_LABELS[field.type]}
+                {fieldLabel?.(field) || field.label || SIGNATURE_FIELD_LABELS[field.type]}
                 {field.required ? " *" : ""}
               </div>
             )}

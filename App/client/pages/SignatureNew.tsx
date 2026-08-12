@@ -1,5 +1,7 @@
 import React from "react";
 import { Bot, FileText, UploadCloud, X } from "lucide-react";
+import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { Breadcrumbs } from "@/components/AppShell";
 import { Button } from "@/components/ui/Button";
@@ -20,6 +22,11 @@ function extractEnvelopeId(value: SignatureEnvelope | SignatureEnvelopeDetail): 
   return "envelope" in value ? value.envelope.id : value.id;
 }
 
+const MAX_PDF_BYTES = 25 * 1024 * 1024;
+const MAX_PDF_PAGES = 200;
+
+GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
 export default function SignatureNew() {
   const { company } = useOutletContext<SignatureOutletContext>();
   const navigate = useNavigate();
@@ -32,7 +39,10 @@ export default function SignatureNew() {
   const [expiresAt, setExpiresAt] = React.useState("");
   const [customers, setCustomers] = React.useState<Customer[]>([]);
   const [saving, setSaving] = React.useState(false);
+  const [checkingFile, setCheckingFile] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const titleCustomizedRef = React.useRef(false);
+  const fileCheckRef = React.useRef(0);
   const routeBase = `/c/${company.slug}/signatures`;
 
   React.useEffect(() => {
@@ -42,15 +52,42 @@ export default function SignatureNew() {
       .catch(() => setCustomers([]));
   }, [company.id]);
 
-  function choose(next: File | undefined) {
+  async function choose(next: File | undefined) {
     if (!next) return;
+    const rejectFile = (message: string) => {
+      setError(message);
+      if (inputRef.current) inputRef.current.value = "";
+    };
+    const checkId = ++fileCheckRef.current;
     if (next.type !== "application/pdf" && !next.name.toLowerCase().endsWith(".pdf")) {
-      setError("Choose a PDF document.");
+      rejectFile("Choose a PDF document.");
       return;
     }
-    setFile(next);
+    if (next.size > MAX_PDF_BYTES) {
+      rejectFile("Choose a PDF smaller than 25 MB.");
+      return;
+    }
+    setCheckingFile(true);
     setError(null);
-    if (!title) setTitle(next.name.replace(/\.pdf$/i, ""));
+    try {
+      const task = getDocument({ data: await next.arrayBuffer() });
+      const document = await task.promise;
+      const pageCount = document.numPages;
+      await document.cleanup();
+      if (checkId !== fileCheckRef.current) return;
+      if (pageCount > MAX_PDF_PAGES) {
+        rejectFile(`Choose a PDF with ${MAX_PDF_PAGES} pages or fewer.`);
+        return;
+      }
+      setFile(next);
+      if (!titleCustomizedRef.current) setTitle(next.name.replace(/\.pdf$/i, ""));
+    } catch {
+      if (checkId === fileCheckRef.current) {
+        rejectFile("This PDF could not be opened. Try exporting it again before uploading.");
+      }
+    } finally {
+      if (checkId === fileCheckRef.current) setCheckingFile(false);
+    }
   }
 
   async function submit(event: React.FormEvent) {
@@ -60,7 +97,7 @@ export default function SignatureNew() {
       return;
     }
     if (!title.trim()) {
-      setError("Give this envelope a title.");
+      setError("Give this request a title.");
       return;
     }
     setSaving(true);
@@ -79,7 +116,7 @@ export default function SignatureNew() {
       );
       navigate(`${routeBase}/${extractEnvelopeId(result)}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The envelope could not be created.");
+      setError(cause instanceof Error ? cause.message : "The request could not be created.");
     } finally {
       setSaving(false);
     }
@@ -87,10 +124,10 @@ export default function SignatureNew() {
 
   return (
     <div className="page-shell p-4 sm:p-8">
-      <Breadcrumbs items={[{ label: "Signatures", to: routeBase }, { label: "New envelope" }]} />
+      <Breadcrumbs items={[{ label: "Signatures", to: routeBase }, { label: "New request" }]} />
       <div className="mt-5 max-w-3xl">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-          New envelope
+          New signature request
         </h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           Start with a PDF. You will add recipients and place signing fields in the next step.
@@ -106,15 +143,16 @@ export default function SignatureNew() {
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={(event) => {
                   event.preventDefault();
-                  choose(event.dataTransfer.files[0]);
+                  void choose(event.dataTransfer.files[0]);
                 }}
+                disabled={checkingFile}
                 className="mt-3 flex w-full flex-col items-center rounded-xl border border-dashed border-slate-300 px-6 py-10 text-center transition hover:border-indigo-400 hover:bg-indigo-50/30 dark:border-slate-600 dark:hover:bg-indigo-950/20"
               >
                 <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
                   <UploadCloud size={21} />
                 </span>
                 <span className="mt-3 text-sm font-medium text-slate-800 dark:text-slate-200">
-                  Drop a PDF here, or choose a file
+                  {checkingFile ? "Checking PDF…" : "Drop a PDF here, or choose a file"}
                 </span>
                 <span className="mt-1 text-xs text-slate-400">
                   PDF only · up to 25 MB and 200 pages
@@ -134,7 +172,9 @@ export default function SignatureNew() {
                 <button
                   type="button"
                   onClick={() => {
+                    fileCheckRef.current += 1;
                     setFile(null);
+                    setCheckingFile(false);
                     if (inputRef.current) inputRef.current.value = "";
                   }}
                   className="rounded-md p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700"
@@ -149,16 +189,19 @@ export default function SignatureNew() {
               type="file"
               accept="application/pdf,.pdf"
               className="sr-only"
-              onChange={(event) => choose(event.target.files?.[0])}
+              onChange={(event) => void choose(event.target.files?.[0])}
             />
           </section>
 
           <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Details</h2>
             <Input
-              label="Envelope title"
+              label="Request title"
               value={title}
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={(event) => {
+                titleCustomizedRef.current = true;
+                setTitle(event.target.value);
+              }}
               placeholder="Mutual NDA"
               required
             />
@@ -204,12 +247,17 @@ export default function SignatureNew() {
               <Bot size={18} className="mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-300" />
               <div>
                 <div className="text-sm font-semibold text-indigo-900 dark:text-indigo-100">
-                  AI-native by design
+                  Prefer to delegate the setup?
                 </div>
                 <p className="mt-1 text-xs leading-5 text-indigo-700 dark:text-indigo-300">
-                  After creating the draft, an AI employee with Draft access can identify signers,
-                  place common fields, and prepare the message. A human can review everything before
-                  it is sent.
+                  Upload the PDF under{" "}
+                  <Link className="font-medium underline" to={"/c/" + company.slug + "/resources"}>
+                    Resources
+                  </Link>
+                  , share it with an AI Employee, and give them Prepare drafts access. They can
+                  create a separate request with recipients and fields for you to review. They
+                  cannot sign for anyone. Prepare drafts never emails anyone; Send to customers lets
+                  the employee contact recipients without another Member click.
                 </p>
               </div>
             </div>
@@ -222,7 +270,7 @@ export default function SignatureNew() {
                 Cancel
               </Button>
             </Link>
-            <Button type="submit" disabled={saving}>
+            <Button type="submit" disabled={saving || checkingFile}>
               {saving && <Spinner size={15} />} Create draft
             </Button>
           </div>

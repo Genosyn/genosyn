@@ -30,9 +30,8 @@ export function Signatures() {
       <H2 id="send">Send a document for signature</H2>
       <OL>
         <LI>
-          Open <Strong>Signatures → New envelope</Strong> and upload a PDF up to 25 MB and 200
-          pages. Add an optional Customer, message, expiry date, and choose parallel or ordered
-          routing.
+          Open <Strong>Signatures → New request</Strong> and upload a PDF up to 25 MB and 200 pages.
+          Add an optional Customer, message, expiry date, and choose parallel or ordered routing.
         </LI>
         <LI>
           Add each signer&apos;s name and email. Add copy recipients when someone should receive the
@@ -103,40 +102,61 @@ export function Signatures() {
       <H2 id="ai">AI-native preparation and follow-through</H2>
       <P>
         Under <Strong>Signatures → AI access</Strong>, owners and admins choose one company-wide
-        level per AI Employee. Signing tools stay deferred until the employee searches for them.
+        level per AI Employee. Start with the least access they need. Promoting an employee to Send
+        shows a confirmation because that level can contact customers without another Member click.
       </P>
       <KeyList
         rows={[
           {
-            term: "Read",
-            def: <>List requests, inspect recipients, fields, status, and evidence.</>,
-          },
-          {
-            term: "Draft",
+            term: "Read only",
             def: (
               <>
-                Prepare a request from a PDF{" "}
-                <DocLink to="/docs/integrations">Resource Grant</DocLink>, configure recipients and
-                fields. It cannot contact anyone.
+                List requests and inspect recipients, fields, delivery status, and evidence. It
+                changes nothing.
               </>
             ),
           },
           {
-            term: "Send",
+            term: "Prepare drafts",
             def: (
               <>
-                Send, remind, or void a prepared request. Every action is attributed to the AI
-                Employee in the audit log and journal.
+                Everything in Read only, plus create a new request from a PDF Resource shared with
+                that employee, configure recipients, and place fields. It cannot contact anyone.
+              </>
+            ),
+          },
+          {
+            term: "Send to customers",
+            def: (
+              <>
+                Everything in Prepare drafts, plus send invitations and reminders or void a request
+                without another Member click. Every action is attributed to the AI Employee in the
+                audit log and journal.
               </>
             ),
           },
         ]}
       />
       <P>
-        AI Employees can never call the public signer completion endpoint or supply a
-        recipient&apos;s signature. Ask them to draft an NDA, route the next agreement, chase
-        outstanding signers, or summarize completion evidence; the recipient&apos;s act remains
-        human.
+        To delegate a new setup, upload the PDF under <Strong>Resources</Strong>, open it, choose{" "}
+        <Strong>Share</Strong>, and give the employee View access. Then give that employee Prepare
+        drafts access under Signatures and ask them in Chat to create the request. The result is a
+        normal draft: a Member should inspect the PDF, recipients, field placement, routing,
+        message, and expiry before sending it.
+      </P>
+      <P>
+        <Strong>Ask AI</Strong> on a request saves valid unsaved changes, lets you choose among
+        eligible AI Employees, and opens Chat with a draft readiness or status question. Nothing
+        runs until you send that chat message. The employee can inspect the saved request
+        configuration and evidence, but its signing tools cannot read the source PDF or edit an
+        existing draft, so the Member remains responsible for checking document meaning and field
+        placement.
+      </P>
+      <P>
+        AI Employees can never call the recipient completion endpoint, see private signing links or
+        accepted signature values, or supply a recipient&apos;s signature. They can summarize
+        status, prepare a new request from a shared PDF Resource, or—only with Send to customers
+        access—send, remind, and void. The recipient&apos;s act always remains human.
       </P>
 
       <H2 id="control">Control the lifecycle</H2>

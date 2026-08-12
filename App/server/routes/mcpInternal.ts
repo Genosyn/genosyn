@@ -11023,6 +11023,7 @@ mcpInternalRouter.post(
 const sendSignatureEnvelopeSchema = z
   .object({
     envelopeId: z.string().uuid(),
+    expectedUpdatedAt: z.string().datetime({ offset: true }),
   })
   .strict();
 
@@ -11037,6 +11038,7 @@ mcpInternalRouter.post(
       const detail = await sendSignatureEnvelope({
         companyId: req.mcpCompany!.id,
         envelopeId: body.envelopeId,
+        expectedUpdatedAt: body.expectedUpdatedAt,
         actor: { actorKind: "ai", actorId: employee.id },
       });
       await aiWriteTrail(req, {

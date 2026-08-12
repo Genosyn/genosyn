@@ -1,5 +1,14 @@
 import React from "react";
-import { ArrowRight, Bot, FilePlus2, FileSignature, Search, Send } from "lucide-react";
+import {
+  ArrowRight,
+  Bot,
+  FilePlus2,
+  FileSignature,
+  Search,
+  Send,
+  UploadCloud,
+  UserPlus,
+} from "lucide-react";
 import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import { Breadcrumbs } from "@/components/AppShell";
 import { useLiveRefetch } from "@/components/CompanySocket";
@@ -43,7 +52,7 @@ export default function SignaturesIndex() {
       const suffix = status === "all" ? "" : `?status=${encodeURIComponent(status)}`;
       setItems(normalizeEnvelopeList(await api.get<unknown>(`${base}${suffix}`)));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not load envelopes.");
+      setError(cause instanceof Error ? cause.message : "Could not load signature requests.");
       setItems([]);
     }
   }, [base, status]);
@@ -62,6 +71,7 @@ export default function SignaturesIndex() {
     ["sent", "in_progress"].includes(item.status),
   ).length;
   const completed = (items ?? []).filter((item) => item.status === "completed").length;
+  const drafts = (items ?? []).filter((item) => item.status === "draft").length;
 
   return (
     <div className="page-shell p-4 sm:p-8">
@@ -76,12 +86,14 @@ export default function SignaturesIndex() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => setParams({ status: "draft" })}>
-            <Bot size={15} /> Review AI drafts
-          </Button>
+          {drafts > 0 && (
+            <Button variant="secondary" onClick={() => setParams({ status: "draft" })}>
+              <Bot size={15} /> Review {drafts} {drafts === 1 ? "draft" : "drafts"}
+            </Button>
+          )}
           <Link to={`${routeBase}/new`}>
             <Button>
-              <FilePlus2 size={15} /> New envelope
+              <FilePlus2 size={15} /> New signature request
             </Button>
           </Link>
         </div>
@@ -114,7 +126,7 @@ export default function SignaturesIndex() {
             ))}
           </div>
           <label className="relative block sm:w-64">
-            <span className="sr-only">Search envelopes</span>
+            <span className="sr-only">Search signature requests</span>
             <Search
               size={15}
               className="pointer-events-none absolute left-3 top-2.5 text-slate-400"
@@ -122,7 +134,7 @@ export default function SignaturesIndex() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search envelopes…"
+              placeholder="Search requests…"
               className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-indigo-900"
             />
           </label>
@@ -135,27 +147,31 @@ export default function SignaturesIndex() {
         ) : error ? (
           <div className="p-6">
             <EmptyState
-              title="Envelopes could not be loaded"
+              title="Signature requests could not be loaded"
               description={error}
               action={<Button onClick={() => void load()}>Try again</Button>}
             />
           </div>
+        ) : visible.length === 0 && !query && status === "all" ? (
+          <FirstRequestEmpty routeBase={routeBase} />
         ) : visible.length === 0 ? (
           <div className="p-6">
             <EmptyState
-              title={query ? "No matching envelopes" : "No envelopes yet"}
+              title={
+                query
+                  ? "No matching requests"
+                  : `No ${status === "all" ? "matching" : SIGNATURE_STATUS_LABELS[status].toLowerCase()} requests`
+              }
               description={
                 query
                   ? "Try a different title or customer name."
-                  : "Upload a PDF, add the people who need to sign, and place their fields."
+                  : "Choose another status to see the rest of your signature requests."
               }
               action={
                 !query ? (
-                  <Link to={`${routeBase}/new`}>
-                    <Button>
-                      <FilePlus2 size={15} /> Create the first envelope
-                    </Button>
-                  </Link>
+                  <Button variant="secondary" onClick={() => setParams({})}>
+                    View all requests
+                  </Button>
                 ) : undefined
               }
             />
@@ -167,6 +183,64 @@ export default function SignaturesIndex() {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function FirstRequestEmpty({ routeBase }: { routeBase: string }) {
+  const steps = [
+    {
+      icon: <UploadCloud size={17} />,
+      title: "Upload a PDF",
+      detail: "Start with the document your customer should review.",
+    },
+    {
+      icon: <UserPlus size={17} />,
+      title: "Add people and fields",
+      detail: "Choose who signs and show them exactly where.",
+    },
+    {
+      icon: <Send size={17} />,
+      title: "Review and send",
+      detail: "Track delivery, reminders, and completion in one place.",
+    },
+  ];
+  return (
+    <div className="p-4 sm:p-6">
+      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-6 text-center dark:border-slate-700 dark:bg-slate-950/40">
+        <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+          Send your first signature request
+        </h3>
+        <p className="mx-auto mt-1 max-w-lg text-sm text-slate-500 dark:text-slate-400">
+          No setup ceremony: upload the agreement, add the people who need to sign, and review it
+          before anyone is contacted.
+        </p>
+        <div className="mx-auto mt-6 grid max-w-3xl gap-3 text-left sm:grid-cols-3">
+          {steps.map((step, index) => (
+            <div
+              key={step.title}
+              className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
+            >
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">
+                  {step.icon}
+                </span>
+                <span>
+                  <span className="text-slate-400">{index + 1}.</span> {step.title}
+                </span>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                {step.detail}
+              </p>
+            </div>
+          ))}
+        </div>
+        <Link to={`${routeBase}/new`} className="mt-6 inline-flex">
+          <Button>
+            <FilePlus2 size={15} /> Upload a document
+          </Button>
+        </Link>
       </div>
     </div>
   );

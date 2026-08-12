@@ -118,7 +118,12 @@ export type PublicSigningEnvelope = {
   envelope: Pick<
     SignatureEnvelope,
     "id" | "title" | "message" | "status" | "expiresAt" | "completedAt"
-  > & { companyName?: string; filename?: string; finalizationPending?: boolean };
+  > & {
+    companyName?: string;
+    filename?: string;
+    originalPageCount?: number;
+    finalizationPending?: boolean;
+  };
   recipient: Pick<SignatureRecipient, "id" | "role" | "name" | "email" | "status">;
   fields: SignatureField[];
   sender?: { companyName: string } | null;
@@ -136,6 +141,85 @@ export type SignatureGrant = {
     avatarKey?: string | null;
   } | null;
 };
+
+export type SignatureDraftReadinessIssue = {
+  code: "title" | "signer" | "recipient" | "duplicate_email" | "signature" | "expiry";
+  message: string;
+  recipientId?: string;
+};
+
+export type SignatureDraftSaveResult = {
+  detail: SignatureEnvelopeDetail;
+  current: boolean;
+};
+
+export type SignatureSendReview = {
+  editRevision: number;
+  updatedAt: string;
+};
+
+/** A send approval is valid only for the exact draft revision the Member reviewed. */
+export function signatureSendReviewIsCurrent(
+  reviewed: SignatureSendReview,
+  current: {
+    editRevision: number;
+    updatedAt: string | null;
+    dirty: boolean;
+    saveInFlight: boolean;
+  },
+): boolean {
+  return (
+    !current.dirty &&
+    !current.saveInFlight &&
+    reviewed.editRevision === current.editRevision &&
+    reviewed.updatedAt === current.updatedAt
+  );
+}
+
+/** Freeze draft mutations synchronously before dispatching an approved send. */
+export function lockSignatureSendReviewForDispatch(
+  reviewed: SignatureSendReview,
+  current: Parameters<typeof signatureSendReviewIsCurrent>[1],
+  freeze: () => void,
+): boolean {
+  if (!signatureSendReviewIsCurrent(reviewed, current)) return false;
+  freeze();
+  return true;
+}
+
+/**
+ * Reconcile a draft response without allowing an older in-flight save to
+ * replace edits the Member made while that request was running.
+ */
+export function reconcileSignatureDraftSave(
+  current: SignatureEnvelopeDetail,
+  saved: SignatureEnvelopeDetail,
+  savingRevision: number,
+  currentRevision: number,
+): SignatureDraftSaveResult {
+  if (savingRevision === currentRevision) {
+    return { detail: saved, current: true };
+  }
+
+  const localEnvelope = current.envelope;
+  return {
+    current: false,
+    detail: {
+      ...current,
+      envelope: {
+        ...saved.envelope,
+        title: localEnvelope.title,
+        message: localEnvelope.message,
+        customerId: localEnvelope.customerId,
+        routingMode: localEnvelope.routingMode,
+        expiresAt: localEnvelope.expiresAt,
+      },
+      events: saved.events,
+      customer:
+        localEnvelope.customerId === saved.envelope.customerId ? saved.customer : current.customer,
+    },
+  };
+}
 
 export const SIGNATURE_FIELD_LABELS: Record<SignatureFieldType, string> = {
   signature: "Signature",
@@ -156,6 +240,30 @@ export const SIGNATURE_STATUS_LABELS: Record<SignatureEnvelopeStatus, string> = 
   voided: "Voided",
   expired: "Expired",
 };
+
+/** Keep sender guidance aligned with the service's pragmatic mailbox rules. */
+export function normalizeSignatureEmail(input: string): string | null {
+  const value = input.trim().toLowerCase();
+  const address = /^[^\s<>(),;:\\"[\]@]+@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/;
+  if (!address.test(value)) return null;
+  const [local] = value.split("@");
+  if (local.startsWith(".") || local.endsWith(".") || local.includes("..")) return null;
+  return value;
+}
+
+/**
+ * Honest handoff text for the request-level Ask AI action. Signing tools expose
+ * saved configuration and evidence, not the source PDF bytes or a mutation
+ * endpoint for an existing draft.
+ */
+export function signatureAiHandoffPrompt(
+  envelope: Pick<SignatureEnvelope, "id" | "title" | "status">,
+): string {
+  if (envelope.status === "draft") {
+    return `Check whether the saved setup of signature envelope "${envelope.title}" (${envelope.id}) is ready for a Member to send. Inspect its recipients, signer and completion-copy roles, routing order, expiry, and required fields using your signing tools. List anything a Member should verify or fix in the signing editor. You cannot read the source PDF contents or edit this existing draft through signing tools, so say that plainly and do not claim otherwise. Do not send, remind, or void anything unless I explicitly ask in a follow-up.`;
+  }
+  return `Summarize the current status of signature envelope "${envelope.title}" (${envelope.id}). Inspect recipient progress, routing, delivery state, and the evidence trail using your signing tools. Highlight failures or sensible next steps. Do not send a reminder or void the request unless I explicitly ask in a follow-up, and never claim to have seen private signing links or signature values.`;
+}
 
 export function signatureStatusClasses(status: SignatureEnvelopeStatus): string {
   if (status === "completed") {
@@ -251,11 +359,96 @@ export function canRetryPublicSignatureFinalization(value: PublicSigningEnvelope
   );
 }
 
+/** A completion response may fail after the recipient's evidence was durably saved. */
+export function publicSignatureRecipientIsComplete(value: PublicSigningEnvelope): boolean {
+  return value.recipient.status === "completed";
+}
+
+/** Required-field completion shared by the signer progress and navigation UI. */
+export function signatureFieldValueIsComplete(field: SignatureField, value: unknown): boolean {
+  if (field.type === "checkbox") return value === true;
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+export function firstIncompleteRequiredSignatureField(
+  fields: SignatureField[],
+  values: Record<string, unknown>,
+): SignatureField | undefined {
+  return fields.find(
+    (field) => field.required && !signatureFieldValueIsComplete(field, values[field.id]),
+  );
+}
+
 export function recipientProgress(envelope: SignatureEnvelope): { done: number; total: number } {
   return {
     done: Number(envelope.completedRecipientCount ?? 0),
     total: Number(envelope.recipientCount ?? 0),
   };
+}
+
+/** Sender-side guidance only; the service repeats these checks under the send lock. */
+export function signatureDraftReadiness(
+  envelope: Pick<SignatureEnvelope, "title" | "expiresAt">,
+  recipients: SignatureRecipient[],
+  fields: SignatureField[],
+  now = new Date(),
+): SignatureDraftReadinessIssue[] {
+  const issues: SignatureDraftReadinessIssue[] = [];
+  if (!envelope.title.trim()) {
+    issues.push({ code: "title", message: "Add a request title" });
+  }
+  const signers = recipients.filter((recipient) => recipient.role === "signer");
+  if (!signers.length) {
+    issues.push({ code: "signer", message: "Add at least one signer" });
+  }
+  const emails = new Map<string, string>();
+  recipients.forEach((recipient, index) => {
+    const label = recipient.name.trim() || `Recipient ${index + 1}`;
+    if (!recipient.name.trim()) {
+      issues.push({
+        code: "recipient",
+        recipientId: recipient.id,
+        message: `${label} needs a name`,
+      });
+    }
+    const email = normalizeSignatureEmail(recipient.email);
+    if (!email) {
+      issues.push({
+        code: "recipient",
+        recipientId: recipient.id,
+        message: `${label} needs a valid email`,
+      });
+    } else if (emails.has(email)) {
+      issues.push({
+        code: "duplicate_email",
+        recipientId: recipient.id,
+        message: `${label} has the same email as ${emails.get(email)}`,
+      });
+    } else {
+      emails.set(email, label);
+    }
+  });
+  signers.forEach((recipient) => {
+    if (
+      !fields.some(
+        (field) =>
+          field.recipientId === recipient.id && field.type === "signature" && field.required,
+      )
+    ) {
+      issues.push({
+        code: "signature",
+        recipientId: recipient.id,
+        message: `${recipient.name.trim() || "Each signer"} needs a required signature field`,
+      });
+    }
+  });
+  if (envelope.expiresAt) {
+    const expiresAt = new Date(envelope.expiresAt);
+    if (Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime()) {
+      issues.push({ code: "expiry", message: "Choose a future expiry date" });
+    }
+  }
+  return issues;
 }
 
 export function clampFieldGeometry(

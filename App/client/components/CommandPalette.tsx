@@ -33,6 +33,7 @@ import {
   searchSections,
 } from "../lib/sections";
 import { type Command, searchCommands, useCommandSnapshot } from "./CommandRegistry";
+import { useNavigationGuard } from "./NavigationGuard";
 import { clsx } from "./ui/clsx";
 
 /**
@@ -321,6 +322,7 @@ function CommandPalette({
   onClose: () => void;
 }) {
   const navigate = useNavigate();
+  const navigationGuard = useNavigationGuard();
   const location = useLocation();
   const inputRef = React.useRef<HTMLInputElement>(null);
   const listRef = React.useRef<HTMLDivElement>(null);
@@ -411,9 +413,10 @@ function CommandPalette({
         return;
       }
       const path = entry.type === "section" ? entry.match.item.path : entry.hit.path;
-      navigate(`/c/${companySlug}${path}`);
+      const destination = `/c/${companySlug}${path}`;
+      if (!navigationGuard.request(destination)) navigate(destination);
     },
-    [onClose, navigate, companySlug],
+    [onClose, navigate, companySlug, navigationGuard],
   );
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {

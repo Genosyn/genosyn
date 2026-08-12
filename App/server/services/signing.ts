@@ -907,10 +907,17 @@ export async function createSignatureEnvelopeFromResource(params: {
   });
 }
 
+/**
+ * Normalize structurally valid participant rows. A PATCH may preserve blank or
+ * not-yet-valid contact details; create-with-definition and send both opt into
+ * readiness checks so an invitation can never target an incomplete address.
+ */
 function normalizeRecipients(
   inputs: SignatureRecipientInput[],
+  options: { requireReady?: boolean } = {},
 ): Array<Omit<SignatureRecipientInput, "fields"> & { key: string; routingOrder: number }> {
-  if (!Array.isArray(inputs) || !inputs.length) {
+  const requireReady = options.requireReady ?? true;
+  if (!Array.isArray(inputs) || (requireReady && !inputs.length)) {
     throw new SigningValidationError("Add at least one signer");
   }
   const emails = new Set<string>();
@@ -919,11 +926,22 @@ function normalizeRecipients(
     if (!SIGNATURE_RECIPIENT_ROLES.includes(input.role)) {
       throw new SigningValidationError("Recipient role must be signer or copy");
     }
-    const name = cleanText(input.name, `Recipient ${index + 1} name`, 255);
-    const email = normalizeEmail(input.email);
-    if (!email) throw new SigningValidationError(`Recipient ${index + 1} email is invalid`);
-    if (emails.has(email)) throw new SigningValidationError("Recipient emails must be unique");
-    emails.add(email);
+    const name = cleanText(input.name, `Recipient ${index + 1} name`, 255, false);
+    if (requireReady && !name) {
+      throw new SigningValidationError(`Recipient ${index + 1} needs a name before sending`);
+    }
+    const enteredEmail = cleanText(input.email, `Recipient ${index + 1} email`, 320, false);
+    const normalizedEmail = normalizeEmail(enteredEmail);
+    if (requireReady && !normalizedEmail) {
+      throw new SigningValidationError(
+        `${name || `Recipient ${index + 1}`} needs a valid email address before sending`,
+      );
+    }
+    const email = normalizedEmail ?? enteredEmail;
+    if (requireReady && emails.has(email)) {
+      throw new SigningValidationError("Recipient email addresses must be unique before sending");
+    }
+    if (requireReady) emails.add(email);
     const routingOrder = input.routingOrder ?? index;
     if (!Number.isInteger(routingOrder) || routingOrder < 0 || routingOrder > 10_000) {
       throw new SigningValidationError("Recipient routing order must be a non-negative integer");
@@ -933,7 +951,7 @@ function normalizeRecipients(
     keys.add(key);
     return { ...input, name, email, key, routingOrder };
   });
-  if (!result.some((recipient) => recipient.role === "signer")) {
+  if (requireReady && !result.some((recipient) => recipient.role === "signer")) {
     throw new SigningValidationError("Add at least one signer");
   }
   return result;
@@ -943,9 +961,11 @@ async function replaceDraftParticipants(
   manager: EntityManager,
   envelope: SignatureEnvelope,
   definition: { recipients: SignatureRecipientInput[]; fields: SignatureFieldInput[] },
+  options: { requireReady?: boolean } = {},
 ): Promise<void> {
   const flattened = flattenDraftDefinition(definition);
-  const normalizedRecipients = normalizeRecipients(flattened.recipients ?? []);
+  const requireReady = options.requireReady ?? true;
+  const normalizedRecipients = normalizeRecipients(flattened.recipients ?? [], { requireReady });
   const recipientRepository = manager.getRepository(SignatureRecipient);
   const fieldRepository = manager.getRepository(SignatureField);
   const oldRecipients = await recipientRepository.findBy({
@@ -963,6 +983,7 @@ async function replaceDraftParticipants(
     });
   }
   const byReference = new Map<string, SignatureRecipient>();
+  const ambiguousReferences = new Set<string>();
   const savedRecipients: SignatureRecipient[] = [];
   for (const input of normalizedRecipients) {
     const saved = await recipientRepository.save(
@@ -990,7 +1011,11 @@ async function replaceDraftParticipants(
     );
     savedRecipients.push(saved);
     for (const reference of [input.id, input.key, input.email]) {
-      if (reference) byReference.set(reference.toLowerCase(), saved);
+      const normalizedReference = reference?.trim().toLowerCase();
+      if (!normalizedReference) continue;
+      const existing = byReference.get(normalizedReference);
+      if (existing && existing.id !== saved.id) ambiguousReferences.add(normalizedReference);
+      else byReference.set(normalizedReference, saved);
     }
   }
   const inputs = flattened.fields ?? [];
@@ -1003,7 +1028,11 @@ async function replaceDraftParticipants(
     validateSignatureFieldCoordinates(input, envelope.originalPageCount);
     const reference = input.recipientId ?? input.recipientKey ?? input.recipientEmail;
     if (!reference) throw new SigningValidationError(`Field ${index + 1} needs a recipient`);
-    const recipient = byReference.get(reference.toLowerCase());
+    const normalizedReference = reference.trim().toLowerCase();
+    if (ambiguousReferences.has(normalizedReference)) {
+      throw new SigningValidationError(`Field ${index + 1} recipient reference is ambiguous`);
+    }
+    const recipient = byReference.get(normalizedReference);
     if (!recipient) {
       throw new SigningValidationError(`Field ${index + 1} recipient was not found`);
     }
@@ -1033,7 +1062,7 @@ async function replaceDraftParticipants(
     );
   }
   for (const recipient of savedRecipients) {
-    if (recipient.role === "signer" && !signatureOwners.has(recipient.id)) {
+    if (requireReady && recipient.role === "signer" && !signatureOwners.has(recipient.id)) {
       throw new SigningValidationError(
         `${recipient.name} needs at least one required signature field`,
       );
@@ -1292,9 +1321,6 @@ export async function updateSignatureEnvelopeDraft(params: {
     }
     if (params.expiresAt !== undefined) {
       envelope.expiresAt = validDate(params.expiresAt);
-      if (envelope.expiresAt && envelope.expiresAt.getTime() <= Date.now()) {
-        throw new SigningValidationError("Expiration must be in the future");
-      }
     }
     // Replacing only recipients/fields must still advance the envelope's
     // optimistic revision. Move it by at least one millisecond so two rapid
@@ -1302,10 +1328,15 @@ export async function updateSignatureEnvelopeDraft(params: {
     envelope.updatedAt = new Date(Math.max(Date.now(), envelope.updatedAt.getTime() + 1));
     await repository.save(envelope);
     if (params.recipients !== undefined) {
-      await replaceDraftParticipants(manager, envelope, {
-        recipients: params.recipients,
-        fields: params.fields ?? [],
-      });
+      await replaceDraftParticipants(
+        manager,
+        envelope,
+        {
+          recipients: params.recipients,
+          fields: params.fields ?? [],
+        },
+        { requireReady: false },
+      );
     } else if (params.fields !== undefined) {
       throw new SigningValidationError("Recipients are required when replacing fields");
     }
@@ -1460,6 +1491,15 @@ async function assertEnvelopeReadyToSend(
     where: { companyId: envelope.companyId, envelopeId: envelope.id },
     order: { routingOrder: "ASC", createdAt: "ASC" },
   });
+  normalizeRecipients(
+    recipients.map((recipient) => ({
+      id: recipient.id,
+      role: recipient.role,
+      name: recipient.name,
+      email: recipient.email,
+      routingOrder: recipient.routingOrder,
+    })),
+  );
   const signers = recipients.filter((recipient) => recipient.role === "signer");
   if (!signers.length) throw new SigningValidationError("Add at least one signer");
   const fields = await manager.getRepository(SignatureField).findBy({
@@ -1721,6 +1761,7 @@ async function haveAllSignersCompleted(
 export async function sendSignatureEnvelope(params: {
   companyId: string;
   envelopeId: string;
+  expectedUpdatedAt?: string | null;
   actor: SigningActor;
 }): Promise<SignatureEnvelopeDetail> {
   const actor = normalizeActor(params.actor);
@@ -1732,6 +1773,17 @@ export async function sendSignatureEnvelope(params: {
     if (!row) throw new SigningNotFoundError();
     if (row.status !== "draft") {
       throw new SigningConflictError("Only a draft signature request can be sent");
+    }
+    if (params.expectedUpdatedAt) {
+      const expectedUpdatedAt = new Date(params.expectedUpdatedAt);
+      if (
+        !Number.isFinite(expectedUpdatedAt.getTime()) ||
+        expectedUpdatedAt.getTime() !== row.updatedAt.getTime()
+      ) {
+        throw new SigningConflictError(
+          "This draft changed since you reviewed it. Reload the latest version before sending.",
+        );
+      }
     }
     const { recipients, fields } = await assertEnvelopeReadyToSend(manager, company, row);
     row.status = "sent";
@@ -3730,12 +3782,18 @@ export async function composeSigningContext(params: {
     grant.accessLevel === "read"
       ? "inspect signature requests"
       : grant.accessLevel === "draft"
-        ? "inspect requests and prepare drafts from granted PDF Resources"
-        : "inspect requests, prepare drafts from granted PDF Resources, and send or manage requests";
+        ? "inspect requests and prepare new drafts from granted PDF Resources without contacting customers"
+        : "inspect requests, prepare new drafts from granted PDF Resources, send invitations or reminders that contact customers, and void active requests";
   return [
     "## Electronic signatures",
     `You have ${grant.accessLevel} signing access. You may ${abilities}.`,
     "Only use PDF Resources you can read. Keep sent requests immutable and report delivery failures.",
+    "The signing tools cannot read the source PDF attached to an envelope or edit an existing draft. Say so plainly, and ask a Member to verify document meaning and field placement.",
+    ...(grant.accessLevel === "send"
+      ? [
+          "Sending and reminding contacts customers; voiding is irreversible. Inspect the exact request first and act only when the current instruction or Routine brief explicitly calls for it.",
+        ]
+      : []),
     "You must never consent, draw, type, or submit a signature for a recipient. Signing is always a human action through the recipient's private link.",
   ].join("\n");
 }

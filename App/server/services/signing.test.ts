@@ -375,6 +375,234 @@ test("draft saves reject stale revisions and always advance the optimistic revis
   assert.equal(unchanged.envelope.title, "First editor's revision");
 });
 
+test("send refuses a draft revision that changed after review", async () => {
+  const company = await fixtureCompany();
+  const draft = await createDraft({ company });
+  const reviewedRevision = draft.envelope.updatedAt.toISOString();
+  const updated = await updateSignatureEnvelopeDraft({
+    companyId: company.id,
+    envelopeId: draft.envelope.id,
+    expectedUpdatedAt: reviewedRevision,
+    message: "Changed in another tab",
+    actor: { userId: company.ownerId },
+  });
+
+  await assert.rejects(
+    sendSignatureEnvelope({
+      companyId: company.id,
+      envelopeId: draft.envelope.id,
+      expectedUpdatedAt: reviewedRevision,
+      actor: { userId: company.ownerId },
+    }),
+    /changed since you reviewed it/,
+  );
+  assert.equal(
+    (
+      await getSignatureEnvelopeDetail({
+        companyId: company.id,
+        envelopeId: draft.envelope.id,
+      })
+    ).envelope.status,
+    "draft",
+  );
+
+  const sent = await sendSignatureEnvelope({
+    companyId: company.id,
+    envelopeId: draft.envelope.id,
+    expectedUpdatedAt: updated.envelope.updatedAt.toISOString(),
+    actor: { userId: company.ownerId },
+  });
+  assert.equal(sent.envelope.status, "sent");
+});
+
+test("incremental drafts save incomplete work while send enforces full readiness", async () => {
+  const company = await fixtureCompany();
+  const draft = await createSignatureEnvelopeFromUpload({
+    company,
+    file: await makePdfFile(),
+    title: "Untitled agreement",
+    actor: { userId: company.ownerId },
+  });
+
+  const metadataOnly = await updateSignatureEnvelopeDraft({
+    companyId: company.id,
+    envelopeId: draft.envelope.id,
+    title: "Agreement being prepared",
+    message: "Still gathering signer details.",
+    recipients: [],
+    fields: [],
+    actor: { userId: company.ownerId },
+  });
+  assert.equal(metadataOnly.envelope.title, "Agreement being prepared");
+  assert.equal(metadataOnly.envelope.message, "Still gathering signer details.");
+  assert.deepEqual(metadataOnly.recipients, []);
+  assert.deepEqual(metadataOnly.fields, []);
+
+  const expiredAt = new Date(Date.now() - 60_000);
+  const partial = await updateSignatureEnvelopeDraft({
+    companyId: company.id,
+    envelopeId: draft.envelope.id,
+    expiresAt: expiredAt,
+    recipients: [
+      {
+        key: "signer",
+        role: "signer",
+        name: "",
+        email: "ada@",
+        routingOrder: 0,
+      },
+    ],
+    fields: [],
+    actor: { userId: company.ownerId },
+  });
+  assert.equal(partial.recipients[0].name, "");
+  assert.equal(partial.recipients[0].email, "ada@");
+  assert.equal(partial.fields.length, 0);
+  assert.equal(partial.envelope.expiresAt?.toISOString(), expiredAt.toISOString());
+
+  await assert.rejects(
+    sendSignatureEnvelope({
+      companyId: company.id,
+      envelopeId: draft.envelope.id,
+      actor: { userId: company.ownerId },
+    }),
+    /Recipient 1 needs a name before sending/,
+  );
+
+  const invalidEmail = await updateSignatureEnvelopeDraft({
+    companyId: company.id,
+    envelopeId: draft.envelope.id,
+    recipients: [
+      {
+        key: "signer",
+        role: "signer",
+        name: "Ada Lovelace",
+        email: "ada@",
+        routingOrder: 0,
+      },
+    ],
+    fields: [{ ...signatureField("signer"), type: "text" }],
+    actor: { userId: company.ownerId },
+  });
+  assert.equal(invalidEmail.fields[0].recipientId, invalidEmail.recipients[0].id);
+  await assert.rejects(
+    sendSignatureEnvelope({
+      companyId: company.id,
+      envelopeId: draft.envelope.id,
+      actor: { userId: company.ownerId },
+    }),
+    /Ada Lovelace needs a valid email address before sending/,
+  );
+
+  await assert.rejects(
+    updateSignatureEnvelopeDraft({
+      companyId: company.id,
+      envelopeId: draft.envelope.id,
+      recipients: [
+        {
+          key: "signer",
+          role: "signer",
+          name: "Ada Lovelace",
+          email: "ada@",
+          routingOrder: 0,
+        },
+      ],
+      fields: [{ ...signatureField("missing"), type: "text" }],
+      actor: { userId: company.ownerId },
+    }),
+    /Field 1 recipient was not found/,
+  );
+  const afterDanglingField = await getSignatureEnvelopeDetail({
+    companyId: company.id,
+    envelopeId: draft.envelope.id,
+  });
+  assert.equal(afterDanglingField.fields[0].recipientId, afterDanglingField.recipients[0].id);
+
+  await updateSignatureEnvelopeDraft({
+    companyId: company.id,
+    envelopeId: draft.envelope.id,
+    recipients: [signer("one", "ada@example.com", 0), signer("two", "ADA@example.com", 1)],
+    fields: [],
+    actor: { userId: company.ownerId },
+  });
+  await assert.rejects(
+    sendSignatureEnvelope({
+      companyId: company.id,
+      envelopeId: draft.envelope.id,
+      actor: { userId: company.ownerId },
+    }),
+    /Recipient email addresses must be unique before sending/,
+  );
+
+  await updateSignatureEnvelopeDraft({
+    companyId: company.id,
+    envelopeId: draft.envelope.id,
+    recipients: [
+      {
+        key: "signer",
+        role: "signer",
+        name: "Ada Lovelace",
+        email: "ada@example.com",
+        routingOrder: 0,
+      },
+    ],
+    fields: [],
+    actor: { userId: company.ownerId },
+  });
+  await assert.rejects(
+    sendSignatureEnvelope({
+      companyId: company.id,
+      envelopeId: draft.envelope.id,
+      actor: { userId: company.ownerId },
+    }),
+    /Ada Lovelace needs at least one required signature field/,
+  );
+
+  await updateSignatureEnvelopeDraft({
+    companyId: company.id,
+    envelopeId: draft.envelope.id,
+    recipients: [
+      {
+        key: "signer",
+        role: "signer",
+        name: "Ada Lovelace",
+        email: "ada@example.com",
+        routingOrder: 0,
+      },
+    ],
+    fields: [signatureField("signer")],
+    actor: { userId: company.ownerId },
+  });
+  await assert.rejects(
+    sendSignatureEnvelope({
+      companyId: company.id,
+      envelopeId: draft.envelope.id,
+      actor: { userId: company.ownerId },
+    }),
+    /Choose a future expiration before sending/,
+  );
+
+  await updateSignatureEnvelopeDraft({
+    companyId: company.id,
+    envelopeId: draft.envelope.id,
+    expiresAt: new Date(Date.now() + 86_400_000),
+    actor: { userId: company.ownerId },
+  });
+  const originalLog = console.log;
+  console.log = () => undefined;
+  try {
+    const sent = await sendSignatureEnvelope({
+      companyId: company.id,
+      envelopeId: draft.envelope.id,
+      actor: { userId: company.ownerId },
+    });
+    assert.equal(sent.envelope.status, "sent");
+    assert.equal(sent.recipients[0].status, "sent");
+  } finally {
+    console.log = originalLog;
+  }
+});
+
 test("send preflight rejects missing, changed, and unrenderable immutable inputs atomically", async () => {
   const company = await fixtureCompany();
 
@@ -1256,8 +1484,24 @@ test("AI signing grants are company-scoped, rank ordered, contextual, and never 
     companyId: company.id,
     employeeId: employee.id,
   });
-  assert.match(context, /prepare drafts/);
+  assert.match(context, /prepare new drafts/);
+  assert.match(
+    context,
+    /cannot read the source PDF attached to an envelope or edit an existing draft/,
+  );
   assert.match(context, /must never consent, draw, type, or submit a signature/);
+  await upsertSigningGrant({
+    companyId: company.id,
+    employeeId: employee.id,
+    accessLevel: "send",
+  });
+  const sendContext = await composeSigningContext({
+    companyId: company.id,
+    employeeId: employee.id,
+  });
+  assert.match(sendContext, /invitations or reminders that contact customers/);
+  assert.match(sendContext, /voiding is irreversible/);
+  assert.match(sendContext, /explicitly calls for it/);
   assert.equal(
     await deleteSigningGrant({ companyId: otherCompany.id, employeeId: employee.id }),
     false,

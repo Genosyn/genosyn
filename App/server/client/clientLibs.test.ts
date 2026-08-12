@@ -41,14 +41,48 @@ import {
 import { cronHuman, cronIsReadable, CRON_PRESETS, DEFAULT_CRON } from "../../client/lib/cron.js";
 import {
   canRetryPublicSignatureFinalization,
+  firstIncompleteRequiredSignatureField,
+  lockSignatureSendReviewForDispatch,
+  publicSignatureRecipientIsComplete,
+  normalizeSignatureEmail,
+  reconcileSignatureDraftSave,
+  signatureAiHandoffPrompt,
   signatureCalendarDateForOffset,
   signatureDateInputToEndOfDayIso,
+  signatureFieldValueIsComplete,
   signatureIsoToDateInput,
+  signatureDraftReadiness,
+  signatureSendReviewIsCurrent,
+  type SignatureEnvelope,
+  type SignatureEnvelopeDetail,
+  type SignatureField,
+  type SignatureRecipient,
   type PublicSigningEnvelope,
 } from "../../client/lib/signing.js";
 import { listProviderIds } from "../integrations/index.js";
 
 describe("signing date helpers", () => {
+  test("keeps the Ask AI handoff inside the signing tools' real capabilities", () => {
+    const draft = signatureAiHandoffPrompt({
+      id: "envelope-1",
+      title: "Mutual NDA",
+      status: "draft",
+    });
+    assert.match(draft, /saved setup/);
+    assert.match(draft, /cannot read the source PDF contents or edit this existing draft/);
+    assert.match(draft, /Do not send, remind, or void/);
+    assert.doesNotMatch(draft, /review the PDF/i);
+
+    const sent = signatureAiHandoffPrompt({
+      id: "envelope-2",
+      title: "Services agreement",
+      status: "sent",
+    });
+    assert.match(sent, /recipient progress, routing, delivery state, and the evidence trail/);
+    assert.match(sent, /never claim to have seen private signing links or signature values/);
+    assert.match(sent, /Do not send a reminder or void/);
+  });
+
   test("offers completion recovery only to the completed signer of an all-signed saga", () => {
     const receipt = {
       envelope: { status: "in_progress", finalizationPending: true },
@@ -78,6 +112,43 @@ describe("signing date helpers", () => {
     );
   });
 
+  test("recognizes a durably completed recipient even while finalization is pending", () => {
+    const receipt = {
+      envelope: { status: "in_progress", finalizationPending: true },
+      recipient: { status: "completed" },
+    } as PublicSigningEnvelope;
+    assert.equal(publicSignatureRecipientIsComplete(receipt), true);
+    assert.equal(
+      publicSignatureRecipientIsComplete({
+        ...receipt,
+        recipient: { ...receipt.recipient, status: "viewed" },
+      }),
+      false,
+    );
+  });
+
+  test("finds the first incomplete required signing field in document order", () => {
+    const fields = [
+      { id: "optional", type: "text", required: false },
+      { id: "name", type: "text", required: true },
+      { id: "accept", type: "checkbox", required: true },
+      { id: "signature", type: "signature", required: true },
+    ] as SignatureField[];
+    const values = { name: " Ada ", accept: false, signature: "" };
+
+    assert.equal(signatureFieldValueIsComplete(fields[1], values.name), true);
+    assert.equal(signatureFieldValueIsComplete(fields[2], values.accept), false);
+    assert.equal(firstIncompleteRequiredSignatureField(fields, values)?.id, "accept");
+    assert.equal(
+      firstIncompleteRequiredSignatureField(fields, {
+        ...values,
+        accept: true,
+        signature: "Ada Lovelace",
+      }),
+      undefined,
+    );
+  });
+
   test("derives the signer's calendar date from the reported timezone offset", () => {
     const instant = new Date("2026-08-13T00:30:00.000Z");
     assert.equal(signatureCalendarDateForOffset(instant, 420), "2026-08-12");
@@ -91,6 +162,139 @@ describe("signing date helpers", () => {
     assert.ok(iso);
     assert.equal(signatureIsoToDateInput(iso), "2026-08-31");
     assert.equal(signatureDateInputToEndOfDayIso("2026-02-30"), null);
+  });
+
+  test("explains every missing step before a draft can be sent", () => {
+    const envelope = { title: "Agreement", expiresAt: null } as SignatureEnvelope;
+    const signer = {
+      id: "signer-1",
+      role: "signer",
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+    } as SignatureRecipient;
+    assert.deepEqual(
+      signatureDraftReadiness(envelope, [signer], []).map((issue) => issue.message),
+      ["Ada Lovelace needs a required signature field"],
+    );
+    const field = {
+      id: "field-1",
+      recipientId: signer.id,
+      type: "signature",
+      required: true,
+    } as SignatureField;
+    assert.deepEqual(signatureDraftReadiness(envelope, [signer], [field]), []);
+  });
+
+  test("flags incomplete and duplicate recipients without blocking draft persistence", () => {
+    const envelope = { title: "", expiresAt: "2020-01-01T00:00:00.000Z" } as SignatureEnvelope;
+    const first = {
+      id: "first",
+      role: "signer",
+      name: "",
+      email: "same@example.com",
+    } as SignatureRecipient;
+    const second = {
+      id: "second",
+      role: "copy",
+      name: "Finance",
+      email: "same@example.com",
+    } as SignatureRecipient;
+    const codes = signatureDraftReadiness(
+      envelope,
+      [first, second],
+      [],
+      new Date("2026-01-01"),
+    ).map((issue) => issue.code);
+    assert.deepEqual(codes, ["title", "recipient", "duplicate_email", "signature", "expiry"]);
+  });
+
+  test("matches the service's sender email rules", () => {
+    assert.equal(normalizeSignatureEmail(" ADA+Legal@Example.COM "), "ada+legal@example.com");
+    for (const invalid of ["a@b.c", "foo@bar", "foo@-example.com", ".foo@example.com"]) {
+      assert.equal(normalizeSignatureEmail(invalid), null);
+    }
+  });
+
+  test("keeps newer local edits when an older autosave finishes and blocks stale actions", () => {
+    const original = {
+      envelope: {
+        id: "envelope-1",
+        title: "Original title",
+        message: "",
+        customerId: null,
+        routingMode: "parallel",
+        expiresAt: null,
+        updatedAt: "2026-08-12T10:00:00.000Z",
+      },
+      recipients: [],
+      fields: [],
+      events: [],
+      customer: null,
+    } as unknown as SignatureEnvelopeDetail;
+    const locallyEdited = {
+      ...original,
+      envelope: {
+        ...original.envelope,
+        title: "Newest local title",
+        message: "Added while saving",
+      },
+    };
+    const saved = {
+      ...original,
+      envelope: {
+        ...original.envelope,
+        updatedAt: "2026-08-12T10:00:02.000Z",
+      },
+    };
+
+    const result = reconcileSignatureDraftSave(locallyEdited, saved, 3, 4);
+    assert.equal(result.current, false);
+    assert.equal(result.detail.envelope.title, "Newest local title");
+    assert.equal(result.detail.envelope.message, "Added while saving");
+    assert.equal(result.detail.envelope.updatedAt, "2026-08-12T10:00:02.000Z");
+
+    const currentResult = reconcileSignatureDraftSave(locallyEdited, saved, 4, 4);
+    assert.equal(currentResult.current, true);
+    assert.equal(currentResult.detail.envelope.title, "Original title");
+  });
+
+  test("requires send confirmation again whenever the reviewed draft changes", () => {
+    const reviewed = { editRevision: 4, updatedAt: "2026-08-12T10:00:02.000Z" };
+    const current = {
+      editRevision: 4,
+      updatedAt: "2026-08-12T10:00:02.000Z",
+      dirty: false,
+      saveInFlight: false,
+    };
+    assert.equal(signatureSendReviewIsCurrent(reviewed, current), true);
+    assert.equal(signatureSendReviewIsCurrent(reviewed, { ...current, editRevision: 5 }), false);
+    assert.equal(signatureSendReviewIsCurrent(reviewed, { ...current, dirty: true }), false);
+    assert.equal(signatureSendReviewIsCurrent(reviewed, { ...current, saveInFlight: true }), false);
+    assert.equal(
+      signatureSendReviewIsCurrent(reviewed, {
+        ...current,
+        updatedAt: "2026-08-12T10:00:03.000Z",
+      }),
+      false,
+    );
+
+    let frozen = false;
+    assert.equal(
+      lockSignatureSendReviewForDispatch(reviewed, current, () => {
+        frozen = true;
+      }),
+      true,
+    );
+    assert.equal(frozen, true);
+
+    frozen = false;
+    assert.equal(
+      lockSignatureSendReviewForDispatch(reviewed, { ...current, editRevision: 5 }, () => {
+        frozen = true;
+      }),
+      false,
+    );
+    assert.equal(frozen, false);
   });
 });
 

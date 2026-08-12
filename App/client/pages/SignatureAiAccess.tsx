@@ -5,6 +5,7 @@ import { Breadcrumbs } from "@/components/AppShell";
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
+import { useDialog } from "@/components/ui/Dialog";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
@@ -22,20 +23,22 @@ const LEVELS: Array<{
 }> = [
   {
     value: "read",
-    label: "Read",
-    description: "Inspect envelopes, recipients, status, and audit trails.",
+    label: "Read only",
+    description: "View requests, recipients, delivery status, and evidence. Changes nothing.",
     icon: <Eye size={16} />,
   },
   {
     value: "draft",
-    label: "Draft",
-    description: "Also create drafts, add recipients, and place signing fields.",
+    label: "Prepare drafts",
+    description:
+      "Everything in Read only, plus create new drafts from PDF Resources shared with the employee. Sends nothing.",
     icon: <FileEdit size={16} />,
   },
   {
     value: "send",
-    label: "Send",
-    description: "Also send, remind, and void envelopes without a human click.",
+    label: "Send to customers",
+    description:
+      "Everything in Prepare drafts, plus send invitations and reminders or void requests without another Member click.",
     icon: <Send size={16} />,
   },
 ];
@@ -62,6 +65,7 @@ function normalizeRows(value: unknown, fallbackEmployees: Employee[]): AccessRow
 export default function SignatureAiAccess() {
   const { company } = useOutletContext<SignatureOutletContext>();
   const { toast } = useToast();
+  const dialog = useDialog();
   const [rows, setRows] = React.useState<AccessRow[] | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -90,6 +94,15 @@ export default function SignatureAiAccess() {
   useLiveRefetch("signature", load);
 
   async function change(row: AccessRow, value: string) {
+    if (value === "send" && row.grant?.accessLevel !== "send") {
+      const confirmed = await dialog.confirm({
+        title: `Give ${row.employee.name} Send access?`,
+        message:
+          "This lets the AI Employee contact customers with signing invitations and reminders, and void active requests, without another Member click. It can never sign for a recipient.",
+        confirmLabel: "Give Send access",
+      });
+      if (!confirmed) return;
+    }
     setBusy(row.employee.id);
     try {
       if (!value) {
@@ -120,7 +133,7 @@ export default function SignatureAiAccess() {
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
             Choose which AI employees can help with signing work and how far they can go. Every AI
-            action is written to the envelope audit trail.
+            change is attributed in the envelope audit trail and the employee&apos;s journal.
           </p>
         </div>
       </div>
@@ -149,6 +162,15 @@ export default function SignatureAiAccess() {
         ))}
       </div>
 
+      <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+        <ShieldCheck size={15} className="mt-0.5 shrink-0" />
+        <p>
+          AI Employees can prepare and manage requests, but no access level lets them accept consent
+          or sign for a recipient. Start with Read only and grant Send to employees you trust to
+          contact customers autonomously.
+        </p>
+      </div>
+
       <div className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">AI employees</h2>
@@ -168,8 +190,15 @@ export default function SignatureAiAccess() {
             </Button>
           </div>
         ) : rows.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-500">
-            Create an AI employee before granting signing access.
+          <div className="p-8 text-center">
+            <p className="text-sm text-slate-500">
+              Create an AI employee before granting signing access.
+            </p>
+            <Link to={`/c/${company.slug}/employees/new`}>
+              <Button className="mt-3" size="sm">
+                Create AI employee
+              </Button>
+            </Link>
           </div>
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -198,7 +227,7 @@ export default function SignatureAiAccess() {
                     value={row.grant?.accessLevel ?? ""}
                     disabled={!canManage || busy === row.employee.id}
                     onChange={(event) => void change(row, event.target.value)}
-                    containerClassName="w-40"
+                    containerClassName="w-48"
                   >
                     <option value="">No access</option>
                     {LEVELS.map((level) => (

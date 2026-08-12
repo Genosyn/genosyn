@@ -1,8 +1,12 @@
 import React from "react";
 import {
+  AlertCircle,
+  ArrowDown,
+  ArrowUp,
   Bot,
   Calendar,
   CheckSquare,
+  CheckCircle2,
   ChevronLeft,
   CircleUser,
   Clock3,
@@ -19,12 +23,14 @@ import {
 } from "lucide-react";
 import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { useLiveRefetch } from "@/components/CompanySocket";
+import { useNavigationGuard } from "@/components/NavigationGuard";
 import { PdfCanvasRenderer } from "@/components/signatures/PdfCanvasRenderer";
 import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
+import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 import { Textarea } from "@/components/ui/Textarea";
@@ -38,15 +44,23 @@ import {
   envelopeFilename,
   formatSignatureDate,
   formatSignatureDateTime,
+  lockSignatureSendReviewForDispatch,
   normalizeEnvelopeDetail,
+  reconcileSignatureDraftSave,
   recipientStatusClasses,
+  signatureAiHandoffPrompt,
   signatureDateInputToEndOfDayIso,
   signatureIsoToDateInput,
+  signatureDraftReadiness,
+  signatureSendReviewIsCurrent,
   signatureStatusClasses,
   type SignatureEnvelopeDetail,
+  type SignatureAccessLevel,
   type SignatureField,
   type SignatureFieldType,
   type SignatureRecipient,
+  type SignatureDraftReadinessIssue,
+  type SignatureDraftSaveResult,
 } from "@/lib/signing";
 import type { SignatureOutletContext } from "@/pages/SignatureLayout";
 
@@ -61,6 +75,7 @@ const FIELD_ICONS: Record<SignatureFieldType, React.ReactNode> = {
 };
 
 type DraftRecipient = SignatureRecipient & { id: string };
+type SigningAiCandidate = { employee: Employee; accessLevel: SignatureAccessLevel };
 
 function freshRecipient(order: number): DraftRecipient {
   return {
@@ -135,6 +150,7 @@ export default function SignatureDetail() {
   const { envelopeId = "" } = useParams<{ envelopeId: string }>();
   const navigate = useNavigate();
   const dialog = useDialog();
+  const navigationGuard = useNavigationGuard();
   const { toast } = useToast();
   const [detail, setDetail] = React.useState<SignatureEnvelopeDetail | null>(null);
   const [customers, setCustomers] = React.useState<Customer[]>([]);
@@ -145,14 +161,40 @@ export default function SignatureDetail() {
   const [fieldTool, setFieldTool] = React.useState<SignatureFieldType>("signature");
   const [saving, setSaving] = React.useState(false);
   const [acting, setActing] = React.useState(false);
+  const [preparingAiHandoff, setPreparingAiHandoff] = React.useState(false);
+  const [aiCandidates, setAiCandidates] = React.useState<SigningAiCandidate[]>([]);
+  const [selectedAiEmployeeId, setSelectedAiEmployeeId] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [dirty, setDirty] = React.useState(false);
+  const [sendDispatching, setSendDispatching] = React.useState(false);
+  const [autosaveError, setAutosaveError] = React.useState<string | null>(null);
   const dirtyRef = React.useRef(false);
+  const editRevisionRef = React.useRef(0);
+  const autosaveRef = React.useRef<(() => Promise<void>) | null>(null);
+  const saveInFlightRef = React.useRef<Promise<SignatureDraftSaveResult | null> | null>(null);
+  const saveDraftRef = React.useRef<
+    | ((options?: {
+        quiet?: boolean;
+        autosave?: boolean;
+      }) => Promise<SignatureDraftSaveResult | null>)
+    | null
+  >(null);
+  const navigationGuardBusyRef = React.useRef(false);
+  const sendReviewBusyRef = React.useRef(false);
+  const sendDispatchingRef = React.useRef(false);
   const expectedUpdatedAtRef = React.useRef<string | null>(null);
+  const latestSavedDetailRef = React.useRef<SignatureEnvelopeDetail | null>(null);
   const [remoteDraft, setRemoteDraft] = React.useState<SignatureEnvelopeDetail | null>(null);
   const routeBase = `/c/${company.slug}/signatures`;
   const base = `/api/companies/${company.id}/signature-envelopes/${envelopeId}`;
+  const routeGenerationRef = React.useRef(0);
+
+  React.useLayoutEffect(() => {
+    routeGenerationRef.current += 1;
+    saveInFlightRef.current = null;
+    navigationGuardBusyRef.current = false;
+  }, [base]);
 
   const applyDetail = React.useCallback((next: SignatureEnvelopeDetail) => {
     setDetail(next);
@@ -164,6 +206,7 @@ export default function SignatureDetail() {
         : (next.recipients.find((recipient) => recipient.role === "signer")?.id ?? ""),
     );
     expectedUpdatedAtRef.current = next.envelope.updatedAt;
+    latestSavedDetailRef.current = next;
     dirtyRef.current = false;
     setDirty(false);
     setRemoteDraft(null);
@@ -171,9 +214,11 @@ export default function SignatureDetail() {
 
   const load = React.useCallback(
     async (protectUnsaved = false) => {
+      const routeGeneration = routeGenerationRef.current;
       setLoadError(null);
       try {
         const next = normalizeEnvelopeDetail(await api.get<unknown>(base));
+        if (routeGeneration !== routeGenerationRef.current) return;
         if (
           protectUnsaved &&
           dirtyRef.current &&
@@ -193,6 +238,16 @@ export default function SignatureDetail() {
   );
 
   React.useEffect(() => {
+    setDetail(null);
+    setRecipients([]);
+    setFields([]);
+    setSelectedRecipientId("");
+    setSelectedFieldId(null);
+    expectedUpdatedAtRef.current = null;
+    latestSavedDetailRef.current = null;
+    dirtyRef.current = false;
+    setDirty(false);
+    setRemoteDraft(null);
     void load();
     void api
       .get<Customer[] | { customers: Customer[] }>(`/api/companies/${company.id}/customers`)
@@ -206,65 +261,106 @@ export default function SignatureDetail() {
 
   const selectedField = fields.find((field) => field.id === selectedFieldId) ?? null;
   const isDraft = detail?.envelope.status === "draft";
+  const readinessIssues = React.useMemo(
+    () => (detail ? signatureDraftReadiness(detail.envelope, recipients, fields) : []),
+    [detail, fields, recipients],
+  );
 
-  function updateEnvelope(patch: Partial<SignatureEnvelopeDetail["envelope"]>) {
-    setDetail((current) =>
-      current ? { ...current, envelope: { ...current.envelope, ...patch } } : current,
-    );
+  React.useEffect(() => {
+    if (!dirty && !saving) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty, saving]);
+
+  React.useEffect(() => {
+    if (!isDraft || !dirty || saving || acting || remoteDraft || autosaveError) return;
+    const timer = window.setTimeout(() => void autosaveRef.current?.(), 1_500);
+    return () => window.clearTimeout(timer);
+  }, [acting, autosaveError, detail, dirty, fields, isDraft, recipients, remoteDraft, saving]);
+
+  function markDirty(): boolean {
+    if (sendDispatchingRef.current) return false;
+    editRevisionRef.current += 1;
     dirtyRef.current = true;
     setDirty(true);
+    setAutosaveError(null);
+    return true;
+  }
+
+  function mutateDraft(mutation: () => void) {
+    if (sendDispatchingRef.current) return;
+    mutation();
+    markDirty();
+  }
+
+  function updateEnvelope(patch: Partial<SignatureEnvelopeDetail["envelope"]>) {
+    mutateDraft(() => {
+      setDetail((current) =>
+        current ? { ...current, envelope: { ...current.envelope, ...patch } } : current,
+      );
+    });
   }
 
   function updateRecipient(id: string, patch: Partial<DraftRecipient>) {
-    setRecipients((current) =>
-      current.map((recipient) => (recipient.id === id ? { ...recipient, ...patch } : recipient)),
-    );
-    if (patch.role === "copy") {
-      setFields((current) => current.filter((field) => field.recipientId !== id));
-      if (selectedField?.recipientId === id) setSelectedFieldId(null);
-      if (selectedRecipientId === id) setSelectedRecipientId("");
-    }
-    dirtyRef.current = true;
-    setDirty(true);
+    mutateDraft(() => {
+      setRecipients((current) =>
+        current.map((recipient) => (recipient.id === id ? { ...recipient, ...patch } : recipient)),
+      );
+      if (patch.role === "copy") {
+        setFields((current) => current.filter((field) => field.recipientId !== id));
+        if (selectedField?.recipientId === id) setSelectedFieldId(null);
+        if (selectedRecipientId === id) setSelectedRecipientId("");
+      }
+    });
   }
 
   function updateField(id: string, patch: Partial<SignatureField>) {
-    setFields((current) =>
-      current.map((field) =>
-        field.id === id
-          ? { ...field, ...patch, ...clampFieldGeometry({ ...field, ...patch }) }
-          : field,
-      ),
-    );
-    dirtyRef.current = true;
-    setDirty(true);
+    mutateDraft(() => {
+      setFields((current) =>
+        current.map((field) =>
+          field.id === id
+            ? { ...field, ...patch, ...clampFieldGeometry({ ...field, ...patch }) }
+            : field,
+        ),
+      );
+    });
   }
 
   function addField(pageNumber: number, x: number, y: number) {
-    if (!selectedRecipientId) {
+    if (sendDispatchingRef.current) return;
+    if (
+      !selectedRecipientId ||
+      !recipients.some(
+        (recipient) => recipient.id === selectedRecipientId && recipient.role === "signer",
+      )
+    ) {
       toast("Choose a signer before placing a field.", "error");
       return;
     }
     const size = defaultFieldSize(fieldTool);
     const geometry = clampFieldGeometry({ x: x - size.width / 2, y: y - size.height / 2, ...size });
     const id = `tmp_field_${crypto.randomUUID()}`;
-    setFields((current) => [
-      ...current,
-      {
-        id,
-        recipientId: selectedRecipientId,
-        type: fieldTool,
-        label: SIGNATURE_FIELD_LABELS[fieldTool],
-        placeholder: "",
-        required: true,
-        pageNumber,
-        ...geometry,
-        sortOrder: current.length,
-      },
-    ]);
-    setSelectedFieldId(id);
-    dirtyRef.current = true;
-    setDirty(true);
+    mutateDraft(() => {
+      setFields((current) => [
+        ...current,
+        {
+          id,
+          recipientId: selectedRecipientId,
+          type: fieldTool,
+          label: SIGNATURE_FIELD_LABELS[fieldTool],
+          placeholder: "",
+          required: true,
+          pageNumber,
+          ...geometry,
+          sortOrder: current.length,
+        },
+      ]);
+      setSelectedFieldId(id);
+    });
   }
 
   function draftPayload() {
@@ -276,12 +372,17 @@ export default function SignatureDetail() {
       routingMode: detail.envelope.routingMode,
       expiresAt: detail.envelope.expiresAt,
       expectedUpdatedAt: expectedUpdatedAtRef.current,
-      recipients: recipients.map((recipient, index) => ({
+      recipients: recipients.map((recipient) => ({
         ...(recipient.id.startsWith("tmp_") ? { key: recipient.id } : { id: recipient.id }),
         role: recipient.role,
         name: recipient.name.trim(),
         email: recipient.email.trim(),
-        routingOrder: detail.envelope.routingMode === "ordered" ? index : 0,
+        routingOrder:
+          detail.envelope.routingMode === "ordered" && recipient.role === "signer"
+            ? recipients
+                .filter((item) => item.role === "signer")
+                .findIndex((item) => item.id === recipient.id)
+            : 0,
       })),
       fields: fields.map((field, index) => ({
         ...(field.id.startsWith("tmp_") ? {} : { id: field.id }),
@@ -302,79 +403,314 @@ export default function SignatureDetail() {
     };
   }
 
-  async function saveDraft(
-    options: { quiet?: boolean } = {},
-  ): Promise<SignatureEnvelopeDetail | null> {
+  async function persistDraft(
+    options: { quiet?: boolean; autosave?: boolean } = {},
+  ): Promise<SignatureDraftSaveResult | null> {
     if (!detail) return null;
-    const incomplete = recipients.find(
-      (recipient) => !recipient.name.trim() || !/^\S+@\S+\.\S+$/.test(recipient.email.trim()),
-    );
-    if (incomplete) {
-      setError("Every recipient needs a name and a valid email address.");
-      return null;
-    }
+    const routeGeneration = routeGenerationRef.current;
+    const savingRevision = editRevisionRef.current;
     setSaving(true);
-    setError(null);
+    if (!options.autosave) setError(null);
     try {
       const next = normalizeEnvelopeDetail(await api.patch<unknown>(base, draftPayload()));
-      applyDetail(next);
-      if (!options.quiet) toast("Draft saved", "success");
-      return next;
+      if (routeGeneration !== routeGenerationRef.current) return null;
+      expectedUpdatedAtRef.current = next.envelope.updatedAt;
+      latestSavedDetailRef.current = next;
+      const currentRevision = editRevisionRef.current;
+      const saveIsCurrent = savingRevision === currentRevision;
+      setDetail((current) =>
+        current
+          ? reconcileSignatureDraftSave(current, next, savingRevision, currentRevision).detail
+          : next,
+      );
+      setRemoteDraft(null);
+      setAutosaveError(null);
+      if (saveIsCurrent) {
+        dirtyRef.current = false;
+        setDirty(false);
+        if (!options.quiet) toast("Draft saved", "success");
+      } else if (!options.autosave) {
+        toast("Your newest edit is still waiting to save.", "info");
+      }
+      return { detail: next, current: saveIsCurrent };
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The draft could not be saved.");
+      const message = cause instanceof Error ? cause.message : "The draft could not be saved.";
+      if (options.autosave) setAutosaveError(message);
+      else setError(message);
       return null;
     } finally {
       setSaving(false);
     }
   }
 
+  async function saveDraft(
+    options: { quiet?: boolean; autosave?: boolean } = {},
+  ): Promise<SignatureDraftSaveResult | null> {
+    if (saveInFlightRef.current) return saveInFlightRef.current;
+    const request = persistDraft(options);
+    saveInFlightRef.current = request;
+    try {
+      return await request;
+    } finally {
+      if (saveInFlightRef.current === request) saveInFlightRef.current = null;
+    }
+  }
+
+  saveDraftRef.current = saveDraft;
+
+  async function flushDraftBeforeNavigation(): Promise<boolean> {
+    while (dirtyRef.current || saveInFlightRef.current) {
+      const result = await saveDraftRef.current?.({ quiet: true });
+      if (!result) return false;
+      if (result.current && !dirtyRef.current) return true;
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    }
+    return true;
+  }
+
+  async function leaveDraft(destination: string, onAllowed?: () => void, onCancelled?: () => void) {
+    if (navigationGuardBusyRef.current) {
+      onCancelled?.();
+      return;
+    }
+    navigationGuardBusyRef.current = true;
+    let left = false;
+    try {
+      if (await flushDraftBeforeNavigation()) {
+        left = true;
+        if (onAllowed) onAllowed();
+        else navigate(destination);
+        return;
+      }
+      if (
+        await dialog.confirm({
+          title: "Leave with unsaved changes?",
+          message: "Your latest changes could not be saved. Leaving now will discard them.",
+          confirmLabel: "Discard changes",
+          variant: "danger",
+        })
+      ) {
+        left = true;
+        if (onAllowed) onAllowed();
+        else navigate(destination);
+      }
+    } finally {
+      navigationGuardBusyRef.current = false;
+      if (!left) onCancelled?.();
+    }
+  }
+
+  const leaveDraftRef = React.useRef(leaveDraft);
+  leaveDraftRef.current = leaveDraft;
+
+  React.useLayoutEffect(() => {
+    if (!isDraft) return;
+    return navigationGuard.register(
+      (destination, onAllowed, request) => {
+        if (!dirtyRef.current && !saveInFlightRef.current) return false;
+        if (
+          request?.source === "history" &&
+          !window.confirm(
+            "Leave this draft? Genosyn will finish saving your changes before opening the other page.",
+          )
+        ) {
+          request.cancel();
+          return true;
+        }
+        void leaveDraftRef.current(
+          destination,
+          onAllowed,
+          request?.source === "history" ? request.cancel : undefined,
+        );
+        return true;
+      },
+      () => dirtyRef.current || saveInFlightRef.current !== null,
+    );
+  }, [base, isDraft, navigationGuard]);
+
+  React.useEffect(() => {
+    if (!isDraft) return;
+
+    const interceptInternalLink = (event: MouseEvent) => {
+      if (!dirtyRef.current && !saveInFlightRef.current) return;
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest<HTMLAnchorElement>("a[href]");
+      if (
+        !anchor ||
+        anchor.hasAttribute("download") ||
+        (anchor.target && anchor.target !== "_self")
+      ) {
+        return;
+      }
+      const destination = new URL(anchor.href, window.location.href);
+      if (destination.origin !== window.location.origin) return;
+      if (
+        destination.pathname === window.location.pathname &&
+        destination.search === window.location.search &&
+        destination.hash === window.location.hash
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void leaveDraftRef.current(`${destination.pathname}${destination.search}${destination.hash}`);
+    };
+
+    document.addEventListener("click", interceptInternalLink, true);
+    return () => {
+      document.removeEventListener("click", interceptInternalLink, true);
+    };
+  }, [isDraft]);
+
+  autosaveRef.current = async () => {
+    await saveDraft({ quiet: true, autosave: true });
+  };
+
+  async function currentDraftForSend(routeGeneration: number): Promise<{
+    detail: SignatureEnvelopeDetail;
+    editRevision: number;
+  } | null> {
+    for (;;) {
+      if (routeGeneration !== routeGenerationRef.current) return null;
+
+      let savedDetail = latestSavedDetailRef.current;
+      if (dirtyRef.current || saveInFlightRef.current) {
+        const saved = await saveDraftRef.current?.({ quiet: true });
+        if (!saved || routeGeneration !== routeGenerationRef.current) return null;
+        savedDetail = saved.detail;
+        if (!saved.current) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+          continue;
+        }
+      }
+      if (!savedDetail) return null;
+
+      const review = {
+        detail: savedDetail,
+        editRevision: editRevisionRef.current,
+      };
+      if (
+        signatureSendReviewIsCurrent(
+          {
+            editRevision: review.editRevision,
+            updatedAt: review.detail.envelope.updatedAt,
+          },
+          {
+            editRevision: editRevisionRef.current,
+            updatedAt: expectedUpdatedAtRef.current,
+            dirty: dirtyRef.current,
+            saveInFlight: saveInFlightRef.current !== null,
+          },
+        )
+      ) {
+        return review;
+      }
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    }
+  }
+
   async function sendEnvelope() {
-    if (!recipients.some((recipient) => recipient.role === "signer")) {
-      setError("Add at least one signer before sending.");
-      return;
-    }
-    if (!fields.length) {
-      setError("Place at least one signing field before sending.");
-      return;
-    }
-    const saved = dirty ? await saveDraft({ quiet: true }) : detail;
-    if (!saved) return;
-    if (
-      !(await dialog.confirm({
-        title: "Send this envelope?",
-        message: (
-          <span>
-            Genosyn will send invitations according to the selected signing order.
-            {recipients.some((recipient) => recipient.role === "copy") && (
-              <>
-                {" "}
-                Recipients marked <strong>Completion copy</strong> are emailed only after every
-                signer finishes.
-              </>
-            )}
-          </span>
-        ),
-        confirmLabel: "Send envelope",
-      }))
-    ) {
-      return;
-    }
+    if (sendReviewBusyRef.current) return;
+    sendReviewBusyRef.current = true;
+    const routeGeneration = routeGenerationRef.current;
     setActing(true);
     try {
-      const result = normalizeEnvelopeDetail(await api.post<unknown>(`${base}/send`));
-      setDetail(result);
-      setRecipients(result.recipients);
-      setFields(result.fields);
-      const attempted = result.recipients.filter(
-        (recipient) => recipient.role === "signer" && recipient.lastDeliveredAt,
-      );
-      const feedback = deliveryFeedback(attempted, "send");
-      toast(feedback.message, feedback.kind);
+      for (;;) {
+        const reviewed = await currentDraftForSend(routeGeneration);
+        if (!reviewed) return;
+        const issues = signatureDraftReadiness(
+          reviewed.detail.envelope,
+          reviewed.detail.recipients,
+          reviewed.detail.fields,
+        );
+        if (issues.length) {
+          setError(issues[0].message);
+          return;
+        }
+
+        const confirmed = await dialog.confirm({
+          title: "Send this signature request?",
+          message: (
+            <span>
+              Genosyn will send invitations according to the selected signing order.
+              {reviewed.detail.recipients.some((recipient) => recipient.role === "copy") && (
+                <>
+                  {" "}
+                  Recipients marked <strong>Completion copy</strong> are emailed only after every
+                  signer finishes.
+                </>
+              )}
+            </span>
+          ),
+          confirmLabel: "Send request",
+        });
+        if (!confirmed) return;
+        if (routeGeneration !== routeGenerationRef.current) return;
+
+        const reviewIsCurrent = lockSignatureSendReviewForDispatch(
+          {
+            editRevision: reviewed.editRevision,
+            updatedAt: reviewed.detail.envelope.updatedAt,
+          },
+          {
+            editRevision: editRevisionRef.current,
+            updatedAt: expectedUpdatedAtRef.current,
+            dirty: dirtyRef.current,
+            saveInFlight: saveInFlightRef.current !== null,
+          },
+          () => {
+            sendDispatchingRef.current = true;
+            setSendDispatching(true);
+          },
+        );
+        if (!reviewIsCurrent) {
+          toast(
+            "The request changed while you were reviewing it. Review the latest saved version before sending.",
+            "info",
+          );
+          continue;
+        }
+
+        const result = normalizeEnvelopeDetail(
+          await api.post<unknown>(`${base}/send`, {
+            expectedUpdatedAt: reviewed.detail.envelope.updatedAt,
+          }),
+        );
+        if (routeGeneration !== routeGenerationRef.current) return;
+        setDetail(result);
+        setRecipients(result.recipients);
+        setFields(result.fields);
+        const attempted = result.recipients.filter(
+          (recipient) => recipient.role === "signer" && recipient.lastDeliveredAt,
+        );
+        const feedback = deliveryFeedback(attempted, "send");
+        toast(feedback.message, feedback.kind);
+        return;
+      }
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "The envelope could not be sent.", "error");
+      toast(cause instanceof Error ? cause.message : "The request could not be sent.", "error");
     } finally {
+      sendDispatchingRef.current = false;
+      setSendDispatching(false);
+      sendReviewBusyRef.current = false;
       setActing(false);
     }
+  }
+
+  async function backToRequests() {
+    if (!dirtyRef.current && !saveInFlightRef.current) navigate(routeBase);
+    else await leaveDraft(routeBase);
   }
 
   async function duplicate() {
@@ -434,37 +770,71 @@ export default function SignatureDetail() {
     }
   }
 
+  function openAiChat(employee: Employee, current: SignatureEnvelopeDetail = detail!) {
+    setAiCandidates([]);
+    const destination = `/c/${company.slug}/employees/${employee.slug}/chat`;
+    const completeNavigation = () => {
+      const savedDetail = latestSavedDetailRef.current ?? current;
+      navigate(destination, {
+        state: { starterPrompt: signatureAiHandoffPrompt(savedDetail.envelope) },
+      });
+    };
+    if (navigationGuard.request(destination, completeNavigation)) return;
+    if (isDraft && (dirtyRef.current || saveInFlightRef.current)) {
+      void leaveDraft(destination, completeNavigation);
+      return;
+    }
+    completeNavigation();
+  }
+
   async function askAi() {
+    setPreparingAiHandoff(true);
     try {
+      const saved =
+        isDraft && dirtyRef.current
+          ? await saveDraft({ quiet: true })
+          : detail
+            ? { detail, current: true }
+            : null;
+      if (!saved?.current) return;
       const response = await api.get<unknown>(`/api/companies/${company.id}/signatures/ai-access`);
       const rows = Array.isArray(response)
-        ? (response as Array<{ employee?: Employee; grant?: { accessLevel?: string } }>)
+        ? (response as Array<{
+            employee?: Employee;
+            grant?: { accessLevel?: SignatureAccessLevel };
+          }>)
         : [];
-      const candidate = rows.find(
-        (row) => row.employee && ["draft", "send"].includes(row.grant?.accessLevel ?? ""),
+      const candidates = rows.flatMap((row): SigningAiCandidate[] =>
+        row.employee && row.grant?.accessLevel
+          ? [{ employee: row.employee, accessLevel: row.grant.accessLevel }]
+          : [],
       );
-      if (!candidate?.employee) {
+      if (candidates.length === 0) {
         await dialog.alert({
-          title: "Give an AI employee Draft access first",
+          title: "Give an AI Employee signing access first",
           message: (
             <span>
               Open{" "}
               <Link className="text-indigo-600 underline" to={`${routeBase}/ai-access`}>
                 AI access
               </Link>{" "}
-              and grant Draft or Send access.
+              and start with Read only. That is enough to check readiness and status without
+              changing anything.
             </span>
           ),
         });
         return;
       }
-      navigate(`/c/${company.slug}/employees/${candidate.employee.slug}/chat`, {
-        state: {
-          starterPrompt: `Help me prepare the signature envelope "${detail?.envelope.title}" (${envelopeId}). Review the PDF, recipients, and fields, then explain any changes you recommend before sending.`,
-        },
-      });
-    } catch {
-      navigate(`${routeBase}/ai-access`);
+      if (candidates.length === 1) {
+        openAiChat(candidates[0].employee, saved.detail);
+        return;
+      }
+      setAiCandidates(candidates);
+      setSelectedAiEmployeeId(candidates[0].employee.id);
+    } catch (cause) {
+      toast(cause instanceof Error ? cause.message : "Could not open AI help.", "error");
+    } finally {
+      setPreparingAiHandoff(false);
     }
   }
 
@@ -479,8 +849,8 @@ export default function SignatureDetail() {
     return (
       <div className="page-shell p-4 sm:p-8">
         <EmptyState
-          title="Envelope unavailable"
-          description={loadError ?? "This envelope no longer exists."}
+          title="Signature request unavailable"
+          description={loadError ?? "This signature request no longer exists."}
           action={<Button onClick={() => void load()}>Try again</Button>}
         />
       </div>
@@ -494,13 +864,14 @@ export default function SignatureDetail() {
     <div className="flex min-h-full flex-col">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-6 dark:border-slate-700 dark:bg-slate-950/95">
         <div className="flex flex-wrap items-center gap-3">
-          <Link
-            to={routeBase}
+          <button
+            type="button"
+            onClick={() => void backToRequests()}
             className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
-            aria-label="Back to envelopes"
+            aria-label="Back to signature requests"
           >
             <ChevronLeft size={19} />
-          </Link>
+          </button>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h1 className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">
@@ -512,13 +883,26 @@ export default function SignatureDetail() {
                 {SIGNATURE_STATUS_LABELS[envelope.status]}
               </span>
             </div>
-            <div className="mt-0.5 truncate text-xs text-slate-400">
+            <div className="mt-0.5 truncate text-xs text-slate-400" aria-live="polite">
               {envelopeFilename(envelope)} · updated {formatSignatureDate(envelope.updatedAt)}
-              {dirty ? " · unsaved changes" : ""}
+              {saving
+                ? " · saving…"
+                : autosaveError
+                  ? " · autosave needs attention"
+                  : dirty
+                    ? " · saving shortly…"
+                    : isDraft
+                      ? " · all changes saved"
+                      : ""}
             </div>
           </div>
-          <Button variant="secondary" size="sm" onClick={() => void askAi()}>
-            <Bot size={14} /> Ask AI
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={preparingAiHandoff || saving}
+            onClick={() => void askAi()}
+          >
+            {preparingAiHandoff ? <Spinner size={14} /> : <Bot size={14} />} Ask AI
           </Button>
           {isDraft ? (
             <>
@@ -530,7 +914,12 @@ export default function SignatureDetail() {
               >
                 {saving ? <Spinner size={14} /> : <Save size={14} />} Save
               </Button>
-              <Button size="sm" disabled={saving || acting} onClick={() => void sendEnvelope()}>
+              <Button
+                size="sm"
+                disabled={saving || acting || readinessIssues.length > 0}
+                title={readinessIssues[0]?.message}
+                onClick={() => void sendEnvelope()}
+              >
                 {acting ? <Spinner size={14} /> : <Send size={14} />} Send
               </Button>
             </>
@@ -561,7 +950,9 @@ export default function SignatureDetail() {
             <Button
               size="sm"
               variant="secondary"
+              disabled={sendDispatching}
               onClick={() => {
+                if (sendDispatchingRef.current) return;
                 applyDetail(remoteDraft);
                 toast("Latest draft loaded", "success");
               }}
@@ -572,7 +963,9 @@ export default function SignatureDetail() {
               <Button
                 size="sm"
                 variant="secondary"
+                disabled={sendDispatching}
                 onClick={() => {
+                  if (sendDispatchingRef.current) return;
                   expectedUpdatedAtRef.current = remoteDraft.envelope.updatedAt;
                   setRemoteDraft(null);
                   toast("Your local changes will replace the latest draft when saved.", "info");
@@ -582,6 +975,21 @@ export default function SignatureDetail() {
               </Button>
             )}
           </div>
+        </div>
+      )}
+
+      {isDraft && autosaveError && (
+        <div className="flex flex-wrap items-center gap-3 border-b border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-800 sm:px-6 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+          <AlertCircle size={16} className="shrink-0" />
+          <span className="min-w-0 flex-1">Autosave paused: {autosaveError}</span>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={sendDispatching}
+            onClick={() => void saveDraft()}
+          >
+            Try saving again
+          </Button>
         </div>
       )}
 
@@ -596,14 +1004,34 @@ export default function SignatureDetail() {
           fieldTool={fieldTool}
           sourceUrl={sourceUrl}
           error={error}
+          readinessIssues={readinessIssues}
+          editingLocked={sendDispatching}
           onEnvelopeChange={updateEnvelope}
           onRecipientChange={updateRecipient}
           onRecipientsChange={(next) => {
-            setRecipients(next);
-            const remainingIds = new Set(next.map((recipient) => recipient.id));
-            setFields((current) => current.filter((field) => remainingIds.has(field.recipientId)));
-            dirtyRef.current = true;
-            setDirty(true);
+            mutateDraft(() => {
+              setRecipients(next);
+              const remainingIds = new Set(next.map((recipient) => recipient.id));
+              setFields((current) =>
+                current.filter((field) => remainingIds.has(field.recipientId)),
+              );
+            });
+          }}
+          onMoveRecipient={(id, direction) => {
+            mutateDraft(() => {
+              setRecipients((current) => {
+                const signerIndexes = current
+                  .map((recipient, index) => (recipient.role === "signer" ? index : -1))
+                  .filter((index) => index >= 0);
+                const index = current.findIndex((recipient) => recipient.id === id);
+                const signerPosition = signerIndexes.indexOf(index);
+                const target = signerIndexes[signerPosition + direction];
+                if (index < 0 || target === undefined) return current;
+                const next = [...current];
+                [next[index], next[target]] = [next[target], next[index]];
+                return next;
+              });
+            });
           }}
           onSelectedRecipientChange={setSelectedRecipientId}
           onFieldToolChange={setFieldTool}
@@ -612,10 +1040,10 @@ export default function SignatureDetail() {
           onMoveField={(id, position) => updateField(id, position)}
           onFieldChange={updateField}
           onRemoveField={(id) => {
-            setFields((current) => current.filter((field) => field.id !== id));
-            setSelectedFieldId(null);
-            dirtyRef.current = true;
-            setDirty(true);
+            mutateDraft(() => {
+              setFields((current) => current.filter((field) => field.id !== id));
+              setSelectedFieldId(null);
+            });
           }}
         />
       ) : (
@@ -664,6 +1092,49 @@ export default function SignatureDetail() {
           </div>
         </div>
       )}
+
+      <Modal
+        open={aiCandidates.length > 1}
+        onClose={() => setAiCandidates([])}
+        title="Choose an AI Employee"
+      >
+        <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
+          Choose who should check this request. Chat opens with a draft message for you to review;
+          nothing runs until you send it.
+        </p>
+        <Select
+          className="mt-4"
+          label="AI Employee"
+          value={selectedAiEmployeeId}
+          onChange={(event) => setSelectedAiEmployeeId(event.target.value)}
+        >
+          {aiCandidates.map((candidate) => (
+            <option key={candidate.employee.id} value={candidate.employee.id}>
+              {candidate.employee.name} · {candidate.employee.role} ·{" "}
+              {candidate.accessLevel === "read"
+                ? "Read only"
+                : candidate.accessLevel === "draft"
+                  ? "Prepare drafts"
+                  : "Send to customers"}
+            </option>
+          ))}
+        </Select>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setAiCandidates([])}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              const selected = aiCandidates.find(
+                (candidate) => candidate.employee.id === selectedAiEmployeeId,
+              );
+              if (selected) openAiChat(selected.employee);
+            }}
+          >
+            <Bot size={14} /> Open chat
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -678,9 +1149,12 @@ type DraftEditorProps = {
   fieldTool: SignatureFieldType;
   sourceUrl: string;
   error: string | null;
+  readinessIssues: SignatureDraftReadinessIssue[];
+  editingLocked: boolean;
   onEnvelopeChange: (patch: Partial<SignatureEnvelopeDetail["envelope"]>) => void;
   onRecipientChange: (id: string, patch: Partial<DraftRecipient>) => void;
   onRecipientsChange: (recipients: DraftRecipient[]) => void;
+  onMoveRecipient: (id: string, direction: -1 | 1) => void;
   onSelectedRecipientChange: (id: string) => void;
   onFieldToolChange: (type: SignatureFieldType) => void;
   onAddField: (pageNumber: number, x: number, y: number) => void;
@@ -692,302 +1166,485 @@ type DraftEditorProps = {
 
 function DraftEditor(props: DraftEditorProps) {
   const { envelope } = props.detail;
+  const editorRootRef = React.useRef<HTMLDivElement>(null);
+  const [mobilePanel, setMobilePanel] = React.useState<"people" | "document" | "field">("people");
+  const signers = props.recipients.filter((recipient) => recipient.role === "signer");
+  const fieldStyles = [
+    "!border-indigo-400 !bg-indigo-50/90 dark:!border-indigo-500 dark:!bg-indigo-950/80",
+    "!border-emerald-400 !bg-emerald-50/90 dark:!border-emerald-500 dark:!bg-emerald-950/80",
+    "!border-amber-400 !bg-amber-50/90 dark:!border-amber-500 dark:!bg-amber-950/80",
+    "!border-fuchsia-400 !bg-fuchsia-50/90 dark:!border-fuchsia-500 dark:!bg-fuchsia-950/80",
+  ];
+  React.useLayoutEffect(() => {
+    editorRootRef.current?.toggleAttribute("inert", props.editingLocked);
+  }, [props.editingLocked]);
   return (
-    <div className="grid min-h-0 min-w-0 flex-1 overflow-x-hidden xl:grid-cols-[15rem_minmax(24rem,1fr)_15rem]">
-      <aside className="border-b border-slate-200 bg-white p-4 xl:border-b-0 xl:border-r dark:border-slate-700 dark:bg-slate-950">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recipients</h2>
-        <div className="mt-3 space-y-3">
-          {props.recipients.map((recipient, index) => (
-            <div
-              key={recipient.id}
-              className={`rounded-xl border p-3 ${
-                props.selectedRecipientId === recipient.id
-                  ? "border-indigo-300 bg-indigo-50/50 dark:border-indigo-700 dark:bg-indigo-950/30"
-                  : "border-slate-200 dark:border-slate-700"
-              }`}
-            >
-              <button
-                type="button"
-                onClick={() => props.onSelectedRecipientChange(recipient.id)}
-                className="mb-2 flex w-full items-center justify-between text-left text-xs font-semibold text-slate-600 dark:text-slate-300"
-              >
-                <span>{envelope.routingMode === "ordered" ? `${index + 1}. ` : ""}Recipient</span>
-              </button>
-              <div className="space-y-2">
-                <Input
-                  value={recipient.name}
-                  onFocus={() => props.onSelectedRecipientChange(recipient.id)}
-                  onChange={(event) =>
-                    props.onRecipientChange(recipient.id, { name: event.target.value })
-                  }
-                  placeholder="Full name"
-                  aria-label="Recipient name"
-                  className="h-9"
-                />
-                <Input
-                  value={recipient.email}
-                  type="email"
-                  onFocus={() => props.onSelectedRecipientChange(recipient.id)}
-                  onChange={(event) =>
-                    props.onRecipientChange(recipient.id, { email: event.target.value })
-                  }
-                  placeholder="name@company.com"
-                  aria-label="Recipient email"
-                  className="h-9"
-                />
-                <div className="flex gap-2">
-                  <Select
-                    value={recipient.role}
-                    onChange={(event) =>
-                      props.onRecipientChange(recipient.id, {
-                        role: event.target.value as "signer" | "copy",
-                      })
-                    }
-                    aria-label="Recipient role"
-                    containerClassName="min-w-0 flex-1"
-                  >
-                    <option value="signer">Signer</option>
-                    <option value="copy">Completion copy</option>
-                  </Select>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    aria-label="Remove recipient"
-                    onClick={() => {
-                      props.onRecipientsChange(
-                        props.recipients.filter((item) => item.id !== recipient.id),
-                      );
-                      if (props.selectedRecipientId === recipient.id) {
-                        props.onSelectedRecipientChange("");
-                      }
-                    }}
-                  >
-                    <Trash2 size={14} />
-                  </Button>
-                </div>
-                {recipient.role === "copy" && (
-                  <p className="text-[11px] leading-4 text-slate-500 dark:text-slate-400">
-                    Receives the completed PDF after every signer finishes. No signing invitation is
-                    sent.
-                  </p>
-                )}
-              </div>
-            </div>
-          ))}
-          <Button
-            variant="secondary"
-            size="sm"
-            className="w-full"
-            onClick={() =>
-              props.onRecipientsChange([
-                ...props.recipients,
-                freshRecipient(props.recipients.length),
-              ])
-            }
+    <div
+      ref={editorRootRef}
+      className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden ${
+        props.editingLocked ? "pointer-events-none opacity-70" : ""
+      }`}
+      aria-busy={props.editingLocked}
+      aria-disabled={props.editingLocked}
+    >
+      <div
+        className="grid grid-cols-3 border-b border-slate-200 bg-white p-2 xl:hidden dark:border-slate-700 dark:bg-slate-950"
+        role="tablist"
+        aria-label="Request editor"
+      >
+        {(
+          [
+            ["people", `People${props.recipients.length ? ` (${props.recipients.length})` : ""}`],
+            ["document", `Document${props.fields.length ? ` (${props.fields.length})` : ""}`],
+            ["field", props.selectedField ? "Field settings" : "Send checklist"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={mobilePanel === value}
+            onClick={() => setMobilePanel(value)}
+            className={`rounded-lg px-2 py-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+              mobilePanel === value
+                ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200"
+                : "text-slate-500 dark:text-slate-400"
+            }`}
           >
-            <UserPlus size={14} /> Add recipient
-          </Button>
-        </div>
-
-        <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Details</h2>
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="grid min-h-0 min-w-0 flex-1 xl:grid-cols-[15rem_minmax(24rem,1fr)_15rem]">
+        <aside
+          className={`${mobilePanel === "people" ? "block" : "hidden"} border-b border-slate-200 bg-white p-4 xl:block xl:border-b-0 xl:border-r dark:border-slate-700 dark:bg-slate-950`}
+        >
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Recipients
+          </h2>
           <div className="mt-3 space-y-3">
-            <Input
-              label="Title"
-              value={envelope.title}
-              onChange={(event) => props.onEnvelopeChange({ title: event.target.value })}
-            />
-            <Select
-              label="Customer"
-              value={envelope.customerId ?? ""}
-              onChange={(event) =>
-                props.onEnvelopeChange({ customerId: event.target.value || null })
+            {props.recipients.map((recipient) => {
+              const signerIndex = signers.findIndex((signer) => signer.id === recipient.id);
+              return (
+                <div
+                  key={recipient.id}
+                  className={`rounded-xl border p-3 ${
+                    props.selectedRecipientId === recipient.id
+                      ? "border-indigo-300 bg-indigo-50/50 dark:border-indigo-700 dark:bg-indigo-950/30"
+                      : "border-slate-200 dark:border-slate-700"
+                  }`}
+                >
+                  <div className="mb-2 flex w-full items-center justify-between text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        props.onSelectedRecipientChange(
+                          recipient.role === "signer" ? recipient.id : "",
+                        )
+                      }
+                      className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    >
+                      {envelope.routingMode === "ordered" && signerIndex >= 0
+                        ? `${signerIndex + 1}. Signer`
+                        : recipient.role === "copy"
+                          ? "Completion copy"
+                          : "Signer"}
+                    </button>
+                    {envelope.routingMode === "ordered" && signerIndex >= 0 && (
+                      <span className="flex gap-1">
+                        <button
+                          type="button"
+                          aria-label={`Move ${recipient.name || "signer"} earlier`}
+                          disabled={signerIndex === 0}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            props.onMoveRecipient(recipient.id, -1);
+                          }}
+                          className="rounded p-1 hover:bg-white disabled:opacity-30 dark:hover:bg-slate-800"
+                        >
+                          <ArrowUp size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Move ${recipient.name || "signer"} later`}
+                          disabled={signerIndex === signers.length - 1}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            props.onMoveRecipient(recipient.id, 1);
+                          }}
+                          className="rounded p-1 hover:bg-white disabled:opacity-30 dark:hover:bg-slate-800"
+                        >
+                          <ArrowDown size={13} />
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Input
+                      value={recipient.name}
+                      onFocus={() => {
+                        if (recipient.role === "signer")
+                          props.onSelectedRecipientChange(recipient.id);
+                      }}
+                      onChange={(event) =>
+                        props.onRecipientChange(recipient.id, { name: event.target.value })
+                      }
+                      placeholder="Full name"
+                      aria-label="Recipient name"
+                      className="h-9"
+                    />
+                    <Input
+                      value={recipient.email}
+                      type="email"
+                      onFocus={() => {
+                        if (recipient.role === "signer")
+                          props.onSelectedRecipientChange(recipient.id);
+                      }}
+                      onChange={(event) =>
+                        props.onRecipientChange(recipient.id, { email: event.target.value })
+                      }
+                      placeholder="name@company.com"
+                      aria-label="Recipient email"
+                      className="h-9"
+                    />
+                    <div className="flex gap-2">
+                      <Select
+                        value={recipient.role}
+                        onChange={(event) =>
+                          props.onRecipientChange(recipient.id, {
+                            role: event.target.value as "signer" | "copy",
+                          })
+                        }
+                        aria-label="Recipient role"
+                        containerClassName="min-w-0 flex-1"
+                      >
+                        <option value="signer">Signer</option>
+                        <option value="copy">Completion copy</option>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-label="Remove recipient"
+                        onClick={() => {
+                          props.onRecipientsChange(
+                            props.recipients.filter((item) => item.id !== recipient.id),
+                          );
+                          if (props.selectedRecipientId === recipient.id) {
+                            props.onSelectedRecipientChange("");
+                          }
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                    {recipient.role === "copy" && (
+                      <p className="text-[11px] leading-4 text-slate-500 dark:text-slate-400">
+                        Receives the completed PDF after every signer finishes. No signing
+                        invitation is sent.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            <Button
+              variant="secondary"
+              size="sm"
+              className="w-full"
+              onClick={() =>
+                props.onRecipientsChange([
+                  ...props.recipients,
+                  freshRecipient(props.recipients.length),
+                ])
               }
             >
-              <option value="">No customer</option>
-              {props.customers.map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name}
-                </option>
-              ))}
-            </Select>
-            <Select
-              label="Signing order"
-              value={envelope.routingMode}
-              onChange={(event) =>
-                props.onEnvelopeChange({
-                  routingMode: event.target.value as "parallel" | "ordered",
-                })
-              }
-            >
-              <option value="parallel">Everyone at once</option>
-              <option value="ordered">In a set order</option>
-            </Select>
-            <Input
-              label="Expires"
-              type="date"
-              value={signatureIsoToDateInput(envelope.expiresAt)}
-              onChange={(event) =>
-                props.onEnvelopeChange({
-                  expiresAt: event.target.value
-                    ? signatureDateInputToEndOfDayIso(event.target.value)
-                    : null,
-                })
-              }
-            />
-            <Textarea
-              label="Message"
-              value={envelope.message}
-              onChange={(event) => props.onEnvelopeChange({ message: event.target.value })}
-              className="min-h-20"
-            />
+              <UserPlus size={14} /> Add recipient
+            </Button>
           </div>
-        </div>
-      </aside>
 
-      <main className="min-h-[70vh] min-w-0 overflow-y-auto bg-slate-200/60 dark:bg-slate-900">
-        <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white/95 p-3 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95">
-          <Select
-            aria-label="Assign new fields to"
-            value={props.selectedRecipientId}
-            onChange={(event) => props.onSelectedRecipientChange(event.target.value)}
-            containerClassName="min-w-44"
-          >
-            <option value="">Choose a signer…</option>
-            {props.recipients
-              .filter((recipient) => recipient.role === "signer")
-              .map((recipient) => (
-                <option key={recipient.id} value={recipient.id}>
-                  {recipient.name || "Unnamed signer"}
-                </option>
-              ))}
-          </Select>
-          <span className="hidden h-6 w-px bg-slate-200 sm:block dark:bg-slate-700" />
-          <div className="flex flex-wrap gap-1">
-            {(Object.keys(SIGNATURE_FIELD_LABELS) as SignatureFieldType[]).map((type) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => props.onFieldToolChange(type)}
-                aria-pressed={props.fieldTool === type}
-                aria-label={`Place ${SIGNATURE_FIELD_LABELS[type].toLowerCase()} field`}
-                title={`Place ${SIGNATURE_FIELD_LABELS[type].toLowerCase()} field`}
-                className={`flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium ${
-                  props.fieldTool === type
-                    ? "bg-indigo-600 text-white"
-                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-                }`}
+          <div className="mt-6 border-t border-slate-100 pt-5 dark:border-slate-800">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Details
+            </h2>
+            <div className="mt-3 space-y-3">
+              <Input
+                label="Title"
+                value={envelope.title}
+                onChange={(event) => props.onEnvelopeChange({ title: event.target.value })}
+              />
+              <Select
+                label="Customer"
+                value={envelope.customerId ?? ""}
+                onChange={(event) =>
+                  props.onEnvelopeChange({ customerId: event.target.value || null })
+                }
               >
-                {FIELD_ICONS[type]}{" "}
-                <span className="hidden xl:inline">{SIGNATURE_FIELD_LABELS[type]}</span>
-              </button>
-            ))}
-          </div>
-          <span className="ml-auto text-xs text-slate-400">Click the PDF to place a field</span>
-        </div>
-        <PdfCanvasRenderer
-          sourceUrl={props.sourceUrl}
-          fields={props.fields}
-          selectedFieldId={props.selectedField?.id}
-          onPageClick={props.onAddField}
-          onFieldSelect={props.onSelectField}
-          onFieldMove={props.onMoveField}
-        />
-      </main>
-
-      <aside className="border-t border-slate-200 bg-white p-4 xl:border-l xl:border-t-0 dark:border-slate-700 dark:bg-slate-950">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-          Field settings
-        </h2>
-        {!props.selectedField ? (
-          <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
-            Select a field on the document to edit it. Drag fields to reposition them.
-          </p>
-        ) : (
-          <div className="mt-4 space-y-4">
-            <div className="rounded-lg bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200">
-              {SIGNATURE_FIELD_LABELS[props.selectedField.type]}
+                <option value="">No customer</option>
+                {props.customers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.name}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                label="Signing order"
+                value={envelope.routingMode}
+                onChange={(event) =>
+                  props.onEnvelopeChange({
+                    routingMode: event.target.value as "parallel" | "ordered",
+                  })
+                }
+              >
+                <option value="parallel">Everyone at once</option>
+                <option value="ordered">In a set order</option>
+              </Select>
+              <Input
+                label="Expires"
+                type="date"
+                value={signatureIsoToDateInput(envelope.expiresAt)}
+                onChange={(event) =>
+                  props.onEnvelopeChange({
+                    expiresAt: event.target.value
+                      ? signatureDateInputToEndOfDayIso(event.target.value)
+                      : null,
+                  })
+                }
+              />
+              <Textarea
+                label="Message"
+                value={envelope.message}
+                onChange={(event) => props.onEnvelopeChange({ message: event.target.value })}
+                className="min-h-20"
+              />
             </div>
+          </div>
+        </aside>
+
+        <main
+          className={`${mobilePanel === "document" ? "block" : "hidden"} min-h-[70vh] min-w-0 overflow-y-auto bg-slate-200/60 xl:block dark:bg-slate-900`}
+        >
+          <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white/95 p-3 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95">
             <Select
-              label="Assigned to"
-              value={props.selectedField.recipientId}
-              onChange={(event) =>
-                props.onFieldChange(props.selectedField!.id, { recipientId: event.target.value })
-              }
+              aria-label="Assign new fields to"
+              value={props.selectedRecipientId}
+              onChange={(event) => props.onSelectedRecipientChange(event.target.value)}
+              containerClassName="min-w-44"
             >
+              <option value="">Choose a signer…</option>
               {props.recipients
                 .filter((recipient) => recipient.role === "signer")
                 .map((recipient) => (
                   <option key={recipient.id} value={recipient.id}>
-                    {recipient.name}
+                    {recipient.name || "Unnamed signer"}
                   </option>
                 ))}
             </Select>
-            <Input
-              label="Label"
-              value={props.selectedField.label}
-              onChange={(event) =>
-                props.onFieldChange(props.selectedField!.id, { label: event.target.value })
-              }
-            />
-            {!["signature", "initials", "checkbox"].includes(props.selectedField.type) && (
-              <Input
-                label="Placeholder"
-                value={props.selectedField.placeholder}
-                onChange={(event) =>
-                  props.onFieldChange(props.selectedField!.id, { placeholder: event.target.value })
-                }
-              />
-            )}
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={props.selectedField.required}
-                onChange={(event) =>
-                  props.onFieldChange(props.selectedField!.id, { required: event.target.checked })
-                }
-                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-              />
-              Required field
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                label="Width %"
-                type="number"
-                min="4"
-                max="90"
-                value={Math.round(props.selectedField.width * 100)}
-                onChange={(event) =>
-                  props.onFieldChange(props.selectedField!.id, {
-                    width: Number(event.target.value) / 100,
-                  })
-                }
-              />
-              <Input
-                label="Height %"
-                type="number"
-                min="2.5"
-                max="40"
-                value={Math.round(props.selectedField.height * 100)}
-                onChange={(event) =>
-                  props.onFieldChange(props.selectedField!.id, {
-                    height: Number(event.target.value) / 100,
-                  })
-                }
-              />
+            <span className="hidden h-6 w-px bg-slate-200 sm:block dark:bg-slate-700" />
+            <div className="flex flex-wrap gap-1">
+              {(Object.keys(SIGNATURE_FIELD_LABELS) as SignatureFieldType[]).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => props.onFieldToolChange(type)}
+                  aria-pressed={props.fieldTool === type}
+                  aria-label={`Place ${SIGNATURE_FIELD_LABELS[type].toLowerCase()} field`}
+                  title={`Place ${SIGNATURE_FIELD_LABELS[type].toLowerCase()} field`}
+                  className={`flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium ${
+                    props.fieldTool === type
+                      ? "bg-indigo-600 text-white"
+                      : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  {FIELD_ICONS[type]}{" "}
+                  <span className="hidden xl:inline">{SIGNATURE_FIELD_LABELS[type]}</span>
+                </button>
+              ))}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
-              onClick={() => props.onRemoveField(props.selectedField!.id)}
-            >
-              <Trash2 size={14} /> Remove field
-            </Button>
+            <span className="ml-auto text-xs text-slate-400">Click the PDF to place a field</span>
+            {signers.length > 0 && (
+              <div className="flex w-full flex-wrap gap-x-3 gap-y-1 border-t border-slate-100 pt-2 text-[11px] text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                {signers.map((recipient, index) => (
+                  <span key={recipient.id} className="flex items-center gap-1.5">
+                    <span
+                      className={`h-2.5 w-2.5 rounded-full ${["bg-indigo-500", "bg-emerald-500", "bg-amber-500", "bg-fuchsia-500"][index % 4]}`}
+                    />
+                    {recipient.name || `Signer ${index + 1}`} ·{" "}
+                    {props.fields.filter((field) => field.recipientId === recipient.id).length}{" "}
+                    fields
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
+          <PdfCanvasRenderer
+            sourceUrl={props.sourceUrl}
+            fields={props.fields}
+            selectedFieldId={props.selectedField?.id}
+            onPageClick={props.onAddField}
+            onFieldSelect={(id) => {
+              props.onSelectField(id);
+              setMobilePanel("field");
+            }}
+            onFieldMove={props.onMoveField}
+            fieldLabel={(field) => {
+              const owner = props.recipients.find(
+                (recipient) => recipient.id === field.recipientId,
+              );
+              const signerIndex = signers.findIndex(
+                (recipient) => recipient.id === field.recipientId,
+              );
+              return `${owner?.name || `Signer ${signerIndex + 1}`} · ${field.label || SIGNATURE_FIELD_LABELS[field.type]}`;
+            }}
+            fieldClassName={(field) => {
+              const index = Math.max(
+                0,
+                signers.findIndex((recipient) => recipient.id === field.recipientId),
+              );
+              return fieldStyles[index % fieldStyles.length];
+            }}
+          />
+        </main>
+
+        <aside
+          className={`${mobilePanel === "field" ? "block" : "hidden"} border-t border-slate-200 bg-white p-4 xl:block xl:border-l xl:border-t-0 dark:border-slate-700 dark:bg-slate-950`}
+        >
+          <SendReadiness issues={props.readinessIssues} />
+          <div className="mt-5 border-t border-slate-100 pt-5 dark:border-slate-800">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Field settings
+            </h2>
+            {!props.selectedField ? (
+              <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
+                Select a field on the document to edit it. Drag fields to reposition them.
+              </p>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <div className="rounded-lg bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200">
+                  {props.recipients.find(
+                    (recipient) => recipient.id === props.selectedField!.recipientId,
+                  )?.name || "Signer"}{" "}
+                  · {SIGNATURE_FIELD_LABELS[props.selectedField.type]}
+                </div>
+                <Select
+                  label="Assigned to"
+                  value={props.selectedField.recipientId}
+                  onChange={(event) =>
+                    props.onFieldChange(props.selectedField!.id, {
+                      recipientId: event.target.value,
+                    })
+                  }
+                >
+                  {props.recipients
+                    .filter((recipient) => recipient.role === "signer")
+                    .map((recipient) => (
+                      <option key={recipient.id} value={recipient.id}>
+                        {recipient.name}
+                      </option>
+                    ))}
+                </Select>
+                <Input
+                  label="Label"
+                  value={props.selectedField.label}
+                  onChange={(event) =>
+                    props.onFieldChange(props.selectedField!.id, { label: event.target.value })
+                  }
+                />
+                {!["signature", "initials", "checkbox"].includes(props.selectedField.type) && (
+                  <Input
+                    label="Placeholder"
+                    value={props.selectedField.placeholder}
+                    onChange={(event) =>
+                      props.onFieldChange(props.selectedField!.id, {
+                        placeholder: event.target.value,
+                      })
+                    }
+                  />
+                )}
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={props.selectedField.required}
+                    onChange={(event) =>
+                      props.onFieldChange(props.selectedField!.id, {
+                        required: event.target.checked,
+                      })
+                    }
+                    className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  Required field
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    label="Width %"
+                    type="number"
+                    min="4"
+                    max="90"
+                    value={Math.round(props.selectedField.width * 100)}
+                    onChange={(event) =>
+                      props.onFieldChange(props.selectedField!.id, {
+                        width: Number(event.target.value) / 100,
+                      })
+                    }
+                  />
+                  <Input
+                    label="Height %"
+                    type="number"
+                    min="2.5"
+                    max="40"
+                    value={Math.round(props.selectedField.height * 100)}
+                    onChange={(event) =>
+                      props.onFieldChange(props.selectedField!.id, {
+                        height: Number(event.target.value) / 100,
+                      })
+                    }
+                  />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                  onClick={() => props.onRemoveField(props.selectedField!.id)}
+                >
+                  <Trash2 size={14} /> Remove field
+                </Button>
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function SendReadiness({ issues }: { issues: SignatureDraftReadinessIssue[] }) {
+  return (
+    <div id="signature-readiness" aria-live="polite">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+        {issues.length ? (
+          <AlertCircle size={14} className="text-amber-500" />
+        ) : (
+          <CheckCircle2 size={14} className="text-emerald-500" />
         )}
-      </aside>
+        Ready to send
+      </div>
+      {issues.length ? (
+        <div className="mt-3 space-y-2">
+          {issues.map((issue, index) => (
+            <div
+              key={`${issue.code}-${issue.recipientId ?? "request"}-${index}`}
+              className="flex gap-2 text-xs leading-5 text-slate-600 dark:text-slate-300"
+            >
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+              {issue.message}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-xs leading-5 text-emerald-700 dark:text-emerald-300">
+          People, contact details, and required signatures are ready for review.
+        </p>
+      )}
     </div>
   );
 }
@@ -1017,10 +1674,12 @@ function SentEnvelope({
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Recipients</h2>
           {detail.envelope.status === "completed" && (
-            <a href={completedUrl} download>
-              <Button variant="secondary" size="sm">
-                <Download size={14} /> PDF
-              </Button>
+            <a
+              href={completedUrl}
+              download
+              className="inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+            >
+              <Download size={14} /> PDF
             </a>
           )}
         </div>
@@ -1096,7 +1755,7 @@ function SentEnvelope({
             disabled={acting}
             onClick={() => void onVoid()}
           >
-            <XCircle size={14} /> Void envelope
+            <XCircle size={14} /> Void request
           </Button>
         )}
       </aside>
