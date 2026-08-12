@@ -1,27 +1,23 @@
 import React from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import {
-  Bot,
-  Check,
-  Mail,
-  Sparkles,
-  UserRound,
-  type LucideIcon,
-} from "lucide-react";
+import { Bot, Check, Mail, Rocket, Sparkles, UserRound, type LucideIcon } from "lucide-react";
 import { api, Company, Employee } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Spinner } from "../components/ui/Spinner";
+import { Textarea } from "../components/ui/Textarea";
 import { clsx } from "../components/ui/clsx";
 import { useToast } from "../components/ui/Toast";
 import { AuthShell } from "./Login";
 import { EmailStep } from "./onboarding/EmailStep";
 import { EmployeeStep } from "./onboarding/EmployeeStep";
 import { FirstRequestStep } from "./onboarding/FirstRequestStep";
+import { RecommendationsStep } from "./onboarding/RecommendationsStep";
+import { selectOnboardingEmployee } from "../lib/onboardingRecommendations";
 
-type OnboardingStep = "employee" | "email" | "first_task";
+type OnboardingStep = "employee" | "recommendations" | "email" | "first_task";
 
 const STEPS: Array<{
   id: OnboardingStep;
@@ -29,6 +25,7 @@ const STEPS: Array<{
   icon: LucideIcon;
 }> = [
   { id: "employee", label: "AI Employee", icon: Bot },
+  { id: "recommendations", label: "Launch plan", icon: Rocket },
   { id: "email", label: "Email", icon: Mail },
   { id: "first_task", label: "First request", icon: Sparkles },
 ];
@@ -40,6 +37,8 @@ const STEPS: Array<{
  */
 export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) {
   const [name, setName] = React.useState("");
+  const [mission, setMission] = React.useState("");
+  const [vision, setVision] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
@@ -49,7 +48,11 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
     setError(null);
     setLoading(true);
     try {
-      const company = await api.post<Company>("/api/companies", { name });
+      const company = await api.post<Company>("/api/companies", {
+        name: name.trim(),
+        mission: mission.trim(),
+        vision: vision.trim(),
+      });
       await onDone();
       navigate(`/c/${company.slug}/onboarding`);
     } catch (err) {
@@ -64,8 +67,8 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <FormError message={error} />
         <p className="text-sm leading-6 text-slate-500 dark:text-slate-400">
-          Start with a company, then Genosyn will guide you through hiring an AI Employee,
-          connecting email, and making a useful first request.
+          Tell Genosyn where the company is going. We&apos;ll use that direction to help you hire an
+          AI Employee and give them a useful launch plan from day one.
         </p>
         <Input
           label="Company name"
@@ -74,6 +77,24 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
           placeholder="Acme"
           autoFocus
           required
+        />
+        <Textarea
+          label="Mission (optional)"
+          value={mission}
+          onChange={(event) => setMission(event.target.value)}
+          placeholder="What do you do, for whom, and why?"
+          rows={3}
+          className="min-h-24"
+          maxLength={2000}
+        />
+        <Textarea
+          label="Vision (optional)"
+          value={vision}
+          onChange={(event) => setVision(event.target.value)}
+          placeholder="What should be true when the company succeeds?"
+          rows={3}
+          className="min-h-24"
+          maxLength={2000}
         />
         <Button type="submit" disabled={loading}>
           {loading ? "Creating…" : "Create company and continue"}
@@ -85,8 +106,13 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
 
 export function CompanyOnboarding({ company }: { company: Company }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const requestedEmployeeId = searchParams.get("employee");
+  const requestedTemplateId = searchParams.get("template");
   const [employees, setEmployees] = React.useState<Employee[] | null>(null);
   const [selectedEmployee, setSelectedEmployee] = React.useState<Employee | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | null>(
+    requestedTemplateId,
+  );
   const { toast } = useToast();
 
   const rawStep = searchParams.get("step");
@@ -95,31 +121,42 @@ export function CompanyOnboarding({ company }: { company: Company }) {
     : "employee";
 
   const updateLocation = React.useCallback(
-    (nextStep: OnboardingStep, employee?: Employee | null) => {
+    (nextStep: OnboardingStep, employee?: Employee | null, templateId?: string | null) => {
       const next = new URLSearchParams();
       next.set("step", nextStep);
       const id = employee?.id ?? selectedEmployee?.id;
       if (id) next.set("employee", id);
+      const nextTemplateId = templateId === undefined ? selectedTemplateId : templateId;
+      if (nextTemplateId) next.set("template", nextTemplateId);
       setSearchParams(next);
     },
-    [selectedEmployee, setSearchParams],
+    [selectedEmployee, selectedTemplateId, setSearchParams],
   );
 
-  const loadEmployees = React.useCallback(async () => {
-    const list = await api.get<Employee[]>(`/api/companies/${company.id}/employees`);
-    setEmployees(list);
-    const requestedId = searchParams.get("employee");
-    setSelectedEmployee(
-      list.find((employee) => employee.id === requestedId) ?? list[0] ?? null,
-    );
-  }, [company.id, searchParams]);
+  React.useEffect(() => {
+    setSelectedTemplateId(requestedTemplateId);
+  }, [requestedTemplateId]);
 
   React.useEffect(() => {
-    loadEmployees().catch((err) => {
-      setEmployees([]);
-      toast((err as Error).message, "error");
-    });
-  }, [loadEmployees, toast]);
+    let cancelled = false;
+    setEmployees(null);
+    api
+      .get<Employee[]>(`/api/companies/${company.id}/employees`)
+      .then((list) => {
+        if (cancelled) return;
+        setEmployees(list);
+        setSelectedEmployee(selectOnboardingEmployee(list, requestedEmployeeId));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setEmployees([]);
+        setSelectedEmployee(null);
+        toast((err as Error).message, "error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company.id, requestedEmployeeId, toast]);
 
   return (
     <div className="min-h-full bg-slate-50/70 dark:bg-slate-950">
@@ -139,19 +176,24 @@ export function CompanyOnboarding({ company }: { company: Company }) {
         <StepRail current={step} />
 
         {employees === null ? (
-          <div className="flex justify-center py-24">
+          <div
+            className="flex justify-center py-24"
+            role="status"
+            aria-label="Loading AI Employees"
+          >
             <Spinner size={24} />
           </div>
         ) : step === "employee" ? (
           <EmployeeStep
             company={company}
             employee={selectedEmployee}
-            onCreated={(employee) => {
+            onCreated={(employee, templateId) => {
               setEmployees((current) => [...(current ?? []), employee]);
               setSelectedEmployee(employee);
-              updateLocation("employee", employee);
+              setSelectedTemplateId(templateId);
+              updateLocation("employee", employee, templateId);
             }}
-            onContinue={() => updateLocation("email")}
+            onContinue={() => updateLocation("recommendations")}
           />
         ) : selectedEmployee === null ? (
           <Card className="mx-auto max-w-xl">
@@ -168,11 +210,20 @@ export function CompanyOnboarding({ company }: { company: Company }) {
               </Button>
             </CardBody>
           </Card>
+        ) : step === "recommendations" ? (
+          <RecommendationsStep
+            company={company}
+            employee={selectedEmployee}
+            templateId={selectedTemplateId}
+            onBack={() => updateLocation("employee")}
+            onContinue={() => updateLocation("email")}
+            continueLabel="Continue to email"
+          />
         ) : step === "email" ? (
           <EmailStep
             company={company}
             employee={selectedEmployee}
-            onBack={() => updateLocation("employee")}
+            onBack={() => updateLocation("recommendations")}
             onContinue={() => updateLocation("first_task")}
           />
         ) : (
@@ -191,13 +242,17 @@ function StepRail({ current }: { current: OnboardingStep }) {
   const currentIndex = STEPS.findIndex((step) => step.id === current);
 
   return (
-    <ol className="mx-auto mb-8 grid max-w-2xl grid-cols-3" aria-label="Onboarding progress">
+    <ol className="mx-auto mb-8 grid max-w-3xl grid-cols-4" aria-label="Onboarding progress">
       {STEPS.map((step, index) => {
         const Icon = step.icon;
         const complete = index < currentIndex;
         const active = index === currentIndex;
         return (
-          <li key={step.id} className="relative flex flex-col items-center gap-2 text-center">
+          <li
+            key={step.id}
+            aria-current={active ? "step" : undefined}
+            className="relative flex flex-col items-center gap-2 text-center"
+          >
             {index > 0 && (
               <span
                 className={clsx(

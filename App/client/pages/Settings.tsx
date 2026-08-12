@@ -5,6 +5,7 @@ import { Pencil, Trash2 } from "lucide-react";
 import { api, Company, FinanceAccess, Member, Secret } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { Textarea } from "../components/ui/Textarea";
 import { FormError } from "../components/ui/FormError";
 import { Avatar, memberAvatarUrl } from "../components/ui/Avatar";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -42,6 +43,8 @@ export function SettingsCompany() {
   const { company, onCompaniesChanged } = useCtx();
   const [name, setName] = React.useState(company.name);
   const [slug, setSlug] = React.useState(company.slug);
+  const [mission, setMission] = React.useState(company.mission);
+  const [vision, setVision] = React.useState(company.vision);
   const [requireTwoFactor, setRequireTwoFactor] = React.useState(company.requireTwoFactor);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -50,13 +53,24 @@ export function SettingsCompany() {
   React.useEffect(() => {
     setName(company.name);
     setSlug(company.slug);
+    setMission(company.mission);
+    setVision(company.vision);
     setRequireTwoFactor(company.requireTwoFactor);
-  }, [company.id, company.name, company.requireTwoFactor, company.slug]);
+  }, [
+    company.id,
+    company.mission,
+    company.name,
+    company.requireTwoFactor,
+    company.slug,
+    company.vision,
+  ]);
 
   const normalizedSlug = normalizeSlugInput(slug);
   const dirty =
     name.trim() !== company.name ||
     (normalizedSlug.length > 0 && normalizedSlug !== company.slug) ||
+    mission.trim() !== company.mission ||
+    vision.trim() !== company.vision ||
     requireTwoFactor !== company.requireTwoFactor;
   const canAdminister = company.role === "owner" || company.role === "admin";
 
@@ -80,11 +94,19 @@ export function SettingsCompany() {
             onSubmit={async (e) => {
               e.preventDefault();
               if (!dirty || saving) return;
-              const patch: { name?: string; slug?: string; requireTwoFactor?: boolean } = {};
+              const patch: {
+                name?: string;
+                slug?: string;
+                mission?: string;
+                vision?: string;
+                requireTwoFactor?: boolean;
+              } = {};
               if (name.trim() !== company.name) patch.name = name.trim();
               if (normalizedSlug && normalizedSlug !== company.slug) {
                 patch.slug = normalizedSlug;
               }
+              if (mission.trim() !== company.mission) patch.mission = mission.trim();
+              if (vision.trim() !== company.vision) patch.vision = vision.trim();
               if (requireTwoFactor !== company.requireTwoFactor) {
                 patch.requireTwoFactor = requireTwoFactor;
               }
@@ -123,6 +145,36 @@ export function SettingsCompany() {
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 URL: <code className="font-mono">/c/{normalizedSlug || "…"}</code>
               </p>
+            </div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div>
+                <Textarea
+                  label="Mission"
+                  value={mission}
+                  onChange={(event) => setMission(event.target.value)}
+                  placeholder="Why the company exists and who it serves."
+                  rows={4}
+                  maxLength={2_000}
+                  className="min-h-28"
+                />
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Grounds AI Employee recommendations in what matters now.
+                </p>
+              </div>
+              <div>
+                <Textarea
+                  label="Vision"
+                  value={vision}
+                  onChange={(event) => setVision(event.target.value)}
+                  placeholder="What should be true when the company succeeds?"
+                  rows={4}
+                  maxLength={2_000}
+                  className="min-h-28"
+                />
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Helps suggested work pull the company toward its destination.
+                </p>
+              </div>
             </div>
             {canAdminister ? (
               <label className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
@@ -406,36 +458,38 @@ export function SettingsMembers() {
               ))}
             </ul>
           )}
-          {canManage ? <form
-            className="flex flex-col gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setInviteError(null);
-              try {
-                await api.post(`/api/companies/${company.id}/invitations`, {
-                  email: inviteEmail,
-                });
-                setInviteEmail("");
-                toast("Invite sent", "success");
-              } catch (err) {
-                setInviteError((err as Error).message);
-              }
-            }}
-          >
-            <FormError message={inviteError} />
-            <div className="flex items-end gap-3">
-              <div className="flex-1">
-                <Input
-                  label="Invite by email"
-                  type="email"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  required
-                />
+          {canManage ? (
+            <form
+              className="flex flex-col gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setInviteError(null);
+                try {
+                  await api.post(`/api/companies/${company.id}/invitations`, {
+                    email: inviteEmail,
+                  });
+                  setInviteEmail("");
+                  toast("Invite sent", "success");
+                } catch (err) {
+                  setInviteError((err as Error).message);
+                }
+              }}
+            >
+              <FormError message={inviteError} />
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
+                  <Input
+                    label="Invite by email"
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    required
+                  />
+                </div>
+                <Button type="submit">Send invite</Button>
               </div>
-              <Button type="submit">Send invite</Button>
-            </div>
-          </form> : null}
+            </form>
+          ) : null}
         </CardBody>
       </Card>
     </>

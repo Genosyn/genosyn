@@ -1,12 +1,6 @@
 import React from "react";
 import { ArrowRight, Bot, CheckCircle2 } from "lucide-react";
-import {
-  AIModel,
-  api,
-  Company,
-  Employee,
-  EmployeeTemplate,
-} from "../../lib/api";
+import { AIModel, api, Company, Employee, EmployeeTemplate } from "../../lib/api";
 import { Button } from "../../components/ui/Button";
 import { Card, CardBody } from "../../components/ui/Card";
 import { FormError } from "../../components/ui/FormError";
@@ -15,12 +9,7 @@ import { Spinner } from "../../components/ui/Spinner";
 import { clsx } from "../../components/ui/clsx";
 import { EmployeeModelSection } from "../employeeTabs";
 
-const FEATURED_TEMPLATE_IDS = [
-  "executive-assistant",
-  "sdr",
-  "research-analyst",
-  "operations",
-];
+const FEATURED_TEMPLATE_IDS = ["executive-assistant", "sdr", "research-analyst", "operations"];
 
 export function EmployeeStep({
   company,
@@ -30,7 +19,7 @@ export function EmployeeStep({
 }: {
   company: Company;
   employee: Employee | null;
-  onCreated: (employee: Employee) => void;
+  onCreated: (employee: Employee, templateId: string | null) => void;
   onContinue: () => void;
 }) {
   const [templates, setTemplates] = React.useState<EmployeeTemplate[] | null>(null);
@@ -65,7 +54,7 @@ export function EmployeeStep({
         role,
         ...(selectedId ? { templateId: selectedId } : {}),
       });
-      onCreated(created);
+      onCreated(created, selectedId);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -108,8 +97,8 @@ export function EmployeeStep({
               </h2>
             </div>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Pick a starting role. The template brings a ready-made Soul, Skills, and Routines
-              that you can edit any time.
+              Pick a starting role. The template brings a ready-made Soul, Skills, and Routines that
+              you can edit any time.
             </p>
           </div>
 
@@ -222,7 +211,7 @@ export function EmployeeStep({
 
       <div className="flex justify-end">
         <Button onClick={continueWithModelCheck} disabled={checkingModel}>
-          {checkingModel ? "Checking…" : "Continue to email"}
+          {checkingModel ? "Checking…" : "Build launch plan"}
           {!checkingModel && <ArrowRight size={15} />}
         </Button>
       </div>

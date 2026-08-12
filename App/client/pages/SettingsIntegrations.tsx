@@ -947,7 +947,7 @@ function StatusBadge({
   );
 }
 
-function ApiKeyModal({
+export function ApiKeyModal({
   open,
   entry,
   reconnect,
@@ -1175,9 +1175,8 @@ export function OauthOrServiceAccountModal({
       // example). Providers without explicit defaults preserve the
       // historical all-selected behaviour.
       const availableGroups =
-        (initialMode === "oauth"
-          ? entry.oauth?.scopeGroups
-          : entry.serviceAccount?.scopeGroups) ?? [];
+        (initialMode === "oauth" ? entry.oauth?.scopeGroups : entry.serviceAccount?.scopeGroups) ??
+        [];
       const allGroupKeys = availableGroups.map((g) => g.key);
       const defaultGroupKeys = availableGroups
         .filter((group) => group.defaultSelected)

@@ -274,9 +274,16 @@ export const config = {
 ### M2 — Companies & Members ✅
 
 - [x] Create / rename / delete company (owner-only)
-- [x] Guided first-company onboarding: hire an AI Employee from a template,
-      connect its AI Model, optionally connect Gmail with a safe draft Grant,
-      and open chat with a reviewable starter request
+- [x] Guided first-company onboarding: capture optional company mission and
+      vision; hire an AI Employee from a template; connect its AI Model; and
+      open a resumable, post-hire Launch plan that deterministically recommends
+      Routines from the employee role, validated template, and company context.
+      Existing template or matching Routines remain visible as ready; selected
+      suggestions are batch-created atomically and idempotently without
+      overwriting edits. Up to three enabled Integrations are ranked with
+      healthy Connection and employee Grant status, before optional Gmail setup
+      with a safe draft Grant and a reviewable starter chat request. The regular
+      later-hire wizard reuses the same skippable Launch plan after Soul review
 - [x] Company switcher in app shell
 - [x] Invite member by email (token link)
 - [x] Roles: owner / admin / member
@@ -338,7 +345,8 @@ export const config = {
 ### M3 — AI Employees + Soul ✅
 
 - [x] Create employee with template selection
-      (catalog in `services/templates.ts`)
+      (catalog in `services/templates.ts`), including the full later-hire
+      wizard and the shared M2 post-hire Launch plan
 - [x] Soul scaffold seeded into `AIEmployee.soulBody`
 - [x] In-app Soul editor with markdown preview
 - [x] Employee list, detail pages, per-employee sidebar

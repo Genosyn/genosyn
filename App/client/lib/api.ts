@@ -177,6 +177,8 @@ export type Company = {
   id: string;
   name: string;
   slug: string;
+  mission: string;
+  vision: string;
   role?: "owner" | "admin" | "member";
   requireTwoFactor: boolean;
 };
@@ -656,6 +658,49 @@ export type EmployeeTemplate = {
   tagline: string;
   skills: string[];
   routines: { name: string; cronExpr: string }[];
+};
+
+export type OnboardingRecommendationContext = {
+  companyName: string;
+  mission: string;
+  vision: string;
+  employeeName: string;
+  employeeRole: string;
+};
+
+export type OnboardingRoutineRecommendation = {
+  id: string;
+  name: string;
+  summary: string;
+  cronExpr: string;
+  body: string;
+  reasons: string[];
+  status: "suggested" | "ready";
+  routineId: string | null;
+};
+
+export type OnboardingIntegrationConnection = {
+  id: string;
+  label: string;
+  status: IntegrationConnectionStatus;
+  granted: boolean;
+};
+
+export type OnboardingIntegrationRecommendation = IntegrationCatalogEntry & {
+  reason: string;
+  status: "ready" | "grant_needed" | "connection_attention" | "connect_needed";
+  connections: OnboardingIntegrationConnection[];
+};
+
+export type OnboardingRecommendations = {
+  context: OnboardingRecommendationContext;
+  routines: OnboardingRoutineRecommendation[];
+  integrations: OnboardingIntegrationRecommendation[];
+};
+
+export type CreateRecommendedRoutinesResponse = {
+  created: Array<Routine & { recommendationId: string }>;
+  existing: Array<{ recommendationId: string; routineId: string }>;
 };
 
 export type UsageBucket = {

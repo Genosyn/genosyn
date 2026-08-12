@@ -48,6 +48,8 @@ companiesRouter.get("/", async (req, res) => {
         id: c.id,
         name: c.name,
         slug: c.slug,
+        mission: c.mission,
+        vision: c.vision,
         role: m.role,
         requireTwoFactor: c.requireTwoFactor,
       };
@@ -56,7 +58,12 @@ companiesRouter.get("/", async (req, res) => {
   res.json(out);
 });
 
-const createSchema = z.object({ name: z.string().min(1).max(80) });
+const companyProfileField = z.string().trim().max(2_000).default("");
+const createSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  mission: companyProfileField,
+  vision: companyProfileField,
+});
 
 async function uniqueSlug(base: string): Promise<string> {
   const repo = AppDataSource.getRepository(Company);
@@ -73,11 +80,18 @@ companiesRouter.post("/", validateBody(createSchema), async (req, res) => {
   if (config.security.multiTenant && !req.user!.emailVerifiedAt) {
     return res.status(403).json({ error: "Verify your email before creating a company" });
   }
-  const { name } = req.body as z.infer<typeof createSchema>;
+  const { name, mission, vision } = req.body as z.infer<typeof createSchema>;
   const coRepo = AppDataSource.getRepository(Company);
   const memRepo = AppDataSource.getRepository(Membership);
   const slug = await uniqueSlug(toSlug(name));
-  const co = coRepo.create({ name, slug, ownerId: req.userId!, requireTwoFactor: false });
+  const co = coRepo.create({
+    name,
+    slug,
+    ownerId: req.userId!,
+    mission,
+    vision,
+    requireTwoFactor: false,
+  });
   await coRepo.save(co);
   await memRepo.save(memRepo.create({ companyId: co.id, userId: req.userId!, role: "owner" }));
   // Every company needs a default notebook so the create-note flow has a
@@ -87,6 +101,8 @@ companiesRouter.post("/", validateBody(createSchema), async (req, res) => {
     id: co.id,
     name: co.name,
     slug: co.slug,
+    mission: co.mission,
+    vision: co.vision,
     role: "owner",
     requireTwoFactor: co.requireTwoFactor,
   });
@@ -99,6 +115,8 @@ companiesRouter.get("/:cid", requireCompanyMember, async (req, res) => {
     id: co.id,
     name: co.name,
     slug: co.slug,
+    mission: co.mission,
+    vision: co.vision,
     requireTwoFactor: co.requireTwoFactor,
   });
 });
@@ -107,11 +125,19 @@ const patchSchema = z
   .object({
     name: z.string().min(1).max(80).optional(),
     slug: z.string().min(1).max(80).optional(),
+    mission: z.string().trim().max(2_000).optional(),
+    vision: z.string().trim().max(2_000).optional(),
     requireTwoFactor: z.boolean().optional(),
   })
-  .refine((v) => v.name !== undefined || v.slug !== undefined || v.requireTwoFactor !== undefined, {
-    message: "Provide name, slug, or a two-factor policy",
-  });
+  .refine(
+    (v) =>
+      v.name !== undefined ||
+      v.slug !== undefined ||
+      v.mission !== undefined ||
+      v.vision !== undefined ||
+      v.requireTwoFactor !== undefined,
+    { message: "Provide a company profile field or a two-factor policy" },
+  );
 
 companiesRouter.patch(
   "/:cid",
@@ -126,6 +152,8 @@ companiesRouter.patch(
     const body = req.body as z.infer<typeof patchSchema>;
 
     if (body.name !== undefined) co.name = body.name;
+    if (body.mission !== undefined) co.mission = body.mission;
+    if (body.vision !== undefined) co.vision = body.vision;
 
     if (body.requireTwoFactor !== undefined) {
       if (body.requireTwoFactor && !(await hasTwoFactorMethod(req.userId!))) {
@@ -169,6 +197,8 @@ companiesRouter.patch(
       id: co.id,
       name: co.name,
       slug: co.slug,
+      mission: co.mission,
+      vision: co.vision,
       requireTwoFactor: co.requireTwoFactor,
     });
   },
@@ -340,10 +370,9 @@ companiesRouter.delete("/:cid/members/:uid", requireCompanyMember, async (req, r
         userId: uid,
       });
     }
-    await manager.getRepository(ApiKey).update(
-      { companyId: cid, userId: uid },
-      { revokedAt: new Date() },
-    );
+    await manager
+      .getRepository(ApiKey)
+      .update({ companyId: cid, userId: uid }, { revokedAt: new Date() });
     await manager.getRepository(Notification).delete({ companyId: cid, userId: uid });
     await manager.getRepository(Membership).delete({ companyId: cid, userId: uid });
   });

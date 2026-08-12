@@ -6,6 +6,8 @@ const Company = z
     id: z.string().uuid(),
     name: z.string(),
     slug: z.string(),
+    mission: z.string(),
+    vision: z.string(),
     role: z.enum(["owner", "admin", "member"]).optional(),
     requireTwoFactor: z.boolean(),
   })

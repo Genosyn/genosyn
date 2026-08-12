@@ -1,5 +1,5 @@
 import React from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   ArrowRight,
@@ -14,6 +14,7 @@ import {
   Megaphone,
   PenTool,
   Phone,
+  Rocket,
   Search,
   Sparkles,
   UserRound,
@@ -31,6 +32,7 @@ import { FormError } from "../components/ui/FormError";
 import { clsx } from "../components/ui/clsx";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { EmployeeModelSection } from "./employeeTabs";
+import { RecommendationsStep } from "./onboarding/RecommendationsStep";
 
 const TEMPLATE_ICONS: Record<string, React.ReactNode> = {
   "executive-assistant": <CalendarCheck size={14} />,
@@ -62,7 +64,7 @@ function groupTemplatesByCategory(templates: EmployeeTemplate[]): [string, Emplo
   return Array.from(groups.entries());
 }
 
-type Step = "basics" | "model" | "about" | "soul";
+type Step = "basics" | "model" | "about" | "soul" | "launch";
 
 type SoulAnswers = {
   mission: string;
@@ -120,16 +122,18 @@ function defaultAnswers(role: string): SoulAnswers {
 }
 
 /**
- * Hiring flow. Four steps:
+ * Hiring flow. Five steps:
  *  1. Basics — pick a template (or blank) and set name + role.
  *  2. Connect a brain — pick the AI model that powers this employee and add an
  *     API key (or a custom endpoint). Can be skipped and done later from settings.
  *  3. About — a handful of questions that shape the Soul (tone, autonomy,
  *     hard "no"s, reference material). All optional.
- *  4. Review the Soul — preview + edit the generated Soul markdown before
- *     finishing. Falls back to the template's soul when the operator
+ *  4. Review the Soul — preview + edit the generated Soul markdown. Falls
+ *     back to the template's soul when the operator
  *     skipped the About step. The Soul body lives on the employee row;
  *     this step round-trips through PUT /employees/:eid/soul.
+ *  5. Launch — pick context-aware Routines and connect the Integrations that
+ *     make this role useful immediately.
  *
  * The employee row is created at the end of step 1 so the model connect
  * step in step 2 has a real employee slug to target. If the operator
@@ -137,14 +141,22 @@ function defaultAnswers(role: string): SoulAnswers {
  * defaults — they can continue from the settings page.
  */
 export default function EmployeeNew({ company }: { company: Company }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const resumeEmployeeId =
+    searchParams.get("step") === "launch" ? searchParams.get("employee") : null;
+  const resumeTemplateId = resumeEmployeeId ? searchParams.get("template") : null;
+  const resumedFromUrl = React.useRef(resumeEmployeeId !== null).current;
   const [templates, setTemplates] = React.useState<EmployeeTemplate[] | null>(null);
   const [selected, setSelected] = React.useState<string | null>(null);
   const [name, setName] = React.useState("");
   const [role, setRole] = React.useState("");
-  const [step, setStep] = React.useState<Step>("basics");
+  const [step, setStep] = React.useState<Step>(resumeEmployeeId ? "launch" : "basics");
   const [creating, setCreating] = React.useState(false);
   const [finishing, setFinishing] = React.useState(false);
   const [emp, setEmp] = React.useState<Employee | null>(null);
+  const employeeRef = React.useRef<Employee | null>(null);
+  const [resumingLaunch, setResumingLaunch] = React.useState(resumeEmployeeId !== null);
+  const [resumeError, setResumeError] = React.useState<string | null>(null);
   const [answers, setAnswers] = React.useState<SoulAnswers>(EMPTY_ANSWERS);
   const [soul, setSoul] = React.useState<string>("");
   const [basicsError, setBasicsError] = React.useState<string | null>(null);
@@ -159,6 +171,39 @@ export default function EmployeeNew({ company }: { company: Company }) {
       .then(setTemplates)
       .catch(() => setTemplates([]));
   }, []);
+
+  React.useEffect(() => {
+    if (!resumeEmployeeId) return;
+    if (employeeRef.current?.id === resumeEmployeeId) {
+      setStep("launch");
+      setResumingLaunch(false);
+      return;
+    }
+
+    let cancelled = false;
+    setResumingLaunch(true);
+    setResumeError(null);
+    api
+      .get<Employee>(`/api/companies/${company.id}/employees/${resumeEmployeeId}`)
+      .then((employee) => {
+        if (cancelled) return;
+        employeeRef.current = employee;
+        setEmp(employee);
+        setName(employee.name);
+        setRole(employee.role);
+        setSelected(resumeTemplateId);
+        setStep("launch");
+      })
+      .catch((error) => {
+        if (!cancelled) setResumeError((error as Error).message);
+      })
+      .finally(() => {
+        if (!cancelled) setResumingLaunch(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [company.id, resumeEmployeeId, resumeTemplateId]);
 
   function pick(t: EmployeeTemplate | null) {
     setSelected(t?.id ?? null);
@@ -185,6 +230,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
         role,
         templateId: selected ?? undefined,
       });
+      employeeRef.current = created;
       setEmp(created);
       setStep("model");
     } catch (err) {
@@ -238,7 +284,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
     setStep("soul");
   }
 
-  async function finish() {
+  async function saveSoulAndLaunch() {
     if (!emp) return;
     setFinishError(null);
     setFinishing(true);
@@ -246,8 +292,11 @@ export default function EmployeeNew({ company }: { company: Company }) {
       await api.put(`/api/companies/${company.id}/employees/${emp.id}/soul`, {
         content: soul,
       });
-      toast(`${emp.name} hired`, "success");
-      navigate(`/c/${companySlug}/employees/${emp.slug}`);
+      toast(`${emp.name}'s Soul is ready`, "success");
+      const next = new URLSearchParams({ step: "launch", employee: emp.id });
+      if (selected) next.set("template", selected);
+      setSearchParams(next, { replace: true });
+      setStep("launch");
     } catch (err) {
       setFinishError((err as Error).message);
     } finally {
@@ -259,6 +308,12 @@ export default function EmployeeNew({ company }: { company: Company }) {
     navigate(`/c/${companySlug}/employees`);
   }
 
+  function finish() {
+    if (!emp) return;
+    toast(`${emp.name} hired`, "success");
+    navigate(`/c/${companySlug}/employees/${emp.slug}`);
+  }
+
   return (
     <>
       <div className="mb-3">
@@ -268,9 +323,33 @@ export default function EmployeeNew({ company }: { company: Company }) {
       </div>
       <TopBar title="Hire an AI Employee" />
 
-      <Stepper current={step} hasEmployee={!!emp} onJump={setStep} />
+      {!resumedFromUrl && <Stepper current={step} hasEmployee={!!emp} onJump={setStep} />}
 
-      {step === "basics" && (
+      {resumingLaunch && (
+        <Card>
+          <CardBody
+            className="flex min-h-56 flex-col items-center justify-center gap-3 p-8 text-center"
+            role="status"
+            aria-live="polite"
+          >
+            <Spinner size={24} />
+            <p className="text-sm text-slate-500 dark:text-slate-400">Restoring the launch plan…</p>
+          </CardBody>
+        </Card>
+      )}
+
+      {!resumingLaunch && resumeError && (
+        <Card>
+          <CardBody className="p-6">
+            <FormError message={`This launch plan is no longer available. ${resumeError}`} />
+            <Button className="mt-4" variant="secondary" onClick={cancel}>
+              Back to AI Employees
+            </Button>
+          </CardBody>
+        </Card>
+      )}
+
+      {!resumingLaunch && !resumeError && step === "basics" && (
         <BasicsStep
           templates={templates}
           selected={selected}
@@ -288,7 +367,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
         />
       )}
 
-      {step === "model" && emp && (
+      {!resumingLaunch && !resumeError && step === "model" && emp && (
         <ModelStep
           company={company}
           emp={emp}
@@ -297,7 +376,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
         />
       )}
 
-      {step === "about" && emp && (
+      {!resumingLaunch && !resumeError && step === "about" && emp && (
         <AboutStep
           name={name}
           role={role}
@@ -308,7 +387,7 @@ export default function EmployeeNew({ company }: { company: Company }) {
         />
       )}
 
-      {step === "soul" && emp && (
+      {!resumingLaunch && !resumeError && step === "soul" && emp && (
         <SoulStep
           name={name}
           soul={soul}
@@ -316,8 +395,23 @@ export default function EmployeeNew({ company }: { company: Company }) {
           onChange={setSoul}
           onRegenerate={() => setSoul(generateSoul(name, role, selectedTemplate, answers))}
           onBack={() => setStep("about")}
-          onFinish={finish}
+          onFinish={saveSoulAndLaunch}
           finishing={finishing}
+        />
+      )}
+
+      {!resumingLaunch && !resumeError && step === "launch" && emp && (
+        <RecommendationsStep
+          company={company}
+          employee={emp}
+          templateId={selected}
+          onBack={
+            resumedFromUrl
+              ? () => navigate(`/c/${companySlug}/employees/${emp.slug}/settings/soul`)
+              : () => setStep("soul")
+          }
+          onContinue={finish}
+          continueLabel={`Finish — meet ${emp.name}`}
         />
       )}
     </>
@@ -331,6 +425,7 @@ const STEPS: { key: Step; label: string; icon: React.ReactNode }[] = [
   { key: "model", label: "Model", icon: <BrainCircuit size={14} /> },
   { key: "about", label: "About", icon: <Sparkles size={14} /> },
   { key: "soul", label: "Soul", icon: <Check size={14} /> },
+  { key: "launch", label: "Launch", icon: <Rocket size={14} /> },
 ];
 
 function Stepper({
@@ -366,6 +461,7 @@ function Stepper({
             )}
             <button
               type="button"
+              aria-current={active ? "step" : undefined}
               disabled={!reachable}
               onClick={() => reachable && onJump(s.key)}
               className={clsx(
@@ -748,7 +844,7 @@ function SoulStep({
               <h2 className="text-sm font-semibold">Review {name}&apos;s Soul</h2>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 This becomes {name}&apos;s constitution — the markdown {name} reads before every
-                task. Edit freely now, or later from settings.
+                request and Run. Edit freely now, or later from settings.
               </p>
             </div>
             <Button size="sm" variant="secondary" onClick={onRegenerate}>
@@ -764,7 +860,7 @@ function SoulStep({
       <StepNav
         onBack={onBack}
         onNext={onFinish}
-        nextLabel={finishing ? "Finishing…" : `Finish — meet ${name}`}
+        nextLabel={finishing ? "Saving…" : "Save Soul & build launch plan"}
         nextDisabled={finishing || soul.trim().length === 0}
       />
     </div>

@@ -20,7 +20,7 @@ import { Activity } from "../db/entities/Activity.js";
 import { Partnership } from "../db/entities/Partnership.js";
 import { RevenueDocument } from "../db/entities/RevenueDocument.js";
 import { RevenueImportBatch } from "../db/entities/RevenueImportBatch.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import {
   requireAuth,
   requireCompanyMember,
@@ -38,6 +38,11 @@ import { recordAudit } from "../services/audit.js";
 import { findTemplate } from "../services/templates.js";
 import { archiveEmployeeDirectMessages } from "../services/workspaceChat.js";
 import {
+  applyRoutineRecommendations,
+  findRoutineRecommendationDefinition,
+  loadOnboardingRecommendations,
+} from "../services/onboardingRecommendations.js";
+import {
   avatarAbsPath,
   avatarUploadMiddleware,
   mimeFromKey,
@@ -49,7 +54,10 @@ export const employeesRouter = Router({ mergeParams: true });
 employeesRouter.use(requireAuth);
 employeesRouter.use(requireCompanyMember);
 employeesRouter.use(
-  onRoutePaths([/^\/$/, /^\/[^/]+(?:\/soul|\/avatar)?$/], requireCompanyRoleForMutations("admin")),
+  onRoutePaths(
+    [/^\/$/, /^\/[^/]+(?:\/soul|\/avatar)?$/, /^\/[^/]+\/onboarding-recommendations\/routines$/],
+    requireCompanyRoleForMutations("admin"),
+  ),
 );
 
 async function loadCompany(cid: string): Promise<Company | null> {
@@ -201,6 +209,87 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   });
   res.json(emp);
 });
+
+const onboardingRecommendationQuerySchema = z.object({
+  templateId: z.string().min(1).max(80).optional(),
+});
+const onboardingRecommendationParamsSchema = z.object({
+  cid: z.string().uuid(),
+  eid: z.string().uuid(),
+});
+
+employeesRouter.get(
+  "/:eid/onboarding-recommendations",
+  validateParams(onboardingRecommendationParamsSchema),
+  async (req, res) => {
+    const query = onboardingRecommendationQuerySchema.safeParse(req.query);
+    if (!query.success) {
+      return res.status(400).json({ error: "ValidationError", issues: query.error.issues });
+    }
+    if (query.data.templateId && !findTemplate(query.data.templateId)) {
+      return res.status(400).json({ error: "Unknown template" });
+    }
+
+    const cid = (req.params as Record<string, string>).cid;
+    const [company, employee] = await Promise.all([
+      loadCompany(cid),
+      AppDataSource.getRepository(AIEmployee).findOneBy({
+        id: req.params.eid,
+        companyId: cid,
+      }),
+    ]);
+    if (!company) return res.status(404).json({ error: "Company not found" });
+    if (!employee) return res.status(404).json({ error: "Not found" });
+
+    res.json(
+      await loadOnboardingRecommendations({
+        company,
+        employee,
+        templateId: query.data.templateId,
+      }),
+    );
+  },
+);
+
+const applyRoutineRecommendationsSchema = z.object({
+  recommendationIds: z.array(z.string().min(1).max(100)).min(1).max(5),
+});
+
+employeesRouter.post(
+  "/:eid/onboarding-recommendations/routines",
+  validateParams(onboardingRecommendationParamsSchema),
+  validateBody(applyRoutineRecommendationsSchema),
+  async (req, res) => {
+    const body = req.body as z.infer<typeof applyRoutineRecommendationsSchema>;
+    const invalidIds = [...new Set(body.recommendationIds)].filter(
+      (id) => !findRoutineRecommendationDefinition(id),
+    );
+    if (invalidIds.length > 0) {
+      return res.status(400).json({
+        error: `Unknown Routine recommendation: ${invalidIds.join(", ")}`,
+      });
+    }
+
+    const cid = (req.params as Record<string, string>).cid;
+    const [company, employee] = await Promise.all([
+      loadCompany(cid),
+      AppDataSource.getRepository(AIEmployee).findOneBy({
+        id: req.params.eid,
+        companyId: cid,
+      }),
+    ]);
+    if (!company) return res.status(404).json({ error: "Company not found" });
+    if (!employee) return res.status(404).json({ error: "Not found" });
+
+    const result = await applyRoutineRecommendations({
+      company,
+      employee,
+      recommendationIds: body.recommendationIds,
+      actorUserId: req.userId ?? null,
+    });
+    res.json(result);
+  },
+);
 
 employeesRouter.get("/:eid", async (req, res) => {
   const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({

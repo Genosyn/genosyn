@@ -117,27 +117,43 @@ export function Employees() {
       <H2 id="lifecycle">Lifecycle</H2>
       <OL>
         <LI>
-          <Strong>Create.</Strong> Pick a template (a starter Soul + Skill set) or start blank. The
-          slug freezes; you can rename freely afterward.
-        </LI>
-        <LI>
-          <Strong>Write the Soul.</Strong> The app drops you into the Soul editor with a seeded
-          constitution. Rewrite it to fit your team.
+          <Strong>Create.</Strong> Pick a template (a starter Soul, Skill set, and sometimes starter
+          Routines) or start blank. The slug freezes; you can rename freely afterward.
         </LI>
         <LI>
           <Strong>Attach a model.</Strong> Pick a provider and authentication method. Anthropic
           takes an API key; OpenAI takes an API key or, on self-hosted Genosyn, eligible ChatGPT
-          subscription access; Custom takes an OpenAI-compatible endpoint.
+          subscription access; Custom takes an OpenAI-compatible endpoint. You can skip this and
+          connect one later.
         </LI>
         <LI>
-          <Strong>Add skills + routines.</Strong> Skills describe what they know; Routines describe
-          when they work.
+          <Strong>Write the Soul.</Strong> Answer the short About questions, then review the seeded
+          constitution and rewrite it to fit your team.
+        </LI>
+        <LI>
+          <Strong>Review the Launch plan.</Strong> Genosyn uses the role, chosen template, and
+          company mission and vision to show dynamic Routine and Integration recommendations.
+          Template-created Routines appear as <Strong>Ready</Strong>; new suggestions remain opt-in
+          until you select them and choose <Strong>Add selected Routines</Strong>.
+        </LI>
+        <LI>
+          <Strong>Connect the work.</Strong> Integration cards distinguish between Connect, Grant
+          needed, Attention, and Ready. A Connection alone does not give the AI Employee access; it
+          still needs an explicit Grant.
         </LI>
         <LI>
           <Strong>Fire.</Strong> Deleting an employee removes their DB rows, including the encrypted
           credential row for every model they held. There&apos;s no shared key to revoke.
         </LI>
       </OL>
+
+      <Callout kind="tip" title="The Launch plan appears after every hire.">
+        The first-company guide opens it between the AI Employee and Email steps. The regular{" "}
+        <Strong>AI → Employees → Hire AI Employee</Strong> flow opens it after the Soul review. Both
+        use the same recommendation rules, and both can be skipped. Suggestions never overwrite an
+        existing Routine or create a duplicate; skipping creates no Routines, Connections, or
+        Grants. See <DocLink to="/docs/getting-started">Getting started</DocLink> for the full flow.
+      </Callout>
 
       <H2 id="working-directory">Working directory</H2>
       <P>Each employee gets their own folder on disk under the company:</P>

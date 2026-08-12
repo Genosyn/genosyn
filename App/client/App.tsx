@@ -274,6 +274,14 @@ function AuthedRoutes({
     <Routes>
       <Route path="/invite/:token" element={<Invite />} />
       <Route path="/" element={<Navigate to={`/c/${companies[0].slug}`} replace />} />
+      {/* Creating the first company refreshes auth while the browser is still
+        on `/onboarding`. Preserve that intent across the route-tree swap so
+        the new company opens its guided launch instead of briefly falling
+        through to the company home. */}
+      <Route
+        path="/onboarding"
+        element={<Navigate to={`/c/${companies[0].slug}/onboarding`} replace />}
+      />
       <Route
         path="/c/:companySlug/*"
         element={<CompanyRoutes me={me} companies={companies} onChanged={onChanged} />}
