@@ -6,6 +6,7 @@ import type { AgentMessage, AgentTool, StreamCallbacks } from "./types.js";
 import { formatModelError } from "./modelError.js";
 import {
   createParallelDelegationTool,
+  delegatedSystemPrompt,
   MAX_DELEGATIONS_PER_TURN,
   supportsParallelDelegation,
   type DelegatedBrief,
@@ -95,19 +96,17 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
   const delegationDepth = params.delegationDepth ?? 0;
   const delegationBudget = params.delegationBudget ?? { remaining: MAX_DELEGATIONS_PER_TURN };
   const localTools: AgentTool[] = [...(params.extraTools ?? [])];
-  if (delegationDepth === 0) {
-    if (params.callbacks?.onProgress) {
-      localTools.push(createChatProgressTool(params.callbacks.onProgress));
-    }
-    if (supportsParallelDelegation(params.model.authMode)) {
-      localTools.push(
-        createParallelDelegationTool({
-          budget: delegationBudget,
-          signal: params.signal,
-          runBrief: (brief) => runDelegatedBrief(params, brief, delegationBudget),
-        }),
-      );
-    }
+  if (delegationDepth === 0 && params.callbacks?.onProgress) {
+    localTools.push(createChatProgressTool(params.callbacks.onProgress));
+  }
+  if (supportsParallelDelegation(params.model.authMode, delegationDepth)) {
+    localTools.push(
+      createParallelDelegationTool({
+        budget: delegationBudget,
+        signal: params.signal,
+        runBrief: (brief) => runDelegatedBrief(params, brief, delegationBudget),
+      }),
+    );
   }
 
   if (params.model.authMode === "subscription") {
@@ -286,17 +285,6 @@ async function runDelegatedBrief(
     status: "completed",
     output: result.finalText.trim() || "(worker completed without a text result)",
   };
-}
-
-function delegatedSystemPrompt(parentSystem: string, label: string): string {
-  return [
-    parentSystem,
-    "",
-    "## Temporary parallel worker",
-    `You are handling the delegated brief ${JSON.stringify(label)} as a temporary copy of the parent AI Employee.`,
-    "Work only on this brief. You do not receive the parent conversation, so rely on the self-contained instruction below.",
-    "Use your tools when needed, but do not create a Handoff or try to delegate again. Return a concise, factual result with evidence the parent can verify and synthesize.",
-  ].join("\n");
 }
 
 function delegatedUserMessage(brief: DelegatedBrief): string {

@@ -213,10 +213,39 @@ Post it to the #morning channel.`}</Pre>
 3. Review merged GitHub pull requests for customer-visible changes.
 
 Verify the three results, resolve any disagreement, then post one concise brief to #launch.`}</Pre>
+      <H3 id="github-issue-subagents">Copy/paste: one worker per GitHub issue</H3>
+      <P>
+        Before using this example, connect GitHub, allowlist the repository, and give the AI
+        employee a Grant to that Connection. See{" "}
+        <DocLink to="/docs/integrations#github-engineering">GitHub &amp; engineering grants</DocLink>.
+      </P>
+      <Pre lang="markdown">{`Triage up to 12 open GitHub issues in acme/widgets.
+
+Please use subagents for this task. Use one subagent for each GitHub issue.
+
+First list the open issues and ignore pull requests. Give each temporary worker one issue number,
+its title and body, and ask it to identify the likely cause, affected area, severity, missing
+information, and a recommended next step. Verify the returned findings, then produce one table
+ordered by severity with links to the issues.
+
+This is read-only triage. Do not edit files, create branches, commit, push, or comment on issues.`}</Pre>
+      <P>
+        Replace <Code>acme/widgets</Code> with the allowlisted repository. The sentence about
+        subagents is ordinary Routine instructions, not special syntax: the AI Model plans the
+        work and calls <Code>delegate_parallel_work</Code> when that tool is available and the
+        issue briefs are independent. Confirm the call in the Run log. If delegation is unavailable
+        or unsafe, the employee should explain the constraint and continue serially.
+      </P>
+      <Callout kind="warn" title="Keep one-worker-per-issue work read-only.">
+        Temporary workers share one checkout. Issue research and triage can run safely in parallel;
+        concurrent code edits, branches, commits, pushes, or other git operations in that checkout
+        can conflict. Use separate Runs or a deliberately partitioned workflow for implementation.
+      </Callout>
       <UL>
         <LI>
           A delegation call accepts up to eight briefs, runs at most four at a time, and a top-level
-          turn can delegate twelve briefs in total. Temporary workers cannot delegate again.
+          turn can delegate twelve briefs in total. Temporary workers cannot delegate again. For
+          more than twelve issues, narrow the filter or split the review across separate Runs.
         </LI>
         <LI>
           Workers receive only their self-contained brief, not the parent chat history. Include the

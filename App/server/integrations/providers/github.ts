@@ -178,6 +178,62 @@ function requireOwnerRepo(args: Record<string, unknown>): {
   };
 }
 
+/**
+ * GitHub's repository issues endpoint also returns pull requests. The REST
+ * payload distinguishes them by adding a `pull_request` property, so keep the
+ * Integration tool's issue-only contract explicit at this boundary.
+ */
+function issueRows(payload: unknown): unknown[] {
+  if (!Array.isArray(payload)) {
+    throw new Error(
+      "GitHub returned an invalid response while listing issues (expected an array).",
+    );
+  }
+  return payload.filter(
+    (item) =>
+      !(
+        item !== null &&
+        typeof item === "object" &&
+        Object.prototype.hasOwnProperty.call(item, "pull_request")
+      ),
+  );
+}
+
+const MAX_ISSUE_API_PAGES_PER_REQUEST = 10;
+
+/**
+ * Return a logical page of issues even though GitHub paginates issues and pull
+ * requests together. Scan only the API pages needed to fill the requested
+ * issue page, with a hard cap so a PR-only repository cannot create an
+ * unbounded request fan-out.
+ */
+async function listIssues(
+  accessToken: string,
+  owner: string,
+  repo: string,
+  query: Record<string, string | number>,
+): Promise<unknown[]> {
+  const perPage = Number(query.per_page);
+  const logicalPage = Number(query.page);
+  const apiPerPage = 100;
+  const start = (logicalPage - 1) * perPage;
+  const end = start + perPage;
+  const issues: unknown[] = [];
+
+  for (let apiPage = 1; apiPage <= MAX_ISSUE_API_PAGES_PER_REQUEST; apiPage += 1) {
+    const payload = await githubFetch(
+      accessToken,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`,
+      { query: { ...query, per_page: apiPerPage, page: apiPage } },
+    );
+    const rows = payload as unknown[];
+    issues.push(...issueRows(rows));
+    if (issues.length >= end || rows.length < apiPerPage) break;
+  }
+
+  return issues.slice(start, end);
+}
+
 export const githubProvider: IntegrationProvider = {
   catalog: {
     provider: "github",
@@ -316,8 +372,7 @@ export const githubProvider: IntegrationProvider = {
     },
     {
       name: "list_issues",
-      description:
-        "List issues in a repo. Excludes pull requests by default. Use `state` to filter.",
+      description: "List issues in a repo. Excludes pull requests. Use `state` to filter.",
       inputSchema: {
         type: "object",
         properties: {
@@ -649,11 +704,7 @@ export const githubProvider: IntegrationProvider = {
         if (typeof a.assignee === "string") query.assignee = a.assignee;
         if (typeof a.creator === "string") query.creator = a.creator;
         if (typeof a.since === "string") query.since = a.since;
-        return githubFetch(
-          accessToken,
-          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`,
-          { query },
-        );
+        return listIssues(accessToken, owner, repo, query);
       }
 
       case "get_issue": {

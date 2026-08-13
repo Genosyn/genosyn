@@ -14,12 +14,42 @@ export type DelegationBudget = { remaining: number };
 /**
  * Managed ChatGPT credentials can rotate, so subscription turns serialize on
  * one model lock. A parent cannot wait on a delegated copy that is waiting for
- * that same lock.
+ * that same lock. Temporary workers also pass a non-zero depth so delegation
+ * remains one level deep.
  */
 export function supportsParallelDelegation(
   authMode: "apikey" | "subscription" | "customEndpoint",
+  delegationDepth = 0,
 ): boolean {
-  return authMode !== "subscription";
+  return authMode !== "subscription" && delegationDepth === 0;
+}
+
+/** Build a worker prompt without claiming that one-level delegation is recursive. */
+export function delegatedSystemPrompt(parentSystem: string, label: string): string {
+  const workerSystem = parentSystem
+    .split("\n")
+    .map(stripGeneratedDelegationReference)
+    .filter((line): line is string => line !== null)
+    .join("\n");
+  return [
+    workerSystem,
+    "",
+    "## Temporary parallel worker",
+    `You are handling the delegated brief ${JSON.stringify(label)} as a temporary copy of the parent AI Employee.`,
+    "Work only on this brief. You do not receive the parent conversation, so rely on the self-contained instruction below.",
+    "Use your tools when needed, but do not create a Handoff or try to delegate again. Return a concise, factual result with evidence the parent can verify and synthesize.",
+  ].join("\n");
+}
+
+function stripGeneratedDelegationReference(line: string): string | null {
+  if (line.startsWith("- Parallel delegation: `delegate_parallel_work`")) return null;
+  if (!line.startsWith("_Tools: ")) return line;
+
+  const tools = line
+    .slice("_Tools: ".length, line.endsWith("_") ? -1 : undefined)
+    .split(", ")
+    .filter((tool) => tool !== "`delegate_parallel_work`");
+  return tools.length > 0 ? `_Tools: ${tools.join(", ")}_` : null;
 }
 
 export type DelegatedBrief = {

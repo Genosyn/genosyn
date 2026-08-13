@@ -172,7 +172,11 @@ export function toolsBriefing(
       "- Parallel delegation: `delegate_parallel_work` runs independent briefs concurrently as " +
         "temporary copies of you, then returns their results for you to verify and synthesize. " +
         "Prefer independent research, analysis, and API calls. Workers share your working " +
-        "directory, so partition file-writing briefs explicitly and never overlap git operations.",
+        "directory, so partition file-writing briefs explicitly and never overlap git operations. " +
+        "When a Member or Routine explicitly asks to use subagents, parallel workers, or one " +
+        "worker per independent item, honor that request by calling `delegate_parallel_work` " +
+        "instead of merely saying you delegated. If the work cannot be split safely within the " +
+        "tool's limits, explain the constraint and use a safe serial plan.",
     );
   }
 
