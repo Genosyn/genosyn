@@ -5,8 +5,8 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import {
   decryptConnectionConfig,
-  encryptConnectionConfig,
   loadEmployeeConnections,
+  persistConnectionConfigIfCurrent,
 } from "./integrations.js";
 import { readGithubRepos, resolveGithubCredentials } from "../integrations/providers/github.js";
 import {
@@ -150,6 +150,7 @@ async function syncConnection(
   cwd: string,
   result: RepoSyncResult,
 ): Promise<void> {
+  const credentialSnapshot = connection.encryptedConfig;
   const cfg = decryptConnectionConfig(connection);
   const creds = await resolveGithubCredentials(cfg, connection.authMode);
   if (!creds) {
@@ -165,14 +166,18 @@ async function syncConnection(
   // Persist refreshed OAuth config (token rotation) before we hand the
   // refreshed token to git.
   if (creds.refreshedConfig) {
-    connection.encryptedConfig = encryptConnectionConfig(
-      creds.refreshedConfig,
-      connection.companyId,
-    );
-    connection.lastCheckedAt = new Date();
-    connection.status = "connected";
-    connection.statusMessage = "";
-    await AppDataSource.getRepository(IntegrationConnection).save(connection);
+    const persisted = await persistConnectionConfigIfCurrent({
+      connectionId: connection.id,
+      companyId: connection.companyId,
+      previousEncryptedConfig: credentialSnapshot,
+      config: creds.refreshedConfig,
+      healthy: true,
+    });
+    if (!persisted) {
+      throw new Error(
+        "GitHub Connection changed while its credentials were refreshing. Retry repository sync.",
+      );
+    }
   }
 
   const repos = readGithubRepos(cfg, connection.authMode);

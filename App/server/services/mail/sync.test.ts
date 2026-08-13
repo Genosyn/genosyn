@@ -15,6 +15,7 @@ import type { GmailMessage } from "./gmailClient.js";
 import { upsertGmailMessage } from "./store.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
 import {
+  MailSyncPausedError,
   parseBackfillCursor,
   queueAccountSync,
   serializeBackfillCursor,
@@ -57,7 +58,7 @@ async function activeAccount(): Promise<MailAccount> {
         accessToken: "access",
         refreshToken: "refresh",
         expiresAt: Date.now() + 60 * 60 * 1000,
-        scope: "https://www.googleapis.com/auth/gmail.readonly",
+        scope: "https://www.googleapis.com/auth/gmail.modify",
         email: "owner@example.com",
       },
       companyId,
@@ -74,8 +75,8 @@ async function activeAccount(): Promise<MailAccount> {
   });
 }
 
-async function waitForTerminal(accountId: string): Promise<MailAccount> {
-  const deadline = Date.now() + 3_000;
+async function waitForTerminal(accountId: string, timeoutMs = 3_000): Promise<MailAccount> {
+  const deadline = Date.now() + timeoutMs;
   for (;;) {
     const account = await AppDataSource.getRepository(MailAccount).findOneByOrFail({
       id: accountId,
@@ -185,6 +186,59 @@ describe("mail backfill cursor", () => {
 });
 
 describe("mail sync lifecycle", () => {
+  test("rejects a paused mailbox without making a Gmail request or creating an attempt", async () => {
+    const account = await activeAccount();
+    await AppDataSource.getRepository(MailAccount).update(account.id, {
+      status: "paused",
+      syncState: "idle",
+      syncAttemptId: null,
+    });
+    let gmailCalls = 0;
+    globalThis.fetch = (async () => {
+      gmailCalls += 1;
+      return json({});
+    }) as typeof fetch;
+
+    await assert.rejects(queueAccountSync(account.id), MailSyncPausedError);
+
+    const unchanged = await AppDataSource.getRepository(MailAccount).findOneByOrFail({
+      id: account.id,
+    });
+    assert.equal(gmailCalls, 0);
+    assert.equal(unchanged.status, "paused");
+    assert.equal(unchanged.syncState, "idle");
+    assert.equal(unchanged.syncAttemptId, null);
+  });
+
+  test("resumes a durable queued attempt with the same id after process recovery", async () => {
+    const account = await activeAccount();
+    await AppDataSource.getRepository(MailAccount).update(account.id, {
+      syncState: "queued",
+      syncAttemptId: "attempt-before-restart",
+      syncStartedAt: new Date("2026-08-13T10:01:00Z"),
+      syncFinishedAt: null,
+    });
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/labels")) return json({ labels: [] });
+      if (url.pathname.endsWith("/history")) {
+        return json({ history: [], historyId: "history-after-restart" });
+      }
+      throw new Error(`Unexpected Gmail request: ${url}`);
+    }) as typeof fetch;
+
+    const accepted = await queueAccountSync(account.id);
+    assert.deepEqual(accepted, {
+      attemptId: "attempt-before-restart",
+      state: "queued",
+      coalesced: true,
+    });
+    const finished = await waitForTerminal(account.id);
+    assert.equal(finished.syncAttemptId, "attempt-before-restart");
+    assert.equal(finished.syncState, "succeeded");
+    assert.equal(finished.historyId, "history-after-restart");
+  });
+
   test("coalesces concurrent requests and records an explicit success", async () => {
     const account = await activeAccount();
     let labelsCalls = 0;
@@ -235,6 +289,161 @@ describe("mail sync lifecycle", () => {
     assert.equal(finished.statusMessage, "Access revoked");
     assert.equal(finished.lastSyncAt?.toISOString(), previousSuccess);
     assert.ok(finished.syncFinishedAt);
+  });
+
+  test("a successful retry clears the prior error and advances only the success timestamp", async () => {
+    const account = await activeAccount();
+    const previousSuccess = account.lastSyncAt!;
+    await AppDataSource.getRepository(MailAccount).update(account.id, {
+      status: "error",
+      statusMessage: "Gmail did not respond in time",
+      syncState: "failed",
+      syncFinishedAt: new Date("2026-08-13T10:05:00Z"),
+    });
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/labels")) return json({ labels: [] });
+      if (url.pathname.endsWith("/history")) {
+        return json({ history: [], historyId: "history-recovered" });
+      }
+      throw new Error(`Unexpected Gmail request: ${url}`);
+    }) as typeof fetch;
+
+    await queueAccountSync(account.id);
+    const recovered = await waitForTerminal(account.id);
+
+    assert.equal(recovered.syncState, "succeeded");
+    assert.equal(recovered.status, "active");
+    assert.equal(recovered.statusMessage, "");
+    assert.equal(recovered.historyId, "history-recovered");
+    assert.ok(recovered.lastSyncAt && recovered.lastSyncAt > previousSuccess);
+  });
+
+  test("does not apply a partial history page or advance its cursor when a later page fails", async () => {
+    const account = await activeAccount();
+    let secondPageRecovers = false;
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/labels")) return json({ labels: [] });
+      if (url.pathname.endsWith("/history")) {
+        if (url.searchParams.get("pageToken") === "history-page-2") {
+          return secondPageRecovers
+            ? json({ history: [], historyId: "history-complete" })
+            : new Response(JSON.stringify({ error: { message: "History backend unavailable" } }), {
+                status: 503,
+                headers: { "content-type": "application/json", "retry-after": "0" },
+              });
+        }
+        return json({
+          historyId: "history-page-1",
+          nextPageToken: "history-page-2",
+          history: [
+            {
+              id: "history-event-1",
+              labelsAdded: [
+                {
+                  message: { id: "message-on-page-1", threadId: "thread-on-page-1" },
+                  labelIds: ["STARRED"],
+                },
+              ],
+            },
+          ],
+        });
+      }
+      if (url.pathname.endsWith("/messages/message-on-page-1")) {
+        return json(gmailMessage("message-on-page-1", "thread-on-page-1"));
+      }
+      if (url.pathname.endsWith("/drafts")) return json({ drafts: [] });
+      throw new Error(`Unexpected Gmail request: ${url}`);
+    }) as typeof fetch;
+
+    await queueAccountSync(account.id);
+    const failed = await waitForTerminal(account.id, 6_000);
+    assert.equal(failed.syncState, "failed");
+    assert.equal(failed.historyId, "history-1");
+    assert.equal(await AppDataSource.getRepository(MailMessage).count(), 0);
+
+    secondPageRecovers = true;
+    await queueAccountSync(account.id);
+    const recovered = await waitForTerminal(account.id);
+    assert.equal(recovered.syncState, "succeeded");
+    assert.equal(recovered.historyId, "history-complete");
+    assert.equal(await AppDataSource.getRepository(MailMessage).count(), 1);
+  });
+
+  test("an expired history cursor reanchors without blanking the current mirror", async () => {
+    const account = await activeAccount();
+    await upsertGmailMessage(account, gmailMessage("message-kept-during-reanchor", "thread-kept"));
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/labels")) return json({ labels: [] });
+      if (url.pathname.endsWith("/history")) {
+        return json({ error: { message: "History ID is too old" } }, 404);
+      }
+      throw new Error(`Unexpected Gmail request: ${url}`);
+    }) as typeof fetch;
+
+    await queueAccountSync(account.id);
+    const reanchoring = await waitForTerminal(account.id);
+
+    assert.equal(reanchoring.syncState, "succeeded");
+    assert.equal(reanchoring.historyId, "");
+    assert.equal(reanchoring.backfilledAt, null);
+    assert.equal(reanchoring.backfillPageToken, "");
+    assert.equal(reanchoring.backfilledCount, 0);
+    assert.equal(await AppDataSource.getRepository(MailMessage).count(), 1);
+    assert.equal(await AppDataSource.getRepository(MailThread).count(), 1);
+  });
+
+  test("persists a fresh history anchor even when the first mailbox listing fails", async () => {
+    const account = await activeAccount();
+    await AppDataSource.getRepository(MailAccount).update(account.id, {
+      historyId: "",
+      backfilledAt: null,
+      backfillPageToken: "",
+      lastSyncAt: null,
+    });
+    let listingRecovers = false;
+    const requestOrder: string[] = [];
+    globalThis.fetch = (async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/labels")) return json({ labels: [] });
+      if (url.pathname.endsWith("/profile")) {
+        requestOrder.push("profile");
+        return json({ emailAddress: account.address, historyId: "history-anchor" });
+      }
+      if (url.pathname.endsWith("/history")) {
+        requestOrder.push("history");
+        return json({ history: [], historyId: "history-after-anchor" });
+      }
+      if (url.pathname.endsWith("/threads")) {
+        requestOrder.push("threads");
+        return listingRecovers
+          ? json({ threads: [] })
+          : new Response(JSON.stringify({ error: { message: "Thread listing unavailable" } }), {
+              status: 503,
+              headers: { "content-type": "application/json", "retry-after": "0" },
+            });
+      }
+      if (url.pathname.endsWith("/drafts")) return json({ drafts: [] });
+      throw new Error(`Unexpected Gmail request: ${url}`);
+    }) as typeof fetch;
+
+    await queueAccountSync(account.id);
+    const failed = await waitForTerminal(account.id, 6_000);
+    assert.equal(failed.syncState, "failed");
+    assert.equal(failed.historyId, "history-anchor");
+    assert.equal(failed.backfilledAt, null);
+
+    listingRecovers = true;
+    requestOrder.length = 0;
+    await queueAccountSync(account.id);
+    const completed = await waitForTerminal(account.id);
+    assert.equal(completed.syncState, "succeeded");
+    assert.ok(completed.backfilledAt);
+    assert.equal(requestOrder[0], "history");
+    assert.equal(requestOrder.includes("profile"), false);
+    assert.ok(requestOrder.indexOf("history") < requestOrder.indexOf("threads"));
   });
 
   test("does not repeat inbound rules or Pipelines when Gmail history replays", async () => {

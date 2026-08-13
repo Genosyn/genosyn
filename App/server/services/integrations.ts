@@ -1,10 +1,16 @@
 import { In } from "typeorm";
+import type { EntityManager } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
+import { MailAccount } from "../db/entities/MailAccount.js";
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { encryptSecret, decryptSecret } from "../lib/secret.js";
-import { assertIntegrationAllowed, getProvider, providerSupportsApiKey } from "../integrations/index.js";
+import {
+  assertIntegrationAllowed,
+  getProvider,
+  providerSupportsApiKey,
+} from "../integrations/index.js";
 import {
   ApprovalRequiredError,
   type IntegrationConfig,
@@ -16,6 +22,9 @@ import { makeResourceAttachmentResolver } from "./resourceAttachments.js";
 import { makeConnectionCapabilityGate } from "./connectionCapabilities.js";
 import { makeAdSpendLedger } from "./adSpend.js";
 import { assertSafeOutboundConfig } from "../lib/outboundUrl.js";
+import { hasGoogleGmailMailboxScope } from "../integrations/providers/google/auth.js";
+
+const connectionCredentialTails = new Map<string, Promise<void>>();
 
 /**
  * Service layer for Integration Connections + Grants.
@@ -115,6 +124,123 @@ export function decryptConnectionConfig(c: IntegrationConnection): IntegrationCo
 
 export function encryptConnectionConfig(cfg: IntegrationConfig, companyId = "instance"): string {
   return encryptSecret(JSON.stringify(cfg), `company:${companyId}`);
+}
+
+/** Persist refreshed credentials only when the caller still holds the config
+ * snapshot it decrypted. A reconnect that landed while an API call was in
+ * flight wins the compare-and-swap instead of being overwritten by stale
+ * refresh tokens when that older call returns. */
+export async function persistConnectionConfigIfCurrent(args: {
+  connectionId: string;
+  companyId: string;
+  previousEncryptedConfig: string;
+  config: IntegrationConfig;
+  healthy?: boolean;
+}): Promise<string | null> {
+  const encryptedConfig = encryptConnectionConfig(args.config, args.companyId);
+  const values: Partial<IntegrationConnection> = {
+    encryptedConfig,
+  };
+  if (args.healthy) {
+    values.lastCheckedAt = new Date();
+    values.status = "connected";
+    values.statusMessage = "";
+  }
+  const result = await AppDataSource.getRepository(IntegrationConnection)
+    .createQueryBuilder()
+    .update()
+    .set(values)
+    .where("id = :connectionId", { connectionId: args.connectionId })
+    .andWhere('"companyId" = :companyId', { companyId: args.companyId })
+    .andWhere('"encryptedConfig" = :previousEncryptedConfig', {
+      previousEncryptedConfig: args.previousEncryptedConfig,
+    })
+    .execute();
+  return (result.affected ?? 0) === 1 ? encryptedConfig : null;
+}
+
+/** Start a short credential transaction with a real conditional write. The
+ * write holds the Connection row until commit on Postgres and the SQLite
+ * writer lock on self-hosted installs, so mailbox binding and reconnect use
+ * one cross-process ordering without keeping a transaction open over I/O. */
+export async function claimConnectionForCredentialWrite(
+  manager: EntityManager,
+  args: {
+    companyId: string;
+    connectionId: string;
+    expectedEncryptedConfig?: string;
+  },
+): Promise<IntegrationConnection | null> {
+  const repo = manager.getRepository(IntegrationConnection);
+  let update = repo
+    .createQueryBuilder()
+    .update()
+    .set({ updatedAt: new Date() })
+    .where("id = :connectionId", { connectionId: args.connectionId })
+    .andWhere('"companyId" = :companyId', { companyId: args.companyId });
+  if (args.expectedEncryptedConfig !== undefined) {
+    update = update.andWhere('"encryptedConfig" = :expectedEncryptedConfig', {
+      expectedEncryptedConfig: args.expectedEncryptedConfig,
+    });
+  }
+  const claimed = await update.execute();
+  if ((claimed.affected ?? 0) !== 1) return null;
+  return repo.findOneBy({ companyId: args.companyId, id: args.connectionId });
+}
+
+/** TypeORM's SQLite driver shares one QueryRunner, so two concurrent
+ * transactions in one process can become nested savepoints instead of
+ * blocking each other. Pair the database claim with this local gate; the DB
+ * write remains the cross-process lock, while this tail closes that
+ * same-process SQLite window. */
+export async function withConnectionCredentialMutation<T>(
+  connectionId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previous = connectionCredentialTails.get(connectionId) ?? Promise.resolve();
+  let release = (): void => undefined;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(() => current);
+  connectionCredentialTails.set(connectionId, tail);
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (connectionCredentialTails.get(connectionId) === tail) {
+      connectionCredentialTails.delete(connectionId);
+    }
+  }
+}
+
+async function persistConnectionStatusIfCurrent(args: {
+  connection: IntegrationConnection;
+  status: IntegrationConnection["status"];
+  statusMessage: string;
+  lastCheckedAt: Date;
+  config?: IntegrationConfig;
+}): Promise<boolean> {
+  const values: Partial<IntegrationConnection> = {
+    status: args.status,
+    statusMessage: args.statusMessage,
+    lastCheckedAt: args.lastCheckedAt,
+  };
+  if (args.config) {
+    values.encryptedConfig = encryptConnectionConfig(args.config, args.connection.companyId);
+  }
+  const result = await AppDataSource.getRepository(IntegrationConnection)
+    .createQueryBuilder()
+    .update()
+    .set(values)
+    .where("id = :connectionId", { connectionId: args.connection.id })
+    .andWhere('"companyId" = :companyId', { companyId: args.connection.companyId })
+    .andWhere('"encryptedConfig" = :previousEncryptedConfig', {
+      previousEncryptedConfig: args.connection.encryptedConfig,
+    })
+    .execute();
+  return (result.affected ?? 0) === 1;
 }
 
 /**
@@ -316,9 +442,8 @@ export async function updateConnectionLabel(
   const repo = AppDataSource.getRepository(IntegrationConnection);
   const existing = await repo.findOneBy({ companyId, id });
   if (!existing) return null;
-  existing.label = label.trim() || existing.label;
-  await repo.save(existing);
-  return existing;
+  await repo.update({ companyId, id }, { label: label.trim() || existing.label });
+  return repo.findOneBy({ companyId, id });
 }
 
 /**
@@ -381,19 +506,41 @@ export async function updateServiceAccountCredentials(args: {
   if (!provider || !provider.buildServiceAccountConfig) {
     throw new Error(`Unknown integration: ${existing.provider}`);
   }
+  let impersonationEmail = args.impersonationEmail;
+  if (impersonationEmail === undefined) {
+    const previous = decryptConnectionConfig(existing) as Record<string, unknown>;
+    if (typeof previous.impersonationEmail === "string" && previous.impersonationEmail.trim()) {
+      impersonationEmail = previous.impersonationEmail;
+    }
+  }
   const { config, accountHint } = await provider.buildServiceAccountConfig({
     keyJson: args.keyJson,
-    impersonationEmail: args.impersonationEmail,
+    impersonationEmail,
     scopeGroups: args.scopeGroups,
   });
-  existing.encryptedConfig = encryptConnectionConfig(config, existing.companyId);
-  existing.accountHint = accountHint;
-  existing.status = "connected";
-  existing.statusMessage = "";
-  existing.lastCheckedAt = new Date();
-  await repo.save(existing);
-  notifyConnectionChanged(existing.id, existing.provider);
-  return existing;
+  const updated = await withConnectionCredentialMutation(existing.id, () =>
+    AppDataSource.transaction(async (manager) => {
+      const current = await claimConnectionForCredentialWrite(manager, {
+        companyId: args.companyId,
+        connectionId: args.connectionId,
+      });
+      if (!current) return null;
+      if (current.authMode !== "service_account") {
+        throw new Error(
+          `Connection is ${current.authMode}, not service-account — use the matching reconnect flow.`,
+        );
+      }
+      await assertMailReconnectBinding(manager, current, config, accountHint);
+      current.encryptedConfig = encryptConnectionConfig(config, current.companyId);
+      current.accountHint = accountHint;
+      current.status = "connected";
+      current.statusMessage = "";
+      current.lastCheckedAt = new Date();
+      return manager.getRepository(IntegrationConnection).save(current);
+    }),
+  );
+  if (updated) notifyConnectionChanged(updated.id, updated.provider);
+  return updated;
 }
 
 /**
@@ -408,25 +555,72 @@ export async function updateOauthConnectionConfig(args: {
   config: IntegrationConfig;
   accountHint: string;
 }): Promise<IntegrationConnection | null> {
-  const repo = AppDataSource.getRepository(IntegrationConnection);
-  const existing = await repo.findOneBy({
-    companyId: args.companyId,
-    id: args.connectionId,
+  const updated = await withConnectionCredentialMutation(args.connectionId, () =>
+    AppDataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(IntegrationConnection);
+      const existing = await claimConnectionForCredentialWrite(manager, {
+        companyId: args.companyId,
+        connectionId: args.connectionId,
+      });
+      if (!existing) return null;
+      if (existing.authMode !== "oauth2") {
+        throw new Error(
+          `Connection is ${existing.authMode}, not OAuth — use the matching reconnect flow.`,
+        );
+      }
+
+      await assertMailReconnectBinding(manager, existing, args.config, args.accountHint);
+      existing.encryptedConfig = encryptConnectionConfig(args.config, existing.companyId);
+      existing.accountHint = args.accountHint;
+      existing.status = "connected";
+      existing.statusMessage = "";
+      existing.lastCheckedAt = new Date();
+      return repo.save(existing);
+    }),
+  );
+  if (updated) notifyConnectionChanged(updated.id, updated.provider);
+  return updated;
+}
+
+function normalizedMailboxIdentity(config: IntegrationConfig, accountHint: string): string {
+  const record = config as Record<string, unknown>;
+  for (const key of ["impersonationEmail", "email", "clientEmail"] as const) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim().toLowerCase();
+  }
+  return accountHint.trim().toLowerCase();
+}
+
+function configHasGmailScope(config: IntegrationConfig): boolean {
+  const record = config as Record<string, unknown>;
+  const oauthScope = typeof record.scope === "string" ? record.scope : "";
+  const serviceScopes = Array.isArray(record.scopes)
+    ? record.scopes.filter((scope): scope is string => typeof scope === "string")
+    : [];
+  return hasGoogleGmailMailboxScope([oauthScope, ...serviceScopes]);
+}
+
+async function assertMailReconnectBinding(
+  manager: EntityManager,
+  connection: IntegrationConnection,
+  config: IntegrationConfig,
+  accountHint: string,
+): Promise<void> {
+  const mailAccount = await manager.getRepository(MailAccount).findOneBy({
+    companyId: connection.companyId,
+    connectionId: connection.id,
   });
-  if (!existing) return null;
-  if (existing.authMode !== "oauth2") {
+  if (!mailAccount) return;
+  if (mailAccount.address.trim().toLowerCase() !== normalizedMailboxIdentity(config, accountHint)) {
     throw new Error(
-      `Connection is ${existing.authMode}, not OAuth — use the matching reconnect flow.`,
+      `Reconnect the same Google account (${mailAccount.address}). To use a different mailbox, disconnect this mailbox first.`,
     );
   }
-  existing.encryptedConfig = encryptConnectionConfig(args.config, existing.companyId);
-  existing.accountHint = args.accountHint;
-  existing.status = "connected";
-  existing.statusMessage = "";
-  existing.lastCheckedAt = new Date();
-  await repo.save(existing);
-  notifyConnectionChanged(existing.id, existing.provider);
-  return existing;
+  if (!configHasGmailScope(config)) {
+    throw new Error(
+      "This Connection backs a mailbox. Reconnect it with the Gmail product selected.",
+    );
+  }
 }
 
 /**
@@ -550,24 +744,31 @@ export async function refreshConnectionStatus(
   conn: IntegrationConnection,
 ): Promise<IntegrationConnection> {
   assertIntegrationAllowed(conn.provider);
+  const repo = AppDataSource.getRepository(IntegrationConnection);
+  const returnCurrent = async (): Promise<IntegrationConnection> =>
+    (await repo.findOneBy({ id: conn.id, companyId: conn.companyId })) ?? conn;
   const provider = getProvider(conn.provider);
   if (!provider || !provider.checkStatus) {
-    conn.lastCheckedAt = new Date();
-    conn.status = "connected";
-    conn.statusMessage = "";
-    await AppDataSource.getRepository(IntegrationConnection).save(conn);
-    return conn;
+    await persistConnectionStatusIfCurrent({
+      connection: conn,
+      status: "connected",
+      statusMessage: "",
+      lastCheckedAt: new Date(),
+    });
+    return returnCurrent();
   }
   let cfg: IntegrationConfig;
   try {
     cfg = decryptConnectionConfig(conn);
     await assertSafeOutboundConfig(cfg);
   } catch (err) {
-    conn.status = "error";
-    conn.statusMessage = err instanceof Error ? err.message : String(err);
-    conn.lastCheckedAt = new Date();
-    await AppDataSource.getRepository(IntegrationConnection).save(conn);
-    return conn;
+    await persistConnectionStatusIfCurrent({
+      connection: conn,
+      status: "error",
+      statusMessage: err instanceof Error ? err.message : String(err),
+      lastCheckedAt: new Date(),
+    });
+    return returnCurrent();
   }
   let refreshed: IntegrationConfig | null = null;
   const ctx: IntegrationRuntimeContext = {
@@ -578,19 +779,14 @@ export async function refreshConnectionStatus(
     },
   };
   const result = await provider.checkStatus(ctx);
-  if (refreshed) {
-    conn.encryptedConfig = encryptConnectionConfig(refreshed, conn.companyId);
-  }
-  conn.lastCheckedAt = new Date();
-  if (result.ok) {
-    conn.status = "connected";
-    conn.statusMessage = "";
-  } else {
-    conn.status = "error";
-    conn.statusMessage = result.message ?? "Unknown error";
-  }
-  await AppDataSource.getRepository(IntegrationConnection).save(conn);
-  return conn;
+  await persistConnectionStatusIfCurrent({
+    connection: conn,
+    status: result.ok ? "connected" : "error",
+    statusMessage: result.ok ? "" : (result.message ?? "Unknown error"),
+    lastCheckedAt: new Date(),
+    config: refreshed ?? undefined,
+  });
+  return returnCurrent();
 }
 
 // -------- Grants --------
@@ -729,6 +925,7 @@ export async function invokeConnectionTool(args: {
   if (!tool) throw new Error(`Unknown tool: ${args.toolName}`);
 
   const cfg = decryptConnectionConfig(pair.connection);
+  const credentialSnapshot = pair.connection.encryptedConfig;
   await assertSafeOutboundConfig(cfg);
   let refreshed: IntegrationConfig | null = null;
   const ctx: IntegrationRuntimeContext = {
@@ -793,11 +990,13 @@ export async function invokeConnectionTool(args: {
     throw err;
   }
   if (refreshed) {
-    pair.connection.encryptedConfig = encryptConnectionConfig(refreshed, pair.connection.companyId);
-    pair.connection.lastCheckedAt = new Date();
-    pair.connection.status = "connected";
-    pair.connection.statusMessage = "";
-    await AppDataSource.getRepository(IntegrationConnection).save(pair.connection);
+    await persistConnectionConfigIfCurrent({
+      connectionId: pair.connection.id,
+      companyId: pair.connection.companyId,
+      previousEncryptedConfig: credentialSnapshot,
+      config: refreshed,
+      healthy: true,
+    });
   }
   return result;
 }

@@ -4,7 +4,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { runRoutine } from "./runner.js";
-import { decryptConnectionConfig, encryptConnectionConfig } from "./integrations.js";
+import { decryptConnectionConfig, persistConnectionConfigIfCurrent } from "./integrations.js";
 import { getProvider } from "../integrations/index.js";
 import type { IntegrationConfig, IntegrationRuntimeContext } from "../integrations/types.js";
 import { notifyApprovalPending } from "./notifications.js";
@@ -364,6 +364,7 @@ async function executeAdSpendApproval(approval: Approval): Promise<void> {
   const provider = getProvider(conn.provider);
   if (!provider) throw new Error(`Unknown provider: ${conn.provider}`);
 
+  const credentialSnapshot = conn.encryptedConfig;
   const cfg = decryptConnectionConfig(conn);
   let refreshed: IntegrationConfig | null = null;
   const ctx: IntegrationRuntimeContext = {
@@ -386,11 +387,13 @@ async function executeAdSpendApproval(approval: Approval): Promise<void> {
 
   const result = await provider.invokeTool(payload.toolName, payload.args, ctx);
   if (refreshed) {
-    conn.encryptedConfig = encryptConnectionConfig(refreshed, conn.companyId);
-    conn.lastCheckedAt = new Date();
-    conn.status = "connected";
-    conn.statusMessage = "";
-    await AppDataSource.getRepository(IntegrationConnection).save(conn);
+    await persistConnectionConfigIfCurrent({
+      connectionId: conn.id,
+      companyId: conn.companyId,
+      previousEncryptedConfig: credentialSnapshot,
+      config: refreshed,
+      healthy: true,
+    });
   }
   approval.resultJson = JSON.stringify(result);
   await AppDataSource.getRepository(Approval).save(approval);
@@ -461,6 +464,7 @@ async function executeLightningPaymentApproval(approval: Approval): Promise<void
   const provider = getProvider(conn.provider);
   if (!provider) throw new Error(`Unknown provider: ${conn.provider}`);
 
+  const credentialSnapshot = conn.encryptedConfig;
   const cfg = decryptConnectionConfig(conn);
   let refreshed: IntegrationConfig | null = null;
   const ctx: IntegrationRuntimeContext = {
@@ -477,11 +481,13 @@ async function executeLightningPaymentApproval(approval: Approval): Promise<void
 
   const result = await provider.invokeTool(payload.toolName, payload.args, ctx);
   if (refreshed) {
-    conn.encryptedConfig = encryptConnectionConfig(refreshed, conn.companyId);
-    conn.lastCheckedAt = new Date();
-    conn.status = "connected";
-    conn.statusMessage = "";
-    await AppDataSource.getRepository(IntegrationConnection).save(conn);
+    await persistConnectionConfigIfCurrent({
+      connectionId: conn.id,
+      companyId: conn.companyId,
+      previousEncryptedConfig: credentialSnapshot,
+      config: refreshed,
+      healthy: true,
+    });
   }
   approval.resultJson = JSON.stringify(result);
   await AppDataSource.getRepository(Approval).save(approval);

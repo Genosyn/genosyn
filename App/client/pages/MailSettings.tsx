@@ -20,6 +20,7 @@ import {
   mailApi,
   shortMailDate,
 } from "../lib/mail";
+import { mailReconnectHref } from "../lib/integrationReconnect";
 import { MailOutletCtx } from "./MailLayout";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
@@ -58,7 +59,7 @@ export default function MailSettings() {
   const pendingStatus = pendingStatusByAccount[account.id];
   const displayStatus = pendingStatus ?? account.status;
   const pausePending = pendingStatus !== undefined;
-  const canReconnect = company.role === "owner" || company.role === "admin";
+  const reconnectHref = mailReconnectHref(company.role, company.slug, account.connectionId);
 
   const loadGrants = React.useCallback(async () => {
     const [g, cand] = await Promise.all([
@@ -215,16 +216,12 @@ export default function MailSettings() {
             <RefreshCw size={14} className={syncing ? "mr-1.5 animate-spin" : "mr-1.5"} />{" "}
             {syncing ? "Syncing…" : displayStatus === "error" ? "Retry sync" : "Sync now"}
           </Button>
-          {canReconnect && (
+          {reconnectHref && (
             <Button
               size="sm"
               variant="secondary"
-              disabled={pausePending}
-              onClick={() =>
-                navigate(
-                  `/c/${company.slug}/mail/integrations?reconnect=${encodeURIComponent(account.connectionId)}`,
-                )
-              }
+              disabled={pausePending || syncing}
+              onClick={() => navigate(reconnectHref)}
               title="Refresh the Google credentials without removing this mailbox"
             >
               <Plug2 size={14} className="mr-1.5" /> Reconnect Google

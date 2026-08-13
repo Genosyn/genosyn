@@ -61,6 +61,7 @@ import {
   type ProductIntegrationKey,
   type ProductIntegrationScope,
 } from "../lib/productIntegrations";
+import { resolveReconnectTarget } from "../lib/integrationReconnect";
 
 /**
  * Company-level **Integrations** page. Two panels:
@@ -192,19 +193,24 @@ function IntegrationsPage({
     nextParams.delete("reconnect");
     setSearchParams(nextParams, { replace: true });
 
-    const conn = connections.find((item) => item.id === requestedReconnectId);
-    const entry = conn ? catalog.find((item) => item.provider === conn.provider) : null;
-    if (!conn || !entry) {
+    const target = resolveReconnectTarget(
+      requestedReconnectId,
+      connections,
+      catalog,
+      scope?.providers ?? null,
+    );
+    if (!target) {
       toast("That connection is no longer available.", "error");
       return;
     }
-    setReconnecting({ entry, conn });
+    setReconnecting(target);
   }, [
     catalog,
     connections,
     requestedReconnectId,
     searchParamsString,
     setSearchParams,
+    scope?.providers,
     toast,
   ]);
 
@@ -1210,9 +1216,8 @@ export function OauthOrServiceAccountModal({
       // example). Providers without explicit defaults preserve the
       // historical all-selected behaviour.
       const availableGroups =
-        (initialMode === "oauth"
-          ? entry.oauth?.scopeGroups
-          : entry.serviceAccount?.scopeGroups) ?? [];
+        (initialMode === "oauth" ? entry.oauth?.scopeGroups : entry.serviceAccount?.scopeGroups) ??
+        [];
       const allGroupKeys = availableGroups.map((g) => g.key);
       const defaultGroupKeys = availableGroups
         .filter((group) => group.defaultSelected)

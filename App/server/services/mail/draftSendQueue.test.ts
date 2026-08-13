@@ -5,8 +5,9 @@ import { AppDataSource } from "../../db/datasource.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailDraftSendBatch } from "../../db/entities/MailDraftSendBatch.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
-import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
+import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../../test/dbHarness.js";
 import {
+  DraftSendDisconnectBusyError,
   EXPECTED_SEND_DELAY_MS,
   MAX_QUEUED_DRAFT_IDS,
   MAX_SEND_DELAY_MS,
@@ -16,6 +17,8 @@ import {
   getLatestDraftSendBatch,
   processDraftSendBatch,
   randomSendDelayMs,
+  recoverDraftSendBatches,
+  withDraftSendDisconnectFence,
 } from "./draftSendQueue.js";
 import { disconnectMailAccount } from "./sync.js";
 import { listDrafts, previewDraftSend } from "./drafts.js";
@@ -32,7 +35,7 @@ async function createDrafts(count: number): Promise<{
 }> {
   const account = await insert(MailAccount, {
     companyId: COMPANY_ID,
-    connectionId: "connection_draft_send_queue_test",
+    connectionId: testId("connection"),
     address: "sender@example.com",
   });
   const drafts: MailMessage[] = [];
@@ -377,6 +380,243 @@ describe("draft send pacing", () => {
     assert.equal(await AppDataSource.getRepository(MailAccount).count(), 0);
     assert.equal(await AppDataSource.getRepository(MailMessage).count(), 0);
     assert.equal(await AppDataSource.getRepository(MailDraftSendBatch).count(), 0);
+  });
+
+  test("restart requeues only the interrupted item and preserves durable progress", async () => {
+    const { account, drafts } = await createDrafts(3);
+    const restartAt = new Date("2026-07-29T11:00:00.000Z");
+    const batch = await insert(MailDraftSendBatch, {
+      companyId: account.companyId,
+      accountId: account.id,
+      status: "running",
+      total: 3,
+      sent: 0,
+      failed: 0,
+      itemsJson: JSON.stringify([
+        { draftId: drafts[0].id, status: "sent", errorMessage: "" },
+        { draftId: drafts[1].id, status: "sending", errorMessage: "" },
+        { draftId: drafts[2].id, status: "failed", errorMessage: "Invalid recipient" },
+      ]),
+      nextSendAt: new Date("2026-07-29T10:00:00.000Z"),
+      finishedAt: null,
+      createdByUserId: null,
+    });
+
+    await recoverDraftSendBatches({
+      now: () => restartAt,
+      delayMs: () => MIN_SEND_DELAY_MS,
+    });
+
+    const recovered = await AppDataSource.getRepository(MailDraftSendBatch).findOneByOrFail({
+      id: batch.id,
+    });
+    assert.equal(recovered.status, "running");
+    assert.equal(recovered.sent, 1);
+    assert.equal(recovered.failed, 1);
+    assert.equal(recovered.nextSendAt?.toISOString(), "2026-07-29T11:01:00.000Z");
+    const recoveredView = await getLatestDraftSendBatch(account);
+    assert.deepEqual(recoveredView?.queuedDraftIds, [drafts[1].id]);
+    assert.deepEqual(recoveredView?.failures, [{ id: drafts[2].id, reason: "Invalid recipient" }]);
+
+    const attempted: string[] = [];
+    const completed = await processDraftSendBatch(batch.id, {
+      now: () => new Date("2026-07-29T11:01:00.000Z"),
+      sendDraft: async (_account, draft) => {
+        attempted.push(draft.id);
+        return draft;
+      },
+    });
+    assert.deepEqual(attempted, [drafts[1].id]);
+    assert.equal(completed?.status, "completed_with_errors");
+    assert.equal(completed?.sent, 2);
+    assert.equal(completed?.failed, 1);
+  });
+
+  test("restart closes an active batch whose items are already terminal", async () => {
+    const { account, drafts } = await createDrafts(2);
+    const restartAt = new Date("2026-07-29T11:00:00.000Z");
+    const batch = await insert(MailDraftSendBatch, {
+      companyId: account.companyId,
+      accountId: account.id,
+      status: "running",
+      total: 2,
+      sent: 0,
+      failed: 0,
+      itemsJson: JSON.stringify([
+        { draftId: drafts[0].id, status: "sent", errorMessage: "" },
+        { draftId: drafts[1].id, status: "failed", errorMessage: "Gmail refused the send" },
+      ]),
+      nextSendAt: new Date("2026-07-29T10:00:00.000Z"),
+      finishedAt: null,
+      createdByUserId: null,
+    });
+
+    await recoverDraftSendBatches({ now: () => restartAt });
+
+    const recovered = await AppDataSource.getRepository(MailDraftSendBatch).findOneByOrFail({
+      id: batch.id,
+    });
+    assert.equal(recovered.status, "completed_with_errors");
+    assert.equal(recovered.sent, 1);
+    assert.equal(recovered.failed, 1);
+    assert.equal(recovered.nextSendAt, null);
+    assert.equal(recovered.finishedAt?.toISOString(), restartAt.toISOString());
+  });
+
+  test("restart preserves a future cursor and delays a cursor that is missing", async () => {
+    const first = await createDrafts(1);
+    const second = await createDrafts(1);
+    const restartAt = new Date("2026-07-29T11:00:00.000Z");
+    const futureAt = new Date("2026-07-29T11:20:00.000Z");
+    const future = await insert(MailDraftSendBatch, {
+      companyId: first.account.companyId,
+      accountId: first.account.id,
+      status: "queued",
+      total: 1,
+      sent: 0,
+      failed: 0,
+      itemsJson: JSON.stringify([
+        { draftId: first.drafts[0].id, status: "queued", errorMessage: "" },
+      ]),
+      nextSendAt: futureAt,
+      finishedAt: null,
+      createdByUserId: null,
+    });
+    const missing = await insert(MailDraftSendBatch, {
+      companyId: second.account.companyId,
+      accountId: second.account.id,
+      status: "queued",
+      total: 1,
+      sent: 0,
+      failed: 0,
+      itemsJson: JSON.stringify([
+        { draftId: second.drafts[0].id, status: "queued", errorMessage: "" },
+      ]),
+      nextSendAt: null,
+      finishedAt: null,
+      createdByUserId: null,
+    });
+
+    await recoverDraftSendBatches({
+      now: () => restartAt,
+      delayMs: () => MAX_SEND_DELAY_MS,
+    });
+
+    assert.equal(
+      (
+        await AppDataSource.getRepository(MailDraftSendBatch).findOneByOrFail({ id: future.id })
+      ).nextSendAt?.toISOString(),
+      futureAt.toISOString(),
+    );
+    assert.equal(
+      (
+        await AppDataSource.getRepository(MailDraftSendBatch).findOneByOrFail({ id: missing.id })
+      ).nextSendAt?.toISOString(),
+      "2026-07-29T11:02:00.000Z",
+    );
+  });
+
+  test("two processors can never send the same due draft twice", async () => {
+    const { account, drafts } = await createDrafts(1);
+    const queued = await createDraftSendBatch(account, [drafts[0].id], null, {
+      now: () => new Date("2026-07-29T10:00:00.000Z"),
+      delayMs: () => MIN_SEND_DELAY_MS,
+    });
+    let releaseSend!: () => void;
+    const sendGate = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
+    let sendStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      sendStarted = resolve;
+    });
+    let sends = 0;
+    const first = processDraftSendBatch(queued.batch.id, {
+      now: () => new Date("2026-07-29T10:01:00.000Z"),
+      sendDraft: async (_account, draft) => {
+        sends += 1;
+        sendStarted();
+        await sendGate;
+        return draft;
+      },
+    });
+    await started;
+
+    const second = await processDraftSendBatch(queued.batch.id, {
+      now: () => new Date("2026-07-29T10:01:00.000Z"),
+      sendDraft: async (_account, draft) => {
+        sends += 1;
+        return draft;
+      },
+    });
+    assert.equal(second, null);
+    assert.equal(sends, 1);
+    releaseSend();
+    assert.equal((await first)?.status, "completed");
+    assert.equal(sends, 1);
+  });
+
+  test("disconnect fence rejects creators and peers, then clears after callback failure", async () => {
+    const { account, drafts } = await createDrafts(1);
+    let callbackStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      callbackStarted = resolve;
+    });
+    let releaseCallback!: () => void;
+    const callbackGate = new Promise<void>((resolve) => {
+      releaseCallback = resolve;
+    });
+    const fenced = withDraftSendDisconnectFence(account.id, async () => {
+      callbackStarted();
+      await callbackGate;
+      throw new Error("delete transaction failed");
+    });
+    await started;
+
+    await assert.rejects(
+      createDraftSendBatch(account, [drafts[0].id], null),
+      DraftSendDisconnectBusyError,
+    );
+    await assert.rejects(
+      withDraftSendDisconnectFence(account.id, async () => undefined),
+      DraftSendDisconnectBusyError,
+    );
+    releaseCallback();
+    await assert.rejects(fenced, /delete transaction failed/);
+
+    const queued = await createDraftSendBatch(account, [drafts[0].id], null);
+    assert.equal(queued.added, 1);
+  });
+
+  test("a deleted account fails every remaining queue item without sending", async () => {
+    const { account, drafts } = await createDrafts(2);
+    const queued = await createDraftSendBatch(
+      account,
+      drafts.map((draft) => draft.id),
+      null,
+      {
+        now: () => new Date("2026-07-29T10:00:00.000Z"),
+        delayMs: () => MIN_SEND_DELAY_MS,
+      },
+    );
+    await AppDataSource.getRepository(MailAccount).delete(account.id);
+    let sends = 0;
+
+    const finished = await processDraftSendBatch(queued.batch.id, {
+      now: () => new Date("2026-07-29T10:01:00.000Z"),
+      sendDraft: async (_account, draft) => {
+        sends += 1;
+        return draft;
+      },
+    });
+
+    assert.equal(sends, 0);
+    assert.equal(finished?.status, "completed_with_errors");
+    assert.equal(finished?.failed, 2);
+    assert.deepEqual(
+      finished?.failures.map((failure) => failure.reason),
+      ["The mailbox is no longer connected.", "The mailbox is no longer connected."],
+    );
   });
 
   test("preserves failures for attention while allowing a new queue after completion", async () => {

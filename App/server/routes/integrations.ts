@@ -21,12 +21,12 @@ import {
   createServiceAccountConnection,
   decryptConnectionConfig,
   deleteConnection,
-  encryptConnectionConfig,
   getConnection,
   grantAccess,
   listConnections,
   listGrantsForConnection,
   listGrantsForEmployee,
+  persistConnectionConfigIfCurrent,
   refreshConnectionStatus,
   revokeAccess,
   serializeConnection,
@@ -45,7 +45,6 @@ import {
   writeGithubRepos,
 } from "../integrations/providers/github.js";
 import { discoverAppInstallations } from "../integrations/providers/github-app.js";
-import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 
 /**
  * Company-scoped routes for the Integrations + Connections feature.
@@ -752,11 +751,18 @@ integrationsRouter.get("/connections/:connId/github/repos", async (req, res) => 
     });
   }
   if (creds.refreshedConfig) {
-    conn.encryptedConfig = encryptConnectionConfig(creds.refreshedConfig, conn.companyId);
-    conn.lastCheckedAt = new Date();
-    conn.status = "connected";
-    conn.statusMessage = "";
-    await AppDataSource.getRepository(IntegrationConnection).save(conn);
+    const persisted = await persistConnectionConfigIfCurrent({
+      connectionId: conn.id,
+      companyId: conn.companyId,
+      previousEncryptedConfig: conn.encryptedConfig,
+      config: creds.refreshedConfig,
+      healthy: true,
+    });
+    if (!persisted) {
+      return res.status(409).json({
+        error: "Connection changed while its credentials were refreshing. Try again.",
+      });
+    }
   }
   let discoverable: Array<{
     owner: string;
@@ -852,8 +858,17 @@ integrationsRouter.put(
       });
     }
     const next = writeGithubRepos(cfg, conn.authMode, deduped);
-    conn.encryptedConfig = encryptConnectionConfig(next, conn.companyId);
-    await AppDataSource.getRepository(IntegrationConnection).save(conn);
+    const persisted = await persistConnectionConfigIfCurrent({
+      connectionId: conn.id,
+      companyId: conn.companyId,
+      previousEncryptedConfig: conn.encryptedConfig,
+      config: next,
+    });
+    if (!persisted) {
+      return res.status(409).json({
+        error: "Connection credentials changed while repositories were updated. Please try again.",
+      });
+    }
     await recordAudit({
       companyId: cid,
       actorUserId: req.userId ?? null,

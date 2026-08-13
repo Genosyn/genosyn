@@ -45,6 +45,8 @@ import {
 } from "../integrations/providers/microsoft-ads.js";
 import { decryptConnectionConfig, getConnection } from "./integrations.js";
 import { createAuthFlowState, consumeAuthFlowState } from "./authFlowState.js";
+import { AppDataSource } from "../db/datasource.js";
+import { MailAccount } from "../db/entities/MailAccount.js";
 
 /**
  * OAuth state store + provider dispatch.
@@ -294,6 +296,21 @@ export async function startOauthReconnect(args: {
     if (typeof value === "string" && value) extraFields[field.key] = value;
     else if (typeof value === "number") extraFields[field.key] = String(value);
   }
+  let scopeGroups = args.scopeGroups ?? cfg.scopeGroups ?? [];
+  const linkedMailbox = await AppDataSource.getRepository(MailAccount).findOneBy({
+    companyId: args.companyId,
+    connectionId: conn.id,
+  });
+  if (linkedMailbox && conn.provider === "google") {
+    if (args.scopeGroups && !args.scopeGroups.includes("mail")) {
+      throw new Error(
+        "This Connection backs a mailbox. Reconnect it with the Gmail product selected.",
+      );
+    }
+    // Legacy Connections may pre-date persisted scope groups. Preserve their
+    // mailbox capability instead of silently starting an identity-only flow.
+    if (!scopeGroups.includes("mail")) scopeGroups = [...scopeGroups, "mail"];
+  }
   return startOauth({
     companyId: args.companyId,
     userId: args.userId,
@@ -301,7 +318,7 @@ export async function startOauthReconnect(args: {
     label: conn.label,
     clientId: cfg.clientId,
     clientSecret: cfg.clientSecret,
-    scopeGroups: args.scopeGroups ?? cfg.scopeGroups ?? [],
+    scopeGroups,
     extraFields,
     existingConnectionId: conn.id,
   });

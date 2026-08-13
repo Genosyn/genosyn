@@ -13,13 +13,16 @@ import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountG
 import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
 import {
   decryptConnectionConfig,
-  encryptConnectionConfig,
   getConnection,
+  claimConnectionForCredentialWrite,
+  persistConnectionConfigIfCurrent,
+  withConnectionCredentialMutation,
 } from "../integrations.js";
 import {
   currentGoogleAccessToken,
   currentGoogleGrantedScope,
   ensureFreshGoogleToken,
+  hasGoogleGmailMailboxScope,
 } from "../../integrations/providers/google/auth.js";
 import type { IntegrationConfig, IntegrationRuntimeContext } from "../../integrations/types.js";
 import { getProfile } from "./gmailClient.js";
@@ -35,16 +38,17 @@ import { getProfile } from "./gmailClient.js";
  * expiry) → re-encrypt and persist if the token rotated.
  */
 
-const GMAIL_SCOPE_MARKER = "auth/gmail.";
-
 /** Get a fresh Gmail-capable access token for a connection, persisting any
  * rotated token back onto the row. Throws with a human-readable message when
  * the connection is unusable (wrong provider, Gmail scope not granted). */
-export async function freshGmailAccessToken(conn: IntegrationConnection): Promise<string> {
+async function freshGmailCredential(
+  conn: IntegrationConnection,
+): Promise<{ token: string; encryptedConfigSnapshot: string }> {
   if (conn.provider !== "google") {
     throw new Error("Mail accounts require a Google connection.");
   }
   const cfg = decryptConnectionConfig(conn);
+  const credentialSnapshot = conn.encryptedConfig;
   let rotated: IntegrationConfig | null = null;
   const ctx: IntegrationRuntimeContext = {
     authMode: conn.authMode,
@@ -54,18 +58,31 @@ export async function freshGmailAccessToken(conn: IntegrationConnection): Promis
     },
   };
   const scope = currentGoogleGrantedScope(ctx);
-  if (!scope.includes(GMAIL_SCOPE_MARKER)) {
+  if (!hasGoogleGmailMailboxScope(scope)) {
     throw new Error(
       "This Google connection was authorized without the Gmail scope. Reconnect it with the Gmail product selected.",
     );
   }
   await ensureFreshGoogleToken(ctx);
   const token = currentGoogleAccessToken(ctx);
+  let encryptedConfigSnapshot = credentialSnapshot;
   if (rotated) {
-    conn.encryptedConfig = encryptConnectionConfig(rotated, conn.companyId);
-    await AppDataSource.getRepository(IntegrationConnection).save(conn);
+    const persisted = await persistConnectionConfigIfCurrent({
+      connectionId: conn.id,
+      companyId: conn.companyId,
+      previousEncryptedConfig: credentialSnapshot,
+      config: rotated,
+    });
+    if (!persisted) {
+      throw new Error("The Google Connection changed while its token refreshed. Try again.");
+    }
+    encryptedConfigSnapshot = persisted;
   }
-  return token;
+  return { token, encryptedConfigSnapshot };
+}
+
+export async function freshGmailAccessToken(conn: IntegrationConnection): Promise<string> {
+  return (await freshGmailCredential(conn)).token;
 }
 
 /** Resolve the account's connection and return a fresh access token. */
@@ -88,6 +105,8 @@ export async function createMailAccount(args: {
   companyId: string;
   connectionId: string;
   createdByUserId: string | null;
+  /** Deterministic race-test seam; production callers omit it. */
+  beforePersist?: () => Promise<void>;
 }): Promise<MailAccount> {
   const repo = AppDataSource.getRepository(MailAccount);
   const existing = await repo.findOneBy({ connectionId: args.connectionId });
@@ -96,24 +115,43 @@ export async function createMailAccount(args: {
   }
   const conn = await getConnection(args.companyId, args.connectionId);
   if (!conn) throw new Error("Connection not found");
-  const token = await freshGmailAccessToken(conn);
+  const { token, encryptedConfigSnapshot } = await freshGmailCredential(conn);
   const profile = await getProfile(token);
-  const account = repo.create({
-    companyId: args.companyId,
-    connectionId: args.connectionId,
-    address: profile.emailAddress,
-    status: "active",
-    statusMessage: "",
-    historyId: "",
-    lastSyncAt: null,
-    syncState: "idle",
-    syncAttemptId: null,
-    syncStartedAt: null,
-    syncFinishedAt: null,
-    backfilledAt: null,
-    createdByUserId: args.createdByUserId,
-  });
-  return repo.save(account);
+  return withConnectionCredentialMutation(args.connectionId, () =>
+    AppDataSource.transaction(async (manager) => {
+      const currentConnection = await claimConnectionForCredentialWrite(manager, {
+        companyId: args.companyId,
+        connectionId: args.connectionId,
+        expectedEncryptedConfig: encryptedConfigSnapshot,
+      });
+      if (!currentConnection) {
+        throw new Error(
+          "The Google Connection changed while the mailbox was being linked. Try again.",
+        );
+      }
+      await args.beforePersist?.();
+      const txRepo = manager.getRepository(MailAccount);
+      if (await txRepo.findOneBy({ connectionId: args.connectionId })) {
+        throw new Error("That Google connection is already linked to a mail account.");
+      }
+      const account = txRepo.create({
+        companyId: args.companyId,
+        connectionId: args.connectionId,
+        address: profile.emailAddress,
+        status: "active",
+        statusMessage: "",
+        historyId: "",
+        lastSyncAt: null,
+        syncState: "idle",
+        syncAttemptId: null,
+        syncStartedAt: null,
+        syncFinishedAt: null,
+        backfilledAt: null,
+        createdByUserId: args.createdByUserId,
+      });
+      return txRepo.save(account);
+    }),
+  );
 }
 
 /** Delete the account and its entire local mirror. The underlying Google

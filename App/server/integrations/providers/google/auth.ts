@@ -43,6 +43,20 @@ export const GOOGLE_OAUTH_IDENTITY_SCOPES = [
   "openid",
 ];
 
+const GMAIL_MAILBOX_SCOPES = new Set([
+  "https://www.googleapis.com/auth/gmail.modify",
+  "https://mail.google.com/",
+]);
+
+/** Gmail mailbox mirroring reads, labels, drafts, and sends. Narrow
+ * settings-only or readonly grants are therefore not sufficient. */
+export function hasGoogleGmailMailboxScope(scopes: string | string[] | null | undefined): boolean {
+  const tokens = (Array.isArray(scopes) ? scopes : [scopes ?? ""]).flatMap((scope) =>
+    scope.split(/\s+/),
+  );
+  return tokens.some((scope) => GMAIL_MAILBOX_SCOPES.has(scope.trim()));
+}
+
 // ---------- Config shapes (what's stored encrypted on each Connection) ----------
 
 export type GoogleOauthConfig = {

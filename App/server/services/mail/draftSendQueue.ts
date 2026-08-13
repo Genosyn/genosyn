@@ -562,17 +562,14 @@ async function tickDraftSendQueue(): Promise<void> {
   );
 }
 
-/**
- * Recover the durable cursor and start the due-work heartbeat.
- *
- * A row left at `sending` means the process stopped mid-attempt. It is put back
- * behind a fresh one-to-two minute pause so a restart can never turn the rest
- * of the queue into a burst.
- */
-export async function bootMailDraftSendQueue(): Promise<void> {
+/** Reconcile cursor state left by an interrupted app process without starting
+ * the discovery timer. A row left at `sending` is put back behind a fresh
+ * one-to-two minute pause so restart can never turn the queue into a burst. */
+export async function recoverDraftSendBatches(timing: QueueTiming = {}): Promise<void> {
   const repo = AppDataSource.getRepository(MailDraftSendBatch);
   const batches = await repo.find({ where: { status: In(ACTIVE_STATUSES) } });
   for (const batch of batches) {
+    const now = timing.now?.() ?? new Date();
     const items = parseItems(batch.itemsJson);
     const interrupted = items.some((item) => item.status === "sending");
     for (const item of items) {
@@ -580,15 +577,23 @@ export async function bootMailDraftSendQueue(): Promise<void> {
     }
     const next = items.find((item) => item.status === "queued");
     if (!next) {
-      finishBatch(batch, items, new Date());
+      finishBatch(batch, items, now);
     } else {
+      const counts = itemCounts(items);
+      batch.sent = counts.sent;
+      batch.failed = counts.failed;
       batch.itemsJson = JSON.stringify(items);
       if (interrupted || !batch.nextSendAt) {
-        batch.nextSendAt = new Date(Date.now() + randomSendDelayMs());
+        const delayMs = timing.delayMs?.() ?? randomSendDelayMs();
+        batch.nextSendAt = new Date(now.getTime() + delayMs);
       }
     }
     await repo.save(batch);
   }
+}
+
+export async function bootMailDraftSendQueue(): Promise<void> {
+  await recoverDraftSendBatches();
 
   if (discoveryTimer) clearInterval(discoveryTimer);
   discoveryTimer = setInterval(() => {

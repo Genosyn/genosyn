@@ -12,14 +12,11 @@ import { ChannelMessage } from "../../db/entities/ChannelMessage.js";
 import { Channel } from "../../db/entities/Channel.js";
 import { findChannelBySlugOrId } from "../workspaceChat.js";
 import { broadcastToCompany } from "../realtime.js";
-import {
-  assertSafeOutboundConfig,
-  safeFetchBuffer,
-} from "../../lib/outboundUrl.js";
+import { assertSafeOutboundConfig, safeFetchBuffer } from "../../lib/outboundUrl.js";
 import { chatWithEmployee } from "../chat.js";
 import { recordAudit } from "../audit.js";
 import { toSlug } from "../../lib/slug.js";
-import { decryptConnectionConfig, encryptConnectionConfig } from "../integrations.js";
+import { decryptConnectionConfig, persistConnectionConfigIfCurrent } from "../integrations.js";
 import { assertIntegrationAllowed, getProvider } from "../../integrations/index.js";
 import { unrestrictedCapabilityGate } from "../connectionCapabilities.js";
 import { makeAdSpendLedger } from "../adSpend.js";
@@ -385,6 +382,7 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
     const tool = provider.tools.find((t) => t.name === toolName);
     if (!tool) throw new Error(`Unknown tool: ${toolName}`);
 
+    const credentialSnapshot = conn.encryptedConfig;
     const cfg = decryptConnectionConfig(conn);
     await assertSafeOutboundConfig(cfg);
     let refreshed: IntegrationConfig | null = null;
@@ -411,11 +409,13 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
     ctx.log(`integration ${conn.provider}.${toolName} ${JSON.stringify(args).slice(0, 200)}`);
     const result = await provider.invokeTool(toolName, args, runtimeCtx);
     if (refreshed) {
-      conn.encryptedConfig = encryptConnectionConfig(refreshed, conn.companyId);
-      conn.lastCheckedAt = new Date();
-      conn.status = "connected";
-      conn.statusMessage = "";
-      await AppDataSource.getRepository(IntegrationConnection).save(conn);
+      await persistConnectionConfigIfCurrent({
+        connectionId: conn.id,
+        companyId: conn.companyId,
+        previousEncryptedConfig: credentialSnapshot,
+        config: refreshed,
+        healthy: true,
+      });
     }
     await recordAudit({
       companyId: ctx.companyId,

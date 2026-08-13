@@ -473,6 +473,12 @@ sends system mail); this is the company's real inbox. Internal namespace is
       writes through to the Gmail API first and re-syncs the affected
       messages, so Gmail and Genosyn stay consistent both ways. No Pub/Sub
       dependency: polling keeps self-hosted installs zero-config.
+- [x] **Resilient reconnect and recovery.** Settings → Email can refresh the
+      existing Google Connection without deleting the local mirror, rules, or
+      grants. Reconnects retain the same mailbox identity and Gmail capability,
+      serialize with mailbox attachment, and cannot be overwritten by a stale
+      in-flight credential refresh; transient Gmail reads retry safely while
+      durable sync, automation, and draft-queue state recover after restarts.
 - [x] **Mail client UI** under `/c/<co>/mail`: folder + label sidebar with
       unread counts and import progress, thread list with **full-body
       search** (subject, participants, and message text via a portable

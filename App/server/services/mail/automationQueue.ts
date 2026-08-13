@@ -21,6 +21,31 @@ class MailAutomationPausedError extends Error {}
 
 export class MailAutomationBusyError extends Error {}
 
+type MailAutomationEffectRunner = (
+  account: MailAccount,
+  message: MailMessage,
+  assertRunnable: () => Promise<void>,
+  beforeEffect: () => Promise<void>,
+) => Promise<void>;
+
+type MailAutomationRunOptions = {
+  /** Deterministic clock for recovery tests. */
+  now?: () => Date;
+  /** Test seam for holding or counting side effects without starting a real Pipeline. */
+  runEffects?: MailAutomationEffectRunner;
+};
+
+const runDefaultEffects: MailAutomationEffectRunner = async (
+  account,
+  message,
+  assertRunnable,
+  beforeEffect,
+) => {
+  await runRulesForNewMessage(account, message.id, assertRunnable, beforeEffect);
+  await assertRunnable();
+  await dispatchEmailReceived(message.id, { failOnRejected: true, beforeEffect });
+};
+
 function errorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 4_000);
 }
@@ -63,7 +88,11 @@ async function requeue(id: string): Promise<void> {
     .execute();
 }
 
-async function processOne(id: string, accountId: string): Promise<void> {
+async function processOne(
+  id: string,
+  accountId: string,
+  options: MailAutomationRunOptions = {},
+): Promise<void> {
   if (activeAccountIds.has(accountId)) return;
   activeAccountIds.add(accountId);
   try {
@@ -113,9 +142,12 @@ async function processOne(id: string, accountId: string): Promise<void> {
             accountId,
           });
           if (!message) throw new Error("Inbound message no longer exists");
-          await runRulesForNewMessage(account, message.id, assertRunnable, beforeEffect);
-          await assertRunnable();
-          await dispatchEmailReceived(message.id, { failOnRejected: true, beforeEffect });
+          await (options.runEffects ?? runDefaultEffects)(
+            account,
+            message,
+            assertRunnable,
+            beforeEffect,
+          );
           await assertRunnable();
           await finish(event.id, "succeeded");
         } catch (error) {
@@ -138,9 +170,9 @@ async function processOne(id: string, accountId: string): Promise<void> {
   }
 }
 
-function launch(id: string, accountId: string): void {
+function launch(id: string, accountId: string, options: MailAutomationRunOptions = {}): void {
   if (activeRuns.has(id)) return;
-  const promise = processOne(id, accountId)
+  const promise = processOne(id, accountId, options)
     .catch((error) => {
       // eslint-disable-next-line no-console
       console.error(`[mail] inbound automation ${id} crashed:`, error);
@@ -151,17 +183,18 @@ function launch(id: string, accountId: string): void {
   activeRuns.set(id, { accountId, promise });
 }
 
-async function tick(): Promise<void> {
+async function tick(options: MailAutomationRunOptions = {}): Promise<void> {
   if (ticking) return;
   ticking = true;
   try {
-    const staleBefore = new Date(Date.now() - INTERRUPTED_AFTER_MS);
+    const now = options.now?.() ?? new Date();
+    const staleBefore = new Date(now.getTime() - INTERRUPTED_AFTER_MS);
     await AppDataSource.getRepository(MailInboundAutomation)
       .createQueryBuilder()
       .update()
       .set({
         status: "failed",
-        finishedAt: new Date(),
+        finishedAt: now,
         errorMessage: "The app stopped while this inbound automation was running.",
       })
       .where('"status" = :running', { running: "running" })
@@ -180,7 +213,7 @@ async function tick(): Promise<void> {
     for (const event of queued) {
       if (activeAccountIds.has(event.accountId) || launchedAccounts.has(event.accountId)) continue;
       launchedAccounts.add(event.accountId);
-      launch(event.id, event.accountId);
+      launch(event.id, event.accountId, options);
     }
   } finally {
     ticking = false;
@@ -198,7 +231,10 @@ function runBackgroundTick(): void {
 
 /** Insert-once outbox write. This returns as soon as the durable replay guard
  * exists; slow rules and AI Pipelines run independently of inbox freshness. */
-export async function enqueueInboundAutomation(message: MailMessage): Promise<void> {
+export async function enqueueInboundAutomation(
+  message: MailMessage,
+  options: MailAutomationRunOptions = {},
+): Promise<void> {
   const id = crypto.randomUUID();
   await AppDataSource.getRepository(MailInboundAutomation)
     .createQueryBuilder()
@@ -217,7 +253,7 @@ export async function enqueueInboundAutomation(message: MailMessage): Promise<vo
     .orIgnore()
     .execute();
   const inserted = await AppDataSource.getRepository(MailInboundAutomation).findOneBy({ id });
-  if (inserted) launch(inserted.id, inserted.accountId);
+  if (inserted) launch(inserted.id, inserted.accountId, options);
 }
 
 export async function waitForMailAutomation(accountId: string, timeoutMs = 45_000): Promise<void> {
@@ -259,6 +295,8 @@ export async function bootMailAutomationQueue(): Promise<void> {
 }
 
 /** Deterministic discovery seam used by recovery tests and maintenance. */
-export async function runMailAutomationQueuePass(): Promise<void> {
-  await tick();
+export async function runMailAutomationQueuePass(
+  options: MailAutomationRunOptions = {},
+): Promise<void> {
+  await tick(options);
 }

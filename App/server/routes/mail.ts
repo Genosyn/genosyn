@@ -27,6 +27,7 @@ import {
   serializeMailAccount,
   accessTokenForAccount,
 } from "../services/mail/accounts.js";
+import { hasGoogleGmailMailboxScope } from "../integrations/providers/google/auth.js";
 import {
   MAX_BULK_THREAD_IDS,
   bulkThreadAction,
@@ -253,8 +254,7 @@ mailRouter.get("/mail/connect-candidates", async (req, res) => {
     let hasGmailScope = false;
     try {
       const cfg = decryptConnectionConfig(c) as { scope?: string; scopes?: string[] };
-      const scope = cfg.scope ?? (cfg.scopes ?? []).join(" ");
-      hasGmailScope = scope.includes("auth/gmail.");
+      hasGmailScope = hasGoogleGmailMailboxScope(cfg.scope ?? cfg.scopes ?? []);
     } catch {
       hasGmailScope = false;
     }

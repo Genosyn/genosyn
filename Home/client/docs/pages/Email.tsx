@@ -91,7 +91,8 @@ export function Email() {
         <Strong>Reconnect Google</Strong>. This refreshes the existing Connection in place, so your
         imported mail, rules, AI access, and mailbox settings stay intact. After Google confirms
         the connection, return to Email and click <Strong>Retry sync</Strong> if the mailbox was
-        showing an error.
+        showing an error. Reconnect with the same Google address and keep the Gmail product
+        selected; to replace the mailbox with a different address, disconnect this mailbox first.
       </P>
       <P>
         Search (press <Code>/</Code> to jump to the box) covers <Strong>all mail</Strong> — every
