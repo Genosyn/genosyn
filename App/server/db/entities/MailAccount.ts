@@ -9,6 +9,7 @@ import {
 } from "typeorm";
 
 export type MailAccountStatus = "active" | "paused" | "error";
+export type MailSyncState = "idle" | "queued" | "running" | "succeeded" | "failed";
 
 /**
  * One Gmail mailbox connected to the Email section (M25).
@@ -28,11 +29,11 @@ export type MailAccountStatus = "active" | "paused" | "error";
  * the UI can surface it.
  *
  * The first import walks the whole mailbox, which for a large account spans
- * many heartbeat passes. `backfillPageToken` is the resumable cursor into
- * Gmail's `threads.list` pagination (empty when not mid-backfill), and
- * `backfilledCount` is the running total of threads imported so far, shown
- * as progress. Once pagination is exhausted, `backfilledAt` is stamped and
- * sync switches to the incremental history API.
+ * many heartbeat passes. `backfillPageToken` stores a versioned cursor with
+ * the Gmail page token plus the exact remaining thread ids (legacy rows may
+ * still contain a plain page token), and `backfilledCount` is the running
+ * total shown as progress. Once pagination is exhausted, `backfilledAt` is
+ * stamped and sync switches to the incremental history API.
  */
 @Entity("mail_accounts")
 @Index(["companyId"])
@@ -66,12 +67,30 @@ export class MailAccount {
   @Column({ type: dateTimeColumnType, nullable: true })
   lastSyncAt!: Date | null;
 
+  /** Durable lifecycle for the current/latest sync pass. This is separate
+   * from `status`, which remains the operator's active/paused switch plus the
+   * mailbox health summary. The UI follows this state rather than guessing
+   * from a timestamp, so a failed or recovered pass always terminates. */
+  @Column({ type: "varchar", default: "idle" })
+  syncState!: MailSyncState;
+
+  /** Random id returned by a manual sync request. Concurrent requests
+   * coalesce onto the same pass and observe the same id. */
+  @Column({ type: "varchar", nullable: true })
+  syncAttemptId!: string | null;
+
+  @Column({ type: dateTimeColumnType, nullable: true })
+  syncStartedAt!: Date | null;
+
+  @Column({ type: dateTimeColumnType, nullable: true })
+  syncFinishedAt!: Date | null;
+
   /** Set once the entire mailbox has been imported. */
   @Column({ type: dateTimeColumnType, nullable: true })
   backfilledAt!: Date | null;
 
-  /** Resumable `threads.list` page cursor while the full backfill is in
-   * flight. Empty when not mid-backfill. */
+  /** Versioned resumable worklist while the full backfill is in flight.
+   * Empty when not mid-backfill; plain legacy Gmail page tokens are accepted. */
   @Column({ type: "varchar", default: "" })
   backfillPageToken!: string;
 

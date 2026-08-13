@@ -13,6 +13,10 @@ export type MailAccount = {
   status: "active" | "paused" | "error";
   statusMessage: string;
   lastSyncAt: string | null;
+  syncState: "idle" | "queued" | "running" | "succeeded" | "failed";
+  syncAttemptId: string | null;
+  syncStartedAt: string | null;
+  syncFinishedAt: string | null;
   backfilledAt: string | null;
   backfilledCount: number;
   createdAt: string;
@@ -382,7 +386,13 @@ export const mailApi = {
   deleteAccount: (cid: string, aid: string) =>
     api.del<{ ok: true }>(`${base(cid)}/accounts/${aid}`),
   syncNow: (cid: string, aid: string) =>
-    api.post<{ ok: true }>(`${base(cid)}/accounts/${aid}/sync`, {}),
+    api.post<{
+      sync: {
+        attemptId: string;
+        state: MailAccount["syncState"];
+        coalesced: boolean;
+      };
+    }>(`${base(cid)}/accounts/${aid}/sync`, {}),
 
   labels: (cid: string, aid: string) =>
     api.get<{ labels: MailLabelInfo[]; counts: MailCounts }>(`${base(cid)}/accounts/${aid}/labels`),

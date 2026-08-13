@@ -11,6 +11,13 @@
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
 /** Per-request wall clock — Gmail is fast; anything slower is a hang. */
 const REQUEST_TIMEOUT_MS = 30_000;
+/** Sync reads are safe to replay. Keep the retry envelope short enough that a
+ * backfill pass still yields regularly, while absorbing the transient Gmail
+ * and network failures that otherwise poison a mailbox page forever. */
+export const GMAIL_READ_MAX_ATTEMPTS = 4;
+const RETRY_BASE_DELAY_MS = 500;
+const RETRY_MAX_DELAY_MS = 4_000;
+const RETRY_AFTER_MAX_MS = 10_000;
 
 // ---------- Response shapes (the subset we consume) ----------
 
@@ -81,44 +88,171 @@ export type GmailHistoryPage = {
  * from transient failures. */
 export class GmailApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  retryAfter: string | null;
+  reasons: string[];
+  constructor(
+    status: number,
+    message: string,
+    retryAfter: string | null = null,
+    reasons: string[] = [],
+  ) {
     super(message);
+    this.name = "GmailApiError";
     this.status = status;
+    this.retryAfter = retryAfter;
+    this.reasons = reasons;
   }
 }
 
-async function gmailFetch(
+export type GmailFetchOptions = {
+  /** GETs used by mailbox sync are idempotent and may be retried. Gmail writes
+   * deliberately stay single-attempt: retrying an ambiguous send can deliver
+   * the same email twice. */
+  retry?: "read" | "none";
+  /** Test seam. Production callers use the defaults. */
+  maxAttempts?: number;
+  timeoutMs?: number;
+  sleep?: (delayMs: number) => Promise<void>;
+  rng?: () => number;
+};
+
+export function isRetryableGmailReadError(error: unknown): boolean {
+  if (error instanceof GmailApiError) {
+    const transientQuotaReasons = new Set([
+      "backendError",
+      "rateLimitExceeded",
+      "userRateLimitExceeded",
+    ]);
+    return (
+      error.status === 408 ||
+      error.status === 429 ||
+      error.status >= 500 ||
+      (error.status === 403 && error.reasons.some((reason) => transientQuotaReasons.has(reason)))
+    );
+  }
+  const record = error && typeof error === "object" ? (error as Record<string, unknown>) : null;
+  const name = typeof record?.name === "string" ? record.name : "";
+  const message = typeof record?.message === "string" ? record.message : String(error);
+  const cause =
+    record?.cause && typeof record.cause === "object"
+      ? (record.cause as Record<string, unknown>)
+      : null;
+  const code = typeof cause?.code === "string" ? cause.code : "";
+  return /timeout|abort|fetch failed|network|socket hang up|econnreset|econnrefused|enotfound|eai_again|enetunreach|ehostunreach|etimedout|und_err|epipe/i.test(
+    `${name} ${message} ${code}`,
+  );
+}
+
+/** Only a response-size/latency timeout justifies splitting a thread into
+ * per-message reads. A Gmail outage or quota response must not fan one failed
+ * request out into dozens more. */
+export function isGmailTimeoutError(error: unknown): boolean {
+  if (error instanceof GmailApiError) return error.status === 408 || error.status === 504;
+  const record = error && typeof error === "object" ? (error as Record<string, unknown>) : null;
+  const name = typeof record?.name === "string" ? record.name : "";
+  const message = typeof record?.message === "string" ? record.message : String(error);
+  const cause =
+    record?.cause && typeof record.cause === "object"
+      ? (record.cause as Record<string, unknown>)
+      : null;
+  const code = typeof cause?.code === "string" ? cause.code : "";
+  return /timeout|timed out|etimedout/i.test(`${name} ${message} ${code}`);
+}
+
+export function gmailReadRetryDelayMs(
+  error: unknown,
+  retryNumber: number,
+  options: { nowMs?: number; rng?: () => number } = {},
+): number {
+  if (error instanceof GmailApiError && error.retryAfter) {
+    const seconds = Number(error.retryAfter);
+    const requested =
+      Number.isFinite(seconds) && seconds >= 0
+        ? seconds * 1_000
+        : Math.max(0, Date.parse(error.retryAfter) - (options.nowMs ?? Date.now()));
+    if (Number.isFinite(requested)) return Math.min(Math.floor(requested), RETRY_AFTER_MAX_MS);
+  }
+  const exponent = Math.min(Math.max(0, Math.floor(retryNumber) - 1), 20);
+  const ceiling = Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2 ** exponent);
+  const rawRandom = (options.rng ?? Math.random)();
+  const random = Number.isFinite(rawRandom) ? Math.min(1, Math.max(0, rawRandom)) : 0;
+  return Math.floor(ceiling * (0.75 + random * 0.25));
+}
+
+export function gmailSyncErrorMessage(error: unknown): string {
+  if (error instanceof GmailApiError) {
+    if (isRetryableGmailReadError(error)) {
+      return error.status === 429 || error.status === 403
+        ? "Gmail is rate-limiting sync. Genosyn will retry automatically."
+        : "Gmail is temporarily unavailable. Genosyn will retry automatically.";
+    }
+    return error.message;
+  }
+  if (isRetryableGmailReadError(error)) {
+    return "Gmail did not respond in time. Genosyn will retry automatically.";
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+export async function gmailFetch(
   accessToken: string,
   path: string,
   init: RequestInit = {},
+  options: GmailFetchOptions = {},
 ): Promise<unknown> {
-  const res = await fetch(`${GMAIL_API}${path}`, {
-    ...init,
-    headers: {
-      ...(init.headers ?? {}),
-      Authorization: `Bearer ${accessToken}`,
-      accept: "application/json",
-    },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
-  const text = await res.text();
-  let parsed: unknown = null;
-  try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    parsed = null;
+  const retryReads = options.retry === "read";
+  const maxAttempts = retryReads ? (options.maxAttempts ?? GMAIL_READ_MAX_ATTEMPTS) : 1;
+  const timeoutMs = Math.max(1, options.timeoutMs ?? REQUEST_TIMEOUT_MS);
+  const sleep =
+    options.sleep ??
+    ((delayMs: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, delayMs);
+      }));
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      // A timeout signal cannot be reused after it fires; create a fresh one
+      // for every attempt.
+      const res = await fetch(`${GMAIL_API}${path}`, {
+        ...init,
+        headers: {
+          ...(init.headers ?? {}),
+          Authorization: `Bearer ${accessToken}`,
+          accept: "application/json",
+        },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const text = await res.text();
+      let parsed: unknown = null;
+      try {
+        parsed = text ? JSON.parse(text) : null;
+      } catch {
+        parsed = null;
+      }
+      if (!res.ok) {
+        const reasons =
+          parsed && typeof parsed === "object" && "error" in parsed
+            ? ((parsed as { error?: { errors?: Array<{ reason?: unknown }> } }).error?.errors ?? [])
+                .map((entry) => entry.reason)
+                .filter((reason): reason is string => typeof reason === "string")
+            : [];
+        const detail =
+          parsed && typeof parsed === "object" && "error" in parsed
+            ? String(
+                (parsed as { error?: { message?: unknown } }).error?.message ??
+                  (parsed as { error?: unknown }).error,
+              )
+            : `Gmail ${res.status} ${res.statusText}`;
+        throw new GmailApiError(res.status, detail, res.headers.get("retry-after"), reasons);
+      }
+      return parsed;
+    } catch (error) {
+      if (!retryReads || attempt >= maxAttempts || !isRetryableGmailReadError(error)) throw error;
+      await sleep(gmailReadRetryDelayMs(error, attempt, { rng: options.rng }));
+    }
   }
-  if (!res.ok) {
-    const detail =
-      parsed && typeof parsed === "object" && "error" in parsed
-        ? String(
-            (parsed as { error?: { message?: unknown } }).error?.message ??
-              (parsed as { error?: unknown }).error,
-          )
-        : `Gmail ${res.status} ${res.statusText}`;
-    throw new GmailApiError(res.status, detail);
-  }
-  return parsed;
+  throw new Error("Gmail request exhausted its retry budget");
 }
 
 function postJson(body: unknown): RequestInit {
@@ -132,20 +266,17 @@ function postJson(body: unknown): RequestInit {
 // ---------- Endpoints ----------
 
 export async function getProfile(token: string): Promise<GmailProfile> {
-  return (await gmailFetch(token, "/users/me/profile")) as GmailProfile;
+  return (await gmailFetch(token, "/users/me/profile", {}, { retry: "read" })) as GmailProfile;
 }
 
 export async function listLabels(token: string): Promise<GmailLabel[]> {
-  const res = (await gmailFetch(token, "/users/me/labels")) as {
+  const res = (await gmailFetch(token, "/users/me/labels", {}, { retry: "read" })) as {
     labels?: GmailLabel[];
   };
   return res.labels ?? [];
 }
 
-export async function createLabel(
-  token: string,
-  name: string,
-): Promise<GmailLabel> {
+export async function createLabel(token: string, name: string): Promise<GmailLabel> {
   return (await gmailFetch(
     token,
     "/users/me/labels",
@@ -166,7 +297,7 @@ export async function listThreads(
   for (const id of opts.labelIds ?? []) qs.append("labelIds", id);
   qs.set("maxResults", String(opts.maxResults ?? 100));
   if (opts.pageToken) qs.set("pageToken", opts.pageToken);
-  const res = (await gmailFetch(token, `/users/me/threads?${qs}`)) as {
+  const res = (await gmailFetch(token, `/users/me/threads?${qs}`, {}, { retry: "read" })) as {
     threads?: Array<{ id: string }>;
     nextPageToken?: string;
   };
@@ -177,10 +308,13 @@ export async function getThread(
   token: string,
   id: string,
   format: "full" | "minimal" = "full",
+  options: Omit<GmailFetchOptions, "retry"> = {},
 ): Promise<GmailThread> {
   return (await gmailFetch(
     token,
     `/users/me/threads/${encodeURIComponent(id)}?format=${format}`,
+    {},
+    { retry: "read", ...options },
   )) as GmailThread;
 }
 
@@ -188,10 +322,13 @@ export async function getMessage(
   token: string,
   id: string,
   format: "full" | "minimal" | "metadata" = "full",
+  options: Omit<GmailFetchOptions, "retry"> = {},
 ): Promise<GmailMessage> {
   return (await gmailFetch(
     token,
     `/users/me/messages/${encodeURIComponent(id)}?format=${format}`,
+    {},
+    { retry: "read", ...options },
   )) as GmailMessage;
 }
 
@@ -202,7 +339,12 @@ export async function listHistory(
   const qs = new URLSearchParams({ startHistoryId: opts.startHistoryId });
   qs.set("maxResults", "500");
   if (opts.pageToken) qs.set("pageToken", opts.pageToken);
-  return (await gmailFetch(token, `/users/me/history?${qs}`)) as GmailHistoryPage;
+  return (await gmailFetch(
+    token,
+    `/users/me/history?${qs}`,
+    {},
+    { retry: "read" },
+  )) as GmailHistoryPage;
 }
 
 export async function sendMessage(
@@ -231,19 +373,11 @@ export async function modifyThread(
 }
 
 export async function trashThread(token: string, id: string): Promise<void> {
-  await gmailFetch(
-    token,
-    `/users/me/threads/${encodeURIComponent(id)}/trash`,
-    postJson({}),
-  );
+  await gmailFetch(token, `/users/me/threads/${encodeURIComponent(id)}/trash`, postJson({}));
 }
 
 export async function untrashThread(token: string, id: string): Promise<void> {
-  await gmailFetch(
-    token,
-    `/users/me/threads/${encodeURIComponent(id)}/untrash`,
-    postJson({}),
-  );
+  await gmailFetch(token, `/users/me/threads/${encodeURIComponent(id)}/untrash`, postJson({}));
 }
 
 export async function listDrafts(
@@ -254,7 +388,7 @@ export async function listDrafts(
   for (;;) {
     const qs = new URLSearchParams({ maxResults: "500" });
     if (pageToken) qs.set("pageToken", pageToken);
-    const res = (await gmailFetch(token, `/users/me/drafts?${qs}`)) as {
+    const res = (await gmailFetch(token, `/users/me/drafts?${qs}`, {}, { retry: "read" })) as {
       drafts?: Array<{ id: string; message?: { id: string; threadId: string } }>;
       nextPageToken?: string;
     };
@@ -283,14 +417,10 @@ export async function updateDraft(
   raw: string,
   threadId?: string,
 ): Promise<GmailDraft> {
-  return (await gmailFetch(
-    token,
-    `/users/me/drafts/${encodeURIComponent(draftId)}`,
-    {
-      ...postJson({ message: threadId ? { raw, threadId } : { raw } }),
-      method: "PUT",
-    },
-  )) as GmailDraft;
+  return (await gmailFetch(token, `/users/me/drafts/${encodeURIComponent(draftId)}`, {
+    ...postJson({ message: threadId ? { raw, threadId } : { raw } }),
+    method: "PUT",
+  })) as GmailDraft;
 }
 
 export async function deleteDraft(token: string, draftId: string): Promise<void> {
@@ -299,10 +429,7 @@ export async function deleteDraft(token: string, draftId: string): Promise<void>
   });
 }
 
-export async function sendDraft(
-  token: string,
-  draftId: string,
-): Promise<GmailMessage> {
+export async function sendDraft(token: string, draftId: string): Promise<GmailMessage> {
   return (await gmailFetch(
     token,
     "/users/me/drafts/send",
@@ -318,6 +445,8 @@ export async function getAttachment(
   return (await gmailFetch(
     token,
     `/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    {},
+    { retry: "read" },
   )) as { data?: string; size?: number };
 }
 
@@ -373,7 +502,11 @@ export function buildMime(m: MimeFields): string {
   if (attachments.length > 0) {
     const mixed = randomBoundary("mix");
     headers.push(`Content-Type: multipart/mixed; boundary="${mixed}"`);
-    const parts = [`--${mixed}`, renderBodyPart(m), ...attachments.map((a) => `--${mixed}\r\n${renderAttachmentPart(a)}`)];
+    const parts = [
+      `--${mixed}`,
+      renderBodyPart(m),
+      ...attachments.map((a) => `--${mixed}\r\n${renderAttachmentPart(a)}`),
+    ];
     message = `${headers.join("\r\n")}\r\n\r\n${parts.join("\r\n")}\r\n--${mixed}--\r\n`;
   } else {
     message = `${headers.join("\r\n")}\r\n${renderBodyHeadersAndContent(m)}`;
@@ -617,10 +750,7 @@ export function decodeHtmlEntities(text: string): string {
 
 // ---------- Header helpers ----------
 
-export function headerValue(
-  headers: GmailHeader[] | undefined,
-  name: string,
-): string {
+export function headerValue(headers: GmailHeader[] | undefined, name: string): string {
   const lower = name.toLowerCase();
   return headers?.find((h) => h.name.toLowerCase() === lower)?.value ?? "";
 }

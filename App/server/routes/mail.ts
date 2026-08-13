@@ -21,9 +21,9 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { decryptConnectionConfig } from "../services/integrations.js";
+import { broadcastToCompany } from "../services/realtime.js";
 import {
   createMailAccount,
-  deleteMailAccount,
   serializeMailAccount,
   accessTokenForAccount,
 } from "../services/mail/accounts.js";
@@ -81,7 +81,11 @@ import {
   parseMailQuery,
   resolveSearchLabelId,
 } from "../services/mail/searchQuery.js";
-import { syncAccountNow } from "../services/mail/sync.js";
+import {
+  disconnectMailAccount,
+  MailSyncPausedError,
+  queueAccountSync,
+} from "../services/mail/sync.js";
 
 /**
  * HTTP surface for the Email section (M25): mailbox accounts, the local
@@ -291,7 +295,7 @@ mailRouter.post("/mail/accounts", validateBody(createAccountSchema), async (req,
   });
   // First sync (the backfill) runs in the background; the UI follows along
   // via `mail.updated` events and the account's lastSyncAt/backfilledAt.
-  void syncAccountNow(account.id).catch(() => {});
+  void queueAccountSync(account.id).catch(() => {});
   res.json({ account: serializeMailAccount(account) });
 });
 
@@ -314,9 +318,15 @@ mailRouter.patch("/mail/accounts/:aid", validateBody(patchAccountSchema), async 
   if (!account) return res.status(404).json({ error: "Mail account not found" });
   const body = req.body as z.infer<typeof patchAccountSchema>;
   const resumed = body.status === "active" && account.status !== "active";
-  account.status = body.status;
-  if (body.status === "active") account.statusMessage = "";
-  await AppDataSource.getRepository(MailAccount).save(account);
+  const accountRepo = AppDataSource.getRepository(MailAccount);
+  // Target only the operator-controlled fields. A full entity save can race
+  // a sync transition and overwrite its queued/running attempt metadata.
+  await accountRepo.update(account.id, {
+    status: body.status,
+    statusMessage: "",
+    ...(body.status === "paused" ? { syncState: "failed", syncFinishedAt: new Date() } : {}),
+  });
+  const updatedAccount = await accountRepo.findOneByOrFail({ id: account.id });
   await recordAudit({
     companyId: account.companyId,
     actorUserId: req.userId ?? null,
@@ -326,8 +336,13 @@ mailRouter.patch("/mail/accounts/:aid", validateBody(patchAccountSchema), async 
     targetLabel: account.address,
   });
   // Un-pausing should catch up immediately, not on the next heartbeat.
-  if (resumed) void syncAccountNow(account.id).catch(() => {});
-  res.json({ account: serializeMailAccount(account) });
+  if (resumed) void queueAccountSync(account.id).catch(() => {});
+  broadcastToCompany(account.companyId, {
+    type: "mail.updated",
+    accountId: account.id,
+    threadsChanged: false,
+  });
+  res.json({ account: serializeMailAccount(updatedAccount) });
 });
 
 mailRouter.delete("/mail/accounts/:aid", async (req, res) => {
@@ -336,7 +351,12 @@ mailRouter.delete("/mail/accounts/:aid", async (req, res) => {
     req.params.aid as string,
   );
   if (!account) return res.status(404).json({ error: "Mail account not found" });
-  await deleteMailAccount(account);
+  await disconnectMailAccount(account);
+  broadcastToCompany(account.companyId, {
+    type: "mail.updated",
+    accountId: account.id,
+    threadsChanged: false,
+  });
   await recordAudit({
     companyId: account.companyId,
     actorUserId: req.userId ?? null,
@@ -354,10 +374,20 @@ mailRouter.post("/mail/accounts/:aid/sync", async (req, res) => {
     req.params.aid as string,
   );
   if (!account) return res.status(404).json({ error: "Mail account not found" });
-  // Fire in the background — a backfill can take minutes. The client hears
-  // about progress over the `mail.updated` websocket event.
-  void syncAccountNow(account.id).catch(() => {});
-  res.json({ ok: true });
+  try {
+    // The request is durable before this returns. The client follows the
+    // attempt id through account state (websocket first, polling fallback), so
+    // completion cannot be confused with an unrelated timestamp change.
+    const sync = await queueAccountSync(account.id);
+    res.status(202).json({ sync });
+  } catch (error) {
+    if (error instanceof MailSyncPausedError) {
+      return res.status(409).json({ error: error.message });
+    }
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : "Mailbox sync could not be queued",
+    });
+  }
 });
 
 // ───────────────────────────── labels + counts ─────────────────────────────

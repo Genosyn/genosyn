@@ -7,6 +7,8 @@ import { MailRule } from "../../db/entities/MailRule.js";
 import { MailHandover } from "../../db/entities/MailHandover.js";
 import { MailChatMessage } from "../../db/entities/MailChatMessage.js";
 import { MailDraftSendBatch } from "../../db/entities/MailDraftSendBatch.js";
+import { MailInboundAutomation } from "../../db/entities/MailInboundAutomation.js";
+import { MailSavedSearch } from "../../db/entities/MailSavedSearch.js";
 import { EmployeeMailAccountGrant } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
 import {
@@ -104,6 +106,10 @@ export async function createMailAccount(args: {
     statusMessage: "",
     historyId: "",
     lastSyncAt: null,
+    syncState: "idle",
+    syncAttemptId: null,
+    syncStartedAt: null,
+    syncFinishedAt: null,
     backfilledAt: null,
     createdByUserId: args.createdByUserId,
   });
@@ -114,6 +120,18 @@ export async function createMailAccount(args: {
  * connection is left alone — other surfaces may still use it. */
 export async function deleteMailAccount(account: MailAccount): Promise<void> {
   const id = account.id;
+  // Remove the coordination row first. An in-flight sync fences its final
+  // commit against this row and performs one last mirror purge when it sees
+  // the account disappeared, covering a Gmail response that was already on
+  // the wire when Disconnect was clicked.
+  await AppDataSource.getRepository(MailAccount).delete({ id });
+  await purgeMailAccountMirror(id);
+}
+
+/** Remove every local row owned by a mailbox. Exported for the sync worker's
+ * deletion fence: no stale response may resurrect an orphaned mirror. */
+export async function purgeMailAccountMirror(id: string): Promise<void> {
+  await AppDataSource.getRepository(MailInboundAutomation).delete({ accountId: id });
   await AppDataSource.getRepository(MailMessage).delete({ accountId: id });
   await AppDataSource.getRepository(MailThread).delete({ accountId: id });
   await AppDataSource.getRepository(MailLabel).delete({ accountId: id });
@@ -121,10 +139,10 @@ export async function deleteMailAccount(account: MailAccount): Promise<void> {
   await AppDataSource.getRepository(MailHandover).delete({ accountId: id });
   await AppDataSource.getRepository(MailChatMessage).delete({ accountId: id });
   await AppDataSource.getRepository(MailDraftSendBatch).delete({ accountId: id });
+  await AppDataSource.getRepository(MailSavedSearch).delete({ accountId: id });
   await AppDataSource.getRepository(EmployeeMailAccountGrant).delete({
     accountId: id,
   });
-  await AppDataSource.getRepository(MailAccount).delete({ id });
 }
 
 export type MailAccountDTO = {
@@ -134,6 +152,10 @@ export type MailAccountDTO = {
   status: string;
   statusMessage: string;
   lastSyncAt: string | null;
+  syncState: MailAccount["syncState"];
+  syncAttemptId: string | null;
+  syncStartedAt: string | null;
+  syncFinishedAt: string | null;
   backfilledAt: string | null;
   backfilledCount: number;
   createdAt: string;
@@ -147,6 +169,10 @@ export function serializeMailAccount(a: MailAccount): MailAccountDTO {
     status: a.status,
     statusMessage: a.statusMessage,
     lastSyncAt: a.lastSyncAt ? a.lastSyncAt.toISOString() : null,
+    syncState: a.syncState,
+    syncAttemptId: a.syncAttemptId,
+    syncStartedAt: a.syncStartedAt ? a.syncStartedAt.toISOString() : null,
+    syncFinishedAt: a.syncFinishedAt ? a.syncFinishedAt.toISOString() : null,
     backfilledAt: a.backfilledAt ? a.backfilledAt.toISOString() : null,
     backfilledCount: a.backfilledCount,
     createdAt: a.createdAt.toISOString(),

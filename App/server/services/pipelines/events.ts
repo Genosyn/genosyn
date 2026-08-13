@@ -5,10 +5,7 @@ import { Project } from "../../db/entities/Project.js";
 import { Todo } from "../../db/entities/Todo.js";
 import { runPipeline } from "./executor.js";
 import { parseGraph } from "./index.js";
-import type {
-  PipelineEventContext,
-  PipelineNode,
-} from "./types.js";
+import type { PipelineEventContext, PipelineNode } from "./types.js";
 
 const MAX_EVENT_DEPTH = 8;
 
@@ -76,6 +73,7 @@ type PipelineEvent =
 async function dispatchPipelineEvent(
   event: PipelineEvent,
   context: PipelineEventContext = { depth: 0, visitedPipelineIds: [] },
+  options: { failOnRejected?: boolean; beforeEffect?: () => void | Promise<void> } = {},
 ): Promise<void> {
   if (context.depth >= MAX_EVENT_DEPTH) return;
   const visited = new Set(context.visitedPipelineIds);
@@ -83,7 +81,7 @@ async function dispatchPipelineEvent(
     companyId: event.companyId,
     enabled: true,
   });
-  const runs: Promise<unknown>[] = [];
+  const launches: Array<() => Promise<unknown>> = [];
 
   for (const pipeline of pipelines) {
     if (visited.has(pipeline.id)) continue;
@@ -95,7 +93,7 @@ async function dispatchPipelineEvent(
     }
     for (const node of nodes) {
       if (node.type !== event.triggerType || !matchesEvent(node, event)) continue;
-      runs.push(
+      launches.push(() =>
         runPipeline({
           pipeline,
           triggerKind: "event",
@@ -110,40 +108,51 @@ async function dispatchPipelineEvent(
     }
   }
 
-  const results = await Promise.allSettled(runs);
+  if (launches.length > 0) await options.beforeEffect?.();
+  const results = await Promise.allSettled(launches.map((run) => run()));
+  let firstFailure: unknown;
   for (const result of results) {
     if (result.status === "rejected") {
+      firstFailure ??= result.reason;
       // eslint-disable-next-line no-console
       console.error("[pipelines] event trigger failed:", result.reason);
     }
   }
+  if (options.failOnRejected && firstFailure) throw firstFailure;
 }
 
-export async function dispatchEmailReceived(messageId: string): Promise<void> {
+export async function dispatchEmailReceived(
+  messageId: string,
+  options: { failOnRejected?: boolean; beforeEffect?: () => void | Promise<void> } = {},
+): Promise<void> {
   const message = await AppDataSource.getRepository(MailMessage).findOneBy({ id: messageId });
   if (!message) return;
   const attachments = parseArray(message.attachmentsJson);
-  await dispatchPipelineEvent({
-    companyId: message.companyId,
-    triggerType: "trigger.emailReceived",
-    payload: {
-      event: "email.received",
-      message: {
-        id: message.id,
-        threadId: message.threadId,
-        accountId: message.accountId,
-        from: { name: message.fromName, email: message.fromEmail },
-        to: splitAddresses(message.toEmails),
-        cc: splitAddresses(message.ccEmails),
-        subject: message.subject,
-        snippet: message.snippet,
-        bodyText: message.bodyText,
-        hasAttachments: attachments.length > 0,
-        attachments,
-        receivedAt: (message.sentAt ?? message.createdAt).toISOString(),
+  await dispatchPipelineEvent(
+    {
+      companyId: message.companyId,
+      triggerType: "trigger.emailReceived",
+      payload: {
+        event: "email.received",
+        message: {
+          id: message.id,
+          threadId: message.threadId,
+          accountId: message.accountId,
+          from: { name: message.fromName, email: message.fromEmail },
+          to: splitAddresses(message.toEmails),
+          cc: splitAddresses(message.ccEmails),
+          subject: message.subject,
+          snippet: message.snippet,
+          bodyText: message.bodyText,
+          hasAttachments: attachments.length > 0,
+          attachments,
+          receivedAt: (message.sentAt ?? message.createdAt).toISOString(),
+        },
       },
     },
-  });
+    undefined,
+    options,
+  );
 }
 
 export async function dispatchTodoCreated(
@@ -203,15 +212,21 @@ function matchesEvent(node: PipelineNode, event: PipelineEvent): boolean {
     return true;
   }
 
-  const projectSlug = String(node.config.projectSlug ?? "").trim().toLowerCase();
+  const projectSlug = String(node.config.projectSlug ?? "")
+    .trim()
+    .toLowerCase();
   if (projectSlug && projectSlug !== event.payload.project.slug.toLowerCase()) return false;
-  const priority = String(node.config.priority ?? "any").trim().toLowerCase();
+  const priority = String(node.config.priority ?? "any")
+    .trim()
+    .toLowerCase();
   if (priority !== "any" && priority !== event.payload.task.priority) return false;
   return containsFilter(event.payload.task.title, node.config.titleContains);
 }
 
 function containsFilter(value: string, filter: unknown): boolean {
-  const needle = String(filter ?? "").trim().toLowerCase();
+  const needle = String(filter ?? "")
+    .trim()
+    .toLowerCase();
   return !needle || value.toLowerCase().includes(needle);
 }
 

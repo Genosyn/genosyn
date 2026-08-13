@@ -1,6 +1,9 @@
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
-import { EmployeeMailAccountGrant, MAIL_ACCESS_RANK } from "../../db/entities/EmployeeMailAccountGrant.js";
+import {
+  EmployeeMailAccountGrant,
+  MAIL_ACCESS_RANK,
+} from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailRule } from "../../db/entities/MailRule.js";
@@ -62,10 +65,7 @@ export function parseActions(json: string): MailRuleAction[] {
 
 /** All present condition fields must match (AND); matching is substring,
  * case-insensitive — the same mental model as Gmail's own filters. */
-export function messageMatches(
-  conditions: MailRuleConditions,
-  message: MailMessage,
-): boolean {
+export function messageMatches(conditions: MailRuleConditions, message: MailMessage): boolean {
   const has = (haystack: string, needle: string) =>
     haystack.toLowerCase().includes(needle.trim().toLowerCase());
   if (conditions.from) {
@@ -93,6 +93,8 @@ export function messageMatches(
 export async function runRulesForNewMessage(
   account: MailAccount,
   messageRowId: string,
+  assertWritable: () => void | Promise<void> = () => {},
+  beforeEffect: () => void | Promise<void> = () => {},
 ): Promise<void> {
   const message = await AppDataSource.getRepository(MailMessage).findOneBy({
     id: messageRowId,
@@ -110,7 +112,9 @@ export async function runRulesForNewMessage(
   });
 
   for (const rule of rules) {
+    await assertWritable();
     if (!messageMatches(parseConditions(rule.conditionsJson), message)) continue;
+    await beforeEffect();
     rule.matchCount += 1;
     rule.lastMatchedAt = new Date();
     await ruleRepo.save(rule);
@@ -125,15 +129,13 @@ export async function runRulesForNewMessage(
     });
     for (const action of parseActions(rule.actionsJson)) {
       try {
+        await assertWritable();
         await applyRuleAction(account, thread, rule, action);
       } catch (err) {
         // One broken action (deleted label, revoked grant) must not stop
         // the rest of the rule — or the other rules.
         // eslint-disable-next-line no-console
-        console.error(
-          `[mail] rule "${rule.name}" action ${action.type} failed:`,
-          err,
-        );
+        console.error(`[mail] rule "${rule.name}" action ${action.type} failed:`, err);
       }
     }
   }
@@ -174,12 +176,12 @@ async function applyRuleAction(
       if (await hasActiveRuleHandover(thread.id, rule.id)) return;
       // Pre-flight the grant so a misconfigured rule fails loudly on the
       // handover record instead of the employee flailing at 403s.
-      const grant = await AppDataSource.getRepository(
-        EmployeeMailAccountGrant,
-      ).findOneBy({ employeeId: employee.id, accountId: account.id });
+      const grant = await AppDataSource.getRepository(EmployeeMailAccountGrant).findOneBy({
+        employeeId: employee.id,
+        accountId: account.id,
+      });
       const needed = action.mode === "reply" ? "send" : "draft";
-      const ok =
-        grant && MAIL_ACCESS_RANK[grant.accessLevel] >= MAIL_ACCESS_RANK[needed];
+      const ok = grant && MAIL_ACCESS_RANK[grant.accessLevel] >= MAIL_ACCESS_RANK[needed];
       await createMailHandover({
         account,
         thread,

@@ -30,6 +30,7 @@ import { getPublicUrl } from "../../../services/publicUrl.js";
 
 const GOOGLE_TOKEN = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo";
+const GOOGLE_AUTH_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * OAuth requires `openid` + `userinfo.email` regardless of which products a
@@ -159,8 +160,7 @@ export async function exchangeGoogleCode(args: {
     throw new Error(googleErrorMessage(tok, `Token exchange failed: ${tokRes.status}`));
   }
   const access = typeof tok.access_token === "string" ? tok.access_token : "";
-  const refresh =
-    typeof tok.refresh_token === "string" ? tok.refresh_token : undefined;
+  const refresh = typeof tok.refresh_token === "string" ? tok.refresh_token : undefined;
   const expiresIn = typeof tok.expires_in === "number" ? tok.expires_in : 3600;
   const scope = typeof tok.scope === "string" ? tok.scope : "";
   if (!access) throw new Error("Google did not return an access token");
@@ -255,10 +255,13 @@ export async function mintServiceAccountToken(
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
+    signal: AbortSignal.timeout(GOOGLE_AUTH_REQUEST_TIMEOUT_MS),
   });
   const parsed = safeJson(await res.text()) as Record<string, unknown> | null;
   if (!res.ok || !parsed) {
-    throw new Error(googleErrorMessage(parsed, `Service-account token request failed: ${res.status}`));
+    throw new Error(
+      googleErrorMessage(parsed, `Service-account token request failed: ${res.status}`),
+    );
   }
   const access = typeof parsed.access_token === "string" ? parsed.access_token : "";
   const expiresIn = typeof parsed.expires_in === "number" ? parsed.expires_in : 3600;
@@ -275,9 +278,7 @@ export async function mintServiceAccountToken(
  * JWT-bearer token. Either way, a rotated token is handed to `ctx.setConfig`
  * so the caller re-encrypts and persists it.
  */
-export async function ensureFreshGoogleToken(
-  ctx: IntegrationRuntimeContext,
-): Promise<void> {
+export async function ensureFreshGoogleToken(ctx: IntegrationRuntimeContext): Promise<void> {
   if (ctx.authMode === "oauth2") {
     return refreshOauthToken(ctx);
   }
@@ -291,9 +292,7 @@ async function refreshOauthToken(ctx: IntegrationRuntimeContext): Promise<void> 
   const cfg = ctx.config as GoogleOauthConfig;
   if (cfg.expiresAt > Date.now() + 60_000) return;
   if (!cfg.clientId || !cfg.clientSecret) {
-    throw new Error(
-      "Connection is missing OAuth client credentials — disconnect and reconnect.",
-    );
+    throw new Error("Connection is missing OAuth client credentials — disconnect and reconnect.");
   }
   const body = new URLSearchParams({
     client_id: cfg.clientId,
@@ -305,6 +304,7 @@ async function refreshOauthToken(ctx: IntegrationRuntimeContext): Promise<void> 
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
+    signal: AbortSignal.timeout(GOOGLE_AUTH_REQUEST_TIMEOUT_MS),
   });
   const parsed = safeJson(await res.text()) as Record<string, unknown> | null;
   if (!res.ok || !parsed) {
@@ -322,9 +322,7 @@ async function refreshOauthToken(ctx: IntegrationRuntimeContext): Promise<void> 
   ctx.config = next as unknown as IntegrationConfig;
 }
 
-async function refreshServiceAccountToken(
-  ctx: IntegrationRuntimeContext,
-): Promise<void> {
+async function refreshServiceAccountToken(ctx: IntegrationRuntimeContext): Promise<void> {
   const cfg = ctx.config as GoogleServiceAccountConfig;
   if (cfg.accessToken && cfg.expiresAt && cfg.expiresAt > Date.now() + 60_000) {
     return;
@@ -368,11 +366,7 @@ function b64url(s: string): string {
 }
 
 function b64urlBuf(b: Buffer): string {
-  return b
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  return b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function strField(o: Record<string, unknown>, key: string): string {

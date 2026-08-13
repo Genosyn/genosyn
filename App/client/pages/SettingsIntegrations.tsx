@@ -1,6 +1,6 @@
 import React from "react";
 import { Select } from "@/components/ui/Select";
-import { Link, useOutletContext } from "react-router-dom";
+import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   AlertCircle,
   Antenna,
@@ -140,6 +140,10 @@ function IntegrationsPage({
 }) {
   const { toast, background } = useToast();
   const dialog = useDialog();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedReconnectId = searchParams.get("reconnect");
+  const searchParamsString = searchParams.toString();
+  const handledReconnectId = React.useRef<string | null>(null);
 
   const [catalog, setCatalog] = React.useState<IntegrationCatalogEntry[] | null>(null);
   const [connections, setConnections] = React.useState<IntegrationConnection[] | null>(null);
@@ -172,6 +176,37 @@ function IntegrationsPage({
   React.useEffect(() => {
     reload();
   }, [reload]);
+
+  React.useEffect(() => {
+    if (
+      !requestedReconnectId ||
+      handledReconnectId.current === requestedReconnectId ||
+      catalog === null ||
+      connections === null
+    ) {
+      return;
+    }
+
+    handledReconnectId.current = requestedReconnectId;
+    const nextParams = new URLSearchParams(searchParamsString);
+    nextParams.delete("reconnect");
+    setSearchParams(nextParams, { replace: true });
+
+    const conn = connections.find((item) => item.id === requestedReconnectId);
+    const entry = conn ? catalog.find((item) => item.provider === conn.provider) : null;
+    if (!conn || !entry) {
+      toast("That connection is no longer available.", "error");
+      return;
+    }
+    setReconnecting({ entry, conn });
+  }, [
+    catalog,
+    connections,
+    requestedReconnectId,
+    searchParamsString,
+    setSearchParams,
+    toast,
+  ]);
 
   useLiveRefetch("connection", reload);
 
@@ -1175,8 +1210,9 @@ export function OauthOrServiceAccountModal({
       // example). Providers without explicit defaults preserve the
       // historical all-selected behaviour.
       const availableGroups =
-        (initialMode === "oauth" ? entry.oauth?.scopeGroups : entry.serviceAccount?.scopeGroups) ??
-        [];
+        (initialMode === "oauth"
+          ? entry.oauth?.scopeGroups
+          : entry.serviceAccount?.scopeGroups) ?? [];
       const allGroupKeys = availableGroups.map((g) => g.key);
       const defaultGroupKeys = availableGroups
         .filter((group) => group.defaultSelected)

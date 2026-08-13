@@ -83,6 +83,7 @@ import { MailChatMessage } from "../db/entities/MailChatMessage.js";
 import { MailHandover } from "../db/entities/MailHandover.js";
 import { MailLabel } from "../db/entities/MailLabel.js";
 import { MailMessage } from "../db/entities/MailMessage.js";
+import { MailInboundAutomation } from "../db/entities/MailInboundAutomation.js";
 import { MailRule } from "../db/entities/MailRule.js";
 import { MailThread } from "../db/entities/MailThread.js";
 import { EmailProvider } from "../db/entities/EmailProvider.js";
@@ -340,6 +341,7 @@ export async function deleteCompanyCascade(args: {
     if (employeeIds.length) {
       await m.delete(EmployeeMailAccountGrant, { employeeId: In(employeeIds) });
     }
+    await m.delete(MailInboundAutomation, { companyId });
     await m.delete(MailMessage, { companyId });
     await m.delete(MailThread, { companyId });
     await m.delete(MailLabel, { companyId });

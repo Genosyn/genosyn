@@ -54,9 +54,13 @@ type ProcessOptions = QueueTiming & {
 let discoveryTimer: NodeJS.Timeout | null = null;
 const activeBatchIds = new Set<string>();
 const creatingAccountIds = new Set<string>();
+const creatingAccountPromises = new Map<string, Promise<void>>();
 const batchMutationTails = new Map<string, Promise<void>>();
+const disconnectingAccountIds = new Set<string>();
 
 export class DraftSendQueueBusyError extends Error {}
+
+export class DraftSendDisconnectBusyError extends DraftSendQueueBusyError {}
 
 /** Random whole-millisecond pause in the inclusive one-to-two minute range. */
 export function randomSendDelayMs(random: () => number = Math.random): number {
@@ -295,10 +299,18 @@ export async function createDraftSendBatch(
   actorUserId: string | null,
   timing: QueueTiming = {},
 ): Promise<QueueDraftsForSendResult> {
+  if (disconnectingAccountIds.has(account.id)) {
+    throw new DraftSendDisconnectBusyError("The mailbox is being disconnected.");
+  }
   if (creatingAccountIds.has(account.id)) {
     throw new DraftSendQueueBusyError("The send queue is being updated. Please try again.");
   }
   creatingAccountIds.add(account.id);
+  let releaseCreating = (): void => undefined;
+  const creating = new Promise<void>((resolve) => {
+    releaseCreating = resolve;
+  });
+  creatingAccountPromises.set(account.id, creating);
   try {
     const result = await withSchedulerLease(
       `mail-draft-send-create:${account.id}`,
@@ -326,6 +338,10 @@ export async function createDraftSendBatch(
     };
   } finally {
     creatingAccountIds.delete(account.id);
+    if (creatingAccountPromises.get(account.id) === creating) {
+      creatingAccountPromises.delete(account.id);
+    }
+    releaseCreating();
   }
 }
 
@@ -364,10 +380,12 @@ async function processDraftSendBatchUnlocked(
   batch.itemsJson = JSON.stringify(items);
   await repo.save(batch);
 
-  const account = await AppDataSource.getRepository(MailAccount).findOneBy({
-    id: batch.accountId,
-    companyId: batch.companyId,
-  });
+  const account = disconnectingAccountIds.has(batch.accountId)
+    ? null
+    : await AppDataSource.getRepository(MailAccount).findOneBy({
+        id: batch.accountId,
+        companyId: batch.companyId,
+      });
   let sentMessage: MailMessage | null = null;
   let errorMessage = "";
 
@@ -459,6 +477,69 @@ export async function processDraftSendBatch(
     );
   } finally {
     activeBatchIds.delete(batchId);
+  }
+}
+
+type DisconnectFenceResult<T> = { acquired: true; value: T } | { acquired: false };
+
+async function holdBatchDisconnectLeases<T>(
+  batches: MailDraftSendBatch[],
+  index: number,
+  fn: () => Promise<T>,
+): Promise<DisconnectFenceResult<T>> {
+  if (index >= batches.length) return { acquired: true, value: await fn() };
+  const batch = batches[index];
+  const nested = await withBatchMutationLease(batch.id, async () => {
+    const current = await AppDataSource.getRepository(MailDraftSendBatch).findOneBy({
+      id: batch.id,
+      accountId: batch.accountId,
+    });
+    if (current && parseItems(current.itemsJson).some((item) => item.status === "sending")) {
+      throw new DraftSendDisconnectBusyError(
+        "The mailbox is still finishing a draft send. Please try Disconnect again shortly.",
+      );
+    }
+    return holdBatchDisconnectLeases(batches, index + 1, fn);
+  });
+  return nested ?? { acquired: false };
+}
+
+/** Hold the account's queue-creation and every active batch lease through the
+ * destructive callback. This closes both the local and cross-process windows
+ * where a late send/create could resurrect rows after Disconnect. */
+export async function withDraftSendDisconnectFence<T>(
+  accountId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (disconnectingAccountIds.has(accountId)) {
+    throw new DraftSendDisconnectBusyError("The mailbox is already being disconnected.");
+  }
+  disconnectingAccountIds.add(accountId);
+  try {
+    await creatingAccountPromises.get(accountId);
+    const deadline = Date.now() + LEASE_TTL_MS;
+    for (;;) {
+      const result = await withSchedulerLease(
+        `mail-draft-send-create:${accountId}`,
+        LEASE_TTL_MS,
+        async () => {
+          const batches = await AppDataSource.getRepository(MailDraftSendBatch).find({
+            where: { accountId, status: In(ACTIVE_STATUSES) },
+            order: { id: "ASC" },
+          });
+          return holdBatchDisconnectLeases(batches, 0, fn);
+        },
+      );
+      if (result?.acquired) return result.value;
+      if (Date.now() >= deadline) {
+        throw new DraftSendDisconnectBusyError(
+          "The mailbox is still finishing a draft send. Please try Disconnect again shortly.",
+        );
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    }
+  } finally {
+    disconnectingAccountIds.delete(accountId);
   }
 }
 

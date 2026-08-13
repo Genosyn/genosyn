@@ -57,6 +57,7 @@ export type UpsertResult = { row: MailMessage; created: boolean };
 export async function upsertGmailMessage(
   account: MailAccount,
   gm: GmailMessage,
+  options: { preserveRichContent?: boolean } = {},
 ): Promise<UpsertResult> {
   const msgRepo = AppDataSource.getRepository(MailMessage);
   const thread = await ensureThreadShell(account, gm.threadId);
@@ -89,23 +90,23 @@ export async function upsertGmailMessage(
   row.bccEmails = headerValue(headers, "Bcc");
   row.subject = headerValue(headers, "Subject");
   row.snippet = decodeHtmlEntities(gm.snippet ?? "");
-  row.bodyText = truncate(bodies.text, BODY_CAP);
-  row.bodyHtml = truncate(bodies.html, BODY_CAP);
+  if (!options.preserveRichContent || created) {
+    row.bodyText = truncate(bodies.text, BODY_CAP);
+    row.bodyHtml = truncate(bodies.html, BODY_CAP);
+    row.attachmentsJson = JSON.stringify(bodies.attachments);
+  }
   row.labelIds = labelIdsToColumn(gm.labelIds ?? []);
   row.sentAt = sentAtMs > 0 ? new Date(sentAtMs) : null;
   row.messageIdHeader = headerValue(headers, "Message-ID");
   row.referencesHeader = headerValue(headers, "References");
   row.inReplyToHeader = headerValue(headers, "In-Reply-To");
-  row.attachmentsJson = JSON.stringify(bodies.attachments);
   row.sizeEstimate = gm.sizeEstimate ?? 0;
   await msgRepo.save(row);
   if (bodies.attachments.length > 0) {
     try {
       await createRevenueDocumentCandidatesForMessage(account.companyId, row);
     } catch (error) {
-      console.error(
-        `[revenue-document-capture] ${row.id}: ${(error as Error).message}`,
-      );
+      console.error(`[revenue-document-capture] ${row.id}: ${(error as Error).message}`);
     }
   }
   return { row, created };
@@ -138,10 +139,7 @@ export async function deleteMessageByGmailId(
   return row.gmailThreadId;
 }
 
-async function ensureThreadShell(
-  account: MailAccount,
-  gmailThreadId: string,
-): Promise<MailThread> {
+async function ensureThreadShell(account: MailAccount, gmailThreadId: string): Promise<MailThread> {
   const repo = AppDataSource.getRepository(MailThread);
   const existing = await repo.findOneBy({
     accountId: account.id,
@@ -187,9 +185,7 @@ export async function recomputeThread(
   const labelUnion = new Set<string>();
   let unread = false;
   let hasAttachments = false;
-  const nonDrafts = messages.filter(
-    (m) => !columnHasLabel(m.labelIds, "DRAFT"),
-  );
+  const nonDrafts = messages.filter((m) => !columnHasLabel(m.labelIds, "DRAFT"));
   const visible = nonDrafts.length > 0 ? nonDrafts : messages;
   for (const m of messages) {
     for (const id of columnToLabelIds(m.labelIds)) labelUnion.add(id);
@@ -215,10 +211,7 @@ export async function recomputeThread(
 
 /** "Ada Lovelace, billing@acme.com +2" — counterparties first, self elided
  * unless the thread is all self (then fall back to who it was sent to). */
-function summarizeParticipants(
-  account: MailAccount,
-  messages: MailMessage[],
-): string {
+function summarizeParticipants(account: MailAccount, messages: MailMessage[]): string {
   const self = account.address.toLowerCase();
   const seen = new Map<string, string>();
   for (const m of messages) {
@@ -245,10 +238,7 @@ function summarizeParticipants(
 
 /** Mirror the Gmail label catalog: upsert everything present, delete rows
  * whose label disappeared upstream. */
-export async function syncLabels(
-  account: MailAccount,
-  labels: GmailLabel[],
-): Promise<void> {
+export async function syncLabels(account: MailAccount, labels: GmailLabel[]): Promise<void> {
   const repo = AppDataSource.getRepository(MailLabel);
   const existing = await repo.find({ where: { accountId: account.id } });
   const byGmailId = new Map(existing.map((l) => [l.gmailLabelId, l]));
@@ -283,8 +273,10 @@ export async function syncLabels(
 export async function refreshDraftIds(
   account: MailAccount,
   token: string,
+  assertWritable: () => void | Promise<void> = () => {},
 ): Promise<void> {
   const drafts = await listDrafts(token);
+  await assertWritable();
   const byMessageId = new Map<string, string>();
   for (const d of drafts) {
     if (d.message?.id) byMessageId.set(d.message.id, d.id);
@@ -298,6 +290,7 @@ export async function refreshDraftIds(
     })
     .getMany();
   for (const row of local) {
+    await assertWritable();
     const draftId = byMessageId.get(row.gmailMessageId) ?? "";
     if (row.gmailDraftId !== draftId) {
       row.gmailDraftId = draftId;

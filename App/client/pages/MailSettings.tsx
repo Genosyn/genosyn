@@ -6,6 +6,7 @@ import {
   Mail,
   Pause,
   Play,
+  Plug2,
   Plus,
   RefreshCw,
   Trash2,
@@ -51,9 +52,13 @@ export default function MailSettings() {
   const [candidates, setCandidates] = React.useState<MailGrantCandidate[]>([]);
   const [addOpen, setAddOpen] = React.useState(false);
   const [connectOpen, setConnectOpen] = React.useState(false);
-  const [displayStatus, setDisplayStatus] = React.useState(account.status);
-
-  React.useEffect(() => setDisplayStatus(account.status), [account.status]);
+  const [pendingStatusByAccount, setPendingStatusByAccount] = React.useState<
+    Partial<Record<string, "active" | "paused">>
+  >({});
+  const pendingStatus = pendingStatusByAccount[account.id];
+  const displayStatus = pendingStatus ?? account.status;
+  const pausePending = pendingStatus !== undefined;
+  const canReconnect = company.role === "owner" || company.role === "admin";
 
   const loadGrants = React.useCallback(async () => {
     const [g, cand] = await Promise.all([
@@ -71,18 +76,30 @@ export default function MailSettings() {
   }, [loadGrants]);
 
   const togglePause = () => {
-    const previous = displayStatus;
+    if (pausePending) return;
+    const accountId = account.id;
     const next = displayStatus === "paused" ? "active" : "paused";
-    setDisplayStatus(next);
-    background(() => mailApi.patchAccount(company.id, account.id, next), {
+    setPendingStatusByAccount((current) => ({ ...current, [accountId]: next }));
+    const clearPending = () => {
+      setPendingStatusByAccount((current) => {
+        if (current[accountId] !== next) return current;
+        const updated = { ...current };
+        delete updated[accountId];
+        return updated;
+      });
+    };
+    background(() => mailApi.patchAccount(company.id, accountId, next), {
       loading: next === "active" ? "Resuming sync…" : "Pausing sync…",
       success: next === "active" ? "Sync resumed" : "Sync paused",
       error: (error) =>
         `Couldn\u2019t update sync: ${
           error instanceof Error ? error.message : "Unknown error"
         }. The change was undone.`,
-      onSuccess: () => void refresh(),
-      onError: () => setDisplayStatus(previous),
+      onSuccess: () => {
+        clearPending();
+        void refresh();
+      },
+      onError: clearPending,
     });
   };
 
@@ -166,17 +183,21 @@ export default function MailSettings() {
           <div className="min-w-0 flex-1">
             <div className="font-medium text-slate-900 dark:text-slate-100">{account.address}</div>
             <div className="mt-0.5 flex items-center gap-1.5 text-xs">
-              {displayStatus === "error" ? (
+              {displayStatus === "paused" ? (
+                <span className="text-slate-500">Sync paused</span>
+              ) : syncing ? (
+                <span className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400">
+                  <RefreshCw size={12} className="animate-spin" /> Sync in progress…
+                </span>
+              ) : displayStatus === "error" ? (
                 <span className="flex items-center gap-1 text-red-600 dark:text-red-400">
                   <AlertTriangle size={12} /> {account.statusMessage || "Sync error"}
                 </span>
-              ) : displayStatus === "paused" ? (
-                <span className="text-slate-500">Sync paused</span>
               ) : (
                 <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                   <CheckCircle2 size={12} />{" "}
                   {account.backfilledAt
-                    ? `Synced ${shortMailDate(account.lastSyncAt)}`
+                    ? `Last synced successfully ${shortMailDate(account.lastSyncAt)}`
                     : "First sync in progress…"}
                 </span>
               )}
@@ -187,14 +208,29 @@ export default function MailSettings() {
           <Button
             size="sm"
             variant="secondary"
-            disabled={syncing || displayStatus === "paused"}
+            disabled={syncing || pausePending || displayStatus === "paused"}
             onClick={() => void syncNow()}
             aria-busy={syncing}
           >
             <RefreshCw size={14} className={syncing ? "mr-1.5 animate-spin" : "mr-1.5"} />{" "}
-            {syncing ? "Syncing…" : "Sync now"}
+            {syncing ? "Syncing…" : displayStatus === "error" ? "Retry sync" : "Sync now"}
           </Button>
-          <Button size="sm" variant="secondary" onClick={togglePause}>
+          {canReconnect && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={pausePending}
+              onClick={() =>
+                navigate(
+                  `/c/${company.slug}/mail/integrations?reconnect=${encodeURIComponent(account.connectionId)}`,
+                )
+              }
+              title="Refresh the Google credentials without removing this mailbox"
+            >
+              <Plug2 size={14} className="mr-1.5" /> Reconnect Google
+            </Button>
+          )}
+          <Button size="sm" variant="secondary" disabled={pausePending} onClick={togglePause}>
             {displayStatus === "paused" ? (
               <>
                 <Play size={14} className="mr-1.5" /> Resume sync
@@ -205,7 +241,7 @@ export default function MailSettings() {
               </>
             )}
           </Button>
-          <Button size="sm" variant="danger" onClick={disconnect}>
+          <Button size="sm" variant="danger" disabled={pausePending} onClick={disconnect}>
             <Trash2 size={14} className="mr-1.5" /> Disconnect
           </Button>
         </div>
@@ -296,7 +332,9 @@ export default function MailSettings() {
               <span className="min-w-0 flex-1 truncate text-slate-700 dark:text-slate-300">
                 {a.address}
               </span>
-              <span className="text-xs capitalize text-slate-400">{a.status}</span>
+              <span className="text-xs capitalize text-slate-400">
+                {a.syncState === "queued" || a.syncState === "running" ? "syncing" : a.status}
+              </span>
             </li>
           ))}
         </ul>

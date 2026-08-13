@@ -17,6 +17,7 @@ import { bootTelegramListeners } from "./services/telegramListener.js";
 import { bootMailSync } from "./services/mail/sync.js";
 import { bootMailHandovers } from "./services/mail/handovers.js";
 import { bootMailDraftSendQueue } from "./services/mail/draftSendQueue.js";
+import { bootMailAutomationQueue } from "./services/mail/automationQueue.js";
 import { attachRealtime, bootRealtimeBridge } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
@@ -129,6 +130,10 @@ async function main() {
   // The heartbeat's first pass runs async, so like Telegram it never gates
   // startup; handover recovery is a quick DB sweep.
   bootMailSync();
+  void bootMailAutomationQueue().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[mail] inbound automation queue failed to start:", err);
+  });
   void bootMailHandovers().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[mail] handover boot failed:", err);

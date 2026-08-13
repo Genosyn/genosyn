@@ -51,11 +51,12 @@ export function Email() {
           The first sync imports your <Strong>entire mailbox</Strong>, newest first, so everything
           is searchable here. A big account fills in over a few minutes in the background (the
           sidebar shows the running count); after that, sync is incremental. The import checkpoints
-          its progress continuously, so a restart, a rate limit, or a dropped connection just picks
-          up where it left off — and mail that arrives <em>while</em> the import is still running
-          shows up (and triggers your rules) within a minute, without waiting for it to finish. You
-          can connect more than one mailbox and switch between them from the account picker at the
-          top of the sidebar.
+          every conversation, so a restart, a rate limit, or a dropped connection resumes at the
+          exact remaining email instead of replaying a whole page. Temporary Gmail failures are
+          retried with backoff, and unusually large conversations fall back to smaller per-message
+          reads. Mail that arrives <em>while</em> the import is still running shows up (and triggers
+          your rules) within a minute, without waiting for it to finish. You can connect more than
+          one mailbox and switch between them from the account picker at the top of the sidebar.
         </LI>
       </OL>
 
@@ -76,9 +77,21 @@ export function Email() {
         apply labels all act on the whole thread and land in Gmail immediately.
       </P>
       <P>
-        The Inbox header shows when the mailbox last completed a sync. Click{" "}
-        <Strong>Sync now</Strong> to check Gmail immediately; the button shows the running sync
-        until that pass completes.
+        The Inbox header shows when the mailbox last synced <Strong>successfully</Strong>. Click{" "}
+        <Strong>Sync now</Strong> to check Gmail immediately. Genosyn records that pass before it
+        starts, so the button follows a real queued, running, succeeded, or failed state even if you
+        reload the page or miss a live update. A temporary timeout is retried automatically; if the
+        retry budget is exhausted, the button stops, the mailbox shows a useful explanation, and{" "}
+        <Strong>Retry sync</Strong> starts another resumable pass. Background sync also retries an
+        errored mailbox on a slower cadence.
+      </P>
+      <P>
+        If Google asks you to authorize again, or you need to change the Gmail access granted to
+        Genosyn, an owner or admin can open <Strong>Email → Settings</Strong> and click{" "}
+        <Strong>Reconnect Google</Strong>. This refreshes the existing Connection in place, so your
+        imported mail, rules, AI access, and mailbox settings stay intact. After Google confirms
+        the connection, return to Email and click <Strong>Retry sync</Strong> if the mailbox was
+        showing an error.
       </P>
       <P>
         Search (press <Code>/</Code> to jump to the box) covers <Strong>all mail</Strong> — every
@@ -148,8 +161,8 @@ export function Email() {
         enter the send queue, leaving the page ready for more review. You can add newly approved
         drafts while sending is in progress; they join the same paced queue and its finish estimate
         updates automatically. The progress bar disappears when the queue finishes. A failed attempt
-        returns to <Strong>Needs attention</Strong> with Gmail&apos;s reason while the rest of the queue
-        continues.
+        returns to <Strong>Needs attention</Strong> with Gmail&apos;s reason while the rest of the
+        queue continues.
       </P>
 
       <H2 id="suppressed">Sending refuses suppressed recipients</H2>

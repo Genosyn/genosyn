@@ -58,27 +58,42 @@ async function release(name: string): Promise<void> {
 export async function withSchedulerLease<T>(
   name: string,
   ttlMs: number,
-  fn: () => Promise<T>,
+  fn: (lease: { isHeld: () => boolean }) => Promise<T>,
 ): Promise<T | null> {
   // SQLite is single-process here and TypeORM exposes one connection. A
   // transaction used as a distributed lock can collide with unrelated startup
   // work, so the caller's in-process guard is the lease in self-hosted mode.
-  if (config.db.driver !== "postgres") return fn();
+  if (config.db.driver !== "postgres") return fn({ isHeld: () => true });
   if (!(await acquire(name, ttlMs))) return null;
+  let held = true;
+  let renewalTail = Promise.resolve();
   const renewal = setInterval(
     () => {
-      void renew(name, ttlMs).catch((error) => {
-        // eslint-disable-next-line no-console
-        console.error(`[scheduler] failed to renew ${name}:`, error);
+      renewalTail = renewalTail.then(async () => {
+        if (!held) return;
+        try {
+          const renewed = await renew(name, ttlMs);
+          if (!renewed) held = false;
+        } catch (error) {
+          // Conservatively fence the worker. A transient database failure can
+          // let the lease expire before the next renewal, so continuing would
+          // risk two app instances mutating the same resource.
+          held = false;
+          // eslint-disable-next-line no-console
+          console.error(`[scheduler] failed to renew ${name}:`, error);
+        }
       });
     },
     Math.max(1_000, Math.floor(ttlMs / 3)),
   );
   if (typeof renewal.unref === "function") renewal.unref();
   try {
-    return await fn();
+    return await fn({ isHeld: () => held });
   } finally {
     clearInterval(renewal);
+    // Do not let a renewal that was already in flight land after release and
+    // resurrect the lease for another full TTL.
+    await renewalTail;
     await release(name).catch((error) => {
       // eslint-disable-next-line no-console
       console.error(`[scheduler] failed to release ${name}:`, error);

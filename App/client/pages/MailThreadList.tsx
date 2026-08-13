@@ -448,7 +448,7 @@ export default function MailThreadList() {
             title={account.lastSyncAt ? new Date(account.lastSyncAt).toLocaleString() : undefined}
           >
             {account.lastSyncAt
-              ? `Last synced ${mailSyncDate(account.lastSyncAt)}`
+              ? `Last synced successfully ${mailSyncDate(account.lastSyncAt)}`
               : "Not synced yet"}
           </div>
         </div>
@@ -991,9 +991,7 @@ function ThreadRow({
       <Checkbox
         checked={selected}
         label={`Select ${thread.subject || "thread"}`}
-        onChange={(event) =>
-          onToggleSelect(Boolean((event.nativeEvent as MouseEvent).shiftKey))
-        }
+        onChange={(event) => onToggleSelect(Boolean((event.nativeEvent as MouseEvent).shiftKey))}
         className={clsx(
           !selected && "opacity-0 focus:opacity-100 group-hover:opacity-100",
           "transition-opacity",

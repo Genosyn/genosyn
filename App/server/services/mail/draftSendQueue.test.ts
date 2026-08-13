@@ -17,6 +17,7 @@ import {
   processDraftSendBatch,
   randomSendDelayMs,
 } from "./draftSendQueue.js";
+import { disconnectMailAccount } from "./sync.js";
 import { listDrafts, previewDraftSend } from "./drafts.js";
 
 before(initTestDb);
@@ -306,6 +307,76 @@ describe("draft send pacing", () => {
     assert.equal(appended.batch.total, 3);
     assert.equal(appended.batch.remaining, 2);
     assert.deepEqual(appended.batch.queuedDraftIds, [drafts[1].id, drafts[2].id]);
+  });
+
+  test("disconnect waits for an in-flight draft send before deleting every row", async () => {
+    const { account, drafts } = await createDrafts(2);
+    const queued = await createDraftSendBatch(
+      account,
+      drafts.map((draft) => draft.id),
+      null,
+      {
+        now: () => new Date("2026-07-29T10:00:00.000Z"),
+        delayMs: () => MIN_SEND_DELAY_MS,
+      },
+    );
+    let markSendStarted = (): void => undefined;
+    const sendStarted = new Promise<void>((resolve) => {
+      markSendStarted = resolve;
+    });
+    let finishSend = (): void => undefined;
+    const mayFinishSend = new Promise<void>((resolve) => {
+      finishSend = resolve;
+    });
+    let sends = 0;
+    const processing = processDraftSendBatch(queued.batch.id, {
+      now: () => new Date("2026-07-29T10:01:00.000Z"),
+      delayMs: () => MIN_SEND_DELAY_MS,
+      sendDraft: async (_account, draft) => {
+        sends += 1;
+        markSendStarted();
+        await mayFinishSend;
+        return draft;
+      },
+    });
+    await sendStarted;
+
+    let disconnectSettled = false;
+    const disconnecting = disconnectMailAccount(account).then(() => {
+      disconnectSettled = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(disconnectSettled, false);
+    assert.equal(await AppDataSource.getRepository(MailAccount).count(), 1);
+    assert.equal(await AppDataSource.getRepository(MailMessage).count(), 2);
+    assert.equal(await AppDataSource.getRepository(MailDraftSendBatch).count(), 1);
+
+    finishSend();
+    await processing;
+    await disconnecting;
+    assert.equal(sends, 1);
+    assert.equal(await AppDataSource.getRepository(MailAccount).count(), 0);
+    assert.equal(await AppDataSource.getRepository(MailMessage).count(), 0);
+    assert.equal(await AppDataSource.getRepository(MailDraftSendBatch).count(), 0);
+  });
+
+  test("disconnect waits for queue creation that already entered", async () => {
+    const { account, drafts } = await createDrafts(1);
+    // Async functions execute through their first await immediately, so the
+    // creator has registered its account promise before Disconnect raises its
+    // fence. The disconnect must then delete the newly-created batch too.
+    const creating = createDraftSendBatch(account, [drafts[0].id], null, {
+      now: () => new Date("2026-07-29T10:00:00.000Z"),
+      delayMs: () => MIN_SEND_DELAY_MS,
+    });
+    const disconnecting = disconnectMailAccount(account);
+
+    const created = await creating;
+    assert.equal(created.added, 1);
+    await disconnecting;
+    assert.equal(await AppDataSource.getRepository(MailAccount).count(), 0);
+    assert.equal(await AppDataSource.getRepository(MailMessage).count(), 0);
+    assert.equal(await AppDataSource.getRepository(MailDraftSendBatch).count(), 0);
   });
 
   test("preserves failures for attention while allowing a new queue after completion", async () => {

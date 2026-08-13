@@ -65,7 +65,7 @@ export type MailOutletCtx = {
   changeTick: number;
   /** True while a user-requested sync is running for the active account. */
   syncing: boolean;
-  /** Start a sync and keep `syncing` true until lastSyncAt advances. */
+  /** Start a durable sync and follow its explicit server-side lifecycle. */
   syncNow: () => Promise<void>;
   refresh: () => Promise<void>;
   openCompose: (init?: Partial<ComposeInput>) => void;
@@ -97,11 +97,18 @@ export default function MailLayout({ company }: { company: Company }) {
     drafts: 0,
     starred: 0,
   });
+  const accountRequestSeq = React.useRef(0);
   const labelRequestSeq = React.useRef(0);
   const lastLabelRefreshAt = React.useRef(0);
   const [changeTick, setChangeTick] = React.useState(0);
-  const [syncingAccountId, setSyncingAccountId] = React.useState<string | null>(null);
-  const syncBaselineRef = React.useRef<string | null>(null);
+  const [requestedSync, setRequestedSync] = React.useState<{
+    accountId: string;
+    attemptId: string;
+  } | null>(null);
+  const [syncSubmittingAccountIds, setSyncSubmittingAccountIds] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const syncPollFailures = React.useRef(0);
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [composeInit, setComposeInit] = React.useState<Partial<ComposeInput>>({});
   const [composeSession, setComposeSession] = React.useState(0);
@@ -109,8 +116,9 @@ export default function MailLayout({ company }: { company: Company }) {
   const account = accounts.find((a) => a.id === activeId) ?? accounts[0] ?? null;
 
   const refreshAccounts = React.useCallback(async () => {
+    const requestSeq = ++accountRequestSeq.current;
     const res = await mailApi.accounts(company.id);
-    setAccounts(res.accounts);
+    if (requestSeq === accountRequestSeq.current) setAccounts(res.accounts);
     return res.accounts;
   }, [company.id]);
 
@@ -133,51 +141,94 @@ export default function MailLayout({ company }: { company: Company }) {
   }, [refreshAccounts, refreshLabels, activeId]);
 
   const syncNow = React.useCallback(async () => {
-    if (!account || syncingAccountId) return;
+    if (
+      !account ||
+      requestedSync?.accountId === account.id ||
+      syncSubmittingAccountIds.has(account.id)
+    ) {
+      return;
+    }
     if (account.status === "paused") {
       toast("Resume this mailbox before syncing", "info");
       return;
     }
+    if (account.syncState === "queued" || account.syncState === "running") return;
 
-    syncBaselineRef.current = account.lastSyncAt;
-    setSyncingAccountId(account.id);
+    const accountId = account.id;
+    setSyncSubmittingAccountIds((current) => new Set(current).add(accountId));
     try {
-      await mailApi.syncNow(company.id, account.id);
+      const { sync } = await mailApi.syncNow(company.id, account.id);
+      syncPollFailures.current = 0;
+      setRequestedSync({ accountId: account.id, attemptId: sync.attemptId });
+      void refreshAccounts().catch(() => {});
     } catch (err) {
-      setSyncingAccountId(null);
       toast((err as Error).message, "error");
+    } finally {
+      setSyncSubmittingAccountIds((current) => {
+        const next = new Set(current);
+        next.delete(accountId);
+        return next;
+      });
     }
-  }, [account, company.id, syncingAccountId, toast]);
+  }, [account, company.id, refreshAccounts, requestedSync, syncSubmittingAccountIds, toast]);
+
+  const pollingSyncAccountId =
+    requestedSync?.accountId ??
+    (account && (account.syncState === "queued" || account.syncState === "running")
+      ? account.id
+      : null);
 
   // Websocket delivery normally refreshes the account immediately. Poll as
-  // a fallback while a manual sync is pending so a dropped socket cannot
-  // leave the button spinning after the server has completed the pass.
+  // a fallback for both a manual request and an in-progress pass discovered
+  // after reload, so a dropped socket cannot leave stale sync state on screen.
   React.useEffect(() => {
-    if (!syncingAccountId) return;
+    if (!pollingSyncAccountId) return;
     const interval = window.setInterval(() => {
-      void refreshAccounts().catch(() => {});
+      void refreshAccounts()
+        .then(() => {
+          syncPollFailures.current = 0;
+        })
+        .catch(() => {
+          syncPollFailures.current += 1;
+          if (syncPollFailures.current === 3) {
+            toast("Sync is still running, but status updates are temporarily unavailable.", "info");
+          }
+        });
     }, 2_000);
     return () => window.clearInterval(interval);
-  }, [refreshAccounts, syncingAccountId]);
+  }, [pollingSyncAccountId, refreshAccounts, toast]);
 
   React.useEffect(() => {
-    if (!syncingAccountId) return;
-    const syncedAccount = accounts.find((a) => a.id === syncingAccountId);
+    if (!requestedSync) return;
+    const syncedAccount = accounts.find((a) => a.id === requestedSync.accountId);
     if (!syncedAccount) {
-      setSyncingAccountId(null);
+      setRequestedSync(null);
       return;
     }
-    if (!syncedAccount.lastSyncAt || syncedAccount.lastSyncAt === syncBaselineRef.current) {
+    if (syncedAccount.syncAttemptId !== requestedSync.attemptId) {
+      if (
+        syncedAccount.syncAttemptId &&
+        (syncedAccount.syncState === "queued" || syncedAccount.syncState === "running")
+      ) {
+        setRequestedSync({
+          accountId: syncedAccount.id,
+          attemptId: syncedAccount.syncAttemptId,
+        });
+      } else {
+        setRequestedSync(null);
+      }
       return;
     }
+    if (syncedAccount.syncState === "queued" || syncedAccount.syncState === "running") return;
 
-    setSyncingAccountId(null);
-    if (syncedAccount.status === "error") {
+    setRequestedSync(null);
+    if (syncedAccount.syncState === "failed") {
+      if (syncedAccount.status === "paused") return;
       toast(syncedAccount.statusMessage || "Mailbox sync failed", "error");
-    } else {
+    } else if (syncedAccount.syncState === "succeeded") {
       toast("Inbox synced", "success");
     }
-  }, [accounts, syncingAccountId, toast]);
+  }, [accounts, requestedSync, toast]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -222,6 +273,10 @@ export default function MailLayout({ company }: { company: Company }) {
       threadsChanged?: boolean;
     };
     const accountId = mailEvent.accountId;
+    // Sync lifecycle belongs to the account roster, not only the mailbox that
+    // happens to be open. Refresh every account so switching later cannot
+    // reveal a stale terminal/error state from an event we ignored.
+    void refreshAccounts().catch(() => {});
     if (!account || accountId !== account.id) return;
     if (mailEvent.threadsChanged !== false) {
       setChangeTick((t) => t + 1);
@@ -235,7 +290,6 @@ export default function MailLayout({ company }: { company: Company }) {
     if (account.backfilledAt || labelsAreStale) {
       void refreshLabels(account.id).catch(() => {});
     }
-    void refreshAccounts().catch(() => {});
   });
 
   const selectAccount = (id: string) => {
@@ -431,7 +485,11 @@ export default function MailLayout({ company }: { company: Company }) {
     labels,
     counts,
     changeTick,
-    syncing: syncingAccountId === account.id,
+    syncing:
+      syncSubmittingAccountIds.has(account.id) ||
+      requestedSync?.accountId === account.id ||
+      account.syncState === "queued" ||
+      account.syncState === "running",
     syncNow,
     refresh,
     openCompose,
