@@ -15,6 +15,7 @@ import {
   Sun,
 } from "lucide-react";
 import { api, Company, Me } from "../lib/api";
+import { createCompanyAndSwitch } from "../lib/companySwitch";
 import { SECTION_BY_KEY, SectionItem, activeSection } from "../lib/sections";
 import { productIntegrationScope, type ProductIntegrationKey } from "../lib/productIntegrations";
 import { useToast } from "./ui/Toast";
@@ -52,7 +53,8 @@ type AppShellProps = {
   me: Me;
   companies: Company[];
   current: Company;
-  onCompaniesChanged: () => void;
+  onAuthChanged: () => Promise<void>;
+  onCompaniesChanged: () => Promise<void>;
   children: React.ReactNode;
 };
 
@@ -71,7 +73,14 @@ type ContextualSidebarState = {
 };
 const ContextualSidebarContext = React.createContext<ContextualSidebarState | null>(null);
 
-export function AppShell({ me, companies, current, onCompaniesChanged, children }: AppShellProps) {
+export function AppShell({
+  me,
+  companies,
+  current,
+  onAuthChanged,
+  onCompaniesChanged,
+  children,
+}: AppShellProps) {
   const [open, setOpen] = React.useState(false);
   const [hasSidebar, setHasSidebar] = React.useState(false);
   const sidebarState = React.useMemo<ContextualSidebarState>(
@@ -110,6 +119,7 @@ export function AppShell({ me, companies, current, onCompaniesChanged, children 
                   me={me}
                   companies={companies}
                   current={current}
+                  onAuthChanged={onAuthChanged}
                   onCompaniesChanged={onCompaniesChanged}
                 />
                 <div className="flex min-h-0 flex-1">{children}</div>
@@ -126,12 +136,14 @@ function TopNav({
   me,
   companies,
   current,
+  onAuthChanged,
   onCompaniesChanged,
 }: {
   me: Me;
   companies: Company[];
   current: Company;
-  onCompaniesChanged: () => void;
+  onAuthChanged: () => Promise<void>;
+  onCompaniesChanged: () => Promise<void>;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -156,7 +168,7 @@ function TopNav({
 
   async function performLogout() {
     await api.post("/api/auth/logout");
-    await onCompaniesChanged();
+    await onAuthChanged();
     navigate("/login");
   }
 
@@ -232,10 +244,13 @@ function TopNav({
                   });
                   if (!name) return;
                   try {
-                    const c = await api.post<Company>("/api/companies", { name });
-                    onCompaniesChanged();
-                    const destination = `/c/${c.slug}`;
-                    if (!navigationGuard.request(destination)) navigate(destination);
+                    await createCompanyAndSwitch({
+                      createCompany: () => api.post<Company>("/api/companies", { name }),
+                      refreshCompanies: onCompaniesChanged,
+                      navigate: (destination) => {
+                        if (!navigationGuard.request(destination)) navigate(destination);
+                      },
+                    });
                   } catch (e) {
                     toast((e as Error).message, "error");
                   }

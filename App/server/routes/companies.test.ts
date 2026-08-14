@@ -8,6 +8,7 @@ import type { Server } from "node:http";
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
+import { Notebook } from "../db/entities/Notebook.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
@@ -82,7 +83,7 @@ async function call<T = Record<string, unknown>>(
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as T };
 }
 
-describe("company mission and vision", () => {
+describe("company routes", () => {
   test("returns company direction from list and detail routes", async () => {
     const list = await call<Array<{ id: string; mission: string; vision: string }>>("GET", "");
     assert.equal(list.status, 200);
@@ -114,6 +115,95 @@ describe("company mission and vision", () => {
     assert.equal(created.status, 200);
     assert.equal(created.body.mission, "");
     assert.equal(created.body.vision, "");
+  });
+
+  test("makes a newly created company visible to the Member's next list refresh", async () => {
+    const created = await call<{
+      id: string;
+      name: string;
+      slug: string;
+      role: Role;
+      requireTwoFactor: boolean;
+    }>("POST", "", { name: "Switch Here" });
+    assert.equal(created.status, 200);
+
+    const list = await call<
+      Array<{
+        id: string;
+        name: string;
+        slug: string;
+        role: Role;
+        requireTwoFactor: boolean;
+      }>
+    >("GET", "");
+    assert.equal(list.status, 200);
+    assert.deepEqual(
+      list.body.find((candidate) => candidate.id === created.body.id),
+      created.body,
+    );
+
+    const membership = await AppDataSource.getRepository(Membership).findOneByOrFail({
+      companyId: created.body.id,
+      userId: actingUserId!,
+    });
+    assert.equal(membership.role, "owner");
+    const notebook = await AppDataSource.getRepository(Notebook).findOneByOrFail({
+      companyId: created.body.id,
+      slug: "general",
+    });
+    assert.equal(notebook.title, "General");
+    assert.equal(notebook.createdById, actingUserId);
+  });
+
+  test("returns a unique routable slug for each same-name company", async () => {
+    const first = await call<{ id: string; slug: string }>("POST", "", {
+      name: "Repeated Name",
+    });
+    const second = await call<{ id: string; slug: string }>("POST", "", {
+      name: "Repeated Name",
+    });
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    assert.equal(first.body.slug, "repeated-name");
+    assert.equal(second.body.slug, "repeated-name-2");
+
+    const list = await call<Array<{ id: string; slug: string }>>("GET", "");
+    assert.equal(list.status, 200);
+    assert.equal(
+      list.body.find((candidate) => candidate.id === first.body.id)?.slug,
+      first.body.slug,
+    );
+    assert.equal(
+      list.body.find((candidate) => candidate.id === second.body.id)?.slug,
+      second.body.slug,
+    );
+  });
+
+  test("rejects unauthenticated creation without writing partial rows", async () => {
+    const companyCount = await AppDataSource.getRepository(Company).count();
+    const membershipCount = await AppDataSource.getRepository(Membership).count();
+    const notebookCount = await AppDataSource.getRepository(Notebook).count();
+    actingUserId = null;
+
+    const response = await call("POST", "", { name: "Must Not Exist" });
+
+    assert.equal(response.status, 401);
+    assert.equal(await AppDataSource.getRepository(Company).count(), companyCount);
+    assert.equal(await AppDataSource.getRepository(Membership).count(), membershipCount);
+    assert.equal(await AppDataSource.getRepository(Notebook).count(), notebookCount);
+  });
+
+  test("rejects invalid creation input without writing partial rows", async () => {
+    const companyCount = await AppDataSource.getRepository(Company).count();
+    const membershipCount = await AppDataSource.getRepository(Membership).count();
+    const notebookCount = await AppDataSource.getRepository(Notebook).count();
+
+    const response = await call("POST", "", { name: "   " });
+
+    assert.equal(response.status, 400);
+    assert.equal(await AppDataSource.getRepository(Company).count(), companyCount);
+    assert.equal(await AppDataSource.getRepository(Membership).count(), membershipCount);
+    assert.equal(await AppDataSource.getRepository(Notebook).count(), notebookCount);
   });
 
   test("updates either field independently and trims its value", async () => {
