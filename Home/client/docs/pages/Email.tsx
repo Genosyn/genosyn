@@ -11,8 +11,8 @@ export function Email() {
             Connect a Gmail account and work your inbox inside Genosyn — read threads, reply, and
             file mail like a normal client. Then put your{" "}
             <DocLink to="/docs/employees">AI employees</DocLink> on it: chat with them right beside
-            the inbox, hand them threads to draft answers, and set <Strong>rules</Strong> that
-            triage new mail the moment it arrives. Everything syncs both ways.
+            the inbox, hand them threads to draft answers, and set <Strong>rules</Strong> that use
+            static filters or AI judgment to act on new mail. Everything syncs both ways.
           </>
         }
       />
@@ -295,6 +295,12 @@ export function Email() {
           employees trusted to speak for the company unattended.
         </LI>
       </UL>
+      <P>
+        An employee used for a rule&apos;s <Strong>AI judgment</Strong> needs a connected AI Model
+        and at least <Strong>Read</Strong> access to that mailbox. The rule editor shows both beside
+        every employee and disables anyone who is not ready, so a broken AI judgment step cannot be
+        saved for future mail.
+      </P>
       <Callout kind="warn" title="Members always have full access; grants govern AI only.">
         Human members of the company can already use every connected mailbox. These levels only
         decide what an AI employee&apos;s tools and rules are allowed to do.
@@ -318,18 +324,33 @@ export function Email() {
       <H2 id="rules">Rules — automating the inbox</H2>
       <P>
         A <Strong>rule</Strong> runs on every new message that arrives:{" "}
-        <em>when an email matches these conditions, do these actions.</em> Conditions match on
-        sender, recipient, subject, body text, and whether there&apos;s an attachment. Actions can
-        apply a label, mark read, star, archive — and, the headline feature,{" "}
-        <Strong>hand the thread to an AI employee</Strong> with an instruction and a mode.
+        <em>when an email matches these conditions, do these actions.</em> Static filters match on
+        sender, recipient, subject, body text, and whether there&apos;s an attachment. Every filled
+        filter must match. You can then turn on <Strong>AI judgment</Strong>, choose an eligible AI
+        employee, and describe the messages that count in plain language. Static filters run first;
+        the AI employee sees only mail that passes them, and its answer must also be yes before any
+        action runs. Each message that reaches AI judgment uses the employee&apos;s active model, so
+        narrow static filters are also the simplest way to control cost on a busy mailbox.
       </P>
       <P>
-        That is how you wire up &ldquo;when a support email comes in, ask an AI employee to
-        categorize it and draft a first response&rdquo;: one rule, condition{" "}
-        <Code>to contains support@</Code>, action <Strong>hand to employee</Strong> in{" "}
-        <Strong>draft</Strong> mode. Every rule that matches fires, so labelling and handing off
-        compose naturally.
+        For example, create a rule called <Strong>Remove marketing spam</Strong>, turn on AI
+        judgment, and write &ldquo;Legitimate marketing or newsletter email I did not ask for;
+        exclude receipts, security alerts, suspicious spam, and messages from people.&rdquo; Add{" "}
+        <Strong>Unsubscribe safely</Strong> and, if you want, <Strong>Archive</Strong>. Static
+        filters are optional, but adding one is a useful way to narrow what the AI employee has to
+        review. Every rule that matches still fires, so labelling, filing, safe unsubscribe, and
+        handovers compose naturally.
       </P>
+      <Callout kind="warn" title="Safe unsubscribe never clicks a link in the email body.">
+        The action only uses one HTTPS URL advertised by RFC unsubscribe headers that Gmail confirms
+        were covered by a valid DKIM signature. It rejects redirects, never sends browser cookies or
+        authorization, and never follows body links. If the sender did not provide that
+        standards-based method, the action fails safely and the rule continues with its other
+        actions. Saving an enabled unsubscribe rule always asks for confirmation because the
+        external request cannot be undone. Treat suspicious or phishing mail as spam instead: even a
+        standards-shaped endpoint controlled by an attacker could confirm that your address is
+        active.
+      </Callout>
       <Callout kind="info" title="Rules never fire on your backfill.">
         Connecting a mailbox imports history quietly; rules only run on genuinely new mail after
         that, and never on drafts or your own sent messages — so connecting an account can&apos;t

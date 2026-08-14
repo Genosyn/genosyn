@@ -4,6 +4,17 @@ import { config } from "../../config.js";
 
 const MAX_REDIRECTS = 5;
 
+const delegatedGlobalIpv6 = new net.BlockList();
+delegatedGlobalIpv6.addSubnet("2000::", 3, "ipv6");
+const specialIpv6 = new net.BlockList();
+// Non-global or transition/documentation space inside today's delegated
+// 2000::/3 block. Everything outside 2000::/3 is rejected conservatively as
+// well, which also closes IPv4-mapped, NAT64, local, and multicast encodings.
+specialIpv6.addSubnet("2001::", 23, "ipv6");
+specialIpv6.addSubnet("2001:db8::", 32, "ipv6");
+specialIpv6.addSubnet("2002::", 16, "ipv6");
+specialIpv6.addSubnet("3fff::", 20, "ipv6");
+
 function ipv4Number(address: string): number | null {
   if (net.isIP(address) !== 4) return null;
   return address
@@ -42,15 +53,11 @@ export function isPublicIp(address: string): boolean {
   }
 
   if (net.isIP(address) !== 6) return false;
-  const normalized = address.toLowerCase();
-  if (normalized === "::" || normalized === "::1") return false;
-  const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isPublicIp(mapped[1]);
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return false;
-  if (/^fe[89ab]/.test(normalized)) return false;
-  if (normalized.startsWith("ff")) return false;
-  if (normalized.startsWith("2001:db8:")) return false;
-  return true;
+  try {
+    return delegatedGlobalIpv6.check(address, "ipv6") && !specialIpv6.check(address, "ipv6");
+  } catch {
+    return false;
+  }
 }
 
 export function privateHostAllowed(hostname: string): boolean {
@@ -115,10 +122,23 @@ export type SafeFetchResult = {
 export async function safeFetchBuffer(
   input: string | URL,
   init: RequestInit = {},
-  options: { maxBytes?: number; timeoutMs?: number } = {},
+  options: {
+    maxBytes?: number;
+    timeoutMs?: number;
+    /** Maximum redirects to follow after validating each hop. Defaults to five. */
+    maxRedirects?: number;
+    /** Restrict every hop, including redirects, to these URL protocols. */
+    allowedProtocols?: readonly ("http:" | "https:")[];
+    /** Refuse redirects to another origin for requests with sensitive semantics. */
+    sameOriginRedirectsOnly?: boolean;
+  } = {},
 ): Promise<SafeFetchResult> {
   const maxBytes = options.maxBytes ?? config.security.outboundMaxResponseBytes;
   const timeoutMs = options.timeoutMs ?? config.security.outboundRequestTimeoutMs;
+  const maxRedirects = options.maxRedirects ?? MAX_REDIRECTS;
+  if (!Number.isInteger(maxRedirects) || maxRedirects < 0 || maxRedirects > MAX_REDIRECTS) {
+    throw new Error(`Outbound redirect limit must be between 0 and ${MAX_REDIRECTS}`);
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const signal = init.signal
@@ -128,8 +148,16 @@ export async function safeFetchBuffer(
   const headers = new Headers(init.headers);
 
   try {
-    for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect += 1) {
+    for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
       current = await assertSafeOutboundUrl(current);
+      if (
+        options.allowedProtocols &&
+        !options.allowedProtocols.includes(current.protocol as "http:" | "https:")
+      ) {
+        throw new Error(
+          `Outbound URL protocol ${current.protocol} is not allowed for this request`,
+        );
+      }
       const response = await fetch(current, {
         ...init,
         headers,
@@ -139,8 +167,17 @@ export async function safeFetchBuffer(
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.get("location");
         if (!location) throw new Error("Redirect response did not include a location");
-        if (redirect === MAX_REDIRECTS) throw new Error("Too many outbound redirects");
+        if (redirect === maxRedirects) {
+          throw new Error(
+            maxRedirects === 0
+              ? "Outbound redirects are not allowed for this request"
+              : "Too many outbound redirects",
+          );
+        }
         const next = new URL(location, current);
+        if (options.sameOriginRedirectsOnly && next.origin !== current.origin) {
+          throw new Error("Cross-origin outbound redirects are not allowed for this request");
+        }
         if (next.origin !== current.origin) {
           headers.delete("authorization");
           headers.delete("cookie");

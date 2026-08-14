@@ -1,14 +1,22 @@
 import React from "react";
-import { useOutletContext } from "react-router-dom";
-import { Bot, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Link, useOutletContext } from "react-router-dom";
+import { Bot, Pencil, Plus, ShieldCheck, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react";
 import { Employee, api } from "../lib/api";
 import {
+  MailGrant,
   MailRule,
   MailRuleAction,
   MailRuleConditions,
   MailHandoverMode,
   mailApi,
 } from "../lib/mail";
+import {
+  cleanMailRuleActions,
+  cleanMailRuleConditions,
+  mailRuleSummaryParts,
+  ruleEmployeeOptions,
+  validateUnsubscribeRuleScope,
+} from "../lib/mailRules";
 import { MailOutletCtx } from "./MailLayout";
 import { Button } from "../components/ui/Button";
 import { useDialog } from "../components/ui/Dialog";
@@ -44,21 +52,27 @@ const EMPTY_EDITOR: EditorState = {
   actions: [{ type: "applyLabel", labelName: "" }],
 };
 
+const UNSUBSCRIBE_CONFIRM_MESSAGE =
+  "When this rule matches, Genosyn will make an external HTTPS one-click unsubscribe request. It requires Gmail-authenticated RFC headers and never follows links in the email body.";
+
 export default function MailRules() {
   const { company, account } = useOutletContext<MailOutletCtx>();
   const { toast, background } = useToast();
   const dialog = useDialog();
   const [rules, setRules] = React.useState<MailRule[] | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
+  const [grants, setGrants] = React.useState<MailGrant[]>([]);
   const [editing, setEditing] = React.useState<EditorState | null>(null);
 
   const load = React.useCallback(async () => {
-    const [rulesRes, emps] = await Promise.all([
+    const [rulesRes, emps, grantsRes] = await Promise.all([
       mailApi.rules(company.id, account.id),
       api.get<Employee[]>(`/api/companies/${company.id}/employees`),
+      mailApi.grants(company.id, account.id),
     ]);
     setRules(rulesRes.rules);
     setEmployees(emps);
+    setGrants(grantsRes.direct);
   }, [company.id, account.id]);
 
   React.useEffect(() => {
@@ -67,8 +81,17 @@ export default function MailRules() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load]);
 
-  const toggle = (rule: MailRule) => {
+  const toggle = async (rule: MailRule) => {
     const enabled = !rule.enabled;
+    if (enabled && rule.actions.some((action) => action.type === "unsubscribe")) {
+      const confirmed = await dialog.confirm({
+        title: "Enable automatic unsubscribe?",
+        message: UNSUBSCRIBE_CONFIRM_MESSAGE,
+        confirmLabel: "Enable rule",
+        variant: "danger",
+      });
+      if (!confirmed) return;
+    }
     setRules(
       (current) =>
         current?.map((item) => (item.id === rule.id ? { ...item, enabled } : item)) ?? current,
@@ -129,8 +152,8 @@ export default function MailRules() {
         </Button>
       </div>
       <p className="mb-5 text-sm text-slate-500 dark:text-slate-400">
-        Runs on every new email that arrives in {account.address}. Every matching rule fires — label
-        mail, and hand it to an AI employee.
+        Runs on every new email that arrives in {account.address}. Match with static filters, AI
+        judgment, or both — then label, unsubscribe safely, or hand off the mail.
       </p>
 
       {rules === null ? (
@@ -140,7 +163,7 @@ export default function MailRules() {
       ) : rules.length === 0 ? (
         <EmptyState
           title="No rules yet"
-          description="Create a rule to auto-label incoming mail or hand it to an AI employee for triage."
+          description="Create a rule to filter incoming mail, ask an AI employee for judgment, and act on the matches."
           action={
             <Button size="sm" onClick={() => setEditing({ ...EMPTY_EDITOR })}>
               <Plus size={14} className="mr-1.5" /> New rule
@@ -156,7 +179,11 @@ export default function MailRules() {
             >
               <div className="flex items-start gap-3">
                 <button
-                  onClick={() => toggle(rule)}
+                  type="button"
+                  role="switch"
+                  aria-checked={rule.enabled}
+                  aria-label={`${rule.enabled ? "Disable" : "Enable"} ${rule.name}`}
+                  onClick={() => void toggle(rule)}
                   className={clsx(
                     "mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
                     rule.enabled ? "bg-indigo-600" : "bg-slate-200 dark:bg-slate-700",
@@ -218,8 +245,10 @@ export default function MailRules() {
       {editing && (
         <RuleEditor
           companyId={company.id}
+          companySlug={company.slug}
           accountId={account.id}
           employees={employees}
+          grants={grants}
           state={editing}
           onClose={() => setEditing(null)}
           onSaved={async () => {
@@ -233,60 +262,87 @@ export default function MailRules() {
 }
 
 function RuleSummary({ rule }: { rule: MailRule }) {
-  const conds: string[] = [];
-  const c = rule.conditions;
-  if (c.from) conds.push(`from contains "${c.from}"`);
-  if (c.to) conds.push(`to contains "${c.to}"`);
-  if (c.subjectContains) conds.push(`subject contains "${c.subjectContains}"`);
-  if (c.bodyContains) conds.push(`body contains "${c.bodyContains}"`);
-  if (c.hasAttachment) conds.push("has attachment");
-  const acts = rule.actions.map((a) => {
-    switch (a.type) {
-      case "applyLabel":
-        return `label "${a.labelName}"`;
-      case "markRead":
-        return "mark read";
-      case "star":
-        return "star";
-      case "archive":
-        return "archive";
-      case "handToEmployee":
-        return `hand to ${a.employeeName ?? "AI"} (${a.mode})`;
-    }
-  });
+  const summary = mailRuleSummaryParts(rule.conditions, rule.actions);
   return (
     <span>
       <span className="text-slate-400">When </span>
-      {conds.length ? conds.join(", ") : "any mail arrives"}
+      {summary.staticConditions.length
+        ? summary.staticConditions.join(", ")
+        : summary.ai
+          ? "mail arrives"
+          : "any mail arrives"}
+      {summary.ai && (
+        <>
+          {summary.staticConditions.length > 0 ? ", then " : " and "}
+          <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-0.5 font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+            <Sparkles size={10} /> AI
+          </span>{" "}
+          {summary.ai.employeeName} decides &ldquo;{summary.ai.instruction}&rdquo;
+        </>
+      )}
       <span className="text-slate-400"> → </span>
-      {acts.join(", ")}
+      {summary.actions.join(", ")}
     </span>
   );
 }
 
 function RuleEditor({
   companyId,
+  companySlug,
   accountId,
   employees,
+  grants,
   state,
   onClose,
   onSaved,
 }: {
   companyId: string;
+  companySlug: string;
   accountId: string;
   employees: Employee[];
+  grants: MailGrant[];
   state: EditorState;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const dialog = useDialog();
   const [name, setName] = React.useState(state.name);
   const [conditions, setConditions] = React.useState<MailRuleConditions>(state.conditions);
   const [actions, setActions] = React.useState<MailRuleAction[]>(state.actions);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const employeeOptions = React.useMemo(
+    () => ruleEmployeeOptions(employees, grants),
+    [employees, grants],
+  );
+  const firstEligibleEmployee = employeeOptions.find((option) => option.eligible);
+  const selectedAiEmployee = conditions.ai
+    ? employeeOptions.find((option) => option.employee.id === conditions.ai?.employeeId)
+    : undefined;
 
   const setCond = (patch: Partial<MailRuleConditions>) =>
     setConditions((prev) => ({ ...prev, ...patch }));
+
+  const toggleAi = () => {
+    setConditions((prev) => {
+      if (prev.ai) {
+        const next = { ...prev };
+        delete next.ai;
+        return next;
+      }
+      return {
+        ...prev,
+        ai: {
+          employeeId: firstEligibleEmployee?.employee.id ?? "",
+          instruction: "",
+        },
+      };
+    });
+  };
+
+  const patchAi = (patch: Partial<NonNullable<MailRuleConditions["ai"]>>) => {
+    setConditions((prev) => (prev.ai ? { ...prev, ai: { ...prev.ai, ...patch } } : prev));
+  };
 
   const addAction = () => setActions((prev) => [...prev, { type: "applyLabel", labelName: "" }]);
   const removeAction = (i: number) => setActions((prev) => prev.filter((_, idx) => idx !== i));
@@ -317,19 +373,19 @@ function RuleEditor({
       prev.map((a, idx) => (idx === i ? ({ ...a, ...patch } as MailRuleAction) : a)),
     );
 
-  const clean = (): MailRuleConditions => {
-    const out: MailRuleConditions = {};
-    if (conditions.from?.trim()) out.from = conditions.from.trim();
-    if (conditions.to?.trim()) out.to = conditions.to.trim();
-    if (conditions.subjectContains?.trim()) out.subjectContains = conditions.subjectContains.trim();
-    if (conditions.bodyContains?.trim()) out.bodyContains = conditions.bodyContains.trim();
-    if (conditions.hasAttachment) out.hasAttachment = true;
-    return out;
-  };
-
   const validate = (): string | null => {
     if (!name.trim()) return "Give the rule a name.";
+    if (conditions.ai) {
+      if (!conditions.ai.employeeId) return "Pick an AI employee for AI judgment.";
+      if (!conditions.ai.instruction.trim()) return "Describe what the AI employee should match.";
+      if (!selectedAiEmployee) return "The AI employee selected for judgment no longer exists.";
+      if (!selectedAiEmployee.eligible) {
+        return `${selectedAiEmployee.employee.name} cannot judge this rule: ${selectedAiEmployee.detail}.`;
+      }
+    }
     if (actions.length === 0) return "Add at least one action.";
+    const unsubscribeScopeProblem = validateUnsubscribeRuleScope(conditions, actions);
+    if (unsubscribeScopeProblem) return unsubscribeScopeProblem;
     for (const a of actions) {
       if (a.type === "applyLabel" && !a.labelName.trim())
         return "Every 'apply label' action needs a label name.";
@@ -345,19 +401,22 @@ function RuleEditor({
       setError(problem);
       return;
     }
+    if (state.enabled && actions.some((action) => action.type === "unsubscribe")) {
+      const confirmed = await dialog.confirm({
+        title: "Enable automatic unsubscribe?",
+        message: UNSUBSCRIBE_CONFIRM_MESSAGE,
+        confirmLabel: state.id ? "Save rule" : "Create rule",
+        variant: "danger",
+      });
+      if (!confirmed) return;
+    }
     setBusy(true);
     setError(null);
     const payload = {
       name: name.trim(),
       enabled: state.enabled,
-      conditions: clean(),
-      actions: actions.map((a) =>
-        a.type === "applyLabel"
-          ? { ...a, labelName: a.labelName.trim() }
-          : a.type === "handToEmployee"
-            ? { ...a, instruction: a.instruction.trim() }
-            : a,
-      ),
+      conditions: cleanMailRuleConditions(conditions),
+      actions: cleanMailRuleActions(actions),
     };
     try {
       if (state.id) {
@@ -385,8 +444,12 @@ function RuleEditor({
 
         <div>
           <div className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">
-            When an email matches (all that are filled)
+            When an email matches
           </div>
+          <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+            Every static filter you fill must match. AI judgment, when enabled, runs afterward and
+            must match too.
+          </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Input
               label="From contains"
@@ -420,6 +483,110 @@ function RuleEditor({
             />
             Has an attachment
           </label>
+
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-700 dark:bg-slate-800/30">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 rounded-lg bg-indigo-100 p-1.5 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+                <Sparkles size={15} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-slate-800 dark:text-slate-200">
+                  AI judgment
+                </div>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Ask an AI employee whether the message fits a natural-language description.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={Boolean(conditions.ai)}
+                aria-label="Use AI judgment"
+                onClick={toggleAi}
+                className={clsx(
+                  "mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors",
+                  conditions.ai ? "bg-indigo-600" : "bg-slate-200 dark:bg-slate-700",
+                )}
+              >
+                <span
+                  className={clsx(
+                    "block h-4 w-4 rounded-full bg-white transition-transform",
+                    conditions.ai && "translate-x-4",
+                  )}
+                />
+              </button>
+            </div>
+
+            {conditions.ai && (
+              <div className="mt-3 space-y-3 border-t border-slate-200 pt-3 dark:border-slate-700">
+                <div>
+                  <Select
+                    label="AI employee"
+                    value={conditions.ai.employeeId}
+                    onChange={(event) => patchAi({ employeeId: event.target.value })}
+                    emptyMessage="No AI employees found"
+                  >
+                    <option value="" disabled>
+                      Choose an eligible AI employee
+                    </option>
+                    {conditions.ai.employeeId && !selectedAiEmployee && (
+                      <option value={conditions.ai.employeeId} disabled>
+                        Deleted AI employee — choose another
+                      </option>
+                    )}
+                    {employeeOptions.map((option) => (
+                      <option
+                        key={option.employee.id}
+                        value={option.employee.id}
+                        disabled={!option.eligible}
+                      >
+                        {option.employee.name} — {option.detail}
+                      </option>
+                    ))}
+                  </Select>
+                  {selectedAiEmployee && (
+                    <p
+                      className={clsx(
+                        "mt-1 text-xs",
+                        selectedAiEmployee.eligible
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-amber-600 dark:text-amber-400",
+                      )}
+                    >
+                      {selectedAiEmployee.eligible
+                        ? `Ready · ${selectedAiEmployee.detail}`
+                        : `Not eligible · ${selectedAiEmployee.detail}`}
+                    </p>
+                  )}
+                  {!firstEligibleEmployee && (
+                    <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                      AI judgment needs an employee with a connected model and at least Read access
+                      to this mailbox. Manage access under{" "}
+                      <Link
+                        to={`/c/${companySlug}/mail/settings`}
+                        className="font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                      >
+                        Email settings
+                      </Link>
+                      .
+                    </p>
+                  )}
+                </div>
+                <Textarea
+                  label="What should count as a match?"
+                  rows={3}
+                  className="min-h-[96px]"
+                  placeholder="e.g. Legitimate marketing or newsletter email I did not ask for. Exclude receipts, security alerts, suspicious spam, and messages from people."
+                  value={conditions.ai.instruction}
+                  onChange={(event) => patchAi({ instruction: event.target.value })}
+                />
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Static filters run first, so the AI employee sees only messages that pass them.
+                  Actions run only when its answer is yes.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         <div>
@@ -441,6 +608,7 @@ function RuleEditor({
                     <option value="markRead">Mark read</option>
                     <option value="star">Star</option>
                     <option value="archive">Archive</option>
+                    <option value="unsubscribe">Unsubscribe safely</option>
                     <option value="handToEmployee">Hand to AI employee</option>
                   </Select>
                   {actions.length > 1 && (
@@ -460,6 +628,18 @@ function RuleEditor({
                     value={action.labelName}
                     onChange={(e) => patchAction(i, { labelName: e.target.value })}
                   />
+                )}
+                {action.type === "unsubscribe" && (
+                  <div className="mt-2 flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:bg-slate-800/50 dark:text-slate-300">
+                    <ShieldCheck
+                      size={14}
+                      className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400"
+                    />
+                    <p>
+                      Uses only a Gmail-authenticated HTTPS RFC one-click URL from the message
+                      headers. Genosyn rejects redirects and never follows links in the email body.
+                    </p>
+                  </div>
                 )}
                 {action.type === "handToEmployee" && (
                   <div className="mt-2 space-y-2">

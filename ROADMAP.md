@@ -504,12 +504,16 @@ sends system mail); this is the company's real inbox. Internal namespace is
       small in-process queue; status + result surface in the thread view
       and the Handovers page, with bell notifications on completion/failure.
 - [x] **Rules.** Per-account automation evaluated on every new inbound
-      message the sync ingests: conditions (from / to / subject / body
-      contains, has attachment) → actions (apply label, mark read, star,
-      archive, hand to an AI employee with an instruction + mode). This is
-      the "when an email comes in, ask an AI employee to categorize it"
-      loop. Scheduled email work (inbox digests etc.) needs no new
-      machinery — Routines can call the mail tools.
+      message the sync ingests: static conditions (from / to / subject / body
+      contains, has attachment) can optionally prefilter an AI employee's
+      natural-language judgment, then matching mail runs ordered actions
+      (apply label, mark read, star, archive, standards-only HTTPS one-click
+      unsubscribe, or hand to an AI employee with an instruction + mode).
+      AI matching requires a connected model and at least read access to the
+      mailbox; unsubscribe requires Gmail-confirmed DKIM coverage, rejects
+      redirects, never follows body links, and asks for confirmation when the
+      enabled rule is saved. Scheduled email work (inbox digests etc.) needs no
+      new machinery — Routines can call the mail tools.
 - [x] **MCP surface.** `list_mail_accounts`, `search_mail` (full-body index
       search with from / to / date / label / attachment filters),
       `get_mail_thread`, `create_mail_draft`, `update_mail_thread`,

@@ -120,17 +120,69 @@ function DialogShell({
   onCancel: () => void;
   onConfirm: (value: unknown) => void;
 }) {
-  // Esc closes, Enter submits (outside of textareas).
+  const titleId = React.useId();
+  const dialogRef = React.useRef<HTMLDivElement>(null);
+  const previousFocusRef = React.useRef<HTMLElement | null>(null);
+  const onCancelRef = React.useRef(onCancel);
+  onCancelRef.current = onCancel;
+
+  // Keep the global dialog above any underlying Modal: it owns Escape and
+  // Tab while open, restores focus on close, and never lets the lower Modal's
+  // document listener process the same key event.
   React.useEffect(() => {
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = window.requestAnimationFrame(() => {
+      const dialog = dialogRef.current;
+      if (!dialog || dialog.contains(document.activeElement)) return;
+      const preferred = dialog.querySelector<HTMLElement>(
+        "input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [href]",
+      );
+      (preferred ?? dialog).focus();
+    });
+
     function onKey(e: KeyboardEvent) {
+      const dialog = dialogRef.current;
+      if (!dialog) return;
       if (e.key === "Escape") {
         e.preventDefault();
-        onCancel();
+        e.stopPropagation();
+        onCancelRef.current();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      e.stopPropagation();
+
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+      if (focusable.length === 0) {
+        e.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!dialog.contains(document.activeElement)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
       }
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", onKey, true);
+      previousFocusRef.current?.focus();
+    };
+  }, []);
 
   const isDanger =
     (request.kind === "confirm" && request.opts.variant === "danger") ||
@@ -142,8 +194,11 @@ function DialogShell({
       onMouseDown={onCancel}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         onMouseDown={(e) => e.stopPropagation()}
         className="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
       >
@@ -154,7 +209,7 @@ function DialogShell({
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            <h2 id={titleId} className="text-base font-semibold text-slate-900 dark:text-slate-100">
               {request.opts.title}
             </h2>
             {request.kind === "confirm" && request.opts.message !== undefined && (
@@ -268,9 +323,7 @@ function PromptBody({
   return (
     <>
       {opts.message !== undefined && (
-        <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-          {opts.message}
-        </div>
+        <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{opts.message}</div>
       )}
       <input
         ref={inputRef}
@@ -294,9 +347,7 @@ function PromptBody({
             : "border-slate-200 focus:border-indigo-500 focus:ring-indigo-200 dark:border-slate-700 dark:focus:ring-indigo-900",
         )}
       />
-      {error && (
-        <div className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</div>
-      )}
+      {error && <div className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</div>}
 
       <div className="mt-4 flex justify-end gap-2">
         <Button size="sm" variant="secondary" onClick={onCancel}>

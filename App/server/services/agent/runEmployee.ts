@@ -13,6 +13,7 @@ import {
   type DelegationBudget,
 } from "./tools/parallelDelegation.js";
 import { createChatProgressTool } from "./tools/chatProgress.js";
+import { residentOnlyRegistry } from "./tools/toolRegistry.js";
 import { runCodexSubscriptionTurn } from "./codexRuntime.js";
 
 /**
@@ -64,6 +65,25 @@ export type EmployeeAgentParams = {
 export type EmployeeAgentResult =
   | { status: "ok"; finalText: string; steps: number }
   | { status: "error"; error: string };
+
+/**
+ * Parameters for a deliberately tool-contained model turn.
+ *
+ * Unlike {@link runEmployeeAgent}, this path never gathers coding tools,
+ * Genosyn tools, browser access, company MCP servers, repositories, or secret
+ * environment variables. It is for narrow decisions over untrusted input
+ * where the caller supplies the complete local tool surface explicitly.
+ */
+export type RestrictedEmployeeAgentParams = {
+  model: AIModel;
+  employeeId: string;
+  system: string;
+  messages: AgentMessage[];
+  tools: AgentTool[];
+  maxSteps: number;
+  signal?: AbortSignal;
+  callbacks?: StreamCallbacks;
+};
 
 /**
  * Cut the tool list down to what the provider will accept.
@@ -172,6 +192,58 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
     };
   } finally {
     await gathered.close();
+  }
+}
+
+/**
+ * Run a model with only the local tools the caller supplied.
+ *
+ * Keep this separate from the full employee runtime instead of adding a
+ * boolean that can be forgotten at a call site: a restricted turn has no cwd,
+ * MCP token, tool environment, repo materialization, or discovery catalogue to
+ * accidentally widen later. Both direct API models and the official OpenAI
+ * subscription runtime receive the same tiny registry.
+ */
+export async function runRestrictedEmployeeAgent(
+  params: RestrictedEmployeeAgentParams,
+): Promise<EmployeeAgentResult> {
+  const registry = residentOnlyRegistry(params.tools);
+  try {
+    if (params.model.authMode === "subscription") {
+      const result = await runCodexSubscriptionTurn({
+        model: params.model,
+        system: params.system,
+        messages: params.messages,
+        registry,
+        maxSteps: params.maxSteps,
+        signal: params.signal,
+        callbacks: params.callbacks,
+      });
+      return { status: "ok", finalText: result.finalText, steps: result.steps };
+    }
+
+    const built = await createModelClient(params.model);
+    if ("error" in built) return { status: "error", error: built.error };
+    const result = await runAgentLoop({
+      client: built.client,
+      system: params.system,
+      messages: params.messages,
+      registry,
+      maxSteps: params.maxSteps,
+      contextWindow: params.model.contextWindow,
+      signal: params.signal,
+      callbacks: params.callbacks,
+    });
+    return { status: "ok", finalText: result.finalText, steps: result.steps };
+  } catch (err) {
+    console.error(
+      `[agent:model] restricted request failed employee=${params.employeeId} model=${params.model.id}`,
+      err,
+    );
+    return {
+      status: "error",
+      error: formatModelError(params.model, err),
+    };
   }
 }
 

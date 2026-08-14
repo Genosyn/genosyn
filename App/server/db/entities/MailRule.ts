@@ -19,11 +19,15 @@ import {
  * usually complementary.
  *
  * `conditionsJson` (all present fields must match; substring, case-insensitive):
- *   { from?, to?, subjectContains?, bodyContains?, hasAttachment? }
+ *   { from?, to?, subjectContains?, bodyContains?, hasAttachment?,
+ *     ai?: { employeeId, instruction } }
+ * Static fields are evaluated first; the tool-contained AI decision is the
+ * final AND condition and requires the employee to hold a mailbox read Grant.
  *
  * `actionsJson` — ordered array of:
  *   { type: "applyLabel", labelName }        // user label, created if missing
  *   { type: "markRead" } | { type: "star" } | { type: "archive" }
+ *   { type: "unsubscribe" }                   // RFC 8058 HTTPS one-click only
  *   { type: "handToEmployee", employeeId, instruction, mode }
  *     // mode: "draft" | "reply" | "triage" — creates a MailHandover
  */

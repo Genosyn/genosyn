@@ -87,6 +87,11 @@ import {
   MailSyncPausedError,
   queueAccountSync,
 } from "../services/mail/sync.js";
+import {
+  parseActions as parseRuleActions,
+  parseConditions as parseRuleConditions,
+  validateMailRuleConfiguration,
+} from "../services/mail/rules.js";
 
 /**
  * HTTP surface for the Email section (M25): mailbox accounts, the local
@@ -1112,30 +1117,42 @@ const ruleConditionsSchema = z
     subjectContains: z.string().max(500).optional(),
     bodyContains: z.string().max(500).optional(),
     hasAttachment: z.boolean().optional(),
+    ai: z
+      .object({
+        employeeId: z.string().uuid(),
+        instruction: z.string().trim().min(1).max(4000),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
 const ruleActionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("applyLabel"), labelName: z.string().min(1).max(200) }).strict(),
+  z
+    .object({ type: z.literal("applyLabel"), labelName: z.string().trim().min(1).max(200) })
+    .strict(),
   z.object({ type: z.literal("markRead") }).strict(),
   z.object({ type: z.literal("star") }).strict(),
   z.object({ type: z.literal("archive") }).strict(),
+  z.object({ type: z.literal("unsubscribe") }).strict(),
   z
     .object({
       type: z.literal("handToEmployee"),
       employeeId: z.string().uuid(),
-      instruction: z.string().max(4000).default(""),
+      instruction: z.string().trim().max(4000).default(""),
       mode: z.enum(["draft", "reply", "triage"]),
     })
     .strict(),
 ]);
 
-const createRuleSchema = z.object({
-  name: z.string().min(1).max(200),
-  enabled: z.boolean().default(true),
-  conditions: ruleConditionsSchema,
-  actions: z.array(ruleActionSchema).min(1).max(10),
-});
+const createRuleSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    enabled: z.boolean().default(true),
+    conditions: ruleConditionsSchema,
+    actions: z.array(ruleActionSchema).min(1).max(10),
+  })
+  .strict();
 
 function serializeRule(r: MailRule, employees: Map<string, AIEmployee>) {
   let actions: unknown[] = [];
@@ -1152,11 +1169,16 @@ function serializeRule(r: MailRule, employees: Map<string, AIEmployee>) {
     }
     return action;
   });
-  let conditions: unknown = {};
-  try {
-    conditions = JSON.parse(r.conditionsJson);
-  } catch {
-    conditions = {};
+  let conditions = parseRuleConditions(r.conditionsJson);
+  if (conditions.ai) {
+    const employee = employees.get(conditions.ai.employeeId);
+    conditions = {
+      ...conditions,
+      ai: {
+        ...conditions.ai,
+        employeeName: employee?.name ?? "(deleted AI Employee)",
+      },
+    };
   }
   return {
     id: r.id,
@@ -1172,9 +1194,14 @@ function serializeRule(r: MailRule, employees: Map<string, AIEmployee>) {
   };
 }
 
-async function ruleEmployees(rules: MailRule[]): Promise<Map<string, AIEmployee>> {
+async function ruleEmployees(
+  companyId: string,
+  rules: MailRule[],
+): Promise<Map<string, AIEmployee>> {
   const ids: string[] = [];
   for (const r of rules) {
+    const condition = parseRuleConditions(r.conditionsJson).ai;
+    if (condition?.employeeId) ids.push(condition.employeeId);
     try {
       for (const a of JSON.parse(r.actionsJson) as Array<{ employeeId?: string }>) {
         if (a.employeeId) ids.push(a.employeeId);
@@ -1183,7 +1210,11 @@ async function ruleEmployees(rules: MailRule[]): Promise<Map<string, AIEmployee>
       // ignore
     }
   }
-  return employeesById(ids);
+  if (ids.length === 0) return new Map();
+  const rows = await AppDataSource.getRepository(AIEmployee).find({
+    where: { id: In(Array.from(new Set(ids))), companyId },
+  });
+  return new Map(rows.map((employee) => [employee.id, employee]));
 }
 
 mailRouter.get("/mail/accounts/:aid/rules", async (req, res) => {
@@ -1196,31 +1227,22 @@ mailRouter.get("/mail/accounts/:aid/rules", async (req, res) => {
     where: { accountId: account.id },
     order: { position: "ASC", createdAt: "ASC" },
   });
-  const employees = await ruleEmployees(rules);
+  const employees = await ruleEmployees(account.companyId, rules);
   res.json({ rules: rules.map((r) => serializeRule(r, employees)) });
 });
-
-async function assertRuleEmployees(
-  cid: string,
-  actions: z.infer<typeof ruleActionSchema>[],
-): Promise<string | null> {
-  for (const a of actions) {
-    if (a.type !== "handToEmployee") continue;
-    const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
-      id: a.employeeId,
-      companyId: cid,
-    });
-    if (!emp) return "Rule names an employee that is not in this company";
-  }
-  return null;
-}
 
 mailRouter.post("/mail/accounts/:aid/rules", validateBody(createRuleSchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const account = await loadAccount(cid, req.params.aid as string);
   if (!account) return res.status(404).json({ error: "Mail account not found" });
   const body = req.body as z.infer<typeof createRuleSchema>;
-  const empError = await assertRuleEmployees(cid, body.actions);
+  const empError = await validateMailRuleConfiguration({
+    companyId: cid,
+    accountId: account.id,
+    conditions: body.conditions,
+    actions: body.actions,
+    requireReady: body.enabled,
+  });
   if (empError) return res.status(400).json({ error: empError });
   const repo = AppDataSource.getRepository(MailRule);
   const maxPosition = await repo.count({ where: { accountId: account.id } });
@@ -1244,17 +1266,19 @@ mailRouter.post("/mail/accounts/:aid/rules", validateBody(createRuleSchema), asy
     targetId: rule.id,
     targetLabel: rule.name,
   });
-  const employees = await ruleEmployees([rule]);
+  const employees = await ruleEmployees(cid, [rule]);
   res.json({ rule: serializeRule(rule, employees) });
 });
 
-const patchRuleSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  enabled: z.boolean().optional(),
-  position: z.number().int().min(0).optional(),
-  conditions: ruleConditionsSchema.optional(),
-  actions: z.array(ruleActionSchema).min(1).max(10).optional(),
-});
+const patchRuleSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200).optional(),
+    enabled: z.boolean().optional(),
+    position: z.number().int().min(0).optional(),
+    conditions: ruleConditionsSchema.optional(),
+    actions: z.array(ruleActionSchema).min(1).max(10).optional(),
+  })
+  .strict();
 
 async function loadRule(cid: string, ruleId: string): Promise<MailRule | null> {
   return AppDataSource.getRepository(MailRule).findOneBy({
@@ -1268,9 +1292,19 @@ mailRouter.patch("/mail/rules/:rid", validateBody(patchRuleSchema), async (req, 
   const rule = await loadRule(cid, req.params.rid as string);
   if (!rule) return res.status(404).json({ error: "Rule not found" });
   const body = req.body as z.infer<typeof patchRuleSchema>;
-  if (body.actions) {
-    const empError = await assertRuleEmployees(cid, body.actions);
+  const conditions = body.conditions ?? parseRuleConditions(rule.conditionsJson);
+  const actions = body.actions ?? parseRuleActions(rule.actionsJson);
+  if (body.conditions || body.actions || body.enabled === true) {
+    const empError = await validateMailRuleConfiguration({
+      companyId: cid,
+      accountId: rule.accountId,
+      conditions,
+      actions,
+      requireReady: body.enabled ?? rule.enabled,
+    });
     if (empError) return res.status(400).json({ error: empError });
+  }
+  if (body.actions) {
     rule.actionsJson = JSON.stringify(body.actions);
   }
   if (body.conditions) rule.conditionsJson = JSON.stringify(body.conditions);
@@ -1286,7 +1320,7 @@ mailRouter.patch("/mail/rules/:rid", validateBody(patchRuleSchema), async (req, 
     targetId: rule.id,
     targetLabel: rule.name,
   });
-  const employees = await ruleEmployees([rule]);
+  const employees = await ruleEmployees(cid, [rule]);
   res.json({ rule: serializeRule(rule, employees) });
 });
 

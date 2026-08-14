@@ -114,6 +114,11 @@ export type MailRuleConditions = {
   subjectContains?: string;
   bodyContains?: string;
   hasAttachment?: boolean;
+  ai?: {
+    employeeId: string;
+    instruction: string;
+    employeeName?: string;
+  };
 };
 
 export type MailRuleAction =
@@ -121,6 +126,7 @@ export type MailRuleAction =
   | { type: "markRead" }
   | { type: "star" }
   | { type: "archive" }
+  | { type: "unsubscribe" }
   | {
       type: "handToEmployee";
       employeeId: string;
