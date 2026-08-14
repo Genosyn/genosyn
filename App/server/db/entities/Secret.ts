@@ -10,7 +10,7 @@ import {
 /**
  * Per-company vault for secrets that flow into employee spawns as env vars.
  * The plaintext value is never returned by the API — only the masked preview.
- * Encrypted at rest with the same sessionSecret-derived key as model API keys.
+ * Encrypted at rest with the same scoped instance encryption key as model API keys.
  */
 @Entity("secrets")
 @Index(["companyId", "name"], { unique: true })

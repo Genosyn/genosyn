@@ -63,9 +63,7 @@ const KIND_LABEL: Record<BackupDestinationKind, string> = {
 export function AdminBackup() {
   const [rows, setRows] = React.useState<Backup[] | null>(null);
   const [schedule, setSchedule] = React.useState<BackupSchedule | null>(null);
-  const [destinations, setDestinations] = React.useState<
-    BackupDestination[] | null
-  >(null);
+  const [destinations, setDestinations] = React.useState<BackupDestination[] | null>(null);
   const [running, setRunning] = React.useState(false);
   const [savingSchedule, setSavingSchedule] = React.useState(false);
   const [savingRetention, setSavingRetention] = React.useState(false);
@@ -100,10 +98,7 @@ export function AdminBackup() {
    */
   const saveSchedule = React.useCallback(
     async (patch: Partial<BackupSchedule>): Promise<BackupSchedule> => {
-      const next = await api.put<BackupSchedule>(
-        "/api/backups/schedule",
-        patch,
-      );
+      const next = await api.put<BackupSchedule>("/api/backups/schedule", patch);
       setSchedule(next);
       if (next.prunedNow) setRows(await api.get<Backup[]>("/api/backups"));
       return next;
@@ -316,10 +311,7 @@ export function AdminBackup() {
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {rows.map((b) => (
-                  <li
-                    key={b.id}
-                    className="flex items-center justify-between gap-3 py-2 text-sm"
-                  >
+                  <li key={b.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-800 dark:bg-slate-800 dark:text-slate-100">
@@ -329,9 +321,7 @@ export function AdminBackup() {
                       </div>
                       <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                         {formatTimestamp(b.createdAt)} · {formatBytes(b.sizeBytes)}
-                        {b.status === "failed" && b.errorMessage
-                          ? ` · ${b.errorMessage}`
-                          : ""}
+                        {b.status === "failed" && b.errorMessage ? ` · ${b.errorMessage}` : ""}
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -478,11 +468,10 @@ function DestinationsCard({
           <div>
             <h2 className="text-sm font-semibold">Off-box destinations</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Mirror every completed backup to a NAS path, an SFTP host, or an
-              SMB share so a lost disk does not take the backups with it.
-              Deliveries run automatically after each backup; use{" "}
-              <span className="font-medium">Send</span> in History to push an
-              existing archive on demand.
+              Mirror every completed backup to a NAS path, an SFTP host, or an SMB share so a lost
+              disk does not take the backups with it. Deliveries run automatically after each
+              backup; use <span className="font-medium">Send</span> in History to push an existing
+              archive on demand.
             </p>
           </div>
           <Button size="sm" onClick={openNew} className="shrink-0">
@@ -501,10 +490,7 @@ function DestinationsCard({
         ) : (
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {destinations.map((d) => (
-              <li
-                key={d.id}
-                className="flex items-center justify-between gap-3 py-2.5 text-sm"
-              >
+              <li key={d.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
                 <div className="flex min-w-0 flex-1 items-start gap-2.5">
                   <span className="mt-0.5 text-slate-400 dark:text-slate-500">
                     {d.kind === "local" ? (
@@ -616,7 +602,7 @@ function DestinationHealth({ d }: { d: BackupDestination }) {
       )}
       {d.configError && (
         <span className="text-rose-600 dark:text-rose-400">
-          · Config could not be decrypted (was sessionSecret rotated?)
+          · Config could not be decrypted (was the encryption key rotated?)
         </span>
       )}
       {d.lastStatus === "error" && d.lastError && (
@@ -724,11 +710,7 @@ function DestinationModal({
   };
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={isEdit ? "Edit destination" : "Add destination"}
-    >
+    <Modal open={open} onClose={onClose} title={isEdit ? "Edit destination" : "Add destination"}>
       <form className="flex flex-col gap-4" onSubmit={submit}>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -782,9 +764,9 @@ function DestinationModal({
               placeholder="/mnt/nas/genosyn-backups"
             />
             <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-              Mount your NAS share (SMB / NFS) on the host or into the container
-              first, then point here. The folder is created if missing. If you
-              can&apos;t mount it, use the SMB type instead.
+              Mount your NAS share (SMB / NFS) on the host or into the container first, then point
+              here. The folder is created if missing. If you can&apos;t mount it, use the SMB type
+              instead.
             </p>
           </div>
         ) : (
@@ -811,9 +793,7 @@ function DestinationModal({
                   max={65535}
                   className={FIELD_CLASS}
                   value={port}
-                  onChange={(e) =>
-                    setPort(parseInt(e.target.value, 10) || portDefaultFor(kind))
-                  }
+                  onChange={(e) => setPort(parseInt(e.target.value, 10) || portDefaultFor(kind))}
                 />
               </div>
             </div>
@@ -890,8 +870,8 @@ function DestinationModal({
                   <span>
                     Encrypt in transit
                     <span className="mt-0.5 block text-slate-400 dark:text-slate-500">
-                      Uses SMB3 encryption so the archive isn&apos;t readable on
-                      your network. Turn this off only if the NAS predates SMB3.
+                      Uses SMB3 encryption so the archive isn&apos;t readable on your network. Turn
+                      this off only if the NAS predates SMB3.
                     </span>
                   </span>
                 </label>
@@ -945,9 +925,7 @@ function DestinationModal({
                       className={FIELD_CLASS}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder={
-                        editing?.hasPassword ? "•••••• (unchanged)" : ""
-                      }
+                      placeholder={editing?.hasPassword ? "•••••• (unchanged)" : ""}
                       autoComplete="new-password"
                     />
                   </div>
@@ -1000,19 +978,13 @@ function DestinationModal({
   );
 }
 
-function BackupStatusBadge({
-  status,
-  kind,
-}: {
-  status: Backup["status"];
-  kind: Backup["kind"];
-}) {
+function BackupStatusBadge({ status, kind }: { status: Backup["status"]; kind: Backup["kind"] }) {
   const statusClass =
     status === "completed"
       ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
       : status === "running"
-      ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-      : "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300";
+        ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+        : "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300";
   return (
     <span className="inline-flex items-center gap-1 text-xs">
       <span className={`rounded px-1.5 py-0.5 ${statusClass}`}>{status}</span>
@@ -1023,15 +995,7 @@ function BackupStatusBadge({
   );
 }
 
-const DAY_LABELS = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
+const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function ScheduleCard({
   schedule,
@@ -1070,8 +1034,8 @@ function ScheduleCard({
       <CardHeader>
         <h2 className="text-sm font-semibold">Recurring backup</h2>
         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-          Server-local time. Schedule fires in the background — the cron restarts
-          automatically on boot.
+          Server-local time. Schedule fires in the background — the cron restarts automatically on
+          boot.
         </p>
       </CardHeader>
       <CardBody>
@@ -1128,9 +1092,7 @@ function ScheduleCard({
               <Select
                 className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
                 value={draft.hour}
-                onChange={(e) =>
-                  setDraft({ ...draft, hour: parseInt(e.target.value, 10) })
-                }
+                onChange={(e) => setDraft({ ...draft, hour: parseInt(e.target.value, 10) })}
                 disabled={!draft.enabled}
               >
                 {Array.from({ length: 24 }).map((_, h) => (
@@ -1149,9 +1111,7 @@ function ScheduleCard({
                 <Select
                   className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
                   value={draft.dayOfWeek}
-                  onChange={(e) =>
-                    setDraft({ ...draft, dayOfWeek: parseInt(e.target.value, 10) })
-                  }
+                  onChange={(e) => setDraft({ ...draft, dayOfWeek: parseInt(e.target.value, 10) })}
                   disabled={!draft.enabled}
                 >
                   {DAY_LABELS.map((d, i) => (
@@ -1246,9 +1206,8 @@ function RetentionCard({
       <CardHeader>
         <h2 className="text-sm font-semibold">Retention</h2>
         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-          Delete archives once they pass a certain age so the backup folder
-          doesn&apos;t grow forever. Checked hourly, and again after every
-          backup.
+          Delete archives once they pass a certain age so the backup folder doesn&apos;t grow
+          forever. Checked hourly, and again after every backup.
         </p>
       </CardHeader>
       <CardBody>
@@ -1268,13 +1227,9 @@ function RetentionCard({
               type="checkbox"
               className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600"
               checked={draft.retentionEnabled}
-              onChange={(e) =>
-                setDraft({ ...draft, retentionEnabled: e.target.checked })
-              }
+              onChange={(e) => setDraft({ ...draft, retentionEnabled: e.target.checked })}
             />
-            <span className="font-medium">
-              Automatically delete old backups
-            </span>
+            <span className="font-medium">Automatically delete old backups</span>
           </label>
 
           <div className="grid gap-3 sm:grid-cols-3">
@@ -1297,18 +1252,15 @@ function RetentionCard({
                   }
                   disabled={!draft.retentionEnabled}
                 />
-                <span className="text-sm text-slate-500 dark:text-slate-400">
-                  days
-                </span>
+                <span className="text-sm text-slate-500 dark:text-slate-400">days</span>
               </div>
             </div>
           </div>
 
           <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-            Covers every archive in the backup folder — including ones you made
-            by hand — even when the recurring backup above is off. The newest
-            completed archive is always kept, however old it is. Archives you
-            uploaded here are never deleted, and copies already delivered to
+            Covers every archive in the backup folder — including ones you made by hand — even when
+            the recurring backup above is off. The newest completed archive is always kept, however
+            old it is. Archives you uploaded here are never deleted, and copies already delivered to
             off-box destinations stay on the remote.
           </p>
 

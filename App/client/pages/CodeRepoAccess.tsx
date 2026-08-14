@@ -139,8 +139,8 @@ export default function CodeRepoAccess() {
             AI access
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Choose who may work in {repo.name}, whether they can push, and who has the GitHub tool
-            needed to open a pull request.
+            Choose who may reference {repo.name} or prepare local branches and commits. Repository
+            credentials never enter AI tools.
           </p>
         </div>
       </div>
@@ -154,7 +154,7 @@ export default function CodeRepoAccess() {
         <ReadinessCard
           icon={<GitPullRequest size={17} />}
           title="PRs use a GitHub Connection"
-          detail="Grant a GitHub Connection to expose the create_pull_request tool after the branch is pushed."
+          detail="After a Member or governed delivery flow publishes the branch, a GitHub Connection can expose the create_pull_request tool."
           to={`/c/${company.slug}/code/integrations`}
           linkLabel="Manage integrations"
         />
@@ -188,8 +188,8 @@ export default function CodeRepoAccess() {
               onChange={(event) => setPickLevel(event.target.value as CodeRepoAccessLevel)}
               disabled={ungranted.length === 0}
             >
-              <option value="write">Read &amp; push</option>
-              <option value="read">Read only</option>
+              <option value="write">Work locally</option>
+              <option value="read">Reference only</option>
             </Select>
           </div>
           <Button onClick={addGrant} disabled={adding || !pickEmployee} className="shrink-0">
@@ -209,8 +209,8 @@ export default function CodeRepoAccess() {
               No AI employees have access
             </div>
             <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-500 dark:text-slate-400">
-              Add one above. Use Read &amp; push when you want it to deliver a branch or pull
-              request.
+              Add one above. Use Work locally when you want it to prepare a branch and commit for
+              governed publishing.
             </p>
           </div>
         ) : (
@@ -253,8 +253,8 @@ export default function CodeRepoAccess() {
                     className="h-9 w-36"
                     aria-label="Repository access level"
                   >
-                    <option value="write">Read &amp; push</option>
-                    <option value="read">Read only</option>
+                    <option value="write">Work locally</option>
+                    <option value="read">Reference only</option>
                   </Select>
                   {grant.employee && (
                     <>
@@ -332,20 +332,20 @@ function DeliveryBadge({ grant }: { grant: CodeRepoGrant }) {
   if (grant.accessLevel === "read") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-        Read only
+        Reference only
       </span>
     );
   }
   if (grant.employee?.pullRequestReady) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-        <GitPullRequest size={11} /> PR ready
+        <GitPullRequest size={11} /> PR tool connected
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-      <PlugZap size={11} /> GitHub Connection needed
+      <PlugZap size={11} /> PR tool unavailable
     </span>
   );
 }

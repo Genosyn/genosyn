@@ -166,6 +166,9 @@ import { MarketingCreative } from "./entities/MarketingCreative.js";
 import { MarketingExperiment } from "./entities/MarketingExperiment.js";
 import { MarketingPerformanceSnapshot } from "./entities/MarketingPerformanceSnapshot.js";
 import { EmployeeMarketingGrant } from "./entities/EmployeeMarketingGrant.js";
+import { VaultItem } from "./entities/VaultItem.js";
+import { VaultItemMemberAccess } from "./entities/VaultItemMemberAccess.js";
+import { EmployeeVaultGrant } from "./entities/EmployeeVaultGrant.js";
 
 const entities = [
   User,
@@ -331,6 +334,9 @@ const entities = [
   MarketingExperiment,
   MarketingPerformanceSnapshot,
   EmployeeMarketingGrant,
+  VaultItem,
+  VaultItemMemberAccess,
+  EmployeeVaultGrant,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

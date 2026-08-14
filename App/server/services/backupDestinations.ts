@@ -137,14 +137,11 @@ function buildConfig(
       username: (input.username ?? prevSmb?.username ?? "").trim(),
       encrypt: input.encrypt ?? prevSmb?.encrypt ?? true,
     };
-    cfg.password = input.password && input.password.length > 0
-      ? input.password
-      : prevSmb?.password;
+    cfg.password = input.password && input.password.length > 0 ? input.password : prevSmb?.password;
     return cfg;
   }
   const prev = (existing as SftpConfig) ?? null;
-  const authMode: SftpAuthMode =
-    input.authMode ?? prev?.authMode ?? "password";
+  const authMode: SftpAuthMode = input.authMode ?? prev?.authMode ?? "password";
   const cfg: SftpConfig = {
     host: (input.host ?? prev?.host ?? "").trim(),
     port: input.port ?? prev?.port ?? 22,
@@ -153,16 +150,12 @@ function buildConfig(
     authMode,
   };
   if (authMode === "password") {
-    cfg.password = input.password && input.password.length > 0
-      ? input.password
-      : prev?.password;
+    cfg.password = input.password && input.password.length > 0 ? input.password : prev?.password;
   } else {
-    cfg.privateKey = input.privateKey && input.privateKey.length > 0
-      ? input.privateKey
-      : prev?.privateKey;
-    const pass = input.passphrase && input.passphrase.length > 0
-      ? input.passphrase
-      : prev?.passphrase;
+    cfg.privateKey =
+      input.privateKey && input.privateKey.length > 0 ? input.privateKey : prev?.privateKey;
+    const pass =
+      input.passphrase && input.passphrase.length > 0 ? input.passphrase : prev?.passphrase;
     if (pass) cfg.passphrase = pass;
   }
   return cfg;
@@ -174,9 +167,7 @@ export async function listDestinations(): Promise<BackupDestination[]> {
   });
 }
 
-export async function getDestination(
-  id: string,
-): Promise<BackupDestination | null> {
+export async function getDestination(id: string): Promise<BackupDestination | null> {
   return AppDataSource.getRepository(BackupDestination).findOneBy({ id });
 }
 
@@ -208,8 +199,7 @@ export async function updateDestination(
   const repo = AppDataSource.getRepository(BackupDestination);
   const row = await repo.findOneBy({ id });
   if (!row) return null;
-  if (typeof input.name === "string" && input.name.trim())
-    row.name = input.name.trim();
+  if (typeof input.name === "string" && input.name.trim()) row.name = input.name.trim();
   if (typeof input.enabled === "boolean") row.enabled = input.enabled;
   // Kind is immutable — rebuild the config within the row's existing kind,
   // merging any provided fields over what's stored (secrets preserved).
@@ -233,9 +223,7 @@ export async function deleteDestination(id: string): Promise<boolean> {
  * directory exists and is writable by creating and deleting a tiny marker
  * file. Records the outcome on the row so History reflects the last check.
  */
-export async function testDestination(
-  id: string,
-): Promise<{ ok: boolean; message: string }> {
+export async function testDestination(id: string): Promise<{ ok: boolean; message: string }> {
   const repo = AppDataSource.getRepository(BackupDestination);
   const row = await repo.findOneBy({ id });
   if (!row) return { ok: false, message: "Destination not found" };
@@ -279,10 +267,7 @@ async function probeSftp(cfg: SftpConfig): Promise<void> {
     await client.connect(sftpConnectOptions(cfg));
     await client.mkdir(cfg.remoteDir, true);
     const probe = joinRemote(cfg.remoteDir, PROBE_NAME);
-    await client.put(
-      Buffer.from("genosyn backup destination test\n"),
-      probe,
-    );
+    await client.put(Buffer.from("genosyn backup destination test\n"), probe);
     await client.delete(probe, true);
   } finally {
     await safeEnd(client);
@@ -312,10 +297,7 @@ export async function deliverBackupToDestinations(
  * "Send to destinations" action in History). Throws if the source file is
  * gone; per-destination failures come back inside the result list.
  */
-export async function deliverArchive(
-  filename: string,
-  absPath: string,
-): Promise<DeliveryResult[]> {
+export async function deliverArchive(filename: string, absPath: string): Promise<DeliveryResult[]> {
   if (!fs.existsSync(absPath)) {
     throw new Error("Backup archive is missing on disk");
   }
@@ -360,22 +342,16 @@ async function deliverOne(
   }
 }
 
-async function copyLocal(
-  cfg: LocalConfig,
-  filename: string,
-  absPath: string,
-): Promise<void> {
+async function copyLocal(cfg: LocalConfig, filename: string, absPath: string): Promise<void> {
   const dir = cfg.path?.trim();
   if (!dir) throw new Error("No path configured");
   await fs.promises.mkdir(dir, { recursive: true });
-  await fs.promises.copyFile(absPath, path.join(dir, filename));
+  const destination = path.join(dir, filename);
+  await fs.promises.copyFile(absPath, destination);
+  await fs.promises.chmod(destination, 0o600);
 }
 
-async function copySftp(
-  cfg: SftpConfig,
-  filename: string,
-  absPath: string,
-): Promise<void> {
+async function copySftp(cfg: SftpConfig, filename: string, absPath: string): Promise<void> {
   const client = new SftpClient();
   try {
     await client.connect(sftpConnectOptions(cfg));
@@ -432,7 +408,10 @@ const SMB_UNSAFE_SEGMENT = /[\\/:*?"<>|;\x00-\x1f]/;
 
 /** Accept backslashes (what a Windows user will paste) and trim edge slashes. */
 function normalizeSmbDir(dir: string): string {
-  return dir.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  return dir
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "");
 }
 
 function assertSafeSmbSegment(value: string, label: string): void {
@@ -506,11 +485,7 @@ async function withSmbAuthFile<T>(
  * but it can't create anything, which is why the mkdir chain goes through
  * `--command` at all.
  */
-async function runSmbClient(
-  cfg: SmbConfig,
-  commands: string[],
-  timeout: number,
-): Promise<void> {
+async function runSmbClient(cfg: SmbConfig, commands: string[], timeout: number): Promise<void> {
   if (!cfg.host.trim()) throw new Error("No host configured");
   assertSafeSmbSegment(cfg.share, "Share");
 
@@ -593,9 +568,7 @@ function smbErrorMessage(err: unknown, cfg: SmbConfig): string {
  * non-zero exit from the same invocation.
  */
 function smbMkdirChain(segments: string[]): string[] {
-  return segments.map(
-    (_seg, i) => `mkdir "${segments.slice(0, i + 1).join("/")}"`,
-  );
+  return segments.map((_seg, i) => `mkdir "${segments.slice(0, i + 1).join("/")}"`);
 }
 
 /** Path of `name` inside the destination's remote dir, for smbclient's `-c`. */
@@ -612,11 +585,7 @@ async function probeSmb(cfg: SmbConfig): Promise<void> {
   try {
     await runSmbClient(
       cfg,
-      [
-        ...smbMkdirChain(segments),
-        `put "${localProbe}" "${probe}"`,
-        `del "${probe}"`,
-      ],
+      [...smbMkdirChain(segments), `put "${localProbe}" "${probe}"`, `del "${probe}"`],
       SMB_PROBE_TIMEOUT_MS,
     );
   } finally {
@@ -624,19 +593,12 @@ async function probeSmb(cfg: SmbConfig): Promise<void> {
   }
 }
 
-async function copySmb(
-  cfg: SmbConfig,
-  filename: string,
-  absPath: string,
-): Promise<void> {
+async function copySmb(cfg: SmbConfig, filename: string, absPath: string): Promise<void> {
   assertSafeSmbSegment(filename, "Backup filename");
   const segments = smbDirSegments(cfg.remoteDir);
   await runSmbClient(
     cfg,
-    [
-      ...smbMkdirChain(segments),
-      `put "${absPath}" "${smbRemotePath(segments, filename)}"`,
-    ],
+    [...smbMkdirChain(segments), `put "${absPath}" "${smbRemotePath(segments, filename)}"`],
     SMB_DELIVER_TIMEOUT_MS,
   );
 }

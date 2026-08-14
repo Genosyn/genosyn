@@ -58,7 +58,7 @@ function copyFor(a: Approval): ApprovalCopy {
         // Browser actions don't run server-side — the model re-fires via
         // browser_resume once the row flips to approved. The re-fire is
         // bound to the approved page and runs once.
-        approvedToast: "Approved — the AI will submit it on that page",
+        approvedToast: "Approved — the AI can resume this browser action",
       };
     case "mcp_tool":
       return {

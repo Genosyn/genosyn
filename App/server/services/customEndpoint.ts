@@ -9,7 +9,7 @@ import { decryptSecret } from "../lib/secret.js";
  * is no config file on disk any more.
  *
  * configJson shape (encrypted-at-rest fields are AES-256-GCM via `lib/secret`,
- * keyed off `config.sessionSecret`):
+ * keyed from the instance encryption key ring):
  *
  *   {
  *     baseURLEncrypted: string,   // load-bearing — connection signal

@@ -11,7 +11,7 @@ import {
 import { readGithubRepos, resolveGithubCredentials } from "../integrations/providers/github.js";
 import {
   assertSafeCredentialToken,
-  configureEnvCredentialHelper,
+  clearEnvCredentialHelper,
   inlineEnvCredentialHelper,
 } from "./gitCredentialHelper.js";
 import { runWorkspaceGit } from "./workspaceGit.js";
@@ -23,7 +23,7 @@ import { cloneWorkspaceGitRemote, fetchWorkspaceGitRemote } from "./workspaceGit
  * before each chat / routine spawn.
  *
  * Engineering AI employees are *editor-shaped*, not API-shaped — they need a
- * working tree to read, edit, branch, commit, and push. Calling the github
+ * working tree to read, edit, branch, and commit. Calling the github
  * REST API for every operation is the wrong primitive for that workload, so
  * the runner's pre-spawn step now drops a real `git clone` of each repo into
  * `<employeeDir>/repos/<owner>/<name>/` and leaves it there. The agent uses
@@ -43,11 +43,10 @@ import { cloneWorkspaceGitRemote, fetchWorkspaceGitRemote } from "./workspaceGit
  * pushed but didn't merge). The agent is in charge of its own working tree;
  * we keep `origin/*` refs fresh and stay out of the way.
  *
- * **Credential helper.** Each cloned repo gets an inline, repository-local
- * credential helper that prints the token from a per-connection env var
- * (`GENOSYN_GH_TOKEN_<sanitized-connId>`). The runner sets that env var for
- * the turn so `git push` Just Works, then the env var disappears with the
- * turn and does not leak to other employees.
+ * **Credentials.** Clone/fetch runs in a server-owned temporary Git workspace.
+ * The Connection token never enters the employee checkout or model tool
+ * environment. Authenticated pushes therefore need a future governed server
+ * action instead of exposing a reusable account credential to model code.
  */
 
 export type SyncedRepo = {
@@ -77,8 +76,8 @@ export type RepoSyncError = {
 };
 
 export type RepoSyncResult = {
-  /** Env vars to merge into the spawn so the agent's `git push` finds the
-   * matching token. Keys: `GENOSYN_GH_TOKEN_<sanitized-connId>`. */
+  /** Reserved compatibility field. Repository credentials are never exported
+   * to the model tool environment, so this is always empty. */
   extraEnv: Record<string, string>;
   /** Repos successfully cloned or fetched this round. */
   repos: SyncedRepo[];
@@ -197,8 +196,6 @@ async function syncConnection(
     return;
   }
 
-  result.extraEnv[envKey] = creds.accessToken;
-
   for (const repo of repos) {
     result.githubRepoCredentials.push({
       connectionId: connection.id,
@@ -262,12 +259,7 @@ async function syncOneRepo(args: {
       cwd: args.repoPath,
       args: ["remote", "set-url", "origin", cleanRemote],
     });
-    await configureCredentialHelper(args.workspaceRoot, args.repoPath, args.envKey, cleanRemote);
   } else {
-    // Older/manual checkouts may not have a helper yet. Install it before the
-    // first authenticated fetch, and make its turn token available to this
-    // server-side git process as well as the later employee bash process.
-    await configureCredentialHelper(args.workspaceRoot, args.repoPath, args.envKey, cleanRemote);
     await runWorkspaceGit({
       workspaceRoot: args.workspaceRoot,
       cwd: args.repoPath,
@@ -283,23 +275,26 @@ async function syncOneRepo(args: {
       credentialHelper,
     });
   }
+
+  // A checkout is model-writable. Remove every reusable credential seam after
+  // the short-lived server fetch, including helpers left by an older release.
+  await clearEnvCredentialHelper((gitArgs) =>
+    runWorkspaceGit({
+      workspaceRoot: args.workspaceRoot,
+      cwd: args.repoPath,
+      args: gitArgs,
+    }),
+  );
+  await runWorkspaceGit({
+    workspaceRoot: args.workspaceRoot,
+    cwd: args.repoPath,
+    args: ["config", "--local", "--unset", "core.sshCommand"],
+  }).catch(() => {});
+  await runWorkspaceGit({
+    workspaceRoot: args.workspaceRoot,
+    cwd: args.repoPath,
+    args: ["remote", "set-url", "--push", "origin", NO_PUSH_URL],
+  });
 }
 
-async function configureCredentialHelper(
-  workspaceRoot: string,
-  repoPath: string,
-  envKey: string,
-  remoteUrl: string,
-): Promise<void> {
-  await configureEnvCredentialHelper(
-    (gitArgs) =>
-      runWorkspaceGit({
-        workspaceRoot,
-        cwd: repoPath,
-        args: gitArgs,
-      }),
-    "x-access-token",
-    envKey,
-    remoteUrl,
-  );
-}
+const NO_PUSH_URL = "DISABLED-server-held-credentials.invalid";

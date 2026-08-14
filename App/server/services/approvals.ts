@@ -22,6 +22,9 @@ import {
   approvalPageUrlPreview,
   redactApprovalSummary,
 } from "./approvalRedaction.js";
+import { decryptSecretWithStrongKeys, encryptSecret } from "../lib/secret.js";
+import { getEffectiveInstanceSecrets } from "../lib/instanceSecrets.js";
+import { Membership } from "../db/entities/Membership.js";
 
 export { approvalArgsPreview, redactApprovalSummary } from "./approvalRedaction.js";
 
@@ -88,7 +91,8 @@ function parsePaymentPayload(json: string | null): LightningPaymentPayload {
 
 /**
  * Captured by `browser_submit` when the employee's `browserApprovalRequired`
- * flag is on. The MCP child holds the live page state — the server only
+ * flag is on, and always by a sensitive Vault password capture. The MCP child
+ * holds the live page state — the server only
  * stores enough metadata for the approver to make an informed call. On
  * approve, the model retries via `browser_resume(approvalId)` and the MCP
  * re-executes the action against the still-live browser context.
@@ -97,12 +101,15 @@ function parsePaymentPayload(json: string | null): LightningPaymentPayload {
  * is a no-op because we don't have access to the browser session; the
  * model is the only thing that can drive it.
  */
-export type BrowserActionPayload = {
-  selector: string;
-  /** Optional key to press (e.g. "Enter") — null when the action is a click. */
-  key: string | null;
-  /** Page URL captured at queue time. Surfaced to the approver. */
-  pageUrl: string;
+export type BrowserApprovalTargetDescriptor = {
+  /** Safe DOM element category. No values or text content are persisted. */
+  tagName: string;
+  inputType: string | null;
+  /** Origin + path only; query, fragment, and userinfo are discarded. */
+  frameUrl: string;
+  formAction: string | null;
+  formMethod: string | null;
+  submitsForm: boolean;
 };
 
 type BrowserExecutionState = {
@@ -113,30 +120,247 @@ type BrowserExecutionState = {
   completedAt?: string;
 };
 
-function parseBrowserActionPayload(json: string | null): BrowserActionPayload {
-  if (!json) throw new Error("Approval payload is empty");
-  let value: unknown;
-  try {
-    value = JSON.parse(json);
-  } catch {
-    throw new Error("Approval payload is not valid JSON");
-  }
-  const payload = value as Partial<BrowserActionPayload> | null;
-  if (
-    !payload ||
-    typeof payload !== "object" ||
-    typeof payload.selector !== "string" ||
-    payload.selector.length === 0 ||
-    (payload.key !== null && typeof payload.key !== "string") ||
-    typeof payload.pageUrl !== "string"
+export type BrowserApprovalExecution = {
+  state: "claimed" | "failed" | "executed";
+  claimId: string;
+  browserSessionId: string;
+  claimedAt: string;
+  completedAt?: string;
+};
+
+export type BrowserActionPayload = {
+  action: "submit" | "vault_capture";
+  selector: string;
+  /** Optional key to press (e.g. "Enter") — null when the action is a click. */
+  key: string | null;
+  /** Page URL captured at queue time. Surfaced to the approver. */
+  pageUrl: string;
+  browserSessionId?: string;
+  /** Keyed proof of the exact live target; opaque outside the App process. */
+  targetFingerprint?: string;
+  targetDescriptor?: BrowserApprovalTargetDescriptor;
+  expiresAt?: string;
+  vaultTitle?: string;
+  vaultUsername?: string;
+  vaultNotes?: string;
+  execution?: BrowserApprovalExecution;
+};
+
+type StoredBrowserActionPayload = Partial<BrowserActionPayload> & {
+  action?: "submit" | "vault_capture";
+  encryptedVaultCapture?: string;
+  executedAt?: string;
+};
+
+export class BrowserApprovalError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
   ) {
-    throw new Error("Invalid browser action payload");
+    super(message);
+    this.name = "BrowserApprovalError";
+  }
+}
+
+function vaultCaptureApprovalScope(approval: Pick<Approval, "id" | "companyId">): string {
+  return `company:${approval.companyId}:vault-capture-approval:${approval.id}`;
+}
+
+function ciphertextHasScope(ciphertext: string, expectedScope: string): boolean {
+  const parts = ciphertext.split(".");
+  if (parts.length !== 5 || parts[0] !== "v2") return false;
+  try {
+    return Buffer.from(parts[1], "base64url").toString("utf8") === expectedScope;
+  } catch {
+    return false;
+  }
+}
+
+function parseStoredBrowserActionPayload(approval: Approval): StoredBrowserActionPayload {
+  let stored: StoredBrowserActionPayload;
+  try {
+    stored = JSON.parse(approval.payloadJson || "{}") as StoredBrowserActionPayload;
+  } catch {
+    throw new Error("Browser approval payload is not valid JSON");
+  }
+  if (!stored || typeof stored !== "object") {
+    throw new Error("Browser approval payload has an invalid shape");
+  }
+  return stored;
+}
+
+function validBrowserTargetDescriptor(value: unknown): value is BrowserApprovalTargetDescriptor {
+  if (!value || typeof value !== "object") return false;
+  const descriptor = value as Partial<BrowserApprovalTargetDescriptor>;
+  return (
+    typeof descriptor.tagName === "string" &&
+    descriptor.tagName.length > 0 &&
+    descriptor.tagName.length <= 32 &&
+    (descriptor.inputType === null ||
+      (typeof descriptor.inputType === "string" && descriptor.inputType.length <= 32)) &&
+    typeof descriptor.frameUrl === "string" &&
+    descriptor.frameUrl.length > 0 &&
+    descriptor.frameUrl === safeBrowserApprovalPageUrl(descriptor.frameUrl) &&
+    (descriptor.formAction === null ||
+      (typeof descriptor.formAction === "string" &&
+        descriptor.formAction.length > 0 &&
+        descriptor.formAction === safeBrowserApprovalPageUrl(descriptor.formAction))) &&
+    (descriptor.formMethod === null ||
+      (typeof descriptor.formMethod === "string" && descriptor.formMethod.length <= 16)) &&
+    typeof descriptor.submitsForm === "boolean"
+  );
+}
+
+function validBrowserApprovalExecution(value: unknown): value is BrowserApprovalExecution {
+  if (!value || typeof value !== "object") return false;
+  const execution = value as Partial<BrowserApprovalExecution>;
+  return (
+    (execution.state === "claimed" ||
+      execution.state === "failed" ||
+      execution.state === "executed") &&
+    typeof execution.claimId === "string" &&
+    /^[0-9a-f-]{36}$/i.test(execution.claimId) &&
+    typeof execution.browserSessionId === "string" &&
+    typeof execution.claimedAt === "string" &&
+    (execution.completedAt === undefined || typeof execution.completedAt === "string")
+  );
+}
+
+/**
+ * Produce an opaque proof of a live browser target. Sensitive values (most
+ * importantly a captured password) may be included in `targetMaterial`, but
+ * only the HMAC is returned or persisted. Company, employee, BrowserSession,
+ * selector, and action identity are all domain-separated into the proof.
+ */
+export function computeBrowserActionTargetFingerprint(args: {
+  companyId: string;
+  employeeId: string;
+  browserSessionId: string;
+  action: "submit" | "vault_capture";
+  selector: string;
+  key: string | null;
+  pageUrl: string;
+  targetMaterial: Record<string, unknown>;
+}): string {
+  const fingerprintKey = crypto
+    .createHmac("sha256", getEffectiveInstanceSecrets().encryptionSecret)
+    .update("genosyn/browser-approval-target/v1", "utf8")
+    .digest();
+  return crypto
+    .createHmac("sha256", fingerprintKey)
+    .update(
+      JSON.stringify({
+        companyId: args.companyId,
+        employeeId: args.employeeId,
+        browserSessionId: args.browserSessionId,
+        action: args.action,
+        selector: args.selector,
+        key: args.key,
+        pageUrl: args.pageUrl,
+        targetMaterial: args.targetMaterial,
+      }),
+      "utf8",
+    )
+    .digest("hex");
+}
+
+/** Decode a browser approval while keeping Vault-capture metadata encrypted at rest. */
+export function readBrowserActionPayload(approval: Approval): BrowserActionPayload {
+  const stored = parseStoredBrowserActionPayload(approval);
+  if (stored.action === undefined) {
+    if (
+      typeof stored.selector !== "string" ||
+      stored.selector.length === 0 ||
+      (stored.key !== null && typeof stored.key !== "string") ||
+      typeof stored.pageUrl !== "string"
+    ) {
+      throw new Error("Browser approval payload has an invalid legacy shape");
+    }
+    return {
+      action: "submit",
+      selector: stored.selector,
+      key: stored.key,
+      pageUrl: stored.pageUrl,
+    };
+  }
+  if (stored.action !== "submit" && stored.action !== "vault_capture") {
+    throw new Error("Browser approval payload has an invalid action");
+  }
+  if (
+    typeof stored.browserSessionId !== "string" ||
+    !/^[0-9a-f]{64}$/.test(stored.targetFingerprint ?? "") ||
+    !validBrowserTargetDescriptor(stored.targetDescriptor) ||
+    (stored.execution !== undefined && !validBrowserApprovalExecution(stored.execution))
+  ) {
+    throw new Error("Browser approval payload has an invalid target binding");
+  }
+  if (stored.action !== "vault_capture") {
+    if (typeof stored.selector !== "string" || typeof stored.pageUrl !== "string") {
+      throw new Error("Browser approval payload has an invalid shape");
+    }
+    return stored as BrowserActionPayload;
+  }
+  if (
+    typeof stored.encryptedVaultCapture !== "string" ||
+    !ciphertextHasScope(stored.encryptedVaultCapture, vaultCaptureApprovalScope(approval))
+  ) {
+    throw new Error("Vault capture approval payload is invalid");
+  }
+  let details: BrowserActionPayload;
+  try {
+    details = JSON.parse(
+      decryptSecretWithStrongKeys(stored.encryptedVaultCapture),
+    ) as BrowserActionPayload;
+  } catch {
+    throw new Error("Vault capture approval payload could not be decrypted");
+  }
+  if (
+    details.action !== "vault_capture" ||
+    typeof details.selector !== "string" ||
+    typeof details.pageUrl !== "string" ||
+    typeof details.browserSessionId !== "string" ||
+    typeof details.expiresAt !== "string" ||
+    typeof details.vaultTitle !== "string" ||
+    typeof details.vaultUsername !== "string" ||
+    typeof details.vaultNotes !== "string"
+  ) {
+    throw new Error("Vault capture approval payload has an invalid shape");
   }
   return {
-    selector: payload.selector,
-    key: payload.key,
-    pageUrl: payload.pageUrl,
+    ...details,
+    browserSessionId: stored.browserSessionId,
+    targetFingerprint: stored.targetFingerprint!,
+    targetDescriptor: stored.targetDescriptor!,
+    execution: stored.execution,
   };
+}
+
+/**
+ * Approval rows are durable and company-visible. Persist only the URL parts
+ * needed to bind a resumed browser action, never userinfo, query parameters,
+ * or fragments that may contain reset tokens or OAuth codes.
+ */
+export function safeBrowserApprovalPageUrl(value: string): string {
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return "";
+  }
+}
+
+function browserApprovalPageLabel(value: string): string {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return "";
+  }
 }
 
 function parseBrowserExecutionState(json: string | null): BrowserExecutionState | null {
@@ -171,10 +395,22 @@ function hasLegacyBrowserExecutionStamp(approval: Approval): boolean {
   }
 }
 
+function browserPayloadExecutionState(approval: Approval): BrowserApprovalExecution["state"] | null {
+  try {
+    const stored = parseStoredBrowserActionPayload(approval);
+    return validBrowserApprovalExecution(stored.execution) ? stored.execution.state : null;
+  } catch {
+    return null;
+  }
+}
+
 export function browserApprovalWasExecuted(approval: Approval): boolean {
+  const payloadState = browserPayloadExecutionState(approval);
   return (
     hasLegacyBrowserExecutionStamp(approval) ||
-    parseBrowserExecutionState(approval.resultJson)?.state === "executed"
+    parseBrowserExecutionState(approval.resultJson)?.state === "executed" ||
+    payloadState === "claimed" ||
+    payloadState === "executed"
   );
 }
 
@@ -191,12 +427,9 @@ export type BrowserApprovalClaimResult =
     };
 
 /**
- * Atomically consume an approved browser action before the browser can fire.
- *
- * The conditional `approved -> executing` update is the replay boundary. A
- * process crash, network loss, or browser timeout after this claim deliberately
- * leaves the row in `executing`: the outcome is ambiguous, so no later turn is
- * allowed to guess that it is safe to submit again.
+ * Preserve the durable claim protocol used by pre-bound browser approvals.
+ * New target-bound approvals are consumed at the Browser RPC boundary, where
+ * the live DOM target can be revalidated immediately before Chromium acts.
  */
 export async function claimApprovedBrowserAction(args: {
   companyId: string;
@@ -210,20 +443,30 @@ export async function claimApprovedBrowserAction(args: {
 
   let action: BrowserActionPayload;
   try {
-    action = parseBrowserActionPayload(approval.payloadJson);
+    action = readBrowserActionPayload(approval);
   } catch {
     return { outcome: "invalid_payload", approval };
   }
-  if (hasLegacyBrowserExecutionStamp(approval)) return { outcome: "conflict", approval };
+  // A bound payload must use claimBrowserActionApproval so target identity is
+  // checked against the live page. The legacy callback must never bypass it.
+  if (action.browserSessionId || action.targetFingerprint || action.targetDescriptor) {
+    return { outcome: "conflict", approval };
+  }
+  if (
+    hasLegacyBrowserExecutionStamp(approval) ||
+    browserPayloadExecutionState(approval) !== null
+  ) {
+    return { outcome: "conflict", approval };
+  }
 
   const claimToken = crypto.randomBytes(32).toString("base64url");
-  const claimedAt = new Date().toISOString();
   const claimState: BrowserExecutionState = {
     version: 1,
     state: "claimed",
     claimTokenHash: browserClaimTokenHash(claimToken),
-    claimedAt,
+    claimedAt: new Date().toISOString(),
   };
+  const previousPayloadJson = approval.payloadJson || "";
   const updated = await repo.update(
     {
       id: approval.id,
@@ -231,6 +474,7 @@ export async function claimApprovedBrowserAction(args: {
       employeeId: args.employeeId,
       kind: "browser_action",
       status: "approved",
+      payloadJson: previousPayloadJson,
       resultJson: IsNull(),
     },
     {
@@ -250,12 +494,6 @@ export type BrowserApprovalCompletionResult =
   | { outcome: "conflict"; approval: Approval }
   | { outcome: "completed" | "already_completed"; approval: Approval };
 
-/**
- * Finalize a claimed browser action. Completion is compare-and-set against the
- * exact claim receipt, so a different MCP child cannot finish another child's
- * claim. Failure is terminal; success returns to `approved` with an execution
- * receipt in `resultJson`, which prevents another claim.
- */
 export async function completeClaimedBrowserAction(args: {
   companyId: string;
   employeeId: string;
@@ -478,33 +716,295 @@ export async function createMcpToolApproval(args: {
 export async function createBrowserActionApproval(args: {
   companyId: string;
   employeeId: string;
+  action?: "submit" | "vault_capture";
   selector: string;
   key: string | null;
   pageUrl: string;
+  browserSessionId?: string;
+  targetFingerprint?: string;
+  targetDescriptor?: BrowserApprovalTargetDescriptor;
   summary: string;
+  vaultTitle?: string;
+  vaultUsername?: string;
+  vaultNotes?: string;
 }): Promise<Approval> {
   const repo = AppDataSource.getRepository(Approval);
-  const safeSummary = redactApprovalSummary(args.summary) ?? "Browser action";
+  const id = crypto.randomUUID();
+  const action = args.action ?? "submit";
+  const bindingValues = [args.browserSessionId, args.targetFingerprint, args.targetDescriptor];
+  const hasAnyBinding = bindingValues.some((value) => value !== undefined);
+  const hasCompleteBinding =
+    typeof args.browserSessionId === "string" &&
+    typeof args.targetFingerprint === "string" &&
+    args.targetDescriptor !== undefined;
+  if (hasAnyBinding && !hasCompleteBinding) {
+    throw new Error("Browser approval target binding is incomplete");
+  }
+  if (action === "vault_capture" && !hasCompleteBinding) {
+    throw new Error("Vault capture approvals require a bound Browser target");
+  }
+
+  const rawSummary =
+    action === "vault_capture"
+      ? "Save the current password field as a restricted Vault login"
+      : args.summary;
+  const safeSummary = redactApprovalSummary(rawSummary) ?? "Browser action";
   const title = safeSummary.length > 80 ? safeSummary.slice(0, 77) + "..." : safeSummary;
+  let summary: string;
+  let payload: StoredBrowserActionPayload;
+
+  if (hasCompleteBinding) {
+    const browserSessionId = args.browserSessionId!;
+    const targetFingerprint = args.targetFingerprint!;
+    const suppliedDescriptor = args.targetDescriptor!;
+    const pageUrl = safeBrowserApprovalPageUrl(args.pageUrl);
+    if (!browserSessionId || !/^[0-9a-f]{64}$/.test(targetFingerprint)) {
+      throw new Error("Browser approvals require a BrowserSession and target fingerprint");
+    }
+    const targetDescriptor: BrowserApprovalTargetDescriptor = {
+      tagName: suppliedDescriptor.tagName.toLowerCase(),
+      inputType: suppliedDescriptor.inputType?.toLowerCase() ?? null,
+      frameUrl: safeBrowserApprovalPageUrl(suppliedDescriptor.frameUrl),
+      formAction: suppliedDescriptor.formAction
+        ? safeBrowserApprovalPageUrl(suppliedDescriptor.formAction)
+        : null,
+      formMethod: suppliedDescriptor.formMethod?.toUpperCase() ?? null,
+      submitsForm: suppliedDescriptor.submitsForm,
+    };
+    if (!validBrowserTargetDescriptor(targetDescriptor)) {
+      throw new Error("Browser approval target descriptor is invalid");
+    }
+    if (action === "vault_capture" && !args.vaultTitle) {
+      throw new Error("Vault capture approvals require a title");
+    }
+    const expiresAt =
+      action === "vault_capture"
+        ? new Date(Date.now() + 15 * 60 * 1000).toISOString()
+        : undefined;
+    payload =
+      action === "vault_capture"
+        ? {
+            action,
+            browserSessionId,
+            targetFingerprint,
+            targetDescriptor,
+            encryptedVaultCapture: encryptSecret(
+              JSON.stringify({
+                action,
+                selector: args.selector,
+                key: args.key,
+                pageUrl,
+                browserSessionId,
+                expiresAt,
+                vaultTitle: args.vaultTitle ?? "",
+                vaultUsername: args.vaultUsername ?? "",
+                vaultNotes: args.vaultNotes ?? "",
+              }),
+              vaultCaptureApprovalScope({ id, companyId: args.companyId }),
+            ),
+          }
+        : {
+            action,
+            selector: args.selector,
+            key: args.key,
+            pageUrl,
+            browserSessionId,
+            targetFingerprint,
+            targetDescriptor,
+          };
+    const pageLabel = browserApprovalPageLabel(pageUrl);
+    summary = pageLabel ? `${safeSummary}  ·  ${pageLabel}` : safeSummary;
+  } else {
+    payload = {
+      selector: args.selector,
+      key: args.key,
+      pageUrl: args.pageUrl,
+    };
+    summary = args.pageUrl
+      ? `${safeSummary}  ·  ${approvalPageUrlPreview(args.pageUrl)}`
+      : safeSummary;
+  }
+
   const approval = repo.create({
+    id,
     companyId: args.companyId,
     kind: "browser_action",
     routineId: "",
     employeeId: args.employeeId,
     status: "pending",
     title,
-    summary: args.pageUrl
-      ? `${safeSummary}  ·  ${approvalPageUrlPreview(args.pageUrl)}`
-      : safeSummary,
-    payloadJson: JSON.stringify({
-      selector: args.selector,
-      key: args.key,
-      pageUrl: args.pageUrl,
-    } satisfies BrowserActionPayload),
+    summary,
+    payloadJson: JSON.stringify(payload),
   });
   const saved = await repo.save(approval);
   notifyPending(saved);
   return saved;
+}
+
+function browserFingerprintsMatch(left: string, right: string): boolean {
+  if (!/^[0-9a-f]{64}$/.test(left) || !/^[0-9a-f]{64}$/.test(right)) return false;
+  return crypto.timingSafeEqual(Buffer.from(left, "hex"), Buffer.from(right, "hex"));
+}
+
+export type ClaimBrowserActionApprovalArgs = {
+  approvalId: string;
+  companyId: string;
+  employeeId: string;
+  browserSessionId: string;
+  action: "submit" | "vault_capture";
+  selector: string;
+  key: string | null;
+  targetFingerprint: string;
+  targetDescriptor: BrowserApprovalTargetDescriptor;
+  vaultTitle?: string;
+  vaultUsername?: string;
+  vaultNotes?: string;
+};
+
+/**
+ * Atomically reserve an approved browser action immediately before the App
+ * drives Chromium. The exact previous payload is part of the UPDATE predicate,
+ * so concurrent resumes cannot both claim the same approval on SQLite or
+ * Postgres. A caught execution failure can be settled as `failed` and retried;
+ * a process crash remains `claimed` and therefore fails closed.
+ */
+export async function claimBrowserActionApproval(
+  args: ClaimBrowserActionApprovalArgs,
+): Promise<{ claimId: string; payload: BrowserActionPayload }> {
+  const repo = AppDataSource.getRepository(Approval);
+  const approval = await repo.findOneBy({ id: args.approvalId });
+  if (
+    !approval ||
+    approval.kind !== "browser_action" ||
+    approval.companyId !== args.companyId ||
+    approval.employeeId !== args.employeeId
+  ) {
+    throw new BrowserApprovalError("Browser approval not found", 404);
+  }
+  if (approval.status !== "approved" || !approval.decidedByUserId) {
+    throw new BrowserApprovalError("Browser action has not been approved", 403);
+  }
+
+  let payload: BrowserActionPayload;
+  let stored: StoredBrowserActionPayload;
+  try {
+    stored = parseStoredBrowserActionPayload(approval);
+    payload = readBrowserActionPayload(approval);
+  } catch {
+    throw new BrowserApprovalError("Browser approval payload is invalid", 409);
+  }
+  if (
+    approval.resultJson !== null ||
+    payload.execution?.state === "executed" ||
+    payload.execution?.state === "claimed"
+  ) {
+    throw new BrowserApprovalError("This browser approval has already been used", 409);
+  }
+  if (payload.expiresAt && Date.parse(payload.expiresAt) <= Date.now()) {
+    throw new BrowserApprovalError("Browser approval has expired", 409);
+  }
+  const normalizedDescriptor: BrowserApprovalTargetDescriptor = {
+    tagName: args.targetDescriptor.tagName.toLowerCase(),
+    inputType: args.targetDescriptor.inputType?.toLowerCase() ?? null,
+    frameUrl: safeBrowserApprovalPageUrl(args.targetDescriptor.frameUrl),
+    formAction: args.targetDescriptor.formAction
+      ? safeBrowserApprovalPageUrl(args.targetDescriptor.formAction)
+      : null,
+    formMethod: args.targetDescriptor.formMethod?.toUpperCase() ?? null,
+    submitsForm: args.targetDescriptor.submitsForm,
+  };
+  const actionMatches =
+    payload.action === args.action &&
+    payload.browserSessionId === args.browserSessionId &&
+    payload.selector === args.selector &&
+    (payload.key ?? null) === args.key &&
+    typeof payload.targetFingerprint === "string" &&
+    browserFingerprintsMatch(payload.targetFingerprint, args.targetFingerprint) &&
+    payload.targetDescriptor !== undefined &&
+    JSON.stringify(payload.targetDescriptor) === JSON.stringify(normalizedDescriptor) &&
+    (payload.action !== "vault_capture" ||
+      (payload.vaultTitle === (args.vaultTitle ?? "") &&
+        payload.vaultUsername === (args.vaultUsername ?? "") &&
+        payload.vaultNotes === (args.vaultNotes ?? "")));
+  if (!actionMatches) {
+    throw new BrowserApprovalError("Browser target no longer matches the approved action", 409);
+  }
+  if (payload.action === "vault_capture") {
+    const approver = await AppDataSource.getRepository(Membership).findOneBy({
+      companyId: args.companyId,
+      userId: approval.decidedByUserId,
+    });
+    if (!approver || (approver.role !== "owner" && approver.role !== "admin")) {
+      throw new BrowserApprovalError("Vault capture requires owner or admin approval", 403);
+    }
+  }
+
+  const claimId = crypto.randomUUID();
+  const execution: BrowserApprovalExecution = {
+    state: "claimed",
+    claimId,
+    browserSessionId: args.browserSessionId,
+    claimedAt: new Date().toISOString(),
+  };
+  const previousPayloadJson = approval.payloadJson || "";
+  const nextPayloadJson = JSON.stringify({ ...stored, execution });
+  const updated = await repo
+    .createQueryBuilder()
+    .update(Approval)
+    .set({ payloadJson: nextPayloadJson })
+    .where("id = :id", { id: approval.id })
+    .andWhere("status = :status", { status: "approved" })
+    .andWhere('"resultJson" IS NULL')
+    .andWhere('"payloadJson" = :previousPayloadJson', { previousPayloadJson })
+    .execute();
+  if (updated.affected !== 1) {
+    throw new BrowserApprovalError("This browser approval was claimed concurrently", 409);
+  }
+  return { claimId, payload: { ...payload, execution } };
+}
+
+/** Settle only the matching live claim. Failed actions may be reclaimed. */
+export async function settleBrowserActionApproval(args: {
+  approvalId: string;
+  claimId: string;
+  succeeded: boolean;
+}): Promise<void> {
+  const repo = AppDataSource.getRepository(Approval);
+  const approval = await repo.findOneBy({ id: args.approvalId });
+  if (!approval || approval.kind !== "browser_action") {
+    throw new BrowserApprovalError("Browser approval not found", 404);
+  }
+  let stored: StoredBrowserActionPayload;
+  try {
+    stored = parseStoredBrowserActionPayload(approval);
+  } catch {
+    throw new BrowserApprovalError("Browser approval payload is invalid", 409);
+  }
+  if (
+    !validBrowserApprovalExecution(stored.execution) ||
+    stored.execution.state !== "claimed" ||
+    stored.execution.claimId !== args.claimId
+  ) {
+    throw new BrowserApprovalError("Browser approval claim is no longer active", 409);
+  }
+  const execution: BrowserApprovalExecution = {
+    ...stored.execution,
+    state: args.succeeded ? "executed" : "failed",
+    completedAt: new Date().toISOString(),
+  };
+  const previousPayloadJson = approval.payloadJson || "";
+  const updated = await repo
+    .createQueryBuilder()
+    .update(Approval)
+    .set({ payloadJson: JSON.stringify({ ...stored, execution }) })
+    .where("id = :id", { id: approval.id })
+    .andWhere("status = :status", { status: "approved" })
+    .andWhere('"resultJson" IS NULL')
+    .andWhere('"payloadJson" = :previousPayloadJson', { previousPayloadJson })
+    .execute();
+  if (updated.affected !== 1) {
+    throw new BrowserApprovalError("Browser approval claim changed concurrently", 409);
+  }
 }
 
 export async function createPaymentApproval(args: {

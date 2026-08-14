@@ -46,11 +46,46 @@ import crypto from "node:crypto";
 const MCP_API_BASE = process.env.GENOSYN_MCP_API ?? "";
 const MCP_TOKEN = process.env.GENOSYN_MCP_TOKEN ?? "";
 const BROWSER_API_BASE = process.env.GENOSYN_BROWSER_API ?? "";
+const BROWSER_SESSION_ID = process.env.GENOSYN_BROWSER_SESSION_ID ?? "";
 const BROWSER_TOKEN = process.env.GENOSYN_BROWSER_SESSION_TOKEN ?? "";
 const APPROVAL_REQUIRED = process.env.GENOSYN_BROWSER_APPROVAL_REQUIRED === "1";
 
-/** @type {Map<string, { tool: "submit"; selector: string; key?: string }>} */
+/** @type {Map<string,
+ *   { tool: "submit"; selector: string; key?: string } |
+ *   { tool: "vault_capture"; selector: string; title: string; username: string; notes: string }
+ * >} */
 const pendingActions = new Map();
+
+// The App re-validates this allowlist at the HTTP boundary. Keeping the same
+// check here gives the model an immediate, useful error and prevents invalid
+// browser_submit requests from creating approvals that can never be executed.
+const MODEL_PRESS_KEYS = [
+  "Enter",
+  "NumpadEnter",
+  "Tab",
+  "Escape",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "Home",
+  "End",
+  "PageUp",
+  "PageDown",
+  "Backspace",
+  "Delete",
+  "Space",
+  "Spacebar",
+];
+const MODEL_PRESS_KEY_SET = new Set(MODEL_PRESS_KEYS);
+
+function assertModelPressKeyAllowed(key) {
+  if (!MODEL_PRESS_KEY_SET.has(key)) {
+    throw new Error(
+      "Unsupported browser key. Modifier chords, clipboard shortcuts, and context-menu keys are not allowed.",
+    );
+  }
+}
 
 // ---------- HTTP helpers ----------
 
@@ -206,9 +241,105 @@ async function browserFill(args) {
   return textResult(reply.snapshot ?? "");
 }
 
+/**
+ * Fill a login field from an Employee Vault Grant without returning the
+ * stored value to the model (or even to this MCP child). The App resolves the
+ * item, enforces the Grant + exact website origin, and types directly into its
+ * App-owned Chromium page.
+ */
+async function browserFillVault(args) {
+  const selector = String(args?.selector ?? "").trim();
+  const itemId = String(args?.itemId ?? "").trim();
+  const field = String(args?.field ?? "").trim();
+  if (!selector) throw new Error("`selector` is required");
+  if (!itemId) throw new Error("`itemId` is required");
+  if (field !== "username" && field !== "secret") {
+    throw new Error("`field` must be `username` or `secret`");
+  }
+  const reply = await callBrowser("/vault/fill", { selector, itemId, field });
+  return textResult(
+    reply.message ??
+      `Filled the ${field === "secret" ? "stored value" : "username"} field from Vault. The value was not revealed.`,
+  );
+}
+
+/**
+ * Capture a password already present in a browser input and save it to the
+ * Vault without putting the value in model context. This covers signup flows
+ * and provider-generated passwords while keeping the secret server-side.
+ */
+async function browserSaveVaultLogin(args) {
+  const selector = String(args?.selector ?? "").trim();
+  const title = String(args?.title ?? "").trim();
+  const username = typeof args?.username === "string" ? args.username.trim() : "";
+  const notes = typeof args?.notes === "string" ? args.notes.trim() : "";
+  if (!selector) throw new Error("`selector` is required");
+  if (!title) throw new Error("`title` is required");
+  const target = await callBrowser("/approval/describe-target", {
+    action: "vault_capture",
+    selector,
+    key: null,
+  });
+  if (
+    typeof target?.targetFingerprint !== "string" ||
+    !target?.targetDescriptor ||
+    typeof target.targetDescriptor !== "object"
+  ) {
+    throw new Error("The App could not bind the live password target to an approval");
+  }
+
+  const id = crypto.randomUUID();
+  const action = { tool: "vault_capture", selector, title, username, notes };
+  pendingActions.set(id, action);
+  try {
+    const reply = await callGenosyn("/tools/queue_browser_approval", {
+      action: "vault_capture",
+      clientApprovalId: id,
+      summary: `Save the current password field as restricted Vault login "${title}" (password hidden)`,
+      pageUrl: typeof target.pageUrl === "string" ? target.pageUrl : "",
+      browserSessionId: BROWSER_SESSION_ID,
+      targetFingerprint: target.targetFingerprint,
+      targetDescriptor: target.targetDescriptor,
+      selector,
+      key: null,
+      vaultTitle: title,
+      vaultUsername: username,
+      vaultNotes: notes,
+    });
+    const approvalId = reply?.approvalId ?? id;
+    if (approvalId !== id) {
+      pendingActions.set(approvalId, action);
+      pendingActions.delete(id);
+    }
+    return textResult(
+      `Approval queued. status: pending_approval. approvalId: ${approvalId}. A company owner or admin must approve saving this hidden password as a restricted Vault login; call browser_resume("${approvalId}") afterward.`,
+    );
+  } catch (err) {
+    pendingActions.delete(id);
+    throw new Error(
+      `Could not queue Vault capture approval: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+async function executeVaultCapture(action, approvalId) {
+  const reply = await callBrowser("/vault/capture-login", {
+    approvalId,
+    selector: action.selector,
+    title: action.title,
+    username: action.username,
+    notes: action.notes,
+  });
+  return textResult(
+    reply.message ??
+      `Saved login ${reply.itemId ?? ""} to Vault. The captured password was not revealed.`,
+  );
+}
+
 async function browserPress(args) {
   const key = String(args?.key ?? "").trim();
   if (!key) throw new Error("`key` is required (e.g. 'Enter', 'Tab', 'ArrowDown')");
+  assertModelPressKeyAllowed(key);
   const body = { key };
   if (typeof args?.selector === "string" && args.selector.length > 0) {
     body.selector = args.selector;
@@ -239,6 +370,7 @@ async function browserSubmit(args) {
   const selector = String(args?.selector ?? "").trim();
   if (!selector) throw new Error("`selector` is required");
   const key = typeof args?.key === "string" ? args.key : undefined;
+  if (key) assertModelPressKeyAllowed(key);
   const summary =
     typeof args?.summary === "string" ? args.summary.trim() : "Submit a form via the browser MCP";
 
@@ -246,15 +378,17 @@ async function browserSubmit(args) {
     return executeSubmit(selector, key);
   }
 
-  // Get the current URL so the approver has context. /url is a cheap
-  // read of already-known state — it never launches Chromium or builds
-  // a snapshot.
-  let pageUrl = "";
-  try {
-    const reply = await callBrowser("/url", {});
-    if (typeof reply?.url === "string") pageUrl = reply.url;
-  } catch {
-    // best-effort
+  const target = await callBrowser("/approval/describe-target", {
+    action: "submit",
+    selector,
+    key: key ?? null,
+  });
+  if (
+    typeof target?.targetFingerprint !== "string" ||
+    !target?.targetDescriptor ||
+    typeof target.targetDescriptor !== "object"
+  ) {
+    throw new Error("The App could not bind the live submit target to an approval");
   }
 
   const id = crypto.randomUUID();
@@ -262,8 +396,12 @@ async function browserSubmit(args) {
   try {
     const reply = await callGenosyn("/tools/queue_browser_approval", {
       clientApprovalId: id,
+      action: "submit",
       summary,
-      pageUrl,
+      pageUrl: typeof target.pageUrl === "string" ? target.pageUrl : "",
+      browserSessionId: BROWSER_SESSION_ID,
+      targetFingerprint: target.targetFingerprint,
+      targetDescriptor: target.targetDescriptor,
       selector,
       key: key ?? null,
     });
@@ -283,12 +421,13 @@ async function browserSubmit(args) {
   }
 }
 
-async function executeSubmit(selector, key) {
+async function executeSubmit(selector, key, approvalId) {
   if (key) {
-    const reply = await callBrowser("/press", { selector, key });
+    assertModelPressKeyAllowed(key);
+    const reply = await callBrowser("/press", { selector, key, approvalId });
     return textResult(reply.snapshot ?? "");
   }
-  const reply = await callBrowser("/click", { selector });
+  const reply = await callBrowser("/click", { selector, approvalId });
   return textResult(reply.snapshot ?? "");
 }
 
@@ -302,7 +441,7 @@ async function executeSubmit(selector, key) {
  * Exact query ordering is fail-closed; a changed serialization needs a fresh
  * human approval even if an application might interpret it equivalently.
  */
-function sameApprovedPage(approvedUrl, currentUrl) {
+function sameApprovedPageExact(approvedUrl, currentUrl) {
   if (!approvedUrl || !currentUrl) return false;
   try {
     const a = new URL(approvedUrl);
@@ -316,12 +455,109 @@ function sameApprovedPage(approvedUrl, currentUrl) {
   }
 }
 
+function sameApprovedTargetPage(approvedUrl, currentUrl) {
+  if (!approvedUrl || !currentUrl) return false;
+  try {
+    const approved = new URL(approvedUrl);
+    const current = new URL(currentUrl);
+    return approved.origin === current.origin && approved.pathname === current.pathname;
+  } catch {
+    return false;
+  }
+}
+
+async function executeLegacyApprovedAction(approvalId, fallbackSelector) {
+  let claim;
+  try {
+    claim = await callGenosyn(
+      `/tools/claim_browser_approval/${encodeURIComponent(approvalId)}`,
+      {},
+    );
+  } catch (err) {
+    pendingActions.delete(approvalId);
+    throw new Error(
+      `Approval ${approvalId} could not be claimed and was not submitted: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const claimToken = typeof claim?.claimToken === "string" ? claim.claimToken : "";
+  const selector =
+    typeof claim?.selector === "string" ? claim.selector : fallbackSelector;
+  const key = typeof claim?.key === "string" ? claim.key : undefined;
+  const approvedUrl = typeof claim?.pageUrl === "string" ? claim.pageUrl : "";
+  if (!claimToken || !selector) {
+    pendingActions.delete(approvalId);
+    throw new Error(
+      `Approval ${approvalId} was consumed but the server returned an invalid claim receipt. Its outcome is unknown and it will not be replayed.`,
+    );
+  }
+
+  let currentUrl = "";
+  try {
+    const current = await callBrowser("/url", {});
+    if (typeof current?.url === "string") currentUrl = current.url;
+  } catch {
+    // Fall through to the terminal mismatch below.
+  }
+  if (!sameApprovedPageExact(approvedUrl, currentUrl)) {
+    pendingActions.delete(approvalId);
+    try {
+      await callGenosyn(`/tools/finish_browser_approval/${encodeURIComponent(approvalId)}`, {
+        claimToken,
+        outcome: "failed",
+        errorMessage:
+          "The exact approved browser URL changed before the claimed browser action fired.",
+      });
+    } catch {
+      // The executing claim is already non-replayable if the receipt fails.
+    }
+    throw new Error(
+      `The browser URL changed while approval ${approvalId} was being claimed. It was not submitted and the consumed approval will not be replayed.`,
+    );
+  }
+
+  pendingActions.delete(approvalId);
+  let result;
+  try {
+    result = await executeSubmit(selector, key);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    try {
+      await callGenosyn(`/tools/finish_browser_approval/${encodeURIComponent(approvalId)}`, {
+        claimToken,
+        outcome: "failed",
+        errorMessage,
+      });
+    } catch {
+      // The executing claim remains terminal and cannot replay.
+    }
+    throw new Error(
+      `Approval ${approvalId} was claimed, but the browser action failed. It will not be replayed automatically: ${errorMessage}`,
+    );
+  }
+  try {
+    await callGenosyn(`/tools/finish_browser_approval/${encodeURIComponent(approvalId)}`, {
+      claimToken,
+      outcome: "executed",
+    });
+  } catch (err) {
+    result.content.push({
+      type: "text",
+      text:
+        `The browser action ran, but Genosyn could not persist its completion receipt (${err instanceof Error ? err.message : String(err)}). ` +
+        "The approval remains consumed and cannot be replayed.",
+    });
+  }
+  return result;
+}
+
 async function browserResume(args) {
   const approvalId = String(args?.approvalId ?? "").trim();
   if (!approvalId) throw new Error("`approvalId` is required");
   let reply;
   try {
-    reply = await getGenosyn(`/tools/check_browser_approval/${encodeURIComponent(approvalId)}`);
+    reply = await getGenosyn(
+      `/tools/check_browser_approval/${encodeURIComponent(approvalId)}?browserSessionId=${encodeURIComponent(BROWSER_SESSION_ID)}`,
+    );
   } catch (err) {
     throw new Error(
       `Could not check approval status: ${err instanceof Error ? err.message : String(err)}`,
@@ -341,11 +577,20 @@ async function browserResume(args) {
     // across chat turns — this MCP child is spawned per turn, and the
     // human usually approves after the turn that queued it has ended.
     const action = pendingActions.get(approvalId);
+    const actionKind =
+      action?.tool ?? (reply?.action === "vault_capture" ? "vault_capture" : "submit");
+    const targetBound = reply?.targetBound === true;
     const selector =
       action?.selector ?? (typeof reply?.selector === "string" ? reply.selector : "");
+    const key =
+      action?.tool === "submit"
+        ? action.key
+        : typeof reply?.key === "string"
+          ? reply.key
+          : undefined;
     if (!selector) {
       throw new Error(
-        `Approval ${approvalId} is approved but its held action is missing. Call browser_submit again.`,
+        `Approval ${approvalId} is approved but its held action is missing. Queue the browser action again.`,
       );
     }
     // Bind to the page the human actually saw. If the browser has since
@@ -360,100 +605,48 @@ async function browserResume(args) {
     } catch {
       // fall through — treated as a mismatch below
     }
-    if (!sameApprovedPage(approvedUrl, currentUrl)) {
+    const pageStillMatches = targetBound
+      ? sameApprovedTargetPage(approvedUrl, currentUrl)
+      : sameApprovedPageExact(approvedUrl, currentUrl);
+    if (!pageStillMatches) {
       pendingActions.delete(approvalId);
       throw new Error(
-        "The browser URL changed since this action was approved. The approval is bound to the exact canonical URL, including its query and fragment, so it will not fire here. Navigate back and call browser_submit again if you still want to submit.",
+        targetBound
+          ? "The page changed since this action was approved. The approval is bound to the reviewed page, so it will not fire here. Navigate back and queue the action again if you still want to continue."
+          : "The browser URL changed since this action was approved. The approval is bound to the exact canonical URL, including its query and fragment, so it will not fire here. Navigate back and call browser_submit again if you still want to submit.",
       );
     }
-
-    // Security boundary: consume approved -> executing before touching the
-    // page. Concurrent resume calls may both observe `approved`, but exactly
-    // one conditional UPDATE wins this claim and receives the secret token
-    // needed to finish it. A crash after the claim leaves an ambiguous
-    // `executing` row that cannot be claimed again.
-    let claim;
-    try {
-      claim = await callGenosyn(
-        `/tools/claim_browser_approval/${encodeURIComponent(approvalId)}`,
-        {},
-      );
-    } catch (err) {
-      pendingActions.delete(approvalId);
-      throw new Error(
-        `Approval ${approvalId} could not be claimed and was not submitted: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    if (!targetBound) {
+      return executeLegacyApprovedAction(approvalId, selector);
     }
-    const claimToken = typeof claim?.claimToken === "string" ? claim.claimToken : "";
-    const claimedSelector = typeof claim?.selector === "string" ? claim.selector : selector;
-    const claimedKey = typeof claim?.key === "string" ? claim.key : undefined;
-    const claimedUrl = typeof claim?.pageUrl === "string" ? claim.pageUrl : "";
-    if (!claimToken || !claimedSelector) {
-      pendingActions.delete(approvalId);
-      throw new Error(
-        `Approval ${approvalId} was consumed but the server returned an invalid claim receipt. Its outcome is unknown and it will not be replayed.`,
-      );
-    }
-    // Re-read after the atomic claim. A human or another browser tool can
-    // navigate between the pre-claim check and the click; once consumed, a
-    // mismatch is terminal rather than replayable because the claim itself is
-    // already durable.
-    let claimedCurrentUrl = "";
-    try {
-      const u = await callBrowser("/url", {});
-      if (typeof u?.url === "string") claimedCurrentUrl = u.url;
-    } catch {
-      // fall through — treated as a mismatch below
-    }
-    if (!sameApprovedPage(claimedUrl, claimedCurrentUrl)) {
-      pendingActions.delete(approvalId);
-      try {
-        await callGenosyn(`/tools/finish_browser_approval/${encodeURIComponent(approvalId)}`, {
-          claimToken,
-          outcome: "failed",
-          errorMessage:
-            "The exact approved browser URL changed before the claimed browser action fired.",
-        });
-      } catch {
-        // The executing claim is already non-replayable if the receipt fails.
-      }
-      throw new Error(
-        `The browser URL changed while approval ${approvalId} was being claimed. It was not submitted and the consumed approval will not be replayed.`,
-      );
-    }
-
     pendingActions.delete(approvalId);
-    let result;
-    try {
-      result = await executeSubmit(claimedSelector, claimedKey);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      try {
-        await callGenosyn(`/tools/finish_browser_approval/${encodeURIComponent(approvalId)}`, {
-          claimToken,
-          outcome: "failed",
-          errorMessage,
-        });
-      } catch {
-        // The executing claim remains a terminal ambiguity and cannot replay.
-      }
-      throw new Error(
-        `Approval ${approvalId} was claimed, but the browser action failed. It will not be replayed automatically: ${errorMessage}`,
-      );
-    }
-    try {
-      await callGenosyn(`/tools/finish_browser_approval/${encodeURIComponent(approvalId)}`, {
-        claimToken,
-        outcome: "executed",
-      });
-    } catch (err) {
-      result.content.push({
-        type: "text",
-        text:
-          `The browser action ran, but Genosyn could not persist its completion receipt (${err instanceof Error ? err.message : String(err)}). ` +
-          "The approval remains consumed and cannot be replayed.",
-      });
-    }
+    const result =
+      actionKind === "vault_capture"
+        ? await executeVaultCapture(
+            {
+              selector,
+              title:
+                action?.tool === "vault_capture"
+                  ? action.title
+                  : typeof reply?.vaultTitle === "string"
+                    ? reply.vaultTitle
+                    : "",
+              username:
+                action?.tool === "vault_capture"
+                  ? action.username
+                  : typeof reply?.vaultUsername === "string"
+                    ? reply.vaultUsername
+                    : "",
+              notes:
+                action?.tool === "vault_capture"
+                  ? action.notes
+                  : typeof reply?.vaultNotes === "string"
+                    ? reply.vaultNotes
+                    : "",
+            },
+            approvalId,
+          )
+        : await executeSubmit(selector, key, approvalId);
     return result;
   }
   if (status === "executing") {
@@ -509,7 +702,7 @@ const TOOLS = [
   {
     name: "browser_snapshot",
     description:
-      "Return a fresh snapshot of the current page (URL, title, ref-annotated page outline). Use to recover state at the start of a new turn — the browser persists, so the page the human was just looking at is still loaded. Actions already return a snapshot, so you rarely need this right after one.",
+      "Return a fresh snapshot of the current page (URL, title, ref-annotated page outline). Password-input values are redacted, including inside frames. Use to recover state at the start of a new turn — the browser persists, so the page the human was just looking at is still loaded. Actions already return a snapshot, so you rarely need this right after one.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     handler: browserSnapshot,
   },
@@ -547,6 +740,58 @@ const TOOLS = [
     handler: browserFill,
   },
   {
+    name: "browser_fill_vault",
+    description: `Fill a username or a Vault Login password without revealing the password to you or placing it in the transcript. Stored passwords only go into type=password inputs; API-key and secure-note values have no Browser-fill path. Call list_vault_items first to get an item id. The top page and target frame must exactly match the item's saved origin (scheme, host and port), and Browser access plus the host allow list still apply. ${SELECTOR_HINT}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        selector: {
+          type: "string",
+          description: "The login input — aria-ref=eN from the snapshot, or CSS / text= / role=.",
+        },
+        itemId: {
+          type: "string",
+          description: "Vault item UUID from list_vault_items.",
+        },
+        field: {
+          type: "string",
+          enum: ["username", "secret"],
+          description:
+            "Which login field to fill. `secret` is allowed only for a login password targeting type=password.",
+        },
+      },
+      required: ["selector", "itemId", "field"],
+      additionalProperties: false,
+    },
+    handler: browserFillVault,
+  },
+  {
+    name: "browser_save_vault_login",
+    description: `Request mandatory company-owner/admin approval to save the current value of a same-origin password input as a restricted Vault Login without reading or returning that value. Use after a signup page or service has generated a password in the browser. The item is bound to the exact current origin, you receive a manage Grant, and Browser access plus the host allow list still apply. ${SELECTOR_HINT}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        selector: {
+          type: "string",
+          description: "The password input whose current value should be captured server-side.",
+        },
+        title: { type: "string", description: "Human-readable Vault item title." },
+        username: {
+          type: "string",
+          description:
+            "Optional username or email for this login. This is metadata, not the password.",
+        },
+        notes: {
+          type: "string",
+          description: "Optional non-secret context for Members who use this login later.",
+        },
+      },
+      required: ["selector", "title"],
+      additionalProperties: false,
+    },
+    handler: browserSaveVaultLogin,
+  },
+  {
     name: "browser_select",
     description: `Choose an option in a native <select> dropdown by its value or visible label (browser_fill cannot set selects). ${SELECTOR_HINT}`,
     inputSchema: {
@@ -563,11 +808,15 @@ const TOOLS = [
   {
     name: "browser_press",
     description:
-      "Press a keyboard key. Common values: 'Enter' (submit a form), 'Tab', 'Escape', 'ArrowDown'. Pass `selector` to focus an element first; omit to send the key to whatever is currently focused. For form submissions, prefer browser_submit.",
+      "Press a plain navigation or editing key. Modifier chords, clipboard shortcuts, and context-menu keys are blocked. Pass `selector` to focus an element first; omit to send the key to whatever is currently focused. For form submissions, prefer browser_submit.",
     inputSchema: {
       type: "object",
       properties: {
-        key: { type: "string", description: "Key name, e.g. 'Enter', 'Tab', 'ArrowDown'." },
+        key: {
+          type: "string",
+          enum: MODEL_PRESS_KEYS,
+          description: "A supported plain key, e.g. 'Enter', 'Tab', or 'ArrowDown'.",
+        },
         selector: { type: "string", description: "Optional element to focus first." },
       },
       required: ["key"],
@@ -633,7 +882,7 @@ const TOOLS = [
   {
     name: "browser_screenshot",
     description:
-      "Capture a JPEG screenshot of the current viewport and return it as image content. Use sparingly — screenshots are heavy in the context window. Prefer browser_snapshot when you only need structure/text; screenshot when layout or imagery matters. Humans can also watch the page live in the chat panel.",
+      "Capture a JPEG screenshot of the current viewport and return it as image content. This is refused after the browser session has observed or filled a password; use browser_snapshot, which redacts password inputs, instead. Screenshots are heavy in the context window, so use them only when layout or imagery matters. Humans can also watch the page live in the chat panel.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     handler: browserScreenshot,
   },
@@ -658,8 +907,9 @@ const TOOLS = [
         },
         key: {
           type: "string",
+          enum: MODEL_PRESS_KEYS,
           description:
-            "Optional. When set, the action is a key press on `selector` (e.g. 'Enter') instead of a click.",
+            "Optional supported plain key. When set, the action is a key press on `selector` (e.g. 'Enter') instead of a click.",
         },
         summary: {
           type: "string",
@@ -674,13 +924,13 @@ const TOOLS = [
   {
     name: "browser_resume",
     description:
-      "Re-fire a previously queued browser_submit once a human has approved it — in this turn or a later one. Genosyn atomically claims the approval before touching the page, so concurrent calls cannot submit twice and an ambiguous crashed attempt is never replayed. The action runs only while the browser is still on the approved page; if the page changed before the claim you'll be asked to submit again. Returns still-pending if the human hasn't decided yet; errors if it was rejected, already claimed, already fired, or the page moved on.",
+      "Run a previously queued browser_submit or restricted Vault capture after the required human has approved it — in this turn or a later one. Genosyn atomically claims the reviewed action before Chromium acts, so concurrent calls cannot submit twice and an ambiguous crashed attempt is never replayed. The action is bound to its Browser session and reviewed page; if either changed, queue it again. Returns still-pending if the human has not decided yet and errors for rejection, expiry, prior use, or a stale target.",
     inputSchema: {
       type: "object",
       properties: {
         approvalId: {
           type: "string",
-          description: "The id returned by the original browser_submit call.",
+          description: "The id returned by browser_submit or browser_save_vault_login.",
         },
       },
       required: ["approvalId"],

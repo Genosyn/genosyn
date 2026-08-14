@@ -3,9 +3,13 @@ import { fileURLToPath } from "node:url";
 import { AppDataSource } from "../../../db/datasource.js";
 import { McpServer } from "../../../db/entities/McpServer.js";
 import { AIEmployee } from "../../../db/entities/AIEmployee.js";
+import { Company } from "../../../db/entities/Company.js";
 import { Routine } from "../../../db/entities/Routine.js";
 import { config } from "../../../../config.js";
 import { createBrowserSession } from "../../browserSessions.js";
+import { migrateLegacyBrowserStorage } from "../../browserStorage.js";
+import { purgeLegacyCodeRepoSshFiles } from "../../codeRepoSshFiles.js";
+import { employeeDir } from "../../paths.js";
 import { assertSafeOutboundUrl } from "../../../lib/outboundUrl.js";
 import type { McpServerSpec, McpToolGuard } from "./mcpBridge.js";
 
@@ -62,11 +66,17 @@ export async function loadBrowserConfig(
   employeeId: string,
   options: { routineId?: string; conversationId?: string; runId?: string },
 ): Promise<BrowserConfig> {
+  const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId });
+  if (!employee) return BROWSER_DISABLED;
+  // This runs before the coding registry is assembled. An upgrade therefore
+  // removes the legacy workspace-visible cookie file before host file tools or
+  // bubblewrapped bash can observe the employee workspace.
+  await migrateLegacyBrowserStorage(employee.companyId, employee.id);
+  const company = await AppDataSource.getRepository(Company).findOneBy({ id: employee.companyId });
+  if (company) purgeLegacyCodeRepoSshFiles(employeeDir(company.slug, employee.slug));
   if (config.security.multiTenant && !config.agent.browserEnabledInMultiTenant) {
     return BROWSER_DISABLED;
   }
-  const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({ id: employeeId });
-  if (!employee) return BROWSER_DISABLED;
 
   let enabled = employee.browserEnabled;
   if (options.routineId) {
@@ -125,6 +135,7 @@ export function browserEnvFor(
   if (cfg.approvalRequired) env.GENOSYN_BROWSER_APPROVAL_REQUIRED = "1";
   if (cfg.sessionId && cfg.sessionToken) {
     env.GENOSYN_BROWSER_API = `${internalHttpBase()}/api/internal/browser/sessions/${cfg.sessionId}`;
+    env.GENOSYN_BROWSER_SESSION_ID = cfg.sessionId;
     env.GENOSYN_BROWSER_SESSION_TOKEN = cfg.sessionToken;
   }
   // The allow list is enforced server-side in browserRpc on every /open —

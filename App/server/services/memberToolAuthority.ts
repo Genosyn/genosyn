@@ -221,6 +221,13 @@ const ADMIN_TOOLS = [
   "add_memory",
   "update_memory",
   "delete_memory",
+  // Vault tools act with an AI Employee's item Grants. Until the delegated
+  // Member's per-item View/Edit access is intersected in every handler, keep
+  // interactive use owner/admin-only so a Member cannot borrow broader AI
+  // access from chat. Routine Runs still use the EmployeeVaultGrant directly.
+  "list_vault_items",
+  "create_vault_login",
+  "update_vault_login",
   // Code workspaces, raw data-source access, and generated files have no
   // Member-level Grant model. Their human management surfaces are privileged.
   "list_code_repositories",

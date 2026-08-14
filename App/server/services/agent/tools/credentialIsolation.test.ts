@@ -5,7 +5,7 @@ import { filterCodingToolsForCredentialIsolation } from "./index.js";
 
 const tools = [{ name: "bash" }, { name: "read_file" }] as AgentTool[];
 
-test("bubblewrap deployments expose coding only through sandboxed bash for every turn", () => {
+test("only bubblewrap deployments expose bash to an AI Employee", () => {
   assert.deepEqual(
     filterCodingToolsForCredentialIsolation(tools, true, "host").map((tool) => tool.name),
     [],
@@ -16,7 +16,7 @@ test("bubblewrap deployments expose coding only through sandboxed bash for every
   );
   assert.deepEqual(
     filterCodingToolsForCredentialIsolation(tools, false, "host").map((tool) => tool.name),
-    ["bash", "read_file"],
+    ["read_file"],
   );
   assert.deepEqual(
     filterCodingToolsForCredentialIsolation(tools, false, "bubblewrap").map((tool) => tool.name),

@@ -1,18 +1,20 @@
+import path from "node:path";
 import fs from "node:fs/promises";
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { employeeBrowserStateFile, employeeDir, ensureDir } from "./paths.js";
+import { dataRoot, employeeBrowserStateFile, legacyEmployeeBrowserStateFile } from "./paths.js";
 
 /**
  * Per-employee Playwright `storageState()` persistence.
  *
- * We snapshot cookies + localStorage + sessionStorage to a single hidden
- * JSON file under the employee's data dir. Loaded on every browser-context
- * launch and saved on every clean teardown — so logging into X.com once
- * survives container restarts, idle teardown, and fresh conversations
- * with the same employee. IndexedDB and service workers aren't covered;
- * sites that key their auth off those will still need a re-login.
+ * We snapshot cookies + localStorage + sessionStorage to an App-private JSON
+ * file outside the employee's model-visible workspace. Loaded on every
+ * browser-context launch and saved on every clean teardown — so logging into
+ * X.com once survives container restarts, idle teardown, and fresh
+ * conversations with the same employee without making bearer cookies readable
+ * by coding tools. IndexedDB and service workers aren't covered; sites that key
+ * their auth off those will still need a re-login.
  */
 
 type StorageState = {
@@ -20,10 +22,15 @@ type StorageState = {
   origins: Array<{ origin: string; localStorage: Array<{ name: string; value: string }> }>;
 };
 
-async function resolveSlugs(
+type BrowserStorageIdentity = {
+  companySlug: string;
+  employeeSlug: string;
+};
+
+async function resolveIdentity(
   companyId: string,
   employeeId: string,
-): Promise<{ companySlug: string; employeeSlug: string } | null> {
+): Promise<BrowserStorageIdentity | null> {
   const co = await AppDataSource.getRepository(Company).findOneBy({ id: companyId });
   if (!co) return null;
   const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
@@ -32,6 +39,110 @@ async function resolveSlugs(
   });
   if (!emp) return null;
   return { companySlug: co.slug, employeeSlug: emp.slug };
+}
+
+async function ensurePrivateDirectory(directory: string): Promise<void> {
+  const root = dataRoot();
+  await fs.mkdir(root, { recursive: true });
+  const relative = path.relative(root, directory);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`)) {
+    throw new Error("Browser storage directory must stay inside the App data directory");
+  }
+  let current = root;
+  for (const component of relative.split(path.sep)) {
+    current = path.join(current, component);
+    try {
+      const stat = await fs.lstat(current);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        throw new Error("Browser storage directory is not a private directory");
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      await fs.mkdir(current, { mode: 0o700 }).catch((mkdirError) => {
+        if ((mkdirError as NodeJS.ErrnoException).code !== "EEXIST") throw mkdirError;
+      });
+      const created = await fs.lstat(current);
+      if (!created.isDirectory() || created.isSymbolicLink()) {
+        throw new Error("Browser storage directory is not a private directory");
+      }
+    }
+    await fs.chmod(current, 0o700);
+  }
+}
+
+async function assertPrivateStateFile(file: string): Promise<boolean> {
+  try {
+    const stat = await fs.lstat(file);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
+      throw new Error("Browser storage state is not a private regular file");
+    }
+    await fs.chmod(file, 0o600);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+/**
+ * Move the legacy workspace-visible snapshot before any coding tool is built.
+ * Temporary/torn legacy snapshots are deleted too, so bubblewrapped bash never
+ * inherits an old cookie file after an upgrade.
+ */
+export async function migrateLegacyBrowserStorage(
+  companyId: string,
+  employeeId: string,
+): Promise<void> {
+  const identity = await resolveIdentity(companyId, employeeId);
+  if (!identity) return;
+  const destination = employeeBrowserStateFile(companyId, employeeId);
+  await ensurePrivateDirectory(path.dirname(destination));
+  let destinationExists = await assertPrivateStateFile(destination);
+  const legacy = legacyEmployeeBrowserStateFile(identity.companySlug, identity.employeeSlug);
+  const legacyDirectory = path.dirname(legacy);
+  let entries: string[];
+  try {
+    entries = await fs.readdir(legacyDirectory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  const artifacts = entries.filter((entry) => entry.startsWith(".browser-state.json"));
+  for (const artifact of artifacts) {
+    const source = path.join(legacyDirectory, artifact);
+    let stat;
+    try {
+      stat = await fs.lstat(source);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    if (stat.isFile() && stat.nlink !== 1) {
+      throw new Error("Legacy Browser storage has an unsafe hard link");
+    }
+    if (artifact === ".browser-state.json" && !destinationExists && stat.isFile()) {
+      try {
+        await fs.rename(source, destination);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      destinationExists = await assertPrivateStateFile(destination);
+      if (destinationExists) continue;
+    }
+    if (!stat.isFile() && !stat.isSymbolicLink()) {
+      throw new Error("Legacy Browser storage artifact is not a regular file");
+    }
+    await fs.unlink(source).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    });
+  }
+}
+
+export async function removeBrowserStorageForEmployee(
+  companyId: string,
+  employeeId: string,
+): Promise<void> {
+  await fs.rm(employeeBrowserStateFile(companyId, employeeId), { force: true });
 }
 
 /**
@@ -43,9 +154,10 @@ export async function loadStorageState(
   companyId: string,
   employeeId: string,
 ): Promise<StorageState | undefined> {
-  const slugs = await resolveSlugs(companyId, employeeId);
-  if (!slugs) return undefined;
-  const file = employeeBrowserStateFile(slugs.companySlug, slugs.employeeSlug);
+  const identity = await resolveIdentity(companyId, employeeId);
+  if (!identity) return undefined;
+  await migrateLegacyBrowserStorage(companyId, employeeId);
+  const file = employeeBrowserStateFile(companyId, employeeId);
   let raw: string;
   try {
     raw = await fs.readFile(file, "utf8");
@@ -79,13 +191,14 @@ export async function saveStorageState(
   context: unknown,
 ): Promise<void> {
   try {
-    const slugs = await resolveSlugs(companyId, employeeId);
-    if (!slugs) return;
+    const identity = await resolveIdentity(companyId, employeeId);
+    if (!identity) return;
+    await migrateLegacyBrowserStorage(companyId, employeeId);
     const cx = context as { storageState: () => Promise<StorageState> } | null;
     if (!cx) return;
     const state = await cx.storageState();
-    ensureDir(employeeDir(slugs.companySlug, slugs.employeeSlug));
-    const file = employeeBrowserStateFile(slugs.companySlug, slugs.employeeSlug);
+    const file = employeeBrowserStateFile(companyId, employeeId);
+    await ensurePrivateDirectory(path.dirname(file));
     const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
     await fs.writeFile(tmp, JSON.stringify(state), { encoding: "utf8", mode: 0o600 });
     await fs.rename(tmp, file);

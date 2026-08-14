@@ -19,6 +19,17 @@ async function fixture(): Promise<string> {
   );
   await writeFile(path.join(root, ".env.production"), "SECRET=environment-secret\n");
   await writeFile(path.join(root, "App", "vite.config.ts"), "export default {};\n");
+  await writeFile(
+    path.join(root, ".genosyn-help-manifest"),
+    [
+      "App/server/feature.ts",
+      "App/config.ts",
+      "App/vite.config.ts",
+      ".env.production",
+      "ROADMAP.md",
+      "",
+    ].join("\n"),
+  );
   return root;
 }
 
@@ -80,7 +91,7 @@ describe("Genosyn Help source tools", () => {
     for (const secretPath of ["App/config.ts", ".env.production", "App/server/linked.ts"]) {
       const read = await byName.get("read_genosyn_source")!.run({ path: secretPath });
       assert.equal(read.isError, true);
-      assert.match(read.content, /unavailable/);
+      assert.match(read.content, /unavailable|public release snapshot/);
     }
 
     const searched = await byName
@@ -93,7 +104,42 @@ describe("Genosyn Help source tools", () => {
       .get("search_genosyn_source")!
       .run({ query: "secret", path: "App/config.ts" });
     assert.equal(directSearch.isError, true);
-    assert.match(directSearch.content, /unavailable/);
+    assert.match(directSearch.content, /unavailable|public release snapshot/);
+  });
+
+  test("never exposes data, live config, manifest, or unlisted files", async () => {
+    const root = await fixture();
+    await mkdir(path.join(root, "App", "data", "nested"), { recursive: true });
+    await writeFile(path.join(root, "App", "data", ".instance-secrets.json"), "ROOT_SECRET");
+    await writeFile(path.join(root, "App", "data", "nested", "token.txt"), "NESTED_SECRET");
+    await writeFile(path.join(root, "App", "config.ts"), "encryptionSecret: 'CONFIG_SECRET'");
+    await writeFile(path.join(root, "App", "server", "private.ts"), "UNTRACKED_SECRET");
+
+    const source = createGenosynHelpSource(root);
+    const byName = new Map(source.tools.map((tool) => [tool.name, tool]));
+    const read = byName.get("read_genosyn_source")!;
+    for (const requested of [
+      "App/data/.instance-secrets.json",
+      "App/data/nested/token.txt",
+      "App/config.ts",
+      ".genosyn-help-manifest",
+      "App/server/private.ts",
+    ]) {
+      const result = await read.run({ path: requested });
+      assert.equal(result.isError, true, requested);
+      assert.doesNotMatch(
+        result.content,
+        /ROOT_SECRET|NESTED_SECRET|CONFIG_SECRET|UNTRACKED_SECRET/,
+      );
+    }
+
+    const listed = await byName.get("list_genosyn_source")!.run({ path: "App" });
+    assert.equal(listed.isError, undefined);
+    assert.doesNotMatch(listed.content, /(^|\n)(?:data\/|config\.ts|private\.ts)($|\n)/);
+
+    const search = await byName.get("search_genosyn_source")!.run({ query: "SECRET", path: "App" });
+    assert.equal(search.isError, undefined);
+    assert.equal(search.content, "(no matches)");
   });
 
   test("returns explicit errors when the release has no source snapshot", async () => {

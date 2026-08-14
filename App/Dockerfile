@@ -90,9 +90,12 @@ COPY --chown=node:node Home ./.genosyn-source/Home
 COPY --chown=node:node CLI ./.genosyn-source/CLI
 COPY --chown=node:node .github ./.genosyn-source/.github
 # `App/config.ts` may contain deployment secrets in source-built images. Help
-# has its own fail-closed path denylist as defense in depth, and the snapshot
-# does not carry the file at all.
+# does not belong in the Help snapshot. Help then reads only files named by an
+# immutable release manifest and applies a second fail-closed path denylist.
+# Source-managed development derives the equivalent allowlist from Git-tracked
+# files.
 RUN rm .genosyn-source/App/config.ts \
+    && find .genosyn-source -type f -print | sed 's#^\.genosyn-source/##' | sort > .genosyn-source/.genosyn-help-manifest \
     && mv .genosyn-source genosyn-source \
     && chmod -R a-w genosyn-source
 

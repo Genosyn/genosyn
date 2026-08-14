@@ -23,6 +23,7 @@ import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
 import { cancelPendingRetry } from "../services/runRecovery.js";
 import { recordAudit } from "../services/audit.js";
+import { revokeDisabledBrowserSessionsForEmployee } from "../services/browserAccess.js";
 import {
   deleteTagAssignments,
   replaceResourceTags,
@@ -339,6 +340,9 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
   // was already waiting on.
   if (body.cronExpr !== undefined || body.enabled !== undefined) registerRoutine(r);
   await AppDataSource.getRepository(Routine).save(r);
+  if (body.browserEnabledOverride !== undefined) {
+    await revokeDisabledBrowserSessionsForEmployee(r.employeeId);
+  }
   const tags =
     body.tagIds !== undefined
       ? await replaceResourceTags(found.co.id, "routine", r.id, body.tagIds)

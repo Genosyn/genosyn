@@ -118,7 +118,7 @@ export function decryptConnectionConfig(c: IntegrationConnection): IntegrationCo
     // fall through
   }
   throw new Error(
-    "Integration config is corrupted or was encrypted with a different sessionSecret.",
+    "Integration config is corrupted or was encrypted with a different encryption key.",
   );
 }
 

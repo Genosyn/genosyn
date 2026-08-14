@@ -8,8 +8,12 @@ import { config } from "../../config.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
-import { loadStorageState, saveStorageState } from "./browserStorage.js";
-import { employeeBrowserStateFile } from "./paths.js";
+import {
+  loadStorageState,
+  migrateLegacyBrowserStorage,
+  saveStorageState,
+} from "./browserStorage.js";
+import { employeeBrowserStateFile, employeeDir, legacyEmployeeBrowserStateFile } from "./paths.js";
 
 const originalDataDir = config.dataDir;
 const mutableConfig = config as unknown as { dataDir: string };
@@ -23,7 +27,10 @@ before(async () => {
 
 beforeEach(async () => {
   await resetTestDb();
-  await fs.rm(path.join(tempDir, "companies"), { recursive: true, force: true });
+  await Promise.all([
+    fs.rm(path.join(tempDir, "companies"), { recursive: true, force: true }),
+    fs.rm(path.join(tempDir, ".private"), { recursive: true, force: true }),
+  ]);
 });
 
 after(async () => {
@@ -32,10 +39,7 @@ after(async () => {
   await fs.rm(tempDir, { recursive: true, force: true });
 });
 
-async function identity(
-  companyId = "company",
-  employeeId = "employee",
-): Promise<void> {
+async function identity(companyId = "company", employeeId = "employee"): Promise<void> {
   await insert(Company, {
     id: companyId,
     name: "Test Company",
@@ -68,17 +72,19 @@ describe("browser storage-state persistence", () => {
     });
     assert.deepEqual(await loadStorageState("company", "employee"), state);
 
-    const file = employeeBrowserStateFile("company-slug", "employee-slug");
+    const file = employeeBrowserStateFile("company", "employee");
     const mode = (await fs.stat(file)).mode & 0o777;
     assert.equal(mode, 0o600);
+    assert.equal(file.startsWith(employeeDir("company-slug", "employee-slug")), false);
+    assert.equal((await fs.stat(path.dirname(file))).mode & 0o777, 0o700);
     const siblings = await fs.readdir(path.dirname(file));
-    assert.deepEqual(siblings, [".browser-state.json"]);
+    assert.deepEqual(siblings, ["employee.json"]);
   });
 
   test("returns undefined for missing, malformed, or structurally invalid snapshots", async () => {
     await identity();
     assert.equal(await loadStorageState("company", "employee"), undefined);
-    const file = employeeBrowserStateFile("company-slug", "employee-slug");
+    const file = employeeBrowserStateFile("company", "employee");
     await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, "{");
     assert.equal(await loadStorageState("company", "employee"), undefined);
@@ -127,6 +133,42 @@ describe("browser storage-state persistence", () => {
     });
     assert.equal(called, false);
     assert.equal(await loadStorageState("company-b", "employee-a"), undefined);
+  });
+
+  test("atomically migrates and removes every workspace-visible legacy artifact", async () => {
+    await identity();
+    const legacy = legacyEmployeeBrowserStateFile("company-slug", "employee-slug");
+    const state = { cookies: [{ name: "session", value: "legacy" }], origins: [] };
+    await fs.mkdir(path.dirname(legacy), { recursive: true });
+    await fs.writeFile(legacy, JSON.stringify(state), { mode: 0o600 });
+    await fs.writeFile(`${legacy}.torn.tmp`, "COOKIE_FRAGMENT", { mode: 0o600 });
+
+    await Promise.all([
+      migrateLegacyBrowserStorage("company", "employee"),
+      migrateLegacyBrowserStorage("company", "employee"),
+    ]);
+
+    assert.deepEqual(await loadStorageState("company", "employee"), state);
+    const remaining = await fs.readdir(path.dirname(legacy));
+    assert.equal(
+      remaining.some((name) => name.startsWith(".browser-state.json")),
+      false,
+    );
+    assert.equal(
+      (await fs.stat(employeeBrowserStateFile("company", "employee"))).mode & 0o777,
+      0o600,
+    );
+  });
+
+  test("fails closed instead of preserving a workspace hardlink to Browser cookies", async () => {
+    await identity();
+    const legacy = legacyEmployeeBrowserStateFile("company-slug", "employee-slug");
+    await fs.mkdir(path.dirname(legacy), { recursive: true });
+    await fs.writeFile(legacy, JSON.stringify({ cookies: [], origins: [] }), { mode: 0o600 });
+    await fs.link(legacy, path.join(path.dirname(legacy), "cookie-alias.txt"));
+
+    await assert.rejects(migrateLegacyBrowserStorage("company", "employee"), /unsafe hard link/);
+    await assert.rejects(fs.stat(employeeBrowserStateFile("company", "employee")), /ENOENT/);
   });
 
   test("swallows a torn-down context failure and leaves no partial file", async () => {

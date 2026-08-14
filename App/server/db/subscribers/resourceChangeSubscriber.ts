@@ -8,7 +8,11 @@ import type {
   ObjectLiteral,
 } from "typeorm";
 import { AppDataSource } from "../datasource.js";
-import { emitResourceChange, resourceEventsActive } from "../../services/resourceEvents.js";
+import {
+  emitMembershipAuthorizationChange,
+  emitResourceChange,
+  resourceEventsActive,
+} from "../../services/resourceEvents.js";
 
 /**
  * The one write choke-point behind app-wide live sync.
@@ -53,18 +57,38 @@ type Mapping = {
 const REGISTRY: Record<string, Mapping> = {
   // ── AI substrate ─────────────────────────────────────────────────────────
   AIEmployee: { kind: "employee", company: "direct" },
-  AIModel: { kind: "employee", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
+  AIModel: {
+    kind: "employee",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
   Skill: { kind: "skill", company: { fk: "employeeId", parent: "AIEmployee" } },
   Routine: { kind: "routine", company: { fk: "employeeId", parent: "AIEmployee" } },
   Run: { kind: "run", company: { fk: "routineId", parent: "Routine" }, scopeFk: "routineId" },
   Handoff: { kind: "handoff", company: "direct" },
-  JournalEntry: { kind: "journal", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
-  EmployeeMemory: { kind: "memory", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
-  McpServer: { kind: "mcpserver", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
+  JournalEntry: {
+    kind: "journal",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
+  EmployeeMemory: {
+    kind: "memory",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
+  McpServer: {
+    kind: "mcpserver",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
 
   // ── Tasks (Projects + Todos) ─────────────────────────────────────────────
   Project: { kind: "project", company: "direct" },
-  ProjectMember: { kind: "project", company: { fk: "projectId", parent: "Project" }, scopeFk: "projectId" },
+  ProjectMember: {
+    kind: "project",
+    company: { fk: "projectId", parent: "Project" },
+    scopeFk: "projectId",
+  },
   Todo: { kind: "todo", company: { fk: "projectId", parent: "Project" }, scopeFk: "projectId" },
   // No scopeFk on children: a comment's id granularity (todoId) differs from
   // what a board filters by (projectId), so it emits an empty scope that
@@ -80,7 +104,11 @@ const REGISTRY: Record<string, Mapping> = {
   BaseTable: { kind: "base", company: { fk: "baseId", parent: "Base" }, scopeFk: "baseId" },
   BaseField: { kind: "base", company: { fk: "tableId", parent: "BaseTable" }, scopeFk: "tableId" },
   BaseView: { kind: "base", company: { fk: "tableId", parent: "BaseTable" }, scopeFk: "tableId" },
-  BaseRecord: { kind: "baserecord", company: { fk: "tableId", parent: "BaseTable" }, scopeFk: "tableId" },
+  BaseRecord: {
+    kind: "baserecord",
+    company: { fk: "tableId", parent: "BaseTable" },
+    scopeFk: "tableId",
+  },
   // Children emit an empty scope (see TodoComment) so a record drawer's
   // comment/attachment write still reaches a grid filtered by tableId.
   BaseRecordComment: { kind: "baserecord", company: { fk: "recordId", parent: "BaseRecord" } },
@@ -96,14 +124,22 @@ const REGISTRY: Record<string, Mapping> = {
   // ── Explore (charts + dashboards) ────────────────────────────────────────
   Chart: { kind: "chart", company: "direct" },
   Dashboard: { kind: "dashboard", company: "direct" },
-  DashboardCard: { kind: "dashboard", company: { fk: "dashboardId", parent: "Dashboard" }, scopeFk: "dashboardId" },
+  DashboardCard: {
+    kind: "dashboard",
+    company: { fk: "dashboardId", parent: "Dashboard" },
+    scopeFk: "dashboardId",
+  },
 
   // ── Code repositories ────────────────────────────────────────────────────
   CodeRepository: { kind: "coderepo", company: "direct" },
 
   // ── Pipelines ────────────────────────────────────────────────────────────
   Pipeline: { kind: "pipeline", company: "direct" },
-  PipelineRun: { kind: "pipeline", company: { fk: "pipelineId", parent: "Pipeline" }, scopeFk: "pipelineId" },
+  PipelineRun: {
+    kind: "pipeline",
+    company: { fk: "pipelineId", parent: "Pipeline" },
+    scopeFk: "pipelineId",
+  },
 
   // ── Customers & contracts ────────────────────────────────────────────────
   Customer: { kind: "customer", company: "direct" },
@@ -156,7 +192,11 @@ const REGISTRY: Record<string, Mapping> = {
   Product: { kind: "product", company: "direct" },
   TaxRate: { kind: "taxrate", company: "direct" },
   Invoice: { kind: "invoice", company: "direct" },
-  InvoicePayment: { kind: "invoice", company: { fk: "invoiceId", parent: "Invoice" }, scopeFk: "invoiceId" },
+  InvoicePayment: {
+    kind: "invoice",
+    company: { fk: "invoiceId", parent: "Invoice" },
+    scopeFk: "invoiceId",
+  },
   RecurringInvoice: { kind: "recurringinvoice", company: "direct" },
   Estimate: { kind: "estimate", company: "direct" },
   Vendor: { kind: "vendor", company: "direct" },
@@ -177,6 +217,9 @@ const REGISTRY: Record<string, Mapping> = {
   // ── Integrations, settings, org ──────────────────────────────────────────
   IntegrationConnection: { kind: "connection", company: "direct" },
   Secret: { kind: "secret", company: "direct" },
+  VaultItem: { kind: "vault_item", company: "direct" },
+  VaultItemMemberAccess: { kind: "vault_member_access", company: "direct", scopeFk: "vaultItemId" },
+  EmployeeVaultGrant: { kind: "vault_employee_grant", company: "direct", scopeFk: "vaultItemId" },
   ApiKey: { kind: "apikey", company: "direct" },
   Tag: { kind: "tag", company: "direct" },
   Team: { kind: "team", company: "direct" },
@@ -187,15 +230,51 @@ const REGISTRY: Record<string, Mapping> = {
 
   // ── AI-access grants (the "AI access" panels) ────────────────────────────
   EmployeeFinanceGrant: { kind: "grant", company: "direct", scopeFk: "employeeId" },
-  EmployeeConnectionGrant: { kind: "grant", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
-  EmployeeResourceGrant: { kind: "grant", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
-  EmployeeBaseGrant: { kind: "grant", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
-  EmployeeCodeRepositoryGrant: { kind: "grant", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
-  EmployeeNoteGrant: { kind: "grant", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
-  EmployeeNotebookGrant: { kind: "grant", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
-  EmployeeChartGrant: { kind: "grant", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
-  EmployeeDashboardGrant: { kind: "grant", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
-  EmployeeMailAccountGrant: { kind: "grant", company: { fk: "employeeId", parent: "AIEmployee" }, scopeFk: "employeeId" },
+  EmployeeConnectionGrant: {
+    kind: "grant",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
+  EmployeeResourceGrant: {
+    kind: "grant",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
+  EmployeeBaseGrant: {
+    kind: "grant",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
+  EmployeeCodeRepositoryGrant: {
+    kind: "grant",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
+  EmployeeNoteGrant: {
+    kind: "grant",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
+  EmployeeNotebookGrant: {
+    kind: "grant",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
+  EmployeeChartGrant: {
+    kind: "grant",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
+  EmployeeDashboardGrant: {
+    kind: "grant",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
+  EmployeeMailAccountGrant: {
+    kind: "grant",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
 };
 
 /**
@@ -246,15 +325,27 @@ export class ResourceChangeSubscriber implements EntitySubscriberInterface {
   }
 
   afterUpdate(event: UpdateEvent<ObjectLiteral>): void {
-    this.handle(event.metadata.name, event.entity ?? event.databaseEntity);
+    this.handle(
+      event.metadata.name,
+      { ...(event.databaseEntity ?? {}), ...(event.entity ?? {}) },
+      event.metadata.name === "Membership",
+    );
   }
 
   afterRemove(event: RemoveEvent<ObjectLiteral>): void {
-    this.handle(event.metadata.name, event.databaseEntity ?? event.entity);
+    this.handle(
+      event.metadata.name,
+      event.databaseEntity ?? event.entity,
+      event.metadata.name === "Membership",
+    );
   }
 
   afterSoftRemove(event: SoftRemoveEvent<ObjectLiteral>): void {
-    this.handle(event.metadata.name, event.entity ?? event.databaseEntity);
+    this.handle(
+      event.metadata.name,
+      event.entity ?? event.databaseEntity,
+      event.metadata.name === "Membership",
+    );
   }
 
   afterRecover(event: RecoverEvent<ObjectLiteral>): void {
@@ -267,7 +358,15 @@ export class ResourceChangeSubscriber implements EntitySubscriberInterface {
    * resolve their company in the background so the originating save never waits
    * and a lookup failure can never throw back into TypeORM.
    */
-  private handle(entityName: string, entity: ObjectLiteral | undefined): void {
+  private handle(
+    entityName: string,
+    entity: ObjectLiteral | undefined,
+    membershipAuthorizationChanged = false,
+  ): void {
+    if (membershipAuthorizationChanged && entity) {
+      const companyId = str(entity.companyId);
+      if (companyId) emitMembershipAuthorizationChange(companyId);
+    }
     if (!resourceEventsActive()) return;
     const reg = REGISTRY[entityName];
     if (!reg || !entity) return;

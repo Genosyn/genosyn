@@ -176,7 +176,9 @@ genosyn/
   `MailLabel`, `MailRule`, `MailHandover`, `MailChatMessage`,
   `EmployeeMailAccountGrant`
 - **Backups:** `Backup`, `BackupSchedule`, `BackupDestination`
-- **Secrets:** `Secret`
+- **Environment secrets:** `Secret`
+- **Password Vault (M37):** `VaultItem`, `VaultItemMemberAccess`,
+  `EmployeeVaultGrant`
 - **Organization:** `Tag`, `TagAssignment` (company-scoped labels attached to
   taggable resources)
 - **Revenue (M32):** `Contact`, `DealStage`, `Deal`, `DealContact`, `Activity`,
@@ -806,9 +808,9 @@ sends system mail); this is the company's real inbox. Internal namespace is
 - [x] `services/repoSync.ts` materializes git checkouts under
       `<employeeDir>/repos/<owner>/<name>/` before each spawn; per-employee+
       connection mutex; fetch-only on existing checkouts (won't trample WIP)
-- [x] Per-connection git credential helper (`.git/genosyn-cred.sh`) reads
-      from `GENOSYN_GH_TOKEN_<connId>` env var the runner sets at spawn time
-      — token never lands on disk
+- [x] GitHub tokens stay inside short-lived server-owned clone/fetch
+      operations. Checkouts contain no reusable helper, token, or credentialed
+      push path, so model tools cannot export the Connection credential
 - [x] `create_pull_request` MCP tool on the github provider
 - [x] Settings → Integrations UI for GitHub repo allowlist editing
 - [x] Workspace tree shows materialized `repos/` subtree
@@ -822,7 +824,7 @@ Provider-agnostic cousin of M12. Where M12's repos ride on a GitHub
 **Connection** + allowlist, a **Code Repository** is a first-class
 company row pointed at _any_ git URL (GitHub, GitLab, Bitbucket,
 self-hosted) over HTTPS or SSH, with access handed out per-employee.
-"Add any repo; let the employees you choose commit and push."
+"Add any repo; let the employees you choose work in a real checkout."
 
 - [x] `CodeRepository` entity — companyId, name, slug, gitUrl,
       defaultBranch, authMode (`none` | `https` | `ssh`), httpsUsername,
@@ -830,33 +832,32 @@ self-hosted) over HTTPS or SSH, with access handed out per-employee.
       committer identity, last-sync health. Credentials never returned to
       the client in plaintext.
 - [x] `EmployeeCodeRepositoryGrant` — employee → repo with `read` < `write`
-      (write = commit + push). Default `write`; sharing is fully opt-in
-      (no auto-grant-to-all).
+      (write records delivery authority; both levels keep credentials out of
+      the model shell). Default `write`; sharing is fully opt-in.
 - [x] `services/codeRepos.ts` — `materializeCodeReposForEmployee` clones
       each granted repo into `<employeeDir>/code-repos/<slug>/` before every
       chat / routine spawn; per-(employee × repo) mutex; fetch-only on
-      existing checkouts. HTTPS token rides a per-repo env var +
-      credential-helper (never on disk); SSH key written 0600 + pinned via
-      `core.sshCommand`. Read-only grants get the push URL disabled.
+      existing checkouts. HTTPS tokens and SSH keys exist only in a
+      short-lived server-owned Git workspace; no reusable credential, private
+      key, or credentialed push path enters the employee checkout.
       HTTPS GitHub repos without a separately stored token reuse the same
       employee's granted GitHub Connection: exact owner/repo allowlist match
       first, or the employee's sole GitHub Connection when unambiguous. The
-      turn-scoped PAT is available to both materializer fetches and the
-      employee's ordinary git push commands.
+      PAT is available only to the server materializer.
       `testCodeRepoConnection` probes creds via `git ls-remote --symref`.
 - [x] HTTP routes under `/api/companies/:cid/code-repositories`: CRUD,
       `/test`, grant CRUD + candidates. zod-validated.
-- [x] Prompt context — granted repos + their checkout paths + push rights
-      injected into the chat / routine prompt; `list_code_repositories` MCP
+- [x] Prompt context — granted repos + their checkout paths and local delivery
+      policy injected into the chat / routine prompt; `list_code_repositories` MCP
       tool on the built-in `genosyn` server.
 - [x] React UI under `/c/<co>/code`: index (list + add modal), detail
       split into sidebar-addressable Overview, AI access, and Settings pages
       (connection health, per-employee PR readiness, credentials, delete).
       New "Code" section under an Engineering group in the app shell.
 - [x] Code-delivery guidance — repository context tells employees to branch,
-      edit, test, commit, push, then call the granted GitHub
-      `create_pull_request` tool; the UI shows which write-granted employees
-      have that tool through a connected GitHub Connection.
+      edit, test, and commit locally, then report the branch and commit for a
+      governed server-side or Member publish step. Connection credentials are
+      never made available to model-controlled Git.
 - [ ] Worktree-per-routine isolation (shared with M12; deferred)
 - [ ] Browse the checkout in a web file tree (deferred — agents use it on
       disk today)
@@ -1690,6 +1691,67 @@ Employee workflow in one company-scoped system.
       multi-signer field ownership obvious with recipient-specific colors and
       names, support direct pointer, touch and keyboard field resizing, and send
       clear company-branded invitation, reminder and completion emails.
+
+### M37 — AI-native Vault ✅
+
+Treat credentials as governed company resources, not prompt text. The Password
+Vault is deliberately separate from the existing `Secret` environment-variable
+store: Members use Vault items explicitly, while AI Employees receive
+item-level Grants and pass plaintext only across narrow server-side action
+boundaries.
+
+- [x] **Dedicated Vault data model.** `VaultItem` stores a company-scoped
+      login, API key, or secure note with `company | restricted` visibility and
+      human/AI creator attribution. Title, username, secret, website URL, and
+      private notes live together in one scoped AES-256-GCM payload rather than
+      plaintext metadata columns. `Secret` remains the separate environment
+      Secrets entity used by coding tools and Pipelines.
+- [x] **Member password manager.** A first-class responsive `/vault` surface
+      supports search and type filters, strong-password generation, create,
+      inspect, edit/rotate and delete flows, plus explicit reveal and copy.
+      Editing never loads the existing secret into the form.
+- [x] **Human item access.** `VaultItemMemberAccess` adds `view < edit` to
+      restricted items. Company-visible items are viewable by all Members;
+      restricted items are undiscoverable without access. The creator and
+      company owners/admins manage visibility, sharing and deletion.
+- [x] **Default-deny AI Grants.** `EmployeeVaultGrant` adds item-level
+      `use < manage`. Company visibility never implies AI access, safe
+      discovery returns only granted metadata, and every sensitive use
+      re-checks the live Grant so revocation fails closed. Manage permits safe
+      login-metadata maintenance while preserving the saved website origin;
+      it never permits website rebinding, plaintext read, password rotation or
+      deletion.
+- [x] **Server-side browser use.** `list_vault_items` returns no password,
+      API-key value, or secure-note body. `browser_fill_vault` resolves one
+      granted username or Login password inside the App and fills App-owned
+      Chromium only when both the top page and target frame match the saved
+      website origin exactly (scheme, host and port). A stored password can go
+      only into an input with `type=password`; API-key and secure-note values
+      have no Browser-fill sink. Browser enablement and the host allow list are
+      intersected with the Vault checks, so a Grant cannot widen Browser policy.
+      Password-input values are redacted from model snapshots, and screenshots
+      are refused after the session observes or fills a password;
+      plaintext never enters model output, Run transcripts, audit detail, or
+      logs. Host-mode AI Employees receive only path-confined file/search tools;
+      unrestricted `bash` is available only behind the bubblewrap boundary, so
+      a zero-Grant employee cannot bypass Vault policy through the App filesystem
+      or sibling process tokens.
+- [x] **AI-native login creation and capture.** `create_vault_login` generates
+      and encrypts a strong password server-side in a company-visible item.
+      `browser_save_vault_login` requests mandatory company-owner/admin approval
+      before capturing a same-origin password input into a restricted item bound
+      to the exact current origin. Both paths return no secret and atomically
+      give the creating AI Employee a `manage` Grant; every other AI Employee
+      remains denied, and a captured restricted item stays hidden from ordinary
+      Members until its human access is changed.
+- [x] **Audit, docs and tests.** Human reveal and copy are separate audit
+      events with no secret content; item, sharing, Grant and AI-use mutations
+      retain actor evidence. Dedicated `/docs/vault` guidance distinguishes
+      Password Vault items from environment Secrets and documents Browser
+      autofill/capture. Automated service, route, tool-policy and browser
+      coverage exercises tenancy, access levels, revocation, encryption,
+      exact-origin/frame binding, password-only sinks, approval, redaction and
+      plaintext non-disclosure.
 
 ### M33 — AI-native accounting
 

@@ -38,6 +38,7 @@ import { mcpRouter } from "./routes/mcp.js";
 import { mcpConnectRouter } from "./routes/mcpConnect.js";
 import { mcpInternalRouter } from "./routes/mcpInternal.js";
 import { secretsRouter } from "./routes/secrets.js";
+import { vaultRouter } from "./routes/vault.js";
 import { auditRouter } from "./routes/audit.js";
 import { usageRouter } from "./routes/usage.js";
 import { templatesRouter } from "./routes/templates.js";
@@ -91,13 +92,20 @@ import { installOutboundNetworkPolicy } from "./services/outboundNetworkPolicy.j
 import { bootPublicUrl } from "./services/publicUrl.js";
 import { bootDurableChatTurnRecovery } from "./services/durableChatTurns.js";
 import { bootSignatureExpirySweeper } from "./services/signing.js";
+import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
+import { bindInstanceSecretsToDatabase } from "./services/instanceSecretsDatabase.js";
+import { rejectAiBrowserAppRequests } from "./services/browserRequestBoundary.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
+  // Resolve or create durable self-host secrets before migrations, timers or
+  // any other subsystem can observe placeholder credentials.
+  getEffectiveInstanceSecrets();
   installOutboundNetworkPolicy();
   await initDb();
+  await bindInstanceSecretsToDatabase();
   await bootPublicUrl();
   validateRuntimeSecurity();
   await validateRuntimeDependencies();
@@ -159,21 +167,37 @@ async function main() {
   // email clients that omit Origin can view, consent, complete, or decline.
   app.use("/api/sign", publicSignaturesRouter);
 
-  const sessionMiddleware = cookieSession({
-    name: "genosyn.sid",
-    secret: config.sessionSecret,
-    maxAge: 1000 * 60 * 60 * 24 * config.security.sessionMaxAgeDays,
-    httpOnly: true,
-    sameSite: "lax",
-  });
+  let sessionMiddleware: ReturnType<typeof cookieSession> | null = null;
+  let sessionMiddlewareSecret = "";
+  const currentSessionMiddleware = () => {
+    const secret = getEffectiveInstanceSecrets().sessionSecret;
+    if (!sessionMiddleware || sessionMiddlewareSecret !== secret) {
+      sessionMiddlewareSecret = secret;
+      sessionMiddleware = cookieSession({
+        name: "genosyn.sid",
+        secret,
+        maxAge: 1000 * 60 * 60 * 24 * config.security.sessionMaxAgeDays,
+        httpOnly: true,
+        sameSite: "lax",
+      });
+    }
+    return sessionMiddleware;
+  };
   app.use((req, res, next) => {
-    sessionMiddleware(req, res, () => {
+    currentSessionMiddleware()(req, res, () => {
       // `cookie-session` reads this again when it writes the response. Resolve
       // it per request so saving an HTTPS public URL takes effect immediately.
       req.sessionOptions.secure = secureSessionCookies();
       next();
     });
   });
+
+  // A human may temporarily sign into Genosyn inside an AI Employee's
+  // persistent Browser. Once that context carries the Member session cookie,
+  // browserChromium adds this marker after page code chooses its headers.
+  // Reject every App API centrally so the session cannot mint API keys,
+  // change roles, or route around item-level Vault Grants.
+  app.use("/api", rejectAiBrowserAppRequests);
 
   // Public webhooks (token in URL is the credential). Mounted before auth
   // so session-less POSTs from external systems aren't gated.
@@ -263,6 +287,7 @@ async function main() {
   app.use("/api/companies/:cid", basesRouter);
   app.use("/api/companies/:cid", approvalsRouter);
   app.use("/api/companies/:cid", secretsRouter);
+  app.use("/api/companies/:cid/vault", vaultRouter);
   app.use("/api/companies/:cid", auditRouter);
   app.use("/api/companies/:cid", usageRouter);
   // Per-user programmatic API keys (M14). Bearer tokens minted here

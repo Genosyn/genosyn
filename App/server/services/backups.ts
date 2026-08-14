@@ -19,10 +19,15 @@ import {
   DeliveryResult,
 } from "./backupDestinations.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
+import { bootDurableChatTurnRecovery, stopDurableChatTurnRecovery } from "./durableChatTurns.js";
 import {
-  bootDurableChatTurnRecovery,
-  stopDurableChatTurnRecovery,
-} from "./durableChatTurns.js";
+  INSTANCE_SECRETS_FILENAME,
+  INSTANCE_SECRETS_SENTINEL_FILENAME,
+  reloadEffectiveInstanceSecrets,
+  restoreManagedInstanceSecretsIfMissing,
+  snapshotManagedInstanceSecrets,
+} from "../lib/instanceSecrets.js";
+import { bindInstanceSecretsToDatabase } from "./instanceSecretsDatabase.js";
 
 /**
  * Install-wide backup service. Each backup zips `<dataDir>` (excluding the
@@ -100,6 +105,7 @@ export function backupFilePath(filename: string): string {
 
 function ensureBackupDir(): void {
   fs.mkdirSync(backupDir(), { recursive: true });
+  fs.chmodSync(backupDir(), 0o700);
 }
 
 /**
@@ -579,7 +585,7 @@ async function snapshotSqlite(dest: string): Promise<void> {
 function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void> {
   return new Promise((resolve, reject) => {
     const partPath = `${outPath}${PART_SUFFIX}`;
-    const output = createWriteStream(partPath);
+    const output = createWriteStream(partPath, { mode: 0o600 });
     const archive = new ZipArchive({ zlib: { level: 9 } });
 
     let failed = false;
@@ -594,6 +600,7 @@ function writeZip(outPath: string, sqliteSnapshot: string | null): Promise<void>
       if (failed) return;
       try {
         fs.renameSync(partPath, outPath);
+        fs.chmodSync(outPath, 0o600);
       } catch (err) {
         fail(err as Error);
         return;
@@ -746,7 +753,7 @@ export async function ingestUploadedArchive(req: IncomingMessage): Promise<Backu
       }
     });
 
-    await pipeline(req, createWriteStream(partPath));
+    await pipeline(req, createWriteStream(partPath, { mode: 0o600 }));
 
     // Open the archive rather than peeking at its `PK\x03\x04` header: a
     // signature check passes a file that was cut off in transit, and the
@@ -758,6 +765,7 @@ export async function ingestUploadedArchive(req: IncomingMessage): Promise<Backu
     }
 
     fs.renameSync(partPath, outPath);
+    fs.chmodSync(outPath, 0o600);
     const size = fs.statSync(outPath).size;
     row.sizeBytes = size;
     row.status = "completed";
@@ -828,6 +836,10 @@ export async function restoreFromBackup(id: string): Promise<{
     // shows up in History — tagged `manual` because the user initiated the
     // restore that triggered it.
     const safety = await runBackup("manual");
+    // `wipeDataExceptBackup` removes the managed identity too. Hold it only in
+    // memory so a pre-managed archive cannot silently rotate the encryption
+    // root; an archive that contains its own identity still wins below.
+    const instanceSecretsSnapshot = snapshotManagedInstanceSecrets();
 
     if (scheduledTask) {
       scheduledTask.stop();
@@ -859,9 +871,20 @@ export async function restoreFromBackup(id: string): Promise<{
 
     wipeDataExceptBackup();
     await extractZipIntoDataRoot(zipPath);
+    restoreManagedInstanceSecretsIfMissing(instanceSecretsSnapshot, {
+      // An archive without managed state predates this feature (or omitted its
+      // hidden files). Keep the current identity, but retain decrypt-only
+      // access to ciphertext written under the former stock placeholders.
+      enablePlaceholderCompatibility: true,
+    });
+    // Every secret consumer resolves dynamically. Reload before opening the
+    // restored DB so cross-instance archives use their own encryption root;
+    // the next browser request also rebuilds cookie-session with its signer.
+    reloadEffectiveInstanceSecrets();
 
     await AppDataSource.initialize();
     await AppDataSource.runMigrations();
+    await bindInstanceSecretsToDatabase();
 
     // After the restored DB comes back online it has no row for the safety
     // snapshot (or any other archive written since the restored zip was
@@ -915,6 +938,7 @@ async function reconcileBackupHistory(): Promise<void> {
   // may still hold a truncated `.zip` under a real filename — the salvage loop
   // below leaves those `running` rather than promoting them.)
   for (const entry of fs.readdirSync(dir)) {
+    if (entry.endsWith(".zip")) fs.chmodSync(path.join(dir, entry), 0o600);
     if (!entry.endsWith(PART_SUFFIX)) continue;
     try {
       fs.unlinkSync(path.join(dir, entry));
@@ -994,7 +1018,13 @@ async function extractZipIntoDataRoot(zipPath: string): Promise<void> {
       throw new Error(`Refusing to extract outside data root: ${entry.path}`);
     }
     fs.mkdirSync(path.dirname(abs), { recursive: true });
-    await pipeline(entry.stream(), createWriteStream(abs));
+    const managedSecretState =
+      rel === INSTANCE_SECRETS_FILENAME || rel === INSTANCE_SECRETS_SENTINEL_FILENAME;
+    await pipeline(
+      entry.stream(),
+      createWriteStream(abs, managedSecretState ? { mode: 0o600 } : undefined),
+    );
+    if (managedSecretState) fs.chmodSync(abs, 0o600);
   }
 }
 

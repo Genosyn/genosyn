@@ -26,6 +26,7 @@ import { Sequences } from "@/docs/pages/Sequences";
 import { Signals } from "@/docs/pages/Signals";
 import { Deliverability } from "@/docs/pages/Deliverability";
 import { WorkspaceChat } from "@/docs/pages/WorkspaceChat";
+import { Vault } from "@/docs/pages/Vault";
 import { Email } from "@/docs/pages/Email";
 import { Tasks } from "@/docs/pages/Tasks";
 import { Pipelines } from "@/docs/pages/Pipelines";
@@ -67,6 +68,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/signals": Signals,
   "/docs/deliverability": Deliverability,
   "/docs/workspace-chat": WorkspaceChat,
+  "/docs/vault": Vault,
   "/docs/email": Email,
   "/docs/tasks": Tasks,
   "/docs/pipelines": Pipelines,

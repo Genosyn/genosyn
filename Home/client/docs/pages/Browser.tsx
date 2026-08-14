@@ -21,6 +21,12 @@ export function Browser() {
         hosted profile disables it. It remains available for single-tenant self-hosting. A hosted
         browser needs a separately isolated worker before operators should enable it.
       </Callout>
+      <Callout kind="info" title="Genosyn Member sessions are isolated from AI Browser authority">
+        If App-owned Chromium holds a Member&apos;s Genosyn session, every Genosyn App API request
+        from that browser is refused. The session cannot mint API keys, change company roles, or
+        become a shortcut around Vault access. Use the AI Employee&apos;s Grants and governed tools
+        instead.
+      </Callout>
 
       <H2 id="enabling">Enabling it</H2>
       <P>
@@ -54,6 +60,10 @@ export function Browser() {
           },
           { term: "browser_fill", def: "Type into an input or textarea, replacing its contents." },
           {
+            term: "browser_fill_vault",
+            def: "Fill a username or Login password from an explicitly granted Vault item. Passwords go only into password inputs, and the App never returns plaintext to the model.",
+          },
+          {
             term: "browser_select",
             def: "Choose an option in a native dropdown by value or visible label.",
           },
@@ -75,8 +85,12 @@ export function Browser() {
             def: "Wait for a selector to appear (up to 15s) or pause a fixed time, instead of polling with snapshots.",
           },
           {
+            term: "browser_save_vault_login",
+            def: "Request owner/admin approval to capture a same-origin password input into a new restricted Vault login without reading it back through the model.",
+          },
+          {
             term: "browser_screenshot",
-            def: "A JPEG of the viewport, for when layout or imagery matters.",
+            def: "A JPEG of the viewport when layout matters. It is unavailable after the session has observed or filled a password; use the redacted snapshot then.",
           },
           {
             term: "browser_submit",
@@ -84,7 +98,7 @@ export function Browser() {
           },
           {
             term: "browser_resume",
-            def: "Re-fire an approved submit — in the same turn or any later one.",
+            def: "Run an approved submit or restricted Vault capture in its original Browser session and page.",
           },
           {
             term: "browser_close",
@@ -108,6 +122,12 @@ export function Browser() {
         popup tab that was adopted, a selector that matched more than one element — are surfaced as{" "}
         <Code>NOTE:</Code> lines at the top of the next snapshot.
       </P>
+      <P>
+        Password-input values are removed from snapshots before they reach the model, including
+        password fields inside frames. Once a password has been observed or filled in the session,
+        <Code>browser_screenshot</Code> refuses to create a model-visible image; the structural
+        snapshot remains available with the password redacted.
+      </P>
 
       <H2 id="allow-list">The allow list</H2>
       <P>
@@ -129,8 +149,37 @@ export function Browser() {
         </LI>
       </UL>
       <P>
-        The list is enforced server-side on every <Code>browser_open</Code>, so edits apply
-        immediately — no restart needed.
+        The list is enforced server-side on <Code>browser_open</Code> and intersected with Vault
+        autofill and capture checks on the live top page and target frame. Edits apply immediately —
+        no restart needed — and a Vault Grant never widens this Browser policy.
+      </P>
+
+      <H2 id="vault">Vault autofill and capture</H2>
+      <P>
+        A granted <DocLink to="/docs/vault">Vault</DocLink> login removes the need to paste a
+        password into Chat or type it during take-over. The employee first calls{" "}
+        <Code>list_vault_items</Code> for safe metadata, opens the saved website, then calls{" "}
+        <Code>browser_fill_vault</Code> for the username or password field. The App resolves the
+        current item-level Grant and types the value directly into Chromium. The tool result only
+        confirms that the field was filled.
+      </P>
+      <P>
+        Autofill is bound to the login&apos;s exact saved origin: scheme, host, and port must match
+        on both the top page and target frame. The stored password is accepted only from a Login
+        item and only into an input with <Code>type=password</Code>; API keys and secure-note bodies
+        are not Browser-fill sinks. A missing or revoked Grant fails closed. Browser access and the
+        host allow list still apply independently, so a Vault Grant cannot turn the Browser on or
+        widen where it may navigate.
+      </P>
+      <P>
+        For signup and password-generation flows, <Code>browser_save_vault_login</Code> captures the
+        current value of a same-origin password input only after a company owner or admin approves
+        the request. This approval is mandatory even when ordinary form-submit approval is off. The
+        result is a restricted Vault item bound to the current origin, with a Manage Grant for the
+        employee; other Members do not see it until an owner or admin changes its access. The
+        password is neither read back nor included in model output. An employee can instead use{" "}
+        <Code>create_vault_login</Code> to have Genosyn generate and encrypt a company-visible
+        password before filling it into the page.
       </P>
 
       <H2 id="approvals">Approval-gated submits</H2>
@@ -156,9 +205,10 @@ export function Browser() {
       <P>
         While the employee browses, the chat panel shows the page live. Click{" "}
         <Strong>Take over</Strong> to drive it yourself — your mouse and keyboard go straight to the
-        same Chromium. That is the intended flow for credentials, captchas, and 2FA: the employee
-        navigates to the login page, you type the secret, the employee carries on. The browser is
-        never torn down while someone is watching.
+        same Chromium. Use Vault autofill for a granted stored credential; take-over remains the
+        fallback for a credential not in the Vault and the intended flow for captchas and 2FA. The
+        employee navigates to the right page, you complete the human-only step, and the employee
+        carries on. The browser is never torn down while someone is watching.
       </P>
 
       <H2 id="persistence">What persists</H2>

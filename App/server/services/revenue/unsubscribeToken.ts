@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
-import { config } from "../../../config.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
+import { getEffectiveInstanceSecrets, isStrongInstanceSecret } from "../../lib/instanceSecrets.js";
 
 /**
  * Signed unsubscribe links.
@@ -65,10 +65,7 @@ export function deriveUnsubscribeSecret(encryptionSecret: string): string {
  * Throws on an unusable address: a link we cannot resolve back to a mailbox is
  * worse than no link, because the recipient clicks it and nothing happens.
  */
-export function signUnsubscribeToken(
-  payload: UnsubscribePayload,
-  secret: string,
-): string {
+export function signUnsubscribeToken(payload: UnsubscribePayload, secret: string): string {
   const email = normalizeEmail(payload.email);
   if (!email) throw new Error("signUnsubscribeToken: unusable email address");
   if (!payload.companyId) throw new Error("signUnsubscribeToken: companyId required");
@@ -175,5 +172,12 @@ export function unsubscribeUrl(publicUrl: string, token: string): string {
  * would then have to reset.
  */
 export function unsubscribeSecret(): string {
-  return deriveUnsubscribeSecret(config.security.encryptionSecret);
+  return deriveUnsubscribeSecret(getEffectiveInstanceSecrets().encryptionSecret);
+}
+
+/** Current signing key plus every read-only encryption-key fallback. */
+export function unsubscribeSecrets(): readonly string[] {
+  return getEffectiveInstanceSecrets()
+    .encryptionDecryptionSecrets.filter(isStrongInstanceSecret)
+    .map(deriveUnsubscribeSecret);
 }

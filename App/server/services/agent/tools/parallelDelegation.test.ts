@@ -72,6 +72,8 @@ test("chat and Routine briefings promise only tools the runtime offers", () => {
   }
   assert.match(toolsBriefing("routine", true), /explicitly asks to use subagents/);
   assert.doesNotMatch(toolsBriefing("chat", false, false), /`bash`/);
+  assert.doesNotMatch(toolsBriefing("chat", false, true, false), /`bash`/);
+  assert.match(toolsBriefing("chat", false, true, false), /`read_file`/);
   assert.match(toolsBriefing("chat", false, true, true), /isolated `bash`/);
   assert.doesNotMatch(toolsBriefing("chat", false, true, true), /`read_file`/);
   assert.match(toolsBriefing("chat", false, true, true), /bubblewrap deployment/);

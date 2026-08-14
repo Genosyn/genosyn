@@ -1,14 +1,7 @@
 import nodemailer, { Transporter } from "nodemailer";
 import { AppDataSource } from "../db/datasource.js";
-import {
-  EmailLog,
-  EmailLogPurpose,
-  EmailLogTransport,
-} from "../db/entities/EmailLog.js";
-import {
-  EmailProvider,
-  EmailProviderKind,
-} from "../db/entities/EmailProvider.js";
+import { EmailLog, EmailLogPurpose, EmailLogTransport } from "../db/entities/EmailLog.js";
+import { EmailProvider, EmailProviderKind } from "../db/entities/EmailProvider.js";
 import { decryptSecret } from "../lib/secret.js";
 import {
   EmailAttachment,
@@ -106,16 +99,12 @@ export type SendEmailResult = {
   logId: string;
 };
 
-export async function sendEmail(
-  opts: SendEmailOptions,
-): Promise<SendEmailResult> {
+export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult> {
   const purpose: EmailLogPurpose = opts.purpose ?? "other";
   const triggeredByUserId = opts.triggeredByUserId ?? null;
   const bodyPreview = opts.bodyPreview ?? opts.text;
 
-  const provider = opts.companyId
-    ? await loadDefaultProvider(opts.companyId)
-    : null;
+  const provider = opts.companyId ? await loadDefaultProvider(opts.companyId) : null;
 
   if (provider) {
     const cfg = decryptProviderConfig(provider);
@@ -446,9 +435,7 @@ export async function sendTestEmail(args: {
   }
 }
 
-async function loadDefaultProvider(
-  companyId: string,
-): Promise<EmailProvider | null> {
+async function loadDefaultProvider(companyId: string): Promise<EmailProvider | null> {
   const repo = AppDataSource.getRepository(EmailProvider);
   const row = await repo.findOne({
     where: { companyId, isDefault: true, enabled: true },
@@ -456,25 +443,20 @@ async function loadDefaultProvider(
   return row ?? null;
 }
 
-export function decryptProviderConfig(
-  provider: EmailProvider,
-): EmailProviderConfig {
+export function decryptProviderConfig(provider: EmailProvider): EmailProviderConfig {
   const raw = decryptSecret(provider.encryptedConfig);
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
     throw new Error(
-      "Email provider config is corrupted or was encrypted with a different sessionSecret.",
+      "Email provider config is corrupted or was encrypted with a different encryption key.",
     );
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("Email provider config has an unexpected shape.");
   }
-  return validateProviderConfig(
-    provider.kind,
-    parsed as Record<string, unknown>,
-  );
+  return validateProviderConfig(provider.kind, parsed as Record<string, unknown>);
 }
 
 async function writeLog(args: {

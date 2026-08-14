@@ -76,7 +76,7 @@ export async function gatherEmployeeTools(params: {
   cwd: string;
   /** Runtime-local tools (for example bounded parallel delegation). */
   localTools?: AgentTool[];
-  /** Env for the bash tool (company secrets + materialized repo vars). */
+  /** Explicit env for the coding runtime (for example Environment secrets). */
   toolEnv: Record<string, string>;
   bashTimeoutMs: number;
   /** Model-facing names a Skill's declared toolset asked to keep resident. */
@@ -336,7 +336,12 @@ export function filterCodingToolsForCredentialIsolation(
   // fail-closed branch even though the install-level availability gate rejects
   // the turn before the Codex credential is materialized.
   if (required) return [];
-  return tools;
+  // A host shell runs as the App's own OS user. A working-directory setting is
+  // not a filesystem boundary: it can read the database, managed encryption
+  // roots, or another Browser child's bearer token through /proc. Keep host
+  // mode useful through the path-confined file/search tools, but never expose
+  // an unrestricted same-UID shell to an AI Employee.
+  return tools.filter((tool) => tool.name !== "bash");
 }
 
 /**

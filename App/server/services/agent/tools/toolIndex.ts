@@ -126,6 +126,12 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "delete_resource",
     ],
   },
+  vault: {
+    label: "Vault",
+    blurb:
+      "Use explicitly granted logins without putting stored passwords in model context; create generated logins safely.",
+    tools: ["list_vault_items", "create_vault_login", "update_vault_login"],
+  },
   signing: {
     label: "document signing",
     blurb:
@@ -930,6 +936,24 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   create_resource: ["knowledge", "library", "ingest", "upload"],
   update_resource: ["knowledge", "library"],
   delete_resource: ["knowledge", "library"],
+
+  // Vault — password-manager and credential language should converge on the
+  // product surface without teaching the model to request plaintext.
+  list_vault_items: [
+    "password manager",
+    "credentials",
+    "login",
+    "sign in",
+    "api key",
+    "secure note",
+  ],
+  create_vault_login: [
+    "generate password",
+    "save login",
+    "new credentials",
+    "create account password",
+  ],
+  update_vault_login: ["rename login", "change username", "update login context"],
 
   // Signing — operators will usually say contract, agreement, e-signature,
   // or the incumbent product name rather than "signature envelope".

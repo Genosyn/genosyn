@@ -1,6 +1,7 @@
 import { AppDataSource } from "../db/datasource.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { closeBrowserSession } from "./browserSessions.js";
+import { markAiBrowserSessionRequestHeaders } from "./browserRequestBoundary.js";
 import { loadStorageState, saveStorageState } from "./browserStorage.js";
 
 /**
@@ -93,11 +94,15 @@ type SessionRuntime = {
 const runtimes = new Map<string, SessionRuntime>();
 let playwrightModule: { chromium: { launch: (opts: unknown) => Promise<unknown> } } | null = null;
 
-async function getPlaywright(): Promise<typeof playwrightModule extends infer T ? NonNullable<T> : never> {
+async function getPlaywright(): Promise<
+  typeof playwrightModule extends infer T ? NonNullable<T> : never
+> {
   if (!playwrightModule) {
     try {
       const mod = await import("playwright-core");
-      playwrightModule = { chromium: mod.chromium as unknown as { launch: (opts: unknown) => Promise<unknown> } };
+      playwrightModule = {
+        chromium: mod.chromium as unknown as { launch: (opts: unknown) => Promise<unknown> },
+      };
     } catch (err) {
       throw new Error(
         `playwright-core is not installed: ${
@@ -163,13 +168,19 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
       "--disable-blink-features=AutomationControlled",
     ],
   });
-  const context = await (browser as {
-    newContext: (opts: unknown) => Promise<unknown>;
-  }).newContext({
+  const context = await (
+    browser as {
+      newContext: (opts: unknown) => Promise<unknown>;
+    }
+  ).newContext({
     viewport: { width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT },
     userAgent: CHROME_USER_AGENT,
     locale: "en-US",
     timezoneId: "America/Los_Angeles",
+    // Context routing is the security boundary that marks a Member session
+    // used inside App-owned Chromium. Service workers can bypass Playwright
+    // routes, so they are disabled in this governed Browser context.
+    serviceWorkers: "block",
     extraHTTPHeaders: {
       "sec-ch-ua": CHROME_SEC_CH_UA,
       "sec-ch-ua-mobile": "?0",
@@ -177,9 +188,25 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
     },
     storageState,
   });
-  await (context as {
-    addInitScript: (script: { content: string }) => Promise<void>;
-  }).addInitScript({ content: chromeMaskInitScript() });
+  await (
+    context as {
+      route: (
+        url: string,
+        handler: (route: {
+          request: () => { allHeaders: () => Promise<Record<string, string>> };
+          continue: (options: { headers: Record<string, string> }) => Promise<void>;
+        }) => Promise<void>,
+      ) => Promise<void>;
+    }
+  ).route("**/*", async (route) => {
+    const headers = await route.request().allHeaders();
+    await route.continue({ headers: markAiBrowserSessionRequestHeaders(headers) });
+  });
+  await (
+    context as {
+      addInitScript: (script: { content: string }) => Promise<void>;
+    }
+  ).addInitScript({ content: chromeMaskInitScript() });
   const page = await (context as { newPage: () => Promise<unknown> }).newPage();
   const cdp = await attachCdp(page);
 
@@ -208,23 +235,20 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
   // tools would otherwise never see — it would keep driving the old tab
   // forever. Follow the newest page instead, like a human would. The action
   // that triggered the popup waits on `pendingAdoption` before snapshotting.
-  (context as { on: (ev: string, cb: (p: unknown) => void) => void }).on(
-    "page",
-    (newPage) => {
-      const r = runtimes.get(sessionId);
-      if (!r) return;
-      const prev = r.pendingAdoption ?? Promise.resolve();
-      r.pendingAdoption = prev
-        .then(() => adoptPage(sessionId, newPage))
-        .catch(() => {
-          // best-effort — worst case the agent stays on the old tab
-        })
-        .finally(() => {
-          const cur = runtimes.get(sessionId);
-          if (cur && cur.pendingAdoption === r.pendingAdoption) cur.pendingAdoption = null;
-        });
-    },
-  );
+  (context as { on: (ev: string, cb: (p: unknown) => void) => void }).on("page", (newPage) => {
+    const r = runtimes.get(sessionId);
+    if (!r) return;
+    const prev = r.pendingAdoption ?? Promise.resolve();
+    r.pendingAdoption = prev
+      .then(() => adoptPage(sessionId, newPage))
+      .catch(() => {
+        // best-effort — worst case the agent stays on the old tab
+      })
+      .finally(() => {
+        const cur = runtimes.get(sessionId);
+        if (cur && cur.pendingAdoption === r.pendingAdoption) cur.pendingAdoption = null;
+      });
+  });
 
   return page;
 }
@@ -325,9 +349,7 @@ async function adoptPage(sessionId: string, newPage: unknown): Promise<void> {
   pushSessionNotice(
     sessionId,
     `A new tab opened and is now the active page: ${np.url()}. ` +
-      (previousUrl
-        ? `To return to the previous page, call browser_open with ${previousUrl}.`
-        : ""),
+      (previousUrl ? `To return to the previous page, call browser_open with ${previousUrl}.` : ""),
   );
   scheduleNavMirror(r);
   // Stop the dead page's screencast and move the live view to the new tab.
@@ -362,7 +384,9 @@ async function detachAndRewireCast(sessionId: string, oldCdp: unknown): Promise<
 }
 
 async function attachCdp(page: unknown): Promise<unknown> {
-  const ctx = (page as { context: () => { newCDPSession: (p: unknown) => Promise<unknown> } }).context();
+  const ctx = (
+    page as { context: () => { newCDPSession: (p: unknown) => Promise<unknown> } }
+  ).context();
   return ctx.newCDPSession(page);
 }
 

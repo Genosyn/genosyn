@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
-import { companyDir } from "./paths.js";
+import { browserPrivateCompanyDir, codeRepoPrivateCompanyDir, companyDir } from "./paths.js";
+import { emitMembershipAuthorizationChange } from "./resourceEvents.js";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
@@ -141,6 +142,9 @@ import { Resource } from "../db/entities/Resource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { Secret } from "../db/entities/Secret.js";
+import { VaultItem } from "../db/entities/VaultItem.js";
+import { VaultItemMemberAccess } from "../db/entities/VaultItemMemberAccess.js";
+import { EmployeeVaultGrant } from "../db/entities/EmployeeVaultGrant.js";
 import { Skill } from "../db/entities/Skill.js";
 import { Tag } from "../db/entities/Tag.js";
 import { TagAssignment } from "../db/entities/TagAssignment.js";
@@ -408,6 +412,9 @@ export async function deleteCompanyCascade(args: {
     await m.delete(AuditEvent, { companyId });
     await m.delete(ApiKey, { companyId });
     await m.delete(Secret, { companyId });
+    await m.delete(VaultItemMemberAccess, { companyId });
+    await m.delete(EmployeeVaultGrant, { companyId });
+    await m.delete(VaultItem, { companyId });
     await m.delete(Resource, { companyId });
     // Newer company-scoped surfaces: sales docs (Estimate / RecurringInvoice +
     // their line items and CustomerContact / CustomerContract), Explore
@@ -477,6 +484,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(Membership, { companyId });
     await m.delete(Company, { id: companyId });
   });
+  emitMembershipAuthorizationChange(companyId);
 
   // ── 4. Filesystem (best-effort) ──────────────────────────────────────
   try {
@@ -484,6 +492,20 @@ export async function deleteCompanyCascade(args: {
   } catch (err) {
     console.warn(
       `[companyDelete] failed to remove ${companyDir(companySlug)}: ${(err as Error).message}`,
+    );
+  }
+  try {
+    fs.rmSync(browserPrivateCompanyDir(companyId), { recursive: true, force: true });
+  } catch (err) {
+    console.warn(
+      `[companyDelete] failed to remove private Browser state for ${companyId}: ${(err as Error).message}`,
+    );
+  }
+  try {
+    fs.rmSync(codeRepoPrivateCompanyDir(companyId), { recursive: true, force: true });
+  } catch (err) {
+    console.warn(
+      `[companyDelete] failed to remove private Code Repository state for ${companyId}: ${(err as Error).message}`,
     );
   }
 }

@@ -11,6 +11,10 @@ export const config = {
 
   // API server
   port: 8471,
+  // Default self-host installs replace this public placeholder with a strong,
+  // persistent value in data/.instance-secrets.json. Set an explicit secret
+  // of at least 32 characters to take precedence. Shared multi-tenant installs
+  // must always configure an explicit value.
   sessionSecret: "change-me-in-production",
 
   // Security posture. `multiTenant` is intentionally false for existing
@@ -19,9 +23,11 @@ export const config = {
   // isolation settings below meet the shared-SaaS baseline.
   security: {
     multiTenant: false,
-    // Separate from sessionSecret. New ciphertexts derive a distinct key per
-    // company (or per user for account secrets). Keep old values in
-    // previousEncryptionSecrets while rotating so existing rows stay readable.
+    // Separate from sessionSecret. Default self-host installs replace this
+    // placeholder with the distinct managed encryption key stored in
+    // data/.instance-secrets.json. Explicit values take precedence. New
+    // ciphertexts derive a scoped key per company (or user); keep old explicit
+    // values in previousEncryptionSecrets while rotating so rows stay readable.
     encryptionSecret: "change-me-in-production-too",
     previousEncryptionSecrets: [] as string[],
     // "auto" sets Secure whenever the Admin → General public URL is https,
@@ -52,14 +58,16 @@ export const config = {
   },
 
   // AI Employee execution controls. Coding execution is disabled by default:
-  // a plain host shell shares the App process UID and is not confined by cwd.
-  // ChatGPT subscription auth is available only
-  // when an operator deliberately selects `bubblewrap` on a Linux deployment
-  // whose user-namespace policy passes Genosyn's startup probe. Bubblewrap runs
-  // every shell invocation and repository Git child in user/mount/PID
-  // namespaces with only the employee workspace writable. Shared SaaS requires
-  // bubblewrap and disables network access inside the coding sandbox; networked
-  // work goes through governed Integration, browser, and HTTP surfaces instead.
+  // `host` keeps the path-confined file/search tools but never exposes bash: a
+  // same-UID host shell could read App data, Vault encryption roots, and sibling
+  // process tokens. Sandboxed bash and ChatGPT subscription auth are available
+  // only when an operator deliberately selects `bubblewrap` on a Linux
+  // deployment whose user-namespace policy passes Genosyn's startup probe.
+  // Bubblewrap runs every shell invocation and repository Git child in
+  // user/mount/PID namespaces with only the employee workspace writable. Shared
+  // SaaS requires bubblewrap and disables network access inside the coding
+  // sandbox; networked work goes through governed Integration, browser, and
+  // HTTP surfaces instead.
   agent: {
     codingTools: {
       enabled: true,
@@ -67,9 +75,9 @@ export const config = {
       bubblewrapPath: "/usr/bin/bwrap",
       allowNetwork: false,
       // Emergency compatibility escape hatch for a trusted, single-company
-      // install only. `host` can read the whole App filesystem and reach the
-      // network; selecting host mode is not sufficient without this separate
-      // acknowledgement.
+      // install only. Host mode keeps model tools path-confined, but its
+      // server-owned Git work still runs outside a namespace; selecting host
+      // mode is not sufficient without this separate acknowledgement.
       allowUnsafeHostExecution: false,
     },
     // The current app-owned Chromium process shares the API container. Keep it

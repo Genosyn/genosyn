@@ -1563,6 +1563,74 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "list_vault_items",
+    description:
+      "List the Vault items explicitly granted to you. Returns safe metadata only: item id, type, title, username, saved website origin and your Grant level. Stored passwords, API keys and secure-note bodies are never returned to the model. Only a Login username or password has a Browser-fill path, and a stored password can go only into a password input. Browser access, the host allow list, the live top-page and target-frame origin, and the item Grant must all allow each fill.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          enum: ["login", "api_key", "secure_note"],
+          description: "Optional item-type filter.",
+        },
+        query: {
+          type: "string",
+          description: "Optional title, username, or website search.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_vault_login",
+    description:
+      "Create a company-visible Vault login with a strong password generated inside Genosyn. The password is encrypted immediately and is never returned in this tool result or written to the transcript. You receive a `manage` Grant on the item. Use browser_fill_vault to put the Login password only into a password input when the top page and target frame match its exact saved origin and Browser policy allows the site. For a password already present in the browser, use browser_save_vault_login; that path always needs owner/admin approval and creates a restricted item.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Human-readable login title." },
+        username: {
+          type: "string",
+          description: "Optional username or email. This is visible as Vault metadata.",
+        },
+        websiteUrl: {
+          type: "string",
+          description:
+            "Absolute http(s) login URL. Its origin (scheme, host and port) is fixed; browser_fill_vault requires both the top page and target frame to match it exactly.",
+        },
+        notes: {
+          type: "string",
+          description: "Optional non-secret context for Members using this login later.",
+        },
+        passwordLength: {
+          type: "integer",
+          minimum: 16,
+          maximum: 128,
+          description: "Generated password length. Defaults to 24.",
+        },
+      },
+      required: ["title", "websiteUrl"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_vault_login",
+    description:
+      "Update safe metadata on a granted Vault login: title, username, or notes. Needs the item-level `manage` Grant. The encrypted password and saved website origin are preserved and never returned. AI Employees cannot rebind, rotate, or delete a credential; a Member performs those deliberate actions from Vault.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemId: { type: "string", description: "Vault item UUID from list_vault_items." },
+        title: { type: "string" },
+        username: { type: "string" },
+        notes: { type: "string", description: "Optional non-secret context for Members." },
+      },
+      required: ["itemId"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_signature_envelopes",
     description:
       "List the company's signature envelopes you are allowed to inspect, newest first. Filter by lifecycle status or customer when useful. Returns compact progress and recipient counts; call `get_signature_envelope` for fields and the tamper-evident event trail. Needs `read` signing access.",

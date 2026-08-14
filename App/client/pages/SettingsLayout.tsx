@@ -39,7 +39,7 @@ const SETTINGS_TAB_LABEL: Record<string, string> = {
   email: "Email",
   providers: "Providers",
   logs: "Logs",
-  secrets: "Secrets",
+  secrets: "Environment secrets",
   "api-keys": "API keys",
   usage: "Usage",
   audit: "Audit log",
@@ -75,7 +75,11 @@ export default function SettingsLayout({
         <SidebarLink to={`${base}/tags`} icon={<Tags size={14} />} label="Tags" />
         <SidebarLink to={`${base}/integrations`} icon={<Plug size={14} />} label="Integrations" />
         <SidebarLink to={`${base}/email`} icon={<Mail size={14} />} label="Email" />
-        <SidebarLink to={`${base}/secrets`} icon={<KeyRound size={14} />} label="Secrets" />
+        <SidebarLink
+          to={`${base}/secrets`}
+          icon={<KeyRound size={14} />}
+          label="Environment secrets"
+        />
         <SidebarLink to={`${base}/api-keys`} icon={<TerminalSquare size={14} />} label="API keys" />
         <SidebarLink to={`${base}/usage`} icon={<BarChart3 size={14} />} label="Usage" />
         <SidebarLink to={`${base}/audit`} icon={<ScrollText size={14} />} label="Audit log" />
@@ -107,10 +111,7 @@ export default function SettingsLayout({
       <div className="page-shell p-8">
         <div className="mb-4">
           <Breadcrumbs
-            items={[
-              { label: "Settings", to: tabCrumbs.length ? base : undefined },
-              ...tabCrumbs,
-            ]}
+            items={[{ label: "Settings", to: tabCrumbs.length ? base : undefined }, ...tabCrumbs]}
           />
         </div>
         <Outlet context={{ company, me, onCompaniesChanged } satisfies SettingsOutletCtx} />

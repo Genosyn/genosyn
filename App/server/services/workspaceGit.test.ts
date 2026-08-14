@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { buildWorkspaceGitInvocation } from "./workspaceGit.js";
+import {
+  assertWorkspaceGitMetadataContained,
+  buildWorkspaceGitInvocation,
+} from "./workspaceGit.js";
 
 test("bubblewrapped Git receives private namespaces and an explicit environment", () => {
   const invocation = buildWorkspaceGitInvocation(
@@ -133,4 +139,30 @@ test("workspace Git host execution requires the separate unsafe-host acknowledge
   const acknowledged = buildWorkspaceGitInvocation(options, "host", "/usr/bin/bwrap", true);
   assert.equal(acknowledged.executable, "git");
   assert.equal(acknowledged.isolated, false);
+});
+
+test("workspace Git rejects gitdir and commondir pointers outside the employee workspace", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-git-metadata-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const workspace = path.join(root, "workspace");
+  const checkout = path.join(workspace, "repo");
+  const outsideGit = path.join(root, "outside.git");
+  fs.mkdirSync(path.join(checkout, ".git"), { recursive: true });
+  fs.mkdirSync(outsideGit);
+
+  fs.writeFileSync(
+    path.join(checkout, ".git", "commondir"),
+    path.relative(path.join(checkout, ".git"), outsideGit),
+  );
+  assert.throws(
+    () => assertWorkspaceGitMetadataContained(workspace, checkout),
+    /common directory escapes/,
+  );
+
+  fs.rmSync(path.join(checkout, ".git"), { recursive: true });
+  fs.writeFileSync(path.join(checkout, ".git"), `gitdir: ${outsideGit}\n`);
+  assert.throws(
+    () => assertWorkspaceGitMetadataContained(workspace, checkout),
+    /Git directory escapes/,
+  );
 });

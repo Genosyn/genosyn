@@ -23,13 +23,10 @@
  */
 
 /** Delivers one coalesced change to every socket in the company room. */
-export type ResourceChangeSink = (
-  companyId: string,
-  kind: string,
-  scopeIds: string[],
-) => void;
+export type ResourceChangeSink = (companyId: string, kind: string, scopeIds: string[]) => void;
 
 let sink: ResourceChangeSink | null = null;
+let membershipAuthorizationChangeSink: ((companyId: string) => void) | null = null;
 
 /** companyId → kind → set of parent scope ids touched (may be empty). */
 const pending = new Map<string, Map<string, Set<string>>>();
@@ -48,6 +45,15 @@ export function registerResourceChangeSink(fn: ResourceChangeSink): void {
   sink = fn;
 }
 
+/** Browser viewers are privileged; any Membership mutation revokes live viewers immediately. */
+export function registerMembershipAuthorizationChangeSink(fn: (companyId: string) => void): void {
+  membershipAuthorizationChangeSink = fn;
+}
+
+export function emitMembershipAuthorizationChange(companyId: string): void {
+  membershipAuthorizationChangeSink?.(companyId);
+}
+
 /** True once the socket layer has wired its sink; the subscriber checks this. */
 export function resourceEventsActive(): boolean {
   return sink !== null;
@@ -60,11 +66,7 @@ export function resourceEventsActive(): boolean {
  * call from any write path; cheap and synchronous — the actual broadcast is
  * debounced onto {@link FLUSH_MS}.
  */
-export function emitResourceChange(
-  companyId: string,
-  kind: string,
-  scopeId?: string,
-): void {
+export function emitResourceChange(companyId: string, kind: string, scopeId?: string): void {
   if (!sink) return;
   let byKind = pending.get(companyId);
   if (!byKind) {

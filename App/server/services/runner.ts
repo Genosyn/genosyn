@@ -340,9 +340,9 @@ export async function startRoutineRun(
       const cwd = employeeDir(co.slug, emp.slug);
       ensureDir(cwd);
 
-      // Env for the bash tool: company vault secrets plus whatever the repo
-      // materializers export. Secrets are validated + reserved-name filtered
-      // by loadCompanySecretsEnv, so this can't clobber anything load-bearing.
+      // Env for the coding runtime: Environment secrets only. Repository
+      // credentials stay inside short-lived server-owned Git operations and
+      // are never exported to model tools.
       const toolEnv: Record<string, string> = {};
       if (!config.security.multiTenant) {
         try {
@@ -356,7 +356,6 @@ export async function startRoutineRun(
         // Materialize granted GitHub Connection repos + provider-agnostic Code
         // Repositories into the employee's cwd. Errors are non-fatal.
         const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
-        Object.assign(toolEnv, repoSync.extraEnv);
         for (const r of repoSync.repos) {
           log.line(`[repos] synced ${r.owner}/${r.name}@${r.defaultBranch}`);
         }
@@ -367,7 +366,6 @@ export async function startRoutineRun(
           cwd,
           githubRepoCredentials: repoSync.githubRepoCredentials,
         });
-        Object.assign(toolEnv, codeRepoSync.extraEnv);
         for (const r of codeRepoSync.repos) {
           log.line(`[code-repos] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`);
         }

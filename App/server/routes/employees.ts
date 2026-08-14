@@ -22,6 +22,8 @@ import { RevenueDocument } from "../db/entities/RevenueDocument.js";
 import { RevenueImportBatch } from "../db/entities/RevenueImportBatch.js";
 import { EmployeeSigningGrant } from "../db/entities/EmployeeSigningGrant.js";
 import { SignatureEnvelope } from "../db/entities/SignatureEnvelope.js";
+import { EmployeeVaultGrant } from "../db/entities/EmployeeVaultGrant.js";
+import { VaultItem } from "../db/entities/VaultItem.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import {
   requireAuth,
@@ -39,6 +41,12 @@ import { deleteEmployeeConversations } from "./employeeSurface.js";
 import { recordAudit } from "../services/audit.js";
 import { findTemplate } from "../services/templates.js";
 import { archiveEmployeeDirectMessages } from "../services/workspaceChat.js";
+import {
+  closeAllBrowserSessionsForEmployee,
+  revokeDisabledBrowserSessionsForEmployee,
+} from "../services/browserAccess.js";
+import { removeBrowserStorageForEmployee } from "../services/browserStorage.js";
+import { removeCodeRepoPrivateStateForEmployee } from "../services/codeRepoSshFiles.js";
 import {
   applyRoutineRecommendations,
   findRoutineRecommendationDefinition,
@@ -424,6 +432,9 @@ employeesRouter.patch("/:eid", validateBody(patchSchema), async (req, res) => {
     }
   }
   await repo.save(emp);
+  if (body.browserEnabled !== undefined) {
+    await revokeDisabledBrowserSessionsForEmployee(emp.id);
+  }
   await recordAudit({
     companyId: emp.companyId,
     actorUserId: req.userId ?? null,
@@ -448,6 +459,8 @@ employeesRouter.delete("/:eid", async (req, res) => {
   if (!emp) return res.status(404).json({ error: "Not found" });
   const co = await loadCompany((req.params as Record<string, string>).cid);
 
+  await closeAllBrowserSessionsForEmployee(emp.id);
+
   // Clear reporting lines that pointed at this employee so subordinates
   // don't carry a dangling manager reference.
   await empRepo.update({ reportsToEmployeeId: emp.id }, { reportsToEmployeeId: null });
@@ -461,6 +474,11 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await archiveEmployeeDirectMessages(emp.id);
   await AppDataSource.getRepository(JournalEntry).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(EmployeeSigningGrant).delete({ employeeId: emp.id });
+  await AppDataSource.getRepository(EmployeeVaultGrant).delete({ employeeId: emp.id });
+  await AppDataSource.getRepository(VaultItem).update(
+    { createdByEmployeeId: emp.id },
+    { createdByEmployeeId: null },
+  );
   await AppDataSource.getRepository(SignatureEnvelope).update(
     { createdByEmployeeId: emp.id },
     { createdByEmployeeId: null },
@@ -514,6 +532,8 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await AppDataSource.getRepository(ProjectMember).delete({ employeeId: emp.id });
   await empRepo.delete({ id: emp.id });
 
+  await removeBrowserStorageForEmployee(emp.companyId, emp.id);
+  removeCodeRepoPrivateStateForEmployee(emp.companyId, emp.id);
   if (co) removeDir(employeeDir(co.slug, emp.slug));
   await recordAudit({
     companyId: emp.companyId,

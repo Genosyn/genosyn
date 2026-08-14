@@ -51,6 +51,7 @@ import {
   claimApprovedBrowserAction,
   completeClaimedBrowserAction,
   createBrowserActionApproval,
+  readBrowserActionPayload,
 } from "../services/approvals.js";
 import { createNotification } from "../services/notifications.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
@@ -167,6 +168,12 @@ import {
   voidSignatureEnvelope,
   type SignatureEnvelopeDetail,
 } from "../services/signing.js";
+import {
+  createVaultLoginForEmployee,
+  listVaultItemsForEmployee,
+  updateVaultLoginMetadataForEmployee,
+  VaultError,
+} from "../services/vault.js";
 import { EXPORT_FORMATS, exportResource, isExportFormat } from "../services/resourceExport.js";
 import {
   deleteTagAssignments,
@@ -10991,6 +10998,204 @@ mcpInternalRouter.post(
   },
 );
 
+// ----- Vault -----
+//
+// The model can discover safe metadata and create a server-generated login.
+// There is deliberately no plaintext read tool. Actual use goes through the
+// App-owned browser's `browser_fill_vault`, whose route resolves and fills the
+// value server-side after re-checking the item Grant and exact website origin.
+
+function safeVaultWebsiteForAi(value: string): { websiteUrl: string; websiteHost: string } {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return { websiteUrl: "", websiteHost: "" };
+    }
+    return { websiteUrl: url.origin, websiteHost: url.hostname };
+  } catch {
+    return { websiteUrl: "", websiteHost: "" };
+  }
+}
+
+const listVaultItemsSchema = z
+  .object({
+    type: z.enum(["login", "api_key", "secure_note"]).optional(),
+    query: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_vault_items",
+  validateBody(listVaultItemsSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof listVaultItemsSchema>;
+    const rows = await listVaultItemsForEmployee(req.mcpCompany!.id, req.mcpEmployee!.id);
+    const query = body.query?.toLocaleLowerCase();
+    const items = rows
+      .map((row) => ({
+        id: row.id,
+        type: row.type,
+        title: row.title,
+        username: row.username,
+        ...safeVaultWebsiteForAi(row.websiteUrl),
+        accessLevel: row.accessLevel,
+      }))
+      .filter((row) => !body.type || row.type === body.type)
+      .filter(
+        (row) =>
+          !query ||
+          [row.title, row.username, row.websiteUrl].join("\n").toLocaleLowerCase().includes(query),
+      );
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      items,
+      note:
+        items.length > 0
+          ? "Stored values are intentionally omitted. Use browser_fill_vault on the exact saved website origin."
+          : "No matching Vault items are granted to you. Ask a Member who manages the item to add a Vault Grant.",
+    });
+  },
+);
+
+const createVaultLoginSchema = z
+  .object({
+    title: z.string().trim().min(1).max(255),
+    username: z.string().trim().max(500).default(""),
+    websiteUrl: z
+      .string()
+      .trim()
+      .url()
+      .max(2_000)
+      .refine((value) => {
+        const website = new URL(value);
+        return (
+          (website.protocol === "http:" || website.protocol === "https:") &&
+          !website.username &&
+          !website.password
+        );
+      }, "websiteUrl must use http or https and cannot embed credentials"),
+    notes: z.string().trim().max(10_000).default(""),
+    passwordLength: z.number().int().min(16).max(128).default(24),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_vault_login",
+  validateBody(createVaultLoginSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createVaultLoginSchema>;
+    const employee = req.mcpEmployee!;
+    try {
+      const item = await createVaultLoginForEmployee({
+        companyId: req.mcpCompany!.id,
+        employeeId: employee.id,
+        title: body.title,
+        username: body.username,
+        websiteUrl: body.websiteUrl,
+        notes: body.notes,
+        passwordLength: body.passwordLength,
+        visibility: "company",
+      });
+      await aiWriteTrail(req, {
+        action: "vault.item.create",
+        targetType: "vault_item",
+        targetId: item.id,
+        targetLabel: "Vault item",
+        journalTitle: `${employee.name} created a Vault login`,
+        journalBody:
+          "Generated and encrypted a new password inside Genosyn. The value was not returned to the model or transcript.",
+        metadata: {
+          via: "generated",
+          passwordLength: body.passwordLength,
+        },
+      });
+      res.setHeader("Cache-Control", "no-store");
+      res.json({
+        item: {
+          id: item.id,
+          type: item.type,
+          title: item.title,
+          username: item.username,
+          ...safeVaultWebsiteForAi(item.websiteUrl),
+          visibility: item.visibility,
+          accessLevel: item.grantAccessLevel,
+        },
+        note: "Login created with a server-generated password. The value was not revealed; use browser_fill_vault on the exact saved website origin. Browser policy and the Login password-only sink still apply.",
+      });
+    } catch (error) {
+      if (error instanceof VaultError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      throw error;
+    }
+  },
+);
+
+const updateVaultLoginSchema = z
+  .object({
+    itemId: z.string().uuid(),
+    title: z.string().trim().min(1).max(255).optional(),
+    username: z.string().trim().max(500).optional(),
+    notes: z.string().trim().max(10_000).optional(),
+  })
+  .strict()
+  .refine(
+    (body) => body.title !== undefined || body.username !== undefined || body.notes !== undefined,
+    { message: "Pass at least one metadata field to update" },
+  );
+
+mcpInternalRouter.post(
+  "/tools/update_vault_login",
+  validateBody(updateVaultLoginSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updateVaultLoginSchema>;
+    const employee = req.mcpEmployee!;
+    try {
+      const item = await updateVaultLoginMetadataForEmployee({
+        companyId: req.mcpCompany!.id,
+        employeeId: employee.id,
+        itemId: body.itemId,
+        patch: {
+          title: body.title,
+          username: body.username,
+          notes: body.notes,
+        },
+      });
+      await aiWriteTrail(req, {
+        action: "vault.item.update",
+        targetType: "vault_item",
+        targetId: item.id,
+        targetLabel: "Vault item",
+        journalTitle: `${employee.name} updated Vault login metadata`,
+        journalBody: "Updated login metadata only; the encrypted password was preserved.",
+        metadata: {
+          fields: ["title", "username", "notes"].filter(
+            (field) => body[field as keyof typeof body] !== undefined,
+          ),
+        },
+      });
+      res.setHeader("Cache-Control", "no-store");
+      res.json({
+        item: {
+          id: item.id,
+          type: item.type,
+          title: item.title,
+          username: item.username,
+          ...safeVaultWebsiteForAi(item.websiteUrl),
+          visibility: item.visibility,
+          accessLevel: item.accessLevel,
+        },
+        note: "Vault login metadata updated. The stored password was preserved and not revealed.",
+      });
+    } catch (error) {
+      if (error instanceof VaultError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      throw error;
+    }
+  },
+);
+
 // ----- Document signing -----
 //
 // AI Employees can inspect, prepare and dispatch signature envelopes according
@@ -11409,18 +11614,41 @@ async function notifyTodoReviewByEmployee(args: {
 // `browser_resume(approvalId)` and the MCP re-fires the held action; the
 // server side never drives the browser itself.
 
-const queueBrowserApprovalSchema = z.object({
-  /** Free-text reason / target action shown to the approver. */
-  summary: z.string().trim().min(1).max(1000),
-  /** Page URL captured at queue time (best-effort; may be empty). */
-  pageUrl: z.string().max(2048).optional(),
-  /** Selector the MCP intends to act on. Capped at 500 to match the
-   *  click/press routes that `browser_resume` re-fires through — a longer
-   *  selector would queue fine but strand on execute. */
-  selector: z.string().min(1).max(500),
-  /** Optional key press (e.g. `Enter`) — null/undefined for a click. */
-  key: z.string().max(60).nullish(),
-});
+const queueBrowserApprovalSchema = z
+  .object({
+    action: z.enum(["submit", "vault_capture"]).default("submit"),
+    /** Free-text reason / target action shown to the approver. */
+    summary: z.string().trim().min(1).max(1000),
+    /** Page URL captured at queue time (best-effort; may be empty). */
+    pageUrl: z.string().max(2048).optional(),
+    browserSessionId: z.string().uuid(),
+    targetFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    targetDescriptor: z
+      .object({
+        tagName: z.string().min(1).max(32),
+        inputType: z.string().max(32).nullable(),
+        frameUrl: z.string().min(1).max(2048),
+        formAction: z.string().max(2048).nullable(),
+        formMethod: z.string().max(16).nullable(),
+        submitsForm: z.boolean(),
+      })
+      .strict(),
+    /** Selector the MCP intends to act on. Capped at 500 to match the
+     *  click/press routes that `browser_resume` re-fires through — a longer
+     *  selector would queue fine but strand on execute. */
+    selector: z.string().min(1).max(500),
+    /** Optional key press (e.g. `Enter`) — null/undefined for a click. */
+    key: z.string().max(60).nullish(),
+    vaultTitle: z.string().trim().min(1).max(255).optional(),
+    vaultUsername: z.string().trim().max(500).optional(),
+    vaultNotes: z.string().trim().max(10_000).optional(),
+  })
+  .superRefine((body, ctx) => {
+    if (body.action !== "vault_capture") return;
+    if (body.vaultTitle === undefined) {
+      ctx.addIssue({ code: "custom", message: "vaultTitle is required", path: ["vaultTitle"] });
+    }
+  });
 
 mcpInternalRouter.post(
   "/tools/queue_browser_approval",
@@ -11429,7 +11657,7 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof queueBrowserApprovalSchema>;
     const emp = req.mcpEmployee!;
     const co = req.mcpCompany!;
-    if (!emp.browserApprovalRequired) {
+    if (!emp.browserApprovalRequired && body.action !== "vault_capture") {
       return res.status(400).json({
         error:
           "browserApprovalRequired is off for this employee — queue rejected to avoid stranding the action",
@@ -11438,10 +11666,17 @@ mcpInternalRouter.post(
     const approval = await createBrowserActionApproval({
       companyId: co.id,
       employeeId: emp.id,
+      action: body.action,
       selector: body.selector,
       key: body.key ?? null,
       pageUrl: body.pageUrl ?? "",
+      browserSessionId: body.browserSessionId,
+      targetFingerprint: body.targetFingerprint,
+      targetDescriptor: body.targetDescriptor,
       summary: body.summary,
+      vaultTitle: body.vaultTitle,
+      vaultUsername: body.vaultUsername,
+      vaultNotes: body.vaultNotes,
     });
     res.json({ approvalId: approval.id, status: approval.status });
   },
@@ -11461,30 +11696,54 @@ mcpInternalRouter.get("/tools/check_browser_approval/:id", async (req: McpReques
   }
   // Return the held action alongside the status so `browser_resume` can
   // re-fire it even when the MCP child that queued it is long gone — the
-  // child is spawned per chat turn, and approvals usually land later. The
-  // `pageUrl` lets the child refuse to claim if the page has since changed.
-  // The check is informational only: the separate claim endpoint performs the
-  // atomic approved -> executing transition before the browser side effect.
-  let payload: { selector?: unknown; key?: unknown; pageUrl?: unknown } = {};
+  // child is spawned per chat turn, and approvals usually land later. Bound
+  // actions are consumed at the Browser RPC after its live target is
+  // revalidated. Legacy approvals retain the separate durable claim callback.
+  let payload: ReturnType<typeof readBrowserActionPayload>;
   try {
-    payload = JSON.parse(approval.payloadJson || "{}") as typeof payload;
+    payload = readBrowserActionPayload(approval);
   } catch {
-    // legacy/malformed payload — status alone still helps
+    return res.status(409).json({ error: "Browser approval payload is invalid" });
   }
+  const requestedBrowserSessionId =
+    typeof req.query.browserSessionId === "string" ? req.query.browserSessionId : "";
+  if (
+    typeof payload.browserSessionId === "string" &&
+    payload.browserSessionId !== requestedBrowserSessionId
+  ) {
+    return res.status(403).json({ error: "Approval belongs to another browser session" });
+  }
+  if (
+    payload.action === "vault_capture" &&
+    (typeof payload.expiresAt !== "string" || Date.parse(payload.expiresAt) <= Date.now())
+  ) {
+    if (approval.status === "pending") {
+      await AppDataSource.getRepository(Approval).update(
+        { id: approval.id, status: "pending" },
+        { status: "expired" },
+      );
+    }
+    return res.json({ status: "expired" });
+  }
+  const targetBound = typeof payload.browserSessionId === "string";
   res.json({
     status: approval.status,
+    action: payload.action === "vault_capture" ? "vault_capture" : "submit",
+    targetBound,
     selector: typeof payload.selector === "string" ? payload.selector : null,
     key: typeof payload.key === "string" ? payload.key : null,
     pageUrl: typeof payload.pageUrl === "string" ? payload.pageUrl : null,
+    vaultTitle: typeof payload.vaultTitle === "string" ? payload.vaultTitle : null,
+    vaultUsername: typeof payload.vaultUsername === "string" ? payload.vaultUsername : null,
+    vaultNotes: typeof payload.vaultNotes === "string" ? payload.vaultNotes : null,
+    executionState: payload.execution?.state ?? null,
     executed: browserApprovalWasExecuted(approval),
   });
 });
 
 /**
- * Consume a human-approved browser action before touching the live page. Only
- * one concurrent resume can move approved -> executing and receive a claim
- * token. If that child crashes, the executing row is intentionally never
- * replayed because the external outcome is unknowable.
+ * Consume a legacy human-approved browser action before touching the live
+ * page. New target-bound actions claim inside the Browser RPC instead.
  */
 mcpInternalRouter.post("/tools/claim_browser_approval/:id", async (req: McpRequest, res) => {
   const id = req.params.id;

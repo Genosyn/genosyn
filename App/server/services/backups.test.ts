@@ -6,6 +6,12 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import unzipper from "unzipper";
 import { config } from "../../config.js";
 import { closeTestDb, initTestDb, resetTestDb } from "../test/dbHarness.js";
+import {
+  INSTANCE_SECRETS_FILENAME,
+  INSTANCE_SECRETS_SENTINEL_FILENAME,
+  getEffectiveInstanceSecrets,
+  resetInstanceSecretsCacheForTests,
+} from "../lib/instanceSecrets.js";
 import { backupFilePath, runBackup } from "./backups.js";
 
 type MutableConfig = {
@@ -26,6 +32,7 @@ before(async () => {
   mutable.dataDir = tempDir;
   // The test DB is in-memory, so there is no SQLite file to snapshot.
   mutable.db.driver = "postgres";
+  resetInstanceSecretsCacheForTests();
 });
 
 beforeEach(async () => {
@@ -39,6 +46,7 @@ beforeEach(async () => {
 after(async () => {
   mutable.dataDir = originalDataDir;
   mutable.db.driver = originalDriver;
+  resetInstanceSecretsCacheForTests();
   await closeTestDb();
   await fs.rm(tempDir, { recursive: true, force: true });
 });
@@ -48,19 +56,24 @@ describe("backup archive generation", () => {
     const markerPath = path.join(tempDir, "companies", "release-lab", "marker.txt");
     await fs.writeFile(markerPath, "release proof");
 
+    getEffectiveInstanceSecrets();
     const backup = await runBackup("manual");
     assert.equal(backup.status, "completed");
     assert.ok(backup.sizeBytes > 0);
 
     const archivePath = backupFilePath(backup.filename);
+    assert.equal((await fs.stat(archivePath)).mode & 0o777, 0o600);
     const archive = await unzipper.Open.file(archivePath);
     const names = archive.files.map((entry) => entry.path);
     assert.ok(names.includes("companies/release-lab/marker.txt"));
-    assert.equal(names.some((name) => name.startsWith("Backup/")), false);
-
-    const marker = archive.files.find(
-      (entry) => entry.path === "companies/release-lab/marker.txt",
+    assert.ok(names.includes(INSTANCE_SECRETS_FILENAME));
+    assert.ok(names.includes(INSTANCE_SECRETS_SENTINEL_FILENAME));
+    assert.equal(
+      names.some((name) => name.startsWith("Backup/")),
+      false,
     );
+
+    const marker = archive.files.find((entry) => entry.path === "companies/release-lab/marker.txt");
     assert.equal((await marker?.buffer())?.toString("utf8"), "release proof");
   });
 });

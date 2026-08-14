@@ -36,9 +36,9 @@ export function ToolDiscovery() {
       </P>
       <UL>
         <LI>
-          <Strong>Coding tools</Strong> — <Code>bash</Code>, <Code>read_file</Code>,{" "}
-          <Code>write_file</Code> and the rest. Their arguments are large free-form strings, which
-          survive better sent directly.
+          <Strong>Coding tools</Strong> — the path-confined file/search tools in host mode, or
+          isolated <Code>bash</Code> in bubblewrap mode. Their arguments are large free-form
+          strings, which survive better sent directly.
         </LI>
         <LI>
           <Strong>Everything that writes</Strong> — creating a Routine, a Project, a Todo, a journal
@@ -59,8 +59,8 @@ export function ToolDiscovery() {
         workspace channels, handoffs, and every{" "}
         <DocLink to="/docs/integrations">Integration</DocLink> tool — lives in the catalogue. The
         employee calls <Code>find_tools</Code> with what it is trying to do (&quot;record a
-        payment&quot;, &quot;reply to that email&quot;, &quot;read a spreadsheet&quot;) and gets back
-        the matching tools with their exact arguments, then runs one.
+        payment&quot;, &quot;reply to that email&quot;, &quot;read a spreadsheet&quot;) and gets
+        back the matching tools with their exact arguments, then runs one.
       </P>
       <P>
         Every search result also carries the complete list of catalogue tool names. So even when a
@@ -71,8 +71,8 @@ export function ToolDiscovery() {
       <Callout kind="info" title="Grants are unchanged.">
         Discovery decides what an employee is <Strong>shown</Strong>, never what it is{" "}
         <Strong>allowed</Strong>. A tool the employee holds no Grant for is still refused when
-        called, and <Code>find_tools</Code> labels it as such before the employee wastes a step
-        on it.
+        called, and <Code>find_tools</Code> labels it as such before the employee wastes a step on
+        it.
       </Callout>
 
       <H2 id="skill-toolsets">Skipping the search</H2>

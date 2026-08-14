@@ -31,6 +31,9 @@ import { ChannelMember } from "../db/entities/ChannelMember.js";
 import { Project } from "../db/entities/Project.js";
 import { ProjectMember } from "../db/entities/ProjectMember.js";
 import { Notification } from "../db/entities/Notification.js";
+import { VaultItem } from "../db/entities/VaultItem.js";
+import { VaultItemMemberAccess } from "../db/entities/VaultItemMemberAccess.js";
+import { emitMembershipAuthorizationChange } from "../services/resourceEvents.js";
 
 export const companiesRouter = Router();
 
@@ -352,6 +355,7 @@ companiesRouter.patch(
     const { role } = req.body as z.infer<typeof memberRoleSchema>;
     membership.role = role;
     await AppDataSource.getRepository(Membership).save(membership);
+    emitMembershipAuthorizationChange(cid);
     await recordAudit({
       companyId: cid,
       actorUserId: req.userId ?? null,
@@ -447,8 +451,16 @@ companiesRouter.delete(
         .getRepository(ApiKey)
         .update({ companyId: cid, userId: uid }, { revokedAt: new Date() });
       await manager.getRepository(Notification).delete({ companyId: cid, userId: uid });
+      await manager.getRepository(VaultItemMemberAccess).delete({ companyId: cid, userId: uid });
+      // Leaving a company must not let a later re-invite silently resurrect the
+      // creator's full Vault rights. Preserve the item for the company, but
+      // hand management to the remaining owners/admins.
+      await manager
+        .getRepository(VaultItem)
+        .update({ companyId: cid, createdByUserId: uid }, { createdByUserId: null });
       await manager.getRepository(Membership).delete({ companyId: cid, userId: uid });
     });
+    emitMembershipAuthorizationChange(cid);
     await recordAudit({
       companyId: cid,
       actorUserId: req.userId ?? null,
