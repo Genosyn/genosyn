@@ -8,6 +8,7 @@ import {
   FileSignature,
   GitBranch,
   Home,
+  KeyRound,
   Library,
   type LucideIcon,
   ListChecks,
@@ -44,6 +45,7 @@ export type SectionKey =
   | "skills"
   | "routines"
   | "tasks"
+  | "vault"
   | "bases"
   | "notes"
   | "resources"
@@ -125,6 +127,24 @@ export const SECTION_GROUPS: SectionGroup[] = [
         path: "/tasks",
         iconBg: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
         keywords: ["projects", "todos", "kanban", "backlog", "issues"],
+      },
+      {
+        key: "vault",
+        label: "Vault",
+        description: "Passwords and secrets, shared safely.",
+        icon: KeyRound,
+        shortcut: "K",
+        path: "/vault",
+        iconBg: "bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300",
+        keywords: [
+          "password",
+          "password manager",
+          "credentials",
+          "secrets",
+          "api keys",
+          "secure notes",
+          "autofill",
+        ],
       },
     ],
   },
@@ -366,7 +386,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
       {
         key: "settings",
         label: "Settings",
-        description: "Members, integrations, email, secrets.",
+        description: "Members, integrations, email, environment secrets.",
         icon: SettingsIcon,
         shortcut: ",",
         path: "/settings",
@@ -375,7 +395,7 @@ export const SECTION_GROUPS: SectionGroup[] = [
           "members",
           "integrations",
           "connections",
-          "secrets",
+          "environment secrets",
           "models",
           "config",
           "api keys",
@@ -449,6 +469,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/skills(\/|$)/.test(pathname)) return "skills";
   if (/\/c\/[^/]+\/routines(\/|$)/.test(pathname)) return "routines";
   if (/\/c\/[^/]+\/tasks(\/|$)/.test(pathname)) return "tasks";
+  if (/\/c\/[^/]+\/vault(\/|$)/.test(pathname)) return "vault";
   if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";
   if (/\/c\/[^/]+\/notes(\/|$)/.test(pathname)) return "notes";
   if (/\/c\/[^/]+\/resources(\/|$)/.test(pathname)) return "resources";

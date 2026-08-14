@@ -1,14 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  ArrowUpRight,
-  Clock,
-  FolderGit2,
-  GitBranch,
-  Plus,
-  Search,
-  Users,
-} from "lucide-react";
+import { ArrowUpRight, Clock, FolderGit2, GitBranch, Plus, Search, Users } from "lucide-react";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
@@ -39,10 +31,7 @@ export default function CodeReposIndex({ company }: { company: Company }) {
       );
       setItems(rows);
     } catch (err) {
-      toast(
-        err instanceof Error ? err.message : "Could not load repositories",
-        "error",
-      );
+      toast(err instanceof Error ? err.message : "Could not load repositories", "error");
       setItems([]);
     }
   }, [company.id, toast]);
@@ -66,10 +55,7 @@ export default function CodeReposIndex({ company }: { company: Company }) {
     <div className="flex h-full min-w-0 flex-1 flex-col bg-slate-50 dark:bg-slate-900">
       <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 px-6 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
         <Breadcrumbs
-          items={[
-            { label: company.name, to: `/c/${company.slug}` },
-            { label: "Code" },
-          ]}
+          items={[{ label: company.name, to: `/c/${company.slug}` }, { label: "Code" }]}
         />
       </div>
 
@@ -84,10 +70,9 @@ export default function CodeReposIndex({ company }: { company: Company }) {
                 {company.name}
               </h1>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Add any git repository — GitHub, GitLab, Bitbucket, or a
-                self-hosted server — and grant access to the AI employees you
-                want working on it. They get a real checkout to read, commit,
-                and push.
+                Add any git repository — GitHub, GitLab, Bitbucket, or a self-hosted server — and
+                grant access to the AI employees you want working on it. They get a real checkout to
+                read, commit, and push.
               </p>
             </div>
             <Button onClick={() => setShowNew(true)} className="shrink-0">
@@ -141,13 +126,7 @@ export default function CodeReposIndex({ company }: { company: Company }) {
   );
 }
 
-function RepoList({
-  company,
-  items,
-}: {
-  company: Company;
-  items: CodeRepository[];
-}) {
+function RepoList({ company, items }: { company: Company; items: CodeRepository[] }) {
   const navigate = useNavigate();
   return (
     <div className="mt-2">
@@ -186,8 +165,7 @@ function RepoList({
                 <span className="uppercase">{r.authMode}</span>
                 <span aria-hidden>·</span>
                 <span className="inline-flex items-center gap-1">
-                  <Users size={11} /> {r.grantCount}{" "}
-                  {r.grantCount === 1 ? "employee" : "employees"}
+                  <Users size={11} /> {r.grantCount} {r.grantCount === 1 ? "employee" : "employees"}
                 </span>
               </span>
             </span>
@@ -212,9 +190,9 @@ function EmptyHero({ onAdd }: { onAdd: () => void }) {
         Give your AI employees a codebase
       </h3>
       <p className="mx-auto mt-1 max-w-md text-sm text-slate-500 dark:text-slate-400">
-        Point Genosyn at any git repository and pick which employees can work
-        on it. They get a real checkout — read, branch, commit, and push, all
-        with ordinary git.
+        Point Genosyn at any git repository and pick which employees can work on it. They get a real
+        checkout to read, branch, edit, test, and commit with ordinary git, while credentials stay
+        server-side.
       </p>
       <div className="mt-5">
         <Button onClick={onAdd}>
@@ -225,11 +203,7 @@ function EmptyHero({ onAdd }: { onAdd: () => void }) {
   );
 }
 
-export function SyncBadge({
-  status,
-}: {
-  status: CodeRepository["lastSyncStatus"];
-}) {
+export function SyncBadge({ status }: { status: CodeRepository["lastSyncStatus"] }) {
   if (status === "ok") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">

@@ -256,18 +256,18 @@ export function Integrations() {
       <H3 id="hacker-news">Hacker News monitoring and review</H3>
       <P>
         Open <Strong>Settings → Integrations</Strong>, choose <Strong>Hacker News</Strong>, and
-        optionally enter a public HN username. Hacker News does not require an API key: the
-        username only becomes the default profile for activity tools. Grant the Connection to an
-        AI employee, then use a Skill or Routine to monitor the top, new, best, Ask HN, Show HN,
-        or jobs feeds; read individual items; review bounded comment trees; watch public profile
-        activity; or poll the official updates feed.
+        optionally enter a public HN username. Hacker News does not require an API key: the username
+        only becomes the default profile for activity tools. Grant the Connection to an AI employee,
+        then use a Skill or Routine to monitor the top, new, best, Ask HN, Show HN, or jobs feeds;
+        read individual items; review bounded comment trees; watch public profile activity; or poll
+        the official updates feed.
       </P>
       <Callout kind="warn" title="Publication stays human.">
         Hacker News exposes a supported read-only API, not a write API, and its guidelines prohibit
         generated or AI-edited comments. Genosyn therefore does not automate HN posts or comments.
-        An AI employee can package a link title, original-source URL, internal review notes, and
-        the submission checklist, but a human must review and publish it in Hacker News. Employees
-        must not draft or post HN comments.
+        An AI employee can package a link title, original-source URL, internal review notes, and the
+        submission checklist, but a human must review and publish it in Hacker News. Employees must
+        not draft or post HN comments.
       </Callout>
 
       <H2 id="grants-and-revocation">Grants & revocation</H2>
@@ -333,13 +333,12 @@ export function Integrations() {
         GitHub is special: a Connection holds a list of repos the employee is allowed to touch, and
         the runner materializes a git checkout of each allowed repo into{" "}
         <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code> before each run. The
-        git token never lands on disk — it&apos;s read from the env var the runner injects, via a
-        repository-local inline credential helper. Because the helper does not contain an absolute
-        workspace path, it works the same way in the self-hosted runtime and the isolated SaaS
-        sandbox. A matching HTTPS Code Repository can reuse the same turn-scoped credential when the
-        Connection is granted to that employee. Genosyn prefers an exact owner/repository allowlist
-        match and can use the employee&apos;s sole GitHub Connection when no disambiguation is
-        needed, so ordinary git pushes do not need a second copy of the PAT.
+        git token exists only inside a short-lived server-owned clone or refresh operation. It is
+        never copied into the checkout, an environment variable visible to the AI employee, or a
+        reusable credential helper. A matching HTTPS Code Repository can reuse the same server-held
+        credential when the Connection is granted to that employee. Genosyn prefers an exact
+        owner/repository allowlist match and can use the employee&apos;s sole GitHub Connection when
+        no disambiguation is needed.
       </P>
 
       <H3 id="lightning-payments">Lightning payments</H3>

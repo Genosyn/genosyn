@@ -5,6 +5,10 @@ import { User } from "../db/entities/User.js";
 import { Membership, Role } from "../db/entities/Membership.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
 import { Company } from "../db/entities/Company.js";
+import {
+  AI_BROWSER_REQUEST_HEADER,
+  AI_BROWSER_REQUEST_VALUE,
+} from "../services/browserRequestBoundary.js";
 import { hasTwoFactorMethod } from "../services/twoFactor.js";
 import { config } from "../../config.js";
 
@@ -99,6 +103,12 @@ export function companyIdFromApiPath(originalUrl: string): string | null {
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  if (req.get(AI_BROWSER_REQUEST_HEADER) === AI_BROWSER_REQUEST_VALUE) {
+    return res.status(403).json({
+      error:
+        "Authenticated Genosyn APIs are unavailable inside an AI Browser. Use AI Employee Grants and governed tools.",
+    });
+  }
   // Cookie-session path — what the web UI uses.
   const uid = req.session?.userId as string | undefined;
   if (uid) {

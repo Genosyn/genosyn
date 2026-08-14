@@ -6,12 +6,7 @@ import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
-import {
-  api,
-  Company,
-  CodeRepository,
-  CodeRepoAuthMode,
-} from "../lib/api";
+import { api, Company, CodeRepository, CodeRepoAuthMode } from "../lib/api";
 
 /**
  * Shared form fields + create modal for a Code Repository. The detail page
@@ -67,9 +62,7 @@ export function repoToForm(repo: CodeRepository): RepoFormState {
  * user actually typed one — an empty token / key leaves the stored secret in
  * place on edit (and is rejected by the server's schema on create).
  */
-export function repoFormToPayload(
-  form: RepoFormState,
-): Record<string, unknown> {
+export function repoFormToPayload(form: RepoFormState): Record<string, unknown> {
   const body: Record<string, unknown> = {
     name: form.name.trim(),
     gitUrl: form.gitUrl.trim(),
@@ -125,9 +118,7 @@ export function RepoFormFields({
         <Select
           label="Authentication"
           value={form.authMode}
-          onChange={(e) =>
-            patch({ authMode: e.target.value as CodeRepoAuthMode })
-          }
+          onChange={(e) => patch({ authMode: e.target.value as CodeRepoAuthMode })}
         >
           <option value="none">None / GitHub Connection</option>
           <option value="https">HTTPS token / password</option>
@@ -137,9 +128,9 @@ export function RepoFormFields({
 
       {form.authMode === "none" && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Public repositories clone anonymously. For an HTTPS GitHub URL,
-          Genosyn automatically reuses a matching GitHub Connection granted to
-          the same AI employee, including for git push.
+          Public repositories clone anonymously. For an HTTPS GitHub URL, Genosyn automatically
+          reuses a matching GitHub Connection granted to the same AI employee for server-owned clone
+          and refresh operations.
         </p>
       )}
 
@@ -163,9 +154,9 @@ export function RepoFormFields({
             placeholder="ghp_… / glpat-… / app password"
           />
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Use a personal access token with repo read/write scope. It is
-            encrypted at rest and handed to git at run time via an environment
-            variable — it never lands on disk.
+            Use the narrowest repository-scoped token available. It is encrypted at rest and
+            decrypted only inside a short-lived, server-owned git operation — never into AI tools or
+            the checkout.
           </p>
         </div>
       )}
@@ -185,9 +176,9 @@ export function RepoFormFields({
             className="font-mono text-xs"
           />
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Add the matching public key as a deploy key on your git host. The
-            private key is encrypted at rest and written to the employee&apos;s
-            workspace (gitignored) only while a checkout exists.
+            Add the matching public key as a deploy key on your git host. The private key is
+            encrypted at rest and materialized only in an App-private temporary directory during
+            clone or refresh.
           </p>
         </div>
       )}

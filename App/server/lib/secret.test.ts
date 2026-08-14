@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import test from "node:test";
-import { config } from "../../config.js";
+import { getEffectiveInstanceSecrets } from "./instanceSecrets.js";
 import { decryptSecret, encryptSecret } from "./secret.js";
 
 test("round-trips scoped authenticated ciphertext", () => {
@@ -24,7 +24,10 @@ test("round-trips scoped authenticated ciphertext", () => {
 });
 
 test("reads legacy session-secret ciphertexts during rotation", () => {
-  const key = crypto.createHash("sha256").update(config.sessionSecret).digest();
+  const key = crypto
+    .createHash("sha256")
+    .update(getEffectiveInstanceSecrets().sessionSecret)
+    .digest();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([cipher.update("legacy", "utf8"), cipher.final()]);

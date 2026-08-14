@@ -12,7 +12,7 @@ import {
   requireCompanyRole,
 } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
-import { mintWsToken } from "../services/realtime.js";
+import { mintBrowserViewerWsToken } from "../services/realtime.js";
 import { closeBrowserSession, getSessionSnapshot } from "../services/browserSessions.js";
 
 type ScopedParams = { cid: string; eid: string; id?: string };
@@ -30,6 +30,12 @@ browserSessionsRouter.use(requireAuth);
 browserSessionsRouter.use(requireCompanyMember);
 browserSessionsRouter.use(requireBrowserSession);
 browserSessionsRouter.use(requireCompanyRole("admin"));
+browserSessionsRouter.use((req, res, next) => {
+  if (req.apiKey) {
+    return res.status(403).json({ error: "A logged-in Member is required" });
+  }
+  next();
+});
 
 function serializeSession(row: BrowserSession) {
   const snap = getSessionSnapshot(row.id);
@@ -100,7 +106,7 @@ browserSessionsRouter.post("/:id/ws-token", async (req: ScopedReq, res) => {
   });
   if (!row) return res.status(404).json({ error: "Not found" });
   if (!req.userId) return res.status(401).json({ error: "Unauthorized" });
-  const token = await mintWsToken(req.userId, req.params.cid);
+  const token = await mintBrowserViewerWsToken(req.userId, req.params.cid, req.params.eid, row.id);
   res.json({ token });
 });
 

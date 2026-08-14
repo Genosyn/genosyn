@@ -2,7 +2,12 @@ import { Router } from "express";
 import { Brackets } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
-import { requireAuth, requireCompanyMember, requireCompanyRole } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireBrowserSession,
+  requireCompanyMember,
+  requireCompanyRole,
+} from "../middleware/auth.js";
 
 /**
  * Read-only email-delivery log per company. Mounted under
@@ -18,6 +23,7 @@ export const emailLogsRouter = Router({ mergeParams: true });
 emailLogsRouter.use(requireAuth);
 emailLogsRouter.use(requireCompanyMember);
 emailLogsRouter.use(requireCompanyRole("admin"));
+emailLogsRouter.use(requireBrowserSession);
 
 const PAGE_SIZE_DEFAULT = 50;
 const PAGE_SIZE_MAX = 200;

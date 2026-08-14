@@ -143,7 +143,7 @@ function decryptStoredSecret(encrypted: string): string {
     // the admin page reports "not configured" instead of the handshake 500ing.
     // eslint-disable-next-line no-console
     console.warn(
-      "[sso] could not decrypt the stored SSO client secret (was sessionSecret rotated?) — SSO is unavailable until it is re-entered",
+      "[sso] could not decrypt the stored SSO client secret (was the encryption key rotated?) — SSO is unavailable until it is re-entered",
     );
     return "";
   }

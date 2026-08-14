@@ -24,6 +24,7 @@ const PATH_TO_SOURCE: Record<string, string> = {
   "/docs/explore": "Explore.tsx",
   "/docs/marketing": "Marketing.tsx",
   "/docs/workspace-chat": "WorkspaceChat.tsx",
+  "/docs/vault": "Vault.tsx",
   "/docs/self-hosting": "SelfHosting.tsx",
   "/docs/saas-hosting": "SaasHosting.tsx",
   "/docs/cli": "Cli.tsx",

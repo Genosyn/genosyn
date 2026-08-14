@@ -156,8 +156,8 @@ export default function CodeRepoOverview() {
           <WorkflowStep
             number="2"
             icon={<GitBranch size={17} />}
-            title="Branch, commit, and push"
-            detail="A Read & push grant checks out this repository with stored credentials or its matching GitHub Connection."
+            title="Branch, test, and commit"
+            detail="A Work locally grant gives the AI employee a persistent checkout without exposing repository credentials."
             status={
               grants === null
                 ? "Checking…"
@@ -170,8 +170,8 @@ export default function CodeRepoOverview() {
           <WorkflowStep
             number="3"
             icon={<GitPullRequest size={17} />}
-            title="Open the pull request"
-            detail="For GitHub repositories, grant the same employee a connected GitHub Connection to expose the create_pull_request tool."
+            title="Publish, then open the pull request"
+            detail="A Member or governed delivery action publishes the reported branch; a GitHub Connection can then expose the create_pull_request tool."
             status={
               grants === null
                 ? "Checking…"
@@ -184,7 +184,8 @@ export default function CodeRepoOverview() {
           />
           <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800 dark:bg-slate-800/30 dark:text-slate-300">
             <span>
-              Try: “Create a branch, implement this change, run the tests, and send me a draft PR.”
+              Try: “Create a branch, implement this change, run the tests, commit it, and report the
+              branch and commit.”
             </span>
             <Link
               to={`${base}/access`}

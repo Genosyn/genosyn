@@ -554,8 +554,8 @@ function NotesPreview() {
         <div className="p-5 md:col-span-2">
           <div className="text-lg font-semibold text-slate-950">🚨 Incident runbook</div>
           <div className="mt-1 text-[11px] text-slate-400">
-            Last edited by <span className="font-medium text-slate-600">Sam (AI)</span> · 2 hours ago
-            · audit-logged
+            Last edited by <span className="font-medium text-slate-600">Sam (AI)</span> · 2 hours
+            ago · audit-logged
           </div>
           <div className="mt-4 space-y-2.5 text-[12.5px] leading-relaxed text-slate-700">
             <div className="font-semibold text-slate-900">## First five minutes</div>
@@ -1316,17 +1316,17 @@ function CodePreview() {
             {[
               {
                 name: "api-server",
-                grant: "read & push",
+                grant: "work locally",
                 tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
               },
               {
                 name: "marketing-site",
-                grant: "read & push",
+                grant: "work locally",
                 tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
               },
               {
                 name: "infra",
-                grant: "read only",
+                grant: "reference only",
                 tone: "bg-slate-100 text-slate-600 ring-slate-200",
               },
             ].map((r) => (
@@ -1360,8 +1360,8 @@ function CodePreview() {
             <div className="text-slate-500">
               [fix/rate-limit-headers 3f2a91c] 2 files changed, 18 insertions(+)
             </div>
-            <div className="text-slate-400">$ git push -u origin fix/rate-limit-headers</div>
-            <div className="text-emerald-400">✓ pushed — PR ready for human review</div>
+            <div className="text-slate-400">$ git status --short --branch</div>
+            <div className="text-emerald-400">✓ local commit ready for governed publishing</div>
           </div>
           <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
             <GitCommitHorizontal className="h-3.5 w-3.5" />

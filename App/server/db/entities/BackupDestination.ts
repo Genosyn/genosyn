@@ -30,7 +30,7 @@ import {
  *
  * Kind-specific settings — including the SFTP password / private key and the
  * SMB password — live inside {@link encryptedConfig}, an AES-256-GCM blob
- * keyed from `config.sessionSecret` (same helper as model API keys,
+ * keyed from the instance encryption key ring (same helper as model API keys,
  * `lib/secret.ts`). The raw secret is never returned to the client; the
  * serializer surfaces only whether a credential is set. {@link hint} is a
  * plaintext, non-secret display string (e.g. `/mnt/nas`,

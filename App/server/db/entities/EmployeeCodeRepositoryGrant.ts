@@ -1,10 +1,4 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from "typeorm";
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
 /**
  * Two escalating capabilities a human grants an AI employee on a Code
@@ -13,8 +7,9 @@ import {
  *               fetched; the agent can read, branch, and commit locally, but
  *               `git push` is blocked (the push URL is disabled on the
  *               materialized checkout).
- *   - `write` → everything `read` allows, plus push. This is what "let this
- *               employee commit and push changes" means.
+ *   - `write` → records authority to prepare a local deliverable. Reusable
+ *               repository credentials still stay server-side; authenticated
+ *               publication needs a governed delivery or Member step.
  *
  * `read` is the floor because a private repo can't even be cloned without
  * credentials, so withholding a grant entirely (rather than granting `read`)

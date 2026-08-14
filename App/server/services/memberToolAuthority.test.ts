@@ -28,6 +28,9 @@ describe("interactive Member tool policy", () => {
       "send_chat_attachment",
       "run_explore_query",
       "create_chart",
+      "list_vault_items",
+      "create_vault_login",
+      "update_vault_login",
     ]) {
       assert.equal(memberToolPolicy(tool), "admin", tool);
     }

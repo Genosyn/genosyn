@@ -116,8 +116,22 @@ const sockets = new Set<ConnectedSocket>();
 /** userId → count of open sockets, scoped per company, for presence tracking. */
 const presenceCounts = new Map<string, Map<string, number>>();
 
-/** token → { userId, companyId, expiresAt } for short-lived WS upgrade auth. */
-type TokenRecord = { userId: string; companyId: string; expiresAt: number };
+/** Purpose-bound records for short-lived, single-use WS upgrade auth. */
+type WorkspaceTokenRecord = {
+  audience: "workspace";
+  userId: string;
+  companyId: string;
+  expiresAt: number;
+};
+type BrowserViewerTokenRecord = {
+  audience: "browser-viewer";
+  userId: string;
+  companyId: string;
+  employeeId: string;
+  sessionId: string;
+  expiresAt: number;
+};
+type TokenRecord = WorkspaceTokenRecord | BrowserViewerTokenRecord;
 const WS_TOKEN_TTL_MS = 60_000;
 const REALTIME_EVENT_TTL_MS = 5 * 60_000;
 const REALTIME_CHANNEL = "genosyn_realtime";
@@ -130,10 +144,31 @@ export function mintWsToken(userId: string, companyId: string): Promise<string> 
   return createAuthFlowState(
     "websocket",
     {
+      audience: "workspace",
       userId,
       companyId,
       expiresAt: Date.now() + WS_TOKEN_TTL_MS,
-    } satisfies TokenRecord,
+    } satisfies WorkspaceTokenRecord,
+    WS_TOKEN_TTL_MS,
+  );
+}
+
+export function mintBrowserViewerWsToken(
+  userId: string,
+  companyId: string,
+  employeeId: string,
+  sessionId: string,
+): Promise<string> {
+  return createAuthFlowState(
+    "websocket",
+    {
+      audience: "browser-viewer",
+      userId,
+      companyId,
+      employeeId,
+      sessionId,
+      expiresAt: Date.now() + WS_TOKEN_TTL_MS,
+    } satisfies BrowserViewerTokenRecord,
     WS_TOKEN_TTL_MS,
   );
 }
@@ -317,6 +352,14 @@ async function userHasMembership(userId: string, companyId: string): Promise<boo
   return m !== null;
 }
 
+async function userCanViewBrowserSession(userId: string, companyId: string): Promise<boolean> {
+  const membership = await AppDataSource.getRepository(Membership).findOneBy({
+    userId,
+    companyId,
+  });
+  return membership?.role === "owner" || membership?.role === "admin";
+}
+
 /**
  * Attach the WebSocket server to an HTTP server. Called once during boot
  * from server/index.ts so the HTTP and WS surfaces share a port (the Vite
@@ -377,12 +420,17 @@ export function attachRealtime(httpServer: HttpServer): WebSocketServer {
           socket.destroy();
           return;
         }
-        if (rec.companyId !== viewerMatch.cid) {
+        if (
+          rec.audience !== "browser-viewer" ||
+          rec.companyId !== viewerMatch.cid ||
+          rec.employeeId !== viewerMatch.eid ||
+          rec.sessionId !== viewerMatch.sid
+        ) {
           socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
           socket.destroy();
           return;
         }
-        const ok = await userHasMembership(rec.userId, rec.companyId);
+        const ok = await userCanViewBrowserSession(rec.userId, rec.companyId);
         if (!ok) {
           socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
           socket.destroy();
@@ -404,6 +452,8 @@ export function attachRealtime(httpServer: HttpServer): WebSocketServer {
         browserWss.handleUpgrade(req, socket, head, (ws) => {
           attachViewerSocket({
             sessionId: row.id,
+            companyId: row.companyId,
+            employeeId: row.employeeId,
             ws,
             userId: rec.userId,
           });
@@ -426,6 +476,11 @@ export function attachRealtime(httpServer: HttpServer): WebSocketServer {
       const rec = await consumeWsToken(token);
       if (!rec) {
         socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      if (rec.audience !== "workspace") {
+        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
         socket.destroy();
         return;
       }

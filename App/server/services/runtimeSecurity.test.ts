@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test, { afterEach, beforeEach } from "node:test";
 import { config } from "../../config.js";
+import { resetInstanceSecretsCacheForTests } from "../lib/instanceSecrets.js";
 import { secureSessionCookies, validateRuntimeSecurity } from "./runtimeSecurity.js";
 
 type MutableConfig = {
+  dataDir: string;
   agent: {
     browserEnabledInMultiTenant: boolean;
     codingTools: {
@@ -16,6 +21,7 @@ type MutableConfig = {
   db: {
     driver: "sqlite" | "postgres";
     postgresUrl: string;
+    sqlitePath: string;
   };
   security: {
     bootstrapMasterAdminEmail: string;
@@ -31,12 +37,18 @@ type MutableConfig = {
 
 const mutable = config as unknown as MutableConfig;
 let original: MutableConfig;
+let tempDir = "";
 
 beforeEach(() => {
   original = structuredClone(mutable);
+  tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-runtime-security-"));
+  mutable.dataDir = tempDir;
+  mutable.db.sqlitePath = path.join(tempDir, "app.sqlite");
+  resetInstanceSecretsCacheForTests();
 });
 
 afterEach(() => {
+  mutable.dataDir = original.dataDir;
   mutable.agent.browserEnabledInMultiTenant = original.agent.browserEnabledInMultiTenant;
   mutable.agent.codingTools.allowNetwork = original.agent.codingTools.allowNetwork;
   mutable.agent.codingTools.allowUnsafeHostExecution =
@@ -45,6 +57,7 @@ afterEach(() => {
   mutable.agent.maxConcurrentRunsPerCompany = original.agent.maxConcurrentRunsPerCompany;
   mutable.db.driver = original.db.driver;
   mutable.db.postgresUrl = original.db.postgresUrl;
+  mutable.db.sqlitePath = original.db.sqlitePath;
   mutable.security.bootstrapMasterAdminEmail = original.security.bootstrapMasterAdminEmail;
   mutable.security.encryptionSecret = original.security.encryptionSecret;
   mutable.security.multiTenant = original.security.multiTenant;
@@ -53,6 +66,8 @@ afterEach(() => {
   mutable.security.sessionMaxAgeDays = original.security.sessionMaxAgeDays;
   mutable.security.trustedProxyHops = original.security.trustedProxyHops;
   mutable.sessionSecret = original.sessionSecret;
+  resetInstanceSecretsCacheForTests();
+  fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
 test("explicit cookie settings override automatic detection", () => {
@@ -92,6 +107,13 @@ test("self-hosted defaults remain bootable", () => {
   assert.equal(config.agent.codingTools.executionMode, "disabled");
   assert.equal(config.agent.codingTools.allowUnsafeHostExecution, false);
   assert.equal(config.agent.codingTools.allowNetwork, false);
+});
+
+test("self-hosted explicit weak secrets fail instead of bypassing managed defaults", () => {
+  mutable.security.multiTenant = false;
+  mutable.sessionSecret = "explicit-but-short";
+  mutable.security.encryptionSecret = "also-explicit-but-short";
+  assert.throws(validateRuntimeSecurity, /Unsafe self-hosted secret configuration/);
 });
 
 test("unsafe shared hosting reports every actionable boundary at once", () => {

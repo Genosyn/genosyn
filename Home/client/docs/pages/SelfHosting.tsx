@@ -50,11 +50,13 @@ export function SelfHosting() {
   // HTTP port.
   port: 8471,
 
-  // 32+ random bytes. Rotate to log everyone out.
+  // Default self-host installs replace this placeholder with a durable,
+  // generated value under dataDir. An explicit 32+ character value wins.
   sessionSecret: "change-me-in-production",
 
   security: {
     multiTenant: false,
+    // Managed separately from the cookie secret on default self-host installs.
     encryptionSecret: "change-me-in-production-too",
     previousEncryptionSecrets: [],
     secureCookies: "auto",
@@ -103,21 +105,22 @@ export function SelfHosting() {
         other independent Routines for the same employee. Increase it only when your AI Model quotas
         and host capacity can support the extra parallel requests.
       </P>
-      <Callout kind="info" title="Coding tools require an isolated Linux deployment.">
-        Coding execution is disabled by default because a host shell shares the App process user and
-        can read outside an AI Employee&apos;s working directory. To enable coding tools or use
-        ChatGPT subscription auth, run Genosyn from source on Linux, set the mode to{" "}
-        <Code>bubblewrap</Code>, and confirm the model card reports that the isolation check passed.
-        The standard Docker installer does not currently relax Docker&apos;s namespace policy, so
-        subscription auth remains unavailable in that container; API-key and custom-endpoint models
-        continue to work normally. Do not make the App container privileged or disable its security
-        profile just to bypass the check.
+      <Callout kind="info" title="Subscription auth needs an isolated Linux deployment.">
+        Coding execution is disabled by default. Host mode can expose only the path-confined file and
+        search tools; it never gives an AI Employee an unrestricted shell that could read App data,
+        Vault keys, or sibling process tokens. To use sandboxed bash or ChatGPT subscription auth,
+        run Genosyn from source on Linux, set the mode to <Code>bubblewrap</Code>, and confirm the
+        model card reports that the isolation check passed. The standard Docker installer does not
+        currently relax Docker&apos;s namespace policy, so subscription auth remains unavailable in
+        that container; API-key and custom-endpoint models continue to work normally. Do not make
+        the App container privileged or disable its security profile just to bypass the check.
       </Callout>
       <Callout kind="warn" title="Host execution is an explicit unsafe compatibility mode.">
         A trusted, single-company operator can select <Code>host</Code> and separately set{" "}
-        <Code>allowUnsafeHostExecution: true</Code>. This gives every coding-enabled AI Employee the
-        App container&apos;s filesystem and network authority; never use it for multiple companies
-        or with untrusted Members, prompts, Skills, repositories, or content.
+        <Code>allowUnsafeHostExecution: true</Code> to let Genosyn&apos;s repository Git operations run
+        outside bubblewrap. AI Employees still receive no host shell, but those server-owned Git
+        children share the App process user&apos;s filesystem and network authority. Never use it for
+        multiple companies or with untrusted Members, prompts, Skills, repositories, or content.
       </Callout>
 
       <H2 id="public-url">Public URL</H2>
@@ -167,9 +170,13 @@ export function SelfHosting() {
       </P>
       <pre className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-slate-700">
         {`data/
+├── .instance-secrets.json
+├── .instance-secrets.required
+├── .private/
+│   ├── browser-state/<company-id>/<employee-id>.json
+│   └── code-repository-ssh/<company-id>/<employee-id>.known_hosts
 ├── app.sqlite
 └── companies/<co-slug>/employees/<emp-slug>/
-    ├── .browser-state.json
     ├── repos/
     ├── code-repos/
     └── ...`}
@@ -179,6 +186,16 @@ export function SelfHosting() {
         volume <Code>genosyn-data</Code> there — back that volume up and you&apos;ve backed up
         everything.
       </P>
+      <Callout kind="warn" title="Back up the managed instance secrets with the database">
+        When the stock placeholders remain, a default self-host install atomically creates strong,
+        distinct values in <Code>data/.instance-secrets.json</Code> with file mode <Code>0600</Code>
+        . Its non-secret <Code>.instance-secrets.required</Code> marker prevents a missing key from
+        being replaced silently, and the database stores a matching non-secret key ID so replacing
+        or losing both files stops startup. Keep the whole data directory together: losing the
+        secret file makes data encrypted with its managed key unreadable. Never expose its values in
+        logs, support bundles, employee working trees, or source control. Explicit strong values in{" "}
+        <Code>config.ts</Code> remain supported and take precedence.
+      </Callout>
 
       <H2 id="email">Email</H2>
       <P>
@@ -217,16 +234,20 @@ export function SelfHosting() {
         redacted from the stored preview.
       </P>
 
-      <H2 id="secrets">Secrets</H2>
-      <P>Three places store secrets, each for a different lifecycle:</P>
+      <H2 id="secrets">Secrets and the Password Vault</H2>
+      <P>
+        Genosyn stores several kinds of sensitive value, each with a different lifecycle. In
+        particular, environment Secrets and Password Vault items are separate products:
+      </P>
       <KeyList
         rows={[
           {
             term: "sessionSecret",
             def: (
               <>
-                In <Code>config.ts</Code>. Used to sign cookies. Rotating it invalidates every
-                session.
+                Used to sign cookies. Default self-host placeholders resolve to the managed
+                per-install value; an explicit strong <Code>config.ts</Code> value takes precedence.
+                Rotation invalidates every session.
               </>
             ),
           },
@@ -235,8 +256,8 @@ export function SelfHosting() {
             def: (
               <>
                 Master for scoped AES-256-GCM data-encryption keys. Rotate by moving the old value
-                into <Code>previousEncryptionSecrets</Code>
-                while new writes use the new value.
+                into <Code>previousEncryptionSecrets</Code> while new writes use the new value.
+                Default self-host placeholders resolve to the distinct managed encryption key.
               </>
             ),
           },
@@ -250,17 +271,30 @@ export function SelfHosting() {
             ),
           },
           {
-            term: "Secret entity",
+            term: "Environment Secret",
             def: (
               <>
-                Free-form encrypted key/value pairs scoped to a company, editable from{" "}
-                <Code>Settings → Secrets</Code>. Surfaced to Pipelines.
+                A <Code>Secret</Code> row is an encrypted key/value pair scoped to a company,
+                editable from <Code>Settings → Secrets</Code>. It is surfaced to coding-tool
+                environments and Pipelines by name. It has no human reveal flow or item-level AI
+                Employee Grant.
+              </>
+            ),
+          },
+          {
+            term: "Password Vault item",
+            def: (
+              <>
+                A separate encrypted <Code>VaultItem</Code> for a login, API key, or secure note,
+                managed from <Strong>Vault</Strong>. Member access and AI Employee Grants are set
+                per item; AI browser autofill uses the value server-side instead of injecting it
+                into an environment or returning it to the model. See{" "}
+                <DocLink to="/docs/vault">Vault</DocLink>.
               </>
             ),
           },
         ]}
       />
-
       <H2 id="admin">Admin &amp; instance health</H2>
       <P>
         Install-wide operations live under the <Code>Admin</Code> section (your avatar menu →{" "}
@@ -445,7 +479,8 @@ export function SelfHosting() {
       <H2 id="backups">Backups</H2>
       <P>
         A backup zips the <em>entire</em> data directory — every company&apos;s rows, uploads, and
-        credentials — so it is install-wide, not per company. Run one from the CLI:
+        credentials, including the hidden managed <Code>.instance-secrets.json</Code> file — so it
+        is install-wide, not per company. Run one from the CLI:
       </P>
       <Pre lang="bash">{`genosyn backup --out ~/backups/genosyn-$(date +%F).tar.gz
 genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
@@ -465,6 +500,13 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         swept on the next start. Restoring also opens the archive before it touches anything, so a
         damaged file is refused up front rather than part-way through replacing your data.
       </P>
+      <Callout kind="warn" title="Treat every backup like the live Vault">
+        Every archive contains both encrypted credentials and the installation key that can decrypt
+        them, so it is a plaintext-equivalent secret bundle. Genosyn creates local in-app, mounted
+        path, and CLI archives with file mode <Code>0600</Code>, but you must still restrict who can
+        read, copy, or restore them. TLS or SSH protects a backup while it is moving; it does not
+        encrypt the archive after it reaches its destination.
+      </Callout>
 
       <H3 id="off-box-destinations">Off-box destinations (NAS / remote volumes)</H3>
       <P>

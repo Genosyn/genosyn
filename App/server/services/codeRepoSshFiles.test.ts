@@ -2,48 +2,102 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import { after, before, beforeEach, describe, test } from "node:test";
+import { config } from "../../config.js";
 import {
   persistCodeRepoKnownHosts,
-  persistCodeRepoSshKey,
+  purgeLegacyCodeRepoSshFiles,
   readCodeRepoKnownHosts,
 } from "./codeRepoSshFiles.js";
+import { employeeCodeRepoKnownHostsFile } from "./paths.js";
 
-test("SSH key persistence replaces a final symlink without truncating its target", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-ssh-final-link-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const workspace = path.join(root, "workspace");
-  const sshDirectory = path.join(workspace, "code-repos", ".ssh");
-  const outside = path.join(root, "outside-key");
-  fs.mkdirSync(sshDirectory, { recursive: true });
-  fs.writeFileSync(outside, "outside-must-not-change\n");
-  fs.symlinkSync(outside, path.join(sshDirectory, "repo-id"));
+const originalDataDir = config.dataDir;
+const mutableConfig = config as unknown as { dataDir: string };
+let root = "";
 
-  const keyPath = persistCodeRepoSshKey(workspace, "repo-id", "private-key");
-
-  assert.equal(fs.readFileSync(outside, "utf8"), "outside-must-not-change\n");
-  assert.equal(fs.lstatSync(keyPath).isFile(), true);
-  assert.equal(fs.readFileSync(keyPath, "utf8"), "private-key\n");
+before(() => {
+  root = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-code-repo-state-"));
+  mutableConfig.dataDir = path.join(root, "data");
 });
 
-test("a symlinked SSH directory cannot redirect reads or writes outside the workspace", (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-ssh-parent-link-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const workspace = path.join(root, "workspace");
-  const codeRepos = path.join(workspace, "code-repos");
-  const outside = path.join(root, "outside");
-  fs.mkdirSync(codeRepos, { recursive: true });
-  fs.mkdirSync(outside);
-  fs.writeFileSync(path.join(outside, "repo-id"), "outside-key\n");
-  fs.writeFileSync(path.join(outside, "known_hosts"), "outside-known-host\n");
-  fs.symlinkSync(outside, path.join(codeRepos, ".ssh"));
-  const outsideEntries = fs.readdirSync(outside).sort();
+beforeEach(() => {
+  fs.rmSync(mutableConfig.dataDir, { recursive: true, force: true });
+});
 
-  assert.throws(() => readCodeRepoKnownHosts(workspace));
-  assert.throws(() => persistCodeRepoSshKey(workspace, "repo-id", "replacement-key"));
-  assert.throws(() => persistCodeRepoKnownHosts(workspace, "replacement-known-host\n"));
+after(() => {
+  mutableConfig.dataDir = originalDataDir;
+  fs.rmSync(root, { recursive: true, force: true });
+});
 
-  assert.equal(fs.readFileSync(path.join(outside, "repo-id"), "utf8"), "outside-key\n");
-  assert.equal(fs.readFileSync(path.join(outside, "known_hosts"), "utf8"), "outside-known-host\n");
-  assert.deepEqual(fs.readdirSync(outside).sort(), outsideEntries);
+describe("private Code Repository SSH state", () => {
+  test("stores only known_hosts outside the model-visible workspace with private modes", () => {
+    const workspace = path.join(root, "workspace");
+    fs.mkdirSync(workspace, { recursive: true });
+
+    persistCodeRepoKnownHosts("company", "employee", "github.com ssh-ed25519 AAAA\n");
+
+    const file = employeeCodeRepoKnownHostsFile("company", "employee");
+    assert.equal(readCodeRepoKnownHosts("company", "employee"), "github.com ssh-ed25519 AAAA\n");
+    assert.equal(file.startsWith(workspace), false);
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
+    assert.deepEqual(fs.readdirSync(path.dirname(file)), ["employee.known_hosts"]);
+  });
+
+  test("rejects symlinked or hard-linked private known-host files", () => {
+    const file = employeeCodeRepoKnownHostsFile("company", "employee");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const outside = path.join(root, "outside-known-hosts");
+    fs.writeFileSync(outside, "outside\n");
+    fs.symlinkSync(outside, file);
+    assert.throws(() => persistCodeRepoKnownHosts("company", "employee", "replacement\n"));
+    assert.equal(fs.readFileSync(outside, "utf8"), "outside\n");
+
+    fs.unlinkSync(file);
+    fs.writeFileSync(file, "original\n");
+    fs.linkSync(file, path.join(root, "known-hosts-alias"));
+    assert.throws(() => readCodeRepoKnownHosts("company", "employee"), /private regular file/);
+  });
+});
+
+describe("legacy workspace SSH cleanup", () => {
+  test("removes legacy keys and symlinks without following them", () => {
+    const workspace = path.join(root, "workspace-cleanup");
+    const legacy = path.join(workspace, "code-repos", ".ssh");
+    const outside = path.join(root, "outside-key");
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(path.join(legacy, "repo-id"), "PRIVATE_KEY\n", { mode: 0o600 });
+    fs.writeFileSync(path.join(legacy, "known_hosts"), "host key\n", { mode: 0o600 });
+    fs.writeFileSync(outside, "outside-must-not-change\n");
+    fs.symlinkSync(outside, path.join(legacy, "outside-link"));
+
+    purgeLegacyCodeRepoSshFiles(workspace);
+
+    assert.equal(fs.existsSync(legacy), false);
+    assert.equal(fs.readFileSync(outside, "utf8"), "outside-must-not-change\n");
+  });
+
+  test("fails closed when a legacy private key has another hardlink", () => {
+    const workspace = path.join(root, "workspace-hardlink");
+    const legacy = path.join(workspace, "code-repos", ".ssh");
+    fs.mkdirSync(legacy, { recursive: true });
+    const key = path.join(legacy, "repo-id");
+    fs.writeFileSync(key, "PRIVATE_KEY\n", { mode: 0o600 });
+    fs.linkSync(key, path.join(workspace, "key-alias.txt"));
+
+    assert.throws(() => purgeLegacyCodeRepoSshFiles(workspace), /unsafe hard link/);
+    assert.equal(fs.readFileSync(path.join(workspace, "key-alias.txt"), "utf8"), "PRIVATE_KEY\n");
+  });
+
+  test("never follows a symlinked code-repos parent", () => {
+    const workspace = path.join(root, "workspace-parent-link");
+    const outside = path.join(root, "outside-code-repos");
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.mkdirSync(path.join(outside, ".ssh"), { recursive: true });
+    fs.writeFileSync(path.join(outside, ".ssh", "repo-id"), "OUTSIDE_KEY\n");
+    fs.symlinkSync(outside, path.join(workspace, "code-repos"));
+
+    assert.throws(() => purgeLegacyCodeRepoSshFiles(workspace), /not a private directory/);
+    assert.equal(fs.readFileSync(path.join(outside, ".ssh", "repo-id"), "utf8"), "OUTSIDE_KEY\n");
+  });
 });

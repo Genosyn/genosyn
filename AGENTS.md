@@ -165,12 +165,31 @@ Everything user-generated lives under `config.dataDir` (default `./data`):
 
 ```
 data/
+├── .instance-secrets.json  # generated cookie + encryption roots (mode 0600)
+├── .instance-secrets.required # non-secret loss-detection marker (mode 0600)
+├── .private/
+│   ├── browser-state/<company-id>/<employee-id>.json # cookies/localStorage
+│   └── code-repository-ssh/<company-id>/<employee-id>.known_hosts
 ├── app.sqlite
 └── companies/<company-slug>/employees/<emp-slug>/
     ├── repos/  code-repos/    # git working trees the coding tools operate on
-    ├── .browser-state.json    # Playwright storage state (cookies/localStorage)
     └── …                      # artifacts the agent's tools write into cwd
 ```
+
+Default self-host installs create `.instance-secrets.json` and its non-secret
+loss-detection marker atomically when the public placeholders remain in
+`config.ts`. Back both up with the database: losing the managed encryption key
+makes ciphertext unreadable, and the marker makes a missing key fail closed
+instead of silently creating a new identity. A matching non-secret key ID in
+the database also detects loss or replacement of both files after database
+initialization. Never copy secret values into logs, employee working trees,
+support bundles, or source control. Explicit strong config values remain
+supported and take precedence.
+
+Browser authentication state and repository SSH host-key caches are App-private.
+Repository tokens and SSH private keys are decrypted only for short-lived,
+server-owned clone/fetch operations; they are never written into an employee
+working tree or injected into model coding tools.
 
 - **The database is the source of truth** for Soul, Skill, and Routine prose
   (`AIEmployee.soulBody`, `Skill.body`, `Routine.body`), for captured Run
@@ -189,9 +208,11 @@ data/
   config files. API-key and custom models receive tools from Genosyn's
   in-process loop; OpenAI subscription models run through the official
   pinned `@openai/codex` app-server with the same Genosyn-owned tool registry:
-    * built-in **coding tools** (`bash`, `read_file`, `write_file`,
-      `edit_file`, `list_dir`, `glob`, `grep`), rooted at the employee cwd.
-      Subscription auth is available only when coding tools use `bubblewrap`,
+    * built-in **coding tools**. Host mode exposes only the path-confined
+      `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, and `grep`
+      tools; it never exposes an unrestricted same-UID shell. Bubblewrap mode
+      exposes only sandboxed `bash`, rooted at the employee cwd. Subscription
+      auth is available only when coding tools use `bubblewrap`,
       whose private PID and `/tmp` namespaces isolate the sibling app-server's
       materialized credential. Every model turn in a bubblewrap deployment
       exposes only the sandboxed `bash` tool from this family; the in-process

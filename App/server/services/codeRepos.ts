@@ -18,7 +18,6 @@ import {
   assertSafeCredentialToken,
   assertSafeGitRemoteUrl,
   clearEnvCredentialHelper,
-  configureEnvCredentialHelper,
   inlineEnvCredentialHelper,
 } from "./gitCredentialHelper.js";
 import type { GithubRepoCredential } from "./repoSync.js";
@@ -26,7 +25,7 @@ import { runWorkspaceGit } from "./workspaceGit.js";
 import { cloneWorkspaceGitRemote, fetchWorkspaceGitRemote } from "./workspaceGitRemote.js";
 import {
   persistCodeRepoKnownHosts,
-  persistCodeRepoSshKey,
+  purgeLegacyCodeRepoSshFiles,
   readCodeRepoKnownHosts,
 } from "./codeRepoSshFiles.js";
 
@@ -41,18 +40,14 @@ import {
  *
  * Before each chat / routine spawn the runner calls
  * {@link materializeCodeReposForEmployee}, which drops a real `git clone`
- * of every granted repo into `<employeeDir>/code-repos/<slug>/` and wires
- * up credentials so the agent's ordinary `git fetch` / `commit` / `push`
- * Just Work. As in `repoSync`, we only ever `fetch` on an existing
- * checkout (never `reset --hard`) so the agent's WIP between spawns is
+ * of every granted repo into `<employeeDir>/code-repos/<slug>/`. As in
+ * `repoSync`, we only ever `fetch` on an existing
+ * checkout (never `reset --hard`) so the employee's WIP between spawns is
  * never trampled.
  *
- * Credential handling mirrors `repoSync`'s "token never lands on disk"
- * rule for HTTPS: the token is handed to git through a per-repo env var
- * (`GENOSYN_REPO_TOKEN_<id>`) the runner sets for the turn, read back by
- * an inline credential helper in local git config. SSH is the one exception
- * — git needs a private-key *file*, so the key is written under the employee's
- * data dir (gitignored) with mode 0600 and pinned via `core.sshCommand`.
+ * Credentials are handed only to the short-lived, server-owned clone/fetch
+ * workspace. Tokens and SSH private keys never enter the model-visible
+ * checkout, its Git config, or the model tool environment.
  */
 
 // ───────────────────────────── slugs ────────────────────────────────────
@@ -198,21 +193,6 @@ function sshCommandFor(keyPath: string): string {
   return `ssh -i ${q(keyPath)} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=${q(knownHosts)}`;
 }
 
-async function configureCredentialHelper(
-  workspaceRoot: string,
-  repoPath: string,
-  username: string,
-  envKey: string,
-  remoteUrl: string,
-): Promise<void> {
-  await configureEnvCredentialHelper(
-    (args) => runGit(workspaceRoot, repoPath, args),
-    username,
-    envKey,
-    remoteUrl,
-  );
-}
-
 // In-process mutex per (employeeId × repoId) so two concurrent spawns can't
 // race on the same checkout.
 const inflight = new Map<string, Promise<unknown>>();
@@ -243,8 +223,8 @@ export type SyncedCodeRepo = {
 export type CodeRepoSyncError = { scope: string; message: string };
 
 export type CodeRepoSyncResult = {
-  /** Env vars to merge into the spawn so the agent's `git push` finds the
-   *  matching token. Keys: `GENOSYN_REPO_TOKEN_<id>`. */
+  /** Reserved compatibility field. Repository credentials are never exported
+   * to the model tool environment, so this is always empty. */
   extraEnv: Record<string, string>;
   repos: SyncedCodeRepo[];
   errors: CodeRepoSyncError[];
@@ -269,6 +249,7 @@ export async function materializeCodeReposForEmployee(args: {
     id: args.employeeId,
   });
   if (!employee) return result;
+  purgeLegacyCodeRepoSshFiles(args.cwd);
 
   const grants = await AppDataSource.getRepository(EmployeeCodeRepositoryGrant).find({
     where: { employeeId: args.employeeId },
@@ -344,18 +325,6 @@ async function syncOneRepo(
 
   const envKey = linkedGithubCredential?.envKey ?? envKeyFor(repo.id);
   const httpsUsername = linkedGithubCredential ? "x-access-token" : httpsUsernameOf(repo);
-  let sshCommand: string | undefined;
-
-  if (repo.authMode === "ssh" && sshKey) {
-    const keyPath = persistCodeRepoSshKey(cwd, repo.id, sshKey);
-    sshCommand = sshCommandFor(workspaceVisiblePath(cwd, keyPath));
-  }
-  if (repo.authMode === "https" && token) {
-    result.extraEnv[envKey] = token;
-  }
-  if (linkedGithubCredential) {
-    result.extraEnv[envKey] = linkedGithubCredential.token;
-  }
   const credentialEnv = token ? { [envKey]: token } : {};
   const credentialHelper = token
     ? inlineEnvCredentialHelper(httpsUsername, envKey, repo.gitUrl)
@@ -364,7 +333,7 @@ async function syncOneRepo(
     repo.authMode === "ssh" && sshKey
       ? {
           privateKey: sshKey,
-          knownHosts: readCodeRepoKnownHosts(cwd),
+          knownHosts: readCodeRepoKnownHosts(employee.companyId, employee.id),
         }
       : undefined;
   let syncedKnownHosts: string | undefined;
@@ -385,13 +354,6 @@ async function syncOneRepo(
     syncedKnownHosts = cloneResult.sshKnownHosts;
     await runGit(cwd, repoPath, ["remote", "set-url", "origin", repo.gitUrl]);
   } else {
-    // Install/refresh the helper before fetch so a pre-existing private
-    // checkout can authenticate even if it predates Genosyn's helper wiring.
-    if (token) {
-      await configureCredentialHelper(cwd, repoPath, httpsUsername, envKey, repo.gitUrl);
-    } else {
-      await clearCredentialHelper(cwd, repoPath);
-    }
     await runGit(cwd, repoPath, ["remote", "set-url", "origin", repo.gitUrl]);
     // Existing checkout: refresh refs from only the trusted configured URL.
     // Never visit remotes an AI Employee added to the writable local config.
@@ -406,28 +368,19 @@ async function syncOneRepo(
     syncedKnownHosts = fetchResult.sshKnownHosts;
   }
 
-  if (syncedKnownHosts !== undefined) persistCodeRepoKnownHosts(cwd, syncedKnownHosts);
-
-  // Pin per-repo wiring every spawn (idempotent — settings may have changed
-  // between spawns, e.g. a grant downgraded from write to read).
-  if (sshCommand) {
-    await runGit(cwd, repoPath, ["config", "--local", "core.sshCommand", sshCommand]);
-  } else {
-    // Drop any stale sshCommand if the repo flipped away from SSH.
-    await runGit(cwd, repoPath, ["config", "--local", "--unset", "core.sshCommand"]).catch(
-      () => {},
-    );
-  }
-  if (token) {
-    await configureCredentialHelper(cwd, repoPath, httpsUsername, envKey, repo.gitUrl);
-  } else {
-    await clearCredentialHelper(cwd, repoPath);
+  if (syncedKnownHosts !== undefined) {
+    persistCodeRepoKnownHosts(employee.companyId, employee.id, syncedKnownHosts);
   }
 
-  // Read-only grants get their push URL disabled so an accidental `git push`
-  // fails fast with a message naming the missing grant, rather than silently
-  // succeeding on a token that happens to carry write scope.
-  if (accessLevel === "write") {
+  // The checkout is model-writable. Remove reusable helpers and key paths left
+  // by older releases after the credentialed server operation completes.
+  await clearCredentialHelper(cwd, repoPath);
+  await runGit(cwd, repoPath, ["config", "--local", "--unset", "core.sshCommand"]).catch(() => {});
+
+  // Only a genuinely credential-free writable remote may be exposed to the
+  // model shell. Authenticated remotes are refreshed server-side but never get
+  // a reusable credential or credentialed push path.
+  if (accessLevel === "write" && repo.authMode === "none" && !linkedGithubCredential) {
     await runGit(cwd, repoPath, ["remote", "set-url", "--push", "origin", repo.gitUrl]);
   } else {
     await runGit(cwd, repoPath, ["remote", "set-url", "--push", "origin", NO_PUSH_URL]);
@@ -571,9 +524,9 @@ export const CODE_REPO_AUTH_MODES: CodeRepoAuthMode[] = ["none", "https", "ssh"]
 
 /**
  * A ready-made markdown section listing the Code Repositories this employee
- * can work on, where each is checked out, and whether it may push. Injected
+ * can work on and where each is checked out. Injected
  * into the chat / routine prompt so the agent knows the working trees exist
- * and that `git push` is already wired up for it. Returns "" when the
+ * without exposing repository credentials. Returns "" when the
  * employee has no repo grants.
  */
 export async function composeCodeReposContext(employeeId: string): Promise<string> {
@@ -599,12 +552,14 @@ export async function composeCodeReposContext(employeeId: string): Promise<strin
   const lines: string[] = [];
   for (const r of repos) {
     const level = accessById.get(r.id);
-    const canPush = level === "write";
+    const canPushWithoutCredential = level === "write" && r.authMode === "none";
     lines.push(
       `- **${r.name}** — checked out at \`code-repos/${r.slug}/\` (default branch \`${r.defaultBranch}\`). ${
-        canPush
-          ? "You may commit and `git push`."
-          : "Read-only — commit locally if useful, but pushing is disabled for you."
+        canPushWithoutCredential
+          ? "You may commit and push if the remote accepts unauthenticated writes."
+          : level === "write"
+            ? "You may edit and commit locally; direct credentialed pushing is disabled."
+            : "Read-only — commit locally if useful, but pushing is disabled for you."
       }`,
     );
   }
@@ -613,8 +568,8 @@ export async function composeCodeReposContext(employeeId: string): Promise<strin
   return [
     "",
     "## Code Repositories",
-    "You have real git checkouts of these repositories in your working directory. Use ordinary `git` to read, branch, commit, and (where allowed) push — credentials and the committer identity are already configured, so you do not need to set up remotes or tokens.",
-    "When a teammate asks you to deliver a code change, carry the work through: create a focused branch, edit the files with your coding tools, run the relevant checks, commit, and push. If a matching GitHub `*_create_pull_request` tool is available, call it after pushing to open the requested pull request (draft when requested). Never claim a pull request exists unless the tool returned it; if no PR tool is available, say that a GitHub Connection grant is needed and report the pushed branch instead.",
+    "You have real git checkouts of these repositories in your working directory. Use ordinary `git` to read, branch, edit, test, and commit. Repository credentials stay server-side and are never available to your shell or files; do not look for, print, or request tokens or private keys.",
+    "When a teammate asks you to deliver a code change, create a focused branch, edit the files with your coding tools, run the relevant checks, and commit. For an authenticated remote, report the local branch and commit so a governed server-side or Member workflow can publish it; never claim a push or pull request exists unless the corresponding operation actually succeeded.",
     "",
     ...lines,
   ].join("\n");

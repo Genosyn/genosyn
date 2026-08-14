@@ -14,7 +14,7 @@ import { decryptProviderConfig } from "./email.js";
 
 /**
  * Service layer for `EmailProvider` rows. Wraps the repo with:
- *  - encrypt/decrypt of the config blob (same sessionSecret-derived key as
+ *  - encrypt/decrypt of the config blob (same scoped encryption key ring as
  *    Secrets / IntegrationConnections).
  *  - default-row uniqueness — enabling `isDefault` on one row clears it on
  *    the others atomically.

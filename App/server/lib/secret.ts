@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
-import { config } from "../../config.js";
+
+import { getEffectiveInstanceSecrets, isStrongInstanceSecret } from "./instanceSecrets.js";
 
 const VERSION = "v2";
 const KEY_BYTES = 32;
@@ -23,17 +24,14 @@ function scopedKey(master: string, scope: string): Buffer {
   );
 }
 
-function legacyKey(): Buffer {
-  return crypto.createHash("sha256").update(config.sessionSecret).digest();
+function legacyKey(secret: string): Buffer {
+  return crypto.createHash("sha256").update(secret).digest();
 }
 
 export function encryptSecret(plaintext: string, scope = "instance"): string {
+  const { encryptionSecret } = getEffectiveInstanceSecrets();
   const iv = crypto.randomBytes(IV_BYTES);
-  const cipher = crypto.createCipheriv(
-    "aes-256-gcm",
-    scopedKey(config.security.encryptionSecret, scope),
-    iv,
-  );
+  const cipher = crypto.createCipheriv("aes-256-gcm", scopedKey(encryptionSecret, scope), iv);
   cipher.setAAD(Buffer.from(`${VERSION}:${scope}`, "utf8"));
   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
@@ -46,7 +44,7 @@ export function encryptSecret(plaintext: string, scope = "instance"): string {
   ].join(".");
 }
 
-function decryptV2(blob: string): string {
+function decryptV2(blob: string, masters: readonly string[]): string {
   const parts = blob.split(".");
   if (parts.length !== 5 || parts[0] !== VERSION) {
     throw new Error("Unsupported encrypted-secret format");
@@ -60,7 +58,6 @@ function decryptV2(blob: string): string {
     throw new Error("Invalid encrypted-secret payload");
   }
 
-  const masters = [config.security.encryptionSecret, ...config.security.previousEncryptionSecrets];
   for (const master of masters) {
     try {
       const decipher = crypto.createDecipheriv("aes-256-gcm", scopedKey(master, scope), iv);
@@ -76,15 +73,40 @@ function decryptV2(blob: string): string {
 
 /** Read both scoped v2 ciphertexts and legacy sessionSecret-derived rows. */
 export function decryptSecret(blob: string): string {
-  if (blob.startsWith(`${VERSION}.`)) return decryptV2(blob);
+  if (blob.startsWith(`${VERSION}.`)) {
+    return decryptV2(blob, getEffectiveInstanceSecrets().encryptionDecryptionSecrets);
+  }
   const buf = Buffer.from(blob, "base64");
   if (buf.length < IV_BYTES + TAG_BYTES) throw new Error("Invalid encrypted-secret payload");
   const iv = buf.subarray(0, IV_BYTES);
   const tag = buf.subarray(IV_BYTES, IV_BYTES + TAG_BYTES);
   const encrypted = buf.subarray(IV_BYTES + TAG_BYTES);
-  const decipher = crypto.createDecipheriv("aes-256-gcm", legacyKey(), iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
+  for (const sessionSecret of getEffectiveInstanceSecrets().legacySessionDecryptionSecrets) {
+    try {
+      const decipher = crypto.createDecipheriv("aes-256-gcm", legacyKey(sessionSecret), iv);
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
+    } catch {
+      // Try the next managed/configured/placeholder compatibility key.
+    }
+  }
+  throw new Error("Legacy encrypted secret could not be decrypted with the configured key ring");
+}
+
+/**
+ * Read a v2 ciphertext only with private, strong keys. New security-sensitive
+ * formats such as Vault items have no legitimate placeholder-key history, so
+ * accepting the public self-host compatibility key would permit DB-write
+ * forgery on an upgraded installation.
+ */
+export function decryptSecretWithStrongKeys(blob: string): string {
+  if (!blob.startsWith(`${VERSION}.`)) {
+    throw new Error("A scoped v2 encrypted secret is required");
+  }
+  return decryptV2(
+    blob,
+    getEffectiveInstanceSecrets().encryptionDecryptionSecrets.filter(isStrongInstanceSecret),
+  );
 }
 
 /** Mask for display: `sk-...abc123` → `sk-…c123`. */

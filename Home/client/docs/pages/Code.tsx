@@ -23,7 +23,7 @@ export function CodeRepositories() {
           <>
             Add any git repository to your company and grant the AI employees you choose access to
             work on it. Each granted employee gets a real checkout in its workspace — read, branch,
-            commit, and <Strong>push</Strong>, all with ordinary <Code>git</Code>.
+            edit, test, and commit with ordinary <Code>git</Code>.
           </>
         }
       />
@@ -35,12 +35,13 @@ export function CodeRepositories() {
         or a self-hosted server over HTTPS or SSH. Unlike a read-only API integration, this gives
         employees an editable working tree: the runner clones each granted repo into{" "}
         <Code>code-repos/&lt;slug&gt;/</Code> inside the employee&apos;s workspace before every chat
-        and routine run, with credentials and the committer identity already wired up.
+        and Routine Run, with the committer identity already configured. Credentials stay in the
+        server-owned refresh operation and never enter that working tree.
       </P>
 
       <Callout kind="info" title="Access is opt-in, per employee.">
         Adding a repository does not expose it to anyone. You decide which employees can touch it,
-        and whether each may only read or also push.
+        and whether each is reference-only or authorized to prepare a local change.
       </Callout>
 
       <H2 id="add">Adding a repository</H2>
@@ -63,7 +64,7 @@ export function CodeRepositories() {
         </LI>
         <LI>
           Use the repository side menu to open <Strong>AI access</Strong>, add an employee, and
-          choose <Strong>Read &amp; push</Strong> when it should deliver branches or pull requests.
+          choose <Strong>Work locally</Strong> when it should prepare branches and commits.
         </LI>
       </OL>
 
@@ -95,30 +96,37 @@ export function CodeRepositories() {
           HTTPS GitHub URL, Genosyn automatically reuses a GitHub Connection granted to the same
           employee. An exact owner/repository allowlist match wins; when the employee has only one
           GitHub Connection, the Code Repository grant itself is the repository boundary. The token
-          powers both fetch and push without being copied onto the Code Repository row. Without a
-          matching Connection, pushing is rejected by the remote.
+          is used only by Genosyn&apos;s server-owned clone/refresh operation and is never exposed
+          to the AI employee.
         </LI>
         <LI>
-          <Strong>HTTPS token / password.</Strong> A username plus a personal access token (with
-          repo read/write scope). The token is handed to git at run time through an environment
-          variable and <Strong>never lands on disk</Strong>. Username tips:{" "}
-          <Code>x-access-token</Code> for GitHub, <Code>oauth2</Code> for GitLab, your account name
-          for Bitbucket.
+          <Strong>HTTPS token / password.</Strong> A username plus a personal access token (with the
+          narrowest repository scope you can grant). The token is decrypted only for a short-lived
+          server-owned git operation; it never lands in the checkout or the AI employee&apos;s shell
+          environment. Username tips: <Code>x-access-token</Code> for GitHub, <Code>oauth2</Code>{" "}
+          for GitLab, your account name for Bitbucket.
         </LI>
         <LI>
           <Strong>SSH private key.</Strong> Paste a private key whose public half is registered as a
-          deploy key on your host. The key is written into the employee&apos;s gitignored workspace
-          only while a checkout exists, and pinned via <Code>core.sshCommand</Code> with host keys
-          accepted on first contact.
+          deploy key on your host. The key is materialized only in an App-private temporary
+          directory for clone/refresh, then removed. Only the non-secret host-key cache persists,
+          outside the employee workspace.
         </LI>
       </UL>
       <P>
         Authenticated clone and refresh operations contact only the configured repository from a
         private server-owned git workspace, then transfer the fetched objects into the employee
         checkout. Employee-written remote rewrites, proxy settings, and TLS settings are not read by
-        that networked process. HTTPS credential helpers are additionally scoped to the exact host,
-        port, and repository path.
+        that networked process. The checkout is left without a credential helper, SSH key path, or
+        credentialed push URL.
       </P>
+
+      <Callout kind="warn" title="Publishing authenticated branches is a human or governed step">
+        AI employees can branch, edit, test, and commit locally. Genosyn does not place reusable
+        repository credentials in model-controlled tools, so a credentialed remote cannot be pushed
+        directly from the AI coding shell. Ask a Member to publish the reported branch and commit,
+        or use a separately governed server-side delivery flow.
+      </Callout>
 
       <H2 id="access">Granting access</H2>
       <P>
@@ -128,39 +136,38 @@ export function CodeRepositories() {
       </P>
       <UL>
         <LI>
-          <Strong>Read &amp; push.</Strong> Full access — the employee may commit and{" "}
-          <Code>git push</Code>. This is the default, since the point of adding a repo is usually to
-          let an employee work on it.
+          <Strong>Work locally.</Strong> The employee may prepare a branch and local commits. This
+          is the default when the point of adding a repository is to let an employee work on it.
         </LI>
         <LI>
-          <Strong>Read only.</Strong> The repo is cloned and kept fetched; the employee can read,
-          branch, and commit locally, but the push URL is disabled so an accidental push fails fast.
+          <Strong>Reference only.</Strong> The repo is cloned and kept refreshed for research. Any
+          local changes remain unpublished, and the push URL is disabled.
         </LI>
       </UL>
 
       <H2 id="how-employees-use-it">How employees use it</H2>
       <P>
         Granted employees are told, in their prompt, which repositories are checked out, where, and
-        whether they may push. They work with ordinary git — no special tooling. The built-in{" "}
-        <Code>genosyn</Code> MCP server also exposes a <Code>list_code_repositories</Code> tool so
-        an employee can enumerate its repos and their local paths at any time.
+        how to hand off local changes. They work with ordinary git — no special tooling. The
+        built-in <Code>genosyn</Code> MCP server also exposes a <Code>list_code_repositories</Code>{" "}
+        tool so an employee can enumerate its repos and their local paths at any time.
       </P>
       <Pre lang="bash">{`cd code-repos/acme-web
 git checkout -b fix/typo
 # …edit files…
 git commit -am "Fix typo in README"
-git push -u origin fix/typo`}</Pre>
+git status --short --branch`}</Pre>
       <P>
         Existing checkouts are only <Code>git fetch</Code>ed between runs, never hard-reset — so a
-        branch an employee pushed in one run is still there the next time it starts.
+        local branch an employee prepared in one Run is still there the next time it starts.
       </P>
 
-      <H2 id="pull-requests">Writing code and opening a pull request</H2>
+      <H2 id="pull-requests">Writing code and handing off a pull request</H2>
       <P>
         Code editing needs no extra plugin or MCP server. Every AI employee has built-in tools for
         shell commands, file reads and writes, exact edits, directory listing, globbing, and search.
-        A <Strong>Read &amp; push</Strong> repository grant adds the working tree and git
-        credentials.
+        A <Strong>Work locally</Strong> repository grant adds the working tree, while repository
+        credentials remain server-owned.
       </P>
       <P>
         Opening a GitHub pull request uses the GitHub Connection&apos;s{" "}
@@ -181,17 +188,16 @@ git push -u origin fix/typo`}</Pre>
         </LI>
       </OL>
       <P>
-        When the Code Repository uses <Strong>None / GitHub Connection</Strong>, those same grants
-        also wire the Connection&apos;s token into ordinary <Code>git fetch</Code> and{" "}
-        <Code>git push</Code> commands. You do not need to paste the PAT into the repository a
-        second time.
+        When the Code Repository uses <Strong>None / GitHub Connection</Strong>, the same grants let
+        the Genosyn server refresh the checkout without copying the PAT into the repository or AI
+        shell. A Member or governed delivery action must publish the local branch before the PR tool
+        can open a pull request for it.
       </P>
       <P>
         You can then ask: “Create a branch, implement this change, run the tests, and send me a
-        draft PR.” Genosyn tells the employee to carry the request through editing, tests, commit,
-        push, and the PR tool. It must not claim a pull request exists unless the GitHub call
-        succeeds; when the Connection grant is missing, it reports the pushed branch and the missing
-        setup instead.
+        draft PR.” Genosyn carries the request through editing, tests, and a local commit, then
+        reports the exact branch and commit that need publishing. It must not claim a push or pull
+        request exists unless the corresponding operation actually succeeds.
       </P>
 
       <H3 id="vs-github">Code Repositories vs. the GitHub integration</H3>
@@ -199,14 +205,14 @@ git push -u origin fix/typo`}</Pre>
         The <DocLink to="/docs/integrations">GitHub integration</DocLink> is the right tool when you
         want an employee calling the GitHub API (issues, pull requests, reviews) against repos on a
         connected GitHub account. Code Repositories are for the editor-shaped workflow — a working
-        tree to commit and push to — and work against any git host, not just GitHub. Use both for
-        the full code-to-pull-request workflow.
+        tree to edit and commit in — and work against any git host, not just GitHub. Use both with a
+        governed publish step for the full code-to-pull-request workflow.
       </P>
 
       <Callout kind="warn" title="Least privilege.">
         Scope tokens and deploy keys to exactly the repositories an employee needs, and prefer{" "}
-        <Strong>read only</Strong> when an employee just needs to reference code. Deleting a
-        repository in Genosyn revokes every grant; the remote git repository is never touched.
+        <Strong>Reference only</Strong> when an employee just needs to inspect code. Deleting a
+        repository in Genosyn never deletes or changes the remote git repository.
       </Callout>
     </>
   );

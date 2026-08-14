@@ -13,26 +13,21 @@ import {
 } from "../middleware/auth.js";
 import {
   approvePendingApproval,
+  readBrowserActionPayload,
   redactApprovalSummary,
   rejectPendingApproval,
 } from "../services/approvals.js";
 
 /**
- * Human-in-the-loop inbox. Two kinds today:
- *
- *   * `routine` — cron tick for a routine marked `requiresApproval`
- *   * `lightning_payment` — Lightning payment over the Connection's
- *                            `requireApprovalAboveSats` threshold
- *
- * Approve dispatches to the right execute path in `services/approvals.ts`;
- * reject only stamps the row + writes a journal entry.
+ * Human-in-the-loop inbox. Decisions are browser-session-only, admin-level,
+ * recently authenticated actions. The service layer owns the atomic
+ * pending-to-terminal transition so duplicate requests never replay a side
+ * effect.
  */
 export const approvalsRouter = Router({ mergeParams: true });
 approvalsRouter.use(requireAuth);
 approvalsRouter.use(requireCompanyMember);
 
-// A privileged human decision, not a generic company write: a leaked API key
-// must not be enough to release a payment or guarded external action.
 const approvalDecisionGuards = [
   requireBrowserSession,
   requireCompanyRole("admin"),
@@ -51,7 +46,6 @@ function approvalResponse(approval: Approval) {
     kind: approval.kind,
     routineId: approval.routineId,
     employeeId: approval.employeeId,
-    // Legacy rows may predate creation-time sanitization.
     title: redactApprovalSummary(approval.title),
     summary: redactApprovalSummary(approval.summary),
     errorMessage: approval.errorMessage
@@ -62,6 +56,33 @@ function approvalResponse(approval: Approval) {
     decidedAt: approval.decidedAt,
     decidedByUserId: approval.decidedByUserId,
   };
+}
+
+function isVaultCaptureApproval(approval: Approval): boolean {
+  if (approval.kind !== "browser_action") return false;
+  try {
+    const payload = JSON.parse(approval.payloadJson || "{}") as { action?: unknown };
+    return payload.action === "vault_capture";
+  } catch {
+    return false;
+  }
+}
+
+function vaultCaptureApprovalExpired(approval: Approval): boolean {
+  if (!isVaultCaptureApproval(approval)) return false;
+  try {
+    const payload = readBrowserActionPayload(approval);
+    return typeof payload.expiresAt !== "string" || Date.parse(payload.expiresAt) <= Date.now();
+  } catch {
+    return true;
+  }
+}
+
+async function loadApproval(companyId: string, approvalId: string): Promise<Approval | null> {
+  return AppDataSource.getRepository(Approval).findOneBy({
+    id: approvalId,
+    companyId,
+  });
 }
 
 approvalsRouter.get(
@@ -76,44 +97,73 @@ approvalsRouter.get(
       take: 200,
     });
 
-    // Routine kind needs the routine name; both kinds need the employee
-    // name. Hydrate in two batched queries so the inbox renders without
-    // an N+1 round-trip.
     const routineIds = [
       ...new Set(
         approvals.filter((a) => a.kind === "routine" && a.routineId).map((a) => a.routineId),
       ),
     ];
-    const empIds = [...new Set(approvals.map((a) => a.employeeId).filter(Boolean))];
+    const employeeIds = [...new Set(approvals.map((a) => a.employeeId).filter(Boolean))];
     const routines = routineIds.length
-      ? await AppDataSource.getRepository(Routine).find({
-          where: { id: In(routineIds) },
-        })
+      ? await AppDataSource.getRepository(Routine).find({ where: { id: In(routineIds) } })
       : [];
-    const emps = empIds.length
-      ? await AppDataSource.getRepository(AIEmployee).find({
-          where: { id: In(empIds) },
-        })
+    const employees = employeeIds.length
+      ? await AppDataSource.getRepository(AIEmployee).find({ where: { id: In(employeeIds) } })
       : [];
-    const rById = new Map(routines.map((r) => [r.id, r]));
-    const eById = new Map(emps.map((e) => [e.id, e]));
+    const routineById = new Map(routines.map((routine) => [routine.id, routine]));
+    const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
 
     res.json(
-      approvals.map((a) => {
-        const r = a.routineId ? (rById.get(a.routineId) ?? null) : null;
-        const e = a.employeeId ? (eById.get(a.employeeId) ?? null) : null;
-        return {
-          ...approvalResponse(a),
-          routine: r ? { id: r.id, name: r.name, slug: r.slug } : null,
-          employee: e ? { id: e.id, name: e.name, slug: e.slug } : null,
-        };
-      }),
+      approvals
+        .filter(
+          (approval) =>
+            !isVaultCaptureApproval(approval) ||
+            req.companyRole === "owner" ||
+            req.companyRole === "admin",
+        )
+        .map((approval) => {
+          const routine = approval.routineId
+            ? (routineById.get(approval.routineId) ?? null)
+            : null;
+          const employee = approval.employeeId
+            ? (employeeById.get(approval.employeeId) ?? null)
+            : null;
+          return {
+            ...approvalResponse(approval),
+            routine: routine
+              ? { id: routine.id, name: routine.name, slug: routine.slug }
+              : null,
+            employee: employee
+              ? { id: employee.id, name: employee.name, slug: employee.slug }
+              : null,
+          };
+        }),
     );
   },
 );
 
 approvalsRouter.post("/approvals/:id/approve", ...approvalDecisionGuards, async (req, res) => {
   const { cid, id } = req.params as Record<string, string>;
+  const approval = await loadApproval(cid, id);
+  if (!approval) return res.status(404).json({ error: "Not found" });
+  if (vaultCaptureApprovalExpired(approval)) {
+    if (approval.status === "pending") {
+      await AppDataSource.getRepository(Approval).update(
+        { id: approval.id, companyId: cid, status: "pending" },
+        { status: "expired" },
+      );
+    }
+    return res.status(409).json({ error: "Vault capture approval expired" });
+  }
+  if (
+    isVaultCaptureApproval(approval) &&
+    req.companyRole !== "owner" &&
+    req.companyRole !== "admin"
+  ) {
+    return res.status(403).json({
+      error: "Only a company owner or admin can approve saving a browser password to Vault",
+    });
+  }
+
   const result = await approvePendingApproval({
     companyId: cid,
     approvalId: id,
@@ -133,6 +183,18 @@ approvalsRouter.post("/approvals/:id/approve", ...approvalDecisionGuards, async 
 
 approvalsRouter.post("/approvals/:id/reject", ...approvalDecisionGuards, async (req, res) => {
   const { cid, id } = req.params as Record<string, string>;
+  const approval = await loadApproval(cid, id);
+  if (!approval) return res.status(404).json({ error: "Not found" });
+  if (
+    isVaultCaptureApproval(approval) &&
+    req.companyRole !== "owner" &&
+    req.companyRole !== "admin"
+  ) {
+    return res.status(403).json({
+      error: "Only a company owner or admin can decide a Vault capture request",
+    });
+  }
+
   const result = await rejectPendingApproval({
     companyId: cid,
     approvalId: id,

@@ -149,9 +149,9 @@ export function toolsBriefing(
     );
   } else if (codingToolsAvailable) {
     lines.push(
-      "- Coding: `bash`, `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, " +
-        "rooted at your working directory (which holds any granted git repos under `repos/` and " +
-        "`code-repos/`).",
+      "- Coding: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, and `grep`, " +
+        "confined to your working directory (which holds any granted git repos under `repos/` " +
+        "and `code-repos/`). Host execution never exposes an unrestricted shell.",
     );
   }
 
@@ -180,12 +180,22 @@ export function toolsBriefing(
     );
   }
 
-  lines.push("- Browser tools (when enabled) and any company-configured MCP server tools.", "");
+  lines.push(
+    "- Browser tools (when enabled) and any company-configured MCP server tools.",
+    "- Vault credentials are default-deny and item-granted. Never ask a teammate to paste a " +
+      "password into chat. Find `list_vault_items`, then use `browser_fill_vault` on the exact " +
+      "saved origin so the value stays out of model context and transcripts. Stored passwords " +
+      "only fill Login password inputs, and Browser policy still applies. Use " +
+      "`create_vault_login` for a server-generated company-visible password. " +
+      "`browser_save_vault_login` always requires owner/admin approval to capture a password " +
+      "already present in the browser into a restricted item; neither path returns the password.",
+    "",
+  );
 
   if (discovery) {
     lines.push(
       "### Reaching the rest",
-      "- Email, finance, Bases, notes, resources, charts, dashboards, workspace channels, " +
+      "- Email, finance, Vault, Bases, notes, resources, charts, dashboards, workspace channels, " +
         "handoffs and your company's integrations all live in the catalogue. Call `find_tools` " +
         'with what you are trying to do — "record a payment", "reply to that email", "read a ' +
         'spreadsheet" — and it returns the exact tools and their arguments.',
@@ -194,7 +204,7 @@ export function toolsBriefing(
     );
   } else {
     lines.push(
-      "- Email, finance, Bases, notes, resources, charts, dashboards, workspace channels, " +
+      "- Email, finance, Vault, Bases, notes, resources, charts, dashboards, workspace channels, " +
         "handoffs and your company's integrations are in your tool list too. Grants still apply — " +
         "if a tool denies access, say so plainly rather than working around it.",
     );

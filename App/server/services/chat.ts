@@ -462,13 +462,11 @@ export async function streamChatWithEmployee(
       // Materialize granted repos into the employee's cwd so the coding tools
       // find a working tree. Non-fatal — chat still proceeds if a repo fails.
       const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
-      Object.assign(toolEnv, repoSync.extraEnv);
-      const codeRepoSync = await materializeCodeReposForEmployee({
+      await materializeCodeReposForEmployee({
         employeeId: emp.id,
         cwd,
         githubRepoCredentials: repoSync.githubRepoCredentials,
       });
-      Object.assign(toolEnv, codeRepoSync.extraEnv);
     }
 
     mcpToken = issueMcpToken(

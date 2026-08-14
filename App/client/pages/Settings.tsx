@@ -500,17 +500,17 @@ export function SettingsSecrets() {
   const { company } = useCtx();
   return (
     <>
-      <TopBar title="Secrets" />
+      <TopBar title="Environment secrets" />
       <SecretsCard company={company} />
     </>
   );
 }
 
 /**
- * Per-company vault. Secrets are encrypted at rest and injected into every
- * employee spawn (routine + chat) as environment variables. The plaintext
- * value is never returned by the API — only a masked preview. "Edit" lets a
- * user rotate the value; we never show the old one.
+ * Per-company environment secrets. These developer values are distinct from
+ * the structured Password Vault: runtime policy may expose them to AI Employee
+ * coding shells as environment variables. The plaintext value is never
+ * returned by the API — only a masked preview.
  */
 function SecretsCard({ company }: { company: Company }) {
   const [rows, setRows] = React.useState<Secret[] | null>(null);
@@ -540,9 +540,9 @@ function SecretsCard({ company }: { company: Company }) {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold">Vault</h2>
+            <h2 className="text-sm font-semibold">Environment secrets</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Encrypted at rest. Injected into every employee run and chat as environment variables.
+              Encrypted developer values for AI Employee coding shells where runtime policy allows.
             </p>
           </div>
           <Button size="sm" onClick={() => setCreating(true)}>
@@ -556,7 +556,7 @@ function SecretsCard({ company }: { company: Company }) {
         ) : rows.length === 0 ? (
           <EmptyState
             title="No secrets yet"
-            description="Store API keys, tokens, and other sensitive values once and make them available to every employee."
+            description="Store developer tokens as environment variables for AI Employee coding tools. Use Vault for logins and shared passwords."
           />
         ) : (
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">

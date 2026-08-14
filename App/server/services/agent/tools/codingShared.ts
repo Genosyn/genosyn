@@ -7,7 +7,7 @@ import type { ToolResult } from "../types.js";
 export type CodingToolContext = {
   /** Absolute path the employee is confined to. */
   cwd: string;
-  /** Env for `bash` (company secrets + materialized repo vars merged in). */
+  /** Explicit env for `bash` (for example Environment secrets). */
   env: Record<string, string>;
   /** Hard ceiling for a single `bash` invocation. */
   bashTimeoutMs: number;
@@ -18,7 +18,8 @@ export type CodingToolContext = {
 
 export const MAX_FILE_BYTES = 400 * 1024;
 const FILE_TEMP_PREFIX = ".genosyn-write-";
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", ".cache"]);
+const SKIP_DIRS = new Set(["node_modules", ".git", ".ssh", "dist", "build", ".next", ".cache"]);
+const PROTECTED_WORKSPACE_COMPONENTS = new Set([".git", ".ssh"]);
 
 /** Resolve `p` under `cwd`, rejecting anything that escapes the sandbox. */
 export function resolveInside(cwd: string, p: string): { path: string } | { error: string } {
@@ -26,6 +27,10 @@ export function resolveInside(cwd: string, p: string): { path: string } | { erro
   const root = path.resolve(cwd);
   if (target !== root && !target.startsWith(root + path.sep)) {
     return { error: `Path escapes the working directory: ${p}` };
+  }
+  const relative = path.relative(root, target);
+  if (isProtectedWorkspaceRelativePath(relative)) {
+    return { error: `Path is reserved for App-managed workspace state: ${p}` };
   }
   try {
     const realRoot = fs.realpathSync(root);
@@ -43,16 +48,37 @@ export function resolveInside(cwd: string, p: string): { path: string } | { erro
     if (realExisting !== realRoot && !realExisting.startsWith(realRoot + path.sep)) {
       return { error: `Path traverses a symlink outside the working directory: ${p}` };
     }
+    if (isProtectedWorkspaceRelativePath(path.relative(realRoot, realExisting))) {
+      return { error: `Path resolves through App-managed workspace state: ${p}` };
+    }
     if (pathEntryExists(target)) {
       const realTarget = fs.realpathSync(target);
       if (realTarget !== realRoot && !realTarget.startsWith(realRoot + path.sep)) {
         return { error: `Path resolves outside the working directory: ${p}` };
+      }
+      if (isProtectedWorkspaceRelativePath(path.relative(realRoot, realTarget))) {
+        return { error: `Path resolves to App-managed workspace state: ${p}` };
       }
     }
   } catch {
     return { error: `Could not safely resolve path: ${p}` };
   }
   return { path: target };
+}
+
+/** Never expose App-managed credentials or Git control files to model tools. */
+export function isProtectedWorkspaceRelativePath(relativePath: string): boolean {
+  if (!relativePath || relativePath === ".") return false;
+  const components = relativePath
+    .split(/[\\/]+/)
+    .filter(Boolean)
+    .map((component) => component.toLowerCase());
+  return components.some(
+    (component) =>
+      PROTECTED_WORKSPACE_COMPONENTS.has(component) ||
+      component.startsWith(".browser-state.json") ||
+      component.startsWith(".genosyn-git-fetch-"),
+  );
 }
 
 function pathEntryExists(target: string): boolean {
@@ -215,12 +241,13 @@ export async function walk(
   for (const entry of entries) {
     if (signal?.aborted) return false;
     const absolute = path.join(dir, entry.name);
+    const relative = path.relative(root, absolute);
+    if (isProtectedWorkspaceRelativePath(relative)) continue;
     if (entry.isDirectory()) {
       if (SKIP_DIRS.has(entry.name)) continue;
       const keepGoing = await walk(absolute, root, visit, signal);
       if (!keepGoing) return false;
     } else if (entry.isFile()) {
-      const relative = path.relative(root, absolute);
       const keepGoing = await visit(relative, absolute);
       if (!keepGoing) return false;
     }

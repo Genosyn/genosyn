@@ -1446,15 +1446,15 @@ export const PRODUCTS: ProductDef[] = [
     tagline: "Give your AI a real checkout.",
     taglineAccent: "Any git repo, per-employee grants, ordinary git.",
     summary:
-      "Point at any git URL — GitHub, GitLab, Bitbucket, self-hosted — and grant chosen AI employees a live checkout with read or read-and-push rights.",
+      "Point at any git URL — GitHub, GitLab, Bitbucket, self-hosted — and grant chosen AI employees a live checkout for reference or local engineering work.",
     seoTitle: "Code Repositories — Git access for AI · Genosyn",
     description:
-      "Give AI employees real git checkouts of any repo — GitHub, GitLab, Bitbucket, or self-hosted — with per-employee read/push grants and encrypted credentials.",
+      "Give AI employees real git checkouts of any repo — GitHub, GitLab, Bitbucket, or self-hosted — with per-employee access and server-held encrypted credentials.",
     intro:
-      "Code Repositories make any git repo a first-class resource your AI employees can actually work on — not read through an API. Every granted employee gets a live checkout with credentials and committer identity pre-wired, so AI ships code the way human engineers do: branches, commits, and pushes your existing review pipeline already understands.",
+      "Code Repositories make any git repo a first-class resource your AI employees can actually work on — not read through an API. Every granted employee gets a live checkout and committer identity, while reusable repository credentials stay outside model-controlled tools. AI prepares branches and commits for a governed publish step.",
     checks: [
       "Any HTTPS or SSH clone URL",
-      "Read-only or read-and-push, per employee",
+      "Reference-only or local work, per employee",
       "Credentials AES-256-GCM encrypted",
       "Work survives between Runs",
     ],
@@ -1467,22 +1467,22 @@ export const PRODUCTS: ProductDef[] = [
       {
         icon: "keyRound",
         title: "Grants with teeth",
-        body: "Access is opt-in per employee at two levels. Read-and-push is the default; read-only disables the push URL on the checkout so a stray git push fails immediately, naming the missing grant.",
+        body: "Access is opt-in per employee at two levels. Work locally lets an employee prepare branches and commits; reference-only keeps publishing disabled. Neither level exposes a reusable credential to model tools.",
       },
       {
         icon: "shieldCheck",
         title: "Credentials handled right",
-        body: "Tokens and SSH keys encrypt at rest with AES-256-GCM. HTTPS tokens ride an env var and a credential helper — never on disk; SSH keys are written 0600 and pinned, without touching the operator's ~/.ssh.",
+        body: "Tokens and SSH keys encrypt at rest with AES-256-GCM, then exist only inside short-lived server-owned clone and refresh operations. They never enter the employee checkout, shell environment, or Git config.",
       },
       {
         icon: "folderGit2",
         title: "Checkouts that persist",
-        body: "Repos materialize into the employee's workspace before every chat and Routine Run, then only fetch between runs — never hard-reset. The branch an employee pushed yesterday is still there today.",
+        body: "Repos materialize into the employee's workspace before every chat and Routine Run, then only fetch between runs — never hard-reset. The branch an employee prepared yesterday is still there today.",
       },
       {
         icon: "terminal",
         title: "Ordinary git",
-        body: "No special git API. Employees use their built-in coding tools: checkout a branch, edit files, commit, push. Committer identity stamps AI commits, falling back to the employee's name.",
+        body: "No special editing API. Employees use built-in coding tools to checkout a branch, edit files, test, and commit. Committer identity stamps AI commits; a Member or governed action publishes them.",
       },
       {
         icon: "activity",
@@ -1492,11 +1492,11 @@ export const PRODUCTS: ProductDef[] = [
     ],
     employees: {
       heading: "AI engineers on your pipeline",
-      body: "Granted employees see a prompt-injected list of their repos, checkout paths, default branches, and push rights, plus a tool to enumerate them anytime. From there it's just engineering.",
+      body: "Granted employees see a prompt-injected list of their repos, checkout paths, default branches, and handoff policy, plus a tool to enumerate them anytime. From there it's just engineering.",
       bullets: [
         {
-          title: "Branch, commit, push",
-          body: "Work lands as branches and commits your review pipeline already understands — PRs, CI, and code review apply to AI work exactly as they do to human work.",
+          title: "Branch, test, commit",
+          body: "Work lands as local branches and commits your review pipeline already understands, ready for a Member or governed delivery flow to publish.",
         },
         {
           title: "No racing checkouts",
@@ -1515,15 +1515,15 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Can I control which AI employees can touch a repo?",
-        a: "Yes — access is opt-in per employee. Adding a repository exposes it to no one until you add employees and pick a level: read-and-push (the default) or read-only, where the push URL on the checkout is disabled so an accidental push fails fast.",
+        a: "Yes — access is opt-in per employee. Adding a repository exposes it to no AI employee until you grant access. Work locally authorizes a local deliverable; reference-only keeps publication disabled, and neither exposes repository credentials to model tools.",
       },
       {
         q: "How are my tokens and SSH keys stored?",
-        a: "Encrypted at rest with AES-256-GCM — the same protection as model API keys — and never shown back in plaintext. HTTPS tokens are handed to git at run time via an environment variable and a credential helper, so they never land on disk.",
+        a: "Encrypted at rest with AES-256-GCM — the same protection as model API keys — and never shown back in plaintext. They are decrypted only inside short-lived server-owned clone and refresh operations, never into model tools or employee workspaces.",
       },
       {
         q: "Will an employee's in-progress work get wiped between runs?",
-        a: "No. Existing checkouts are only fetched between runs, never hard-reset, and a per-employee, per-repo mutex stops concurrent runs racing on the same checkout. A branch pushed in one Run is still there the next time the employee starts.",
+        a: "No. Existing checkouts are only fetched between runs, never hard-reset, and a per-employee, per-repo mutex stops concurrent runs racing on the same checkout. A local branch prepared in one Run is still there the next time the employee starts.",
       },
       {
         q: "What happens if I delete a repository in Genosyn?",
@@ -1534,7 +1534,7 @@ export const PRODUCTS: ProductDef[] = [
     keywords: [
       "AI coding agent git access",
       "give AI agent access to git repo",
-      "AI employee commit and push code",
+      "AI employee edit and commit code",
       "self-hosted AI software engineer",
       "per-agent repository permissions",
       "read-only git access for AI agents",

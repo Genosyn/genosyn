@@ -162,8 +162,8 @@ export function Models() {
         the trust boundary of a self-hosted deployment.
       </Callout>
       <Callout kind="info" title="Subscription auth needs coding-tool isolation">
-        Genosyn requires working Linux bubblewrap for subscription auth. A same-user host shell from
-        any concurrent AI Employee could inspect the temporary Codex credential. Set{" "}
+        Genosyn requires working Linux bubblewrap for subscription auth. Host mode deliberately
+        omits bash because a same-user shell could inspect temporary credentials and Vault data. Set{" "}
         <Code>config.agent.codingTools.executionMode</Code> to <Code>bubblewrap</Code>; host and
         disabled modes are rejected. API-key models are unchanged.
       </Callout>
@@ -247,14 +247,14 @@ export function Models() {
       </P>
       <UL>
         <LI>
-          <Strong>Coding tools.</Strong> In host mode, <Code>bash</Code>, <Code>read_file</Code>,{" "}
+          <Strong>Coding tools.</Strong> In host mode, <Code>read_file</Code>,{" "}
           <Code>write_file</Code>, <Code>edit_file</Code>, <Code>list_dir</Code>, <Code>glob</Code>,
-          and <Code>grep</Code> are rooted at the employee directory; host shell processes are not
-          OS-sandboxed. In bubblewrap mode, every model receives only sandboxed <Code>bash</Code>{" "}
-          and performs file work through it. OpenAI subscription access requires working bubblewrap
-          mode. The dedicated file helpers cap full reads, writes, and edits at 400 KiB;{" "}
-          <Code>read_file</Code> can still stream a bounded line slice from a larger text file, and{" "}
-          <Code>bash</Code> handles larger generated artifacts.
+          and <Code>grep</Code> are confined to the employee directory; unrestricted host bash is
+          never exposed to an AI Employee. In bubblewrap mode, every model receives only sandboxed{" "}
+          <Code>bash</Code> and performs file work through it. OpenAI subscription access requires
+          working bubblewrap mode. The dedicated file helpers cap full reads, writes, and edits at
+          400 KiB; <Code>read_file</Code> can still stream a bounded line slice from a larger text
+          file, and <Code>bash</Code> handles larger generated artifacts.
         </LI>
         <LI>
           <Code>genosyn</Code> — the tools the employee calls to run Routines and Todos, write
@@ -307,10 +307,10 @@ export function Models() {
       <P>
         An employee can hold several models side by side — say an <Code>Anthropic</Code> key for
         everyday work and an <Code>OpenAI</Code> subscription model for a second opinion. Exactly
-        one is <Strong>active</Strong> at a time; the active model is the default brain for
-        employee Chat and the model inherited by Routines and other AI surfaces. The most recently
-        added model becomes active automatically — hit <Strong>Make active</Strong> on any other
-        to switch, instantly and as often as you like.
+        one is <Strong>active</Strong> at a time; the active model is the default brain for employee
+        Chat and the model inherited by Routines and other AI surfaces. The most recently added
+        model becomes active automatically — hit <Strong>Make active</Strong> on any other to
+        switch, instantly and as often as you like.
       </P>
       <P>
         Open an employee, then <Strong>Settings → Model</Strong> to see the roster: each card shows
@@ -337,8 +337,8 @@ export function Models() {
         so those turns do not use Genosyn&apos;s five-attempt loop or its retry transcript lines.
       </P>
       <P>
-        The error names the model used for that turn, shows the safe host-only endpoint, preserves the
-        provider&apos;s detail and request ID when available, and lists checks for that failure
+        The error names the model used for that turn, shows the safe host-only endpoint, preserves
+        the provider&apos;s detail and request ID when available, and lists checks for that failure
         type. In chat, use <Strong>Review AI Model settings</Strong> on the error to jump straight
         to the active employee&apos;s model roster. A separate{" "}
         <Strong>chat connection interrupted</Strong> message means the browser lost its stream to

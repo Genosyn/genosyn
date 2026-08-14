@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
@@ -17,6 +18,7 @@ const MAX_READ_BYTES = 400 * 1024;
 const MAX_SEARCH_FILE_BYTES = 1024 * 1024;
 const MAX_SEARCH_MATCHES = 200;
 const MAX_WALK_FILES = 10_000;
+const SOURCE_MANIFEST = ".genosyn-help-manifest";
 const IGNORED_DIRECTORIES = new Set([
   ".git",
   ".claude",
@@ -29,6 +31,11 @@ const IGNORED_DIRECTORIES = new Set([
 ]);
 const DENIED_SOURCE_PATHS = new Set(["app/config.ts", "app/config.js"]);
 const DENIED_SOURCE_BASENAMES = new Set([".env", ".npmrc", ".netrc"]);
+const DENIED_FILES = new Set([
+  SOURCE_MANIFEST,
+  ".instance-secrets.json",
+  ".instance-secrets.required",
+]);
 
 type HelpSource = {
   root: string | null;
@@ -37,14 +44,25 @@ type HelpSource = {
 };
 
 export function createGenosynHelpSource(sourceRoot = resolveGenosynSourceRoot()): HelpSource {
-  const root = sourceRoot ? fs.realpathSync(path.resolve(sourceRoot)) : null;
-  const availability = root
+  let root: string | null = null;
+  try {
+    root = sourceRoot ? fs.realpathSync(path.resolve(sourceRoot)) : null;
+  } catch {
+    root = null;
+  }
+  const publicPaths = root ? resolvePublicSourcePaths(root) : null;
+  const safeRoot = root && publicPaths ? root : null;
+  const availability = safeRoot
     ? "The complete source snapshot for this running Genosyn release is available through the three read-only source tools below."
     : "This installation does not contain its Genosyn source snapshot. Explain that limitation plainly and answer from the product context below without inventing implementation details.";
 
   return {
-    root,
-    tools: [listSourceTool(root), searchSourceTool(root), readSourceTool(root)],
+    root: safeRoot,
+    tools: [
+      listSourceTool(safeRoot, publicPaths),
+      searchSourceTool(safeRoot, publicPaths),
+      readSourceTool(safeRoot, publicPaths),
+    ],
     prompt: [
       "",
       "## Genosyn Help",
@@ -58,6 +76,43 @@ export function createGenosynHelpSource(sourceRoot = resolveGenosynSourceRoot())
       "Do not guess about a source-level fact you can verify with the tools. Do not dump large files into the answer; inspect only the relevant slices and synthesize a concise response.",
     ].join("\n"),
   };
+}
+
+/**
+ * Build a strict public-source allowlist. Development reads only Git-tracked
+ * paths; production reads the immutable manifest generated into the Docker
+ * source snapshot. If neither authority exists, Help fails closed instead of
+ * walking an arbitrary live directory.
+ */
+export function resolvePublicSourcePaths(root: string): Set<string> | null {
+  const manifest = path.join(root, SOURCE_MANIFEST);
+  let candidates: string[];
+  try {
+    if (fs.existsSync(manifest)) {
+      candidates = fs.readFileSync(manifest, "utf8").split("\n");
+    } else if (fs.existsSync(path.join(root, ".git"))) {
+      const output = execFileSync("git", ["-C", root, "ls-files", "-z"], {
+        encoding: "utf8",
+        env: { PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin" },
+        maxBuffer: 10 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      candidates = output.split("\0");
+    } else {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
+  const allowed = new Set<string>();
+  for (const candidate of candidates) {
+    if (!candidate.trim()) continue;
+    const normalized = normalizeSourcePath(candidate);
+    if (!normalized || normalized === "." || sourcePathDenied(normalized)) continue;
+    allowed.add(normalized);
+  }
+  return allowed.size > 0 ? allowed : null;
 }
 
 export function resolveGenosynSourceRoot(): string | null {
@@ -91,7 +146,7 @@ function unavailable(): ToolResult {
 }
 
 function isDeniedSourcePath(relativePath: string): boolean {
-  const normalized = relativePath.split(path.sep).join("/").toLocaleLowerCase();
+  const normalized = relativePath.split(path.sep).join("/").toLowerCase();
   if (DENIED_SOURCE_PATHS.has(normalized)) return true;
   const basename = path.posix.basename(normalized);
   return DENIED_SOURCE_BASENAMES.has(basename) || basename.startsWith(".env.");
@@ -100,34 +155,93 @@ function isDeniedSourcePath(relativePath: string): boolean {
 async function resolveExisting(
   root: string,
   requested: string,
+  publicPaths: Set<string>,
 ): Promise<{ path: string; relative: string } | { error: string }> {
-  const relative = requested.trim() || ".";
-  if (path.isAbsolute(relative)) {
+  const raw = requested.trim() || ".";
+  if (path.isAbsolute(raw)) {
     return { error: "Use a path relative to the Genosyn repository root." };
+  }
+  const normalized = normalizeSourcePath(raw);
+  if (!normalized) {
+    return { error: `Path escapes the Genosyn source snapshot: ${requested}` };
+  }
+  const relative = normalized;
+  if (sourcePathDenied(relative) || !sourcePathAllowed(relative, publicPaths)) {
+    return { error: `Source path is not part of the public release snapshot: ${requested}` };
   }
   const target = path.resolve(root, relative);
   if (target !== root && !target.startsWith(root + path.sep)) {
     return { error: `Path escapes the Genosyn source snapshot: ${requested}` };
   }
   try {
-    const [realRoot, realTarget] = await Promise.all([fsp.realpath(root), fsp.realpath(target)]);
+    const [realRoot, realTarget, targetStat] = await Promise.all([
+      fsp.realpath(root),
+      fsp.realpath(target),
+      fsp.lstat(target),
+    ]);
+    if (targetStat.isSymbolicLink()) {
+      return {
+        error: `Symbolic links are not exposed by the public source snapshot: ${requested}`,
+      };
+    }
     if (realTarget !== realRoot && !realTarget.startsWith(realRoot + path.sep)) {
       return { error: `Path resolves outside the Genosyn source snapshot: ${requested}` };
     }
-    const resolvedRelative = path.relative(realRoot, realTarget) || ".";
-    if (isDeniedSourcePath(resolvedRelative)) {
+    const realRelative = path.relative(realRoot, realTarget).split(path.sep).join("/") || ".";
+    if (realRelative !== relative) {
+      return {
+        error: `Symbolic paths are not exposed by the public source snapshot: ${requested}`,
+      };
+    }
+    if (sourcePathDenied(realRelative)) {
       return { error: "That source path is unavailable from Help." };
     }
     return {
       path: realTarget,
-      relative: resolvedRelative,
+      relative: realRelative,
     };
   } catch {
     return { error: `No such source path: ${requested}` };
   }
 }
 
-function listSourceTool(root: string | null): AgentTool {
+function normalizeSourcePath(value: string): string | null {
+  const normalized = path.posix.normalize(value.replaceAll("\\", "/")).replace(/^\.\//, "");
+  if (!normalized || normalized === ".") return normalized || ".";
+  if (normalized === ".." || normalized.startsWith("../") || normalized.startsWith("/")) {
+    return null;
+  }
+  return normalized;
+}
+
+function sourcePathDenied(relative: string): boolean {
+  if (relative === ".") return false;
+  // Operators edit App/config.ts directly and may put live encryption, SMTP,
+  // OAuth, or model credentials there. Environment and credential files are
+  // denied even when they remain Git-tracked.
+  if (isDeniedSourcePath(relative)) return true;
+  const components = relative.split("/");
+  if (
+    components.some((component) => IGNORED_DIRECTORIES.has(component.toLowerCase()))
+  ) {
+    return true;
+  }
+  const filename = (components.at(-1) ?? "").toLowerCase();
+  if (DENIED_FILES.has(filename) || filename.startsWith(".env")) return true;
+  return false;
+}
+
+function sourcePathAllowed(relative: string, publicPaths: Set<string>): boolean {
+  if (relative === ".") return true;
+  if (publicPaths.has(relative)) return true;
+  const prefix = relative.endsWith("/") ? relative : `${relative}/`;
+  for (const candidate of publicPaths) {
+    if (candidate.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+function listSourceTool(root: string | null, publicPaths: Set<string> | null): AgentTool {
   return {
     name: "list_genosyn_source",
     description:
@@ -143,8 +257,8 @@ function listSourceTool(root: string | null): AgentTool {
       additionalProperties: false,
     },
     run: async (input) => {
-      if (!root) return unavailable();
-      const resolved = await resolveExisting(root, String(input.path ?? "."));
+      if (!root || !publicPaths) return unavailable();
+      const resolved = await resolveExisting(root, String(input.path ?? "."), publicPaths);
       if ("error" in resolved) return fail(resolved.error);
       let entries: fs.Dirent[];
       try {
@@ -153,13 +267,11 @@ function listSourceTool(root: string | null): AgentTool {
         return fail(`${resolved.relative} is not a directory.`);
       }
       const lines = entries
-        .filter((entry) => !IGNORED_DIRECTORIES.has(entry.name))
-        .filter(
-          (entry) =>
-            !isDeniedSourcePath(
-              resolved.relative === "." ? entry.name : path.join(resolved.relative, entry.name),
-            ),
-        )
+        .filter((entry) => {
+          const relative =
+            resolved.relative === "." ? entry.name : `${resolved.relative}/${entry.name}`;
+          return !sourcePathDenied(relative) && sourcePathAllowed(relative, publicPaths);
+        })
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((entry) => (entry.isDirectory() ? `${entry.name}/` : entry.name));
       return ok(lines.join("\n") || "(empty)");
@@ -167,7 +279,7 @@ function listSourceTool(root: string | null): AgentTool {
   };
 }
 
-function readSourceTool(root: string | null): AgentTool {
+function readSourceTool(root: string | null, publicPaths: Set<string> | null): AgentTool {
   return {
     name: "read_genosyn_source",
     description:
@@ -183,9 +295,9 @@ function readSourceTool(root: string | null): AgentTool {
       additionalProperties: false,
     },
     run: async (input) => {
-      if (!root) return unavailable();
+      if (!root || !publicPaths) return unavailable();
       const requested = String(input.path ?? "");
-      const resolved = await resolveExisting(root, requested);
+      const resolved = await resolveExisting(root, requested, publicPaths);
       if ("error" in resolved) return fail(resolved.error);
       let stat: fs.Stats;
       try {
@@ -219,7 +331,7 @@ function readSourceTool(root: string | null): AgentTool {
   };
 }
 
-function searchSourceTool(root: string | null): AgentTool {
+function searchSourceTool(root: string | null, publicPaths: Set<string> | null): AgentTool {
   return {
     name: "search_genosyn_source",
     description:
@@ -241,11 +353,11 @@ function searchSourceTool(root: string | null): AgentTool {
       additionalProperties: false,
     },
     run: async (input) => {
-      if (!root) return unavailable();
+      if (!root || !publicPaths) return unavailable();
       const query = String(input.query ?? "");
       if (!query.trim()) return fail("query is required.");
       if (query.length > 500) return fail("query must be 500 characters or fewer.");
-      const resolved = await resolveExisting(root, String(input.path ?? "."));
+      const resolved = await resolveExisting(root, String(input.path ?? "."), publicPaths);
       if ("error" in resolved) return fail(resolved.error);
       const caseSensitive = input.case_sensitive === true;
       const needle = caseSensitive ? query : query.toLocaleLowerCase();
@@ -262,8 +374,8 @@ function searchSourceTool(root: string | null): AgentTool {
           return;
         }
         if (!stat.isFile() || stat.size > MAX_SEARCH_FILE_BYTES) return;
-        const relative = path.relative(root, filePath);
-        if (isDeniedSourcePath(relative)) return;
+        const relative = path.relative(root, filePath).split(path.sep).join("/");
+        if (sourcePathDenied(relative) || !publicPaths.has(relative)) return;
         const comparablePath = caseSensitive ? relative : relative.toLocaleLowerCase();
         if (comparablePath.includes(needle)) matches.push(`${relative}: path match`);
         if (matches.length >= MAX_SEARCH_MATCHES) return;
@@ -303,9 +415,10 @@ function searchSourceTool(root: string | null): AgentTool {
         const entries = await fsp.readdir(target, { withFileTypes: true });
         for (const entry of entries) {
           if (matches.length >= MAX_SEARCH_MATCHES || visited >= MAX_WALK_FILES) return;
-          if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
           const child = path.join(target, entry.name);
-          if (isDeniedSourcePath(path.relative(root, child))) continue;
+          const relative = path.relative(root, child).split(path.sep).join("/");
+          if (sourcePathDenied(relative) || !sourcePathAllowed(relative, publicPaths)) continue;
+          if (entry.isSymbolicLink()) continue;
           await walk(child);
         }
       };

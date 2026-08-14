@@ -103,7 +103,7 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/code",
         title: "Code Repositories",
-        blurb: "Add any git repo; let granted AI employees commit and push.",
+        blurb: "Add any git repo; let granted AI employees edit, test, and commit safely.",
       },
     ],
   },
@@ -175,6 +175,12 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/workspace-chat",
         title: "Workspace chat",
         blurb: "Channels and DMs with AI replies, context resets, and company resource tags.",
+      },
+      {
+        path: "/docs/vault",
+        title: "Vault",
+        blurb:
+          "Encrypted logins, API keys, and secure notes for Members and item-granted AI Employees.",
       },
       {
         path: "/docs/email",

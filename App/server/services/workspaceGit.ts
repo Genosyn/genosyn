@@ -1,4 +1,6 @@
 import { execFile, spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
 import { config } from "../../config.js";
 import { buildBubblewrapCommandArgs } from "./agent/bubblewrap.js";
@@ -112,6 +114,7 @@ export function buildWorkspaceGitInvocation(
 }
 
 export async function runWorkspaceGit(options: WorkspaceGitOptions): Promise<{ stdout: string }> {
+  assertWorkspaceGitMetadataContained(options.workspaceRoot, options.cwd);
   const invocation = buildWorkspaceGitInvocation(options);
   try {
     const { stdout } =
@@ -135,6 +138,53 @@ export async function runWorkspaceGit(options: WorkspaceGitOptions): Promise<{ s
     const detail = error as { stderr?: string; stdout?: string; message?: string };
     const tail = (detail.stderr || detail.stdout || detail.message || "").toString().trim();
     throw new Error(`git ${command} failed: ${tail.split("\n").slice(-3).join(" | ")}`);
+  }
+}
+
+/**
+ * Git follows `.git` and `commondir` pointers before applying local config.
+ * Validate those pointers before every command so an AI-writable checkout
+ * cannot make the App process mutate another repository's configuration.
+ */
+export function assertWorkspaceGitMetadataContained(workspaceRoot: string, cwd: string): void {
+  const resolvedWorkspace = fs.realpathSync(workspaceRoot);
+  const resolvedCwd = fs.realpathSync(cwd);
+  assertContained(resolvedWorkspace, resolvedCwd, "Git checkout");
+  const gitEntry = path.join(resolvedCwd, ".git");
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(gitEntry);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  let unresolvedGitDir: string;
+  if (stat.isDirectory()) {
+    unresolvedGitDir = gitEntry;
+  } else if (stat.isFile()) {
+    const pointer = fs.readFileSync(gitEntry, "utf8");
+    const match = pointer.match(/^gitdir: ([^\0\r\n]+)\r?\n?$/);
+    if (!match?.[1]) throw new Error("Git checkout has an invalid gitdir pointer.");
+    unresolvedGitDir = path.resolve(resolvedCwd, match[1]);
+  } else {
+    throw new Error("Git checkout has an unsupported .git entry.");
+  }
+  const gitDir = fs.realpathSync(unresolvedGitDir);
+  assertContained(resolvedWorkspace, gitDir, "Git directory");
+  const commonDirFile = path.join(gitDir, "commondir");
+  if (!fs.existsSync(commonDirFile)) return;
+  const pointer = fs.readFileSync(commonDirFile, "utf8");
+  if (/\0|\r|\n.*\S/s.test(pointer)) {
+    throw new Error("Git checkout has an invalid common directory pointer.");
+  }
+  const commonDir = fs.realpathSync(path.resolve(gitDir, pointer.trim()));
+  assertContained(resolvedWorkspace, commonDir, "Git common directory");
+}
+
+function assertContained(root: string, candidate: string, label: string): void {
+  const relative = path.relative(root, candidate);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error(`${label} escapes the employee workspace.`);
   }
 }
 

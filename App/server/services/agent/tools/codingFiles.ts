@@ -4,6 +4,7 @@ import path from "node:path";
 import type { AgentTool } from "../types.js";
 import {
   fail,
+  isProtectedWorkspaceRelativePath,
   lstatIfPresent,
   MAX_FILE_BYTES,
   ok,
@@ -248,7 +249,11 @@ export function listDirTool(ctx: CodingToolContext): AgentTool {
         return fail(`No such directory: ${rel}`);
       }
       const lines = entries
-        .filter((entry) => entry.name !== "node_modules" && entry.name !== ".git")
+        .filter((entry) => {
+          if (entry.name === "node_modules" || entry.isSymbolicLink()) return false;
+          const relative = path.relative(ctx.cwd, path.join(resolved.path, entry.name));
+          return !isProtectedWorkspaceRelativePath(relative);
+        })
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((entry) => (entry.isDirectory() ? `${entry.name}/` : entry.name));
       const truncated = lines.length > MAX_LIST_RESULTS;

@@ -6,12 +6,7 @@ import { spawnSync } from "node:child_process";
 import { getEffectiveGlobalSmtp } from "./globalEmailTransport.js";
 import { getPublicUrl, isPublicUrlConfigured } from "./publicUrl.js";
 import { buildBubblewrapCommandArgs } from "./agent/bubblewrap.js";
-
-const PLACEHOLDERS = new Set(["change-me-in-production", "change-me-in-production-too"]);
-
-function strongSecret(value: string): boolean {
-  return value.length >= 32 && !PLACEHOLDERS.has(value);
-}
+import { getEffectiveInstanceSecrets, isStrongInstanceSecret } from "../lib/instanceSecrets.js";
 
 let bubblewrapProbeCache: { path: string; error: string | null } | null = null;
 
@@ -61,8 +56,9 @@ export function secureSessionCookies(): boolean {
 
 /**
  * Fail closed when an operator opts into shared multi-tenancy without the
- * boundaries Genosyn relies on. Self-hosted mode remains backwards-compatible,
- * but prints actionable warnings for weak production settings.
+ * boundaries Genosyn relies on. Self-hosted placeholders resolve to managed
+ * per-install secrets; an explicitly configured weak secret fails closed.
+ * Other relaxed self-host settings still produce actionable warnings.
  */
 export function validateRuntimeSecurity(): void {
   if (!Number.isInteger(config.security.trustedProxyHops) || config.security.trustedProxyHops < 0) {
@@ -76,20 +72,29 @@ export function validateRuntimeSecurity(): void {
   }
 
   const problems: string[] = [];
+  const effectiveSecrets = config.security.multiTenant ? null : getEffectiveInstanceSecrets();
+  const sessionSecret = config.security.multiTenant
+    ? String(config.sessionSecret)
+    : effectiveSecrets!.sessionSecret;
+  const encryptionSecret = config.security.multiTenant
+    ? String(config.security.encryptionSecret)
+    : effectiveSecrets!.encryptionSecret;
+  const secretProblems: string[] = [];
   if (config.db.driver !== "postgres") problems.push("config.db.driver must be postgres");
   if (!config.db.postgresUrl.trim()) problems.push("config.db.postgresUrl is required");
   if (!secureSessionCookies()) problems.push("Secure session cookies must be enabled");
-  if (!strongSecret(config.sessionSecret)) {
-    problems.push("config.sessionSecret must be a unique secret of at least 32 characters");
+  if (!isStrongInstanceSecret(sessionSecret)) {
+    secretProblems.push("config.sessionSecret must be a unique secret of at least 32 characters");
   }
-  if (!strongSecret(config.security.encryptionSecret)) {
-    problems.push(
+  if (!isStrongInstanceSecret(encryptionSecret)) {
+    secretProblems.push(
       "config.security.encryptionSecret must be a unique secret of at least 32 characters",
     );
   }
-  if (String(config.security.encryptionSecret) === String(config.sessionSecret)) {
-    problems.push("the session and encryption secrets must be different");
+  if (encryptionSecret === sessionSecret) {
+    secretProblems.push("the session and encryption secrets must be different");
   }
+  problems.push(...secretProblems);
   if (config.agent.codingTools.executionMode !== "bubblewrap") {
     problems.push("config.agent.codingTools.executionMode must be bubblewrap");
   }
@@ -124,6 +129,10 @@ export function validateRuntimeSecurity(): void {
 
   if (config.security.multiTenant && problems.length > 0) {
     throw new Error(`Unsafe multi-tenant configuration:\n- ${problems.join("\n- ")}`);
+  }
+
+  if (!config.security.multiTenant && secretProblems.length > 0) {
+    throw new Error(`Unsafe self-hosted secret configuration:\n- ${secretProblems.join("\n- ")}`);
   }
 
   if (process.env.NODE_ENV === "production" && !config.security.multiTenant) {

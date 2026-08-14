@@ -10,6 +10,11 @@ import {
   SIGNING_ACCESS_RANK,
   type SigningAccessLevel,
 } from "../../../db/entities/EmployeeSigningGrant.js";
+import {
+  EMPLOYEE_VAULT_ACCESS_RANK,
+  EmployeeVaultGrant,
+  type EmployeeVaultAccessLevel,
+} from "../../../db/entities/EmployeeVaultGrant.js";
 import { EmployeeConnectionGrant } from "../../../db/entities/EmployeeConnectionGrant.js";
 import { IntegrationConnection } from "../../../db/entities/IntegrationConnection.js";
 import { EXPLORE_PROVIDERS } from "../../explore.js";
@@ -135,6 +140,14 @@ const SIGNING_TOOL_ACCESS: Record<string, SigningAccessLevel> = {
 
 const SIGNING_GATED_TOOLS = new Set(Object.keys(SIGNING_TOOL_ACCESS));
 
+/** Vault reads and metadata writes are item-granted. Creating a generated
+ * login stays live because it auto-grants its creator. */
+const VAULT_TOOL_ACCESS: Record<string, EmployeeVaultAccessLevel> = {
+  list_vault_items: "use",
+  update_vault_login: "manage",
+};
+const VAULT_GATED_TOOLS = new Set(Object.keys(VAULT_TOOL_ACCESS));
+
 /**
  * The revenue surface (Revenue section, M32): every tool — reads included —
  * answers to an `EmployeeRevenueGrant`. Same shape as finance: one grant row
@@ -241,6 +254,7 @@ export function assertGrantSetsResolve(): void {
     ...MAIL_GATED_TOOLS,
     ...FINANCE_GATED_TOOLS,
     ...SIGNING_GATED_TOOLS,
+    ...VAULT_GATED_TOOLS,
     ...REVENUE_GATED_TOOLS,
     ...EXPLORE_CONNECTION_GATED_TOOLS,
   ].filter((n) => !known.has(n));
@@ -297,6 +311,22 @@ export async function deadToolNames(employeeId: string): Promise<Set<string>> {
       where: { employeeId },
     });
     if (revenue === 0) for (const t of REVENUE_GATED_TOOLS) dead.add(t);
+    const vaultGrants = await AppDataSource.getRepository(EmployeeVaultGrant).find({
+      where: { employeeId },
+    });
+    if (vaultGrants.length === 0) {
+      for (const t of VAULT_GATED_TOOLS) dead.add(t);
+    } else {
+      const ranks = vaultGrants
+        .map((grant) => EMPLOYEE_VAULT_ACCESS_RANK[grant.accessLevel])
+        .filter((rank): rank is number => typeof rank === "number");
+      const best = ranks.length > 0 ? Math.max(...ranks) : undefined;
+      if (typeof best === "number") {
+        for (const [tool, required] of Object.entries(VAULT_TOOL_ACCESS)) {
+          if (best < EMPLOYEE_VAULT_ACCESS_RANK[required]) dead.add(tool);
+        }
+      }
+    }
     const connectionGrants = await AppDataSource.getRepository(EmployeeConnectionGrant).find({
       where: { employeeId },
       select: ["connectionId"],

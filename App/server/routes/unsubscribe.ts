@@ -3,20 +3,15 @@ import { In } from "typeorm";
 
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
-import {
-  SequenceEnrollment,
-  type EnrollmentStatus,
-} from "../db/entities/SequenceEnrollment.js";
+import { SequenceEnrollment, type EnrollmentStatus } from "../db/entities/SequenceEnrollment.js";
 import { Suppression } from "../db/entities/Suppression.js";
 import { addSuppression } from "../services/mail/suppression.js";
 import { recordActivity } from "../services/revenue/activities.js";
+import { findContactByEmail, markContactUnsubscribed } from "../services/revenue/contacts.js";
 import {
-  findContactByEmail,
-  markContactUnsubscribed,
-} from "../services/revenue/contacts.js";
-import {
-  unsubscribeSecret,
+  unsubscribeSecrets,
   verifyUnsubscribeToken,
+  type UnsubscribePayload,
 } from "../services/revenue/unsubscribeToken.js";
 
 /**
@@ -103,10 +98,14 @@ export type UnsubscribeResult =
  */
 export async function applyUnsubscribe(
   token: string | null | undefined,
-  secret: string = unsubscribeSecret(),
+  secret: string | readonly string[] = unsubscribeSecrets(),
   now: Date = new Date(),
 ): Promise<UnsubscribeResult> {
-  const payload = verifyUnsubscribeToken(token, secret);
+  const secrets = typeof secret === "string" ? [secret] : secret;
+  const payload = secrets.reduce<UnsubscribePayload | null>(
+    (match, candidate) => match ?? verifyUnsubscribeToken(token, candidate),
+    null,
+  );
   if (!payload) return { outcome: "invalid" };
 
   const { companyId, email } = payload;
@@ -177,10 +176,7 @@ export async function applyUnsubscribe(
  * Postgres driver do not agree on when it is populated, and the count is
  * reported back to the caller.
  */
-async function stopLiveEnrollments(
-  companyId: string,
-  contactIds: string[],
-): Promise<number> {
+async function stopLiveEnrollments(companyId: string, contactIds: string[]): Promise<number> {
   if (contactIds.length === 0) return 0;
   const repo = AppDataSource.getRepository(SequenceEnrollment);
   const live = await repo.find({
@@ -354,9 +350,7 @@ export async function unsubscribeHandler(req: Request, res: Response): Promise<v
     // Express 4 will not catch it. Log for the operator, apologise to the
     // visitor, let the mail client retry.
     // eslint-disable-next-line no-console
-    console.error(
-      `[unsubscribe] failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    console.error(`[unsubscribe] failed: ${err instanceof Error ? err.message : String(err)}`);
     try {
       sendHtml(res, 500, renderErrorPage());
     } catch {

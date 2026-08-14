@@ -27,7 +27,7 @@ export type IntegrationConnectionStatus = "connected" | "error" | "expired";
  * and health-check status.
  *
  * `encryptedConfig` is an AES-256-GCM ciphertext (shared helper in
- * `server/lib/secret.ts`, keyed from `config.sessionSecret`) wrapping a
+ * `server/lib/secret.ts`, keyed from the instance encryption key ring) wrapping a
  * JSON blob whose shape is provider-specific:
  *   - apikey          : { apiKey, baseUrl?, ...providerMeta }
  *   - oauth2          : { clientId, clientSecret, accessToken, refreshToken,

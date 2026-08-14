@@ -77,6 +77,7 @@ import TasksIndex from "./pages/TasksIndex";
 import TasksReview from "./pages/TasksReview";
 import ProjectNew from "./pages/ProjectNew";
 import ProjectDetail from "./pages/ProjectDetail";
+import Vault from "./pages/Vault";
 import Approvals from "./pages/Approvals";
 import AuditLog from "./pages/AuditLog";
 import Usage from "./pages/Usage";
@@ -431,6 +432,9 @@ function CompanyRoutes({
             <Route path="new" element={<ProjectNew company={company} />} />
             <Route path="p/:pSlug" element={<ProjectDetail company={company} me={me} />} />
           </Route>
+
+          {/* Vault — encrypted passwords, API keys, and secure notes. */}
+          <Route path="vault" element={<Vault company={company} />} />
 
           {/* Bases (Airtable-style) — structured data for the company. */}
           <Route path="bases" element={<BasesLayout company={company} />}>

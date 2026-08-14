@@ -23,7 +23,7 @@ import {
  *   - postmark : { serverToken }
  *
  * `fromAddress` is required and used as the envelope from. `replyTo` is
- * optional. Credentials live encrypted with the same sessionSecret-derived
+ * optional. Credentials live encrypted with the same scoped instance-encryption
  * key as Secrets / IntegrationConnections / AIModel apikeys.
  */
 export type EmailProviderKind = "smtp" | "sendgrid" | "mailgun" | "resend" | "postmark";

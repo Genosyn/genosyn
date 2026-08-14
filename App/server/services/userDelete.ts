@@ -51,6 +51,9 @@ import { TodoComment } from "../db/entities/TodoComment.js";
 import { User } from "../db/entities/User.js";
 import { Vendor } from "../db/entities/Vendor.js";
 import { WebAuthnCredential } from "../db/entities/WebAuthnCredential.js";
+import { VaultItem } from "../db/entities/VaultItem.js";
+import { VaultItemMemberAccess } from "../db/entities/VaultItemMemberAccess.js";
+import { emitMembershipAuthorizationChange } from "./resourceEvents.js";
 
 /** A company the to-be-deleted user is the registered owner of. */
 export interface OwnedCompany {
@@ -109,12 +112,16 @@ export async function findOwnedCompanies(userId: string): Promise<OwnedCompany[]
  * new entity gains a user-reference column, add a line here (DELETE if it is
  * account-scoped, NULL if it is authorship) so the reference can't dangle.
  */
-export async function deleteUserCascade(args: {
-  userId: string;
-}): Promise<DeleteUserResult> {
+export async function deleteUserCascade(args: { userId: string }): Promise<DeleteUserResult> {
   const { userId } = args;
+  const membershipCompanyIds = (
+    await AppDataSource.getRepository(Membership).find({
+      where: { userId },
+      select: ["companyId"],
+    })
+  ).map((membership) => membership.companyId);
 
-  return AppDataSource.transaction(async (m) => {
+  const result = await AppDataSource.transaction(async (m) => {
     // ── Guard: never orphan a company ──────────────────────────────────
     const owned = await m.find(Company, {
       where: { ownerId: userId },
@@ -136,6 +143,7 @@ export async function deleteUserCascade(args: {
     // still count toward the "last human with write" quorum in
     // `services/projects.ts`, locking the project for everyone left.
     await m.delete(ProjectMember, { userId });
+    await m.delete(VaultItemMemberAccess, { userId });
 
     // ── 2. Authored content — preserve the row, unlink the author ──────
     await m.update(AIEmployee, { reportsToUserId: userId }, { reportsToUserId: null });
@@ -158,6 +166,7 @@ export async function deleteUserCascade(args: {
     await m.update(EmployeeMemory, { authorUserId: userId }, { authorUserId: null });
     await m.update(JournalEntry, { authorUserId: userId }, { authorUserId: null });
     await m.update(TodoComment, { authorUserId: userId }, { authorUserId: null });
+    await m.update(VaultItem, { createdByUserId: userId }, { createdByUserId: null });
 
     await m.update(Todo, { assigneeUserId: userId }, { assigneeUserId: null });
     await m.update(Todo, { reviewerUserId: userId }, { reviewerUserId: null });
@@ -179,16 +188,8 @@ export async function deleteUserCascade(args: {
     await m.update(Activity, { assignedUserId: userId }, { assignedUserId: null });
     await m.update(Partnership, { createdById: userId }, { createdById: null });
     await m.update(Partnership, { ownerId: userId }, { ownerId: null });
-    await m.update(
-      RevenueDocument,
-      { createdByUserId: userId },
-      { createdByUserId: null },
-    );
-    await m.update(
-      RevenueImportBatch,
-      { createdByUserId: userId },
-      { createdByUserId: null },
-    );
+    await m.update(RevenueDocument, { createdByUserId: userId }, { createdByUserId: null });
+    await m.update(RevenueImportBatch, { createdByUserId: userId }, { createdByUserId: null });
     await m.update(Dashboard, { createdById: userId }, { createdById: null });
     await m.update(Estimate, { createdById: userId }, { createdById: null });
     await m.update(Invoice, { createdById: userId }, { createdById: null });
@@ -210,4 +211,8 @@ export async function deleteUserCascade(args: {
 
     return { memberships, apiKeys, notifications, channelMembers, reactions };
   });
+  for (const companyId of membershipCompanyIds) {
+    emitMembershipAuthorizationChange(companyId);
+  }
+  return result;
 }

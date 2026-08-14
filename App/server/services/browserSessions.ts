@@ -4,6 +4,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { BrowserSession, type BrowserSessionCloseReason } from "../db/entities/BrowserSession.js";
 import { getRuntime, holdRuntime, releaseRuntime, markActivity } from "./browserChromium.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
+import { registerMembershipAuthorizationChangeSink } from "./resourceEvents.js";
 
 /**
  * Browser-session lifecycle + in-memory fanout hub.
@@ -35,6 +36,25 @@ import { withSchedulerLease } from "./schedulerLeases.js";
 // a longer TTL doesn't keep real browsers alive any longer.
 const MCP_TOKEN_TTL_MS = 7 * 60 * 60 * 1000; // 7h
 const EXPIRE_GRACE_MS = 30_000;
+const cleanupListeners = new Set<(sessionId: string) => void>();
+type SensitiveObservationKind = "password-present" | "password-value" | "active-input-value";
+const sensitiveValueListeners = new Set<
+  (sessionId: string, value: string, kind: SensitiveObservationKind) => void
+>();
+
+/** Register process-local cleanup owned by a browser RPC extension. */
+export function registerBrowserSessionCleanup(listener: (sessionId: string) => void): () => void {
+  cleanupListeners.add(listener);
+  return () => cleanupListeners.delete(listener);
+}
+
+/** Let the browser RPC boundary retain password values before human input can reveal them. */
+export function registerBrowserSensitiveValueListener(
+  listener: (sessionId: string, value: string, kind: SensitiveObservationKind) => void,
+): () => void {
+  sensitiveValueListeners.add(listener);
+  return () => sensitiveValueListeners.delete(listener);
+}
 
 /**
  * Outbound message shape, used for both viewer-side WS and the
@@ -121,6 +141,19 @@ type SessionState = {
 const sessions = new Map<string, SessionState>();
 /** Index used by the WS upgrade handler to resolve a token to a session. */
 const tokenToSessionId = new Map<string, string>();
+
+registerMembershipAuthorizationChangeSink((companyId) => {
+  for (const state of sessions.values()) {
+    if (state.companyId !== companyId) continue;
+    for (const viewer of state.viewers) {
+      try {
+        viewer.ws.close(1008, "Browser viewer access changed");
+      } catch {
+        // The close handler removes the viewer; a dead socket needs no work.
+      }
+    }
+  }
+});
 
 // ---------- token / lifecycle ----------
 
@@ -237,6 +270,13 @@ export async function closeBrowserSession(
 }
 
 function teardown(sessionId: string): void {
+  for (const listener of cleanupListeners) {
+    try {
+      listener(sessionId);
+    } catch {
+      // Teardown must continue even if an extension's memory cleanup fails.
+    }
+  }
   sessions.delete(sessionId);
 }
 
@@ -257,6 +297,7 @@ export async function sweepExpiredBrowserSessions(): Promise<void> {
     row.closedAt = new Date();
     await repo.save(row);
     tokenToSessionId.delete(row.mcpToken);
+    teardown(row.id);
   }
 }
 
@@ -391,11 +432,15 @@ const cdpListenerAttached = new Set<string>();
 
 export function attachViewerSocket(args: {
   sessionId: string;
+  companyId: string;
+  employeeId: string;
   ws: WebSocket;
   userId: string;
 }): void {
-  const { sessionId, ws, userId } = args;
+  const { sessionId, companyId, employeeId, ws, userId } = args;
   const state = ensureState(sessionId);
+  state.companyId = companyId;
+  state.employeeId = employeeId;
   const viewer: ViewerSocket = { ws, userId, takeover: false };
   const wasEmpty = state.viewers.size === 0;
   state.viewers.add(viewer);
@@ -484,6 +529,10 @@ async function handleViewerMessage(
     if (!runtime) return;
     const cdp = runtime.cdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null;
     if (!cdp) return;
+    // Capture every current password value before a human click can toggle a
+    // field to plain text. The browser RPC layer keeps these values redacted
+    // for the full session and clears them through the teardown hook above.
+    await observeRuntimePasswordValues(state.id);
     if (msg.type === "input.mouse") {
       try {
         await cdp.send("Input.dispatchMouseEvent", {
@@ -497,6 +546,7 @@ async function handleViewerMessage(
           deltaY: msg.deltaY ?? 0,
           modifiers: msg.modifiers ?? 0,
         });
+        await observeRuntimePasswordValues(state.id);
       } catch {
         /* ignore */
       }
@@ -511,11 +561,75 @@ async function handleViewerMessage(
           modifiers: msg.modifiers ?? 0,
           windowsVirtualKeyCode: msg.windowsVirtualKeyCode,
         });
+        // Key input may have changed the focused password field. Capture the
+        // resulting full value, not only the individual key event text.
+        await observeRuntimePasswordValues(state.id);
       } catch {
         /* ignore */
       }
     }
     return;
+  }
+}
+
+async function observeRuntimePasswordValues(sessionId: string): Promise<void> {
+  if (sensitiveValueListeners.size === 0) return;
+  const runtime = getRuntime(sessionId);
+  const page = runtime?.page as
+    | {
+        frames: () => Array<{
+          evaluate: <T>(fn: () => T) => Promise<T>;
+        }>;
+      }
+    | null
+    | undefined;
+  if (!page) return;
+  const observations = await Promise.all(
+    page.frames().map((frame) =>
+      frame
+        .evaluate(() => {
+          const passwordInputs: HTMLInputElement[] = [];
+          const visit = (root: Document | ShadowRoot) => {
+            for (const element of root.querySelectorAll("*")) {
+              if (element instanceof HTMLInputElement && element.type === "password") {
+                passwordInputs.push(element);
+              }
+              if (element.shadowRoot) visit(element.shadowRoot);
+            }
+          };
+          visit(document);
+          let active = document.activeElement;
+          while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+          return {
+            passwordPresent: passwordInputs.length > 0,
+            passwordValues: passwordInputs.map((input) => input.value).filter(Boolean),
+            activeInputValue:
+              active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
+                ? active.value
+                : null,
+          };
+        })
+        .catch(() => ({
+          passwordPresent: true,
+          passwordValues: [] as string[],
+          activeInputValue: null as string | null,
+        })),
+    ),
+  );
+  for (const observation of observations) {
+    for (const listener of sensitiveValueListeners) {
+      try {
+        if (observation.passwordPresent) listener(sessionId, "", "password-present");
+        for (const value of observation.passwordValues) {
+          listener(sessionId, value, "password-value");
+        }
+        if (observation.activeInputValue) {
+          listener(sessionId, observation.activeInputValue, "active-input-value");
+        }
+      } catch {
+        // Human input must continue even if a redaction extension failed.
+      }
+    }
   }
 }
 
