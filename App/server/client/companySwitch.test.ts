@@ -211,7 +211,22 @@ describe("createCompanyAndSwitch", () => {
     assert.equal(destination, "/c/first-company/onboarding");
   });
 
-  test("keeps both company-creation entry points wired through the sequenced helper", () => {
+  test("opens onboarding at the exact collision-safe slug returned by the server", async () => {
+    let destination = "";
+
+    await createCompanyAndSwitch({
+      createCompany: async () => company("repeated-name-2"),
+      refreshCompanies: async () => undefined,
+      navigate: (next) => {
+        destination = next;
+      },
+      suffix: "/onboarding",
+    });
+
+    assert.equal(destination, "/c/repeated-name-2/onboarding");
+  });
+
+  test("keeps both company-creation entry points wired to sequenced onboarding", () => {
     const appShell = readFileSync(
       new URL("../../client/components/AppShell.tsx", import.meta.url),
       "utf8",
@@ -225,7 +240,9 @@ describe("createCompanyAndSwitch", () => {
     assert.match(appShell, /await createCompanyAndSwitch\(\{/);
     assert.match(appShell, /refreshCompanies: onCompaniesChanged/);
     assert.match(appShell, /navigate: \(destination\) =>/);
+    assert.match(appShell, /suffix: "\/onboarding"/);
     assert.match(app, /onCompaniesChanged=\{refreshAuthenticatedState\}/);
+    assert.match(app, /path="onboarding" element=\{<CompanyOnboarding/);
     assert.match(onboarding, /await createCompanyAndSwitch\(\{/);
     assert.match(onboarding, /refreshCompanies: onDone/);
     assert.match(onboarding, /suffix: "\/onboarding"/);
