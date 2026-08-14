@@ -58,6 +58,7 @@ agent: {
     executionMode: "bubblewrap",
     bubblewrapPath: "/usr/bin/bwrap",
     allowNetwork: false,
+    allowUnsafeHostExecution: false,
   },
   browserEnabledInMultiTenant: false,
   maxConcurrentRunsPerCompany: 4,
@@ -113,7 +114,7 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
           },
           {
             term: "Two factor",
-            def: "A company owner or admin can require 2FA for every Member. Genosyn prevents a Member from removing their final method while any company requires it.",
+            def: "A company owner or admin can require 2FA for every Member. Master admins must always enroll and complete a second factor to use the hosted operator control plane, and must sign in again after 15 minutes before another operator action.",
           },
           {
             term: "Sessions",
@@ -183,7 +184,15 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         <LI>
           Run the container with Bubblewrap/user namespaces available and shell network disabled.
         </LI>
-        <LI>Create the operator account using the exact bootstrap email, then verify it.</LI>
+        <LI>
+          Create the operator account using the exact bootstrap email, then verify it. The account
+          is not a master admin and cannot reach operator APIs before that verification succeeds;
+          verification revokes the pre-verification session, so sign in again.
+        </LI>
+        <LI>
+          Enroll an authenticator, passkey, or security key, then sign in again with that factor to
+          unlock the operator control plane.
+        </LI>
         <LI>
           Test signup, verification, password reset, invitation matching, role denial, and 2FA.
         </LI>

@@ -217,7 +217,10 @@ Verify the three results, resolve any disagreement, then post one concise brief 
       <P>
         Before using this example, connect GitHub, allowlist the repository, and give the AI
         employee a Grant to that Connection. See{" "}
-        <DocLink to="/docs/integrations#github-engineering">GitHub &amp; engineering grants</DocLink>.
+        <DocLink to="/docs/integrations#github-engineering">
+          GitHub &amp; engineering grants
+        </DocLink>
+        .
       </P>
       <Pre lang="markdown">{`Triage up to 12 open GitHub issues in acme/widgets.
 
@@ -231,10 +234,10 @@ ordered by severity with links to the issues.
 This is read-only triage. Do not edit files, create branches, commit, push, or comment on issues.`}</Pre>
       <P>
         Replace <Code>acme/widgets</Code> with the allowlisted repository. The sentence about
-        subagents is ordinary Routine instructions, not special syntax: the AI Model plans the
-        work and calls <Code>delegate_parallel_work</Code> when that tool is available and the
-        issue briefs are independent. Confirm the call in the Run log. If delegation is unavailable
-        or unsafe, the employee should explain the constraint and continue serially.
+        subagents is ordinary Routine instructions, not special syntax: the AI Model plans the work
+        and calls <Code>delegate_parallel_work</Code> when that tool is available and the issue
+        briefs are independent. Confirm the call in the Run log. If delegation is unavailable or
+        unsafe, the employee should explain the constraint and continue serially.
       </P>
       <Callout kind="warn" title="Keep one-worker-per-issue work read-only.">
         Temporary workers share one checkout. Issue research and triage can run safely in parallel;
@@ -488,7 +491,13 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         Some routines should not auto-fire. Flip <Code>approvalRequired</Code> on and the runner
         stops the moment the routine would take a sensitive action — paying a Lightning invoice,
         sending an email, hitting a third-party API. The action is recorded as an{" "}
-        <Code>Approval</Code> row; a human clicks ✓ in the inbox and the call is replayed.
+        <Code>Approval</Code> row. A company owner or admin must approve or reject it from a
+        logged-in browser session with recent primary and second-factor authentication; API keys and
+        ordinary Members cannot open the inbox or decide approvals. Approval claims are one-shot, so
+        double-clicks and concurrent reviewers cannot replay the action. If the approved action
+        fails, the row moves to <Code>execution_failed</Code> for investigation instead of becoming
+        eligible to run again. Replay payloads, provider results, and raw provider failures are
+        never returned by the inbox API.
       </P>
 
       <H3 id="approval-kinds">Built-in approval kinds</H3>

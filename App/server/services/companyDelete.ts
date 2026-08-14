@@ -7,6 +7,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Account } from "../db/entities/Account.js";
 import { AccountingPeriod } from "../db/entities/AccountingPeriod.js";
+import { AdSpendEvent } from "../db/entities/AdSpendEvent.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Attachment } from "../db/entities/Attachment.js";
@@ -37,6 +38,10 @@ import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { Currency } from "../db/entities/Currency.js";
 import { Customer } from "../db/entities/Customer.js";
+import { CustomerCredit } from "../db/entities/CustomerCredit.js";
+import { CustomerCreditApplication } from "../db/entities/CustomerCreditApplication.js";
+import { CustomerCreditLine } from "../db/entities/CustomerCreditLine.js";
+import { CustomerRefund } from "../db/entities/CustomerRefund.js";
 import { CustomerContact } from "../db/entities/CustomerContact.js";
 import { Contact } from "../db/entities/Contact.js";
 import { DealStage } from "../db/entities/DealStage.js";
@@ -80,11 +85,13 @@ import { EmailLog } from "../db/entities/EmailLog.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
 import { MailChatMessage } from "../db/entities/MailChatMessage.js";
+import { MailDraftSendBatch } from "../db/entities/MailDraftSendBatch.js";
 import { MailHandover } from "../db/entities/MailHandover.js";
 import { MailLabel } from "../db/entities/MailLabel.js";
 import { MailMessage } from "../db/entities/MailMessage.js";
 import { MailInboundAutomation } from "../db/entities/MailInboundAutomation.js";
 import { MailRule } from "../db/entities/MailRule.js";
+import { MailSavedSearch } from "../db/entities/MailSavedSearch.js";
 import { MailThread } from "../db/entities/MailThread.js";
 import { EmailProvider } from "../db/entities/EmailProvider.js";
 import { EmployeeBaseGrant } from "../db/entities/EmployeeBaseGrant.js";
@@ -93,6 +100,7 @@ import { EmployeeCodeRepositoryGrant } from "../db/entities/EmployeeCodeReposito
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
 import { EmployeeDashboardGrant } from "../db/entities/EmployeeDashboardGrant.js";
 import { EmployeeFinanceGrant } from "../db/entities/EmployeeFinanceGrant.js";
+import { EmployeeMarketingGrant } from "../db/entities/EmployeeMarketingGrant.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
 import { EmployeeNotebookGrant } from "../db/entities/EmployeeNotebookGrant.js";
@@ -100,18 +108,24 @@ import { EmployeeResourceGrant } from "../db/entities/EmployeeResourceGrant.js";
 import { Estimate } from "../db/entities/Estimate.js";
 import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { ExchangeRate } from "../db/entities/ExchangeRate.js";
+import { FinanceProposal } from "../db/entities/FinanceProposal.js";
 import { Handoff } from "../db/entities/Handoff.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Invitation } from "../db/entities/Invitation.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoiceLineItem } from "../db/entities/InvoiceLineItem.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
+import { InvoiceWriteOff } from "../db/entities/InvoiceWriteOff.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
 import { LedgerLine } from "../db/entities/LedgerLine.js";
 import { McpServer } from "../db/entities/McpServer.js";
 import { Membership } from "../db/entities/Membership.js";
 import { MessageReaction } from "../db/entities/MessageReaction.js";
+import { MarketingCampaign } from "../db/entities/MarketingCampaign.js";
+import { MarketingCreative } from "../db/entities/MarketingCreative.js";
+import { MarketingExperiment } from "../db/entities/MarketingExperiment.js";
+import { MarketingPerformanceSnapshot } from "../db/entities/MarketingPerformanceSnapshot.js";
 import { Note } from "../db/entities/Note.js";
 import { Notebook } from "../db/entities/Notebook.js";
 import { Notification } from "../db/entities/Notification.js";
@@ -122,16 +136,24 @@ import { Project } from "../db/entities/Project.js";
 import { ProjectMember } from "../db/entities/ProjectMember.js";
 import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
 import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineItem.js";
+import { RealtimeEvent } from "../db/entities/RealtimeEvent.js";
 import { Resource } from "../db/entities/Resource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { Secret } from "../db/entities/Secret.js";
 import { Skill } from "../db/entities/Skill.js";
+import { Tag } from "../db/entities/Tag.js";
+import { TagAssignment } from "../db/entities/TagAssignment.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
 import { Team } from "../db/entities/Team.js";
 import { Todo } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
 import { Vendor } from "../db/entities/Vendor.js";
+import { VendorCredit } from "../db/entities/VendorCredit.js";
+import { VendorCreditApplication } from "../db/entities/VendorCreditApplication.js";
+import { VendorCreditLine } from "../db/entities/VendorCreditLine.js";
+import { VendorRefund } from "../db/entities/VendorRefund.js";
+import { WorkloadLease } from "../db/entities/WorkloadLease.js";
 
 /**
  * Hard-delete a company and every row that hangs off it.
@@ -233,6 +255,15 @@ export async function deleteCompanyCascade(args: {
     const recurringInvoiceIds = (
       await m.find(RecurringInvoice, { where: { companyId }, select: ["id"] })
     ).map((r) => r.id);
+    const customerCreditIds = (
+      await m.find(CustomerCredit, { where: { companyId }, select: ["id"] })
+    ).map((credit) => credit.id);
+    const vendorCreditIds = (
+      await m.find(VendorCredit, { where: { companyId }, select: ["id"] })
+    ).map((credit) => credit.id);
+    const tagIds = (await m.find(Tag, { where: { companyId }, select: ["id"] })).map(
+      (tag) => tag.id,
+    );
 
     // ── 2. Leaf rows (references → ids we just collected) ──────────────
     if (channelMessageIds.length) {
@@ -285,6 +316,15 @@ export async function deleteCompanyCascade(args: {
         recurringInvoiceId: In(recurringInvoiceIds),
       });
     }
+    if (customerCreditIds.length) {
+      await m.delete(CustomerCreditLine, { creditId: In(customerCreditIds) });
+    }
+    if (vendorCreditIds.length) {
+      await m.delete(VendorCreditLine, { creditId: In(vendorCreditIds) });
+    }
+    if (tagIds.length) {
+      await m.delete(TagAssignment, { tagId: In(tagIds) });
+    }
     if (conversationIds.length) {
       await m.delete(ConversationMessage, {
         conversationId: In(conversationIds),
@@ -301,7 +341,6 @@ export async function deleteCompanyCascade(args: {
       await m.delete(EmployeeResourceGrant, { employeeId: In(employeeIds) });
       await m.delete(EmployeeChartGrant, { employeeId: In(employeeIds) });
       await m.delete(EmployeeCodeRepositoryGrant, { employeeId: In(employeeIds) });
-      await m.delete(EmployeeFinanceGrant, { employeeId: In(employeeIds) });
       await m.delete(EmployeeDashboardGrant, { employeeId: In(employeeIds) });
       await m.delete(McpServer, { employeeId: In(employeeIds) });
       await m.delete(JournalEntry, { employeeId: In(employeeIds) });
@@ -310,6 +349,16 @@ export async function deleteCompanyCascade(args: {
     }
 
     // ── 3. Direct companyId rows (order is mostly free now) ────────────
+    await m.delete(WorkloadLease, { companyId });
+    await m.delete(RealtimeEvent, { companyId });
+    await m.delete(AdSpendEvent, { companyId });
+    await m.delete(EmployeeFinanceGrant, { companyId });
+    await m.delete(FinanceProposal, { companyId });
+    await m.delete(CustomerCreditApplication, { companyId });
+    await m.delete(CustomerRefund, { companyId });
+    await m.delete(InvoiceWriteOff, { companyId });
+    await m.delete(VendorCreditApplication, { companyId });
+    await m.delete(VendorRefund, { companyId });
     await m.delete(LedgerLine, { companyId });
     await m.delete(LedgerEntry, { companyId });
     await m.delete(CardTransaction, { companyId });
@@ -324,6 +373,8 @@ export async function deleteCompanyCascade(args: {
     await m.delete(Project, { companyId });
     await m.delete(Bill, { companyId });
     await m.delete(Invoice, { companyId });
+    await m.delete(CustomerCredit, { companyId });
+    await m.delete(VendorCredit, { companyId });
     await m.delete(Customer, { companyId });
     await m.delete(Vendor, { companyId });
     await m.delete(Product, { companyId });
@@ -341,6 +392,8 @@ export async function deleteCompanyCascade(args: {
     if (employeeIds.length) {
       await m.delete(EmployeeMailAccountGrant, { employeeId: In(employeeIds) });
     }
+    await m.delete(MailDraftSendBatch, { companyId });
+    await m.delete(MailSavedSearch, { companyId });
     await m.delete(MailInboundAutomation, { companyId });
     await m.delete(MailMessage, { companyId });
     await m.delete(MailThread, { companyId });
@@ -405,11 +458,17 @@ export async function deleteCompanyCascade(args: {
     await m.delete(Contact, { companyId });
     await m.delete(Suppression, { companyId });
     await m.delete(EmployeeRevenueGrant, { companyId });
+    await m.delete(MarketingPerformanceSnapshot, { companyId });
+    await m.delete(MarketingExperiment, { companyId });
+    await m.delete(MarketingCreative, { companyId });
+    await m.delete(MarketingCampaign, { companyId });
+    await m.delete(EmployeeMarketingGrant, { companyId });
     await m.delete(Chart, { companyId });
     await m.delete(Dashboard, { companyId });
     await m.delete(CodeRepository, { companyId });
     await m.delete(BrowserSession, { companyId });
     await m.delete(Pipeline, { companyId });
+    await m.delete(Tag, { companyId });
     await m.delete(Team, { companyId });
     await m.delete(Channel, { companyId });
     await m.delete(Base, { companyId });

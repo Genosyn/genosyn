@@ -13,7 +13,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { validateBody } from "../middleware/validate.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
 import { Role } from "../db/entities/Membership.js";
 import { toSlug } from "../lib/slug.js";
 import { chatWithEmployee } from "../services/chat.js";
@@ -74,15 +74,7 @@ const FIELD_TYPES: BaseFieldType[] = [
   "link",
   ...ALL_RESOURCE_FIELD_TYPES,
 ];
-const COLORS = [
-  "indigo",
-  "emerald",
-  "amber",
-  "rose",
-  "sky",
-  "violet",
-  "slate",
-] as const;
+const COLORS = ["indigo", "emerald", "amber", "rose", "sky", "violet", "slate"] as const;
 
 // ─────────────────────────── helpers ─────────────────────────────────────────
 
@@ -129,9 +121,7 @@ basesRouter.get("/bases", async (req, res) => {
         .groupBy("t.baseId")
         .getRawMany()
     : [];
-  const byBase = new Map<string, number>(
-    counts.map((c) => [String(c.baseId), Number(c.count)]),
-  );
+  const byBase = new Map<string, number>(counts.map((c) => [String(c.baseId), Number(c.count)]));
   res.json(bases.map((b) => ({ ...b, tableCount: byBase.get(b.id) ?? 0 })));
 });
 
@@ -187,29 +177,23 @@ const patchBaseSchema = z.object({
   color: z.enum(COLORS).optional(),
 });
 
-basesRouter.patch(
-  "/bases/:baseSlug",
-  validateBody(patchBaseSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const b = await loadBaseBySlug(cid, req.params.baseSlug);
-    if (!b) return res.status(404).json({ error: "Base not found" });
-    const body = req.body as z.infer<typeof patchBaseSchema>;
-    if (body.name !== undefined) {
-      if (await findBaseByName(cid, body.name, b.id)) {
-        return res
-          .status(409)
-          .json({ error: "A base with that name already exists" });
-      }
-      b.name = body.name;
+basesRouter.patch("/bases/:baseSlug", validateBody(patchBaseSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBaseBySlug(cid, req.params.baseSlug);
+  if (!b) return res.status(404).json({ error: "Base not found" });
+  const body = req.body as z.infer<typeof patchBaseSchema>;
+  if (body.name !== undefined) {
+    if (await findBaseByName(cid, body.name, b.id)) {
+      return res.status(409).json({ error: "A base with that name already exists" });
     }
-    if (body.description !== undefined) b.description = body.description;
-    if (body.icon !== undefined) b.icon = body.icon;
-    if (body.color !== undefined) b.color = body.color;
-    await AppDataSource.getRepository(Base).save(b);
-    res.json(b);
-  },
-);
+    b.name = body.name;
+  }
+  if (body.description !== undefined) b.description = body.description;
+  if (body.icon !== undefined) b.icon = body.icon;
+  if (body.color !== undefined) b.color = body.color;
+  await AppDataSource.getRepository(Base).save(b);
+  res.json(b);
+});
 
 basesRouter.delete("/bases/:baseSlug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -315,31 +299,28 @@ basesRouter.post(
   },
 );
 
-basesRouter.delete(
-  "/bases/:baseSlug/grants/:employeeId",
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const b = await loadBaseBySlug(cid, req.params.baseSlug);
-    if (!b) return res.status(404).json({ error: "Base not found" });
-    const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
-      id: req.params.employeeId,
-      companyId: cid,
-    });
-    if (!emp) return res.status(404).json({ error: "Employee not found" });
-    const ok = await revokeBaseAccess(emp.id, b.id);
-    if (!ok) return res.status(404).json({ error: "Grant not found" });
-    await recordAudit({
-      companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "base_grant.delete",
-      targetType: "base",
-      targetId: b.id,
-      targetLabel: `${b.name} → ${emp.name}`,
-      metadata: { employeeId: emp.id, baseId: b.id },
-    });
-    res.json({ ok: true });
-  },
-);
+basesRouter.delete("/bases/:baseSlug/grants/:employeeId", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBaseBySlug(cid, req.params.baseSlug);
+  if (!b) return res.status(404).json({ error: "Base not found" });
+  const emp = await AppDataSource.getRepository(AIEmployee).findOneBy({
+    id: req.params.employeeId,
+    companyId: cid,
+  });
+  if (!emp) return res.status(404).json({ error: "Employee not found" });
+  const ok = await revokeBaseAccess(emp.id, b.id);
+  if (!ok) return res.status(404).json({ error: "Grant not found" });
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "base_grant.delete",
+    targetType: "base",
+    targetId: b.id,
+    targetLabel: `${b.name} → ${emp.name}`,
+    metadata: { employeeId: emp.id, baseId: b.id },
+  });
+  res.json({ ok: true });
+});
 
 // ─────────────────────────── tables ──────────────────────────────────────────
 
@@ -347,48 +328,42 @@ const createTableSchema = z.object({
   name: z.string().min(1).max(80),
 });
 
-basesRouter.post(
-  "/bases/:baseSlug/tables",
-  validateBody(createTableSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const b = await loadBaseBySlug(cid, req.params.baseSlug);
-    if (!b) return res.status(404).json({ error: "Base not found" });
-    const body = req.body as z.infer<typeof createTableSchema>;
-    if (await findBaseTableByName(b.id, body.name)) {
-      return res
-        .status(409)
-        .json({ error: "A table with that name already exists in this base" });
-    }
-    const slug = await uniqueTableSlug(b.id, toSlug(body.name));
-    const last = await AppDataSource.getRepository(BaseTable).findOne({
-      where: { baseId: b.id },
-      order: { sortOrder: "DESC" },
-    });
-    const saved = await AppDataSource.getRepository(BaseTable).save(
-      AppDataSource.getRepository(BaseTable).create({
-        baseId: b.id,
-        name: body.name,
-        slug,
-        sortOrder: (last?.sortOrder ?? 0) + 1000,
-      }),
-    );
-    // Seed with a primary "Name" field so the table is immediately usable.
-    await AppDataSource.getRepository(BaseField).save(
-      AppDataSource.getRepository(BaseField).create({
-        tableId: saved.id,
-        name: "Name",
-        type: "text",
-        configJson: "{}",
-        isPrimary: true,
-        sortOrder: 1000,
-      }),
-    );
-    // Seed the default view so the grid has something to render against.
-    await ensureDefaultView(saved.id);
-    res.json(saved);
-  },
-);
+basesRouter.post("/bases/:baseSlug/tables", validateBody(createTableSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBaseBySlug(cid, req.params.baseSlug);
+  if (!b) return res.status(404).json({ error: "Base not found" });
+  const body = req.body as z.infer<typeof createTableSchema>;
+  if (await findBaseTableByName(b.id, body.name)) {
+    return res.status(409).json({ error: "A table with that name already exists in this base" });
+  }
+  const slug = await uniqueTableSlug(b.id, toSlug(body.name));
+  const last = await AppDataSource.getRepository(BaseTable).findOne({
+    where: { baseId: b.id },
+    order: { sortOrder: "DESC" },
+  });
+  const saved = await AppDataSource.getRepository(BaseTable).save(
+    AppDataSource.getRepository(BaseTable).create({
+      baseId: b.id,
+      name: body.name,
+      slug,
+      sortOrder: (last?.sortOrder ?? 0) + 1000,
+    }),
+  );
+  // Seed with a primary "Name" field so the table is immediately usable.
+  await AppDataSource.getRepository(BaseField).save(
+    AppDataSource.getRepository(BaseField).create({
+      tableId: saved.id,
+      name: "Name",
+      type: "text",
+      configJson: "{}",
+      isPrimary: true,
+      sortOrder: 1000,
+    }),
+  );
+  // Seed the default view so the grid has something to render against.
+  await ensureDefaultView(saved.id);
+  res.json(saved);
+});
 
 const patchTableSchema = z.object({
   name: z.string().min(1).max(80).optional(),
@@ -415,8 +390,7 @@ basesRouter.patch(
       t.name = body.name;
     }
     if (body.sortOrder !== undefined) t.sortOrder = body.sortOrder;
-    const archiveChanged =
-      body.archived !== undefined && body.archived !== (t.archivedAt !== null);
+    const archiveChanged = body.archived !== undefined && body.archived !== (t.archivedAt !== null);
     if (body.archived !== undefined) {
       t.archivedAt = body.archived ? new Date() : null;
     }
@@ -459,47 +433,44 @@ basesRouter.delete("/bases/:baseSlug/tables/:tableId", async (req, res) => {
 
 // ─────────────────────────── table content ───────────────────────────────────
 
-basesRouter.get(
-  "/bases/:baseSlug/tables/:tableId/rows",
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const b = await loadBaseBySlug(cid, req.params.baseSlug);
-    if (!b) return res.status(404).json({ error: "Base not found" });
-    const t = await loadTable(b.id, req.params.tableId);
-    if (!t) return res.status(404).json({ error: "Table not found" });
+basesRouter.get("/bases/:baseSlug/tables/:tableId/rows", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBaseBySlug(cid, req.params.baseSlug);
+  if (!b) return res.status(404).json({ error: "Base not found" });
+  const t = await loadTable(b.id, req.params.tableId);
+  if (!t) return res.status(404).json({ error: "Table not found" });
 
-    const [fields, records, views] = await Promise.all([
-      AppDataSource.getRepository(BaseField).find({
-        where: { tableId: t.id },
-        order: { sortOrder: "ASC", createdAt: "ASC" },
-      }),
-      AppDataSource.getRepository(BaseRecord).find({
-        where: { tableId: t.id },
-        order: { sortOrder: "ASC", createdAt: "ASC" },
-      }),
-      listViewsForTable(t.id),
-    ]);
+  const [fields, records, views] = await Promise.all([
+    AppDataSource.getRepository(BaseField).find({
+      where: { tableId: t.id },
+      order: { sortOrder: "ASC", createdAt: "ASC" },
+    }),
+    AppDataSource.getRepository(BaseRecord).find({
+      where: { tableId: t.id },
+      order: { sortOrder: "ASC", createdAt: "ASC" },
+    }),
+    listViewsForTable(t.id),
+  ]);
 
-    const [linkOptions, resourceOptions] = await Promise.all([
-      buildLinkOptionsFor(fields),
-      buildResourceOptionsFor(cid, fields, {
-        projectViewer: {
-          kind: "user",
-          id: req.userId!,
-          role: (req as typeof req & { role: Role }).role,
-        },
-      }),
-    ]);
-    res.json({
-      table: t,
-      fields: fields.map(hydrateField),
-      records: records.map(hydrateRecord),
-      linkOptions,
-      resourceOptions,
-      views,
-    });
-  },
-);
+  const [linkOptions, resourceOptions] = await Promise.all([
+    buildLinkOptionsFor(fields),
+    buildResourceOptionsFor(cid, fields, {
+      projectViewer: {
+        kind: "user",
+        id: req.userId!,
+        role: (req as typeof req & { role: Role }).role,
+      },
+    }),
+  ]);
+  res.json({
+    table: t,
+    fields: fields.map(hydrateField),
+    records: records.map(hydrateRecord),
+    linkOptions,
+    resourceOptions,
+    views,
+  });
+});
 
 // ─────────────────────────── fields ──────────────────────────────────────────
 
@@ -606,40 +577,37 @@ basesRouter.patch(
   },
 );
 
-basesRouter.delete(
-  "/bases/:baseSlug/tables/:tableId/fields/:fieldId",
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const b = await loadBaseBySlug(cid, req.params.baseSlug);
-    if (!b) return res.status(404).json({ error: "Base not found" });
-    const t = await loadTable(b.id, req.params.tableId);
-    if (!t) return res.status(404).json({ error: "Table not found" });
-    const f = await AppDataSource.getRepository(BaseField).findOneBy({
-      id: req.params.fieldId,
-      tableId: t.id,
-    });
-    if (!f) return res.status(404).json({ error: "Field not found" });
-    if (f.isPrimary) {
-      return res
-        .status(400)
-        .json({ error: "Promote another field to primary before deleting this one" });
+basesRouter.delete("/bases/:baseSlug/tables/:tableId/fields/:fieldId", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBaseBySlug(cid, req.params.baseSlug);
+  if (!b) return res.status(404).json({ error: "Base not found" });
+  const t = await loadTable(b.id, req.params.tableId);
+  if (!t) return res.status(404).json({ error: "Table not found" });
+  const f = await AppDataSource.getRepository(BaseField).findOneBy({
+    id: req.params.fieldId,
+    tableId: t.id,
+  });
+  if (!f) return res.status(404).json({ error: "Field not found" });
+  if (f.isPrimary) {
+    return res
+      .status(400)
+      .json({ error: "Promote another field to primary before deleting this one" });
+  }
+  await AppDataSource.getRepository(BaseField).delete({ id: f.id });
+  // Strip this field from every row. Cheap: records are small JSON blobs.
+  const records = await AppDataSource.getRepository(BaseRecord).find({
+    where: { tableId: t.id },
+  });
+  for (const r of records) {
+    const data = JSON.parse(r.dataJson || "{}");
+    if (f.id in data) {
+      delete data[f.id];
+      r.dataJson = JSON.stringify(data);
+      await AppDataSource.getRepository(BaseRecord).save(r);
     }
-    await AppDataSource.getRepository(BaseField).delete({ id: f.id });
-    // Strip this field from every row. Cheap: records are small JSON blobs.
-    const records = await AppDataSource.getRepository(BaseRecord).find({
-      where: { tableId: t.id },
-    });
-    for (const r of records) {
-      const data = JSON.parse(r.dataJson || "{}");
-      if (f.id in data) {
-        delete data[f.id];
-        r.dataJson = JSON.stringify(data);
-        await AppDataSource.getRepository(BaseRecord).save(r);
-      }
-    }
-    res.json({ ok: true });
-  },
-);
+  }
+  res.json({ ok: true });
+});
 
 // ─────────────────────────── records ─────────────────────────────────────────
 
@@ -718,36 +686,33 @@ basesRouter.patch(
   },
 );
 
-basesRouter.delete(
-  "/bases/:baseSlug/tables/:tableId/rows/:rowId",
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const b = await loadBaseBySlug(cid, req.params.baseSlug);
-    if (!b) return res.status(404).json({ error: "Base not found" });
-    const t = await loadTable(b.id, req.params.tableId);
-    if (!t) return res.status(404).json({ error: "Table not found" });
-    const r = await AppDataSource.getRepository(BaseRecord).findOneBy({
-      id: req.params.rowId,
-      tableId: t.id,
-    });
-    if (!r) return res.status(404).json({ error: "Row not found" });
-    // Drop file bytes for any attachments before deleting the rows so the
-    // join table doesn't accumulate orphan blobs on disk.
-    const attachments = await AppDataSource.getRepository(BaseRecordAttachment).find({
-      where: { recordId: r.id },
-    });
-    if (attachments.length) {
-      const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
-      if (co) {
-        for (const a of attachments) await deleteBaseAttachmentBytes(a, co.slug);
-      }
+basesRouter.delete("/bases/:baseSlug/tables/:tableId/rows/:rowId", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBaseBySlug(cid, req.params.baseSlug);
+  if (!b) return res.status(404).json({ error: "Base not found" });
+  const t = await loadTable(b.id, req.params.tableId);
+  if (!t) return res.status(404).json({ error: "Table not found" });
+  const r = await AppDataSource.getRepository(BaseRecord).findOneBy({
+    id: req.params.rowId,
+    tableId: t.id,
+  });
+  if (!r) return res.status(404).json({ error: "Row not found" });
+  // Drop file bytes for any attachments before deleting the rows so the
+  // join table doesn't accumulate orphan blobs on disk.
+  const attachments = await AppDataSource.getRepository(BaseRecordAttachment).find({
+    where: { recordId: r.id },
+  });
+  if (attachments.length) {
+    const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+    if (co) {
+      for (const a of attachments) await deleteBaseAttachmentBytes(a, co.slug);
     }
-    await AppDataSource.getRepository(BaseRecordAttachment).delete({ recordId: r.id });
-    await AppDataSource.getRepository(BaseRecordComment).delete({ recordId: r.id });
-    await AppDataSource.getRepository(BaseRecord).delete({ id: r.id });
-    res.json({ ok: true });
-  },
-);
+  }
+  await AppDataSource.getRepository(BaseRecordAttachment).delete({ recordId: r.id });
+  await AppDataSource.getRepository(BaseRecordComment).delete({ recordId: r.id });
+  await AppDataSource.getRepository(BaseRecord).delete({ id: r.id });
+  res.json({ ok: true });
+});
 
 // Bulk delete — keyed off the table-rows collection, body carries the ids.
 // Used by the grid's multi-select bar so the client doesn't issue N separate
@@ -795,17 +760,14 @@ basesRouter.post(
 
 // ─────────────────────────── views ───────────────────────────────────────────
 
-basesRouter.get(
-  "/bases/:baseSlug/tables/:tableId/views",
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const b = await loadBaseBySlug(cid, req.params.baseSlug);
-    if (!b) return res.status(404).json({ error: "Base not found" });
-    const t = await loadTable(b.id, req.params.tableId);
-    if (!t) return res.status(404).json({ error: "Table not found" });
-    res.json(await listViewsForTable(t.id));
-  },
-);
+basesRouter.get("/bases/:baseSlug/tables/:tableId/views", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBaseBySlug(cid, req.params.baseSlug);
+  if (!b) return res.status(404).json({ error: "Base not found" });
+  const t = await loadTable(b.id, req.params.tableId);
+  if (!t) return res.status(404).json({ error: "Table not found" });
+  res.json(await listViewsForTable(t.id));
+});
 
 // Filter / sort rule shapes — kept loose because operators vary by field type
 // and the client is the source of truth for which combinations make sense.
@@ -885,35 +847,31 @@ basesRouter.patch(
     if (body.name !== undefined) v.name = body.name;
     if (body.filters !== undefined) v.filtersJson = JSON.stringify(body.filters);
     if (body.sorts !== undefined) v.sortsJson = JSON.stringify(body.sorts);
-    if (body.hiddenFieldIds !== undefined)
-      v.hiddenFieldsJson = JSON.stringify(body.hiddenFieldIds);
+    if (body.hiddenFieldIds !== undefined) v.hiddenFieldsJson = JSON.stringify(body.hiddenFieldIds);
     if (body.sortOrder !== undefined) v.sortOrder = body.sortOrder;
     await repo.save(v);
     res.json(hydrateView(v));
   },
 );
 
-basesRouter.delete(
-  "/bases/:baseSlug/tables/:tableId/views/:viewId",
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const b = await loadBaseBySlug(cid, req.params.baseSlug);
-    if (!b) return res.status(404).json({ error: "Base not found" });
-    const t = await loadTable(b.id, req.params.tableId);
-    if (!t) return res.status(404).json({ error: "Table not found" });
-    const repo = AppDataSource.getRepository(BaseView);
-    const v = await repo.findOneBy({ id: req.params.viewId, tableId: t.id });
-    if (!v) return res.status(404).json({ error: "View not found" });
-    const count = await repo.count({ where: { tableId: t.id } });
-    if (count <= 1) {
-      return res.status(400).json({
-        error: "A table needs at least one view — create another before deleting this one.",
-      });
-    }
-    await repo.delete({ id: v.id });
-    res.json({ ok: true });
-  },
-);
+basesRouter.delete("/bases/:baseSlug/tables/:tableId/views/:viewId", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const b = await loadBaseBySlug(cid, req.params.baseSlug);
+  if (!b) return res.status(404).json({ error: "Base not found" });
+  const t = await loadTable(b.id, req.params.tableId);
+  if (!t) return res.status(404).json({ error: "Table not found" });
+  const repo = AppDataSource.getRepository(BaseView);
+  const v = await repo.findOneBy({ id: req.params.viewId, tableId: t.id });
+  if (!v) return res.status(404).json({ error: "View not found" });
+  const count = await repo.count({ where: { tableId: t.id } });
+  if (count <= 1) {
+    return res.status(400).json({
+      error: "A table needs at least one view — create another before deleting this one.",
+    });
+  }
+  await repo.delete({ id: v.id });
+  res.json({ ok: true });
+});
 
 // ─────────────────────────── record detail (comments + attachments) ──────────
 
@@ -937,24 +895,21 @@ async function loadRecordForDetail(
 
 // ----- Comments -----
 
-basesRouter.get(
-  "/bases/:baseSlug/tables/:tableId/rows/:rowId/comments",
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const found = await loadRecordForDetail(
-      cid,
-      req.params.baseSlug,
-      req.params.tableId,
-      req.params.rowId,
-    );
-    if (!found) return res.status(404).json({ error: "Record not found" });
-    const comments = await AppDataSource.getRepository(BaseRecordComment).find({
-      where: { recordId: found.record.id },
-      order: { createdAt: "ASC" },
-    });
-    res.json(await hydrateRecordComments(cid, comments));
-  },
-);
+basesRouter.get("/bases/:baseSlug/tables/:tableId/rows/:rowId/comments", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const found = await loadRecordForDetail(
+    cid,
+    req.params.baseSlug,
+    req.params.tableId,
+    req.params.rowId,
+  );
+  if (!found) return res.status(404).json({ error: "Record not found" });
+  const comments = await AppDataSource.getRepository(BaseRecordComment).find({
+    where: { recordId: found.record.id },
+    order: { createdAt: "ASC" },
+  });
+  res.json(await hydrateRecordComments(cid, comments));
+});
 
 const createRecordCommentSchema = z.object({
   body: z.string().min(1).max(10_000),
@@ -1073,24 +1028,21 @@ basesRouter.post(
   },
 );
 
-basesRouter.get(
-  "/bases/:baseSlug/tables/:tableId/rows/:rowId/attachments",
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const found = await loadRecordForDetail(
-      cid,
-      req.params.baseSlug,
-      req.params.tableId,
-      req.params.rowId,
-    );
-    if (!found) return res.status(404).json({ error: "Record not found" });
-    const rows = await AppDataSource.getRepository(BaseRecordAttachment).find({
-      where: { recordId: found.record.id },
-      order: { createdAt: "ASC" },
-    });
-    res.json(await hydrateRecordAttachments(cid, rows));
-  },
-);
+basesRouter.get("/bases/:baseSlug/tables/:tableId/rows/:rowId/attachments", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const found = await loadRecordForDetail(
+    cid,
+    req.params.baseSlug,
+    req.params.tableId,
+    req.params.rowId,
+  );
+  if (!found) return res.status(404).json({ error: "Record not found" });
+  const rows = await AppDataSource.getRepository(BaseRecordAttachment).find({
+    where: { recordId: found.record.id },
+    order: { createdAt: "ASC" },
+  });
+  res.json(await hydrateRecordAttachments(cid, rows));
+});
 
 basesRouter.delete(
   "/bases/:baseSlug/tables/:tableId/rows/:rowId/attachments/:attachmentId",
@@ -1121,22 +1073,19 @@ basesRouter.delete(
 
 // Download / inline-serve. Scoped to the company so a leaked id from one
 // tenant can't reach into another.
-basesRouter.get(
-  "/base-attachments/:attachmentId",
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const resolved = await resolveBaseAttachmentFile(req.params.attachmentId, cid);
-    if (!resolved) return res.status(404).json({ error: "Attachment not found" });
-    res.setHeader("Content-Type", resolved.row.mimeType);
-    const inline = resolved.row.mimeType.startsWith("image/");
-    const disposition = inline ? "inline" : "attachment";
-    res.setHeader(
-      "Content-Disposition",
-      `${disposition}; filename="${encodeURIComponent(resolved.row.filename)}"`,
-    );
-    res.sendFile(resolved.absPath);
-  },
-);
+basesRouter.get("/base-attachments/:attachmentId", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const resolved = await resolveBaseAttachmentFile(req.params.attachmentId, cid);
+  if (!resolved) return res.status(404).json({ error: "Attachment not found" });
+  res.setHeader("Content-Type", resolved.row.mimeType);
+  const inline = resolved.row.mimeType.startsWith("image/");
+  const disposition = inline ? "inline" : "attachment";
+  res.setHeader(
+    "Content-Disposition",
+    `${disposition}; filename="${encodeURIComponent(resolved.row.filename)}"`,
+  );
+  res.sendFile(resolved.absPath);
+});
 
 // ─────────────────────────── AI assistant ────────────────────────────────────
 
@@ -1154,6 +1103,7 @@ const aiSchema = z.object({
 
 basesRouter.post(
   "/bases/:baseSlug/ai",
+  requireBrowserSession,
   validateBody(aiSchema),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
@@ -1202,7 +1152,10 @@ basesRouter.post(
       : [];
 
     const promptText = composeAssistantPrompt(b.name, tables, fields, body);
-    const result = await chatWithEmployee(cid, firstConnected.id, promptText, []);
+    const result = await chatWithEmployee(cid, firstConnected.id, promptText, [], {
+      requesterUserId: req.userId!,
+      requesterSessionVersion: req.session!.sessionVersion!,
+    });
     res.json({
       status: result.status,
       reply: result.reply,

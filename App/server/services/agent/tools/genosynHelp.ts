@@ -27,6 +27,8 @@ const IGNORED_DIRECTORIES = new Set([
   "dist",
   "node_modules",
 ]);
+const DENIED_SOURCE_PATHS = new Set(["app/config.ts", "app/config.js"]);
+const DENIED_SOURCE_BASENAMES = new Set([".env", ".npmrc", ".netrc"]);
 
 type HelpSource = {
   root: string | null;
@@ -35,7 +37,7 @@ type HelpSource = {
 };
 
 export function createGenosynHelpSource(sourceRoot = resolveGenosynSourceRoot()): HelpSource {
-  const root = sourceRoot ? path.resolve(sourceRoot) : null;
+  const root = sourceRoot ? fs.realpathSync(path.resolve(sourceRoot)) : null;
   const availability = root
     ? "The complete source snapshot for this running Genosyn release is available through the three read-only source tools below."
     : "This installation does not contain its Genosyn source snapshot. Explain that limitation plainly and answer from the product context below without inventing implementation details.";
@@ -88,6 +90,13 @@ function unavailable(): ToolResult {
   return fail("The Genosyn source snapshot is not available in this installation.");
 }
 
+function isDeniedSourcePath(relativePath: string): boolean {
+  const normalized = relativePath.split(path.sep).join("/").toLocaleLowerCase();
+  if (DENIED_SOURCE_PATHS.has(normalized)) return true;
+  const basename = path.posix.basename(normalized);
+  return DENIED_SOURCE_BASENAMES.has(basename) || basename.startsWith(".env.");
+}
+
 async function resolveExisting(
   root: string,
   requested: string,
@@ -105,9 +114,13 @@ async function resolveExisting(
     if (realTarget !== realRoot && !realTarget.startsWith(realRoot + path.sep)) {
       return { error: `Path resolves outside the Genosyn source snapshot: ${requested}` };
     }
+    const resolvedRelative = path.relative(realRoot, realTarget) || ".";
+    if (isDeniedSourcePath(resolvedRelative)) {
+      return { error: "That source path is unavailable from Help." };
+    }
     return {
       path: realTarget,
-      relative: path.relative(realRoot, realTarget) || ".",
+      relative: resolvedRelative,
     };
   } catch {
     return { error: `No such source path: ${requested}` };
@@ -141,6 +154,12 @@ function listSourceTool(root: string | null): AgentTool {
       }
       const lines = entries
         .filter((entry) => !IGNORED_DIRECTORIES.has(entry.name))
+        .filter(
+          (entry) =>
+            !isDeniedSourcePath(
+              resolved.relative === "." ? entry.name : path.join(resolved.relative, entry.name),
+            ),
+        )
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((entry) => (entry.isDirectory() ? `${entry.name}/` : entry.name));
       return ok(lines.join("\n") || "(empty)");
@@ -244,6 +263,7 @@ function searchSourceTool(root: string | null): AgentTool {
         }
         if (!stat.isFile() || stat.size > MAX_SEARCH_FILE_BYTES) return;
         const relative = path.relative(root, filePath);
+        if (isDeniedSourcePath(relative)) return;
         const comparablePath = caseSensitive ? relative : relative.toLocaleLowerCase();
         if (comparablePath.includes(needle)) matches.push(`${relative}: path match`);
         if (matches.length >= MAX_SEARCH_MATCHES) return;
@@ -267,10 +287,14 @@ function searchSourceTool(root: string | null): AgentTool {
         if (matches.length >= MAX_SEARCH_MATCHES || visited >= MAX_WALK_FILES) return;
         let stat: fs.Stats;
         try {
-          stat = await fsp.stat(target);
+          stat = await fsp.lstat(target);
         } catch {
           return;
         }
+        // Never follow snapshot symlinks during a recursive search. Direct
+        // reads canonicalize their target in `resolveExisting`; recursive
+        // traversal should not duplicate content or discover an external tree.
+        if (stat.isSymbolicLink()) return;
         if (stat.isFile()) {
           await inspect(target);
           return;
@@ -280,7 +304,9 @@ function searchSourceTool(root: string | null): AgentTool {
         for (const entry of entries) {
           if (matches.length >= MAX_SEARCH_MATCHES || visited >= MAX_WALK_FILES) return;
           if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
-          await walk(path.join(target, entry.name));
+          const child = path.join(target, entry.name);
+          if (isDeniedSourcePath(path.relative(root, child))) continue;
+          await walk(child);
         }
       };
 

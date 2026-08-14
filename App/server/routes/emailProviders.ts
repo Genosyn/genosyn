@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import {
   requireAuth,
+  requireBrowserSession,
   requireCompanyMember,
   requireCompanyRoleForMutations,
 } from "../middleware/auth.js";
@@ -38,6 +39,7 @@ import {
 export const emailProvidersRouter = Router({ mergeParams: true });
 emailProvidersRouter.use(requireAuth);
 emailProvidersRouter.use(requireCompanyMember);
+emailProvidersRouter.use(requireBrowserSession);
 emailProvidersRouter.use(requireCompanyRoleForMutations("admin"));
 
 const KIND_VALUES = ["smtp", "sendgrid", "mailgun", "resend", "postmark"] as const;

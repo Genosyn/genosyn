@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import { config } from "../../../../config.js";
 import { buildBubblewrapCommandArgs } from "../bubblewrap.js";
+import { codingRuntimeAvailability } from "../codingAvailability.js";
 import type { AgentTool, ToolResult } from "../types.js";
 import { fail, type CodingToolContext } from "./codingShared.js";
 
@@ -44,9 +45,8 @@ function runBash(command: string, ctx: CodingToolContext, timeoutMs: number): Pr
   if (command.includes("\0")) return Promise.resolve(fail("Command must not contain NUL bytes."));
 
   const sandbox = config.agent.codingTools.executionMode;
-  if (sandbox === "disabled") {
-    return Promise.resolve(fail("Command execution is disabled on this Genosyn installation."));
-  }
+  const availability = codingRuntimeAvailability();
+  if (!availability.available) return Promise.resolve(fail(availability.reason));
   let executable: string;
   let args: string[];
   let childEnv: Record<string, string>;

@@ -12,6 +12,7 @@ import { User } from "../db/entities/User.js";
 import { validateBody } from "../middleware/validate.js";
 import {
   requireAuth,
+  requireBrowserSession,
   requireCompanyMember,
   requireCompanyRoleForMutations,
   onRoutePaths,
@@ -51,6 +52,7 @@ import { config } from "../../config.js";
 export const codeRepositoriesRouter = Router({ mergeParams: true });
 codeRepositoriesRouter.use(requireAuth);
 codeRepositoriesRouter.use(requireCompanyMember);
+codeRepositoriesRouter.use(onRoutePaths(["/code-repositories"], requireBrowserSession));
 codeRepositoriesRouter.use(
   onRoutePaths(["/code-repositories"], requireCompanyRoleForMutations("admin")),
 );

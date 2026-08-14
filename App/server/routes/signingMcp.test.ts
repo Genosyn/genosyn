@@ -73,7 +73,7 @@ beforeEach(async () => {
     role: "Contract coordinator",
     soulBody: "",
   });
-  token = issueMcpToken(employee.id, company.id);
+  token = issueMcpToken(employee.id, company.id, { authority: "employee" });
 });
 
 afterEach(async () => {

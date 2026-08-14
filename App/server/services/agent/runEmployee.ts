@@ -1,8 +1,13 @@
 import type { AIModel } from "../../db/entities/AIModel.js";
 import { runAgentLoop } from "./loop.js";
 import { createModelClient } from "./modelClients/index.js";
-import { gatherEmployeeTools } from "./tools/index.js";
+import {
+  gatherEmployeeTools,
+  guardPrivilegedTools,
+  selectSurfaceTools,
+} from "./tools/index.js";
 import type { AgentMessage, AgentTool, StreamCallbacks } from "./types.js";
+import type { PrivilegedToolCallAuthorizer } from "../memberTurnAuthority.js";
 import { formatModelError } from "./modelError.js";
 import {
   createParallelDelegationTool,
@@ -60,6 +65,19 @@ export type EmployeeAgentParams = {
   skillToolset?: string[];
   /** Surface-specific in-process tools, kept resident for this turn. */
   extraTools?: AgentTool[];
+  /**
+   * Explicit authority classification for extraTools. Omitted is privileged,
+   * so a future local tool cannot accidentally escape the live Member gate.
+   */
+  extraToolsAuthority?: "member" | "privileged";
+  /**
+   * Coding, browser, and company-configured MCP servers have no per-Member
+   * ACL. Only employee automation or an administrative Member may receive
+   * them; ordinary interactive Members stay on the governed Genosyn surface.
+   */
+  allowPrivilegedToolSources?: boolean;
+  /** Re-check administrative Member authority before every ambient tool call. */
+  authorizePrivilegedToolCall?: PrivilegedToolCallAuthorizer;
 };
 
 export type EmployeeAgentResult =
@@ -115,17 +133,30 @@ function trimToProviderCap(
 export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<EmployeeAgentResult> {
   const delegationDepth = params.delegationDepth ?? 0;
   const delegationBudget = params.delegationBudget ?? { remaining: MAX_DELEGATIONS_PER_TURN };
-  const localTools: AgentTool[] = [...(params.extraTools ?? [])];
+  const allowPrivileged = params.allowPrivilegedToolSources ?? true;
+  const localTools: AgentTool[] = selectSurfaceTools(params.extraTools ?? [], {
+    authority: params.extraToolsAuthority,
+    allowPrivileged,
+    authorizePrivilegedToolCall: params.authorizePrivilegedToolCall,
+  });
   if (delegationDepth === 0 && params.callbacks?.onProgress) {
     localTools.push(createChatProgressTool(params.callbacks.onProgress));
   }
-  if (supportsParallelDelegation(params.model.authMode, delegationDepth)) {
+  if (
+    allowPrivileged &&
+    supportsParallelDelegation(params.model.authMode, delegationDepth)
+  ) {
     localTools.push(
-      createParallelDelegationTool({
-        budget: delegationBudget,
-        signal: params.signal,
-        runBrief: (brief) => runDelegatedBrief(params, brief, delegationBudget),
-      }),
+      ...guardPrivilegedTools(
+        [
+          createParallelDelegationTool({
+            budget: delegationBudget,
+            signal: params.signal,
+            runBrief: (brief) => runDelegatedBrief(params, brief, delegationBudget),
+          }),
+        ],
+        params.authorizePrivilegedToolCall,
+      ),
     );
   }
 
@@ -148,6 +179,8 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
     conversationId: params.conversationId,
     runId: params.runId,
     signal: params.signal,
+    allowPrivilegedToolSources: params.allowPrivilegedToolSources,
+    authorizePrivilegedToolCall: params.authorizePrivilegedToolCall,
     onDeprecatedFamily: (family, target) => {
       console.warn(
         `[genosyn] employee=${params.employeeId} used the deprecated family tool "${family}" ` +
@@ -266,6 +299,8 @@ async function runSubscriptionEmployeeAgent(
       runId: params.runId,
       signal: params.signal,
       requireIsolatedBash: true,
+      allowPrivilegedToolSources: params.allowPrivilegedToolSources,
+      authorizePrivilegedToolCall: params.authorizePrivilegedToolCall,
       onDeprecatedFamily: (family, target) => {
         console.warn(
           `[genosyn] employee=${params.employeeId} used the deprecated family tool "${family}" ` +

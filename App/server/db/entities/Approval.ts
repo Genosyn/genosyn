@@ -1,7 +1,13 @@
 import { dateTimeColumnType } from "./columnTypes.js";
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from "typeorm";
 
-export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
+export type ApprovalStatus =
+  | "pending"
+  | "executing"
+  | "approved"
+  | "execution_failed"
+  | "rejected"
+  | "expired";
 
 /**
  * Approval kinds. Each kind has its own execute path in
@@ -14,9 +20,11 @@ export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
  *                            whose `browserApprovalRequired` flag is on.
  *                            The MCP child holds the pending action; the
  *                            model retries via `browser_resume(approvalId)`
- *                            once status flips to `approved`. Server does
- *                            not re-fire — only the MCP child can drive
- *                            the live browser session.
+ *                            once status flips to `approved`. Resume first
+ *                            atomically claims the row as `executing`; a crash
+ *                            leaves that ambiguous claim non-replayable. The
+ *                            server does not re-fire — only the MCP child can
+ *                            drive the live browser session.
  *   - `mcp_tool`          — a guarded tool on a company-configured MCP
  *                            server (`McpServer.guardedToolsJson` glob
  *                            match). The verbatim call is snapshotted on
@@ -89,9 +97,9 @@ export class Approval {
   @Column({ type: "text", nullable: true })
   resultJson!: string | null;
 
-  /** Failure message captured when execute throws after approval. The
-   *  approval stays `approved` (a human said yes) but the result is
-   *  captured here for the inbox to surface. */
+  /** Failure message captured when post-approval execution throws. The
+   *  status becomes `execution_failed`: the human decision and failure are
+   *  both durable, and another Approve request cannot replay the action. */
   @Column({ type: "text", nullable: true })
   errorMessage!: string | null;
 

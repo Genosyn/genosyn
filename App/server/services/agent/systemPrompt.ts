@@ -3,6 +3,7 @@ import type { Company } from "../../db/entities/Company.js";
 import type { Skill } from "../../db/entities/Skill.js";
 import { config } from "../../../config.js";
 import { TOOL_DOMAINS } from "./tools/toolIndex.js";
+import { codingRuntimeAvailability } from "./codingAvailability.js";
 
 /**
  * The one system prompt an AI employee gets, for both seams that run one.
@@ -106,8 +107,7 @@ export function composeEmployeeSystemPrompt(args: {
 export function toolsBriefing(
   surface: PromptSurface,
   parallelDelegationAvailable: boolean,
-  codingToolsAvailable = config.agent.codingTools.enabled &&
-    config.agent.codingTools.executionMode !== "disabled",
+  codingToolsAvailable = codingRuntimeAvailability().available,
   isolatedCodingTools = config.agent.codingTools.executionMode === "bubblewrap",
 ): string {
   const isChat = surface === "chat";

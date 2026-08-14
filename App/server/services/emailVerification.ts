@@ -23,6 +23,7 @@ export async function sendEmailVerification(user: User): Promise<void> {
     to: user.email,
     subject: "Verify your Genosyn email",
     text: `Verify your email address (valid for 24 hours): ${link}`,
+    bodyPreview: "Email-verification link redacted. The link is valid for 24 hours.",
     purpose: "email_verification",
     triggeredByUserId: user.id,
   });
@@ -40,8 +41,29 @@ export async function verifyEmailToken(token: string): Promise<User | null> {
   user.emailVerifiedAt = new Date();
   user.emailVerificationTokenHash = null;
   user.emailVerificationExpiresAt = null;
+  await claimBootstrapMasterAdminIfEligible(user);
   await repo.save(user);
   return user;
+}
+
+/**
+ * The configured address is the operator's proof that this account may claim
+ * an otherwise-empty instance. Promotion happens only after mailbox ownership
+ * has been verified; unlike the former first-signup rule, an internet race can
+ * never choose a different address.
+ */
+export async function claimBootstrapMasterAdminIfEligible(user: User): Promise<boolean> {
+  if (user.isMasterAdmin || !user.emailVerifiedAt) return user.isMasterAdmin;
+  const bootstrapEmail = config.security.bootstrapMasterAdminEmail.trim().toLowerCase();
+  if (!bootstrapEmail || user.email.trim().toLowerCase() !== bootstrapEmail) return false;
+  const repo = AppDataSource.getRepository(User);
+  if ((await repo.count({ where: { isMasterAdmin: true } })) > 0) return false;
+  user.isMasterAdmin = true;
+  // Never let a cookie minted while the account was unverified inherit
+  // operator authority. The verified operator signs in again from scratch.
+  user.sessionVersion += 1;
+  await repo.save(user);
+  return true;
 }
 
 export function emailVerificationRequired(user: User): boolean {

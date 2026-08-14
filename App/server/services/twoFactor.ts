@@ -416,7 +416,10 @@ export async function removeWebAuthnCredential(args: {
     await assertMayRemoveLastTwoFactorMethod(args.user.id);
   }
   await repo.remove(row);
-  if (remaining === 0 && !args.user.totpEnabledAt) {
+  // `remaining` was counted before removal, so one means the credential we
+  // just removed was the final WebAuthn method. Recovery codes must not remain
+  // usable after all second-factor methods are gone.
+  if (remaining === 1 && !args.user.totpEnabledAt) {
     args.user.recoveryCodes = null;
     await AppDataSource.getRepository(User).save(args.user);
   }

@@ -72,39 +72,18 @@ const EMPTY: EmployeeSession = Object.freeze({
   convLoading: false,
 }) as EmployeeSession;
 
-type Update =
-  | Partial<EmployeeSession>
-  | ((s: EmployeeSession) => EmployeeSession);
+type Update = Partial<EmployeeSession> | ((s: EmployeeSession) => EmployeeSession);
 
 type ChatActions = {
   update: (empId: string, u: Update) => void;
   initEmployee: (companyId: string, empId: string) => Promise<void>;
-  selectConversation: (
-    companyId: string,
-    empId: string,
-    convId: string,
-  ) => Promise<void>;
-  refreshConversation: (
-    companyId: string,
-    empId: string,
-    convId: string,
-  ) => Promise<void>;
+  selectConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
+  refreshConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
   newConversation: (companyId: string, empId: string) => Promise<void>;
-  deleteConversation: (
-    companyId: string,
-    empId: string,
-    convId: string,
-  ) => Promise<void>;
-  archiveConversation: (
-    companyId: string,
-    empId: string,
-    convId: string,
-  ) => Promise<void>;
-  unarchiveConversation: (
-    companyId: string,
-    empId: string,
-    convId: string,
-  ) => Promise<void>;
+  claimConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
+  deleteConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
+  archiveConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
+  unarchiveConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
   loadArchived: (companyId: string, empId: string) => Promise<void>;
   /** Resolves with an error message on failure, or null on success. */
   send: (
@@ -132,14 +111,8 @@ type PendingChatMessage = QueuedChatMessage & {
   resolve: (error: string | null) => void;
 };
 
-export function ChatSessionsProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [sessions, setSessions] = React.useState<
-    Record<string, EmployeeSession>
-  >({});
+export function ChatSessionsProvider({ children }: { children: React.ReactNode }) {
+  const [sessions, setSessions] = React.useState<Record<string, EmployeeSession>>({});
   // Ref so async code (stream callbacks, lazy-create paths) can read the
   // current sessions without waiting for a re-render.
   const sessionsRef = React.useRef(sessions);
@@ -174,16 +147,8 @@ export function ChatSessionsProvider({
           messages: detail.messages,
           loadedConvId: convId,
           convLoading: false,
-          sending: working
-            ? true
-            : wasFollowingThisConversation
-              ? false
-              : s.sending,
-          sendingConvId: working
-            ? convId
-            : wasFollowingThisConversation
-              ? null
-              : s.sendingConvId,
+          sending: working ? true : wasFollowingThisConversation ? false : s.sending,
+          sendingConvId: working ? convId : wasFollowingThisConversation ? null : s.sendingConvId,
           streamingReply: working
             ? s.streamingReply
             : wasFollowingThisConversation
@@ -215,9 +180,7 @@ export function ChatSessionsProvider({
       removed.resolve(null);
       update(empId, (s) => ({
         ...s,
-        queuedMessages: s.queuedMessages.filter(
-          (item) => item.id !== queuedMessageId,
-        ),
+        queuedMessages: s.queuedMessages.filter((item) => item.id !== queuedMessageId),
       }));
     },
     [update],
@@ -227,9 +190,7 @@ export function ChatSessionsProvider({
     async (companyId: string, empId: string) => {
       if (sessionsRef.current[empId]?.convsLoaded) return;
       const base = `/api/companies/${companyId}/employees/${empId}`;
-      const list = await api.get<ConversationSummary[]>(
-        `${base}/conversations`,
-      );
+      const list = await api.get<ConversationSummary[]>(`${base}/conversations`);
       update(empId, (s) => ({
         ...s,
         convs: list,
@@ -249,9 +210,7 @@ export function ChatSessionsProvider({
       update(empId, { activeConvId: convId, convLoading: true });
       const base = `/api/companies/${companyId}/employees/${empId}`;
       try {
-        const detail = await api.get<ConversationDetail>(
-          `${base}/conversations/${convId}`,
-        );
+        const detail = await api.get<ConversationDetail>(`${base}/conversations/${convId}`);
         // Drop the response if the user switched away before it returned.
         if (sessionsRef.current[empId]?.activeConvId !== convId) return;
         applyConversationDetail(empId, convId, detail);
@@ -269,9 +228,7 @@ export function ChatSessionsProvider({
     async (companyId: string, empId: string, convId: string) => {
       const base = `/api/companies/${companyId}/employees/${empId}`;
       try {
-        const detail = await api.get<ConversationDetail>(
-          `${base}/conversations/${convId}`,
-        );
+        const detail = await api.get<ConversationDetail>(`${base}/conversations/${convId}`);
         applyConversationDetail(empId, convId, detail);
       } catch (error) {
         update(empId, (s) => {
@@ -287,10 +244,7 @@ export function ChatSessionsProvider({
   const newConversation = React.useCallback(
     async (companyId: string, empId: string) => {
       const base = `/api/companies/${companyId}/employees/${empId}`;
-      const created = await api.post<ConversationSummary>(
-        `${base}/conversations`,
-        {},
-      );
+      const created = await api.post<ConversationSummary>(`${base}/conversations`, {});
       update(empId, (s) => ({
         ...s,
         convs: [created, ...s.convs],
@@ -322,12 +276,28 @@ export function ChatSessionsProvider({
     [update],
   );
 
+  const claimConversation = React.useCallback(
+    async (companyId: string, empId: string, convId: string) => {
+      const base = `/api/companies/${companyId}/employees/${empId}`;
+      const claimed = await api.post<ConversationSummary>(
+        `${base}/conversations/${convId}/claim`,
+        {},
+      );
+      update(empId, (s) => ({
+        ...s,
+        convs: s.convs.map((conversation) => (conversation.id === convId ? claimed : conversation)),
+        archivedConvs: s.archivedConvs.map((conversation) =>
+          conversation.id === convId ? claimed : conversation,
+        ),
+      }));
+    },
+    [update],
+  );
+
   const loadArchived = React.useCallback(
     async (companyId: string, empId: string) => {
       const base = `/api/companies/${companyId}/employees/${empId}`;
-      const list = await api.get<ConversationSummary[]>(
-        `${base}/conversations?archived=1`,
-      );
+      const list = await api.get<ConversationSummary[]>(`${base}/conversations?archived=1`);
       update(empId, { archivedConvs: list, archivedLoaded: true });
     },
     [update],
@@ -345,10 +315,7 @@ export function ChatSessionsProvider({
         return {
           ...s,
           convs: s.convs.filter((c) => c.id !== convId),
-          archivedConvs: [
-            updated,
-            ...s.archivedConvs.filter((c) => c.id !== convId),
-          ],
+          archivedConvs: [updated, ...s.archivedConvs.filter((c) => c.id !== convId)],
           activeConvId: wasActive ? null : s.activeConvId,
           loadedConvId: wasActive ? null : s.loadedConvId,
           messages: wasActive ? [] : s.messages,
@@ -391,10 +358,7 @@ export function ChatSessionsProvider({
       if (!msg && attachments.length === 0) return null;
       const base = `/api/companies/${companyId}/employees/${empId}`;
       const clearInput = opts?.clearInput ?? true;
-      let convId =
-        opts?.conversationId ??
-        sessionsRef.current[empId]?.activeConvId ??
-        null;
+      let convId = opts?.conversationId ?? sessionsRef.current[empId]?.activeConvId ?? null;
       const tempId = `temp-${Date.now()}`;
       const tempUser: ConversationMessage = {
         id: tempId,
@@ -414,10 +378,7 @@ export function ChatSessionsProvider({
         progress: null,
         connectionState: "streaming",
         input: clearInput ? "" : s.input,
-        messages:
-          !convId || s.activeConvId === convId
-            ? [...s.messages, tempUser]
-            : s.messages,
+        messages: !convId || s.activeConvId === convId ? [...s.messages, tempUser] : s.messages,
       }));
 
       let accumulated = "";
@@ -425,18 +386,13 @@ export function ChatSessionsProvider({
       let serverEventError = false;
       let persistedUser: ConversationMessage | null = null;
       let workingMessageId: string | null = null;
-      let recoverAcceptedTurn:
-        | ((initialError: string) => Promise<string | null>)
-        | null = null;
+      let recoverAcceptedTurn: ((initialError: string) => Promise<string | null>) | null = null;
 
       try {
         // Lazy-create a conversation on first send so never-chatted
         // employees don't accumulate empty threads in the sidebar.
         if (!convId) {
-          const created = await api.post<ConversationSummary>(
-            `${base}/conversations`,
-            {},
-          );
+          const created = await api.post<ConversationSummary>(`${base}/conversations`, {});
           convId = created.id;
           const queue = pendingRef.current[empId] ?? [];
           for (const pending of queue) {
@@ -451,9 +407,7 @@ export function ChatSessionsProvider({
             loadedConvId: created.id,
             sendingConvId: created.id,
             queuedMessages: s.queuedMessages.map((pending) =>
-              pending.conversationId
-                ? pending
-                : { ...pending, conversationId: created.id },
+              pending.conversationId ? pending : { ...pending, conversationId: created.id },
             ),
           }));
         }
@@ -464,16 +418,12 @@ export function ChatSessionsProvider({
         // they open the conv.
         const streamConvId = convId;
 
-        recoverAcceptedTurn = async (
-          initialError: string,
-        ): Promise<string | null> => {
+        recoverAcceptedTurn = async (initialError: string): Promise<string | null> => {
           let successfulPolls = 0;
           let failedPolls = 0;
           let accepted = Boolean(persistedUser || workingMessageId);
           update(empId, (s) =>
-            s.sendingConvId === streamConvId
-              ? { ...s, connectionState: "reconnecting" }
-              : s,
+            s.sendingConvId === streamConvId ? { ...s, connectionState: "reconnecting" } : s,
           );
 
           for (;;) {
@@ -483,11 +433,7 @@ export function ChatSessionsProvider({
               );
               successfulPolls += 1;
               failedPolls = 0;
-              const turn = findTurnMessages(
-                detail.messages,
-                persistedUser?.id ?? null,
-                tempUser,
-              );
+              const turn = findTurnMessages(detail.messages, persistedUser?.id ?? null, tempUser);
               if (turn.user) persistedUser = turn.user;
               const working = turn.assistant?.status === "working" ? turn.assistant : null;
               if (working) {
@@ -505,9 +451,7 @@ export function ChatSessionsProvider({
             } catch {
               failedPolls += 1;
               update(empId, (s) =>
-                s.sendingConvId === streamConvId
-                  ? { ...s, connectionState: "reconnecting" }
-                  : s,
+                s.sendingConvId === streamConvId ? { ...s, connectionState: "reconnecting" } : s,
               );
               if (!accepted && failedPolls >= 60) {
                 return initialError;
@@ -532,9 +476,7 @@ export function ChatSessionsProvider({
                 if (s.activeConvId !== streamConvId) return s;
                 return {
                   ...s,
-                  messages: s.messages.map((m) =>
-                    m.id === tempId ? userMsg : m,
-                  ),
+                  messages: s.messages.map((m) => (m.id === tempId ? userMsg : m)),
                 };
               });
             } else if (event === "working") {
@@ -586,9 +528,7 @@ export function ChatSessionsProvider({
                   connectionState: "streaming",
                   messages: workingMessageId
                     ? s.messages.map((message) =>
-                        message.id === workingMessageId
-                          ? { ...message, progress }
-                          : message,
+                        message.id === workingMessageId ? { ...message, progress } : message,
                       )
                     : s.messages,
                 };
@@ -620,17 +560,14 @@ export function ChatSessionsProvider({
             } else if (event === "error") {
               serverEventError = true;
               throw new Error(
-                (data as { message?: string } | null)?.message ||
-                  "Chat stream failed",
+                (data as { message?: string } | null)?.message || "Chat stream failed",
               );
             }
           },
         );
 
         if (!gotAssistant) {
-          return recoverAcceptedTurn(
-            "The live response ended before the final reply arrived.",
-          );
+          return recoverAcceptedTurn("The live response ended before the final reply arrived.");
         }
         return null;
       } catch (err) {
@@ -652,9 +589,7 @@ export function ChatSessionsProvider({
             progress: null,
             connectionState: null,
             messages: [
-              ...s.messages.filter(
-                (x) => x.id !== tempId && x.id !== persistedUser?.id,
-              ),
+              ...s.messages.filter((x) => x.id !== tempId && x.id !== persistedUser?.id),
               userMsg,
               {
                 id: `err-${Date.now()}`,
@@ -703,8 +638,7 @@ export function ChatSessionsProvider({
       return new Promise<string | null>((resolve) => {
         const visibleItem: QueuedChatMessage = {
           id: makeQueuedMessageId(),
-          conversationId:
-            sessionsRef.current[empId]?.activeConvId ?? null,
+          conversationId: sessionsRef.current[empId]?.activeConvId ?? null,
           modelId: opts?.modelId ?? null,
           content,
           attachments,
@@ -716,17 +650,12 @@ export function ChatSessionsProvider({
           let current: PendingChatMessage | undefined = first;
           let firstTurn = true;
           while (current) {
-            const error = await sendTurn(
-              companyId,
-              empId,
-              current.content,
-              {
-                clearInput: firstTurn ? opts?.clearInput : false,
-                attachments: current.attachments,
-                conversationId: current.conversationId,
-                modelId: current.modelId,
-              },
-            );
+            const error = await sendTurn(companyId, empId, current.content, {
+              clearInput: firstTurn ? opts?.clearInput : false,
+              attachments: current.attachments,
+              conversationId: current.conversationId,
+              modelId: current.modelId,
+            });
             current.resolve(error);
             firstTurn = false;
 
@@ -736,9 +665,7 @@ export function ChatSessionsProvider({
               const nextId = current.id;
               update(empId, (s) => ({
                 ...s,
-                queuedMessages: s.queuedMessages.filter(
-                  (queued) => queued.id !== nextId,
-                ),
+                queuedMessages: s.queuedMessages.filter((queued) => queued.id !== nextId),
               }));
             }
           }
@@ -779,9 +706,7 @@ export function ChatSessionsProvider({
                 if (!working) break;
               } catch {
                 update(empId, (s) =>
-                  s.sendingConvId === runningConvId
-                    ? { ...s, connectionState: "reconnecting" }
-                    : s,
+                  s.sendingConvId === runningConvId ? { ...s, connectionState: "reconnecting" } : s,
                 );
               }
               await wait(CHAT_RECOVERY_POLL_MS);
@@ -795,9 +720,7 @@ export function ChatSessionsProvider({
             }
             update(empId, (s) => ({
               ...s,
-              queuedMessages: s.queuedMessages.filter(
-                (queued) => queued.id !== first.id,
-              ),
+              queuedMessages: s.queuedMessages.filter((queued) => queued.id !== first.id),
             }));
             await drainQueue(first);
           })();
@@ -818,6 +741,7 @@ export function ChatSessionsProvider({
       selectConversation,
       refreshConversation,
       newConversation,
+      claimConversation,
       deleteConversation,
       archiveConversation,
       unarchiveConversation,
@@ -831,6 +755,7 @@ export function ChatSessionsProvider({
       selectConversation,
       refreshConversation,
       newConversation,
+      claimConversation,
       deleteConversation,
       archiveConversation,
       unarchiveConversation,
@@ -840,17 +765,12 @@ export function ChatSessionsProvider({
     ],
   );
 
-  const value = React.useMemo<ChatSessionsCtx>(
-    () => ({ sessions, actions }),
-    [sessions, actions],
-  );
+  const value = React.useMemo<ChatSessionsCtx>(() => ({ sessions, actions }), [sessions, actions]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
-function latestWorkingMessage(
-  messages: ConversationMessage[],
-): ConversationMessage | null {
+function latestWorkingMessage(messages: ConversationMessage[]): ConversationMessage | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role === "assistant" && message.status === "working") {
@@ -860,9 +780,7 @@ function latestWorkingMessage(
   return null;
 }
 
-function progressForWorkingMessage(
-  message: ConversationMessage,
-): ChatProgress {
+function progressForWorkingMessage(message: ConversationMessage): ChatProgress {
   const progress = message.progress;
   if (
     progress &&
@@ -916,9 +834,7 @@ function findTurnMessages(
   if (userIndex === -1) return { user: null, assistant: null };
   const user = messages[userIndex] ?? null;
   const assistant =
-    messages
-      .slice(userIndex + 1)
-      .find((message) => message.role === "assistant") ?? null;
+    messages.slice(userIndex + 1).find((message) => message.role === "assistant") ?? null;
   return { user, assistant };
 }
 
@@ -927,8 +843,7 @@ function wait(ms: number): Promise<void> {
 }
 
 function formatChatConnectionError(detail: string): string {
-  const safeDetail =
-    detail.replace(/\s+/g, " ").trim() || "Unknown network error";
+  const safeDetail = detail.replace(/\s+/g, " ").trim() || "Unknown network error";
   return [
     "The chat connection to Genosyn was interrupted.",
     "",
@@ -945,9 +860,7 @@ function makeQueuedMessageId(): string {
 export function useChatSessions(): ChatSessionsCtx {
   const ctx = React.useContext(Ctx);
   if (!ctx) {
-    throw new Error(
-      "useChatSessions must be used within <ChatSessionsProvider>",
-    );
+    throw new Error("useChatSessions must be used within <ChatSessionsProvider>");
   }
   return ctx;
 }

@@ -29,6 +29,7 @@ export function AccountProfile() {
   const [handle, setHandle] = React.useState(me.handle ?? "");
   const [savingProfile, setSavingProfile] = React.useState(false);
   const [profileError, setProfileError] = React.useState<string | null>(null);
+  const [profileCurrentPassword, setProfileCurrentPassword] = React.useState("");
   const [currentPassword, setCurrentPassword] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
@@ -46,6 +47,7 @@ export function AccountProfile() {
     name.trim() !== me.name ||
     email.trim().toLowerCase() !== me.email ||
     handle.trim().toLowerCase() !== (me.handle ?? "");
+  const emailChanged = email.trim().toLowerCase() !== me.email;
 
   return (
     <>
@@ -69,13 +71,24 @@ export function AccountProfile() {
                 setSavingProfile(true);
                 try {
                   const nextHandle = handle.trim().toLowerCase();
-                  await api.patch<Me>("/api/auth/me", {
-                    name: name.trim(),
-                    email: email.trim().toLowerCase(),
-                    handle: nextHandle === "" ? null : nextHandle,
-                  });
+                  const result = await api.patch<Me & { pendingEmail?: string | null }>(
+                    "/api/auth/me",
+                    {
+                      name: name.trim(),
+                      email: email.trim().toLowerCase(),
+                      handle: nextHandle === "" ? null : nextHandle,
+                      currentPassword: emailChanged ? profileCurrentPassword : undefined,
+                    },
+                  );
+                  setProfileCurrentPassword("");
+                  if (result.pendingEmail) setEmail(me.email);
                   onCompaniesChanged();
-                  toast("Profile updated", "success");
+                  toast(
+                    result.pendingEmail
+                      ? `Check ${result.pendingEmail} to confirm the change`
+                      : "Profile updated",
+                    "success",
+                  );
                 } catch (err) {
                   setProfileError((err as Error).message);
                 } finally {
@@ -92,6 +105,22 @@ export function AccountProfile() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
               />
+              {emailChanged ? (
+                <div>
+                  <Input
+                    label="Current password"
+                    type="password"
+                    value={profileCurrentPassword}
+                    onChange={(e) => setProfileCurrentPassword(e.target.value)}
+                    autoComplete="current-password"
+                    required
+                  />
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    We&apos;ll keep your current email until you confirm the link sent to the new
+                    address.
+                  </p>
+                </div>
+              ) : null}
               <div>
                 <Input
                   label="Handle"

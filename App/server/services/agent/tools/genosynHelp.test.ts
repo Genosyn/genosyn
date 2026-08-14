@@ -13,6 +13,12 @@ async function fixture(): Promise<string> {
     "export const helpSurface = true;\nsecond line\n",
   );
   await writeFile(path.join(root, "ROADMAP.md"), "# Roadmap\nHelp surface\n");
+  await writeFile(
+    path.join(root, "App", "config.ts"),
+    'export const config = { sessionSecret: "instance-secret" };\n',
+  );
+  await writeFile(path.join(root, ".env.production"), "SECRET=environment-secret\n");
+  await writeFile(path.join(root, "App", "vite.config.ts"), "export default {};\n");
   return root;
 }
 
@@ -55,6 +61,39 @@ describe("Genosyn Help source tools", () => {
     const linked = await read.run({ path: "outside/secret.txt" });
     assert.equal(linked.isError, true);
     assert.match(linked.content, /outside/);
+  });
+
+  test("never lists, reads, or searches secret-bearing configuration", async () => {
+    const root = await fixture();
+    await symlink(
+      path.join(root, "App", "config.ts"),
+      path.join(root, "App", "server", "linked.ts"),
+    );
+    const source = createGenosynHelpSource(root);
+    const byName = new Map(source.tools.map((tool) => [tool.name, tool]));
+
+    const listed = await byName.get("list_genosyn_source")!.run({ path: "App" });
+    assert.equal(listed.isError, undefined);
+    assert.doesNotMatch(listed.content, /(^|\n)config\.ts($|\n)/);
+    assert.match(listed.content, /vite\.config\.ts/);
+
+    for (const secretPath of ["App/config.ts", ".env.production", "App/server/linked.ts"]) {
+      const read = await byName.get("read_genosyn_source")!.run({ path: secretPath });
+      assert.equal(read.isError, true);
+      assert.match(read.content, /unavailable/);
+    }
+
+    const searched = await byName
+      .get("search_genosyn_source")!
+      .run({ query: "instance-secret", path: "." });
+    assert.equal(searched.isError, undefined);
+    assert.equal(searched.content, "(no matches)");
+
+    const directSearch = await byName
+      .get("search_genosyn_source")!
+      .run({ query: "secret", path: "App/config.ts" });
+    assert.equal(directSearch.isError, true);
+    assert.match(directSearch.content, /unavailable/);
   });
 
   test("returns explicit errors when the release has no source snapshot", async () => {

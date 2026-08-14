@@ -5,10 +5,10 @@ import { AppSetting } from "../db/entities/AppSetting.js";
  * Instance-level toggle for self-service sign-ups.
  *
  * When an operator disables sign-ups from Admin → Sign-ups, the public
- * `POST /api/auth/signup` endpoint is refused for everyone — except the very
- * first account on a fresh install (the master-admin bootstrap), which is
- * always allowed through so an operator can never lock themselves out of a box
- * that has no users yet.
+ * `POST /api/auth/signup` endpoint is refused for everyone except the
+ * configured bootstrap address while the instance still has no master admin.
+ * That account remains unprivileged until its email-verification link proves
+ * ownership, so public request ordering can never choose the operator.
  *
  * Persisted as a single boolean `AppSetting` row — the same key/value mechanism
  * the Web Push VAPID keypair and the global SMTP override use — so there is no
@@ -31,9 +31,7 @@ export async function getSignupSettings(): Promise<SignupSettings> {
 }
 
 /** Persist the toggle (upserting the single row) and echo the new state. */
-export async function setSignupsDisabled(
-  disabled: boolean,
-): Promise<SignupSettings> {
+export async function setSignupsDisabled(disabled: boolean): Promise<SignupSettings> {
   const repo = AppDataSource.getRepository(AppSetting);
   const existing = await repo.findOneBy({ key: SIGNUP_DISABLED_KEY });
   const value = disabled ? "true" : "false";

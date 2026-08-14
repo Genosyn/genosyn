@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
@@ -8,7 +8,12 @@ import { Invitation } from "../db/entities/Invitation.js";
 import { User } from "../db/entities/User.js";
 import { In } from "typeorm";
 import { validateBody } from "../middleware/validate.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireBrowserSession,
+  requireCompanyMember,
+  requireRecentAuthentication,
+} from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { generateToken, hashToken } from "../lib/token.js";
 import { sendEmail } from "../services/email.js";
@@ -76,7 +81,7 @@ async function uniqueSlug(base: string): Promise<string> {
   return slug;
 }
 
-companiesRouter.post("/", validateBody(createSchema), async (req, res) => {
+companiesRouter.post("/", requireBrowserSession, validateBody(createSchema), async (req, res) => {
   if (config.security.multiTenant && !req.user!.emailVerifiedAt) {
     return res.status(403).json({ error: "Verify your email before creating a company" });
   }
@@ -139,10 +144,57 @@ const patchSchema = z
     { message: "Provide a company profile field or a two-factor policy" },
   );
 
+const requireRecentSecondFactor = requireRecentAuthentication({ requireSecondFactor: true });
+const requireRecentPrimary = requireRecentAuthentication();
+
+/** Apply a middleware only when this PATCH changes the company MFA policy. */
+function whenTwoFactorPolicyChanges(middleware: RequestHandler): RequestHandler {
+  return (req, res, next) => {
+    const body = req.body as Partial<z.infer<typeof patchSchema>>;
+    if (body.requireTwoFactor === undefined) {
+      next();
+      return;
+    }
+    middleware(req, res, next);
+  };
+}
+
+function whenGrantingAdminRole(middleware: RequestHandler): RequestHandler {
+  return (req, res, next) => {
+    const body = req.body as { role?: unknown };
+    if (body.role !== "admin") {
+      next();
+      return;
+    }
+    middleware(req, res, next);
+  };
+}
+
+function whenGrantingFullFinanceAccess(middleware: RequestHandler): RequestHandler {
+  return (req, res, next) => {
+    const body = req.body as { financeAccess?: unknown };
+    if (body.financeAccess !== "full") {
+      next();
+      return;
+    }
+    middleware(req, res, next);
+  };
+}
+
+const requireSecondFactorWhenRemovingAnotherMember: RequestHandler = (req, res, next) => {
+  if (req.params.uid === req.userId) {
+    next();
+    return;
+  }
+  requireRecentSecondFactor(req, res, next);
+};
+
 companiesRouter.patch(
   "/:cid",
   requireCompanyMember,
   validateBody(patchSchema),
+  whenTwoFactorPolicyChanges(requireBrowserSession),
+  whenTwoFactorPolicyChanges(requireRecentSecondFactor),
   async (req, res) => {
     const role = (req as unknown as { role: string }).role;
     if (role !== "owner" && role !== "admin") return res.status(403).json({ error: "Forbidden" });
@@ -204,19 +256,27 @@ companiesRouter.patch(
   },
 );
 
-companiesRouter.delete("/:cid", requireCompanyMember, async (req, res) => {
-  const co = await AppDataSource.getRepository(Company).findOneBy({ id: req.params.cid });
-  if (!co) return res.status(404).json({ error: "Not found" });
-  if (co.ownerId !== req.userId) return res.status(403).json({ error: "Owner only" });
-  await deleteCompanyCascade({ companyId: co.id, companySlug: co.slug });
-  res.json({ ok: true });
-});
+companiesRouter.delete(
+  "/:cid",
+  requireCompanyMember,
+  requireBrowserSession,
+  requireRecentSecondFactor,
+  async (req, res) => {
+    const co = await AppDataSource.getRepository(Company).findOneBy({ id: req.params.cid });
+    if (!co) return res.status(404).json({ error: "Not found" });
+    if (co.ownerId !== req.userId) return res.status(403).json({ error: "Owner only" });
+    await deleteCompanyCascade({ companyId: co.id, companySlug: co.slug });
+    res.json({ ok: true });
+  },
+);
 
 const inviteSchema = z.object({ email: z.string().email() });
 
 companiesRouter.post(
   "/:cid/invitations",
   requireCompanyMember,
+  requireBrowserSession,
+  requireRecentPrimary,
   validateBody(inviteSchema),
   async (req, res) => {
     const role = (req as unknown as { role: string }).role;
@@ -237,11 +297,12 @@ companiesRouter.post(
       to: email,
       subject: "You're invited to a Genosyn company",
       text: `Accept the invite: ${link}`,
+      bodyPreview: "Company invitation link redacted. The invitation expires in 7 days.",
       companyId: req.params.cid,
       purpose: "invitation",
       triggeredByUserId: req.userId ?? null,
     });
-    res.json({ id: inv.id, email: inv.email, token });
+    res.json({ id: inv.id, email: inv.email });
   },
 );
 
@@ -271,7 +332,10 @@ const memberRoleSchema = z.object({ role: z.enum(["member", "admin"]) });
 companiesRouter.patch(
   "/:cid/members/:uid",
   requireCompanyMember,
+  requireBrowserSession,
+  requireRecentPrimary,
   validateBody(memberRoleSchema),
+  whenGrantingAdminRole(requireRecentSecondFactor),
   async (req, res) => {
     if (req.companyRole !== "owner") {
       return res.status(403).json({ error: "Only the company owner can change roles" });
@@ -311,7 +375,10 @@ const memberFinanceAccessSchema = z.object({
 companiesRouter.patch(
   "/:cid/members/:uid/finance-access",
   requireCompanyMember,
+  requireBrowserSession,
+  requireRecentPrimary,
   validateBody(memberFinanceAccessSchema),
+  whenGrantingFullFinanceAccess(requireRecentSecondFactor),
   async (req, res) => {
     if (req.companyRole !== "owner" && req.companyRole !== "admin") {
       return res.status(403).json({ error: "Only owners and admins can change finance access" });
@@ -337,54 +404,61 @@ companiesRouter.patch(
   },
 );
 
-companiesRouter.delete("/:cid/members/:uid", requireCompanyMember, async (req, res) => {
-  const { cid, uid } = req.params;
-  const membership = await AppDataSource.getRepository(Membership).findOneBy({
-    companyId: cid,
-    userId: uid,
-  });
-  if (!membership) return res.status(404).json({ error: "Member not found" });
-  if (membership.role === "owner") {
-    return res.status(400).json({ error: "The company owner cannot be removed" });
-  }
-  const removingSelf = uid === req.userId;
-  const allowed =
-    req.companyRole === "owner" ||
-    (req.companyRole === "admin" && (membership.role === "member" || removingSelf)) ||
-    removingSelf;
-  if (!allowed) return res.status(403).json({ error: "Forbidden" });
-  await AppDataSource.transaction(async (manager) => {
-    const [channels, projects] = await Promise.all([
-      manager.getRepository(Channel).find({ where: { companyId: cid }, select: { id: true } }),
-      manager.getRepository(Project).find({ where: { companyId: cid }, select: { id: true } }),
-    ]);
-    if (channels.length > 0) {
-      await manager.getRepository(ChannelMember).delete({
-        channelId: In(channels.map((channel) => channel.id)),
-        userId: uid,
-      });
+companiesRouter.delete(
+  "/:cid/members/:uid",
+  requireCompanyMember,
+  requireBrowserSession,
+  requireRecentPrimary,
+  requireSecondFactorWhenRemovingAnotherMember,
+  async (req, res) => {
+    const { cid, uid } = req.params;
+    const membership = await AppDataSource.getRepository(Membership).findOneBy({
+      companyId: cid,
+      userId: uid,
+    });
+    if (!membership) return res.status(404).json({ error: "Member not found" });
+    if (membership.role === "owner") {
+      return res.status(400).json({ error: "The company owner cannot be removed" });
     }
-    if (projects.length > 0) {
-      await manager.getRepository(ProjectMember).delete({
-        projectId: In(projects.map((project) => project.id)),
-        userId: uid,
-      });
-    }
-    await manager
-      .getRepository(ApiKey)
-      .update({ companyId: cid, userId: uid }, { revokedAt: new Date() });
-    await manager.getRepository(Notification).delete({ companyId: cid, userId: uid });
-    await manager.getRepository(Membership).delete({ companyId: cid, userId: uid });
-  });
-  await recordAudit({
-    companyId: cid,
-    actorUserId: req.userId ?? null,
-    action: removingSelf ? "member.leave" : "member.remove",
-    targetType: "member",
-    targetId: uid,
-  });
-  res.json({ ok: true });
-});
+    const removingSelf = uid === req.userId;
+    const allowed =
+      req.companyRole === "owner" ||
+      (req.companyRole === "admin" && (membership.role === "member" || removingSelf)) ||
+      removingSelf;
+    if (!allowed) return res.status(403).json({ error: "Forbidden" });
+    await AppDataSource.transaction(async (manager) => {
+      const [channels, projects] = await Promise.all([
+        manager.getRepository(Channel).find({ where: { companyId: cid }, select: { id: true } }),
+        manager.getRepository(Project).find({ where: { companyId: cid }, select: { id: true } }),
+      ]);
+      if (channels.length > 0) {
+        await manager.getRepository(ChannelMember).delete({
+          channelId: In(channels.map((channel) => channel.id)),
+          userId: uid,
+        });
+      }
+      if (projects.length > 0) {
+        await manager.getRepository(ProjectMember).delete({
+          projectId: In(projects.map((project) => project.id)),
+          userId: uid,
+        });
+      }
+      await manager
+        .getRepository(ApiKey)
+        .update({ companyId: cid, userId: uid }, { revokedAt: new Date() });
+      await manager.getRepository(Notification).delete({ companyId: cid, userId: uid });
+      await manager.getRepository(Membership).delete({ companyId: cid, userId: uid });
+    });
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: removingSelf ? "member.leave" : "member.remove",
+      targetType: "member",
+      targetId: uid,
+    });
+    res.json({ ok: true });
+  },
+);
 
 /**
  * Serve a teammate's avatar inside a company scope. Mounted on the companies

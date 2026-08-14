@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-CLI_VERSION="0.4.2"
+CLI_VERSION="0.4.3"
 
 PORT="${GENOSYN_PORT:-8471}"
 NAME="${GENOSYN_NAME:-genosyn}"
@@ -1236,9 +1236,9 @@ cmd_reset_password() {
 
   [ -n "${email}" ] || die "Usage: genosyn reset-password <email> [--password <pw>] [-y]"
 
-  # Mirror the app's 8-char minimum so we fail fast before touching the DB.
-  if [ -n "${password}" ] && [ "${#password}" -lt 8 ]; then
-    die "Password must be at least 8 characters."
+  # Mirror the app's password policy so we fail fast before touching the DB.
+  if [ -n "${password}" ] && [ "${#password}" -lt 12 ]; then
+    die "Password must be at least 12 characters."
   fi
 
   require_docker
@@ -1284,8 +1284,8 @@ cmd_reset_password() {
   if (generated) {
     // 16 url-safe alphanumerics — strong, and easy to read out or paste.
     password = crypto.randomBytes(24).toString("base64").replace(/[^A-Za-z0-9]/g, "").slice(0, 16);
-  } else if (password.length < 8) {
-    console.error("Password must be at least 8 characters.");
+  } else if (password.length < 12) {
+    console.error("Password must be at least 12 characters.");
     process.exit(1);
   }
 
@@ -1303,11 +1303,18 @@ cmd_reset_password() {
         console.error("No user found with email: " + email);
         process.exit(1);
       }
+      await client.query("BEGIN");
       await client.query(
-        'UPDATE users SET "passwordHash" = $1, "resetToken" = NULL, "resetExpiresAt" = NULL WHERE id = $2',
+        'UPDATE users SET "passwordHash" = $1, "resetToken" = NULL, "resetExpiresAt" = NULL, "sessionVersion" = "sessionVersion" + 1 WHERE id = $2',
         [hash, user.id]
       );
+      await client.query(
+        'UPDATE api_keys SET "revokedAt" = NOW() WHERE "userId" = $1 AND "revokedAt" IS NULL',
+        [user.id]
+      );
+      await client.query("COMMIT");
     } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
       console.error("Postgres update failed: " + e.message);
       process.exit(1);
     } finally {
@@ -1328,14 +1335,20 @@ cmd_reset_password() {
       console.error("No user found with email: " + email);
       process.exit(1);
     }
-    db.prepare(
-      'UPDATE users SET "passwordHash" = ?, "resetToken" = NULL, "resetExpiresAt" = NULL WHERE id = ?'
-    ).run(hash, user.id);
+    db.transaction(() => {
+      db.prepare(
+        'UPDATE users SET "passwordHash" = ?, "resetToken" = NULL, "resetExpiresAt" = NULL, "sessionVersion" = "sessionVersion" + 1 WHERE id = ?'
+      ).run(hash, user.id);
+      db.prepare(
+        'UPDATE api_keys SET "revokedAt" = CURRENT_TIMESTAMP WHERE "userId" = ? AND "revokedAt" IS NULL'
+      ).run(user.id);
+    })();
   }
 
   const who = user.name ? email + " (" + user.name + ")" : email;
   console.log("Password reset for " + who + ".");
   if (generated) console.log("New password: " + password);
+  console.log("Every older browser session and personal API key was revoked.");
   console.log("Have them sign in and change it from Account → Profile.");
 })().catch((e) => {
   console.error(e && e.message ? e.message : String(e));
@@ -1358,12 +1371,116 @@ ${C_BOLD}Subcommands:${C_RESET}
                                       Reset a user's password. Generates a
                                       strong one and prints it unless
                                       --password is given. Prompts unless -y.
+  grant-master-admin <email> [-y]      Grant instance master-admin access to a
+                                      verified account. Prompts unless -y.
   delete <email> [-y]                 Delete a user. Removes their account and
                                       company memberships; authored content
                                       (chat, todos, notes) is kept but
                                       unlinked. Refuses if they own a company.
                                       Prompts unless -y.
 EOF
+}
+
+cmd_grant_master_admin() {
+  local email=""
+  local assume_yes=0
+  parse_common_flags "$@"
+  set -- ${REMAINING[@]+"${REMAINING[@]}"}
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      ""        ) shift ;;
+      -y|--yes  ) assume_yes=1; shift ;;
+      -*        ) die "Unknown flag to 'user grant-master-admin': $1" ;;
+      *)
+        if [ -z "${email}" ]; then email="$1"; shift
+        else die "Unexpected argument: $1"; fi
+        ;;
+    esac
+  done
+
+  [ -n "${email}" ] || die "Usage: genosyn user grant-master-admin <email> [-y]"
+  require_docker
+  container_exists  || die "No container named '${NAME}' found. Run 'genosyn install' first."
+  container_running || die "Container '${NAME}' is not running. Start it with 'genosyn start'."
+  if [ "${assume_yes}" != "1" ]; then
+    confirm "Grant instance master-admin access to '${email}'?" || die "Aborted."
+  fi
+
+  docker exec -i \
+    -e "GENOSYN_MASTER_EMAIL=${email}" \
+    -w /app \
+    "${NAME}" node <<'NODE'
+(async () => {
+  const path = require("node:path");
+  const { pathToFileURL } = require("node:url");
+  let config;
+  try {
+    ({ config } = await import(pathToFileURL("/app/dist/config.js").href));
+  } catch (e) {
+    console.error("Could not load app config from /app/dist/config.js: " + e.message);
+    process.exit(1);
+  }
+  const email = String(process.env.GENOSYN_MASTER_EMAIL || "").trim().toLowerCase();
+  const SELECT =
+    'SELECT id, email, "emailVerifiedAt", "isMasterAdmin" FROM users WHERE email = ';
+
+  const assertEligible = (user) => {
+    if (!user) throw new Error("No user found with email: " + email);
+    if (!user.emailVerifiedAt) {
+      throw new Error("Verify this account's email before granting master-admin access.");
+    }
+  };
+
+  if (config.db && config.db.driver === "postgres") {
+    const { Client } = require("pg");
+    const client = new Client({ connectionString: config.db.postgresUrl });
+    try {
+      await client.connect();
+      await client.query("BEGIN");
+      const user = (await client.query(SELECT + "$1 FOR UPDATE", [email])).rows[0];
+      assertEligible(user);
+      if (!user.isMasterAdmin) {
+        await client.query(
+          'UPDATE users SET "isMasterAdmin" = TRUE, "sessionVersion" = "sessionVersion" + 1 WHERE id = $1',
+          [user.id]
+        );
+      }
+      await client.query("COMMIT");
+      console.log(user.isMasterAdmin ? email + " is already a master admin." : "Granted master-admin access to " + email + ". Sign in again to continue.");
+    } catch (e) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(e.message);
+      process.exit(1);
+    } finally {
+      await client.end().catch(() => {});
+    }
+    return;
+  }
+
+  const Database = require("better-sqlite3");
+  const dbPath = path.resolve(config.db && config.db.sqlitePath || "./data/app.sqlite");
+  let db;
+  try {
+    db = new Database(dbPath, { fileMustExist: true });
+    const user = db.prepare(SELECT + "?").get(email);
+    assertEligible(user);
+    if (!user.isMasterAdmin) {
+      db.prepare(
+        'UPDATE users SET "isMasterAdmin" = 1, "sessionVersion" = "sessionVersion" + 1 WHERE id = ?'
+      ).run(user.id);
+    }
+    console.log(user.isMasterAdmin ? email + " is already a master admin." : "Granted master-admin access to " + email + ". Sign in again to continue.");
+  } catch (e) {
+    console.error(e.message);
+    process.exit(1);
+  } finally {
+    if (db) db.close();
+  }
+})().catch((e) => {
+  console.error(e && e.message ? e.message : String(e));
+  process.exit(1);
+});
+NODE
 }
 
 # Delete a user via the app's admin entrypoint inside the container. The
@@ -1422,6 +1539,7 @@ cmd_user() {
   case "${sub}" in
     list|ls)               cmd_users          "$@" ;;
     reset-password|passwd) cmd_reset_password "$@" ;;
+    grant-master-admin)    cmd_grant_master_admin "$@" ;;
     delete|rm)             cmd_user_delete    "$@" ;;
     help|-h|--help)        cmd_user_help ;;
     *) die "Unknown user subcommand: ${sub}. Run 'genosyn user help' for usage." ;;

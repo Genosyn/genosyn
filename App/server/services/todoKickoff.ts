@@ -50,6 +50,8 @@ export async function kickoffAssignedTodo(args: {
   companyId: string;
   todoId: string;
   employeeId: string;
+  requesterUserId: string;
+  requesterSessionVersion: number;
 }): Promise<void> {
   const { companyId, todoId, employeeId } = args;
   if (inFlight.has(todoId)) return;
@@ -102,6 +104,10 @@ export async function kickoffAssignedTodo(args: {
       emp.id,
       composeKickoffBrief(project, todo),
       await threadHistory(todo.id, emp.id, pending.id),
+      {
+        requesterUserId: args.requesterUserId,
+        requesterSessionVersion: args.requesterSessionVersion,
+      },
     );
 
     // The employee's own update_todo calls may have moved the row while the
@@ -171,9 +177,7 @@ function composeKickoffBrief(project: Project, todo: Todo): string {
     "---",
     "Work on this todo now. Actually do the work with your tools — don't just plan or acknowledge.",
     `- The todo is already in \`in_progress\`. When you finish, call \`update_todo\` with todoId "${todo.id}" and set status to ${
-      hasReviewer
-        ? '"in_review" — a reviewer is assigned and will sign it off'
-        : '"done"'
+      hasReviewer ? '"in_review" — a reviewer is assigned and will sign it off' : '"done"'
     }.`,
     `- If you're blocked or the brief is too vague to act on, move the status back to "todo" via \`update_todo\` (todoId "${todo.id}") and say exactly what you need.`,
     "- Your reply is posted as a comment on the todo's thread for the team to read. Make it a crisp report: what you did, where the output lives, anything that needs a decision.",

@@ -5,7 +5,12 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
-import { requireAuth, requireCompanyMember, requireCompanyRole } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireBrowserSession,
+  requireCompanyMember,
+  requireCompanyRole,
+} from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { mintWsToken } from "../services/realtime.js";
 import { closeBrowserSession, getSessionSnapshot } from "../services/browserSessions.js";
@@ -23,6 +28,7 @@ type ScopedReq = Request<ScopedParams>;
 export const browserSessionsRouter = Router({ mergeParams: true });
 browserSessionsRouter.use(requireAuth);
 browserSessionsRouter.use(requireCompanyMember);
+browserSessionsRouter.use(requireBrowserSession);
 browserSessionsRouter.use(requireCompanyRole("admin"));
 
 function serializeSession(row: BrowserSession) {

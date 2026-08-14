@@ -277,7 +277,9 @@ async function browserSubmit(args) {
     );
   } catch (err) {
     pendingActions.delete(id);
-    throw new Error(`Could not queue approval: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `Could not queue approval: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -290,13 +292,25 @@ async function executeSubmit(selector, key) {
   return textResult(reply.snapshot ?? "");
 }
 
-/** Same page the human approved? Compare origin + path, ignoring query/hash. */
+/**
+ * Same page the human approved?
+ *
+ * WHATWG URL parsing canonicalizes host casing, default ports, and dot path
+ * segments. The serialized query is deliberately part of the binding: query
+ * values commonly select an account, checkout step, or resource. The hash is
+ * also included because it can select an entirely different view in an SPA.
+ * Exact query ordering is fail-closed; a changed serialization needs a fresh
+ * human approval even if an application might interpret it equivalently.
+ */
 function sameApprovedPage(approvedUrl, currentUrl) {
   if (!approvedUrl || !currentUrl) return false;
   try {
     const a = new URL(approvedUrl);
     const b = new URL(currentUrl);
-    return a.origin === b.origin && a.pathname === b.pathname;
+    if (!["http:", "https:"].includes(a.protocol) || !["http:", "https:"].includes(b.protocol)) {
+      return false;
+    }
+    return a.href === b.href;
   } catch {
     return false;
   }
@@ -307,9 +321,7 @@ async function browserResume(args) {
   if (!approvalId) throw new Error("`approvalId` is required");
   let reply;
   try {
-    reply = await getGenosyn(
-      `/tools/check_browser_approval/${encodeURIComponent(approvalId)}`,
-    );
+    reply = await getGenosyn(`/tools/check_browser_approval/${encodeURIComponent(approvalId)}`);
   } catch (err) {
     throw new Error(
       `Could not check approval status: ${err instanceof Error ? err.message : String(err)}`,
@@ -317,8 +329,8 @@ async function browserResume(args) {
   }
   const status = reply?.status;
   if (status === "approved") {
-    // One-shot: an approval fires exactly once. The server records the
-    // execution, so a replay from any later turn is refused here.
+    // One-shot: an approval fires exactly once. A terminal execution receipt
+    // makes an already-completed approval unavailable to the atomic claim.
     if (reply?.executed) {
       throw new Error(
         `Approval ${approvalId} was already submitted — an approval fires once. Start a new browser_submit if you need to act again.`,
@@ -329,8 +341,8 @@ async function browserResume(args) {
     // across chat turns — this MCP child is spawned per turn, and the
     // human usually approves after the turn that queued it has ended.
     const action = pendingActions.get(approvalId);
-    const selector = action?.selector ?? (typeof reply?.selector === "string" ? reply.selector : "");
-    const key = action?.key ?? (typeof reply?.key === "string" ? reply.key : undefined);
+    const selector =
+      action?.selector ?? (typeof reply?.selector === "string" ? reply.selector : "");
     if (!selector) {
       throw new Error(
         `Approval ${approvalId} is approved but its held action is missing. Call browser_submit again.`,
@@ -351,21 +363,110 @@ async function browserResume(args) {
     if (!sameApprovedPage(approvedUrl, currentUrl)) {
       pendingActions.delete(approvalId);
       throw new Error(
-        `The page changed since this action was approved (approved on ${approvedUrl || "an unknown page"}, now on ${currentUrl || "an unknown page"}). ` +
-          `The approval is bound to the page you approved, so it will not fire here. Navigate back and call browser_submit again if you still want to submit.`,
+        "The browser URL changed since this action was approved. The approval is bound to the exact canonical URL, including its query and fragment, so it will not fire here. Navigate back and call browser_submit again if you still want to submit.",
       );
     }
-    pendingActions.delete(approvalId);
-    const result = await executeSubmit(selector, key);
-    // Record the firing so it can't be replayed. Best-effort — the action
-    // already happened; a failed mark just means a later replay is caught
-    // by the page-binding check instead.
+
+    // Security boundary: consume approved -> executing before touching the
+    // page. Concurrent resume calls may both observe `approved`, but exactly
+    // one conditional UPDATE wins this claim and receives the secret token
+    // needed to finish it. A crash after the claim leaves an ambiguous
+    // `executing` row that cannot be claimed again.
+    let claim;
     try {
-      await callGenosyn(`/tools/mark_browser_approval_executed/${encodeURIComponent(approvalId)}`, {});
+      claim = await callGenosyn(
+        `/tools/claim_browser_approval/${encodeURIComponent(approvalId)}`,
+        {},
+      );
+    } catch (err) {
+      pendingActions.delete(approvalId);
+      throw new Error(
+        `Approval ${approvalId} could not be claimed and was not submitted: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    const claimToken = typeof claim?.claimToken === "string" ? claim.claimToken : "";
+    const claimedSelector = typeof claim?.selector === "string" ? claim.selector : selector;
+    const claimedKey = typeof claim?.key === "string" ? claim.key : undefined;
+    const claimedUrl = typeof claim?.pageUrl === "string" ? claim.pageUrl : "";
+    if (!claimToken || !claimedSelector) {
+      pendingActions.delete(approvalId);
+      throw new Error(
+        `Approval ${approvalId} was consumed but the server returned an invalid claim receipt. Its outcome is unknown and it will not be replayed.`,
+      );
+    }
+    // Re-read after the atomic claim. A human or another browser tool can
+    // navigate between the pre-claim check and the click; once consumed, a
+    // mismatch is terminal rather than replayable because the claim itself is
+    // already durable.
+    let claimedCurrentUrl = "";
+    try {
+      const u = await callBrowser("/url", {});
+      if (typeof u?.url === "string") claimedCurrentUrl = u.url;
     } catch {
-      // best-effort
+      // fall through — treated as a mismatch below
+    }
+    if (!sameApprovedPage(claimedUrl, claimedCurrentUrl)) {
+      pendingActions.delete(approvalId);
+      try {
+        await callGenosyn(`/tools/finish_browser_approval/${encodeURIComponent(approvalId)}`, {
+          claimToken,
+          outcome: "failed",
+          errorMessage:
+            "The exact approved browser URL changed before the claimed browser action fired.",
+        });
+      } catch {
+        // The executing claim is already non-replayable if the receipt fails.
+      }
+      throw new Error(
+        `The browser URL changed while approval ${approvalId} was being claimed. It was not submitted and the consumed approval will not be replayed.`,
+      );
+    }
+
+    pendingActions.delete(approvalId);
+    let result;
+    try {
+      result = await executeSubmit(claimedSelector, claimedKey);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      try {
+        await callGenosyn(`/tools/finish_browser_approval/${encodeURIComponent(approvalId)}`, {
+          claimToken,
+          outcome: "failed",
+          errorMessage,
+        });
+      } catch {
+        // The executing claim remains a terminal ambiguity and cannot replay.
+      }
+      throw new Error(
+        `Approval ${approvalId} was claimed, but the browser action failed. It will not be replayed automatically: ${errorMessage}`,
+      );
+    }
+    try {
+      await callGenosyn(`/tools/finish_browser_approval/${encodeURIComponent(approvalId)}`, {
+        claimToken,
+        outcome: "executed",
+      });
+    } catch (err) {
+      result.content.push({
+        type: "text",
+        text:
+          `The browser action ran, but Genosyn could not persist its completion receipt (${err instanceof Error ? err.message : String(err)}). ` +
+          "The approval remains consumed and cannot be replayed.",
+      });
     }
     return result;
+  }
+  if (status === "executing") {
+    pendingActions.delete(approvalId);
+    throw new Error(
+      `Approval ${approvalId} was already claimed. Its browser outcome is unknown or still being recorded, so Genosyn will not replay it.`,
+    );
+  }
+  if (status === "execution_failed") {
+    pendingActions.delete(approvalId);
+    throw new Error(
+      `Approval ${approvalId} was claimed but the browser action failed. Start a new browser_submit if a human should review another attempt.`,
+    );
   }
   if (status === "rejected") {
     pendingActions.delete(approvalId);
@@ -414,12 +515,14 @@ const TOOLS = [
   },
   {
     name: "browser_click",
-    description:
-      `Click an element and return a fresh snapshot. ${SELECTOR_HINT} If the click opens a new tab, the browser follows it automatically. For form submissions, prefer browser_submit so a human-in-the-loop approval can gate it.`,
+    description: `Click an element and return a fresh snapshot. ${SELECTOR_HINT} If the click opens a new tab, the browser follows it automatically. For form submissions, prefer browser_submit so a human-in-the-loop approval can gate it.`,
     inputSchema: {
       type: "object",
       properties: {
-        selector: { type: "string", description: "aria-ref=eN from the snapshot, or CSS / text= / role=." },
+        selector: {
+          type: "string",
+          description: "aria-ref=eN from the snapshot, or CSS / text= / role=.",
+        },
       },
       required: ["selector"],
       additionalProperties: false,
@@ -428,12 +531,14 @@ const TOOLS = [
   },
   {
     name: "browser_fill",
-    description:
-      `Type a value into an input or textarea, replacing whatever was there. ${SELECTOR_HINT} For native <select> dropdowns use browser_select instead.`,
+    description: `Type a value into an input or textarea, replacing whatever was there. ${SELECTOR_HINT} For native <select> dropdowns use browser_select instead.`,
     inputSchema: {
       type: "object",
       properties: {
-        selector: { type: "string", description: "aria-ref=eN from the snapshot, or CSS / text= / role=." },
+        selector: {
+          type: "string",
+          description: "aria-ref=eN from the snapshot, or CSS / text= / role=.",
+        },
         value: { type: "string", description: "The text to type. Empty string clears the field." },
       },
       required: ["selector", "value"],
@@ -443,8 +548,7 @@ const TOOLS = [
   },
   {
     name: "browser_select",
-    description:
-      `Choose an option in a native <select> dropdown by its value or visible label (browser_fill cannot set selects). ${SELECTOR_HINT}`,
+    description: `Choose an option in a native <select> dropdown by its value or visible label (browser_fill cannot set selects). ${SELECTOR_HINT}`,
     inputSchema: {
       type: "object",
       properties: {
@@ -473,12 +577,14 @@ const TOOLS = [
   },
   {
     name: "browser_hover",
-    description:
-      `Hover the mouse over an element to reveal hover-only UI (dropdown menus, tooltips), then return a snapshot showing what appeared. The hover holds until the next action, so a follow-up browser_click on a revealed item works. ${SELECTOR_HINT}`,
+    description: `Hover the mouse over an element to reveal hover-only UI (dropdown menus, tooltips), then return a snapshot showing what appeared. The hover holds until the next action, so a follow-up browser_click on a revealed item works. ${SELECTOR_HINT}`,
     inputSchema: {
       type: "object",
       properties: {
-        selector: { type: "string", description: "aria-ref=eN from the snapshot, or CSS / text= / role=." },
+        selector: {
+          type: "string",
+          description: "aria-ref=eN from the snapshot, or CSS / text= / role=.",
+        },
       },
       required: ["selector"],
       additionalProperties: false,
@@ -492,7 +598,11 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        direction: { type: "string", enum: ["up", "down"], description: "Scroll direction. Default: down." },
+        direction: {
+          type: "string",
+          enum: ["up", "down"],
+          description: "Scroll direction. Default: down.",
+        },
         selector: { type: "string", description: "Optional element to scroll into view instead." },
       },
       additionalProperties: false,
@@ -564,7 +674,7 @@ const TOOLS = [
   {
     name: "browser_resume",
     description:
-      "Re-fire a previously queued browser_submit once a human has approved it — in this turn or a later one. The approval fires exactly once and only while the browser is still on the page it was approved for; if the page has changed you'll be asked to submit again. Returns still-pending if the human hasn't decided yet; errors if it was rejected, already fired, or the page moved on.",
+      "Re-fire a previously queued browser_submit once a human has approved it — in this turn or a later one. Genosyn atomically claims the approval before touching the page, so concurrent calls cannot submit twice and an ambiguous crashed attempt is never replayed. The action runs only while the browser is still on the approved page; if the page changed before the claim you'll be asked to submit again. Returns still-pending if the human hasn't decided yet; errors if it was rejected, already claimed, already fired, or the page moved on.",
     inputSchema: {
       type: "object",
       properties: {
@@ -677,9 +787,7 @@ rl.on("line", (line) => {
   try {
     msg = JSON.parse(trimmed);
   } catch {
-    process.stderr.write(
-      `[genosyn-browser-mcp] ignored non-JSON line: ${trimmed.slice(0, 200)}\n`,
-    );
+    process.stderr.write(`[genosyn-browser-mcp] ignored non-JSON line: ${trimmed.slice(0, 200)}\n`);
     return;
   }
   handle(msg, write).catch((err) => {

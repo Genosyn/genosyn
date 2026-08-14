@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+import { IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -14,6 +16,14 @@ import { connectMcpServer, nativeToolName } from "./agent/tools/mcpBridge.js";
 import { specForMcpServerRow } from "./agent/tools/mcpSources.js";
 import { makeAdSpendLedger } from "./adSpend.js";
 import type { AdSpendApprovalRequest } from "../integrations/types.js";
+import { recordAudit } from "./audit.js";
+import {
+  approvalArgsPreview,
+  approvalPageUrlPreview,
+  redactApprovalSummary,
+} from "./approvalRedaction.js";
+
+export { approvalArgsPreview, redactApprovalSummary } from "./approvalRedaction.js";
 
 /**
  * Fire-and-forget notification fan-out for a freshly-created approval.
@@ -29,8 +39,8 @@ function notifyPending(approval: Approval): void {
 
 /**
  * Approval dispatch. Each `ApprovalKind` has its own create-helper and
- * its own `execute…` function; the route layer just calls
- * `executeApproval(approval)` after marking the row approved.
+ * its own `execute…` function. Decision claiming also lives here so every
+ * caller gets the same compare-and-set transition before a side effect runs.
  *
  * Lives in `services/` rather than `routes/` so the cron tick (routine
  * kind) and the lightning provider (payment kind) can both schedule
@@ -94,6 +104,217 @@ export type BrowserActionPayload = {
   /** Page URL captured at queue time. Surfaced to the approver. */
   pageUrl: string;
 };
+
+type BrowserExecutionState = {
+  version: 1;
+  state: "claimed" | "executed" | "failed";
+  claimTokenHash: string;
+  claimedAt: string;
+  completedAt?: string;
+};
+
+function parseBrowserActionPayload(json: string | null): BrowserActionPayload {
+  if (!json) throw new Error("Approval payload is empty");
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    throw new Error("Approval payload is not valid JSON");
+  }
+  const payload = value as Partial<BrowserActionPayload> | null;
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    typeof payload.selector !== "string" ||
+    payload.selector.length === 0 ||
+    (payload.key !== null && typeof payload.key !== "string") ||
+    typeof payload.pageUrl !== "string"
+  ) {
+    throw new Error("Invalid browser action payload");
+  }
+  return {
+    selector: payload.selector,
+    key: payload.key,
+    pageUrl: payload.pageUrl,
+  };
+}
+
+function parseBrowserExecutionState(json: string | null): BrowserExecutionState | null {
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json) as Partial<BrowserExecutionState> | null;
+    if (
+      !parsed ||
+      parsed.version !== 1 ||
+      !["claimed", "executed", "failed"].includes(parsed.state ?? "") ||
+      typeof parsed.claimTokenHash !== "string" ||
+      typeof parsed.claimedAt !== "string"
+    ) {
+      return null;
+    }
+    return parsed as BrowserExecutionState;
+  } catch {
+    return null;
+  }
+}
+
+function browserClaimTokenHash(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function hasLegacyBrowserExecutionStamp(approval: Approval): boolean {
+  try {
+    const payload = JSON.parse(approval.payloadJson || "{}") as { executedAt?: unknown };
+    return typeof payload.executedAt === "string";
+  } catch {
+    return false;
+  }
+}
+
+export function browserApprovalWasExecuted(approval: Approval): boolean {
+  return (
+    hasLegacyBrowserExecutionStamp(approval) ||
+    parseBrowserExecutionState(approval.resultJson)?.state === "executed"
+  );
+}
+
+export type BrowserApprovalClaimResult =
+  | { outcome: "not_found" }
+  | { outcome: "forbidden" }
+  | { outcome: "invalid_payload"; approval: Approval }
+  | { outcome: "conflict"; approval: Approval }
+  | {
+      outcome: "claimed";
+      approval: Approval;
+      claimToken: string;
+      action: BrowserActionPayload;
+    };
+
+/**
+ * Atomically consume an approved browser action before the browser can fire.
+ *
+ * The conditional `approved -> executing` update is the replay boundary. A
+ * process crash, network loss, or browser timeout after this claim deliberately
+ * leaves the row in `executing`: the outcome is ambiguous, so no later turn is
+ * allowed to guess that it is safe to submit again.
+ */
+export async function claimApprovedBrowserAction(args: {
+  companyId: string;
+  employeeId: string;
+  approvalId: string;
+}): Promise<BrowserApprovalClaimResult> {
+  const repo = AppDataSource.getRepository(Approval);
+  const approval = await repo.findOneBy({ id: args.approvalId, companyId: args.companyId });
+  if (!approval || approval.kind !== "browser_action") return { outcome: "not_found" };
+  if (approval.employeeId !== args.employeeId) return { outcome: "forbidden" };
+
+  let action: BrowserActionPayload;
+  try {
+    action = parseBrowserActionPayload(approval.payloadJson);
+  } catch {
+    return { outcome: "invalid_payload", approval };
+  }
+  if (hasLegacyBrowserExecutionStamp(approval)) return { outcome: "conflict", approval };
+
+  const claimToken = crypto.randomBytes(32).toString("base64url");
+  const claimedAt = new Date().toISOString();
+  const claimState: BrowserExecutionState = {
+    version: 1,
+    state: "claimed",
+    claimTokenHash: browserClaimTokenHash(claimToken),
+    claimedAt,
+  };
+  const updated = await repo.update(
+    {
+      id: approval.id,
+      companyId: args.companyId,
+      employeeId: args.employeeId,
+      kind: "browser_action",
+      status: "approved",
+      resultJson: IsNull(),
+    },
+    {
+      status: "executing",
+      resultJson: JSON.stringify(claimState),
+      errorMessage: null,
+    },
+  );
+  const current = await repo.findOneByOrFail({ id: approval.id, companyId: args.companyId });
+  if (updated.affected !== 1) return { outcome: "conflict", approval: current };
+  return { outcome: "claimed", approval: current, claimToken, action };
+}
+
+export type BrowserApprovalCompletionResult =
+  | { outcome: "not_found" }
+  | { outcome: "forbidden" }
+  | { outcome: "conflict"; approval: Approval }
+  | { outcome: "completed" | "already_completed"; approval: Approval };
+
+/**
+ * Finalize a claimed browser action. Completion is compare-and-set against the
+ * exact claim receipt, so a different MCP child cannot finish another child's
+ * claim. Failure is terminal; success returns to `approved` with an execution
+ * receipt in `resultJson`, which prevents another claim.
+ */
+export async function completeClaimedBrowserAction(args: {
+  companyId: string;
+  employeeId: string;
+  approvalId: string;
+  claimToken: string;
+  outcome: "executed" | "failed";
+  errorMessage?: string;
+}): Promise<BrowserApprovalCompletionResult> {
+  const repo = AppDataSource.getRepository(Approval);
+  const approval = await repo.findOneBy({ id: args.approvalId, companyId: args.companyId });
+  if (!approval || approval.kind !== "browser_action") return { outcome: "not_found" };
+  if (approval.employeeId !== args.employeeId) return { outcome: "forbidden" };
+
+  const claimedResultJson = approval.resultJson;
+  const state = parseBrowserExecutionState(claimedResultJson);
+  const claimTokenHash = browserClaimTokenHash(args.claimToken);
+  if (!claimedResultJson || !state || state.claimTokenHash !== claimTokenHash) {
+    return { outcome: "conflict", approval };
+  }
+  if (state.state !== "claimed") {
+    return state.state === args.outcome
+      ? { outcome: "already_completed", approval }
+      : { outcome: "conflict", approval };
+  }
+  if (approval.status !== "executing") return { outcome: "conflict", approval };
+
+  const completedState: BrowserExecutionState = {
+    ...state,
+    state: args.outcome,
+    completedAt: new Date().toISOString(),
+  };
+  const updated = await repo.update(
+    {
+      id: approval.id,
+      companyId: args.companyId,
+      employeeId: args.employeeId,
+      kind: "browser_action",
+      status: "executing",
+      resultJson: claimedResultJson,
+    },
+    {
+      status: args.outcome === "executed" ? "approved" : "execution_failed",
+      resultJson: JSON.stringify(completedState),
+      errorMessage:
+        args.outcome === "failed"
+          ? (args.errorMessage || "The browser action failed after it was claimed.").slice(0, 2000)
+          : null,
+    },
+  );
+  const current = await repo.findOneByOrFail({ id: approval.id, companyId: args.companyId });
+  if (updated.affected !== 1) {
+    const currentState = parseBrowserExecutionState(current.resultJson);
+    if (currentState?.claimTokenHash === claimTokenHash && currentState.state === args.outcome) {
+      return { outcome: "already_completed", approval: current };
+    }
+    return { outcome: "conflict", approval: current };
+  }
+  return { outcome: "completed", approval: current };
+}
 
 // --------------------------------------------------------------------------
 // Ad-spend payload
@@ -194,14 +415,16 @@ export async function createAdSpendApproval(args: {
   request: AdSpendApprovalRequest;
 }): Promise<Approval> {
   const repo = AppDataSource.getRepository(Approval);
+  const safeTitle = redactApprovalSummary(args.title);
+  const safeSummary = redactApprovalSummary(args.summary ?? null);
   const approval = repo.create({
     companyId: args.companyId,
     kind: "ad_spend",
     routineId: "",
     employeeId: args.employeeId,
     status: "pending",
-    title: args.title,
-    summary: args.summary ?? null,
+    title: safeTitle,
+    summary: safeSummary,
     payloadJson: JSON.stringify({
       connectionId: args.connectionId,
       toolName: args.toolName,
@@ -230,14 +453,15 @@ export async function createMcpToolApproval(args: {
   toolArgs: Record<string, unknown>;
 }): Promise<Approval> {
   const repo = AppDataSource.getRepository(Approval);
-  const argsPreview = JSON.stringify(args.toolArgs);
+  const argsPreview = approvalArgsPreview(args.toolArgs);
+  const safeTitle = redactApprovalSummary(`MCP tool · ${args.serverName} · ${args.toolName}`);
   const approval = repo.create({
     companyId: args.companyId,
     kind: "mcp_tool",
     routineId: "",
     employeeId: args.employeeId,
     status: "pending",
-    title: `MCP tool · ${args.serverName} · ${args.toolName}`,
+    title: safeTitle,
     summary: argsPreview.length > 400 ? argsPreview.slice(0, 397) + "..." : argsPreview,
     payloadJson: JSON.stringify({
       mcpServerId: args.mcpServerId,
@@ -260,7 +484,8 @@ export async function createBrowserActionApproval(args: {
   summary: string;
 }): Promise<Approval> {
   const repo = AppDataSource.getRepository(Approval);
-  const title = args.summary.length > 80 ? args.summary.slice(0, 77) + "..." : args.summary;
+  const safeSummary = redactApprovalSummary(args.summary) ?? "Browser action";
+  const title = safeSummary.length > 80 ? safeSummary.slice(0, 77) + "..." : safeSummary;
   const approval = repo.create({
     companyId: args.companyId,
     kind: "browser_action",
@@ -268,7 +493,9 @@ export async function createBrowserActionApproval(args: {
     employeeId: args.employeeId,
     status: "pending",
     title,
-    summary: args.pageUrl ? `${args.summary}  ·  ${args.pageUrl}` : args.summary,
+    summary: args.pageUrl
+      ? `${safeSummary}  ·  ${approvalPageUrlPreview(args.pageUrl)}`
+      : safeSummary,
     payloadJson: JSON.stringify({
       selector: args.selector,
       key: args.key,
@@ -291,14 +518,16 @@ export async function createPaymentApproval(args: {
   summary?: string | null;
 }): Promise<Approval> {
   const repo = AppDataSource.getRepository(Approval);
+  const safeTitle = redactApprovalSummary(args.title);
+  const safeSummary = redactApprovalSummary(args.summary ?? null);
   const approval = repo.create({
     companyId: args.companyId,
     kind: "lightning_payment",
     routineId: "",
     employeeId: args.employeeId,
     status: "pending",
-    title: args.title,
-    summary: args.summary ?? null,
+    title: safeTitle,
+    summary: safeSummary,
     payloadJson: JSON.stringify({
       connectionId: args.connectionId,
       toolName: args.toolName,
@@ -316,9 +545,186 @@ export async function createPaymentApproval(args: {
 // Execute (called from the route after a human approves)
 // --------------------------------------------------------------------------
 
+export type ApprovalDecisionResult =
+  | { outcome: "not_found" }
+  | { outcome: "conflict"; approval: Approval }
+  | { outcome: "decided"; approval: Approval; sideEffectError?: string };
+
+type ApprovalExecutor = (approval: Approval) => Promise<void>;
+type ApprovalRejectionRecorder = (approval: Approval) => Promise<void>;
+
+async function claimApprovalDecision(args: {
+  companyId: string;
+  approvalId: string;
+  userId: string;
+  status: "executing" | "rejected";
+}): Promise<ApprovalDecisionResult> {
+  const repo = AppDataSource.getRepository(Approval);
+  const decidedAt = new Date();
+  const update = await repo.update(
+    {
+      id: args.approvalId,
+      companyId: args.companyId,
+      status: "pending",
+    },
+    {
+      status: args.status,
+      decidedAt,
+      decidedByUserId: args.userId,
+      errorMessage: null,
+    },
+  );
+
+  const approval = await repo.findOneBy({
+    id: args.approvalId,
+    companyId: args.companyId,
+  });
+  if (!approval) return { outcome: "not_found" };
+  if (update.affected !== 1) return { outcome: "conflict", approval };
+  return { outcome: "decided", approval };
+}
+
+async function recordDecisionAudit(
+  approval: Approval,
+  userId: string,
+  action: "approval.approve" | "approval.reject",
+): Promise<void> {
+  await recordAudit({
+    companyId: approval.companyId,
+    actorUserId: userId,
+    action,
+    targetType: "approval",
+    targetId: approval.id,
+    targetLabel: redactApprovalSummary(approval.title) ?? "",
+    metadata: {
+      kind: approval.kind,
+      routineId: approval.routineId || undefined,
+    },
+  });
+}
+
 /**
- * Run the side-effect of an approval. Throws on failure — callers should
- * persist the error to `approval.errorMessage` and surface it.
+ * Claim and execute one pending approval.
+ *
+ * `pending -> executing` is a single conditional UPDATE. Only the request
+ * whose UPDATE affects one row may run the downstream action; every duplicate,
+ * concurrent approval, or concurrent rejection observes a conflict. A failed
+ * action moves to `execution_failed` and remains non-retryable so an ambiguous
+ * provider timeout cannot be turned into a duplicate payment or mutation.
+ */
+export async function approvePendingApproval(args: {
+  companyId: string;
+  approvalId: string;
+  userId: string;
+  execute?: ApprovalExecutor;
+}): Promise<ApprovalDecisionResult> {
+  const claimed = await claimApprovalDecision({
+    companyId: args.companyId,
+    approvalId: args.approvalId,
+    userId: args.userId,
+    status: "executing",
+  });
+  if (claimed.outcome !== "decided") return claimed;
+
+  const approval = claimed.approval;
+  await recordDecisionAudit(approval, args.userId, "approval.approve");
+
+  try {
+    await (args.execute ?? executeApproval)(approval);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    // eslint-disable-next-line no-console
+    console.error(`[approvals] execution failed for ${approval.id}:`, err);
+    await AppDataSource.getRepository(Approval).update(
+      {
+        id: approval.id,
+        companyId: approval.companyId,
+        status: "executing",
+      },
+      { status: "execution_failed", errorMessage },
+    );
+    await recordAudit({
+      companyId: approval.companyId,
+      actorUserId: args.userId,
+      action: "approval.execute_failed",
+      targetType: "approval",
+      targetId: approval.id,
+      targetLabel: redactApprovalSummary(approval.title) ?? "",
+      metadata: { kind: approval.kind },
+    });
+    const failed = await AppDataSource.getRepository(Approval).findOneByOrFail({
+      id: approval.id,
+      companyId: approval.companyId,
+    });
+    return { outcome: "decided", approval: failed, sideEffectError: errorMessage };
+  }
+
+  const repo = AppDataSource.getRepository(Approval);
+  const finalized = await repo.update(
+    {
+      id: approval.id,
+      companyId: approval.companyId,
+      status: "executing",
+    },
+    { status: "approved", errorMessage: null },
+  );
+  if (finalized.affected !== 1) {
+    throw new Error(`Approval ${approval.id} changed state while it was executing`);
+  }
+  return {
+    outcome: "decided",
+    approval: await repo.findOneByOrFail({ id: approval.id, companyId: approval.companyId }),
+  };
+}
+
+/** Atomically reject one pending approval and record its rejection hook once. */
+export async function rejectPendingApproval(args: {
+  companyId: string;
+  approvalId: string;
+  userId: string;
+  recordRejection?: ApprovalRejectionRecorder;
+}): Promise<ApprovalDecisionResult> {
+  const claimed = await claimApprovalDecision({
+    companyId: args.companyId,
+    approvalId: args.approvalId,
+    userId: args.userId,
+    status: "rejected",
+  });
+  if (claimed.outcome !== "decided") return claimed;
+
+  const approval = claimed.approval;
+  await recordDecisionAudit(approval, args.userId, "approval.reject");
+  try {
+    await (args.recordRejection ?? recordApprovalRejection)(approval);
+  } catch (err) {
+    const sideEffectError = err instanceof Error ? err.message : String(err);
+    // eslint-disable-next-line no-console
+    console.error(`[approvals] rejection journal failed for ${approval.id}:`, err);
+    await AppDataSource.getRepository(Approval).update(
+      { id: approval.id, companyId: approval.companyId, status: "rejected" },
+      { errorMessage: sideEffectError },
+    );
+    await recordAudit({
+      companyId: approval.companyId,
+      actorUserId: args.userId,
+      action: "approval.rejection_record_failed",
+      targetType: "approval",
+      targetId: approval.id,
+      targetLabel: redactApprovalSummary(approval.title) ?? "",
+      metadata: { kind: approval.kind },
+    });
+    const rejected = await AppDataSource.getRepository(Approval).findOneByOrFail({
+      id: approval.id,
+      companyId: approval.companyId,
+    });
+    return { outcome: "decided", approval: rejected, sideEffectError };
+  }
+  return { outcome: "decided", approval };
+}
+
+/**
+ * Run the side-effect of a claimed approval. Throws on failure; the decision
+ * service persists the terminal `execution_failed` state.
  */
 export async function executeApproval(approval: Approval): Promise<void> {
   switch (approval.kind) {
@@ -519,13 +925,13 @@ export async function recordApprovalRejection(approval: Approval): Promise<void>
     }
     case "lightning_payment": {
       const summary = approval.summary
-        ? `Payment rejected: ${approval.summary}`
+        ? `Payment rejected: ${redactApprovalSummary(approval.summary)}`
         : "Lightning payment rejected.";
       await AppDataSource.getRepository(JournalEntry).save(
         AppDataSource.getRepository(JournalEntry).create({
           employeeId: approval.employeeId,
           kind: "system",
-          title: approval.title ?? "Lightning payment rejected",
+          title: redactApprovalSummary(approval.title) ?? "Lightning payment rejected",
           body: summary,
           routineId: null,
           runId: null,
@@ -536,13 +942,13 @@ export async function recordApprovalRejection(approval: Approval): Promise<void>
     }
     case "browser_action": {
       const summary = approval.summary
-        ? `Browser action rejected: ${approval.summary}`
+        ? `Browser action rejected: ${redactApprovalSummary(approval.summary)}`
         : "Browser action rejected.";
       await AppDataSource.getRepository(JournalEntry).save(
         AppDataSource.getRepository(JournalEntry).create({
           employeeId: approval.employeeId,
           kind: "system",
-          title: approval.title ?? "Browser action rejected",
+          title: redactApprovalSummary(approval.title) ?? "Browser action rejected",
           body: summary,
           routineId: null,
           runId: null,
@@ -556,7 +962,7 @@ export async function recordApprovalRejection(approval: Approval): Promise<void>
         AppDataSource.getRepository(JournalEntry).create({
           employeeId: approval.employeeId,
           kind: "system",
-          title: approval.title ?? "Guarded MCP tool call rejected",
+          title: redactApprovalSummary(approval.title) ?? "Guarded MCP tool call rejected",
           body: "The guarded tool call was rejected by a human. It was not executed.",
           routineId: null,
           runId: null,
@@ -567,13 +973,13 @@ export async function recordApprovalRejection(approval: Approval): Promise<void>
     }
     case "ad_spend": {
       const summary = approval.summary
-        ? `Ad spend change rejected: ${approval.summary}`
+        ? `Ad spend change rejected: ${redactApprovalSummary(approval.summary)}`
         : "Ad spend change rejected. No mutation was applied.";
       await AppDataSource.getRepository(JournalEntry).save(
         AppDataSource.getRepository(JournalEntry).create({
           employeeId: approval.employeeId,
           kind: "system",
-          title: approval.title ?? "Ad spend change rejected",
+          title: redactApprovalSummary(approval.title) ?? "Ad spend change rejected",
           body: summary,
           routineId: null,
           runId: null,

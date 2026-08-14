@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import { AppDataSource } from "../db/datasource.js";
 import { User } from "../db/entities/User.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireBrowserSession } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import {
   beginTotpEnrollment,
@@ -31,6 +31,14 @@ import {
   recordTwoFactorFailure,
   rememberWebAuthnChallenge,
 } from "../lib/twoFactorSession.js";
+import {
+  assertAuthAllowed,
+  AuthRateLimitError,
+  authThrottleKeys,
+  clearAuthFailures,
+  recordAuthFailure,
+} from "../services/authThrottle.js";
+import { capturePublicUrlFromMasterAdminRequest } from "../services/publicUrl.js";
 
 export const twoFactorRouter = Router();
 
@@ -76,7 +84,41 @@ function loginResponse(user: User) {
   return { id: user.id, email: user.email, name: user.name };
 }
 
-function invalidLoginFactor(req: Request, res: Response, message: string): void {
+async function completeLogin(req: Request, user: User): Promise<void> {
+  completeTwoFactorLogin(req, user.id, user.sessionVersion);
+  if (user.isMasterAdmin && user.emailVerifiedAt) {
+    await capturePublicUrlFromMasterAdminRequest(req);
+  }
+}
+
+function twoFactorThrottleKeys(req: Request, userId: string): string[] {
+  return authThrottleKeys(req, "two-factor", userId);
+}
+
+async function assertTwoFactorAllowed(
+  req: Request,
+  res: Response,
+  userId: string,
+): Promise<string[] | null> {
+  const keys = twoFactorThrottleKeys(req, userId);
+  try {
+    await assertAuthAllowed(keys);
+    return keys;
+  } catch (error) {
+    if (!(error instanceof AuthRateLimitError)) throw error;
+    res.setHeader("Retry-After", String(error.retryAfterSeconds));
+    res.status(429).json({ error: error.message });
+    return null;
+  }
+}
+
+async function invalidLoginFactor(
+  req: Request,
+  res: Response,
+  keys: string[],
+  message: string,
+): Promise<void> {
+  await recordAuthFailure(keys);
   const locked = recordTwoFactorFailure(req);
   res.status(401).json({
     error: locked ? "Too many failed attempts. Sign in with your password again." : message,
@@ -91,9 +133,16 @@ twoFactorRouter.get("/login/two-factor", async (req, res, next) => {
     if (!user) {
       return res.status(401).json({ error: "Two-factor session expired. Sign in again." });
     }
+    if (!(await assertTwoFactorAllowed(req, res, user.id))) return;
     const methods = await getTwoFactorLoginMethods(user.id);
     if (!methods.enabled) {
-      completeTwoFactorLogin(req, user.id, user.sessionVersion);
+      // This branch covers a factor removed between primary auth and this
+      // probe. It does not mint second-factor evidence.
+      req.session = {
+        userId: user.id,
+        sessionVersion: user.sessionVersion,
+        authenticatedAt: req.session?.primaryAuthenticatedAt ?? Date.now(),
+      };
       return res.json({ requiresTwoFactor: false });
     }
     res.json({ requiresTwoFactor: true, methods });
@@ -108,11 +157,20 @@ twoFactorRouter.post("/login/two-factor/totp", validateBody(totpSchema), async (
     if (!user) {
       return res.status(401).json({ error: "Two-factor session expired. Sign in again." });
     }
+    const throttleKeys = await assertTwoFactorAllowed(req, res, user.id);
+    if (!throttleKeys) return;
     const { code } = req.body as z.infer<typeof totpSchema>;
     if (!(await verifyTotpLogin(user, code))) {
-      return invalidLoginFactor(req, res, "That verification code is invalid or expired");
+      await invalidLoginFactor(
+        req,
+        res,
+        throttleKeys,
+        "That verification code is invalid or expired",
+      );
+      return;
     }
-    completeTwoFactorLogin(req, user.id, user.sessionVersion);
+    await clearAuthFailures(throttleKeys);
+    await completeLogin(req, user);
     res.json(loginResponse(user));
   } catch (err) {
     sendError(err, res, next);
@@ -128,11 +186,20 @@ twoFactorRouter.post(
       if (!user) {
         return res.status(401).json({ error: "Two-factor session expired. Sign in again." });
       }
+      const throttleKeys = await assertTwoFactorAllowed(req, res, user.id);
+      if (!throttleKeys) return;
       const { code } = req.body as z.infer<typeof recoverySchema>;
       if (!(await useRecoveryCode(user, code))) {
-        return invalidLoginFactor(req, res, "That recovery code is invalid or has been used");
+        await invalidLoginFactor(
+          req,
+          res,
+          throttleKeys,
+          "That recovery code is invalid or has been used",
+        );
+        return;
       }
-      completeTwoFactorLogin(req, user.id, user.sessionVersion);
+      await clearAuthFailures(throttleKeys);
+      await completeLogin(req, user);
       res.json(loginResponse(user));
     } catch (err) {
       sendError(err, res, next);
@@ -149,6 +216,7 @@ twoFactorRouter.post(
       if (!user) {
         return res.status(401).json({ error: "Two-factor session expired. Sign in again." });
       }
+      if (!(await assertTwoFactorAllowed(req, res, user.id))) return;
       const options = await beginWebAuthnLogin(user.id);
       rememberWebAuthnChallenge(req, { challenge: options.challenge, purpose: "login" });
       res.json(options);
@@ -167,6 +235,8 @@ twoFactorRouter.post(
       if (!user) {
         return res.status(401).json({ error: "Two-factor session expired. Sign in again." });
       }
+      const throttleKeys = await assertTwoFactorAllowed(req, res, user.id);
+      if (!throttleKeys) return;
       const challenge = readWebAuthnChallenge(req, "login");
       if (!challenge) {
         return res.status(400).json({ error: "Security-key challenge expired. Try again." });
@@ -179,9 +249,16 @@ twoFactorRouter.post(
       });
       if (!verified) {
         clearWebAuthnChallenge(req);
-        return invalidLoginFactor(req, res, "The passkey or security key could not be verified");
+        await invalidLoginFactor(
+          req,
+          res,
+          throttleKeys,
+          "The passkey or security key could not be verified",
+        );
+        return;
       }
-      completeTwoFactorLogin(req, user.id, user.sessionVersion);
+      await clearAuthFailures(throttleKeys);
+      await completeLogin(req, user);
       res.json(loginResponse(user));
     } catch (err) {
       sendError(err, res, next);
@@ -191,7 +268,7 @@ twoFactorRouter.post(
 
 // ───────────────────── Authenticated account settings ──────────────────
 
-twoFactorRouter.use("/two-factor", requireAuth);
+twoFactorRouter.use("/two-factor", requireAuth, requireBrowserSession);
 
 twoFactorRouter.get("/two-factor", async (req, res, next) => {
   try {

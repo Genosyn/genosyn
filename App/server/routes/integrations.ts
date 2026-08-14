@@ -4,6 +4,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import {
   requireAuth,
+  requireBrowserSession,
   requireCompanyMember,
   requireCompanyRoleForMutations,
 } from "../middleware/auth.js";
@@ -69,6 +70,7 @@ import { discoverAppInstallations } from "../integrations/providers/github-app.j
 export const integrationsRouter = Router({ mergeParams: true });
 integrationsRouter.use(requireAuth);
 integrationsRouter.use(requireCompanyMember);
+integrationsRouter.use(requireBrowserSession);
 integrationsRouter.use(requireCompanyRoleForMutations("admin"));
 
 integrationsRouter.get("/catalog", async (_req, res) => {

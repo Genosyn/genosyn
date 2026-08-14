@@ -14,6 +14,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Approval } from "../db/entities/Approval.js";
 import { broadcastToCompany } from "./realtime.js";
 import { sendPushToUser } from "./push.js";
+import { redactApprovalSummary } from "./approvalRedaction.js";
 
 /**
  * Notification feed service. Generators (mention parser, todo-review hook,
@@ -47,15 +48,13 @@ export type NotificationDTO = {
   title: string;
   body: string;
   link: string | null;
-  actor:
-    | {
-        kind: NotificationActorKind;
-        id: string | null;
-        name: string;
-        avatarKey: string | null;
-        slug: string | null;
-      }
-    | null;
+  actor: {
+    kind: NotificationActorKind;
+    id: string | null;
+    name: string;
+    avatarKey: string | null;
+    slug: string | null;
+  } | null;
   entityKind: NotificationEntityKind | null;
   entityId: string | null;
   readAt: string | null;
@@ -66,9 +65,7 @@ function repo() {
   return AppDataSource.getRepository(Notification);
 }
 
-export async function createNotification(
-  input: CreateNotificationInput,
-): Promise<Notification> {
+export async function createNotification(input: CreateNotificationInput): Promise<Notification> {
   const [row] = await createNotifications([input]);
   return row;
 }
@@ -198,10 +195,7 @@ export async function markRead(params: {
   });
 }
 
-export async function markAllRead(params: {
-  companyId: string;
-  userId: string;
-}): Promise<void> {
+export async function markAllRead(params: { companyId: string; userId: string }): Promise<void> {
   const unread = await repo().find({
     where: {
       companyId: params.companyId,
@@ -212,10 +206,7 @@ export async function markAllRead(params: {
   });
   if (unread.length === 0) return;
   const now = new Date();
-  await repo().update(
-    { id: In(unread.map((r) => r.id)) },
-    { readAt: now },
-  );
+  await repo().update({ id: In(unread.map((r) => r.id)) }, { readAt: now });
   broadcastToCompany(params.companyId, {
     type: "notification.read",
     userId: params.userId,
@@ -271,9 +262,14 @@ export async function notifyApprovalPending(approval: Approval): Promise<void> {
           body: "Cron tick is gated; an admin needs to approve or reject.",
         }
       : {
-          title: `${employee.name} requested approval: ${approval.title ?? "an action"}`,
+          // Older rows can predate creation-time sanitization. Redact at this
+          // persistence boundary too, so neither bell rows nor push payloads
+          // turn legacy approval copy into a credential exfiltration path.
+          title: `${employee.name} requested approval: ${
+            redactApprovalSummary(approval.title) ?? "an action"
+          }`,
           body:
-            approval.summary ??
+            redactApprovalSummary(approval.summary) ??
             "An action is waiting for a human to approve or reject.",
         };
 

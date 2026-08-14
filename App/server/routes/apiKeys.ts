@@ -3,7 +3,12 @@ import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { AppDataSource } from "../db/datasource.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  onRoutePaths,
+  requireAuth,
+  requireBrowserSession,
+  requireCompanyMember,
+} from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { hashApiToken } from "../middleware/auth.js";
 import { recordAudit } from "../services/audit.js";
@@ -25,6 +30,7 @@ import { recordAudit } from "../services/audit.js";
 export const apiKeysRouter = Router({ mergeParams: true });
 apiKeysRouter.use(requireAuth);
 apiKeysRouter.use(requireCompanyMember);
+apiKeysRouter.use(onRoutePaths(["/api-keys"], requireBrowserSession));
 
 const TOKEN_PREFIX = "gen_";
 
@@ -55,66 +61,62 @@ const createSchema = z.object({
   expiresAt: z.string().datetime().nullable().optional(),
 });
 
-apiKeysRouter.post(
-  "/api-keys",
-  validateBody(createSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const body = req.body as z.infer<typeof createSchema>;
+apiKeysRouter.post("/api-keys", validateBody(createSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const body = req.body as z.infer<typeof createSchema>;
 
-    // Don't let a leaked Bearer token mint more Bearer tokens. Key creation
-    // must come from a real human session — that's the chain-of-custody root.
-    if (req.apiKey) {
-      return res
-        .status(403)
-        .json({ error: "API keys can only be created from a logged-in browser session." });
+  // Don't let a leaked Bearer token mint more Bearer tokens. Key creation
+  // must come from a real human session — that's the chain-of-custody root.
+  if (req.apiKey) {
+    return res
+      .status(403)
+      .json({ error: "API keys can only be created from a logged-in browser session." });
+  }
+
+  let expiresAt: Date | null = null;
+  if (body.expiresAt) {
+    const d = new Date(body.expiresAt);
+    if (Number.isNaN(d.getTime()) || d.getTime() <= Date.now()) {
+      return res.status(400).json({ error: "expiresAt must be in the future." });
     }
+    expiresAt = d;
+  }
 
-    let expiresAt: Date | null = null;
-    if (body.expiresAt) {
-      const d = new Date(body.expiresAt);
-      if (Number.isNaN(d.getTime()) || d.getTime() <= Date.now()) {
-        return res.status(400).json({ error: "expiresAt must be in the future." });
-      }
-      expiresAt = d;
-    }
+  // 32 random bytes → 43 char base64url. The full token humans paste is
+  // `gen_<body>`; only `body` gets sha256-hashed for storage.
+  const tokenBody = randomBytes(32).toString("base64url");
+  const tokenHash = hashApiToken(tokenBody);
+  const prefix = tokenBody.slice(0, 8);
+  const fullToken = `${TOKEN_PREFIX}${tokenBody}`;
 
-    // 32 random bytes → 43 char base64url. The full token humans paste is
-    // `gen_<body>`; only `body` gets sha256-hashed for storage.
-    const tokenBody = randomBytes(32).toString("base64url");
-    const tokenHash = hashApiToken(tokenBody);
-    const prefix = tokenBody.slice(0, 8);
-    const fullToken = `${TOKEN_PREFIX}${tokenBody}`;
+  const repo = AppDataSource.getRepository(ApiKey);
+  const k = repo.create({
+    companyId: cid,
+    userId: req.userId,
+    name: body.name,
+    prefix,
+    tokenHash,
+    expiresAt,
+  });
+  await repo.save(k);
 
-    const repo = AppDataSource.getRepository(ApiKey);
-    const k = repo.create({
-      companyId: cid,
-      userId: req.userId,
-      name: body.name,
-      prefix,
-      tokenHash,
-      expiresAt,
-    });
-    await repo.save(k);
+  await recordAudit({
+    companyId: cid,
+    actorUserId: req.userId ?? null,
+    action: "api_key.create",
+    targetType: "api_key",
+    targetId: k.id,
+    targetLabel: k.name,
+    metadata: { prefix: `${TOKEN_PREFIX}${prefix}` },
+  });
 
-    await recordAudit({
-      companyId: cid,
-      actorUserId: req.userId ?? null,
-      action: "api_key.create",
-      targetType: "api_key",
-      targetId: k.id,
-      targetLabel: k.name,
-      metadata: { prefix: `${TOKEN_PREFIX}${prefix}` },
-    });
-
-    res.json({
-      ...serialize(k),
-      // The plaintext is returned ONCE. The client must surface it to the
-      // user immediately and warn that it can't be shown again.
-      token: fullToken,
-    });
-  },
-);
+  res.json({
+    ...serialize(k),
+    // The plaintext is returned ONCE. The client must surface it to the
+    // user immediately and warn that it can't be shown again.
+    token: fullToken,
+  });
+});
 
 apiKeysRouter.delete("/api-keys/:id", async (req, res) => {
   const { cid, id } = req.params as Record<string, string>;

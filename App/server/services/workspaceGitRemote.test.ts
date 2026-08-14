@@ -4,8 +4,9 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import { after, before, test } from "node:test";
 import { promisify } from "node:util";
+import { config } from "../../config.js";
 import { inlineEnvCredentialHelper } from "./gitCredentialHelper.js";
 import {
   buildPrivateFetchSshCommand,
@@ -14,6 +15,27 @@ import {
 } from "./workspaceGitRemote.js";
 
 const exec = promisify(execFile);
+const mutableCodingTools = config.agent.codingTools as {
+  enabled: boolean;
+  executionMode: "host" | "bubblewrap" | "disabled";
+  allowUnsafeHostExecution: boolean;
+};
+const originalCodingTools = { ...mutableCodingTools };
+
+// These integration tests intentionally launch local Git against loopback
+// fixtures. Make that unsafe host access explicit instead of relying on a
+// permissive product default.
+before(() => {
+  mutableCodingTools.enabled = true;
+  mutableCodingTools.executionMode = "host";
+  mutableCodingTools.allowUnsafeHostExecution = true;
+});
+
+after(() => {
+  mutableCodingTools.enabled = originalCodingTools.enabled;
+  mutableCodingTools.executionMode = originalCodingTools.executionMode;
+  mutableCodingTools.allowUnsafeHostExecution = originalCodingTools.allowUnsafeHostExecution;
+});
 
 test("private SSH fetch paths remain valid after the bubblewrap remount", () => {
   const command = buildPrivateFetchSshCommand(

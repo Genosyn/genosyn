@@ -401,7 +401,13 @@ export type SkillWithMeta = Skill & {
   employee: EmployeeSummary | null;
 };
 
-export type ApprovalStatus = "pending" | "approved" | "rejected" | "expired";
+export type ApprovalStatus =
+  | "pending"
+  | "executing"
+  | "approved"
+  | "execution_failed"
+  | "rejected"
+  | "expired";
 export type ApprovalKind =
   | "routine"
   | "lightning_payment"
@@ -416,8 +422,6 @@ export type Approval = {
   employeeId: string;
   title: string | null;
   summary: string | null;
-  payloadJson: string | null;
-  resultJson: string | null;
   errorMessage: string | null;
   status: ApprovalStatus;
   requestedAt: string;
@@ -549,6 +553,8 @@ export type ConversationSummary = {
   createdAt: string;
   updatedAt: string;
   lastMessageAt: string | null;
+  /** Upgrade-only direct thread that an owner/admin may explicitly claim. */
+  legacyUnclaimed?: boolean;
 };
 export type ConversationMessageRole = "user" | "assistant";
 export type ConversationMessageStatus = "working" | "ok" | "skipped" | "error" | "busy";

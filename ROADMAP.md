@@ -224,8 +224,9 @@ export const config = {
   },
   agent: {
     codingTools: {
-      executionMode: "host",
-      allowNetwork: true,
+      executionMode: "disabled",
+      allowNetwork: false,
+      allowUnsafeHostExecution: false,
     },
     browserEnabledInMultiTenant: false,
     maxConcurrentRunsPerCompany: 4,
@@ -313,6 +314,11 @@ export const config = {
       shared browser and arbitrary stdio MCP disabled in SaaS mode
 - [x] Per-company AI concurrency quota with workload leases; Routine runs and
       chat can overlap for one AI employee, while chat replies stay serialized
+- [x] Requester-bound private AI Employee conversations and durable recovery;
+      interactive tools enforce the intersection of live Member access and AI
+      Employee Grants through an exhaustive fail-closed manifest policy, while
+      unauthenticated channels receive no company-derived prompt context and
+      Routine Runs retain AI-Employee-only authority
 - [x] Horizontal coordination through Postgres: scheduler/worker leases, atomic
       mail claims, Telegram ownership/failover, encrypted OAuth/OIDC/WebSocket
       state, and authorized cross-replica realtime fan-out

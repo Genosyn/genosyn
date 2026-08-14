@@ -35,11 +35,14 @@ export default function Help({ company }: { company: Company }) {
   const [loadingMessages, setLoadingMessages] = React.useState(false);
   const [input, setInput] = React.useState("");
   const [sending, setSending] = React.useState(false);
+  const [claimingLegacy, setClaimingLegacy] = React.useState(false);
   const [streamingReply, setStreamingReply] = React.useState("");
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   const selected = employees?.find((employee) => employee.id === selectedId) ?? null;
+  const activeConversation =
+    conversations.find((conversation) => conversation.id === activeId) ?? null;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -137,7 +140,7 @@ export default function Help({ company }: { company: Company }) {
   }, [input]);
 
   async function newConversation(): Promise<ConversationSummary | null> {
-    if (!selectedId || sending) return null;
+    if (!selectedId || sending || claimingLegacy) return null;
     try {
       const created = await api.post<ConversationSummary>(
         `/api/companies/${company.id}/employees/${selectedId}/conversations`,
@@ -159,15 +162,40 @@ export default function Help({ company }: { company: Company }) {
   }
 
   function selectConversation(id: string) {
-    if (sending || id === activeId) return;
+    if (sending || claimingLegacy || id === activeId) return;
     setActiveId(id);
     setLoadedId(null);
     setMessages([]);
   }
 
+  async function claimLegacyConversation() {
+    if (!selectedId || !activeId || claimingLegacy) return;
+    setClaimingLegacy(true);
+    try {
+      const base = `/api/companies/${company.id}/employees/${selectedId}/conversations/${activeId}`;
+      const claimed = await api.post<ConversationSummary>(`${base}/claim`, {});
+      const detail = await api.get<ConversationDetail>(base);
+      setConversations((current) =>
+        current.map((conversation) => (conversation.id === claimed.id ? claimed : conversation)),
+      );
+      setMessages(detail.messages);
+      setLoadedId(activeId);
+      toast("Conversation claimed. You can continue it privately.", "success");
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+    } catch (error) {
+      toast((error as Error).message, "error");
+    } finally {
+      setClaimingLegacy(false);
+    }
+  }
+
   async function sendMessage() {
     const content = input.trim();
     if (!content || !selectedId || !selected || sending) return;
+    if (activeConversation?.legacyUnclaimed) {
+      toast("Claim this legacy conversation before continuing it.", "error");
+      return;
+    }
     let conversationId = activeId;
     if (!conversationId) {
       const created = await newConversation();
@@ -267,7 +295,7 @@ export default function Help({ company }: { company: Company }) {
                 <button
                   key={employee.id}
                   type="button"
-                  disabled={sending}
+                  disabled={sending || claimingLegacy}
                   onClick={() => setSelectedId(employee.id)}
                   className={
                     "flex items-center gap-2 rounded-lg px-2.5 py-2 text-left transition " +
@@ -314,7 +342,7 @@ export default function Help({ company }: { company: Company }) {
               <button
                 type="button"
                 onClick={() => void newConversation()}
-                disabled={!selected || sending}
+                disabled={!selected || sending || claimingLegacy}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-200/70 hover:text-slate-900 disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                 aria-label="New Help conversation"
                 title="New Help conversation"
@@ -337,7 +365,7 @@ export default function Help({ company }: { company: Company }) {
                     <button
                       key={conversation.id}
                       type="button"
-                      disabled={sending}
+                      disabled={sending || claimingLegacy}
                       onClick={() => selectConversation(conversation.id)}
                       className={
                         "rounded-md px-3 py-2 text-left text-[13px] transition " +
@@ -375,7 +403,7 @@ export default function Help({ company }: { company: Company }) {
               <button
                 type="button"
                 onClick={() => void newConversation()}
-                disabled={!selected || sending}
+                disabled={!selected || sending || claimingLegacy}
                 className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 lg:hidden dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
               >
                 <MessageSquarePlus size={13} /> New
@@ -387,7 +415,7 @@ export default function Help({ company }: { company: Company }) {
                 <Select
                   aria-label="AI Employee"
                   value={selectedId ?? ""}
-                  disabled={sending}
+                  disabled={sending || claimingLegacy}
                   onChange={(event) => setSelectedId(event.target.value)}
                   className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 >
@@ -401,7 +429,7 @@ export default function Help({ company }: { company: Company }) {
                   <Select
                     aria-label="Help conversation"
                     value={activeId ?? ""}
-                    disabled={sending}
+                    disabled={sending || claimingLegacy}
                     onChange={(event) => selectConversation(event.target.value)}
                     className="h-9 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   >
@@ -415,6 +443,30 @@ export default function Help({ company }: { company: Company }) {
               </div>
             )}
           </header>
+
+          {activeConversation?.legacyUnclaimed && (
+            <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-500/30 dark:bg-amber-500/10 sm:px-6">
+              <div className="mx-auto flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                    Legacy Help conversation needs an owner
+                  </p>
+                  <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-200/80">
+                    This thread predates private Member conversations. Claim it before asking
+                    another question.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={claimingLegacy}
+                  onClick={() => void claimLegacyConversation()}
+                  className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-amber-700 px-3 text-xs font-medium text-white transition hover:bg-amber-800 disabled:opacity-60 dark:bg-amber-500 dark:text-slate-950 dark:hover:bg-amber-400"
+                >
+                  {claimingLegacy ? "Claiming…" : "Claim conversation"}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div
             ref={scrollRef}
@@ -530,7 +582,7 @@ export default function Help({ company }: { company: Company }) {
                 <textarea
                   ref={inputRef}
                   value={input}
-                  disabled={!selected || sending}
+                  disabled={!selected || sending || Boolean(activeConversation?.legacyUnclaimed)}
                   rows={1}
                   maxLength={8000}
                   placeholder={
@@ -547,7 +599,12 @@ export default function Help({ company }: { company: Company }) {
                 />
                 <button
                   type="submit"
-                  disabled={!selected || sending || !input.trim()}
+                  disabled={
+                    !selected ||
+                    sending ||
+                    Boolean(activeConversation?.legacyUnclaimed) ||
+                    !input.trim()
+                  }
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white transition hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-800 dark:disabled:text-slate-600"
                   aria-label="Ask for Help"
                 >

@@ -4,6 +4,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { Secret } from "../db/entities/Secret.js";
 import {
   requireAuth,
+  requireBrowserSession,
   requireCompanyMember,
   requireCompanyRoleForMutations,
   onRoutePaths,
@@ -25,6 +26,7 @@ import { recordAudit } from "../services/audit.js";
 export const secretsRouter = Router({ mergeParams: true });
 secretsRouter.use(requireAuth);
 secretsRouter.use(requireCompanyMember);
+secretsRouter.use(onRoutePaths(["/secrets"], requireBrowserSession));
 secretsRouter.use(onRoutePaths(["/secrets"], requireCompanyRoleForMutations("admin")));
 
 const RESERVED_NAMES = new Set([

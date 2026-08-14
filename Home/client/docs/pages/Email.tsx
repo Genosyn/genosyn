@@ -89,10 +89,10 @@ export function Email() {
         If Google asks you to authorize again, or you need to change the Gmail access granted to
         Genosyn, an owner or admin can open <Strong>Email → Settings</Strong> and click{" "}
         <Strong>Reconnect Google</Strong>. This refreshes the existing Connection in place, so your
-        imported mail, rules, AI access, and mailbox settings stay intact. After Google confirms
-        the connection, return to Email and click <Strong>Retry sync</Strong> if the mailbox was
-        showing an error. Reconnect with the same Google address and keep the Gmail product
-        selected; to replace the mailbox with a different address, disconnect this mailbox first.
+        imported mail, rules, AI access, and mailbox settings stay intact. After Google confirms the
+        connection, return to Email and click <Strong>Retry sync</Strong> if the mailbox was showing
+        an error. Reconnect with the same Google address and keep the Gmail product selected; to
+        replace the mailbox with a different address, disconnect this mailbox first.
       </P>
       <P>
         Search (press <Code>/</Code> to jump to the box) covers <Strong>all mail</Strong> — every
@@ -270,10 +270,12 @@ export function Email() {
         </LI>
       </UL>
       <P>
-        The handover runs the employee with its full <DocLink to="/docs/soul">Soul</DocLink>,{" "}
-        <DocLink to="/docs/skills">Skills</DocLink>, and memory, and its progress and result show up
-        right on the thread and on the <Strong>AI handovers</Strong> page. You get a notification
-        when it finishes.
+        A handover you start runs with the employee&apos;s <DocLink to="/docs/soul">Soul</DocLink>{" "}
+        and <DocLink to="/docs/skills">Skills</DocLink>, while every action is limited by both your
+        current access and the employee&apos;s Grants. Starting or retrying one requires a logged-in
+        browser session. Rule-created handovers remain trusted automation and use the
+        employee&apos;s Grants. Progress and results appear on the thread and on the{" "}
+        <Strong>AI handovers</Strong> page, and Genosyn notifies you when the handover finishes.
       </P>
 
       <H2 id="access">Giving AI employees mailbox access</H2>

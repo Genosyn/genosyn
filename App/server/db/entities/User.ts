@@ -54,10 +54,11 @@ export class User {
   /**
    * Instance-level operator flag. Master admins are the only users who may
    * reach the install-wide Admin dashboard (instance health, backups, and the
-   * users/companies directory). The very first user to sign up is bootstrapped
-   * as a master admin; existing master admins can promote anyone else from
-   * Admin → Users. There is no company scope here — this spans the whole
-   * deployment, unlike the per-company `Membership.role`.
+   * users/companies directory). A fresh instance promotes only the configured
+   * bootstrap address, and only after its email verification succeeds;
+   * existing master admins can promote anyone else from Admin → Users. There
+   * is no company scope here — this spans the whole deployment, unlike the
+   * per-company `Membership.role`.
    */
   @Column({ type: "boolean", default: false })
   isMasterAdmin!: boolean;

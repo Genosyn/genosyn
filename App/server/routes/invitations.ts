@@ -3,7 +3,7 @@ import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { Invitation } from "../db/entities/Invitation.js";
 import { Membership } from "../db/entities/Membership.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, requireBrowserSession } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { config } from "../../config.js";
 import { Company } from "../db/entities/Company.js";
@@ -12,6 +12,7 @@ import { hashToken } from "../lib/token.js";
 
 export const invitationsRouter = Router();
 invitationsRouter.use(requireAuth);
+invitationsRouter.use(requireBrowserSession);
 
 const acceptSchema = z.object({ token: z.string().min(1) });
 
@@ -24,8 +25,7 @@ invitationsRouter.post("/accept", validateBody(acceptSchema), async (req, res) =
   // New invitations store only a digest. The raw fallback keeps links issued
   // before this hardening release usable through their existing expiry date.
   const inv =
-    (await invRepo.findOneBy({ token: hashToken(token) })) ??
-    (await invRepo.findOneBy({ token }));
+    (await invRepo.findOneBy({ token: hashToken(token) })) ?? (await invRepo.findOneBy({ token }));
   if (!inv || inv.acceptedAt || inv.expiresAt < new Date()) {
     return res.status(400).json({ error: "Invalid or expired invitation" });
   }

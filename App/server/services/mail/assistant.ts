@@ -12,7 +12,7 @@ import { MailChatMessage } from "../../db/entities/MailChatMessage.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { streamChatWithEmployee } from "../chat.js";
-import { captureTurnActions, parseActions } from "../turnActions.js";
+import { captureTurnActionsForAuthority, parseActions } from "../turnActions.js";
 import { columnHasLabel } from "./store.js";
 
 /**
@@ -264,7 +264,7 @@ function assistantBriefing(account: MailAccount, accessLevel: MailAccessLevel | 
     lines.push(
       `Your access level on this mailbox is "${accessLevel}". Use the mail tools for real work: ${ops}. They are already loaded — you do not need to look them up.`,
       "When the teammate asks you to change an existing draft, fetch the thread, identify the draft message id, and use `edit_mail_draft` to update that Gmail draft directly. Do not create a second draft and do not merely describe the rewrite.",
-      'End turns that have obvious next steps with `suggest_mail_actions`: it renders one-click buttons under your reply that the teammate executes with their own authority. Suggest things beyond your grant there — e.g. propose sending a draft (`send_draft`), triage actions, opening a thread, a handover, or an inbox rule you noticed a pattern for. 1–4 buttons, short imperative labels. Never repeat a button\'s contents in prose.',
+      "End turns that have obvious next steps with `suggest_mail_actions`: it renders one-click buttons under your reply that the teammate executes with their own authority. Suggest things beyond your grant there — e.g. propose sending a draft (`send_draft`), triage actions, opening a thread, a handover, or an inbox rule you noticed a pattern for. 1–4 buttons, short imperative labels. Never repeat a button's contents in prose.",
     );
   } else {
     lines.push(
@@ -325,7 +325,9 @@ async function composeTurnContext(
       body,
     ].join("\n");
     if (block.length > budget) {
-      rendered.push(`… ${i + 1} earlier message(s) omitted — fetch with \`get_mail_thread\` if needed.`);
+      rendered.push(
+        `… ${i + 1} earlier message(s) omitted — fetch with \`get_mail_thread\` if needed.`,
+      );
       break;
     }
     budget -= block.length;
@@ -364,15 +366,19 @@ export type AssistantTurnCallbacks = {
  * mode still persists an assistant row (status "error"/"skipped") so the
  * conversation reads the same after a reload.
  */
-export async function runAssistantTurn(args: {
+type AssistantTurnArgs = {
   account: MailAccount;
   message: string;
   threadId: string;
   focusedMessageId?: string | null;
   employeeId?: string;
-  userId: string | null;
   callbacks: AssistantTurnCallbacks;
-}): Promise<void> {
+} & (
+  | { userId: string; requesterSessionVersion: number }
+  | { userId: null; requesterSessionVersion?: never }
+);
+
+export async function runAssistantTurn(args: AssistantTurnArgs): Promise<void> {
   const { account, callbacks } = args;
   const repo = AppDataSource.getRepository(MailChatMessage);
 
@@ -489,7 +495,12 @@ export async function runAssistantTurn(args: {
   );
   const prompt = `${context}\n\n${args.message}`;
 
-  const turnStart = new Date(Date.now() - 10);
+  const authority = args.userId
+    ? {
+        requesterUserId: args.userId,
+        requesterSessionVersion: args.requesterSessionVersion,
+      }
+    : { toolAuthority: "untrusted" as const };
   const result = await streamChatWithEmployee(
     account.companyId,
     employee.id,
@@ -499,10 +510,19 @@ export async function runAssistantTurn(args: {
     {
       extraSystem: assistantBriefing(account, accessLevel),
       extraToolset: MAIL_ASSISTANT_TOOLS,
+      ...authority,
     },
   );
 
-  const actions = await captureTurnActions(account.companyId, employee.id, turnStart);
+  const actions = await captureTurnActionsForAuthority({
+    companyId: account.companyId,
+    employeeId: employee.id,
+    // This panel is always an authenticated Member surface. Keep the timestamp
+    // for the future correlated capture implementation, but do not project the
+    // employee-wide audit window into this Member's message today.
+    since: userMsg.createdAt,
+    authority: "member",
+  });
   // The suggest tool accepts any mailbox the employee holds a read grant on;
   // this panel renders and executes buttons for ITS mailbox only, so
   // cross-account suggestions are dropped rather than shown out of context.

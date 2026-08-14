@@ -5,15 +5,21 @@ declare module "express-serve-static-core" {
     session?: {
       userId?: string;
       sessionVersion?: number;
+      /** Primary password or SSO completion time, used for step-up gates. */
+      authenticatedAt?: number;
+      /** Successful TOTP, recovery-code, or WebAuthn completion time. */
+      secondFactorAt?: number;
       twoFactorUserId?: string;
       twoFactorExpiresAt?: number;
       twoFactorAttempts?: number;
+      primaryAuthenticatedAt?: number;
       webAuthnChallenge?: string;
       webAuthnChallengeExpiresAt?: number;
       webAuthnPurpose?: "login" | "registration";
       webAuthnCredentialName?: string;
       webAuthnCredentialKind?: "passkey" | "security_key";
       totpSetupExpiresAt?: number;
+      ssoBrowserBinding?: string;
     } | null;
   }
 }

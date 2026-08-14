@@ -66,16 +66,18 @@ export function SelfHosting() {
     outboundRequestTimeoutMs: 15_000,
     outboundMaxResponseBytes: 25 * 1024 * 1024,
     authRateLimit: { windowMinutes: 15, maxAttempts: 10, blockMinutes: 15 },
-    bootstrapMasterAdminEmail: "",
+    // Exact mailbox authorized to bootstrap instance administration.
+    bootstrapMasterAdminEmail: "operator@example.com",
   },
 
   agent: {
     codingTools: {
       enabled: true,
-      // Set bubblewrap deliberately on a Linux deployment after validating
-      // that its user-namespace policy permits the complete isolation probe.
-      executionMode: "host",
-      bubblewrapPath: "/usr/bin/bwrap", allowNetwork: true,
+      // Disabled is the safe cross-platform default. Select bubblewrap only
+      // after its complete Linux isolation probe succeeds.
+      executionMode: "disabled",
+      bubblewrapPath: "/usr/bin/bwrap", allowNetwork: false,
+      allowUnsafeHostExecution: false,
     },
     browserEnabledInMultiTenant: false,
     maxConcurrentRunsPerCompany: 4,
@@ -101,14 +103,21 @@ export function SelfHosting() {
         other independent Routines for the same employee. Increase it only when your AI Model quotas
         and host capacity can support the extra parallel requests.
       </P>
-      <Callout kind="info" title="Subscription auth needs an isolated Linux deployment.">
-        Existing installs keep <Code>executionMode: &quot;host&quot;</Code>. To use ChatGPT
-        subscription auth, run Genosyn from source on Linux, set the mode to{" "}
+      <Callout kind="info" title="Coding tools require an isolated Linux deployment.">
+        Coding execution is disabled by default because a host shell shares the App process user and
+        can read outside an AI Employee&apos;s working directory. To enable coding tools or use
+        ChatGPT subscription auth, run Genosyn from source on Linux, set the mode to{" "}
         <Code>bubblewrap</Code>, and confirm the model card reports that the isolation check passed.
         The standard Docker installer does not currently relax Docker&apos;s namespace policy, so
         subscription auth remains unavailable in that container; API-key and custom-endpoint models
         continue to work normally. Do not make the App container privileged or disable its security
         profile just to bypass the check.
+      </Callout>
+      <Callout kind="warn" title="Host execution is an explicit unsafe compatibility mode.">
+        A trusted, single-company operator can select <Code>host</Code> and separately set{" "}
+        <Code>allowUnsafeHostExecution: true</Code>. This gives every coding-enabled AI Employee the
+        App container&apos;s filesystem and network authority; never use it for multiple companies
+        or with untrusted Members, prompts, Skills, repositories, or content.
       </Callout>
 
       <H2 id="public-url">Public URL</H2>
@@ -119,7 +128,7 @@ export function SelfHosting() {
         links, push notifications, and API documentation. A path, query, or fragment is not allowed.
       </P>
       <Callout kind="tip" title="Fresh installs detect it automatically.">
-        The first successful master-admin browser sign-in or sign-up saves the same-origin URL it
+        The first successful verified master-admin browser sign-in saves the same-origin URL it
         arrived on. Review the value in <Code>Admin → General</Code> after putting Genosyn behind a
         reverse proxy; you can replace it without restarting the app.
       </Callout>
@@ -140,6 +149,15 @@ export function SelfHosting() {
         SQLite and Postgres use separate generated migration streams. Postgres is required for
         shared SaaS; see <DocLink to="/docs/saas-hosting">Shared SaaS mode</DocLink>.
       </P>
+      <Callout title="Upgrading private conversations">
+        Older direct and Help conversations may predate private Member ownership. They remain hidden
+        from ordinary Members after migration. Company owners and admins can open one and select{" "}
+        <Strong>Claim conversation</Strong> after a sign-in from the last 15 minutes. Any
+        unattributed turn that was still running during the upgrade is stopped safely and can be
+        retried after the conversation is claimed. Pending manual Mail handovers from an older
+        release also stop safely; retry one from its thread to authorize it with your current
+        browser session.
+      </Callout>
 
       <H2 id="data-dir">The data directory</H2>
       <P>
@@ -193,7 +211,10 @@ export function SelfHosting() {
         to the console. When a global transport is configured either way, adding a company SMTP
         provider at <Code>Settings → Email</Code> pre-fills the host, port, encryption, username,
         and sender address from it — you only enter the password. Every send appends an{" "}
-        <Code>EmailLog</Code> row you can read at <Code>Settings → Email Logs</Code>.
+        <Code>EmailLog</Code> row that company owners and admins can read at{" "}
+        <Code>Settings → Email Logs</Code>. Member-role accounts cannot read recipient addresses,
+        subjects, delivery errors, or body previews. Bearer links such as company invitations are
+        redacted from the stored preview.
       </P>
 
       <H2 id="secrets">Secrets</H2>
@@ -246,8 +267,11 @@ export function SelfHosting() {
         <Code>Admin</Code>) — separate from a single company&apos;s <Code>Settings</Code>. Because
         it spans every company on the deployment, it&apos;s gated to <Strong>master admins</Strong>:
         instance-level operators, a global flag on the user account that&apos;s distinct from the
-        per-company <Code>owner</Code> / <Code>admin</Code> / <Code>member</Code> roles. The first
-        account to sign up on a fresh install is bootstrapped as the master admin; from{" "}
+        per-company <Code>owner</Code> / <Code>admin</Code> / <Code>member</Code> roles. On a fresh
+        install, set <Code>security.bootstrapMasterAdminEmail</Code>, sign up with that exact
+        address, and open its verification link. The account remains an ordinary Member until
+        mailbox ownership is proven; being first to reach the public sign-up form grants no
+        privilege. Verification revokes every earlier cookie, so sign in again. From{" "}
         <Code>Admin → Users</Code> an existing master admin can grant or revoke the flag on anyone
         else (you just can&apos;t revoke your own, so the install always keeps at least one
         operator). Since it&apos;s operator-only, <Code>Admin</Code> isn&apos;t advertised in the
@@ -318,11 +342,11 @@ export function SelfHosting() {
         registering themselves.
       </P>
       <P>
-        One account is always exempt: the very first account on a fresh install, so a box with no
-        users yet can never lock itself out before an operator exists. With sign-ups disabled, add
-        people by promoting an existing account to <Strong>master admin</Strong> from{" "}
-        <Code>Admin → Users</Code>, or by inviting them into a company from that company&apos;s{" "}
-        <Code>Settings → Members</Code>.
+        The configured <Code>bootstrapMasterAdminEmail</Code> remains eligible to register while
+        sign-ups are disabled if the instance has no master admin. It receives no operator access
+        until its email-verification link is used. After bootstrap, add people by promoting an
+        existing account to <Strong>master admin</Strong> from <Code>Admin → Users</Code>, or by
+        inviting them into a company from that company&apos;s <Code>Settings → Members</Code>.
       </P>
 
       <H3 id="sso">SSO</H3>

@@ -109,7 +109,9 @@ async function draftTouch(ctx: {
     mayAutoSend,
   });
 
-  const result = await chatWithEmployee(sequence.companyId, employee.id, prompt, []);
+  const result = await chatWithEmployee(sequence.companyId, employee.id, prompt, [], {
+    toolAuthority: "employee",
+  });
   const detail = result.reply.slice(0, DETAIL_CAP);
   if (result.status !== "ok") {
     return { status: "failed", detail };
@@ -243,7 +245,9 @@ async function handleSignal(handoff: {
     .filter((line) => line !== "")
     .join("\n");
 
-  const result = await chatWithEmployee(handoff.signal.companyId, employeeId, prompt, []);
+  const result = await chatWithEmployee(handoff.signal.companyId, employeeId, prompt, [], {
+    toolAuthority: "employee",
+  });
   return { ok: result.status === "ok", detail: result.reply.slice(0, DETAIL_CAP) };
 }
 

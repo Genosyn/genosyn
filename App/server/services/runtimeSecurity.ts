@@ -137,6 +137,15 @@ export function validateRuntimeSecurity(): void {
         `[security] self-hosted production is using relaxed settings:\n- ${warnings.join("\n- ")}`,
       );
     }
+    if (
+      config.agent.codingTools.executionMode === "host" &&
+      config.agent.codingTools.allowUnsafeHostExecution
+    ) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[security] AI coding tools have explicit unsafe host execution access; use Bubblewrap or disable coding tools before adding untrusted Members or another company",
+      );
+    }
   }
 
   if (process.env.NODE_ENV === "production" && !isPublicUrlConfigured()) {

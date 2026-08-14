@@ -65,6 +65,24 @@ export class ConversationMessage {
   @Column({ type: "varchar", nullable: true })
   turnUserMessageId!: string | null;
 
+  /**
+   * Human Member whose interactive request caused this durable turn. Recovery
+   * must keep the same principal: without this field a restarted worker would
+   * silently resume with the AI Employee's broader Grants. NULL is reserved
+   * for legacy rows and non-human surfaces.
+   */
+  @Index()
+  @Column({ type: "varchar", nullable: true })
+  turnRequesterUserId!: string | null;
+
+  /**
+   * Auth epoch from the browser session that accepted this durable turn.
+   * Recovery must present the same epoch; reading the User's newer epoch after
+   * a password reset would otherwise re-authorize an old queued request.
+   */
+  @Column({ type: "integer", nullable: true })
+  turnRequesterSessionVersion!: number | null;
+
   /** Current worker claim. A new process may take over after its lease expires. */
   @Column({ type: "varchar", nullable: true })
   turnWorkerId!: string | null;

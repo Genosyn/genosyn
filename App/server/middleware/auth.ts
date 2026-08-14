@@ -6,6 +6,7 @@ import { Membership, Role } from "../db/entities/Membership.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
 import { Company } from "../db/entities/Company.js";
 import { hasTwoFactorMethod } from "../services/twoFactor.js";
+import { config } from "../../config.js";
 
 declare module "express-serve-static-core" {
   interface Request {
@@ -64,6 +65,12 @@ async function tryBearerAuth(req: Request): Promise<{ user: User; key: ApiKey } 
   const now = new Date();
   if (key.revokedAt) return null;
   if (key.expiresAt && key.expiresAt.getTime() <= now.getTime()) return null;
+  // API keys are company credentials, not replacements for a Member's
+  // browser session. Fail closed unless the URL itself names the exact
+  // company the key was minted for. This keeps account, invitation,
+  // company-creation, and instance-operator surfaces browser-only even when a
+  // route accidentally uses the broad `requireAuth` middleware.
+  if (companyIdFromApiPath(req.originalUrl) !== key.companyId) return null;
   const user = await AppDataSource.getRepository(User).findOneBy({ id: key.userId });
   if (!user) return null;
   // Membership is re-checked downstream by `requireCompanyMember` — we
@@ -77,6 +84,18 @@ async function tryBearerAuth(req: Request): Promise<{ user: User; key: ApiKey } 
     });
   }
   return { user, key };
+}
+
+/** Return the company named by the canonical REST mount, or null otherwise. */
+export function companyIdFromApiPath(originalUrl: string): string | null {
+  const path = originalUrl.split("?", 1)[0];
+  const match = /^\/api\/companies\/([^/]+)(?:\/|$)/.exec(path);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
 }
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
@@ -107,7 +126,70 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 }
 
 export function establishUserSession(req: Request, user: User): void {
-  req.session = { userId: user.id, sessionVersion: user.sessionVersion };
+  req.session = {
+    userId: user.id,
+    sessionVersion: user.sessionVersion,
+    authenticatedAt: Date.now(),
+  };
+}
+
+export const DEFAULT_RECENT_AUTH_MAX_AGE_MS = 15 * 60 * 1000;
+
+/**
+ * Reusable step-up seam for high-impact mutations. It intentionally requires
+ * a browser cookie: API keys never carry human-presence evidence. Callers may
+ * also require proof that a second factor completed in this same session.
+ */
+export function requireRecentAuthentication(
+  options: { maxAgeMs?: number; requireSecondFactor?: boolean } = {},
+): RequestHandler {
+  const maxAgeMs = options.maxAgeMs ?? DEFAULT_RECENT_AUTH_MAX_AGE_MS;
+  return (req, res, next) => {
+    if (!req.user || req.apiKey) {
+      return res.status(403).json({
+        error: "This action requires a recently authenticated browser session",
+        code: "REAUTHENTICATION_REQUIRED",
+      });
+    }
+    const now = Date.now();
+    const authenticatedAt = req.session?.authenticatedAt;
+    const secondFactorAt = req.session?.secondFactorAt;
+    if (!authenticatedAt || now - authenticatedAt > maxAgeMs) {
+      return res.status(403).json({
+        error: "Sign in again before performing this action",
+        code: "REAUTHENTICATION_REQUIRED",
+      });
+    }
+    if (
+      options.requireSecondFactor &&
+      (!secondFactorAt || secondFactorAt < authenticatedAt || now - secondFactorAt > maxAgeMs)
+    ) {
+      return res.status(403).json({
+        error: "Complete two-factor authentication before performing this action",
+        code: "SECOND_FACTOR_REQUIRED",
+      });
+    }
+    next();
+  };
+}
+
+/**
+ * Require a signed browser session after `requireAuth`. Sensitive account
+ * operations use this explicitly; the bearer authenticator also denies API
+ * keys outside `/api/companies/:cid` as a defense-in-depth default.
+ */
+export function requireBrowserSession(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void | Response {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  if (req.apiKey) {
+    return res.status(403).json({
+      error: "This action requires a logged-in browser session",
+    });
+  }
+  next();
 }
 
 export async function requireCompanyMember(
@@ -221,6 +303,34 @@ export async function requireMasterAdmin(
   }
   if (!req.user.isMasterAdmin) {
     return res.status(403).json({ error: "Master admin access required" });
+  }
+  if (!req.user.emailVerifiedAt) {
+    return res
+      .status(403)
+      .json({ error: "Verify your email before using instance administration" });
+  }
+  if (config.security.multiTenant) {
+    if (!(await hasTwoFactorMethod(req.user.id))) {
+      return res.status(403).json({
+        error: "Enable two-factor authentication before using instance administration",
+        code: "SECOND_FACTOR_ENROLLMENT_REQUIRED",
+      });
+    }
+    const authenticatedAt = req.session?.authenticatedAt;
+    const secondFactorAt = req.session?.secondFactorAt;
+    const now = Date.now();
+    if (
+      !authenticatedAt ||
+      !secondFactorAt ||
+      secondFactorAt < authenticatedAt ||
+      now - authenticatedAt > DEFAULT_RECENT_AUTH_MAX_AGE_MS ||
+      now - secondFactorAt > DEFAULT_RECENT_AUTH_MAX_AGE_MS
+    ) {
+      return res.status(403).json({
+        error: "Sign in with two-factor authentication again before using instance administration",
+        code: "SECOND_FACTOR_REQUIRED",
+      });
+    }
   }
   next();
 }

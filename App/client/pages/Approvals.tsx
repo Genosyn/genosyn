@@ -24,7 +24,9 @@ import { useLiveRefetch } from "../components/CompanySocket";
 
 const STATUS_STYLE: Record<ApprovalStatus, string> = {
   pending: "bg-amber-50 text-amber-700 border-amber-200",
+  executing: "bg-sky-50 text-sky-700 border-sky-200",
   approved: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  execution_failed: "bg-rose-50 text-rose-700 border-rose-200",
   rejected: "bg-rose-50 text-rose-700 border-rose-200",
   expired: "bg-slate-50 text-slate-600 border-slate-200",
 };
@@ -90,8 +92,13 @@ export default function Approvals({ company }: { company: Company }) {
   const [rows, setRows] = React.useState<Approval[] | null>(null);
   const { toast, background } = useToast();
   const base = `/api/companies/${company.id}/approvals`;
+  const canDecide = company.role === "owner" || company.role === "admin";
 
   async function reload() {
+    if (!canDecide) {
+      setRows([]);
+      return;
+    }
     try {
       const list = await api.get<Approval[]>(base);
       setRows(list);
@@ -157,6 +164,18 @@ export default function Approvals({ company }: { company: Company }) {
   const pending = rows?.filter((r) => r.status === "pending") ?? [];
   const history = rows?.filter((r) => r.status !== "pending") ?? [];
 
+  if (!canDecide) {
+    return (
+      <div className="page-shell p-8">
+        <TopBar title="Approvals" />
+        <EmptyState
+          title="Owner or admin access required"
+          description="Approval requests can contain sensitive external-action details. Ask a company owner or admin to review them."
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="page-shell p-8">
       <TopBar title="Approvals" />
@@ -195,14 +214,20 @@ export default function Approvals({ company }: { company: Company }) {
                               {new Date(a.requestedAt).toLocaleString()}
                             </div>
                           </div>
-                          <div className="flex gap-1">
-                            <Button size="sm" onClick={() => decide(a, "approve")}>
-                              <Check size={14} /> Approve
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => decide(a, "reject")}>
-                              <X size={14} /> Reject
-                            </Button>
-                          </div>
+                          {canDecide ? (
+                            <div className="flex gap-1">
+                              <Button size="sm" onClick={() => decide(a, "approve")}>
+                                <Check size={14} /> Approve
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => decide(a, "reject")}>
+                                <X size={14} /> Reject
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-500 dark:text-slate-400">
+                              An owner or admin must decide
+                            </span>
+                          )}
                         </CardBody>
                       </Card>
                     </li>

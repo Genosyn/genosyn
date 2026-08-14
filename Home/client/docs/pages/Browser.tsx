@@ -140,10 +140,16 @@ export function Browser() {
         URL and a one-line summary of what the employee is trying to do — and the employee is told
         the submission is pending. Once you approve, the employee re-fires it with{" "}
         <Code>browser_resume</Code>, in the same turn or a later one. The approval is{" "}
-        <Strong>bound to the page it was raised on and fires exactly once</Strong>: if the browser
-        has moved to a different page (or was reclaimed while idle) the employee is asked to submit
-        again rather than firing blindly against whatever is now loaded. Rejecting writes the
-        decision to the employee&apos;s journal.
+        <Strong>bound to the page it was raised on and fires exactly once</Strong>. Genosyn claims
+        the approval atomically before touching the page, so concurrent resumes cannot submit it
+        twice. If a browser process or network connection fails after that claim, Genosyn treats the
+        outcome as unknown and will not replay it automatically; raise a new submit for another
+        reviewed attempt. If the browser moved to a different page before the claim (or was
+        reclaimed while idle), the employee is asked to submit again rather than firing blindly
+        against whatever is now loaded. Rejecting writes the decision to the employee&apos;s
+        journal. Only owners and admins may open or decide these requests, and deciding requires
+        recent primary and second-factor authentication in a logged-in browser session rather than
+        an API key.
       </P>
 
       <H2 id="live-view">Live view and takeover</H2>

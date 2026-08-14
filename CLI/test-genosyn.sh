@@ -86,6 +86,18 @@ check "ported: bystander on same registry is not ours" \
 check "ported: bystander under another path is not ours" \
   "$(same_repo 'registry:5000/team/app' 'registry:5000/other/db:1')" 'no'
 
+echo "user security commands — bootstrap and recovery invariants"
+check "master-admin bootstrap requires verified email" \
+  "$(grep -Fc "Verify this account's email before granting master-admin access." "${HERE}/genosyn")" '1'
+check "master-admin bootstrap rotates existing sessions" \
+  "$(grep -Fc '"isMasterAdmin" = TRUE, "sessionVersion" = "sessionVersion" + 1' "${HERE}/genosyn")" '1'
+check "password recovery revokes API keys for both database drivers" \
+  "$(grep -Fc 'UPDATE api_keys SET "revokedAt"' "${HERE}/genosyn")" '2'
+check "password recovery rotates sessions for both database drivers" \
+  "$(grep -Fc '"sessionVersion" = "sessionVersion" + 1 WHERE id' "${HERE}/genosyn")" '4'
+check "user help advertises safe bootstrap command" \
+  "$(cmd_user_help | grep -Fc 'grant-master-admin <email>')" '1'
+
 echo "auto-update schedule — enable, refresh, disable"
 test_root="$(mktemp -d -t genosyn-cli-test.XXXXXX)"
 trap 'rm -rf "${test_root}"' EXIT

@@ -40,6 +40,16 @@ export class Conversation {
   @Column({ type: "varchar" })
   employeeId!: string;
 
+  /**
+   * Member who owns a direct web/help thread. Keeping transcripts private to
+   * their requester prevents a lower-privilege Member from replaying context
+   * produced under somebody else's authority. External conversations have no
+   * Genosyn Member and leave this NULL.
+   */
+  @Index()
+  @Column({ type: "varchar", nullable: true })
+  ownerUserId!: string | null;
+
   @Column({ type: "varchar", nullable: true })
   title!: string | null;
 

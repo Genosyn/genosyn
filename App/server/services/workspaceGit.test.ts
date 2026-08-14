@@ -42,6 +42,8 @@ test("workspace Git never inherits arbitrary App or Codex environment variables"
       args: ["status"],
     },
     "host",
+    "/usr/bin/bwrap",
+    true,
   );
 
   assert.equal(invocation.isolated, false);
@@ -60,6 +62,8 @@ test("command-scoped credential helpers receive the HTTPS repository path", () =
       credentialHelper: "!trusted-helper",
     },
     "host",
+    "/usr/bin/bwrap",
+    true,
   );
   const count = Number(invocation.env.GIT_CONFIG_COUNT);
   const config = new Map(
@@ -95,6 +99,8 @@ test("workspace Git rejects unsafe environment entries and disabled execution", 
           extraEnv: { GENOSYN_REPO_TOKEN_1: "token\nInjected: value" },
         },
         "host",
+        "/usr/bin/bwrap",
+        true,
       ),
     /Invalid Git token environment value/,
   );
@@ -110,4 +116,21 @@ test("workspace Git rejects unsafe environment entries and disabled execution", 
       ),
     /disabled/,
   );
+});
+
+test("workspace Git host execution requires the separate unsafe-host acknowledgement", () => {
+  const options = {
+    workspaceRoot: "/srv/employee",
+    cwd: "/srv/employee",
+    args: ["status"],
+  };
+
+  assert.throws(
+    () => buildWorkspaceGitInvocation(options, "host", "/usr/bin/bwrap", false),
+    /explicitly acknowledge host execution/i,
+  );
+
+  const acknowledged = buildWorkspaceGitInvocation(options, "host", "/usr/bin/bwrap", true);
+  assert.equal(acknowledged.executable, "git");
+  assert.equal(acknowledged.isolated, false);
 });

@@ -8,15 +8,11 @@ import {
   type MailAccessLevel,
 } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
-import {
-  MailHandover,
-  type MailHandoverMode,
-  type MailHandoverSource,
-} from "../../db/entities/MailHandover.js";
+import { MailHandover, type MailHandoverMode } from "../../db/entities/MailHandover.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { Membership } from "../../db/entities/Membership.js";
-import { chatWithEmployee } from "../chat.js";
+import { chatWithEmployee, type ChatOptions } from "../chat.js";
 import { recordAudit } from "../audit.js";
 import { createNotifications } from "../notifications.js";
 import { broadcastToCompany } from "../realtime.js";
@@ -79,19 +75,33 @@ export async function hasActiveRuleHandover(threadId: string, ruleId: string): P
   ]);
 }
 
-export async function createMailHandover(args: {
+type CreateMailHandoverArgs = {
   account: MailAccount;
   thread: MailThread;
   employeeId: string;
   mode: MailHandoverMode;
   instruction: string;
-  sourceKind: MailHandoverSource;
-  ruleId: string | null;
-  createdByUserId: string | null;
   /** When set, the handover is recorded as failed without running — used by
    * rules whose grant pre-flight failed, so the misconfiguration is visible. */
   precheckError?: string | null;
-}): Promise<MailHandover> {
+} & (
+  | {
+      sourceKind: "manual";
+      ruleId: null;
+      createdByUserId: string;
+      requesterUserId: string;
+      requesterSessionVersion: number;
+    }
+  | {
+      sourceKind: "rule";
+      ruleId: string;
+      createdByUserId: null;
+      requesterUserId?: never;
+      requesterSessionVersion?: never;
+    }
+);
+
+export async function createMailHandover(args: CreateMailHandoverArgs): Promise<MailHandover> {
   const repo = AppDataSource.getRepository(MailHandover);
   const handover = repo.create({
     companyId: args.account.companyId,
@@ -103,6 +113,8 @@ export async function createMailHandover(args: {
     sourceKind: args.sourceKind,
     ruleId: args.ruleId,
     createdByUserId: args.createdByUserId,
+    requesterUserId: args.requesterUserId ?? null,
+    requesterSessionVersion: args.requesterSessionVersion ?? null,
     status: args.precheckError ? "failed" : "pending",
     errorMessage: args.precheckError ?? "",
     finishedAt: args.precheckError ? new Date() : null,
@@ -132,7 +144,10 @@ export async function createMailHandover(args: {
 
 /** Re-queue a failed handover. Idempotent: a double-click can't double-run
  * it — `enqueue` de-dupes ids already queued or in flight. */
-export async function retryMailHandover(handover: MailHandover): Promise<void> {
+export async function retryMailHandover(
+  handover: MailHandover,
+  requester: { userId: string; sessionVersion: number },
+): Promise<void> {
   const repo = AppDataSource.getRepository(MailHandover);
   if (inFlight.has(handover.id)) return;
   handover.status = "pending";
@@ -140,6 +155,8 @@ export async function retryMailHandover(handover: MailHandover): Promise<void> {
   handover.resultSummary = "";
   handover.startedAt = null;
   handover.finishedAt = null;
+  handover.requesterUserId = requester.userId;
+  handover.requesterSessionVersion = requester.sessionVersion;
   await repo.save(handover);
   enqueue(handover.id);
 }
@@ -258,7 +275,13 @@ async function runHandover(id: string): Promise<void> {
   // at a spinner.
   try {
     const prompt = await composeHandoverPrompt(handover, account, thread);
-    const result = await chatWithEmployee(account.companyId, employee.id, prompt, []);
+    const authority = resolveMailHandoverAuthority(handover);
+    if (!authority) {
+      throw new Error(
+        "This manual handover predates secure Member delegation. Retry it from a logged-in browser to authorize a new attempt.",
+      );
+    }
+    const result = await chatWithEmployee(account.companyId, employee.id, prompt, [], authority);
     if (result.status === "ok") {
       handover.status = "completed";
       handover.resultSummary = result.reply.slice(0, RESULT_SUMMARY_CAP);
@@ -288,6 +311,26 @@ async function runHandover(id: string): Promise<void> {
     type: "mail.updated",
     accountId: account.id,
   });
+}
+
+/** Rule automation is employee-owned; every browser-created/retried attempt is Member-bound. */
+export function resolveMailHandoverAuthority(
+  handover: Pick<MailHandover, "sourceKind" | "requesterUserId" | "requesterSessionVersion">,
+): ChatOptions | null {
+  if (handover.requesterUserId && handover.requesterSessionVersion !== null) {
+    return {
+      requesterUserId: handover.requesterUserId,
+      requesterSessionVersion: handover.requesterSessionVersion,
+    };
+  }
+  if (
+    handover.sourceKind === "rule" &&
+    handover.requesterUserId === null &&
+    handover.requesterSessionVersion === null
+  ) {
+    return { toolAuthority: "employee" };
+  }
+  return null;
 }
 
 async function composeHandoverPrompt(

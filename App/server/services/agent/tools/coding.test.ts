@@ -16,9 +16,11 @@ type CleanupContext = { after: (fn: () => void | Promise<void>) => void };
 const mutableCodingConfig = config.agent.codingTools as {
   executionMode: "host" | "bubblewrap" | "disabled";
   bubblewrapPath: string;
+  allowUnsafeHostExecution: boolean;
 };
 const originalExecutionMode = mutableCodingConfig.executionMode;
 const originalBubblewrapPath = mutableCodingConfig.bubblewrapPath;
+const originalAllowUnsafeHostExecution = mutableCodingConfig.allowUnsafeHostExecution;
 const exec = promisify(execFile);
 const CODING_MODULE_URL = new URL("./coding.ts", import.meta.url).href;
 
@@ -27,11 +29,13 @@ before(() => {
   // on the developer machine. The namespace command itself has a separate
   // pure-construction suite in ../bubblewrap.test.ts.
   mutableCodingConfig.executionMode = "host";
+  mutableCodingConfig.allowUnsafeHostExecution = true;
 });
 
 after(() => {
   mutableCodingConfig.executionMode = originalExecutionMode;
   mutableCodingConfig.bubblewrapPath = originalBubblewrapPath;
+  mutableCodingConfig.allowUnsafeHostExecution = originalAllowUnsafeHostExecution;
 });
 
 async function makeWorkspace(t: CleanupContext): Promise<{
@@ -686,6 +690,18 @@ describe("grep", () => {
 });
 
 describe("bash", () => {
+  test("fails closed when host execution was not explicitly acknowledged", async (t) => {
+    const { root } = await makeWorkspace(t);
+    mutableCodingConfig.allowUnsafeHostExecution = false;
+    try {
+      const result = await toolset(root).bash.run({ command: "touch should-not-exist" });
+      assertToolError(result, /unsafe host command execution is disabled/i);
+      assert.equal(await pathExists(path.join(root, "should-not-exist")), false);
+    } finally {
+      mutableCodingConfig.allowUnsafeHostExecution = true;
+    }
+  });
+
   test("uses the workspace cwd and explicit environment without inheriting App secrets", async (t) => {
     const { root } = await makeWorkspace(t);
     const parentKey = `GENOSYN_CODING_TEST_PARENT_${process.pid}`;

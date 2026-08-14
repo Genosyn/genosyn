@@ -44,13 +44,16 @@ export const config = {
       maxAttempts: 10,
       blockMinutes: 15,
     },
-    // Shared SaaS must predeclare the only email allowed to claim the first
-    // master-admin account. This prevents an internet race during bootstrap.
+    // Fresh installs must predeclare the only email allowed to claim the first
+    // master-admin account. Promotion happens only after email verification,
+    // preventing an internet race during bootstrap. Existing installs that
+    // already have a master admin are unaffected.
     bootstrapMasterAdminEmail: "",
   },
 
-  // AI Employee execution controls. `host` preserves the existing local and
-  // Docker deployment behavior. ChatGPT subscription auth is available only
+  // AI Employee execution controls. Coding execution is disabled by default:
+  // a plain host shell shares the App process UID and is not confined by cwd.
+  // ChatGPT subscription auth is available only
   // when an operator deliberately selects `bubblewrap` on a Linux deployment
   // whose user-namespace policy passes Genosyn's startup probe. Bubblewrap runs
   // every shell invocation and repository Git child in user/mount/PID
@@ -60,9 +63,14 @@ export const config = {
   agent: {
     codingTools: {
       enabled: true,
-      executionMode: "host" as "host" | "bubblewrap" | "disabled",
+      executionMode: "disabled" as "host" | "bubblewrap" | "disabled",
       bubblewrapPath: "/usr/bin/bwrap",
-      allowNetwork: true,
+      allowNetwork: false,
+      // Emergency compatibility escape hatch for a trusted, single-company
+      // install only. `host` can read the whole App filesystem and reach the
+      // network; selecting host mode is not sufficient without this separate
+      // acknowledgement.
+      allowUnsafeHostExecution: false,
     },
     // The current app-owned Chromium process shares the API container. Keep it
     // off in multi-tenant mode until a separately isolated browser worker is

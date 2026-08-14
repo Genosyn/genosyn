@@ -19,7 +19,15 @@ export function Security() {
         Shared SaaS mode sends a single-use verification link after signup. A Member must verify
         that address before creating a company or accepting an invitation, and the signed-in address
         must exactly match the invitation recipient. New and reset passwords require at least 12
-        characters. A password change or reset invalidates every older signed-in session.
+        characters. A password change invalidates every older signed-in session. A password reset
+        also revokes every personal API key because it is treated as account recovery after a
+        possible credential compromise.
+      </P>
+      <P>
+        Changing your account email requires your current password. Genosyn keeps the existing
+        address active and sends a single-use confirmation to the new mailbox; the identity changes
+        only after that link is opened. Confirmation signs out older sessions and revokes personal
+        API keys.
       </P>
 
       <H2 id="enable">Enable two-factor authentication</H2>
@@ -83,7 +91,57 @@ export function Security() {
         Enter your email and password, or complete SSO as usual. If your account has two-factor
         authentication enabled, Genosyn creates a five-minute verification step instead of a full
         session. Use any enrolled passkey/security key, a current authenticator code, or an unused
-        recovery code. Eight failed second-factor attempts restart the sign-in flow.
+        recovery code. Eight failed second-factor attempts restart the sign-in flow. Failed-factor
+        counters also persist in the database across replacement cookies and application replicas,
+        so signing in with the password again does not reset the throttle.
+      </P>
+
+      <H2 id="sso">SSO protections</H2>
+      <P>
+        OpenID Connect sign-in uses authorization code flow with S256 PKCE. Its single-use state is
+        bound to the signed cookie of the browser that started sign-in, and Genosyn links or creates
+        an account only when the identity provider affirmatively reports a verified email address.
+      </P>
+
+      <H2 id="api-keys">Personal API keys</H2>
+      <P>
+        A personal API key is bound to exactly one company and is accepted only under that
+        company&apos;s <Code>/api/companies/:cid</Code> REST surface. It cannot act as a browser
+        session to change account identity or MFA, accept invitations, create companies, mint
+        another key, or use instance administration. Password recovery and a confirmed email change
+        revoke all of the account&apos;s personal API keys.
+      </P>
+
+      <H2 id="ai-employee-delegation">AI Employee delegation</H2>
+      <P>
+        A direct or Help conversation belongs to the Member who created it. Other Members in the
+        same company cannot list, open, continue, or download attachments from that conversation.
+        After an upgrade, older conversations without a recorded owner remain hidden from ordinary
+        Members. An owner or admin can inspect one and use <Strong>Claim conversation</Strong> to
+        assign it privately before continuing it. Claiming requires a sign-in from the last 15
+        minutes; sign in again if Genosyn asks you to refresh it.
+      </P>
+      <P>
+        During an interactive turn, both people in the delegation chain must be allowed to act:
+        Genosyn intersects the requesting Member&apos;s current access with the AI Employee&apos;s
+        Grants. For example, a Finance write needs the Member to have full Finance access and the AI
+        Employee to hold the matching Finance Grant; a restricted Project must include both of them.
+        Removing the Member or changing either side takes effect on the next tool call, even when a
+        durable turn resumes after a restart.
+      </P>
+      <P>
+        Memory and repository context, coding and browser tools, company Connections and configured
+        MCP servers are available in interactive chat only to owners and admins until those sources
+        have resource-level provenance. An external chat channel that is not linked to an
+        authenticated Member receives conversation-only replies: no Soul, Skills, company context,
+        Memory, Grants, or company tools. Routine Runs and trusted internal automation continue to
+        act with the AI Employee&apos;s Grants alone.
+      </P>
+      <P>
+        The same Member-bound authority applies when a person assigns a todo to an AI Employee or
+        starts or retries a manual Mail handover. Those launches require a browser session and keep
+        the accepting sign-in&apos;s revocation epoch. Routine Runs, Pipelines, and Mail rules remain
+        explicitly trusted employee automation.
       </P>
 
       <H2 id="manage">Manage methods</H2>
@@ -111,6 +169,11 @@ export function Security() {
         one under <Strong>Account → Security</Strong> before they can access or join that company.
         Genosyn then prevents them from removing their final method. See the full hosted baseline in{" "}
         <DocLink to="/docs/saas-hosting">Shared SaaS mode</DocLink>.
+      </P>
+      <P>
+        Shared SaaS mode always requires master admins to enroll 2FA and to have completed both
+        primary and second-factor authentication within the last 15 minutes before using the
+        install-wide Admin APIs. An older operator session must sign in again.
       </P>
 
       <Callout kind="tip" title="SSO-only account?">

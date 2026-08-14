@@ -26,6 +26,21 @@ export type McpTokenInfo = {
    */
   runId: string | null;
   routineId: string | null;
+  /**
+   * Authority carried by this turn. Routine Runs and other trusted internal
+   * automation deliberately act as the AI Employee. Browser-originated chat
+   * carries the requesting Member so tool handlers can intersect both
+   * principals. Unauthenticated chat surfaces are untrusted and cannot call
+   * company tools.
+   */
+  authority: "employee" | "member" | "untrusted";
+  requesterUserId: string | null;
+  /**
+   * User auth epoch observed when an interactive Member token was minted.
+   * Re-checked on every callback so a password reset or email change revokes
+   * an already-running model turn instead of only its browser cookie.
+   */
+  requesterSessionVersion: number | null;
   expiresAt: number;
 };
 
@@ -72,9 +87,33 @@ const stagedSidecars = new Map<string, Map<string, unknown[]>>();
 export function issueMcpToken(
   employeeId: string,
   companyId: string,
-  origin: { runId?: string; routineId?: string } = {},
+  origin: {
+    runId?: string;
+    routineId?: string;
+    authority?: "employee" | "member" | "untrusted";
+    requesterUserId?: string;
+    requesterSessionVersion?: number;
+  } = {},
 ): string {
   sweep();
+  const requesterUserId = origin.requesterUserId ?? null;
+  const authority = origin.authority ?? (requesterUserId ? "member" : "untrusted");
+  if (authority === "member" && !requesterUserId) {
+    throw new Error("Member MCP authority requires a requester user id");
+  }
+  if (
+    authority === "member" &&
+    (!Number.isSafeInteger(origin.requesterSessionVersion) ||
+      (origin.requesterSessionVersion ?? -1) < 0)
+  ) {
+    throw new Error("Member MCP authority requires a valid requester session version");
+  }
+  if (authority !== "member" && requesterUserId) {
+    throw new Error("Requester user id is valid only for Member MCP authority");
+  }
+  if (authority !== "member" && origin.requesterSessionVersion !== undefined) {
+    throw new Error("Requester session version is valid only for Member MCP authority");
+  }
   const token = crypto.randomBytes(32).toString("hex");
   tokens.set(token, {
     token,
@@ -82,6 +121,9 @@ export function issueMcpToken(
     companyId,
     runId: origin.runId ?? null,
     routineId: origin.routineId ?? null,
+    authority,
+    requesterUserId,
+    requesterSessionVersion: origin.requesterSessionVersion ?? null,
     expiresAt: Date.now() + TTL_MS,
   });
   return token;

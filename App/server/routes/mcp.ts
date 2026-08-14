@@ -5,6 +5,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { McpServer } from "../db/entities/McpServer.js";
 import {
   requireAuth,
+  requireBrowserSession,
   requireCompanyMember,
   requireCompanyRoleForMutations,
 } from "../middleware/auth.js";
@@ -19,6 +20,7 @@ import { assertSafeOutboundUrl } from "../lib/outboundUrl.js";
 export const mcpRouter = Router({ mergeParams: true });
 mcpRouter.use(requireAuth);
 mcpRouter.use(requireCompanyMember);
+mcpRouter.use(requireBrowserSession);
 mcpRouter.use(requireCompanyRoleForMutations("admin"));
 
 async function loadEmp(cid: string, eid: string) {

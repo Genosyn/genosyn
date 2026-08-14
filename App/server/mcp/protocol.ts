@@ -63,7 +63,12 @@ export async function runMcpBatch(
   messages: unknown[],
   ctx: McpContext,
 ): Promise<JsonRpcResponse[]> {
-  const token = issueMcpToken(ctx.employeeId, ctx.companyId);
+  // The external MCP credential is already explicitly bound to an AI
+  // Employee. It is not an ambient human chat surface, so it retains the
+  // employee-only authority used by Routine Runs.
+  const token = issueMcpToken(ctx.employeeId, ctx.companyId, {
+    authority: "employee",
+  });
   try {
     const out: JsonRpcResponse[] = [];
     for (const msg of messages) {
@@ -79,10 +84,7 @@ export async function runMcpBatch(
   }
 }
 
-async function handleMessage(
-  msg: unknown,
-  token: string,
-): Promise<JsonRpcResponse | null> {
+async function handleMessage(msg: unknown, token: string): Promise<JsonRpcResponse | null> {
   if (!msg || typeof msg !== "object") return null;
   const { id, method, params } = msg as {
     id?: JsonRpcId;
@@ -217,9 +219,7 @@ async function callInternal(
       body: JSON.stringify(args ?? {}),
     });
   } catch (e) {
-    return toolError(
-      `Could not reach Genosyn API: ${e instanceof Error ? e.message : String(e)}`,
-    );
+    return toolError(`Could not reach Genosyn API: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   const text = await response.text();
@@ -227,9 +227,7 @@ async function callInternal(
   try {
     parsed = text ? JSON.parse(text) : {};
   } catch {
-    return toolError(
-      `Genosyn API returned non-JSON (${response.status}): ${text.slice(0, 300)}`,
-    );
+    return toolError(`Genosyn API returned non-JSON (${response.status}): ${text.slice(0, 300)}`);
   }
 
   if (!response.ok) {
@@ -237,9 +235,7 @@ async function callInternal(
       parsed && typeof parsed === "object" && "error" in parsed
         ? (parsed as { error: unknown }).error
         : `HTTP ${response.status}`;
-    return toolError(
-      typeof detail === "string" ? detail : JSON.stringify(detail, null, 2),
-    );
+    return toolError(typeof detail === "string" ? detail : JSON.stringify(detail, null, 2));
   }
 
   return {

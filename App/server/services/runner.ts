@@ -30,6 +30,7 @@ import { DurableRunLog, RUN_LOG_MAX_BYTES } from "./runLog.js";
 import { supportsParallelDelegation } from "./agent/tools/parallelDelegation.js";
 import { shouldMaterializeRepositoriesForTurn } from "./codexSubscription.js";
 import { CODING_TOOL_NAMES } from "./agent/tools/coding.js";
+import { codingRuntimeAvailability } from "./agent/codingAvailability.js";
 
 export { RUN_LOG_MAX_BYTES } from "./runLog.js";
 
@@ -272,6 +273,7 @@ export async function startRoutineRun(
       mcpToken = issueMcpToken(emp.id, co.id, {
         runId: saved.id,
         routineId: routine.id,
+        authority: "employee",
       });
       // No model connected → skip cleanly.
       if (!model) {
@@ -288,14 +290,13 @@ export async function startRoutineRun(
       }
 
       const parallelDelegationAvailable = supportsParallelDelegation(model.authMode);
-      const unavailableCodingTools =
-        !config.agent.codingTools.enabled || config.agent.codingTools.executionMode === "disabled"
-          ? [...CODING_TOOL_NAMES]
-          : config.agent.codingTools.executionMode === "bubblewrap"
-            ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
-            : model.authMode === "subscription"
-              ? [...CODING_TOOL_NAMES]
-              : [];
+      const unavailableCodingTools = !codingRuntimeAvailability().available
+        ? [...CODING_TOOL_NAMES]
+        : config.agent.codingTools.executionMode === "bubblewrap"
+          ? CODING_TOOL_NAMES.filter((name) => name !== "bash")
+          : model.authMode === "subscription"
+            ? [...CODING_TOOL_NAMES]
+            : [];
       const unavailableSkillTools = [
         ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
         ...unavailableCodingTools,

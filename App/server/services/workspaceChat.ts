@@ -427,14 +427,25 @@ export async function removeChannelMember(channelId: string, memberId: string): 
 
 // ─────────────────────────── Messages ────────────────────────────────────
 
-export async function postMessage(params: {
+type PostMessageParams = {
   channelId: string;
   companyId: string;
-  author: DmActor;
   content: string;
   parentMessageId?: string | null;
   attachmentIds?: string[];
-}): Promise<MessageSummary> {
+} & (
+  | {
+      author: Extract<DmActor, { kind: "user" }>;
+      /** Auth epoch captured by the browser route that accepted a human mention. */
+      requesterSessionVersion: number;
+    }
+  | {
+      author: Extract<DmActor, { kind: "ai" }>;
+      requesterSessionVersion?: never;
+    }
+);
+
+export async function postMessage(params: PostMessageParams): Promise<MessageSummary> {
   const { channels, messages } = repos();
   const channel = await channels.findOneBy({ id: params.channelId });
   if (!channel) throw new Error("Channel not found");
@@ -471,6 +482,13 @@ export async function postMessage(params: {
     channel,
     message: msg,
     trigger: params.author,
+    requester:
+      params.author.kind === "user"
+        ? {
+            userId: params.author.userId,
+            sessionVersion: params.requesterSessionVersion!,
+          }
+        : null,
   }).catch((e) => {
     console.error("[workspaceChat] mention reply failed:", e);
   });
@@ -535,6 +553,7 @@ export async function postIncomingWebhookMessage(params: {
       channel: params.channel,
       message,
       trigger: { kind: "system", name: params.authorName },
+      requester: null,
     }).catch((error: unknown) => {
       // eslint-disable-next-line no-console
       console.error("[workspaceChat] webhook mention reply failed:", error);
@@ -989,6 +1008,7 @@ async function handleMentions(args: {
   channel: Channel;
   message: ChannelMessage;
   trigger: DmActor | { kind: "system"; name: string };
+  requester: { userId: string; sessionVersion: number } | null;
 }): Promise<void> {
   const { employees, members, channels, messages: msgRepo } = repos();
 
@@ -1120,6 +1140,14 @@ async function handleMentions(args: {
         framed,
         history,
         () => {},
+        args.requester
+          ? {
+              requesterUserId: args.requester.userId,
+              requesterSessionVersion: args.requester.sessionVersion,
+            }
+          : args.trigger.kind === "ai"
+            ? { toolAuthority: "employee" }
+            : { toolAuthority: "untrusted" },
       );
     } finally {
       clearInterval(typingTimer);

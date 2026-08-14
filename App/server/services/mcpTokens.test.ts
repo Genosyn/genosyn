@@ -16,6 +16,7 @@ describe("short-lived MCP tokens", () => {
     const first = issueMcpToken("employee", "company", {
       runId: "run",
       routineId: "routine",
+      authority: "employee",
     });
     const second = issueMcpToken("employee", "company");
     assert.notEqual(first, second);
@@ -26,11 +27,71 @@ describe("short-lived MCP tokens", () => {
       companyId: "company",
       runId: "run",
       routineId: "routine",
+      authority: "employee",
+      requesterUserId: null,
+      requesterSessionVersion: null,
       expiresAt: resolveMcpToken(first)!.expiresAt,
     });
+    assert.equal(resolveMcpToken(second)?.authority, "untrusted");
     assert.equal(resolveMcpToken(second)?.runId, null);
     revokeMcpToken(first);
     revokeMcpToken(second);
+  });
+
+  test("binds an interactive token to its requesting Member", () => {
+    const token = issueMcpToken("employee", "company", {
+      authority: "member",
+      requesterUserId: "member",
+      requesterSessionVersion: 7,
+    });
+    assert.equal(resolveMcpToken(token)?.authority, "member");
+    assert.equal(resolveMcpToken(token)?.requesterUserId, "member");
+    assert.equal(resolveMcpToken(token)?.requesterSessionVersion, 7);
+    revokeMcpToken(token);
+  });
+
+  test("rejects contradictory authority metadata", () => {
+    assert.throws(
+      () =>
+        issueMcpToken("employee", "company", {
+          authority: "member",
+          requesterSessionVersion: 0,
+        }),
+      /requires a requester user id/,
+    );
+    assert.throws(
+      () =>
+        issueMcpToken("employee", "company", {
+          authority: "member",
+          requesterUserId: "member",
+        }),
+      /requires a valid requester session version/,
+    );
+    assert.throws(
+      () =>
+        issueMcpToken("employee", "company", {
+          authority: "member",
+          requesterUserId: "member",
+          requesterSessionVersion: -1,
+        }),
+      /requires a valid requester session version/,
+    );
+    assert.throws(
+      () =>
+        issueMcpToken("employee", "company", {
+          authority: "employee",
+          requesterUserId: "member",
+        }),
+      /valid only for Member/,
+    );
+    assert.throws(
+      () =>
+        issueMcpToken("employee", "company", {
+          authority: "employee",
+          requesterSessionVersion: 0,
+        }),
+      /valid only for Member/,
+    );
   });
 
   test("stages attachments in order and drains exactly once", () => {

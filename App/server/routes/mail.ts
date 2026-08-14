@@ -17,7 +17,7 @@ import { MailMessage } from "../db/entities/MailMessage.js";
 import { MailRule } from "../db/entities/MailRule.js";
 import { MailSavedSearch } from "../db/entities/MailSavedSearch.js";
 import { MailThread } from "../db/entities/MailThread.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { decryptConnectionConfig } from "../services/integrations.js";
@@ -1375,6 +1375,7 @@ const createHandoverSchema = z.object({
 
 mailRouter.post(
   "/mail/threads/:tid/handovers",
+  requireBrowserSession,
   validateBody(createHandoverSchema),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
@@ -1396,14 +1397,16 @@ mailRouter.post(
       instruction: body.instruction,
       sourceKind: "manual",
       ruleId: null,
-      createdByUserId: req.userId ?? null,
+      createdByUserId: req.userId!,
+      requesterUserId: req.userId!,
+      requesterSessionVersion: req.session!.sessionVersion!,
     });
     const employees = new Map([[employee.id, employee]]);
     res.json({ handover: serializeHandover(handover, employees) });
   },
 );
 
-mailRouter.post("/mail/handovers/:hid/retry", async (req, res) => {
+mailRouter.post("/mail/handovers/:hid/retry", requireBrowserSession, async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const handover = await AppDataSource.getRepository(MailHandover).findOneBy({
     id: req.params.hid as string,
@@ -1413,7 +1416,10 @@ mailRouter.post("/mail/handovers/:hid/retry", async (req, res) => {
   if (handover.status !== "failed") {
     return res.status(409).json({ error: "Only failed handovers can be retried" });
   }
-  await retryMailHandover(handover);
+  await retryMailHandover(handover, {
+    userId: req.userId!,
+    sessionVersion: req.session!.sessionVersion!,
+  });
   res.json({ ok: true });
 });
 
@@ -1485,6 +1491,7 @@ const assistantSendSchema = z.object({
  */
 mailRouter.post(
   "/mail/accounts/:aid/assistant/messages",
+  requireBrowserSession,
   validateBody(assistantSendSchema),
   async (req, res, next) => {
     const cid = (req.params as Record<string, string>).cid;
@@ -1524,7 +1531,8 @@ mailRouter.post(
         threadId: thread.id,
         focusedMessageId: body.focusedMessageId ?? null,
         employeeId: body.employeeId,
-        userId: req.userId ?? null,
+        userId: req.userId!,
+        requesterSessionVersion: req.session!.sessionVersion!,
         callbacks: {
           onUser: (msg) => writeEvent("user", msg),
           onTarget: (employee) => writeEvent("target", { employee }),

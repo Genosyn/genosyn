@@ -1,5 +1,6 @@
 import type { AgentTool } from "../types.js";
 import { codingTools, type CodingToolContext } from "./coding.js";
+import { codingRuntimeAvailability } from "../codingAvailability.js";
 import { deadToolNames } from "./grantDead.js";
 import { loadGenosynTools } from "./genosyn.js";
 import { connectMcpServer, type BridgedServer } from "./mcpBridge.js";
@@ -13,6 +14,7 @@ import {
   type BrowserConfig,
 } from "./mcpSources.js";
 import { config } from "../../../../config.js";
+import type { PrivilegedToolCallAuthorizer } from "../../memberTurnAuthority.js";
 
 /**
  * Assemble the tools an employee's agent can reach this turn, and split them
@@ -89,6 +91,14 @@ export async function gatherEmployeeTools(params: {
    * gate separately rejects enabled host-mode coding tools.
    */
   requireIsolatedBash?: boolean;
+  /** Expose tool sources that do not have a Member-level ACL. */
+  allowPrivilegedToolSources?: boolean;
+  /**
+   * Live Member check for every call into an otherwise ambient-authority tool
+   * source. Employee-owned automation omits this; administrative chat supplies
+   * it so a role change or membership removal takes effect mid-turn.
+   */
+  authorizePrivilegedToolCall?: PrivilegedToolCallAuthorizer;
   /** Called when a Soul, Skill or brief reached for a retired family name. */
   onDeprecatedFamily?: (family: string, target: string) => void;
 }): Promise<{ registry: ToolRegistry; browser: BrowserConfig; close: () => Promise<void> }> {
@@ -105,26 +115,35 @@ export async function gatherEmployeeTools(params: {
   };
 
   // 1 + 2: in-process tools (no teardown needed).
+  const allowPrivileged = params.allowPrivilegedToolSources ?? true;
   const [genosyn, browser, userServers] = await Promise.all([
     loadGenosynTools(params.genosynToken, params.signal, params.onDeprecatedFamily),
-    loadBrowserConfig(params.employeeId, {
-      routineId: params.routineId,
-      conversationId: params.conversationId,
-      runId: params.runId,
-    }),
-    loadUserServerSpecs(params.employeeId),
+    allowPrivileged
+      ? loadBrowserConfig(params.employeeId, {
+          routineId: params.routineId,
+          conversationId: params.conversationId,
+          runId: params.runId,
+        })
+      : Promise.resolve({
+          enabled: false,
+          allowedHosts: "",
+          approvalRequired: false,
+          sessionId: null,
+          sessionToken: null,
+        }),
+    allowPrivileged ? loadUserServerSpecs(params.employeeId) : Promise.resolve([]),
   ]);
 
-  const codingEnabled =
-    config.agent.codingTools.enabled && config.agent.codingTools.executionMode !== "disabled";
+  const codingEnabled = allowPrivileged && codingRuntimeAvailability().available;
   const coding = codingEnabled
     ? filterCodingToolsForCredentialIsolation(
         codingTools(codingCtx),
         Boolean(params.requireIsolatedBash),
       )
     : [];
+  const guardedCoding = guardPrivilegedTools(coding, params.authorizePrivilegedToolCall);
 
-  const tools: AgentTool[] = [...(params.localTools ?? []), ...coding, ...genosyn.tools];
+  const tools: AgentTool[] = [...(params.localTools ?? []), ...guardedCoding, ...genosyn.tools];
   const bridged: BridgedServer[] = [];
 
   // 3: browser server (bridged stdio child) when enabled.
@@ -137,8 +156,9 @@ export async function gatherEmployeeTools(params: {
       params.signal,
     );
     bridged.push(b);
-    for (const t of b.tools) browserNames.add(t.name);
-    tools.push(...b.tools);
+    const guardedBrowserTools = guardPrivilegedTools(b.tools, params.authorizePrivilegedToolCall);
+    for (const t of guardedBrowserTools) browserNames.add(t.name);
+    tools.push(...guardedBrowserTools);
   }
 
   // 4: company-configured MCP servers, each namespaced by server name.
@@ -150,7 +170,7 @@ export async function gatherEmployeeTools(params: {
   );
   for (const c of connections) {
     bridged.push(c);
-    tools.push(...c.tools);
+    tools.push(...guardPrivilegedTools(c.tools, params.authorizePrivilegedToolCall));
   }
 
   // Provider APIs reject duplicate or over-length tool names with a 400 that
@@ -208,7 +228,7 @@ export async function gatherEmployeeTools(params: {
     // `write_file.content` and `edit_file.old_string` are large free-form
     // strings, and re-escaping a 20k-char file body inside `call_tool`'s
     // `args_json` is where models drop escapes.
-    ...coding.map((t) => t.name),
+    ...guardedCoding.map((t) => t.name),
     // Delegation is the parent's only way to fan work out, and a worker that
     // never got delegated is indistinguishable from one that failed.
     ...(params.localTools ?? []).map((t) => t.name),
@@ -248,6 +268,55 @@ export async function gatherEmployeeTools(params: {
     browser,
     close,
   };
+}
+
+/**
+ * Put a live Member authorization check immediately in front of each tool
+ * closure that otherwise retains ambient employee authority for the whole
+ * model turn. The wrapper returns a normal tool error so the model can continue
+ * with its still-governed Genosyn tools after an admin is demoted or removed.
+ * Authorization lookup failures also fail closed without exposing database
+ * details to the model.
+ */
+export function guardPrivilegedTools(
+  tools: AgentTool[],
+  authorize?: PrivilegedToolCallAuthorizer,
+): AgentTool[] {
+  if (!authorize) return tools;
+  return tools.map((tool) => ({
+    ...tool,
+    run: async (input) => {
+      let denial: string | null;
+      try {
+        denial = await authorize();
+      } catch {
+        denial =
+          "This privileged tool is temporarily unavailable because Member authority could not be verified. No action was taken.";
+      }
+      if (denial) return { content: denial, isError: true };
+      return tool.run(input);
+    },
+  }));
+}
+
+/**
+ * Classify surface-local tools explicitly. Read-only, Member-safe controls
+ * (currently the Help source readers) remain available to ordinary Members.
+ * Every unclassified local tool defaults to privileged: it is omitted when the
+ * turn lacks privileged sources and receives the same live revocation wrapper
+ * as coding/browser/configured-MCP tools otherwise.
+ */
+export function selectSurfaceTools(
+  tools: AgentTool[],
+  options: {
+    authority?: "member" | "privileged";
+    allowPrivileged: boolean;
+    authorizePrivilegedToolCall?: PrivilegedToolCallAuthorizer;
+  },
+): AgentTool[] {
+  if (options.authority === "member") return tools;
+  if (!options.allowPrivileged) return [];
+  return guardPrivilegedTools(tools, options.authorizePrivilegedToolCall);
 }
 
 export function filterCodingToolsForCredentialIsolation(

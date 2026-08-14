@@ -5,6 +5,8 @@ import { finishSsoLogin, startSsoLogin, SsoLoginError } from "../services/ssoLog
 import { requireTwoFactorAfterPrimaryAuth } from "./twoFactor.js";
 import { establishUserSession } from "../middleware/auth.js";
 import { capturePublicUrlFromMasterAdminRequest } from "../services/publicUrl.js";
+import { claimBootstrapMasterAdminIfEligible } from "../services/emailVerification.js";
+import { config } from "../../config.js";
 
 /**
  * Public SSO sign-in surface, mounted at `/api/auth/sso` (before the main
@@ -39,9 +41,10 @@ function ssoErrorMessage(err: unknown): string {
   return "SSO sign-in failed — check the server logs for details.";
 }
 
-ssoRouter.get("/start", async (_req, res) => {
+ssoRouter.get("/start", async (req, res) => {
   try {
-    const { authorizeUrl } = await startSsoLogin();
+    const { authorizeUrl, browserBinding } = await startSsoLogin();
+    req.session = { ...(req.session ?? {}), ssoBrowserBinding: browserBinding };
     res.redirect(authorizeUrl);
   } catch (err) {
     loginErrorRedirect(res, ssoErrorMessage(err));
@@ -73,13 +76,18 @@ ssoRouter.get("/callback", async (req, res) => {
     return loginErrorRedirect(res, "SSO callback was missing its code or state — try again.");
   }
   try {
-    const user = await finishSsoLogin({ code, state });
-    if (user.isMasterAdmin) await capturePublicUrlFromMasterAdminRequest(req);
+    const browserBinding = req.session?.ssoBrowserBinding ?? "";
+    const user = await finishSsoLogin({ code, state, browserBinding });
+    if (req.session) delete req.session.ssoBrowserBinding;
+    await claimBootstrapMasterAdminIfEligible(user);
     const methods = await requireTwoFactorAfterPrimaryAuth(req, user);
     if (methods.enabled) {
       return res.redirect("/login?twoFactor=1");
     }
     establishUserSession(req, user);
+    if (user.isMasterAdmin && !config.security.multiTenant) {
+      await capturePublicUrlFromMasterAdminRequest(req);
+    }
     res.redirect("/");
   } catch (err) {
     loginErrorRedirect(res, ssoErrorMessage(err));

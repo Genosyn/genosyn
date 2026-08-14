@@ -84,7 +84,7 @@ beforeEach(async () => {
     employeeId: employee.id,
     accessLevel: "write",
   });
-  token = issueMcpToken(employee.id, company.id);
+  token = issueMcpToken(employee.id, company.id, { authority: "employee" });
 });
 
 after(async () => {

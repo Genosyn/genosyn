@@ -7,6 +7,7 @@ import { Company } from "../db/entities/Company.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import {
   requireAuth,
+  requireBrowserSession,
   requireCompanyMember,
   requireCompanyRole,
   requireCompanyRoleForMutations,
@@ -44,6 +45,7 @@ import {
 export const modelsRouter = Router({ mergeParams: true });
 modelsRouter.use(requireAuth);
 modelsRouter.use(requireCompanyMember);
+modelsRouter.use(requireBrowserSession);
 modelsRouter.use(requireCompanyRoleForMutations("admin"));
 
 const providerSchema = z.enum(["anthropic", "openai", "custom"]);

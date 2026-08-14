@@ -89,7 +89,12 @@ COPY --chown=node:node App ./.genosyn-source/App
 COPY --chown=node:node Home ./.genosyn-source/Home
 COPY --chown=node:node CLI ./.genosyn-source/CLI
 COPY --chown=node:node .github ./.genosyn-source/.github
-RUN mv .genosyn-source genosyn-source && chmod -R a-w genosyn-source
+# `App/config.ts` may contain deployment secrets in source-built images. Help
+# has its own fail-closed path denylist as defense in depth, and the snapshot
+# does not carry the file at all.
+RUN rm .genosyn-source/App/config.ts \
+    && mv .genosyn-source genosyn-source \
+    && chmod -R a-w genosyn-source
 
 # Runtime data lives here — mount a volume in production
 RUN mkdir -p /app/data && chown node:node /app/data

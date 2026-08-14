@@ -2,6 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { config } from "../../config.js";
 import { buildBubblewrapCommandArgs } from "./agent/bubblewrap.js";
+import { requireCodingRuntime, type CodingExecutionMode } from "./agent/codingAvailability.js";
 
 const exec = promisify(execFile);
 const GIT_TIMEOUT_MS = 5 * 60 * 1_000;
@@ -34,12 +35,15 @@ export type GitInvocation = {
  */
 export function buildWorkspaceGitInvocation(
   options: WorkspaceGitOptions,
-  executionMode = config.agent.codingTools.executionMode,
-  bubblewrapPath = config.agent.codingTools.bubblewrapPath,
+  executionMode: CodingExecutionMode = config.agent.codingTools.executionMode,
+  bubblewrapPath: string = config.agent.codingTools.bubblewrapPath,
+  allowUnsafeHostExecution: boolean = config.agent.codingTools.allowUnsafeHostExecution,
 ): GitInvocation {
-  if (executionMode === "disabled") {
-    throw new Error("Repository synchronization is disabled with coding tools.");
-  }
+  requireCodingRuntime({
+    enabled: config.agent.codingTools.enabled,
+    executionMode,
+    allowUnsafeHostExecution,
+  });
 
   const extraEnv = validateExtraEnv(options.extraEnv ?? {});
   const gitConfig: Array<[string, string]> = [

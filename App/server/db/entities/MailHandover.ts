@@ -70,6 +70,14 @@ export class MailHandover {
   @Column({ type: "varchar", nullable: true })
   createdByUserId!: string | null;
 
+  /** Member whose browser session authorized this execution attempt. */
+  @Column({ type: "varchar", nullable: true })
+  requesterUserId!: string | null;
+
+  /** Auth epoch captured with requesterUserId; both are null for rule automation. */
+  @Column({ type: "integer", nullable: true })
+  requesterSessionVersion!: number | null;
+
   @Column({ type: dateTimeColumnType, nullable: true })
   startedAt!: Date | null;
 

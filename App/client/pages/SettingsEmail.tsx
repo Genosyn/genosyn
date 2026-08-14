@@ -64,13 +64,14 @@ const SUB_NAV: Array<{ to: string; label: string; icon: LucideIcon }> = [
 
 export function SettingsEmail() {
   const ctx = useCtx();
+  const canReadLogs = ctx.company.role === "owner" || ctx.company.role === "admin";
   return (
     <>
       <TopBar title="Email" />
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <nav className="lg:w-48 lg:shrink-0">
           <ul className="flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900 lg:flex-col lg:gap-0.5 lg:p-2">
-            {SUB_NAV.map((item) => {
+            {SUB_NAV.filter((item) => item.to !== "logs" || canReadLogs).map((item) => {
               const Icon = item.icon;
               return (
                 <li key={item.to}>
@@ -103,13 +104,9 @@ export function SettingsEmailProviders() {
   const { toast } = useToast();
   const dialog = useDialog();
 
-  const [catalog, setCatalog] = React.useState<EmailProviderCatalogEntry[] | null>(
-    null,
-  );
+  const [catalog, setCatalog] = React.useState<EmailProviderCatalogEntry[] | null>(null);
   const [providers, setProviders] = React.useState<EmailProvider[] | null>(null);
-  const [adding, setAdding] = React.useState<EmailProviderCatalogEntry | null>(
-    null,
-  );
+  const [adding, setAdding] = React.useState<EmailProviderCatalogEntry | null>(null);
   const [editing, setEditing] = React.useState<EmailProvider | null>(null);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [testTarget, setTestTarget] = React.useState<EmailProvider | null>(null);
@@ -120,9 +117,7 @@ export function SettingsEmailProviders() {
         api.get<EmailProviderCatalogEntry[]>(
           `/api/companies/${company.id}/email/providers/catalog`,
         ),
-        api.get<EmailProvider[]>(
-          `/api/companies/${company.id}/email/providers`,
-        ),
+        api.get<EmailProvider[]>(`/api/companies/${company.id}/email/providers`),
       ]);
       setCatalog(cat);
       setProviders(list);
@@ -142,9 +137,7 @@ export function SettingsEmailProviders() {
   async function makeDefault(p: EmailProvider) {
     setBusyId(p.id);
     try {
-      await api.post(
-        `/api/companies/${company.id}/email/providers/${p.id}/default`,
-      );
+      await api.post(`/api/companies/${company.id}/email/providers/${p.id}/default`);
       toast(`${p.name} is now the default sender`, "success");
       await reload();
     } catch (err) {
@@ -182,8 +175,8 @@ export function SettingsEmailProviders() {
           <CardHeader>
             <h2 className="text-sm font-semibold">Configured providers</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Outgoing notification emails (invitations, alerts) use the
-              default provider. Credentials are encrypted at rest.
+              Outgoing notification emails (invitations, alerts) use the default provider.
+              Credentials are encrypted at rest.
             </p>
           </CardHeader>
           <CardBody>
@@ -198,8 +191,7 @@ export function SettingsEmailProviders() {
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {providers.map((p) => {
                   const Icon =
-                    ICONS[catalog?.find((c) => c.kind === p.kind)?.icon ?? "Plug"] ??
-                    Plug;
+                    ICONS[catalog?.find((c) => c.kind === p.kind)?.icon ?? "Plug"] ?? Plug;
                   return (
                     <li key={p.id} className="flex items-center gap-3 py-3">
                       <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -219,10 +211,7 @@ export function SettingsEmailProviders() {
                               Disabled
                             </span>
                           )}
-                          <TestBadge
-                            status={p.lastTestStatus}
-                            message={p.lastTestMessage}
-                          />
+                          <TestBadge status={p.lastTestStatus} message={p.lastTestMessage} />
                         </div>
                         <div className="truncate text-xs text-slate-500 dark:text-slate-400">
                           {p.fromAddress} · {summarizeConfig(p)}
@@ -425,16 +414,12 @@ function ProviderModal({
 }) {
   const isEdit = !!existing;
   const { toast } = useToast();
-  const [state, setState] = React.useState<ProviderFormState>(() =>
-    initialState(entry, existing),
-  );
+  const [state, setState] = React.useState<ProviderFormState>(() => initialState(entry, existing));
   const [busy, setBusy] = React.useState(false);
   const [testBusy, setTestBusy] = React.useState(false);
   const [testTo, setTestTo] = React.useState(defaultTo);
   const [testResult, setTestResult] = React.useState<
-    | { ok: true; messageId: string }
-    | { ok: false; error: string }
-    | null
+    { ok: true; messageId: string } | { ok: false; error: string } | null
   >(null);
 
   React.useEffect(() => {
@@ -475,17 +460,14 @@ function ProviderModal({
         );
         toast("Provider updated", "success");
       } else {
-        await api.post<EmailProvider>(
-          `/api/companies/${companyId}/email/providers`,
-          {
-            name: state.name.trim(),
-            kind: entry.kind,
-            fromAddress: state.fromAddress.trim(),
-            replyTo: state.replyTo.trim(),
-            rawConfig,
-            isDefault: state.isDefault,
-          },
-        );
+        await api.post<EmailProvider>(`/api/companies/${companyId}/email/providers`, {
+          name: state.name.trim(),
+          kind: entry.kind,
+          fromAddress: state.fromAddress.trim(),
+          replyTo: state.replyTo.trim(),
+          rawConfig,
+          isDefault: state.isDefault,
+        });
         toast(`${entry.name} added`, "success");
       }
       onSaved();
@@ -502,21 +484,18 @@ function ProviderModal({
     setTestResult(null);
     try {
       const rawConfig = serializeFields(entry.fields, state.fields);
-      const resp = await fetch(
-        `/api/companies/${companyId}/email/providers/test`,
-        {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            kind: entry.kind,
-            fromAddress: state.fromAddress.trim(),
-            replyTo: state.replyTo.trim() || undefined,
-            rawConfig,
-            to: testTo.trim(),
-          }),
-        },
-      );
+      const resp = await fetch(`/api/companies/${companyId}/email/providers/test`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          kind: entry.kind,
+          fromAddress: state.fromAddress.trim(),
+          replyTo: state.replyTo.trim() || undefined,
+          rawConfig,
+          to: testTo.trim(),
+        }),
+      });
       const text = await resp.text();
       const data = text ? JSON.parse(text) : null;
       if (resp.ok && data?.ok) {
@@ -524,8 +503,7 @@ function ProviderModal({
       } else {
         setTestResult({
           ok: false,
-          error:
-            data?.error ?? data?.message ?? `Test failed (${resp.status})`,
+          error: data?.error ?? data?.message ?? `Test failed (${resp.status})`,
         });
       }
     } catch (err) {
@@ -560,10 +538,8 @@ function ProviderModal({
           <Input
             label="From address"
             value={state.fromAddress}
-            onChange={(e) =>
-              setState({ ...state, fromAddress: e.target.value })
-            }
-            placeholder='Acme <no-reply@acme.com>'
+            onChange={(e) => setState({ ...state, fromAddress: e.target.value })}
+            placeholder="Acme <no-reply@acme.com>"
             required
           />
           <Input
@@ -594,9 +570,7 @@ function ProviderModal({
             type="checkbox"
             className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600"
             checked={state.isDefault}
-            onChange={(e) =>
-              setState({ ...state, isDefault: e.target.checked })
-            }
+            onChange={(e) => setState({ ...state, isDefault: e.target.checked })}
           />
           <span>
             Use this provider for all outgoing notification emails
@@ -613,8 +587,7 @@ function ProviderModal({
             Send a test email
           </div>
           <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-            Tests the credentials above without saving. The result is recorded
-            in Email Logs.
+            Tests the credentials above without saving. The result is recorded in Email Logs.
           </p>
           <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
             <div className="flex-1">
@@ -652,9 +625,7 @@ function ProviderModal({
               {testResult.ok ? (
                 <span className="inline-flex items-center gap-1">
                   <Check size={12} /> Sent
-                  {testResult.messageId
-                    ? ` · message id ${testResult.messageId}`
-                    : ""}
+                  {testResult.messageId ? ` · message id ${testResult.messageId}` : ""}
                 </span>
               ) : (
                 <span className="inline-flex items-start gap-1">
@@ -696,8 +667,7 @@ function initialState(
   const fields: Record<string, string | boolean> = {};
   for (const f of entry.fields) {
     if (f.type === "checkbox") fields[f.key] = Boolean(f.defaultValue);
-    else if (typeof f.defaultValue !== "undefined")
-      fields[f.key] = String(f.defaultValue);
+    else if (typeof f.defaultValue !== "undefined") fields[f.key] = String(f.defaultValue);
     else fields[f.key] = "";
   }
   if (existing) {
@@ -785,9 +755,7 @@ function FieldInput({
         />
         <span>{field.label}</span>
         {field.hint && (
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            — {field.hint}
-          </span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">— {field.hint}</span>
         )}
       </label>
     );
@@ -812,16 +780,12 @@ function FieldInput({
           ))}
         </Select>
         {field.hint && (
-          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-            {field.hint}
-          </p>
+          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{field.hint}</p>
         )}
       </div>
     );
   }
-  const placeholder = isEdit && maskedHint
-    ? `current: ${maskedHint}`
-    : field.placeholder;
+  const placeholder = isEdit && maskedHint ? `current: ${maskedHint}` : field.placeholder;
   const inputType =
     field.type === "password" ? "password" : field.type === "number" ? "number" : "text";
   return (
@@ -839,9 +803,7 @@ function FieldInput({
         className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
       />
       {field.hint && (
-        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-          {field.hint}
-        </p>
+        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{field.hint}</p>
       )}
       {isEdit && field.type === "password" && (
         <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
@@ -884,15 +846,12 @@ function TestModal({
     if (!provider) return;
     setBusy(true);
     try {
-      const resp = await fetch(
-        `/api/companies/${companyId}/email/providers/${provider.id}/test`,
-        {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ to: to.trim() }),
-        },
-      );
+      const resp = await fetch(`/api/companies/${companyId}/email/providers/${provider.id}/test`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to: to.trim() }),
+      });
       const text = await resp.text();
       const data = text ? JSON.parse(text) : null;
       if (resp.ok && data?.ok) {
@@ -910,16 +869,11 @@ function TestModal({
   }
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={`Send test via ${provider.name}`}
-      size="md"
-    >
+    <Modal open={open} onClose={onClose} title={`Send test via ${provider.name}`} size="md">
       <form className="flex flex-col gap-3" onSubmit={submit}>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Sends a one-line test email using the saved credentials. The result
-          is recorded in Email Logs.
+          Sends a one-line test email using the saved credentials. The result is recorded in Email
+          Logs.
         </p>
         <Input
           label="Send to"

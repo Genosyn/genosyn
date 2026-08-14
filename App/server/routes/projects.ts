@@ -1,4 +1,4 @@
-import { Request, Router } from "express";
+import { Request, Response, Router } from "express";
 import { z } from "zod";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
@@ -16,9 +16,9 @@ import { TodoComment } from "../db/entities/TodoComment.js";
 import { User } from "../db/entities/User.js";
 import { Role } from "../db/entities/Membership.js";
 import { validateBody } from "../middleware/validate.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
-import { ChatTurn, chatWithEmployee } from "../services/chat.js";
+import { chatWithEmployee } from "../services/chat.js";
 import { createNotification } from "../services/notifications.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { kickoffAssignedTodo } from "../services/todoKickoff.js";
@@ -34,19 +34,13 @@ import {
   upsertProjectMember,
 } from "../services/projects.js";
 import { deleteTagAssignments } from "../services/tags.js";
+import { buildTodoMentionTurn } from "../services/todoMentionTurn.js";
 
 export const projectsRouter = Router({ mergeParams: true });
 projectsRouter.use(requireAuth);
 projectsRouter.use(requireCompanyMember);
 
-const STATUSES: TodoStatus[] = [
-  "backlog",
-  "todo",
-  "in_progress",
-  "in_review",
-  "done",
-  "cancelled",
-];
+const STATUSES: TodoStatus[] = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled"];
 const PRIORITIES: TodoPriority[] = ["none", "low", "medium", "high", "urgent"];
 const RECURRENCES: TodoRecurrence[] = [
   "none",
@@ -276,44 +270,38 @@ const patchProjectSchema = z.object({
   accessMode: z.enum(["open", "restricted"]).optional(),
 });
 
-projectsRouter.patch(
-  "/projects/:pSlug",
-  validateBody(patchProjectSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const p = await loadProjectBySlug(cid, req.params.pSlug);
-    if (!p) return res.status(404).json({ error: "Project not found" });
-    if (!(await hasProjectAccess(p, actorOf(req), "write"))) {
-      return res.status(403).json({ error: "No access to that project" });
+projectsRouter.patch("/projects/:pSlug", validateBody(patchProjectSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const p = await loadProjectBySlug(cid, req.params.pSlug);
+  if (!p) return res.status(404).json({ error: "Project not found" });
+  if (!(await hasProjectAccess(p, actorOf(req), "write"))) {
+    return res.status(403).json({ error: "No access to that project" });
+  }
+  const body = req.body as z.infer<typeof patchProjectSchema>;
+  // Validate everything before writing anything: a request carrying both a
+  // duplicate name and an accessMode flip must not restrict the project on
+  // its way to a 409.
+  if (body.name !== undefined && (await findProjectByName(cid, body.name, p.id))) {
+    return res.status(409).json({ error: "A project with that name already exists" });
+  }
+  if (body.name !== undefined) p.name = body.name;
+  if (body.description !== undefined) p.description = body.description;
+  if (body.key !== undefined) p.key = body.key.toUpperCase();
+  await AppDataSource.getRepository(Project).save(p);
+  // Restricting goes through the service so the actor is seeded with `write`
+  // in the same transaction — otherwise the flip locks everyone out,
+  // including whoever just clicked the button. It saves the project itself,
+  // so it runs after the plain-field save rather than before.
+  if (body.accessMode !== undefined && body.accessMode !== p.accessMode) {
+    if (body.accessMode === "restricted") {
+      await restrictProject(p, actorOf(req));
+    } else {
+      p.accessMode = "open";
+      await AppDataSource.getRepository(Project).save(p);
     }
-    const body = req.body as z.infer<typeof patchProjectSchema>;
-    // Validate everything before writing anything: a request carrying both a
-    // duplicate name and an accessMode flip must not restrict the project on
-    // its way to a 409.
-    if (body.name !== undefined && (await findProjectByName(cid, body.name, p.id))) {
-      return res
-        .status(409)
-        .json({ error: "A project with that name already exists" });
-    }
-    if (body.name !== undefined) p.name = body.name;
-    if (body.description !== undefined) p.description = body.description;
-    if (body.key !== undefined) p.key = body.key.toUpperCase();
-    await AppDataSource.getRepository(Project).save(p);
-    // Restricting goes through the service so the actor is seeded with `write`
-    // in the same transaction — otherwise the flip locks everyone out,
-    // including whoever just clicked the button. It saves the project itself,
-    // so it runs after the plain-field save rather than before.
-    if (body.accessMode !== undefined && body.accessMode !== p.accessMode) {
-      if (body.accessMode === "restricted") {
-        await restrictProject(p, actorOf(req));
-      } else {
-        p.accessMode = "open";
-        await AppDataSource.getRepository(Project).save(p);
-      }
-    }
-    res.json(p);
-  },
-);
+  }
+  res.json(p);
+});
 
 projectsRouter.delete("/projects/:pSlug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -381,44 +369,42 @@ projectsRouter.get("/projects/:pSlug/access", async (req, res) => {
 const addAccessSchema = z.object({
   memberKind: z.enum(["user", "ai"]),
   memberId: z.string().uuid(),
-  accessLevel: z.enum(PROJECT_ACCESS_LEVELS as [ProjectAccessLevel, ...ProjectAccessLevel[]]).optional(),
+  accessLevel: z
+    .enum(PROJECT_ACCESS_LEVELS as [ProjectAccessLevel, ...ProjectAccessLevel[]])
+    .optional(),
 });
 
-projectsRouter.post(
-  "/projects/:pSlug/access",
-  validateBody(addAccessSchema),
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const p = await loadProjectBySlug(cid, req.params.pSlug);
-    if (!p) return res.status(404).json({ error: "Project not found" });
-    if (!(await hasProjectAccess(p, actorOf(req), "write"))) {
-      return res.status(403).json({ error: "No access to that project" });
-    }
-    const body = req.body as z.infer<typeof addAccessSchema>;
-    // The id must name someone in *this* company, or a caller could hand out
-    // access to a stranger by pasting a uuid.
-    if (body.memberKind === "user") {
-      const m = await AppDataSource.getRepository(Membership).findOneBy({
-        companyId: cid,
-        userId: body.memberId,
-      });
-      if (!m) return res.status(400).json({ error: "Unknown member" });
-    } else {
-      const e = await AppDataSource.getRepository(AIEmployee).findOneBy({
-        id: body.memberId,
-        companyId: cid,
-      });
-      if (!e) return res.status(400).json({ error: "Unknown member" });
-    }
-    const row = await upsertProjectMember(
-      p.id,
-      { kind: body.memberKind, id: body.memberId },
-      body.accessLevel ?? "read",
-    );
-    const [hydrated] = await hydrateProjectMembers(cid, [row]);
-    res.json(hydrated);
-  },
-);
+projectsRouter.post("/projects/:pSlug/access", validateBody(addAccessSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const p = await loadProjectBySlug(cid, req.params.pSlug);
+  if (!p) return res.status(404).json({ error: "Project not found" });
+  if (!(await hasProjectAccess(p, actorOf(req), "write"))) {
+    return res.status(403).json({ error: "No access to that project" });
+  }
+  const body = req.body as z.infer<typeof addAccessSchema>;
+  // The id must name someone in *this* company, or a caller could hand out
+  // access to a stranger by pasting a uuid.
+  if (body.memberKind === "user") {
+    const m = await AppDataSource.getRepository(Membership).findOneBy({
+      companyId: cid,
+      userId: body.memberId,
+    });
+    if (!m) return res.status(400).json({ error: "Unknown member" });
+  } else {
+    const e = await AppDataSource.getRepository(AIEmployee).findOneBy({
+      id: body.memberId,
+      companyId: cid,
+    });
+    if (!e) return res.status(400).json({ error: "Unknown member" });
+  }
+  const row = await upsertProjectMember(
+    p.id,
+    { kind: body.memberKind, id: body.memberId },
+    body.accessLevel ?? "read",
+  );
+  const [hydrated] = await hydrateProjectMembers(cid, [row]);
+  res.json(hydrated);
+});
 
 const patchAccessSchema = z.object({
   accessLevel: z.enum(PROJECT_ACCESS_LEVELS as [ProjectAccessLevel, ...ProjectAccessLevel[]]),
@@ -455,9 +441,7 @@ projectsRouter.patch(
     if (!row) return res.status(404).json({ error: "Not found" });
     const body = req.body as z.infer<typeof patchAccessSchema>;
     if (await wouldStrandProject(p, row, body.accessLevel)) {
-      return res
-        .status(400)
-        .json({ error: "A project needs at least one person who can edit it" });
+      return res.status(400).json({ error: "A project needs at least one person who can edit it" });
     }
     row.accessLevel = body.accessLevel;
     await repo.save(row);
@@ -477,9 +461,7 @@ projectsRouter.delete("/projects/:pSlug/access/:memberRowId", async (req, res) =
   const row = await repo.findOneBy({ id: req.params.memberRowId, projectId: p.id });
   if (!row) return res.status(404).json({ error: "Not found" });
   if (await wouldStrandProject(p, row, null)) {
-    return res
-      .status(400)
-      .json({ error: "A project needs at least one person who can edit it" });
+    return res.status(400).json({ error: "A project needs at least one person who can edit it" });
   }
   await repo.delete({ id: row.id });
   res.json({ ok: true });
@@ -506,9 +488,7 @@ async function hydrateTodos(cid: string, todos: Todo[]) {
   ];
   const userIds = [
     ...new Set(
-      todos
-        .flatMap((t) => [t.assigneeUserId, t.reviewerUserId])
-        .filter((x): x is string => !!x),
+      todos.flatMap((t) => [t.assigneeUserId, t.reviewerUserId]).filter((x): x is string => !!x),
     ),
   ];
   const [emps, users] = await Promise.all([
@@ -524,10 +504,7 @@ async function hydrateTodos(cid: string, todos: Todo[]) {
   const empById = new Map(emps.map((e) => [e.id, e]));
   const userById = new Map(users.map((u) => [u.id, u]));
 
-  function refFor(
-    employeeId: string | null,
-    userId: string | null,
-  ): PersonRef | null {
+  function refFor(employeeId: string | null, userId: string | null): PersonRef | null {
     if (employeeId) {
       const e = empById.get(employeeId);
       if (e) return { kind: "ai", id: e.id, name: e.name, slug: e.slug, role: e.role };
@@ -658,9 +635,23 @@ const createTodoSchema = z.object({
   parentTodoId: z.string().uuid().nullable().optional(),
 });
 
+function requireBrowserForAiAssignment(
+  req: Request,
+  res: Parameters<typeof requireBrowserSession>[1],
+  next: Parameters<typeof requireBrowserSession>[2],
+): void | Response {
+  const body = req.body as { assigneeEmployeeId?: string | null };
+  if (!body.assigneeEmployeeId) {
+    next();
+    return;
+  }
+  return requireBrowserSession(req, res, next);
+}
+
 projectsRouter.post(
   "/projects/:pSlug/todos",
   validateBody(createTodoSchema),
+  requireBrowserForAiAssignment,
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const p = await loadProjectBySlug(cid, req.params.pSlug);
@@ -675,20 +666,11 @@ projectsRouter.post(
     // still means "leave it unassigned".
     const assigneeEmployeeId = body.assigneeEmployeeId ?? null;
     let assigneeUserId = body.assigneeUserId ?? null;
-    if (
-      body.assigneeEmployeeId === undefined &&
-      body.assigneeUserId === undefined &&
-      req.userId
-    ) {
+    if (body.assigneeEmployeeId === undefined && body.assigneeUserId === undefined && req.userId) {
       assigneeUserId = req.userId;
     }
 
-    const assigneeErr = await validateAssignees(
-      cid,
-      assigneeEmployeeId,
-      assigneeUserId,
-      p,
-    );
+    const assigneeErr = await validateAssignees(cid, assigneeEmployeeId, assigneeUserId, p);
     if (assigneeErr) return res.status(400).json({ error: assigneeErr });
     const reviewerErr = await validateReviewers(
       cid,
@@ -752,6 +734,8 @@ projectsRouter.post(
         companyId: cid,
         todoId: t.id,
         employeeId: t.assigneeEmployeeId,
+        requesterUserId: req.userId!,
+        requesterSessionVersion: req.session!.sessionVersion!,
       }).catch((err) => {
         console.error("[todos] kickoff failed", err);
       });
@@ -788,141 +772,146 @@ const patchTodoSchema = z.object({
   parentTodoId: z.string().uuid().nullable().optional(),
 });
 
-projectsRouter.patch("/todos/:tid", validateBody(patchTodoSchema), async (req, res) => {
-  const cid = (req.params as Record<string, string>).cid;
-  const found = await loadTodo(cid, req.params.tid);
-  if (!found) return res.status(404).json({ error: "Not found" });
-  if (!(await hasProjectAccess(found.project, actorOf(req), "write"))) {
-    return res.status(403).json({ error: "No access to that project" });
-  }
-  const body = req.body as z.infer<typeof patchTodoSchema>;
-  const t = found.todo;
-  const prevAssigneeEmployeeId = t.assigneeEmployeeId;
+projectsRouter.patch(
+  "/todos/:tid",
+  validateBody(patchTodoSchema),
+  requireBrowserForAiAssignment,
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const found = await loadTodo(cid, req.params.tid);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    if (!(await hasProjectAccess(found.project, actorOf(req), "write"))) {
+      return res.status(403).json({ error: "No access to that project" });
+    }
+    const body = req.body as z.infer<typeof patchTodoSchema>;
+    const t = found.todo;
+    const prevAssigneeEmployeeId = t.assigneeEmployeeId;
 
-  // Apply assignee + reviewer changes together so we can validate "only one
-  // kind at a time" against the resulting state, and clear the other side
-  // when one is set to a non-null value.
-  const nextAssigneeEmp =
-    body.assigneeEmployeeId !== undefined ? body.assigneeEmployeeId : t.assigneeEmployeeId;
-  const nextAssigneeUser =
-    body.assigneeUserId !== undefined ? body.assigneeUserId : t.assigneeUserId;
-  const effectiveAssigneeEmp = body.assigneeUserId ? null : nextAssigneeEmp;
-  const effectiveAssigneeUser = body.assigneeEmployeeId ? null : nextAssigneeUser;
-  const assigneeErr = await validateAssignees(
-    cid,
-    effectiveAssigneeEmp,
-    effectiveAssigneeUser,
-    found.project,
-  );
-  if (assigneeErr) return res.status(400).json({ error: assigneeErr });
+    // Apply assignee + reviewer changes together so we can validate "only one
+    // kind at a time" against the resulting state, and clear the other side
+    // when one is set to a non-null value.
+    const nextAssigneeEmp =
+      body.assigneeEmployeeId !== undefined ? body.assigneeEmployeeId : t.assigneeEmployeeId;
+    const nextAssigneeUser =
+      body.assigneeUserId !== undefined ? body.assigneeUserId : t.assigneeUserId;
+    const effectiveAssigneeEmp = body.assigneeUserId ? null : nextAssigneeEmp;
+    const effectiveAssigneeUser = body.assigneeEmployeeId ? null : nextAssigneeUser;
+    const assigneeErr = await validateAssignees(
+      cid,
+      effectiveAssigneeEmp,
+      effectiveAssigneeUser,
+      found.project,
+    );
+    if (assigneeErr) return res.status(400).json({ error: assigneeErr });
 
-  const nextReviewerEmp =
-    body.reviewerEmployeeId !== undefined ? body.reviewerEmployeeId : t.reviewerEmployeeId;
-  const nextReviewerUser =
-    body.reviewerUserId !== undefined ? body.reviewerUserId : t.reviewerUserId;
-  const effectiveReviewerEmp = body.reviewerUserId ? null : nextReviewerEmp;
-  const effectiveReviewerUser = body.reviewerEmployeeId ? null : nextReviewerUser;
-  const reviewerErr = await validateReviewers(
-    cid,
-    effectiveReviewerEmp,
-    effectiveReviewerUser,
-    found.project,
-  );
-  if (reviewerErr) return res.status(400).json({ error: reviewerErr });
+    const nextReviewerEmp =
+      body.reviewerEmployeeId !== undefined ? body.reviewerEmployeeId : t.reviewerEmployeeId;
+    const nextReviewerUser =
+      body.reviewerUserId !== undefined ? body.reviewerUserId : t.reviewerUserId;
+    const effectiveReviewerEmp = body.reviewerUserId ? null : nextReviewerEmp;
+    const effectiveReviewerUser = body.reviewerEmployeeId ? null : nextReviewerUser;
+    const reviewerErr = await validateReviewers(
+      cid,
+      effectiveReviewerEmp,
+      effectiveReviewerUser,
+      found.project,
+    );
+    if (reviewerErr) return res.status(400).json({ error: reviewerErr });
 
-  if (body.title !== undefined) t.title = body.title;
-  if (body.description !== undefined) t.description = body.description;
-  if (body.priority !== undefined) t.priority = body.priority;
-  if (body.assigneeEmployeeId !== undefined) {
-    t.assigneeEmployeeId = body.assigneeEmployeeId;
-    if (body.assigneeEmployeeId) t.assigneeUserId = null;
-  }
-  if (body.assigneeUserId !== undefined) {
-    t.assigneeUserId = body.assigneeUserId;
-    if (body.assigneeUserId) t.assigneeEmployeeId = null;
-  }
-  if (body.reviewerEmployeeId !== undefined) {
-    t.reviewerEmployeeId = body.reviewerEmployeeId;
-    if (body.reviewerEmployeeId) t.reviewerUserId = null;
-  }
-  if (body.reviewerUserId !== undefined) {
-    t.reviewerUserId = body.reviewerUserId;
-    if (body.reviewerUserId) t.reviewerEmployeeId = null;
-  }
-  if (body.dueAt !== undefined) t.dueAt = body.dueAt ? new Date(body.dueAt) : null;
-  if (body.sortOrder !== undefined) t.sortOrder = body.sortOrder;
-  if (body.recurrence !== undefined) t.recurrence = body.recurrence;
-  if (body.parentTodoId !== undefined) {
-    if (body.parentTodoId) {
-      const parentErr = await validateParentTodo(t.projectId, body.parentTodoId, t.id);
-      if (parentErr) return res.status(400).json({ error: parentErr });
-      const childCount = await AppDataSource.getRepository(Todo).countBy({
-        parentTodoId: t.id,
-      });
-      if (childCount > 0) {
-        return res
-          .status(400)
-          .json({ error: "A todo with subtasks cannot become a subtask" });
+    if (body.title !== undefined) t.title = body.title;
+    if (body.description !== undefined) t.description = body.description;
+    if (body.priority !== undefined) t.priority = body.priority;
+    if (body.assigneeEmployeeId !== undefined) {
+      t.assigneeEmployeeId = body.assigneeEmployeeId;
+      if (body.assigneeEmployeeId) t.assigneeUserId = null;
+    }
+    if (body.assigneeUserId !== undefined) {
+      t.assigneeUserId = body.assigneeUserId;
+      if (body.assigneeUserId) t.assigneeEmployeeId = null;
+    }
+    if (body.reviewerEmployeeId !== undefined) {
+      t.reviewerEmployeeId = body.reviewerEmployeeId;
+      if (body.reviewerEmployeeId) t.reviewerUserId = null;
+    }
+    if (body.reviewerUserId !== undefined) {
+      t.reviewerUserId = body.reviewerUserId;
+      if (body.reviewerUserId) t.reviewerEmployeeId = null;
+    }
+    if (body.dueAt !== undefined) t.dueAt = body.dueAt ? new Date(body.dueAt) : null;
+    if (body.sortOrder !== undefined) t.sortOrder = body.sortOrder;
+    if (body.recurrence !== undefined) t.recurrence = body.recurrence;
+    if (body.parentTodoId !== undefined) {
+      if (body.parentTodoId) {
+        const parentErr = await validateParentTodo(t.projectId, body.parentTodoId, t.id);
+        if (parentErr) return res.status(400).json({ error: parentErr });
+        const childCount = await AppDataSource.getRepository(Todo).countBy({
+          parentTodoId: t.id,
+        });
+        if (childCount > 0) {
+          return res.status(400).json({ error: "A todo with subtasks cannot become a subtask" });
+        }
+      }
+      t.parentTodoId = body.parentTodoId;
+    }
+    let justCompleted = false;
+    let justEnteredReview = false;
+    if (body.status !== undefined) {
+      const prev = t.status;
+      t.status = body.status;
+      if (body.status === "done" && prev !== "done") {
+        t.completedAt = new Date();
+        justCompleted = true;
+      }
+      if (body.status !== "done" && prev === "done") t.completedAt = null;
+      if (body.status === "in_review" && prev !== "in_review") {
+        justEnteredReview = true;
       }
     }
-    t.parentTodoId = body.parentTodoId;
-  }
-  let justCompleted = false;
-  let justEnteredReview = false;
-  if (body.status !== undefined) {
-    const prev = t.status;
-    t.status = body.status;
-    if (body.status === "done" && prev !== "done") {
-      t.completedAt = new Date();
-      justCompleted = true;
+
+    await AppDataSource.getRepository(Todo).save(t);
+
+    // Notify the human reviewer when work first enters their queue. Skip if
+    // the reviewer is themselves the one moving the card (no self-pings) or
+    // if the reviewer is an AI employee — bots don't get a bell.
+    if (justEnteredReview && t.reviewerUserId && t.reviewerUserId !== req.userId) {
+      void notifyTodoReviewRequested({
+        companyId: cid,
+        todo: t,
+        project: found.project,
+        actorUserId: req.userId ?? null,
+      }).catch((e) => {
+        // eslint-disable-next-line no-console
+        console.error("[projects] notify review requested failed:", e);
+      });
     }
-    if (body.status !== "done" && prev === "done") t.completedAt = null;
-    if (body.status === "in_review" && prev !== "in_review") {
-      justEnteredReview = true;
+
+    // If a recurring todo was just completed, spawn the next instance so the
+    // work reappears on the list when it's next due. We anchor the next dueAt
+    // to the completed todo's dueAt (when present) so a weekly report that
+    // was due Monday stays due on Mondays; otherwise anchor to now.
+    if (justCompleted && t.recurrence !== "none") {
+      await spawnNextRecurrence(found.project, t);
     }
-  }
 
-  await AppDataSource.getRepository(Todo).save(t);
+    // Handing the todo to an AI employee (fresh assignment or reassignment) is
+    // the "go" signal — start a work session in the background. Same seam as
+    // todo creation; all eligibility guards live in the service.
+    if (t.assigneeEmployeeId && t.assigneeEmployeeId !== prevAssigneeEmployeeId) {
+      void kickoffAssignedTodo({
+        companyId: cid,
+        todoId: t.id,
+        employeeId: t.assigneeEmployeeId,
+        requesterUserId: req.userId!,
+        requesterSessionVersion: req.session!.sessionVersion!,
+      }).catch((err) => {
+        console.error("[todos] kickoff failed", err);
+      });
+    }
 
-  // Notify the human reviewer when work first enters their queue. Skip if
-  // the reviewer is themselves the one moving the card (no self-pings) or
-  // if the reviewer is an AI employee — bots don't get a bell.
-  if (justEnteredReview && t.reviewerUserId && t.reviewerUserId !== req.userId) {
-    void notifyTodoReviewRequested({
-      companyId: cid,
-      todo: t,
-      project: found.project,
-      actorUserId: req.userId ?? null,
-    }).catch((e) => {
-      // eslint-disable-next-line no-console
-      console.error("[projects] notify review requested failed:", e);
-    });
-  }
-
-  // If a recurring todo was just completed, spawn the next instance so the
-  // work reappears on the list when it's next due. We anchor the next dueAt
-  // to the completed todo's dueAt (when present) so a weekly report that
-  // was due Monday stays due on Mondays; otherwise anchor to now.
-  if (justCompleted && t.recurrence !== "none") {
-    await spawnNextRecurrence(found.project, t);
-  }
-
-  // Handing the todo to an AI employee (fresh assignment or reassignment) is
-  // the "go" signal — start a work session in the background. Same seam as
-  // todo creation; all eligibility guards live in the service.
-  if (t.assigneeEmployeeId && t.assigneeEmployeeId !== prevAssigneeEmployeeId) {
-    void kickoffAssignedTodo({
-      companyId: cid,
-      todoId: t.id,
-      employeeId: t.assigneeEmployeeId,
-    }).catch((err) => {
-      console.error("[todos] kickoff failed", err);
-    });
-  }
-
-  const [hydrated] = await hydrateTodos(cid, [t]);
-  res.json(hydrated);
-});
+    const [hydrated] = await hydrateTodos(cid, [t]);
+    res.json(hydrated);
+  },
+);
 
 async function spawnNextRecurrence(project: Project, completed: Todo): Promise<void> {
   const anchor = completed.dueAt ?? new Date();
@@ -997,17 +986,10 @@ type HydratedComment = TodoComment & {
  * Attach author info (human Member or AI Employee) so the UI can render an
  * avatar + name without extra fetches.
  */
-async function hydrateComments(
-  cid: string,
-  comments: TodoComment[],
-): Promise<HydratedComment[]> {
-  const userIds = [
-    ...new Set(comments.map((c) => c.authorUserId).filter((x): x is string => !!x)),
-  ];
+async function hydrateComments(cid: string, comments: TodoComment[]): Promise<HydratedComment[]> {
+  const userIds = [...new Set(comments.map((c) => c.authorUserId).filter((x): x is string => !!x))];
   const empIds = [
-    ...new Set(
-      comments.map((c) => c.authorEmployeeId).filter((x): x is string => !!x),
-    ),
+    ...new Set(comments.map((c) => c.authorEmployeeId).filter((x): x is string => !!x)),
   ];
   const [users, emps] = await Promise.all([
     userIds.length
@@ -1054,9 +1036,23 @@ const createCommentSchema = z.object({
   mentionEmployeeId: z.string().uuid().nullable().optional(),
 });
 
+function requireBrowserForEmployeeMention(
+  req: Request,
+  res: Parameters<typeof requireBrowserSession>[1],
+  next: Parameters<typeof requireBrowserSession>[2],
+) {
+  const body = req.body as z.infer<typeof createCommentSchema>;
+  if (!body.mentionEmployeeId) {
+    next();
+    return;
+  }
+  requireBrowserSession(req, res, next);
+}
+
 projectsRouter.post(
   "/todos/:tid/comments",
   validateBody(createCommentSchema),
+  requireBrowserForEmployeeMention,
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const found = await loadTodo(cid, req.params.tid);
@@ -1079,13 +1075,7 @@ projectsRouter.post(
       // so it has to clear the same bar as reading the project. Without this,
       // @-mentioning is a side door into a project the employee is denied at
       // every other one.
-      if (
-        !(await hasProjectAccess(
-          found.project,
-          { kind: "ai", id: mentionEmp.id },
-          "read",
-        ))
-      ) {
+      if (!(await hasProjectAccess(found.project, { kind: "ai", id: mentionEmp.id }, "read"))) {
         return res
           .status(400)
           .json({ error: "That AI employee doesn't have access to this project" });
@@ -1120,11 +1110,13 @@ projectsRouter.post(
       );
       // Fire-and-forget. Errors are captured onto the comment so the UI
       // surfaces them instead of silently hanging.
-      void respondAsEmployee(cid, found.todo.id, pending.id, mentionEmp.id).catch(
-        (err) => {
-          console.error("[todo-comments] AI reply failed", err);
-        },
-      );
+      void respondAsEmployee(cid, found.todo.id, pending.id, mentionEmp.id, {
+        commentId: human.id,
+        userId: req.userId!,
+        sessionVersion: req.session!.sessionVersion!,
+      }).catch((err) => {
+        console.error("[todo-comments] AI reply failed", err);
+      });
     }
 
     const toReturn = pending ? [human, pending] : [human];
@@ -1161,6 +1153,7 @@ async function respondAsEmployee(
   todoId: string,
   pendingCommentId: string,
   employeeId: string,
+  requester: { commentId: string; userId: string; sessionVersion: number },
 ): Promise<void> {
   const commentRepo = AppDataSource.getRepository(TodoComment);
   const todoRepo = AppDataSource.getRepository(Todo);
@@ -1176,36 +1169,35 @@ async function respondAsEmployee(
     where: { todoId },
     order: { createdAt: "ASC" },
   });
-  const history: ChatTurn[] = [];
+  const turn = buildTodoMentionTurn({
+    comments: thread,
+    triggerCommentId: requester.commentId,
+    requesterUserId: requester.userId,
+    employeeId,
+  });
+  if (!turn) {
+    const pending = await commentRepo.findOneBy({ id: pendingCommentId });
+    if (pending) {
+      pending.body =
+        "This AI reply was stopped because its requesting Member could not be verified.";
+      pending.pending = false;
+      await commentRepo.save(pending);
+    }
+    return;
+  }
+
   // Opening synthetic turn: frames the todo so the model knows what we're
   // talking about, regardless of whether it has memory of prior threads.
   const header =
     `You are collaborating on **${project.key}-${todo.number}: ${todo.title}** ` +
     `(status: ${todo.status}, priority: ${todo.priority}).` +
     (todo.description ? `\n\nDescription:\n${todo.description}` : "");
-  history.push({ role: "user", content: header });
+  const history = [{ role: "user" as const, content: header }, ...turn.history];
 
-  let latestHumanBody = "";
-  for (const c of thread) {
-    if (c.id === pendingCommentId) continue;
-    if (c.pending) continue;
-    if (c.authorEmployeeId === employeeId) {
-      history.push({ role: "assistant", content: c.body });
-    } else {
-      history.push({ role: "user", content: c.body });
-      if (c.authorUserId) latestHumanBody = c.body;
-    }
-  }
-  // Last human message becomes the "new message" passed to chatWithEmployee;
-  // pop it off history so it isn't duplicated.
-  let message = latestHumanBody;
-  if (message && history[history.length - 1]?.content === message) {
-    history.pop();
-  } else if (!message) {
-    message = "Please weigh in on this todo.";
-  }
-
-  const result = await chatWithEmployee(companyId, employeeId, message, history);
+  const result = await chatWithEmployee(companyId, employeeId, turn.message, history, {
+    requesterUserId: requester.userId,
+    requesterSessionVersion: requester.sessionVersion,
+  });
   const reply = result.reply || "(no reply)";
 
   const pending = await commentRepo.findOneBy({ id: pendingCommentId });

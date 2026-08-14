@@ -20,7 +20,8 @@ import { assertSafeOutboundUrl, safeFetchBuffer } from "../lib/outboundUrl.js";
  * same way.
  *
  * State tokens are encrypted in the database with a 10-minute TTL so the
- * callback may land on any application replica. Each token is single-use.
+ * callback may land on any application replica. Each token is single-use,
+ * bound to the browser's signed cookie, and carries a PKCE verifier.
  */
 
 /** A login failure whose message is safe to show the person signing in. */
@@ -29,6 +30,21 @@ export class SsoLoginError extends Error {}
 // ─────────────────────────── state store ───────────────────────────────────
 
 const STATE_TTL_MS = 10 * 60 * 1000;
+
+type SsoState = {
+  browserBindingHash: string;
+  codeVerifier: string;
+};
+
+function sha256Base64Url(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("base64url");
+}
+
+function sameDigest(left: string, right: string): boolean {
+  const a = Buffer.from(left, "utf8");
+  const b = Buffer.from(right, "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 // ─────────────────────────── discovery ─────────────────────────────────────
 
@@ -99,16 +115,30 @@ function httpsUrlField(doc: Record<string, unknown>, key: string): string {
 
 /** Build the redirect that sends the browser off to the identity provider.
  *  Throws `SsoLoginError` when SSO is disabled or misconfigured. */
-export async function startSsoLogin(): Promise<{ authorizeUrl: string }> {
+export async function startSsoLogin(): Promise<{
+  authorizeUrl: string;
+  browserBinding: string;
+}> {
   const sso = await requireSsoRuntime();
   const endpoints = await discoverOidcEndpoints(sso.issuer);
+  const browserBinding = crypto.randomBytes(32).toString("base64url");
+  const codeVerifier = crypto.randomBytes(32).toString("base64url");
   const u = new URL(endpoints.authorizationEndpoint);
   u.searchParams.set("client_id", sso.clientId);
   u.searchParams.set("redirect_uri", ssoCallbackUrl());
   u.searchParams.set("response_type", "code");
   u.searchParams.set("scope", "openid email profile");
-  u.searchParams.set("state", await createAuthFlowState("sso", {}, STATE_TTL_MS));
-  return { authorizeUrl: u.toString() };
+  u.searchParams.set("code_challenge", sha256Base64Url(codeVerifier));
+  u.searchParams.set("code_challenge_method", "S256");
+  u.searchParams.set(
+    "state",
+    await createAuthFlowState(
+      "sso",
+      { browserBindingHash: sha256Base64Url(browserBinding), codeVerifier } satisfies SsoState,
+      STATE_TTL_MS,
+    ),
+  );
+  return { authorizeUrl: u.toString(), browserBinding };
 }
 
 /**
@@ -117,13 +147,29 @@ export async function startSsoLogin(): Promise<{ authorizeUrl: string }> {
  * existing account by verified email, or provisioning a fresh one when the
  * operator has auto-provision on.
  */
-export async function finishSsoLogin(args: { code: string; state: string }): Promise<User> {
-  if (!(await consumeAuthFlowState<Record<string, never>>("sso", args.state))) {
+export async function finishSsoLogin(args: {
+  code: string;
+  state: string;
+  browserBinding: string;
+}): Promise<User> {
+  const state = await consumeAuthFlowState<SsoState>("sso", args.state);
+  if (!state) {
     throw new SsoLoginError("The sign-in attempt expired or was already used — try again.");
+  }
+  if (
+    !args.browserBinding ||
+    !sameDigest(state.browserBindingHash, sha256Base64Url(args.browserBinding))
+  ) {
+    throw new SsoLoginError("The sign-in attempt did not originate in this browser — try again.");
   }
   const sso = await requireSsoRuntime();
   const endpoints = await discoverOidcEndpoints(sso.issuer);
-  const accessToken = await exchangeCode({ sso, endpoints, code: args.code });
+  const accessToken = await exchangeCode({
+    sso,
+    endpoints,
+    code: args.code,
+    codeVerifier: state.codeVerifier,
+  });
   const claims = await fetchClaims(endpoints.userinfoEndpoint, accessToken);
   return resolveSsoUser({ sso, claims });
 }
@@ -140,6 +186,7 @@ async function exchangeCode(args: {
   sso: ResolvedSso;
   endpoints: OidcEndpoints;
   code: string;
+  codeVerifier: string;
 }): Promise<string> {
   const body = new URLSearchParams({
     grant_type: "authorization_code",
@@ -147,6 +194,7 @@ async function exchangeCode(args: {
     redirect_uri: ssoCallbackUrl(),
     client_id: args.sso.clientId,
     client_secret: args.sso.clientSecret,
+    code_verifier: args.codeVerifier,
   });
   const res = await fetch(args.endpoints.tokenEndpoint, {
     method: "POST",
@@ -192,9 +240,9 @@ async function fetchClaims(userinfoEndpoint: string, accessToken: string): Promi
       "The identity provider did not share an email address — make sure the email scope is granted.",
     );
   }
-  // Only reject an explicit false: many providers simply omit the claim, and
-  // the operator chose to trust this issuer when they configured it.
-  if (parsed.email_verified === false) {
+  // Email-based account linking is safe only with an affirmative claim. An
+  // omitted value is not evidence of mailbox ownership.
+  if (parsed.email_verified !== true) {
     throw new SsoLoginError(`${email} is not a verified address at your identity provider.`);
   }
   const name = typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : "";

@@ -1,13 +1,4 @@
-import {
-  Callout,
-  Code,
-  H2,
-  H3,
-  KeyList,
-  P,
-  PageHeader,
-  Pre,
-} from "@/docs/Prose";
+import { Callout, Code, H2, H3, KeyList, P, PageHeader, Pre } from "@/docs/Prose";
 
 type Cmd = {
   name: string;
@@ -44,8 +35,7 @@ const COMMANDS: Cmd[] = [
   { name: "restart", blurb: "Stop, then start." },
   {
     name: "status",
-    blurb:
-      "Show container state, image, volume, mapped port, and the URL to open.",
+    blurb: "Show container state, image, volume, mapped port, and the URL to open.",
   },
   {
     name: "logs",
@@ -55,14 +45,12 @@ const COMMANDS: Cmd[] = [
   {
     name: "backup",
     flags: "[--out FILE]",
-    blurb:
-      "Tarball the data volume. Defaults to a timestamped file in the current directory.",
+    blurb: "Tarball the data volume. Defaults to a timestamped file in the current directory.",
   },
   {
     name: "restore",
     flags: "<FILE> [-y]",
-    blurb:
-      "Restore a backup tarball. Destructive — prompts before overwriting unless -y is set.",
+    blurb: "Restore a backup tarball. Destructive — prompts before overwriting unless -y is set.",
   },
   {
     name: "uninstall",
@@ -110,7 +98,13 @@ const COMMANDS: Cmd[] = [
     name: "user reset-password",
     flags: "<email> [--password <pw>] [-y]",
     blurb:
-      "Reset a user's password — the operator escape hatch when someone is locked out and email isn't configured. Generates a strong password and prints it, or set your own with --password (min 8 chars). Prompts before overwriting unless -y. (Alias: genosyn reset-password.)",
+      "Reset a user's password — the operator escape hatch when someone is locked out and email isn't configured. Generates a strong password and prints it, or set your own with --password (min 12 chars). It revokes every older browser session and personal API key. Prompts before overwriting unless -y. (Alias: genosyn reset-password.)",
+  },
+  {
+    name: "user grant-master-admin",
+    flags: "<email> [-y]",
+    blurb:
+      "Grant instance master-admin access to an email-verified account. Use this host-authorized path to bootstrap a stock Docker install; it signs out existing sessions so the new operator must sign in again. Prompts unless -y.",
   },
   {
     name: "user delete",
@@ -130,19 +124,17 @@ export function Cli() {
         title="CLI reference"
         lead={
           <>
-            <Code>genosyn</Code> is the cluster-maintainer CLI — a thin bash
-            wrapper around <Code>docker</Code>. No Node, no Python, just one
-            shell script.
+            <Code>genosyn</Code> is the cluster-maintainer CLI — a thin bash wrapper around{" "}
+            <Code>docker</Code>. No Node, no Python, just one shell script.
           </>
         }
       />
 
       <H2 id="installing-the-cli">Installing the CLI</H2>
       <P>
-        The installer at <Code>genosyn.com/install.sh</Code> downloads the
-        script to <Code>/usr/local/bin/genosyn</Code>, marks it executable,
-        then runs <Code>genosyn install</Code>. You can also grab the raw
-        script:
+        The installer at <Code>genosyn.com/install.sh</Code> downloads the script to{" "}
+        <Code>/usr/local/bin/genosyn</Code>, marks it executable, then runs{" "}
+        <Code>genosyn install</Code>. You can also grab the raw script:
       </P>
       <Pre lang="bash">{`curl -fsSL https://genosyn.com/genosyn -o /usr/local/bin/genosyn
 chmod +x /usr/local/bin/genosyn`}</Pre>
@@ -155,23 +147,17 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
               <span className="font-mono text-[13px] font-semibold text-slate-950">
                 genosyn {c.name}
               </span>
-              {c.flags && (
-                <span className="font-mono text-[12.5px] text-slate-500">
-                  {c.flags}
-                </span>
-              )}
+              {c.flags && <span className="font-mono text-[12.5px] text-slate-500">{c.flags}</span>}
             </div>
-            <p className="mt-1 text-[13.5px] leading-[1.6] text-slate-600">
-              {c.blurb}
-            </p>
+            <p className="mt-1 text-[13.5px] leading-[1.6] text-slate-600">{c.blurb}</p>
           </div>
         ))}
       </div>
 
       <H2 id="env-overrides">Environment overrides</H2>
       <P>
-        Every flag has a matching environment variable. Flags on individual
-        commands take precedence:
+        Every flag has a matching environment variable. Flags on individual commands take
+        precedence:
       </P>
       <KeyList
         rows={[
@@ -179,8 +165,7 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_PORT",
             def: (
               <>
-                Host port to expose. Default <Code>8471</Code>. Override flag:{" "}
-                <Code>--port</Code>.
+                Host port to expose. Default <Code>8471</Code>. Override flag: <Code>--port</Code>.
               </>
             ),
           },
@@ -188,8 +173,7 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_NAME",
             def: (
               <>
-                Container name. Default <Code>genosyn</Code>. Override flag:{" "}
-                <Code>--name</Code>.
+                Container name. Default <Code>genosyn</Code>. Override flag: <Code>--name</Code>.
               </>
             ),
           },
@@ -197,8 +181,8 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_VOLUME",
             def: (
               <>
-                Data volume name. Default <Code>genosyn-data</Code>. Override
-                flag: <Code>--volume</Code>.
+                Data volume name. Default <Code>genosyn-data</Code>. Override flag:{" "}
+                <Code>--volume</Code>.
               </>
             ),
           },
@@ -206,8 +190,7 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_IMAGE",
             def: (
               <>
-                Image reference. Default{" "}
-                <Code>ghcr.io/genosyn/app:latest</Code>. Override flag:{" "}
+                Image reference. Default <Code>ghcr.io/genosyn/app:latest</Code>. Override flag:{" "}
                 <Code>--image</Code>.
               </>
             ),
@@ -216,8 +199,7 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_CLI_URL",
             def: (
               <>
-                Fetch URL for the CLI script used by{" "}
-                <Code>self-upgrade</Code>. Default{" "}
+                Fetch URL for the CLI script used by <Code>self-upgrade</Code>. Default{" "}
                 <Code>https://genosyn.com/genosyn</Code>.
               </>
             ),
@@ -226,8 +208,8 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_AUTO_UPDATE",
             def: (
               <>
-                Enable the daily automatic update during installation. Default{" "}
-                <Code>1</Code>; set <Code>0</Code> to opt out.
+                Enable the daily automatic update during installation. Default <Code>1</Code>; set{" "}
+                <Code>0</Code> to opt out.
               </>
             ),
           },
@@ -235,8 +217,7 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_BACKUP_DIR",
             def: (
               <>
-                Host directory for optional, verified pre-upgrade backups.
-                Default{" "}
+                Host directory for optional, verified pre-upgrade backups. Default{" "}
                 <Code>~/.genosyn/backups</Code>.
               </>
             ),
@@ -256,23 +237,21 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
 genosyn auto-update off
 genosyn auto-update on`}</Pre>
       <P>
-        Automatic updates use the host&apos;s <Code>crontab</Code> and write
-        logs under <Code>~/.genosyn</Code>. If cron is unavailable, installation
-        still completes and prints the command to retry after cron is installed.
+        Automatic updates use the host&apos;s <Code>crontab</Code> and write logs under{" "}
+        <Code>~/.genosyn</Code>. If cron is unavailable, installation still completes and prints the
+        command to retry after cron is installed.
       </P>
       <P>
-        Automatic updates do not create a data backup. The previous container
-        is retained until the new one becomes ready and is restarted if the
-        upgrade fails, using the current data volume.
+        Automatic updates do not create a data backup. The previous container is retained until the
+        new one becomes ready and is restarted if the upgrade fails, using the current data volume.
       </P>
 
       <H3 id="upgrade-with-backup">Upgrade with a verified backup</H3>
       <Pre lang="bash">{`genosyn upgrade --backup`}</Pre>
       <P>
-        This writes an archive under <Code>~/.genosyn/backups</Code> before
-        replacing the container. A failed upgrade restores the archive before
-        restarting the previous version. Successful upgrade backups are kept
-        for manual recovery.
+        This writes an archive under <Code>~/.genosyn/backups</Code> before replacing the container.
+        A failed upgrade restores the archive before restarting the previous version. Successful
+        upgrade backups are kept for manual recovery.
       </P>
 
       <H3 id="scheduled-backup">Daily backup to a known path</H3>
@@ -282,8 +261,8 @@ genosyn auto-update on`}</Pre>
       <Pre lang="bash">{`genosyn uninstall --purge`}</Pre>
 
       <Callout kind="warn" title="--purge is destructive.">
-        It deletes the named volume. Take a <Code>backup</Code> first if you
-        might want any of the data back.
+        It deletes the named volume. Take a <Code>backup</Code> first if you might want any of the
+        data back.
       </Callout>
     </>
   );

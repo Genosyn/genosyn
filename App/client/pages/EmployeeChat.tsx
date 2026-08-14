@@ -30,11 +30,7 @@ import {
   ConversationSummary,
   MessageAction,
 } from "../lib/api";
-import {
-  type EmployeeSession,
-  QueuedChatMessage,
-  useEmployeeSession,
-} from "../lib/chatSessions";
+import { type EmployeeSession, QueuedChatMessage, useEmployeeSession } from "../lib/chatSessions";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { ChatMarkdown } from "../components/ChatMarkdown";
 import { useToast } from "../components/ui/Toast";
@@ -81,35 +77,25 @@ export default function EmployeeChat() {
   } = session;
 
   /** Action whose details are open in the logs modal; null when closed. */
-  const [inspectAction, setInspectAction] =
-    React.useState<MessageAction | null>(null);
+  const [inspectAction, setInspectAction] = React.useState<MessageAction | null>(null);
   /** Files staged for the next send. Stored on the page so the chips persist
    * if the textarea remounts and so we can clear them after a successful
    * send / when switching conversations. */
-  const [pendingAttachments, setPendingAttachments] = React.useState<
-    ChatAttachment[]
-  >([]);
+  const [pendingAttachments, setPendingAttachments] = React.useState<ChatAttachment[]>([]);
   const [chatModels, setChatModels] = React.useState<AIModel[]>([]);
-  const [selectedModelId, setSelectedModelId] = React.useState<string | null>(
-    null,
-  );
+  const [selectedModelId, setSelectedModelId] = React.useState<string | null>(null);
+  const [claimingLegacy, setClaimingLegacy] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const seededPrompt = React.useRef<string | null>(null);
   const visibleQueuedMessages = queuedMessages.filter(
     (message) =>
-      message.conversationId === activeConvId ||
-      (!message.conversationId && !activeConvId),
+      message.conversationId === activeConvId || (!message.conversationId && !activeConvId),
   );
   const isActiveResponse =
-    sending &&
-    (sendingConvId === activeConvId ||
-      (!sendingConvId && !activeConvId));
-  const hasStreamingReply =
-    streamingReply !== null && streamingReply.length > 0;
-  const visibleMessages = messages.filter(
-    (message) => message.status !== "working",
-  );
+    sending && (sendingConvId === activeConvId || (!sendingConvId && !activeConvId));
+  const hasStreamingReply = streamingReply !== null && streamingReply.length > 0;
+  const visibleMessages = messages.filter((message) => message.status !== "working");
 
   // Onboarding and other guided surfaces can hand chat a draft without
   // sending it. The Member still reviews and submits the message, so opening
@@ -117,8 +103,7 @@ export default function EmployeeChat() {
   // state keeps the draft out of the URL and browser/server logs.
   React.useEffect(() => {
     const state = location.state as { starterPrompt?: unknown } | null;
-    const prompt =
-      typeof state?.starterPrompt === "string" ? state.starterPrompt.trim() : "";
+    const prompt = typeof state?.starterPrompt === "string" ? state.starterPrompt.trim() : "";
     if (!prompt) {
       seededPrompt.current = null;
       return;
@@ -145,9 +130,7 @@ export default function EmployeeChat() {
   // `initEmployee` is a no-op once `convsLoaded` is true, so coming back to
   // this tab keeps whatever the user had selected.
   React.useEffect(() => {
-    actions
-      .initEmployee(company.id, emp.id)
-      .catch((err) => toast((err as Error).message, "error"));
+    actions.initEmployee(company.id, emp.id).catch((err) => toast((err as Error).message, "error"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp.id]);
 
@@ -158,9 +141,7 @@ export default function EmployeeChat() {
   React.useEffect(() => {
     let cancelled = false;
     api
-      .get<AIModel[]>(
-        `/api/companies/${company.id}/employees/${emp.id}/models`,
-      )
+      .get<AIModel[]>(`/api/companies/${company.id}/employees/${emp.id}/models`)
       .then((models) => {
         if (cancelled) return;
         const connected = models.filter((model) => model.status === "connected");
@@ -169,11 +150,7 @@ export default function EmployeeChat() {
           if (current && connected.some((model) => model.id === current)) {
             return current;
           }
-          return (
-            connected.find((model) => model.isActive)?.id ??
-            connected[0]?.id ??
-            null
-          );
+          return connected.find((model) => model.isActive)?.id ?? connected[0]?.id ?? null;
         });
       })
       .catch(() => {
@@ -207,11 +184,9 @@ export default function EmployeeChat() {
     let stopped = false;
     const refresh = () => {
       if (stopped) return;
-      actions
-        .refreshConversation(company.id, emp.id, activeConvId)
-        .catch(() => {
-          // The progress card already says that reconnection is in progress.
-        });
+      actions.refreshConversation(company.id, emp.id, activeConvId).catch(() => {
+        // The progress card already says that reconnection is in progress.
+      });
     };
     refresh();
     const timer = window.setInterval(refresh, 3_000);
@@ -219,26 +194,13 @@ export default function EmployeeChat() {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [
-    actions,
-    activeConvId,
-    company.id,
-    connectionState,
-    emp.id,
-    isActiveResponse,
-  ]);
+  }, [actions, activeConvId, company.id, connectionState, emp.id, isActiveResponse]);
 
   // Auto-scroll to bottom on new messages or while the reply streams in.
   React.useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [
-    messages,
-    isActiveResponse,
-    streamingReply,
-    progress,
-    visibleQueuedMessages.length,
-  ]);
+  }, [messages, isActiveResponse, streamingReply, progress, visibleQueuedMessages.length]);
 
   // Auto-grow the textarea as the user types, capped so it doesn't swallow
   // the conversation.
@@ -289,7 +251,26 @@ export default function EmployeeChat() {
     }
   }
 
+  async function handleClaimLegacyConversation() {
+    if (!activeConvId || claimingLegacy) return;
+    setClaimingLegacy(true);
+    try {
+      await actions.claimConversation(company.id, emp.id, activeConvId);
+      await actions.refreshConversation(company.id, emp.id, activeConvId);
+      toast("Conversation claimed. You can continue it privately.", "success");
+      inputRef.current?.focus();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setClaimingLegacy(false);
+    }
+  }
+
   async function send(messageOverride?: string) {
+    if (activeConv?.legacyUnclaimed) {
+      toast("Claim this legacy conversation before continuing it.", "error");
+      return;
+    }
     const msg = (messageOverride ?? input).trim();
     const atts = messageOverride ? [] : pendingAttachments;
     // Slash commands intercept the send. `/new` swaps to a fresh thread
@@ -337,14 +318,15 @@ export default function EmployeeChat() {
     setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
   }
 
-  const activeConv = convs.find((c) => c.id === activeConvId) ?? null;
+  const activeConv =
+    convs.find((c) => c.id === activeConvId) ??
+    session.archivedConvs.find((c) => c.id === activeConvId) ??
+    null;
   // Show a skeleton while bootstrapping or while the active thread is still
   // loading — otherwise there's a visible EmptyState flash between the
   // conv-list fetch and the messages fetch.
   const isLoadingMessages =
-    !convsLoaded ||
-    convLoading ||
-    (!!activeConvId && loadedConvId !== activeConvId);
+    !convsLoaded || convLoading || (!!activeConvId && loadedConvId !== activeConvId);
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-white dark:bg-slate-950">
@@ -373,6 +355,30 @@ export default function EmployeeChat() {
           onNew={handleNewClick}
         />
 
+        {activeConv?.legacyUnclaimed && (
+          <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-500/30 dark:bg-amber-500/10 sm:px-6">
+            <div className="mx-auto flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                  Legacy conversation needs an owner
+                </p>
+                <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-200/80">
+                  This thread predates private Member conversations. Claim it before sending more
+                  messages; other owners and admins will no longer be able to claim it.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={claimingLegacy}
+                onClick={() => void handleClaimLegacyConversation()}
+                className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg bg-amber-700 px-3 text-xs font-medium text-white transition hover:bg-amber-800 disabled:opacity-60 dark:bg-amber-500 dark:text-slate-950 dark:hover:bg-amber-400"
+              >
+                {claimingLegacy ? "Claiming…" : "Claim conversation"}
+              </button>
+            </div>
+          </div>
+        )}
+
         <div
           ref={scrollRef}
           className="flex-1 overflow-y-auto bg-slate-50/50 px-4 py-6 dark:bg-slate-900/40 sm:px-8"
@@ -394,17 +400,12 @@ export default function EmployeeChat() {
                   companySlug={company.slug}
                   employeeId={emp.id}
                   employeeSlug={emp.slug}
-                  showAvatar={
-                    i === 0 || visibleMessages[i - 1].role !== m.role
-                  }
+                  showAvatar={i === 0 || visibleMessages[i - 1].role !== m.role}
                   onInspectAction={setInspectAction}
                 />
               ))}
               {isActiveResponse && hasStreamingReply && (
-                <StreamingBubble
-                  authorName={emp.name}
-                  content={streamingReply}
-                />
+                <StreamingBubble authorName={emp.name} content={streamingReply} />
               )}
               {isActiveResponse && progress && !hasStreamingReply && (
                 <ProgressIndicator
@@ -414,44 +415,42 @@ export default function EmployeeChat() {
                   connectionState={connectionState}
                 />
               )}
-              {isActiveResponse &&
-                !progress &&
-                !hasStreamingReply && (
-                  <TypingIndicator authorName={emp.name} />
-                )}
+              {isActiveResponse && !progress && !hasStreamingReply && (
+                <TypingIndicator authorName={emp.name} />
+              )}
               {visibleQueuedMessages.length > 0 && (
                 <QueuedMessageStack
                   messages={visibleQueuedMessages}
                   empName={emp.name}
-                  onRemove={(id) =>
-                    actions.removeQueuedMessage(emp.id, id)
-                  }
+                  onRemove={(id) => actions.removeQueuedMessage(emp.id, id)}
                 />
               )}
             </div>
           )}
         </div>
 
-        <Composer
-          inputRef={inputRef}
-          value={input}
-          onChange={(v) => actions.update(emp.id, { input: v })}
-          onSubmit={() => send()}
-          isResponding={sending}
-          queuedCount={visibleQueuedMessages.length}
-          empName={emp.name}
-          companyId={company.id}
-          companySlug={company.slug}
-          attachments={pendingAttachments}
-          onUpload={uploadAttachment}
-          onRemoveAttachment={removePendingAttachment}
-          models={chatModels}
-          selectedModelId={selectedModelId}
-          onModelChange={setSelectedModelId}
-        />
+        {!activeConv?.legacyUnclaimed && (
+          <Composer
+            inputRef={inputRef}
+            value={input}
+            onChange={(v) => actions.update(emp.id, { input: v })}
+            onSubmit={() => send()}
+            isResponding={sending}
+            queuedCount={visibleQueuedMessages.length}
+            empName={emp.name}
+            companyId={company.id}
+            companySlug={company.slug}
+            attachments={pendingAttachments}
+            onUpload={uploadAttachment}
+            onRemoveAttachment={removePendingAttachment}
+            models={chatModels}
+            selectedModelId={selectedModelId}
+            onModelChange={setSelectedModelId}
+          />
+        )}
       </section>
 
-      {emp.browserEnabled && activeConvId && (
+      {emp.browserEnabled && activeConvId && !activeConv?.legacyUnclaimed && (
         <BrowserLivePanel
           companyId={company.id}
           employeeId={emp.id}
@@ -460,10 +459,7 @@ export default function EmployeeChat() {
       )}
 
       {inspectAction && (
-        <ActionDetailModal
-          action={inspectAction}
-          onClose={() => setInspectAction(null)}
-        />
+        <ActionDetailModal action={inspectAction} onClose={() => setInspectAction(null)} />
       )}
     </div>
   );
@@ -537,24 +533,26 @@ function ConversationList({
                 active={c.id === activeId}
                 onSelect={onSelect}
                 actions={
-                  <>
-                    <button
-                      onClick={() => onArchive(c.id)}
-                      className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                      aria-label="Archive conversation"
-                      title="Archive"
-                    >
-                      <Archive size={12} />
-                    </button>
-                    <button
-                      onClick={() => onDelete(c.id)}
-                      className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-rose-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-rose-400"
-                      aria-label="Delete conversation"
-                      title="Delete"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </>
+                  !c.legacyUnclaimed ? (
+                    <>
+                      <button
+                        onClick={() => onArchive(c.id)}
+                        className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                        aria-label="Archive conversation"
+                        title="Archive"
+                      >
+                        <Archive size={12} />
+                      </button>
+                      <button
+                        onClick={() => onDelete(c.id)}
+                        className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-rose-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-rose-400"
+                        aria-label="Delete conversation"
+                        title="Delete"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </>
+                  ) : undefined
                 }
               />
             ))}
@@ -567,16 +565,10 @@ function ConversationList({
             className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
             aria-expanded={archivedOpen}
           >
-            {archivedOpen ? (
-              <ChevronDown size={12} />
-            ) : (
-              <ChevronRight size={12} />
-            )}
+            {archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             <span className="flex-1 text-left">Archived</span>
             {archivedLoaded && archivedConvs.length > 0 && (
-              <span className="text-slate-400 dark:text-slate-500">
-                {archivedConvs.length}
-              </span>
+              <span className="text-slate-400 dark:text-slate-500">{archivedConvs.length}</span>
             )}
           </button>
           {archivedOpen &&
@@ -598,24 +590,26 @@ function ConversationList({
                     onSelect={onSelect}
                     muted
                     actions={
-                      <>
-                        <button
-                          onClick={() => onUnarchive(c.id)}
-                          className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-emerald-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-emerald-400"
-                          aria-label="Unarchive conversation"
-                          title="Unarchive"
-                        >
-                          <ArchiveRestore size={12} />
-                        </button>
-                        <button
-                          onClick={() => onDelete(c.id)}
-                          className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-rose-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-rose-400"
-                          aria-label="Delete conversation"
-                          title="Delete"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </>
+                      !c.legacyUnclaimed ? (
+                        <>
+                          <button
+                            onClick={() => onUnarchive(c.id)}
+                            className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-emerald-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-emerald-400"
+                            aria-label="Unarchive conversation"
+                            title="Unarchive"
+                          >
+                            <ArchiveRestore size={12} />
+                          </button>
+                          <button
+                            onClick={() => onDelete(c.id)}
+                            className="rounded p-1 text-slate-400 opacity-0 hover:bg-slate-200 hover:text-rose-600 group-hover:opacity-100 dark:text-slate-500 dark:hover:bg-slate-700 dark:hover:text-rose-400"
+                            aria-label="Delete conversation"
+                            title="Delete"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </>
+                      ) : undefined
                     }
                   />
                 ))}
@@ -647,9 +641,9 @@ function ConversationRow({
           "group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm " +
           (active
             ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
-            : (muted
-                ? "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800/70"
-                : "text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/70"))
+            : muted
+              ? "text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800/70"
+              : "text-slate-700 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800/70")
         }
       >
         <button
@@ -659,9 +653,7 @@ function ConversationRow({
         >
           <div className="truncate text-[13px] font-medium">
             {conv.title ?? (
-              <span className="italic text-slate-400 dark:text-slate-500">
-                New conversation
-              </span>
+              <span className="italic text-slate-400 dark:text-slate-500">New conversation</span>
             )}
           </div>
           <div className="mt-0.5 truncate text-[11px] text-slate-400 dark:text-slate-500">
@@ -845,13 +837,7 @@ function TurnBubble({
   );
 }
 
-function StreamingBubble({
-  authorName,
-  content,
-}: {
-  authorName: string;
-  content: string;
-}) {
+function StreamingBubble({ authorName, content }: { authorName: string; content: string }) {
   return (
     <div className="flex justify-start gap-2.5">
       <div className="w-9 shrink-0">
@@ -984,9 +970,7 @@ function QueuedMessageStack({
   return (
     <section
       className="ml-auto w-full max-w-[85%] rounded-2xl border border-indigo-200/80 bg-indigo-50/70 p-2 shadow-sm dark:border-indigo-500/30 dark:bg-indigo-500/10 sm:max-w-[75%]"
-      aria-label={`${messages.length} queued ${
-        messages.length === 1 ? "message" : "messages"
-      }`}
+      aria-label={`${messages.length} queued ${messages.length === 1 ? "message" : "messages"}`}
       aria-live="polite"
     >
       <div className="flex items-center justify-between gap-3 px-1.5 pb-2 pt-0.5">
@@ -1099,9 +1083,7 @@ function EmptyState({
   return (
     <div className="mx-auto flex h-full min-h-[320px] max-w-2xl flex-col items-center justify-center text-center">
       <Avatar name={empName} size={56} />
-      <h2 className="mt-4 text-lg font-semibold text-slate-900 dark:text-slate-100">
-        {empName}
-      </h2>
+      <h2 className="mt-4 text-lg font-semibold text-slate-900 dark:text-slate-100">{empName}</h2>
       <div className="text-sm text-slate-500 dark:text-slate-400">{empRole}</div>
       <p className="mt-3 max-w-md text-sm text-slate-500 dark:text-slate-400">
         Messages use {empName}&apos;s Soul and Skills as context. Each send spawns the
@@ -1114,10 +1096,7 @@ function EmptyState({
             onClick={() => onPick(s)}
             className="group flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-sm text-slate-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-indigo-500/60 dark:hover:bg-indigo-500/10"
           >
-            <Sparkles
-              size={14}
-              className="text-indigo-500 transition group-hover:scale-110"
-            />
+            <Sparkles size={14} className="text-indigo-500 transition group-hover:scale-110" />
             {s}
           </button>
         ))}
@@ -1328,11 +1307,7 @@ function Composer({
             }
           }}
           rows={1}
-          placeholder={
-            isResponding
-              ? `Add a follow-up for ${empName}…`
-              : `Message ${empName}…`
-          }
+          placeholder={isResponding ? `Add a follow-up for ${empName}…` : `Message ${empName}…`}
           className="flex-1 resize-none self-center bg-transparent px-1 py-1 text-sm leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
           style={{ maxHeight: 200 }}
         />
@@ -1432,13 +1407,7 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function AttachmentPreview({
-  attachment,
-  url,
-}: {
-  attachment: ChatAttachment;
-  url: string;
-}) {
+function AttachmentPreview({ attachment, url }: { attachment: ChatAttachment; url: string }) {
   if (attachment.isImage) {
     return (
       <a href={url} target="_blank" rel="noreferrer" className="block">
@@ -1537,9 +1506,7 @@ function ToolCallGroup({
   onInspect: (a: MessageAction) => void;
 }) {
   const [open, setOpen] = React.useState(false);
-  const errorCount = actions.filter(
-    (a) => a.metadata?.status === "error",
-  ).length;
+  const errorCount = actions.filter((a) => a.metadata?.status === "error").length;
   const hasError = errorCount > 0;
   const palette = hasError
     ? "border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:border-rose-500/50 dark:hover:bg-rose-500/20"
@@ -1598,11 +1565,8 @@ function ActionPill({
   onInspect: (a: MessageAction) => void;
 }) {
   const isIntegration = action.action === "integration.invoke";
-  const isError =
-    isIntegration && action.metadata?.status === "error";
-  const href = isIntegration
-    ? null
-    : hrefForAction(action, companySlug, employeeSlug);
+  const isError = isIntegration && action.metadata?.status === "error";
+  const href = isIntegration ? null : hrefForAction(action, companySlug, employeeSlug);
 
   const palette = isError
     ? "border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 hover:bg-rose-100 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:border-rose-500/50 dark:hover:bg-rose-500/20"
@@ -1648,10 +1612,7 @@ function ActionPill({
     );
   }
   // Action has no detail surface (e.g. unknown kind). Render a static chip.
-  const staticClass = className.replace(
-    /\s+hover:[^\s]+/g,
-    "",
-  );
+  const staticClass = className.replace(/\s+hover:[^\s]+/g, "");
   return (
     <span title={`${title} (no link available)`} className={staticClass}>
       {content}
@@ -1664,10 +1625,7 @@ function buildPillTitle(a: MessageAction): string {
   if (a.targetLabel) parts.push(a.targetLabel);
   if (a.metadata?.status === "error" && a.metadata.error) {
     parts.push(`error: ${a.metadata.error}`);
-  } else if (
-    a.action === "integration.invoke" &&
-    typeof a.metadata?.durationMs === "number"
-  ) {
+  } else if (a.action === "integration.invoke" && typeof a.metadata?.durationMs === "number") {
     parts.push(`${formatDuration(a.metadata.durationMs)}`);
   }
   return parts.join(" — ");
@@ -1680,11 +1638,7 @@ function buildPillTitle(a: MessageAction): string {
  * detail page — the new row is near the top, so it's easy to spot, and we
  * don't have to carry the project slug through the action payload.
  */
-function hrefForAction(
-  a: MessageAction,
-  companySlug: string,
-  employeeSlug: string,
-): string | null {
+function hrefForAction(a: MessageAction, companySlug: string, employeeSlug: string): string | null {
   if (a.action.startsWith("routine.")) {
     return `/c/${companySlug}/routines?employee=${employeeSlug}`;
   }
@@ -1751,13 +1705,7 @@ function formatDuration(ms: number): string {
  * visibility" guarantee — if a pill claims the Metabase revenue dashboard
  * was fetched, the human can verify by reading the same JSON the AI saw.
  */
-function ActionDetailModal({
-  action,
-  onClose,
-}: {
-  action: MessageAction;
-  onClose: () => void;
-}) {
+function ActionDetailModal({ action, onClose }: { action: MessageAction; onClose: () => void }) {
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -1772,8 +1720,7 @@ function ActionDetailModal({
   const meta = action.metadata ?? {};
   const isError = meta.status === "error";
   const isIntegration = action.action === "integration.invoke";
-  const providerLabel =
-    meta.connectionLabel ?? meta.provider ?? action.targetLabel ?? "Tool call";
+  const providerLabel = meta.connectionLabel ?? meta.provider ?? action.targetLabel ?? "Tool call";
   const toolName = meta.toolName ?? null;
 
   return (
@@ -1830,9 +1777,7 @@ function ActionDetailModal({
               {meta.via && (
                 <span>
                   via{" "}
-                  <span className="font-medium text-slate-700 dark:text-slate-300">
-                    {meta.via}
-                  </span>
+                  <span className="font-medium text-slate-700 dark:text-slate-300">{meta.via}</span>
                 </span>
               )}
             </div>
@@ -1848,11 +1793,7 @@ function ActionDetailModal({
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
-          <LogSection
-            title="Arguments"
-            body={meta.argsPreview ?? ""}
-            empty="No arguments sent."
-          />
+          <LogSection title="Arguments" body={meta.argsPreview ?? ""} empty="No arguments sent." />
           {isError ? (
             <LogSection
               title="Error"

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
 import { validateBody } from "../middleware/validate.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
 import {
   addChannelMembers,
   archiveChannel,
@@ -388,6 +388,7 @@ const sendMessageSchema = z.object({
 });
 workspaceRouter.post(
   "/channels/:channelId/messages",
+  requireBrowserSession,
   validateBody(sendMessageSchema),
   async (req, res) => {
     const co = companyOf(req as unknown as { company?: Company });
@@ -406,6 +407,7 @@ workspaceRouter.post(
         channelId: req.params.channelId,
         companyId: co.id,
         author: { kind: "user", userId: req.userId! },
+        requesterSessionVersion: req.session!.sessionVersion!,
         content: body.content,
         parentMessageId: body.parentMessageId ?? null,
         attachmentIds: body.attachmentIds,

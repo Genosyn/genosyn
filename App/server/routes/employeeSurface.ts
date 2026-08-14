@@ -1,6 +1,6 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
-import { IsNull, Not } from "typeorm";
+import { In, IsNull, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -9,13 +9,16 @@ import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { Attachment } from "../db/entities/Attachment.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  onRoutePaths,
+  requireAuth,
+  requireBrowserSession,
+  requireCompanyMember,
+  requireRecentAuthentication,
+} from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { parseActions } from "../services/turnActions.js";
-import {
-  enqueueDurableChatTurn,
-  executeDurableChatTurn,
-} from "../services/durableChatTurns.js";
+import { enqueueDurableChatTurn, executeDurableChatTurn } from "../services/durableChatTurns.js";
 import { resolveChatModel } from "../services/models.js";
 import {
   attachmentsForMessages,
@@ -32,6 +35,13 @@ import {
 export const employeeSurfaceRouter = Router({ mergeParams: true });
 employeeSurfaceRouter.use(requireAuth);
 employeeSurfaceRouter.use(requireCompanyMember);
+// Direct web/help conversations carry a human Member's delegated authority.
+// API keys are automation credentials and cannot read, mutate, or launch
+// these private browser conversations. Journal and memory routes remain
+// available to documented API automation.
+employeeSurfaceRouter.use(
+  onRoutePaths([/^\/[^/]+\/(?:conversations|chat-attachments)(?:\/|$)/], requireBrowserSession),
+);
 
 // Hydrate `req.company` from the URL `cid` so the multer destination
 // callback (which runs before any handler) can compute the per-company
@@ -84,7 +94,32 @@ function serializeConversation(c: Conversation, lastMessageAt: Date | null = nul
     lastMessageAt,
     source: c.source ?? "web",
     connectionId: c.connectionId ?? null,
+    legacyUnclaimed: c.ownerUserId === null && (c.source === "web" || c.source === "help"),
   };
+}
+
+function canManageLegacyConversations(req: Request): boolean {
+  return req.companyRole === "owner" || req.companyRole === "admin";
+}
+
+async function findAccessibleConversation(args: {
+  req: Request;
+  employeeId: string;
+  conversationId: string;
+}): Promise<Conversation | null> {
+  const repo = AppDataSource.getRepository(Conversation);
+  const owned = await repo.findOneBy({
+    id: args.conversationId,
+    employeeId: args.employeeId,
+    ownerUserId: args.req.userId!,
+  });
+  if (owned || !canManageLegacyConversations(args.req)) return owned;
+  return repo.findOneBy({
+    id: args.conversationId,
+    employeeId: args.employeeId,
+    ownerUserId: IsNull(),
+    source: In(["web", "help"]),
+  });
 }
 
 type AttachmentSummary = {
@@ -161,12 +196,17 @@ employeeSurfaceRouter.get("/:eid/conversations", async (req, res) => {
   // `?archived=1` returns only archived threads, default returns only
   // active ones. The sidebar flips between the two via a disclosure.
   const wantsArchived = parsed.data.archived === "1";
+  const archivedAt = wantsArchived ? Not(IsNull()) : IsNull();
+  const ownedWhere = {
+    employeeId: eid,
+    ownerUserId: req.userId!,
+    source: parsed.data.surface,
+    archivedAt,
+  };
   const rows = await AppDataSource.getRepository(Conversation).find({
-    where: {
-      employeeId: eid,
-      source: parsed.data.surface,
-      archivedAt: wantsArchived ? Not(IsNull()) : IsNull(),
-    },
+    where: canManageLegacyConversations(req)
+      ? [ownedWhere, { ...ownedWhere, ownerUserId: IsNull() }]
+      : ownedWhere,
     order: { updatedAt: "DESC" },
   });
   res.json(rows.map((r) => serializeConversation(r, r.updatedAt)));
@@ -183,6 +223,7 @@ employeeSurfaceRouter.post(
     const repo = AppDataSource.getRepository(Conversation);
     const conv = repo.create({
       employeeId: eid,
+      ownerUserId: req.userId!,
       title: null,
       source: body.surface as ConversationSource,
     });
@@ -195,10 +236,7 @@ employeeSurfaceRouter.get("/:eid/conversations/:convId", async (req, res) => {
   const { cid, eid, convId } = req.params as Record<string, string>;
   const loaded = await loadEmpAndCompany(cid, eid);
   if (!loaded) return res.status(404).json({ error: "Not found" });
-  const conv = await AppDataSource.getRepository(Conversation).findOneBy({
-    id: convId,
-    employeeId: eid,
-  });
+  const conv = await findAccessibleConversation({ req, employeeId: eid, conversationId: convId });
   if (!conv) return res.status(404).json({ error: "Not found" });
   const messages = await AppDataSource.getRepository(ConversationMessage).find({
     where: { conversationId: conv.id },
@@ -211,12 +249,83 @@ employeeSurfaceRouter.get("/:eid/conversations/:convId", async (req, res) => {
   });
 });
 
+const requireRecentConversationClaim = requireRecentAuthentication();
+
+/**
+ * Claim a pre-owner-column web/help conversation after an upgrade. Only an
+ * owner/admin can see the legacy row, and the conditional update makes the
+ * first explicit claimant win. Unattributed working turns are terminalized:
+ * resuming them under the claimant's authority would silently elevate an
+ * unknown historical requester.
+ */
+employeeSurfaceRouter.post(
+  "/:eid/conversations/:convId/claim",
+  requireRecentConversationClaim,
+  async (req, res) => {
+    const { cid, eid, convId } = req.params as Record<string, string>;
+    const loaded = await loadEmpAndCompany(cid, eid);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    if (!canManageLegacyConversations(req)) {
+      return res.status(403).json({ error: "Owner or admin company role required" });
+    }
+
+    const claimed = await AppDataSource.transaction(async (manager) => {
+      const conversationRepo = manager.getRepository(Conversation);
+      const result = await conversationRepo.update(
+        {
+          id: convId,
+          employeeId: eid,
+          ownerUserId: IsNull(),
+          source: In(["web", "help"]),
+        },
+        { ownerUserId: req.userId! },
+      );
+      if (result.affected !== 1) return null;
+
+      await manager.getRepository(ConversationMessage).update(
+        {
+          conversationId: convId,
+          role: "assistant",
+          status: "working",
+          turnRequesterUserId: IsNull(),
+        },
+        {
+          content:
+            "Genosyn couldn’t resume this legacy chat turn because its original Member authority was not recorded. Send the request again to continue safely.",
+          status: "error",
+          progressPercent: null,
+          progressLabel: null,
+          turnWorkerId: null,
+          turnLeaseExpiresAt: null,
+        },
+      );
+      return conversationRepo.findOneBy({ id: convId, employeeId: eid, ownerUserId: req.userId! });
+    });
+
+    if (!claimed) {
+      const alreadyOwned = await AppDataSource.getRepository(Conversation).findOneBy({
+        id: convId,
+        employeeId: eid,
+        ownerUserId: req.userId!,
+      });
+      if (alreadyOwned)
+        return res.json(serializeConversation(alreadyOwned, alreadyOwned.updatedAt));
+      return res.status(409).json({ error: "Conversation has already been claimed" });
+    }
+    res.json(serializeConversation(claimed, claimed.updatedAt));
+  },
+);
+
 employeeSurfaceRouter.post("/:eid/conversations/:convId/archive", async (req, res) => {
   const { cid, eid, convId } = req.params as Record<string, string>;
   const loaded = await loadEmpAndCompany(cid, eid);
   if (!loaded) return res.status(404).json({ error: "Not found" });
   const repo = AppDataSource.getRepository(Conversation);
-  const conv = await repo.findOneBy({ id: convId, employeeId: eid });
+  const conv = await repo.findOneBy({
+    id: convId,
+    employeeId: eid,
+    ownerUserId: req.userId!,
+  });
   if (!conv) return res.status(404).json({ error: "Not found" });
   if (!conv.archivedAt) {
     conv.archivedAt = new Date();
@@ -230,7 +339,11 @@ employeeSurfaceRouter.post("/:eid/conversations/:convId/unarchive", async (req, 
   const loaded = await loadEmpAndCompany(cid, eid);
   if (!loaded) return res.status(404).json({ error: "Not found" });
   const repo = AppDataSource.getRepository(Conversation);
-  const conv = await repo.findOneBy({ id: convId, employeeId: eid });
+  const conv = await repo.findOneBy({
+    id: convId,
+    employeeId: eid,
+    ownerUserId: req.userId!,
+  });
   if (!conv) return res.status(404).json({ error: "Not found" });
   if (conv.archivedAt) {
     conv.archivedAt = null;
@@ -244,7 +357,11 @@ employeeSurfaceRouter.delete("/:eid/conversations/:convId", async (req, res) => 
   const loaded = await loadEmpAndCompany(cid, eid);
   if (!loaded) return res.status(404).json({ error: "Not found" });
   const convRepo = AppDataSource.getRepository(Conversation);
-  const conv = await convRepo.findOneBy({ id: convId, employeeId: eid });
+  const conv = await convRepo.findOneBy({
+    id: convId,
+    employeeId: eid,
+    ownerUserId: req.userId!,
+  });
   if (!conv) return res.status(404).json({ error: "Not found" });
   await AppDataSource.getRepository(ConversationMessage).delete({
     conversationId: conv.id,
@@ -287,6 +404,24 @@ employeeSurfaceRouter.get("/:eid/chat-attachments/:attachmentId", async (req, re
   const resolved = await resolveAttachmentFile(attachmentId, loaded.co.id);
   if (!resolved) {
     return res.status(404).json({ error: "Attachment not found" });
+  }
+  if (resolved.row.uploadedByUserId !== req.userId) {
+    if (!resolved.row.messageId) {
+      return res.status(404).json({ error: "Attachment not found" });
+    }
+    const message = await AppDataSource.getRepository(ConversationMessage).findOneBy({
+      id: resolved.row.messageId,
+    });
+    const conversation = message
+      ? await findAccessibleConversation({
+          req,
+          employeeId: eid,
+          conversationId: message.conversationId,
+        })
+      : null;
+    if (!conversation) {
+      return res.status(404).json({ error: "Attachment not found" });
+    }
   }
   res.setHeader("Content-Type", resolved.row.mimeType);
   const inline = resolved.row.mimeType.startsWith("image/");
@@ -397,19 +532,15 @@ employeeSurfaceRouter.post(
         message: body.message,
         attachmentIds: body.attachmentIds,
         modelId: selectedModel?.id ?? null,
+        requesterUserId: req.userId!,
+        requesterSessionVersion: req.session!.sessionVersion!,
       });
       acceptedTurn = true;
-      writeEvent(
-        "user",
-        serializeMessage(enqueued.userMessage, enqueued.userAttachments),
-      );
+      writeEvent("user", serializeMessage(enqueued.userMessage, enqueued.userAttachments));
       writeEvent("working", serializeMessage(enqueued.assistantMessage));
       writeEvent(
         "conversation",
-        serializeConversation(
-          enqueued.conversation,
-          enqueued.conversation.updatedAt,
-        ),
+        serializeConversation(enqueued.conversation, enqueued.conversation.updatedAt),
       );
 
       await executeDurableChatTurn(enqueued.assistantMessage.id, {
@@ -417,10 +548,7 @@ employeeSurfaceRouter.post(
         onProgress: (progress) => writeEvent("progress", progress),
         onFinal: ({ message, attachments, conversation }) => {
           writeEvent("assistant", serializeMessage(message, attachments));
-          writeEvent(
-            "conversation",
-            serializeConversation(conversation, conversation.updatedAt),
-          );
+          writeEvent("conversation", serializeConversation(conversation, conversation.updatedAt));
         },
       });
       writeEvent("done", {});

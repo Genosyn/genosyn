@@ -93,3 +93,20 @@ export async function captureTurnActions(
     return action;
   });
 }
+
+/**
+ * Capture action pills only when the caller can prove exclusive employee-owned
+ * execution authority. Member and untrusted chat turns deliberately return an
+ * empty projection: AuditEvent currently has no turn correlation id, and Runs
+ * are allowed to overlap chat, so an employee/time-window query can otherwise
+ * copy a concurrent privileged Run's metadata into a Member's transcript.
+ */
+export async function captureTurnActionsForAuthority(args: {
+  companyId: string;
+  employeeId: string;
+  since: Date;
+  authority: "employee" | "member" | "untrusted";
+}): Promise<MessageAction[]> {
+  if (args.authority !== "employee") return [];
+  return captureTurnActions(args.companyId, args.employeeId, args.since);
+}

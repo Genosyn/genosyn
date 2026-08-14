@@ -11,9 +11,10 @@ import { clsx } from "../components/ui/clsx";
 /**
  * Admin → Sign-ups. Instance-wide toggle for self-service registration. When an
  * operator turns sign-ups off, the public signup form is refused for everyone
- * except the first-user bootstrap on a fresh install. Existing members keep
- * their accounts; this only stops new self-service registrations. Persisted
- * server-side as a single `AppSetting` row (see services/signupSettings.ts).
+ * except the configured, still-unclaimed bootstrap operator. Existing members
+ * keep their accounts; this only stops new self-service registrations.
+ * Persisted server-side as a single `AppSetting` row (see
+ * services/signupSettings.ts).
  */
 
 export function AdminSignups() {
@@ -55,10 +56,7 @@ export function AdminSignups() {
         signupsDisabled: next,
       });
       setData(saved);
-      toast(
-        saved.signupsDisabled ? "Sign-ups disabled" : "Sign-ups enabled",
-        "success",
-      );
+      toast(saved.signupsDisabled ? "Sign-ups disabled" : "Sign-ups enabled", "success");
     } catch (err) {
       toast((err as Error).message, "error");
     } finally {
@@ -87,10 +85,10 @@ export function AdminSignups() {
                 Disable sign-ups
               </div>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Turn off self-service registration for this instance. The public
-                sign-up form stops accepting new accounts — existing members are
-                unaffected, and the first account on a fresh install can always
-                be created so the instance is never left without an operator.
+                Turn off self-service registration for this instance. The public sign-up form stops
+                accepting new accounts — existing members are unaffected, and the configured
+                bootstrap operator can still register and verify so the instance is never left
+                without an operator.
               </p>
             </div>
             <Toggle

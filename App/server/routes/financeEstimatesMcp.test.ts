@@ -17,7 +17,9 @@ import { Estimate } from "../db/entities/Estimate.js";
 import { EstimateLineItem } from "../db/entities/EstimateLineItem.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { LedgerEntry } from "../db/entities/LedgerEntry.js";
+import { Membership } from "../db/entities/Membership.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
+import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { deadToolNames } from "../services/agent/tools/grantDead.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
@@ -31,6 +33,8 @@ let company: Company;
 let customer: Customer;
 let employee: AIEmployee;
 let grant: EmployeeFinanceGrant;
+let member: Membership;
+let memberUser: User;
 
 before(async () => {
   await initTestDb();
@@ -64,6 +68,19 @@ beforeEach(async () => {
     employeeId: employee.id,
     accessLevel: "invoice",
   });
+  memberUser = await insert(User, {
+    email: "member@finance.example",
+    passwordHash: "hash",
+    name: "Finance Member",
+    emailVerifiedAt: new Date(),
+    sessionVersion: 0,
+  });
+  member = await insert(Membership, {
+    companyId: company.id,
+    userId: memberUser.id,
+    role: "member",
+    financeAccess: "full",
+  });
   customer = await insert(Customer, {
     companyId: company.id,
     name: "BaFin",
@@ -71,8 +88,17 @@ beforeEach(async () => {
     email: "billing@bafin.example",
     currency: "EUR",
   });
-  token = issueMcpToken(employee.id, company.id);
+  token = issueMcpToken(employee.id, company.id, { authority: "employee" });
 });
+
+function useMemberToken(userId = member.userId): void {
+  if (token) revokeMcpToken(token);
+  token = issueMcpToken(employee.id, company.id, {
+    authority: "member",
+    requesterUserId: userId,
+    requesterSessionVersion: memberUser.sessionVersion,
+  });
+}
 
 after(async () => {
   if (token) revokeMcpToken(token);
@@ -144,9 +170,12 @@ test("create_estimate writes an unsent, ledger-neutral draft with an AI audit tr
   assert.equal(estimate.number, "");
   assert.equal(estimate.sentAt, null);
   assert.equal(estimate.createdById, null);
-  assert.equal(await AppDataSource.getRepository(EstimateLineItem).countBy({
-    estimateId: estimate.id,
-  }), 1);
+  assert.equal(
+    await AppDataSource.getRepository(EstimateLineItem).countBy({
+      estimateId: estimate.id,
+    }),
+    1,
+  );
   assert.equal(await AppDataSource.getRepository(LedgerEntry).count(), 0);
   assert.equal(await AppDataSource.getRepository(EmailLog).count(), 0);
 
@@ -174,6 +203,81 @@ test("create_estimate requires Invoicing access", async () => {
 
   assert.equal(response.status, 403);
   assert.match(response.body.error ?? "", /needs the "invoice" finance access level/);
+  assert.equal(await AppDataSource.getRepository(Estimate).count(), 0);
+});
+
+test("interactive Finance authority is the intersection of Member access and the employee Grant", async () => {
+  member.financeAccess = "read";
+  await AppDataSource.getRepository(Membership).save(member);
+  useMemberToken();
+
+  const response = await aiCall({
+    customerSlug: customer.slug,
+    lines: [{ description: "Must stay read-only", quantity: 1, unitPriceCents: 10_000 }],
+  });
+
+  assert.equal(response.status, 403);
+  assert.match(response.body.error ?? "", /does not have full Finance access/);
+  assert.equal(await AppDataSource.getRepository(Estimate).count(), 0);
+});
+
+test("a full-access Member may delegate only what the employee Grant also permits", async () => {
+  useMemberToken();
+  const allowed = await aiCall({
+    customerSlug: customer.slug,
+    lines: [{ description: "Delegated estimate", quantity: 1, unitPriceCents: 10_000 }],
+  });
+  assert.equal(allowed.status, 200, allowed.body.error);
+
+  grant.accessLevel = "read";
+  await AppDataSource.getRepository(EmployeeFinanceGrant).save(grant);
+  const denied = await aiCall({
+    customerSlug: customer.slug,
+    lines: [{ description: "Employee cannot invoice", quantity: 1, unitPriceCents: 10_000 }],
+  });
+  assert.equal(denied.status, 403);
+});
+
+test("Member authority is revalidated on every call and fails closed after removal", async () => {
+  useMemberToken();
+  await AppDataSource.getRepository(Membership).delete({ id: member.id });
+  const response = await aiCall({
+    customerSlug: customer.slug,
+    lines: [{ description: "No longer a Member", quantity: 1, unitPriceCents: 10_000 }],
+  });
+  assert.equal(response.status, 403);
+  assert.match(response.body.error ?? "", /no longer has access/);
+  assert.equal(await AppDataSource.getRepository(Estimate).count(), 0);
+});
+
+test("a cross-company membership never satisfies interactive authority", async () => {
+  const otherCompany = await insert(Company, {
+    name: "Other Membership Co",
+    slug: "other-membership-co",
+    ownerId: "owner-2",
+  });
+  await AppDataSource.getRepository(Membership).update(
+    { id: member.id },
+    { companyId: otherCompany.id },
+  );
+  useMemberToken();
+  const response = await aiCall({
+    customerSlug: customer.slug,
+    lines: [{ description: "Cross-company", quantity: 1, unitPriceCents: 10_000 }],
+  });
+  assert.equal(response.status, 403);
+  assert.equal(await AppDataSource.getRepository(Estimate).count(), 0);
+});
+
+test("an unauthenticated chat token cannot call company tools", async () => {
+  if (token) revokeMcpToken(token);
+  token = issueMcpToken(employee.id, company.id);
+  const response = await aiCall({
+    customerSlug: customer.slug,
+    lines: [{ description: "Untrusted", quantity: 1, unitPriceCents: 10_000 }],
+  });
+  assert.equal(response.status, 403);
+  assert.match(response.body.error ?? "", /authenticated Genosyn Member/);
   assert.equal(await AppDataSource.getRepository(Estimate).count(), 0);
 });
 

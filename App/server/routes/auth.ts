@@ -7,7 +7,7 @@ import { User } from "../db/entities/User.js";
 import { Membership } from "../db/entities/Membership.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { validateBody } from "../middleware/validate.js";
-import { establishUserSession, requireAuth } from "../middleware/auth.js";
+import { establishUserSession, requireAuth, requireBrowserSession } from "../middleware/auth.js";
 import { sendEmail } from "../services/email.js";
 import { ensureUserHandle } from "../services/userHandle.js";
 import { areSignupsDisabled } from "../services/signupSettings.js";
@@ -20,10 +20,7 @@ import {
   replaceAvatarFile,
 } from "../services/avatars.js";
 import { config } from "../../config.js";
-import {
-  capturePublicUrlFromMasterAdminRequest,
-  getPublicUrl,
-} from "../services/publicUrl.js";
+import { capturePublicUrlFromMasterAdminRequest, getPublicUrl } from "../services/publicUrl.js";
 import { requireTwoFactorAfterPrimaryAuth } from "./twoFactor.js";
 import {
   assertAuthAllowed,
@@ -35,9 +32,13 @@ import {
 } from "../services/authThrottle.js";
 import {
   emailVerificationRequired,
+  claimBootstrapMasterAdminIfEligible,
   sendEmailVerification,
   verifyEmailToken,
 } from "../services/emailVerification.js";
+import { confirmEmailChangeToken, requestEmailChange } from "../services/emailChange.js";
+import { ApiKey } from "../db/entities/ApiKey.js";
+import { IsNull } from "typeorm";
 
 export const authRouter = Router();
 const BCRYPT_ROUNDS = 12;
@@ -73,26 +74,15 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
   const repo = AppDataSource.getRepository(User);
   const existing = await repo.findOneBy({ email: email.toLowerCase() });
   if (existing) return res.status(409).json({ error: "Email already registered" });
-  // The very first account on a fresh install becomes the instance master
-  // admin — the operator who stood the box up. Everyone after signs up as a
-  // normal user until an existing master admin promotes them from Admin → Users.
-  const isFirstUser = (await repo.count()) === 0;
-  if (
-    isFirstUser &&
-    config.security.multiTenant &&
-    email.trim().toLowerCase() !== config.security.bootstrapMasterAdminEmail.trim().toLowerCase()
-  ) {
-    return res.status(403).json({ error: "This email is not authorized to bootstrap the service" });
-  }
-  // Operators can turn off self-service sign-ups from Admin → Sign-ups. The
-  // first-user bootstrap is always allowed through so an install with no users
-  // can never lock itself out.
+  // Only the operator-declared address may claim an empty instance. It is
+  // created as an ordinary account here and promoted only after proving
+  // mailbox ownership through its single-use verification link.
   const bootstrapEmail = config.security.bootstrapMasterAdminEmail.trim().toLowerCase();
-  const isSaasBootstrap =
-    config.security.multiTenant &&
+  const isBootstrapCandidate =
+    Boolean(bootstrapEmail) &&
     email.trim().toLowerCase() === bootstrapEmail &&
     (await repo.count({ where: { isMasterAdmin: true } })) === 0;
-  if (!isFirstUser && !isSaasBootstrap && (await areSignupsDisabled())) {
+  if (!isBootstrapCandidate && (await areSignupsDisabled())) {
     return res.status(403).json({
       error: "Sign-ups are disabled on this instance. Ask an administrator for an invitation.",
     });
@@ -101,7 +91,7 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
     email: email.toLowerCase(),
     name,
     passwordHash: await bcrypt.hash(password, BCRYPT_ROUNDS),
-    isMasterAdmin: isFirstUser || isSaasBootstrap,
+    isMasterAdmin: false,
     resetToken: null,
     resetExpiresAt: null,
     emailVerifiedAt: null,
@@ -112,7 +102,6 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
   await repo.save(user);
   await ensureUserHandle(user);
   establishUserSession(req, user);
-  if (user.isMasterAdmin) await capturePublicUrlFromMasterAdminRequest(req);
   await sendEmailVerification(user);
   void sendEmail({
     to: user.email,
@@ -131,13 +120,16 @@ authRouter.post("/signup", validateBody(signupSchema), async (req, res) => {
 
 /**
  * Public probe for the sign-up page: is self-service registration open right
- * now? Open when sign-ups aren't disabled, or when the install has no users yet
- * (the first account must always be creatable to bootstrap the master admin).
- * Deliberately leaks no more than that boolean.
+ * now? When registration is closed, keep the form available only while the
+ * configured bootstrap operator has not claimed the instance. The POST still
+ * compares the exact email; this probe deliberately leaks no address.
  */
 authRouter.get("/signup-status", async (_req, res) => {
-  const userCount = await AppDataSource.getRepository(User).count();
-  const closed = userCount > 0 && (await areSignupsDisabled());
+  const hasMasterAdmin =
+    (await AppDataSource.getRepository(User).count({ where: { isMasterAdmin: true } })) > 0;
+  const bootstrapAvailable =
+    !hasMasterAdmin && Boolean(config.security.bootstrapMasterAdminEmail.trim());
+  const closed = (await areSignupsDisabled()) && !bootstrapAvailable;
   res.json({ open: !closed });
 });
 
@@ -160,13 +152,16 @@ authRouter.post("/login", validateBody(loginSchema), async (req, res) => {
     await recordAuthFailure(throttleKeys);
     return res.status(401).json({ error: "Invalid credentials" });
   }
+  await claimBootstrapMasterAdminIfEligible(user);
   await clearAuthFailures(throttleKeys);
-  if (user.isMasterAdmin) await capturePublicUrlFromMasterAdminRequest(req);
   const methods = await requireTwoFactorAfterPrimaryAuth(req, user);
   if (methods.enabled) {
     return res.json({ requiresTwoFactor: true, methods });
   }
   establishUserSession(req, user);
+  if (user.isMasterAdmin && user.emailVerifiedAt && !config.security.multiTenant) {
+    await capturePublicUrlFromMasterAdminRequest(req);
+  }
   res.json({
     id: user.id,
     email: user.email,
@@ -200,6 +195,7 @@ authRouter.post("/forgot", validateBody(forgotSchema), async (req, res) => {
       to: user.email,
       subject: "Reset your Genosyn password",
       text: `Reset link (valid 1 hour): ${link}`,
+      bodyPreview: "Password-reset link redacted. The link is valid for 1 hour.",
       purpose: "password_reset",
       triggeredByUserId: user.id,
     });
@@ -216,22 +212,42 @@ authRouter.post("/reset", validateBody(resetSchema), async (req, res) => {
   const { token, password } = req.body as z.infer<typeof resetSchema>;
   const throttleKeys = authThrottleKeys(req, "reset", token);
   if (!(await throttleAllowed(throttleKeys, res))) return;
-  const repo = AppDataSource.getRepository(User);
-  const user = await repo.findOneBy({ resetToken: hashOneTimeToken(token) });
-  if (!user || !user.resetExpiresAt || user.resetExpiresAt < new Date()) {
+  const tokenHash = hashOneTimeToken(token);
+  const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  const reset = await AppDataSource.transaction(async (manager) => {
+    const repo = manager.getRepository(User);
+    const user =
+      config.db.driver === "postgres"
+        ? await repo.findOne({
+            where: { resetToken: tokenHash },
+            lock: { mode: "pessimistic_write" },
+          })
+        : await repo.findOneBy({ resetToken: tokenHash });
+    if (!user || !user.resetExpiresAt || user.resetExpiresAt < new Date()) return false;
+    user.passwordHash = passwordHash;
+    user.resetToken = null;
+    user.resetExpiresAt = null;
+    user.sessionVersion += 1;
+    await repo.save(user);
+    // A recovery event is the point at which the account owner says existing
+    // credentials may be compromised. Revoke personal API keys together with
+    // every browser session instead of leaving bearer access alive.
+    await manager.update(
+      ApiKey,
+      { userId: user.id, revokedAt: IsNull() },
+      { revokedAt: new Date() },
+    );
+    return true;
+  });
+  if (!reset) {
     await recordAuthFailure(throttleKeys);
     return res.status(400).json({ error: "Invalid or expired token" });
   }
-  user.passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-  user.resetToken = null;
-  user.resetExpiresAt = null;
-  user.sessionVersion += 1;
-  await repo.save(user);
   await clearAuthFailures(throttleKeys);
   res.json({ ok: true });
 });
 
-authRouter.get("/me", requireAuth, async (req, res) => {
+authRouter.get("/me", requireAuth, requireBrowserSession, async (req, res) => {
   const u = req.user!;
   res.json({
     id: u.id,
@@ -251,7 +267,7 @@ authRouter.post("/verify-email", validateBody(verifyEmailSchema), async (req, re
   const { token } = req.body as z.infer<typeof verifyEmailSchema>;
   const throttleKeys = authThrottleKeys(req, "verify-email", token);
   if (!(await throttleAllowed(throttleKeys, res))) return;
-  const user = await verifyEmailToken(token);
+  const user = (await verifyEmailToken(token)) ?? (await confirmEmailChangeToken(token));
   if (!user) {
     await recordAuthFailure(throttleKeys);
     return res.status(400).json({ error: "Invalid or expired verification link" });
@@ -260,7 +276,7 @@ authRouter.post("/verify-email", validateBody(verifyEmailSchema), async (req, re
   res.json({ ok: true });
 });
 
-authRouter.post("/resend-verification", requireAuth, async (req, res) => {
+authRouter.post("/resend-verification", requireAuth, requireBrowserSession, async (req, res) => {
   const user = req.user!;
   if (user.emailVerifiedAt) return res.json({ ok: true });
   const throttleKeys = authThrottleKeys(req, "resend-verification", user.email);
@@ -277,7 +293,7 @@ authRouter.post("/resend-verification", requireAuth, async (req, res) => {
 // For peeking at *another* user's avatar, the company-scoped route on the
 // companies router handles authorization via `requireCompanyMember`.
 
-authRouter.get("/me/avatar", requireAuth, async (req, res) => {
+authRouter.get("/me/avatar", requireAuth, requireBrowserSession, async (req, res) => {
   const u = req.user!;
   if (!u.avatarKey) return res.status(404).json({ error: "Not found" });
   const abs = avatarAbsPath(u.avatarKey);
@@ -292,6 +308,7 @@ authRouter.get("/me/avatar", requireAuth, async (req, res) => {
 authRouter.post(
   "/me/avatar",
   requireAuth,
+  requireBrowserSession,
   avatarUploadMiddleware.single("file"),
   async (req, res) => {
     const file = (req as unknown as { file?: Express.Multer.File }).file;
@@ -305,7 +322,7 @@ authRouter.post(
   },
 );
 
-authRouter.delete("/me/avatar", requireAuth, async (req, res) => {
+authRouter.delete("/me/avatar", requireAuth, requireBrowserSession, async (req, res) => {
   const user = req.user!;
   const previous = user.avatarKey;
   user.avatarKey = null;
@@ -320,6 +337,7 @@ const updateMeSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
     email: z.string().email().optional(),
+    currentPassword: z.string().min(1).max(1000).optional(),
     // `null` → user explicitly wants to clear their handle;
     // undefined → leave it alone. Validation of the format below.
     handle: z.string().nullable().optional(),
@@ -328,91 +346,103 @@ const updateMeSchema = z
     message: "Nothing to update",
   });
 
-authRouter.patch("/me", requireAuth, validateBody(updateMeSchema), async (req, res) => {
-  const { name, email, handle } = req.body as z.infer<typeof updateMeSchema>;
-  const user = req.user!;
-  const repo = AppDataSource.getRepository(User);
-  if (typeof name === "string") user.name = name.trim();
-  if (typeof email === "string") {
-    const next = email.toLowerCase();
-    if (next !== user.email) {
-      const taken = await repo.findOneBy({ email: next });
-      if (taken && taken.id !== user.id) {
-        return res.status(409).json({ error: "Email already registered" });
-      }
-      user.email = next;
-      user.emailVerifiedAt = null;
-      user.emailVerificationTokenHash = null;
-      user.emailVerificationExpiresAt = null;
-    }
-  }
-  if (handle !== undefined) {
-    if (handle === null || handle.trim() === "") {
-      user.handle = null;
-    } else {
-      const next = handle.trim().toLowerCase();
-      if (!HANDLE_RE.test(next)) {
-        return res.status(400).json({
-          error:
-            "Handle must be 2–32 chars, lowercase letters/digits/hyphens, starting and ending with a letter or digit.",
-        });
-      }
-      if (next !== user.handle) {
-        const taken = await repo.findOneBy({ handle: next });
+authRouter.patch(
+  "/me",
+  requireAuth,
+  requireBrowserSession,
+  validateBody(updateMeSchema),
+  async (req, res) => {
+    const { name, email, handle, currentPassword } = req.body as z.infer<typeof updateMeSchema>;
+    const user = req.user!;
+    const repo = AppDataSource.getRepository(User);
+    let pendingEmail: string | null = null;
+    if (typeof name === "string") user.name = name.trim();
+    if (typeof email === "string") {
+      const next = email.toLowerCase();
+      if (next !== user.email) {
+        if (!currentPassword || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+          return res.status(403).json({ error: "Current password is required to change email" });
+        }
+        const taken = await repo.findOneBy({ email: next });
         if (taken && taken.id !== user.id) {
-          return res.status(409).json({ error: "Handle is already taken" });
+          return res.status(409).json({ error: "Email already registered" });
         }
-        // Also reject a handle that collides with an AI-employee slug in
-        // any company this user is a member of — otherwise `@next` in a
-        // workspace chat can't resolve uniquely.
-        const mems = await AppDataSource.getRepository(Membership).findBy({
-          userId: user.id,
-        });
-        if (mems.length > 0) {
-          const collision = await AppDataSource.getRepository(AIEmployee)
-            .createQueryBuilder("e")
-            .where("e.companyId IN (:...companyIds)", {
-              companyIds: mems.map((m) => m.companyId),
-            })
-            .andWhere("e.slug = :slug", { slug: next })
-            .getOne();
-          if (collision) {
-            return res.status(409).json({
-              error: `Handle conflicts with an AI employee named "${collision.name}" — pick something else.`,
-            });
-          }
-        }
-        user.handle = next;
+        pendingEmail = next;
       }
     }
-  }
-  await repo.save(user);
-  if (typeof email === "string" && !user.emailVerifiedAt) {
-    await sendEmailVerification(user);
-  }
-  res.json({
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    handle: user.handle ?? null,
-  });
-});
+    if (handle !== undefined) {
+      if (handle === null || handle.trim() === "") {
+        user.handle = null;
+      } else {
+        const next = handle.trim().toLowerCase();
+        if (!HANDLE_RE.test(next)) {
+          return res.status(400).json({
+            error:
+              "Handle must be 2–32 chars, lowercase letters/digits/hyphens, starting and ending with a letter or digit.",
+          });
+        }
+        if (next !== user.handle) {
+          const taken = await repo.findOneBy({ handle: next });
+          if (taken && taken.id !== user.id) {
+            return res.status(409).json({ error: "Handle is already taken" });
+          }
+          // Also reject a handle that collides with an AI-employee slug in
+          // any company this user is a member of — otherwise `@next` in a
+          // workspace chat can't resolve uniquely.
+          const mems = await AppDataSource.getRepository(Membership).findBy({
+            userId: user.id,
+          });
+          if (mems.length > 0) {
+            const collision = await AppDataSource.getRepository(AIEmployee)
+              .createQueryBuilder("e")
+              .where("e.companyId IN (:...companyIds)", {
+                companyIds: mems.map((m) => m.companyId),
+              })
+              .andWhere("e.slug = :slug", { slug: next })
+              .getOne();
+            if (collision) {
+              return res.status(409).json({
+                error: `Handle conflicts with an AI employee named "${collision.name}" — pick something else.`,
+              });
+            }
+          }
+          user.handle = next;
+        }
+      }
+    }
+    await repo.save(user);
+    if (pendingEmail) await requestEmailChange(user, pendingEmail);
+    res.json({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      handle: user.handle ?? null,
+      pendingEmail,
+    });
+  },
+);
 
 const passwordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(PASSWORD_MIN_LENGTH),
 });
 
-authRouter.post("/password", requireAuth, validateBody(passwordSchema), async (req, res) => {
-  const { currentPassword, newPassword } = req.body as z.infer<typeof passwordSchema>;
-  const user = req.user!;
-  const ok = await bcrypt.compare(currentPassword, user.passwordHash);
-  if (!ok) return res.status(400).json({ error: "Current password is incorrect" });
-  user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-  user.resetToken = null;
-  user.resetExpiresAt = null;
-  user.sessionVersion += 1;
-  await AppDataSource.getRepository(User).save(user);
-  establishUserSession(req, user);
-  res.json({ ok: true });
-});
+authRouter.post(
+  "/password",
+  requireAuth,
+  requireBrowserSession,
+  validateBody(passwordSchema),
+  async (req, res) => {
+    const { currentPassword, newPassword } = req.body as z.infer<typeof passwordSchema>;
+    const user = req.user!;
+    const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!ok) return res.status(400).json({ error: "Current password is incorrect" });
+    user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    user.resetToken = null;
+    user.resetExpiresAt = null;
+    user.sessionVersion += 1;
+    await AppDataSource.getRepository(User).save(user);
+    establishUserSession(req, user);
+    res.json({ ok: true });
+  },
+);

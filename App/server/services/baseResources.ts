@@ -67,11 +67,20 @@ export type ResourceOption = {
 export async function buildResourceOptionsFor(
   companyId: string,
   fields: BaseField[],
-  opts?: { maxPerKind?: number; projectViewer?: ProjectActor },
+  opts?: {
+    maxPerKind?: number;
+    projectViewer?: ProjectActor;
+    /** Every principal must be able to see a project (delegated authority). */
+    projectViewers?: ProjectActor[];
+    /** Resource families hidden by the caller's delegated company access. */
+    excludedKinds?: ResourceFieldType[];
+  },
 ): Promise<Record<string, ResourceOption[]>> {
   const kinds = new Set<ResourceFieldType>();
   for (const f of fields) {
-    if (isResourceFieldType(f.type)) kinds.add(f.type);
+    if (isResourceFieldType(f.type) && !(opts?.excludedKinds ?? []).includes(f.type)) {
+      kinds.add(f.type);
+    }
   }
   if (kinds.size === 0) return {};
 
@@ -115,9 +124,16 @@ export async function buildResourceOptionsFor(
         where: { companyId },
         order: { name: "ASC" },
       });
-      const visible = opts?.projectViewer
-        ? await listAccessibleProjectIds(companyId, opts.projectViewer)
-        : null;
+      const viewers = opts?.projectViewers ?? (opts?.projectViewer ? [opts.projectViewer] : []);
+      const visibleSets = await Promise.all(
+        viewers.map((viewer) => listAccessibleProjectIds(companyId, viewer)),
+      );
+      const visible =
+        visibleSets.length > 0
+          ? new Set(
+              [...visibleSets[0]].filter((id) => visibleSets.slice(1).every((set) => set.has(id))),
+            )
+          : null;
       return rows
         .filter((p) => !visible || visible.has(p.id))
         .map((p) => ({
@@ -218,6 +234,4 @@ export const RESOURCE_TYPE_LABELS: Record<ResourceFieldType, string> = {
 };
 
 /** BaseFieldType helper so route files can accept both flavours cleanly. */
-export const ALL_RESOURCE_FIELD_TYPES: BaseFieldType[] = [
-  ...RESOURCE_FIELD_TYPES,
-];
+export const ALL_RESOURCE_FIELD_TYPES: BaseFieldType[] = [...RESOURCE_FIELD_TYPES];

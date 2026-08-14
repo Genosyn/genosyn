@@ -8,6 +8,7 @@ type MutableConfig = {
     browserEnabledInMultiTenant: boolean;
     codingTools: {
       allowNetwork: boolean;
+      allowUnsafeHostExecution: boolean;
       executionMode: "host" | "bubblewrap" | "disabled";
     };
     maxConcurrentRunsPerCompany: number;
@@ -38,6 +39,8 @@ beforeEach(() => {
 afterEach(() => {
   mutable.agent.browserEnabledInMultiTenant = original.agent.browserEnabledInMultiTenant;
   mutable.agent.codingTools.allowNetwork = original.agent.codingTools.allowNetwork;
+  mutable.agent.codingTools.allowUnsafeHostExecution =
+    original.agent.codingTools.allowUnsafeHostExecution;
   mutable.agent.codingTools.executionMode = original.agent.codingTools.executionMode;
   mutable.agent.maxConcurrentRunsPerCompany = original.agent.maxConcurrentRunsPerCompany;
   mutable.db.driver = original.db.driver;
@@ -45,8 +48,7 @@ afterEach(() => {
   mutable.security.bootstrapMasterAdminEmail = original.security.bootstrapMasterAdminEmail;
   mutable.security.encryptionSecret = original.security.encryptionSecret;
   mutable.security.multiTenant = original.security.multiTenant;
-  mutable.security.outboundPrivateHostAllowlist =
-    original.security.outboundPrivateHostAllowlist;
+  mutable.security.outboundPrivateHostAllowlist = original.security.outboundPrivateHostAllowlist;
   mutable.security.secureCookies = original.security.secureCookies;
   mutable.security.sessionMaxAgeDays = original.security.sessionMaxAgeDays;
   mutable.security.trustedProxyHops = original.security.trustedProxyHops;
@@ -87,6 +89,9 @@ test("numeric runtime invariants fail before boot", () => {
 test("self-hosted defaults remain bootable", () => {
   mutable.security.multiTenant = false;
   assert.doesNotThrow(validateRuntimeSecurity);
+  assert.equal(config.agent.codingTools.executionMode, "disabled");
+  assert.equal(config.agent.codingTools.allowUnsafeHostExecution, false);
+  assert.equal(config.agent.codingTools.allowNetwork, false);
 });
 
 test("unsafe shared hosting reports every actionable boundary at once", () => {

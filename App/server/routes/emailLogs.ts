@@ -2,7 +2,7 @@ import { Router } from "express";
 import { Brackets } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import { requireAuth, requireCompanyMember, requireCompanyRole } from "../middleware/auth.js";
 
 /**
  * Read-only email-delivery log per company. Mounted under
@@ -17,6 +17,7 @@ import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 export const emailLogsRouter = Router({ mergeParams: true });
 emailLogsRouter.use(requireAuth);
 emailLogsRouter.use(requireCompanyMember);
+emailLogsRouter.use(requireCompanyRole("admin"));
 
 const PAGE_SIZE_DEFAULT = 50;
 const PAGE_SIZE_MAX = 200;
@@ -29,6 +30,11 @@ function parseInteger(v: unknown, def: number, max: number): number {
 }
 
 function serialize(row: EmailLog): Record<string, unknown> {
+  // Older releases persisted the full invitation URL. Never return a still-
+  // active bearer credential even when an old row predates write-time
+  // redaction; delivery metadata remains useful to owners/admins.
+  const bodyPreview =
+    row.purpose === "invitation" ? "Company invitation link redacted." : row.bodyPreview;
   return {
     id: row.id,
     companyId: row.companyId,
@@ -38,7 +44,7 @@ function serialize(row: EmailLog): Record<string, unknown> {
     toAddress: row.toAddress,
     fromAddress: row.fromAddress,
     subject: row.subject,
-    bodyPreview: row.bodyPreview,
+    bodyPreview,
     status: row.status,
     errorMessage: row.errorMessage,
     messageId: row.messageId,
@@ -71,11 +77,7 @@ emailLogsRouter.get("/", async (req, res) => {
     );
   }
   const total = await qb.clone().getCount();
-  const rows = await qb
-    .orderBy("log.createdAt", "DESC")
-    .skip(offset)
-    .take(limit)
-    .getMany();
+  const rows = await qb.orderBy("log.createdAt", "DESC").skip(offset).take(limit).getMany();
   res.json({
     total,
     limit,

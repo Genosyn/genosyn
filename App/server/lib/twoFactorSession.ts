@@ -9,6 +9,7 @@ export function beginTwoFactorLoginSession(req: Request, userId: string): void {
     twoFactorUserId: userId,
     twoFactorExpiresAt: Date.now() + LOGIN_TTL_MS,
     twoFactorAttempts: 0,
+    primaryAuthenticatedAt: Date.now(),
   };
 }
 
@@ -34,7 +35,12 @@ export function recordTwoFactorFailure(req: Request): boolean {
 }
 
 export function completeTwoFactorLogin(req: Request, userId: string, sessionVersion: number): void {
-  req.session = { userId, sessionVersion };
+  req.session = {
+    userId,
+    sessionVersion,
+    authenticatedAt: req.session?.primaryAuthenticatedAt ?? Date.now(),
+    secondFactorAt: Date.now(),
+  };
 }
 
 export function rememberWebAuthnChallenge(

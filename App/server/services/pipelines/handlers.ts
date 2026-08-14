@@ -254,7 +254,9 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
     });
     if (!emp) throw new Error(`Employee "${employeeSlug}" not found`);
     ctx.log(`asking ${emp.slug}: ${truncate(message, 120)}`);
-    const result = await chatWithEmployee(ctx.companyId, emp.id, message, []);
+    const result = await chatWithEmployee(ctx.companyId, emp.id, message, [], {
+      toolAuthority: "employee",
+    });
     ctx.log(`reply (${result.status}): ${truncate(result.reply, 200)}`);
     return {
       outputs: { reply: result.reply, status: result.status, employeeId: emp.id },

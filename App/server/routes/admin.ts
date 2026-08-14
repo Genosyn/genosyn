@@ -8,35 +8,14 @@ import { Company } from "../db/entities/Company.js";
 import { User } from "../db/entities/User.js";
 import { getInstanceHealthReport } from "../services/instanceHealth.js";
 import { getMigrationReport } from "../services/adminMigrations.js";
-import {
-  AdminQueryError,
-  getDbSchema,
-  runAdminQuery,
-} from "../services/adminDbConsole.js";
-import {
-  listAdminCompanies,
-  listAdminUsers,
-} from "../services/adminDirectory.js";
-import {
-  getSignupSettings,
-  setSignupsDisabled,
-} from "../services/signupSettings.js";
-import {
-  clearSsoSettings,
-  describeSso,
-  updateSsoSettings,
-} from "../services/ssoSettings.js";
+import { AdminQueryError, getDbSchema, runAdminQuery } from "../services/adminDbConsole.js";
+import { listAdminCompanies, listAdminUsers } from "../services/adminDirectory.js";
+import { getSignupSettings, setSignupsDisabled } from "../services/signupSettings.js";
+import { clearSsoSettings, describeSso, updateSsoSettings } from "../services/ssoSettings.js";
 import { discoverOidcEndpoints, SsoLoginError } from "../services/ssoLogin.js";
-import {
-  deleteUserCascade,
-  UserOwnsCompaniesError,
-} from "../services/userDelete.js";
+import { deleteUserCascade, UserOwnsCompaniesError } from "../services/userDelete.js";
 import { deleteCompanyCascade } from "../services/companyDelete.js";
-import {
-  avatarAbsPath,
-  mimeFromKey,
-  removeAvatarFile,
-} from "../services/avatars.js";
+import { avatarAbsPath, mimeFromKey, removeAvatarFile } from "../services/avatars.js";
 import { sendGlobalSmtpTest } from "../services/email.js";
 import {
   clearGlobalSmtpOverride,
@@ -44,10 +23,7 @@ import {
   resolveGlobalSmtpDraft,
   updateGlobalSmtpOverride,
 } from "../services/globalEmailTransport.js";
-import {
-  getPublicUrlSettings,
-  setPublicUrl,
-} from "../services/publicUrl.js";
+import { getPublicUrlSettings, setPublicUrl } from "../services/publicUrl.js";
 
 /**
  * Instance-wide admin endpoints. Not company-scoped — these describe and manage
@@ -56,10 +32,11 @@ import {
  *
  * Auth is `requireAuth` + `requireMasterAdmin`: the Admin section is the
  * operator surface, gated to users carrying the instance-level `isMasterAdmin`
- * flag. The first account created on an install is bootstrapped as a master
- * admin; existing master admins promote others from `PATCH /users/:id/master-admin`
- * below. The destructive routes here (delete user / delete company) and the
- * companion backup-restore route are all held to the same master-admin bar.
+ * flag. The configured bootstrap address receives that flag only after email
+ * verification; existing master admins promote others from
+ * `PATCH /users/:id/master-admin` below. The destructive routes here (delete
+ * user / delete company) and the companion backup-restore route are all held
+ * to the same verified master-admin bar.
  */
 export const adminRouter = Router();
 adminRouter.use(requireAuth);
@@ -154,9 +131,7 @@ adminRouter.post("/db/query", validateBody(dbQuerySchema), async (req, res) => {
     if (err instanceof AdminQueryError) {
       return res.status(400).json({ error: err.message, code: err.code });
     }
-    return res
-      .status(400)
-      .json({ error: err instanceof Error ? err.message : String(err) });
+    return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -184,29 +159,24 @@ const smtpFields = {
 
 const saveSchema = z.object(smtpFields);
 
-adminRouter.put(
-  "/email-transport",
-  validateBody(saveSchema),
-  async (req, res, next) => {
-    const body = req.body as z.infer<typeof saveSchema>;
-    // The write is the only fallible-by-user step: a bad payload returns 400.
-    try {
-      await updateGlobalSmtpOverride(body);
-    } catch (err) {
-      return res.status(400).json({
-        error:
-          err instanceof Error ? err.message : "Failed to save email transport",
-      });
-    }
-    // The save already succeeded — a failure re-reading state to build the
-    // response is a server error (500 via next), not a "save failed" 400.
-    try {
-      res.json(await describeGlobalSmtp());
-    } catch (err) {
-      next(err);
-    }
-  },
-);
+adminRouter.put("/email-transport", validateBody(saveSchema), async (req, res, next) => {
+  const body = req.body as z.infer<typeof saveSchema>;
+  // The write is the only fallible-by-user step: a bad payload returns 400.
+  try {
+    await updateGlobalSmtpOverride(body);
+  } catch (err) {
+    return res.status(400).json({
+      error: err instanceof Error ? err.message : "Failed to save email transport",
+    });
+  }
+  // The save already succeeded — a failure re-reading state to build the
+  // response is a server error (500 via next), not a "save failed" 400.
+  try {
+    res.json(await describeGlobalSmtp());
+  } catch (err) {
+    next(err);
+  }
+});
 
 adminRouter.delete("/email-transport", async (_req, res, next) => {
   try {
@@ -219,48 +189,40 @@ adminRouter.delete("/email-transport", async (_req, res, next) => {
 
 const testSchema = z.object({ ...smtpFields, to: z.string().email() });
 
-adminRouter.post(
-  "/email-transport/test",
-  validateBody(testSchema),
-  async (req, res) => {
-    const body = req.body as z.infer<typeof testSchema>;
-    try {
-      const settings = await resolveGlobalSmtpDraft(body);
-      if (!settings.host) {
-        return res
-          .status(400)
-          .json({ ok: false, error: "SMTP host is required" });
-      }
-      const result = await sendGlobalSmtpTest({
-        settings,
-        to: body.to,
-        triggeredByUserId: req.userId ?? null,
-      });
-      if (result.status === "sent") {
-        res.json({
-          ok: true,
-          logId: result.logId,
-          messageId: result.messageId,
-        });
-      } else {
-        res
-          .status(400)
-          .json({ ok: false, error: result.errorMessage, logId: result.logId });
-      }
-    } catch (err) {
-      res.status(400).json({
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
+adminRouter.post("/email-transport/test", validateBody(testSchema), async (req, res) => {
+  const body = req.body as z.infer<typeof testSchema>;
+  try {
+    const settings = await resolveGlobalSmtpDraft(body);
+    if (!settings.host) {
+      return res.status(400).json({ ok: false, error: "SMTP host is required" });
     }
-  },
-);
+    const result = await sendGlobalSmtpTest({
+      settings,
+      to: body.to,
+      triggeredByUserId: req.userId ?? null,
+    });
+    if (result.status === "sent") {
+      res.json({
+        ok: true,
+        logId: result.logId,
+        messageId: result.messageId,
+      });
+    } else {
+      res.status(400).json({ ok: false, error: result.errorMessage, logId: result.logId });
+    }
+  } catch (err) {
+    res.status(400).json({
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
 
 // ─────────────────────────── sign-up policy ────────────────────────────────
 //
 // Instance-wide toggle for self-service registration. When disabled, the public
-// signup endpoint refuses everyone but the first-user bootstrap; existing
-// members and invited users are unaffected.
+// signup endpoint refuses everyone but the configured, still-unclaimed
+// bootstrap address; existing members and invited users are unaffected.
 
 adminRouter.get("/signup-settings", async (_req, res, next) => {
   try {
@@ -272,20 +234,14 @@ adminRouter.get("/signup-settings", async (_req, res, next) => {
 
 const signupSettingsSchema = z.object({ signupsDisabled: z.boolean() });
 
-adminRouter.put(
-  "/signup-settings",
-  validateBody(signupSettingsSchema),
-  async (req, res, next) => {
-    try {
-      const { signupsDisabled } = req.body as z.infer<
-        typeof signupSettingsSchema
-      >;
-      res.json(await setSignupsDisabled(signupsDisabled));
-    } catch (err) {
-      next(err);
-    }
-  },
-);
+adminRouter.put("/signup-settings", validateBody(signupSettingsSchema), async (req, res, next) => {
+  try {
+    const { signupsDisabled } = req.body as z.infer<typeof signupSettingsSchema>;
+    res.json(await setSignupsDisabled(signupsDisabled));
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ───────────────────────────── SSO sign-in ─────────────────────────────────
 //
@@ -342,22 +298,18 @@ const ssoTestSchema = z.object({ issuer: z.string().min(1).max(500) });
  * it — reports the endpoints found, or the reason the issuer can't be used.
  * No credentials are involved, so this is safe to run against a draft.
  */
-adminRouter.post(
-  "/sso/test",
-  validateBody(ssoTestSchema),
-  async (req, res, next) => {
-    const { issuer } = req.body as z.infer<typeof ssoTestSchema>;
-    try {
-      const endpoints = await discoverOidcEndpoints(issuer);
-      res.json({ ok: true, ...endpoints });
-    } catch (err) {
-      if (err instanceof SsoLoginError) {
-        return res.status(400).json({ ok: false, error: err.message });
-      }
-      next(err);
+adminRouter.post("/sso/test", validateBody(ssoTestSchema), async (req, res, next) => {
+  const { issuer } = req.body as z.infer<typeof ssoTestSchema>;
+  try {
+    const endpoints = await discoverOidcEndpoints(issuer);
+    res.json({ ok: true, ...endpoints });
+  } catch (err) {
+    if (err instanceof SsoLoginError) {
+      return res.status(400).json({ ok: false, error: err.message });
     }
-  },
-);
+    next(err);
+  }
+});
 
 // ──────────────────────────────── Users ────────────────────────────────────
 
@@ -381,16 +333,13 @@ adminRouter.get("/users", async (_req, res, next) => {
 adminRouter.get("/users/:id/avatar", async (req, res, next) => {
   try {
     const parsed = idParam.safeParse(req.params);
-    if (!parsed.success)
-      return res.status(400).json({ error: "Invalid user id" });
+    if (!parsed.success) return res.status(400).json({ error: "Invalid user id" });
     const user = await AppDataSource.getRepository(User).findOneBy({
       id: parsed.data.id,
     });
-    if (!user || !user.avatarKey)
-      return res.status(404).json({ error: "Not found" });
+    if (!user || !user.avatarKey) return res.status(404).json({ error: "Not found" });
     const abs = avatarAbsPath(user.avatarKey);
-    if (!abs || !fs.existsSync(abs))
-      return res.status(404).json({ error: "Not found" });
+    if (!abs || !fs.existsSync(abs)) return res.status(404).json({ error: "Not found" });
     res.setHeader("Content-Type", mimeFromKey(user.avatarKey));
     res.setHeader("Cache-Control", "private, max-age=60");
     res.sendFile(abs);
@@ -410,17 +359,14 @@ adminRouter.get("/users/:id/avatar", async (req, res, next) => {
 adminRouter.delete("/users/:id", async (req, res, next) => {
   try {
     const parsed = idParam.safeParse(req.params);
-    if (!parsed.success)
-      return res.status(400).json({ error: "Invalid user id" });
+    if (!parsed.success) return res.status(400).json({ error: "Invalid user id" });
     const { id } = parsed.data;
 
     // Compare case-insensitively: zod's uuid() accepts an uppercased id, and on
     // Postgres a uuid comparison is case-insensitive, so a naive `===` could let
     // a caller slip past this guard and delete their own account.
     if (req.userId && id.toLowerCase() === req.userId.toLowerCase()) {
-      return res
-        .status(400)
-        .json({ error: "You can't delete your own account here." });
+      return res.status(400).json({ error: "You can't delete your own account here." });
     }
 
     const user = await AppDataSource.getRepository(User).findOneBy({ id });
@@ -435,8 +381,7 @@ adminRouter.delete("/users/:id", async (req, res, next) => {
   } catch (err) {
     if (err instanceof UserOwnsCompaniesError) {
       return res.status(409).json({
-        error:
-          "This user owns one or more companies. Reassign or delete them first.",
+        error: "This user owns one or more companies. Reassign or delete them first.",
         companies: err.companies,
       });
     }
@@ -459,26 +404,25 @@ adminRouter.patch(
   async (req, res, next) => {
     try {
       const parsed = idParam.safeParse(req.params);
-      if (!parsed.success)
-        return res.status(400).json({ error: "Invalid user id" });
+      if (!parsed.success) return res.status(400).json({ error: "Invalid user id" });
       const { id } = parsed.data;
       const { isMasterAdmin } = req.body as z.infer<typeof masterAdminSchema>;
 
       // Case-insensitive compare, same rationale as the delete guard: an
       // uppercased uuid must not slip past and let you demote yourself.
-      if (
-        !isMasterAdmin &&
-        req.userId &&
-        id.toLowerCase() === req.userId.toLowerCase()
-      ) {
-        return res
-          .status(400)
-          .json({ error: "You can't remove your own master admin access." });
+      if (!isMasterAdmin && req.userId && id.toLowerCase() === req.userId.toLowerCase()) {
+        return res.status(400).json({ error: "You can't remove your own master admin access." });
       }
 
       const repo = AppDataSource.getRepository(User);
       const user = await repo.findOneBy({ id });
       if (!user) return res.status(404).json({ error: "Not found" });
+      if (isMasterAdmin && !user.emailVerifiedAt) {
+        return res.status(409).json({
+          error: "The account must verify its email before becoming a master admin.",
+        });
+      }
+      if (user.isMasterAdmin !== isMasterAdmin) user.sessionVersion += 1;
       user.isMasterAdmin = isMasterAdmin;
       await repo.save(user);
       res.json({ id: user.id, isMasterAdmin: user.isMasterAdmin });
@@ -508,8 +452,7 @@ adminRouter.get("/companies", async (_req, res, next) => {
 adminRouter.delete("/companies/:id", async (req, res, next) => {
   try {
     const parsed = idParam.safeParse(req.params);
-    if (!parsed.success)
-      return res.status(400).json({ error: "Invalid company id" });
+    if (!parsed.success) return res.status(400).json({ error: "Invalid company id" });
     const co = await AppDataSource.getRepository(Company).findOneBy({
       id: parsed.data.id,
     });

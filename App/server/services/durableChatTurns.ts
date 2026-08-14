@@ -6,10 +6,9 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Attachment } from "../db/entities/Attachment.js";
 import { Conversation } from "../db/entities/Conversation.js";
-import {
-  ConversationMessage,
-  type MessageAction,
-} from "../db/entities/ConversationMessage.js";
+import { ConversationMessage, type MessageAction } from "../db/entities/ConversationMessage.js";
+import { Membership } from "../db/entities/Membership.js";
+import { User } from "../db/entities/User.js";
 import type { AgentProgress } from "./agent/types.js";
 import {
   CHAT_HARD_TIMEOUT_MS,
@@ -18,16 +17,10 @@ import {
   streamChatWithEmployee,
 } from "./chat.js";
 import { createChatTurnProgressRecorder } from "./chatTurnProgress.js";
-import {
-  historicalAttachmentSummaries,
-  inlineAttachmentsForMessage,
-} from "./attachmentText.js";
-import { captureTurnActions } from "./turnActions.js";
+import { historicalAttachmentSummaries, inlineAttachmentsForMessage } from "./attachmentText.js";
+import { captureTurnActionsForAuthority } from "./turnActions.js";
 import { bindAttachmentsToMessage } from "./uploads.js";
-import {
-  EmployeeWorkloadBusyError,
-  WorkloadLimitError,
-} from "./workloadLeases.js";
+import { EmployeeWorkloadBusyError, WorkloadLimitError } from "./workloadLeases.js";
 
 const MAX_REPLAY_TURNS = 20;
 const TURN_LEASE_MS = 15_000;
@@ -77,6 +70,10 @@ export async function enqueueDurableChatTurn(args: {
   message: string;
   attachmentIds: string[];
   modelId?: string | null;
+  /** Authenticated Member who submitted this browser chat turn. */
+  requesterUserId: string;
+  /** Auth epoch carried by the browser session that submitted this turn. */
+  requesterSessionVersion: number;
 }): Promise<{
   conversation: Conversation;
   userMessage: ConversationMessage;
@@ -86,11 +83,22 @@ export async function enqueueDurableChatTurn(args: {
   return AppDataSource.transaction(async (manager) => {
     const conversationRepo = manager.getRepository(Conversation);
     const messageRepo = manager.getRepository(ConversationMessage);
-    const conversation = await conversationRepo.findOneBy({
-      id: args.conversationId,
-      employeeId: args.employeeId,
-    });
+    const [conversation, requester, membership] = await Promise.all([
+      conversationRepo.findOneBy({
+        id: args.conversationId,
+        employeeId: args.employeeId,
+        ownerUserId: args.requesterUserId,
+      }),
+      manager.getRepository(User).findOneBy({ id: args.requesterUserId }),
+      manager.getRepository(Membership).findOneBy({
+        companyId: args.companyId,
+        userId: args.requesterUserId,
+      }),
+    ]);
     if (!conversation) throw new Error("Conversation not found");
+    if (!requester || requester.sessionVersion !== args.requesterSessionVersion || !membership) {
+      throw new Error("Member authority changed before the turn was accepted");
+    }
 
     const userMessage = await messageRepo.save(
       messageRepo.create({
@@ -124,6 +132,8 @@ export async function enqueueDurableChatTurn(args: {
         progressLabel: "Starting work",
         modelId: args.modelId ?? null,
         turnUserMessageId: userMessage.id,
+        turnRequesterUserId: args.requesterUserId,
+        turnRequesterSessionVersion: args.requesterSessionVersion,
         turnWorkerId: null,
         turnLeaseExpiresAt: null,
         turnAttempt: 0,
@@ -163,10 +173,7 @@ export async function claimDurableChatTurn(
     .where("id = :messageId", { messageId })
     .andWhere("role = :role", { role: "assistant" })
     .andWhere("status = :status", { status: "working" })
-    .andWhere(
-      '("turnLeaseExpiresAt" IS NULL OR "turnLeaseExpiresAt" <= :now)',
-      { now },
-    )
+    .andWhere('("turnLeaseExpiresAt" IS NULL OR "turnLeaseExpiresAt" <= :now)', { now })
     .execute();
   if (claimed.affected !== 1) return null;
 
@@ -291,6 +298,14 @@ export async function executeDurableChatTurn(
 
     let result: ChatResult;
     try {
+      const requesterAuthority =
+        claimedMessage.turnRequesterUserId !== null &&
+        claimedMessage.turnRequesterSessionVersion !== null
+          ? {
+              requesterUserId: claimedMessage.turnRequesterUserId,
+              requesterSessionVersion: claimedMessage.turnRequesterSessionVersion,
+            }
+          : { toolAuthority: "untrusted" as const };
       result = await streamChatWithEmployee(
         context.employee.companyId,
         context.employee.id,
@@ -307,6 +322,7 @@ export async function executeDurableChatTurn(
           conversationId: context.conversation.id,
           modelId: claimedMessage.modelId,
           surface: context.conversation.source === "help" ? "help" : "chat",
+          ...requesterAuthority,
           onProgress: progressRecorder.report,
           workloadKey: claimedMessage.id,
           throwOnWorkloadUnavailable: true,
@@ -316,10 +332,7 @@ export async function executeDurableChatTurn(
       );
     } catch (error) {
       if (lostClaim) return "claimed_elsewhere";
-      if (
-        error instanceof WorkloadLimitError ||
-        error instanceof EmployeeWorkloadBusyError
-      ) {
+      if (error instanceof WorkloadLimitError || error instanceof EmployeeWorkloadBusyError) {
         await progressRecorder.flush();
         const label = "Waiting for AI workload capacity";
         const deferred = await messageRepo.update(
@@ -357,11 +370,12 @@ export async function executeDurableChatTurn(
 
     let actions: MessageAction[] = [];
     try {
-      actions = await captureTurnActions(
-        context.employee.companyId,
-        context.employee.id,
-        new Date(claimedMessage.createdAt.getTime() - 10),
-      );
+      actions = await captureTurnActionsForAuthority({
+        companyId: context.employee.companyId,
+        employeeId: context.employee.id,
+        since: new Date(claimedMessage.createdAt.getTime() - 10),
+        authority: "member",
+      });
     } catch (error) {
       // The reply remains valuable if the auxiliary action-pill projection
       // fails; log it instead of converting completed work into an error.
@@ -437,6 +451,13 @@ async function loadTurnContext(
     id: assistantMessage.conversationId,
   });
   if (!conversation) return null;
+  if (
+    !assistantMessage.turnRequesterUserId ||
+    typeof assistantMessage.turnRequesterSessionVersion !== "number" ||
+    conversation.ownerUserId !== assistantMessage.turnRequesterUserId
+  ) {
+    return null;
+  }
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
     id: conversation.employeeId,
   });
@@ -457,8 +478,7 @@ async function loadTurnContext(
       order: { createdAt: "DESC" },
     });
     userMessage =
-      candidates.find((candidate) => candidate.createdAt <= assistantMessage.createdAt) ??
-      null;
+      candidates.find((candidate) => candidate.createdAt <= assistantMessage.createdAt) ?? null;
     if (userMessage) {
       assistantMessage.turnUserMessageId = userMessage.id;
       await AppDataSource.getRepository(ConversationMessage).update(
@@ -485,9 +505,7 @@ async function buildTurnPrompt(args: {
     where: { conversationId: args.conversation.id },
     order: { createdAt: "ASC" },
   });
-  const userIndex = allMessages.findIndex(
-    (message) => message.id === args.userMessage.id,
-  );
+  const userIndex = allMessages.findIndex((message) => message.id === args.userMessage.id);
   const prior = (userIndex >= 0 ? allMessages.slice(0, userIndex) : allMessages)
     .filter((message) => message.status !== "working")
     .slice(-MAX_REPLAY_TURNS);
@@ -502,10 +520,7 @@ async function buildTurnPrompt(args: {
     };
   });
 
-  const attachmentBlock = await inlineAttachmentsForMessage(
-    args.userMessage.id,
-    args.companyId,
-  );
+  const attachmentBlock = await inlineAttachmentsForMessage(args.userMessage.id, args.companyId);
   let prompt = attachmentBlock
     ? args.userMessage.content.trim()
       ? `${args.userMessage.content}\n\n${attachmentBlock}`
@@ -515,11 +530,12 @@ async function buildTurnPrompt(args: {
   if (args.attempt > 1) {
     let recordedActions: MessageAction[] = [];
     try {
-      recordedActions = await captureTurnActions(
-        args.companyId,
-        args.conversation.employeeId,
-        new Date(args.assistantMessage.createdAt.getTime() - 10),
-      );
+      recordedActions = await captureTurnActionsForAuthority({
+        companyId: args.companyId,
+        employeeId: args.conversation.employeeId,
+        since: new Date(args.assistantMessage.createdAt.getTime() - 10),
+        authority: "member",
+      });
     } catch {
       recordedActions = [];
     }
@@ -527,10 +543,7 @@ async function buildTurnPrompt(args: {
       recordedActions.length > 0
         ? recordedActions
             .slice(-20)
-            .map(
-              (action) =>
-                `- ${action.action}: ${action.targetLabel || action.targetType}`,
-            )
+            .map((action) => `- ${action.action}: ${action.targetLabel || action.targetType}`)
             .join("\n")
         : "- No completed database mutations were recorded.";
     prompt += [
@@ -554,8 +567,7 @@ async function finalizeInfrastructureError(
   detail: string,
   callbacks: DurableChatTurnCallbacks,
 ): Promise<DurableChatTurnOutcome> {
-  const cleanDetail =
-    detail.replace(/\s+/g, " ").trim().slice(0, 1_000) || "Unknown server error";
+  const cleanDetail = detail.replace(/\s+/g, " ").trim().slice(0, 1_000) || "Unknown server error";
   const content = [
     "Genosyn couldn’t complete this chat turn.",
     "",

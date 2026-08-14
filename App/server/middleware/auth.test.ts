@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { matchesRoutePath, roleAtLeast } from "./auth.js";
+import { companyIdFromApiPath, matchesRoutePath, roleAtLeast } from "./auth.js";
 
 test("company role hierarchy is monotonic", () => {
   assert.equal(roleAtLeast("member", "member"), true);
@@ -8,6 +8,17 @@ test("company role hierarchy is monotonic", () => {
   assert.equal(roleAtLeast("admin", "owner"), true);
   assert.equal(roleAtLeast("admin", "member"), false);
   assert.equal(roleAtLeast("owner", "admin"), false);
+});
+
+test("company API-key paths are recognized narrowly and safely", () => {
+  assert.equal(companyIdFromApiPath("/api/companies/company-id"), "company-id");
+  assert.equal(companyIdFromApiPath("/api/companies/company-id/routines?limit=10"), "company-id");
+  assert.equal(companyIdFromApiPath("/api/companies/company%20id/audit"), "company id");
+  assert.equal(companyIdFromApiPath("/api/companies"), null);
+  assert.equal(companyIdFromApiPath("/api/companies/"), null);
+  assert.equal(companyIdFromApiPath("/api/auth/me"), null);
+  assert.equal(companyIdFromApiPath("/api/admin"), null);
+  assert.equal(companyIdFromApiPath("/api/companies/%ZZ/audit"), null);
 });
 
 test("router guards match only their owned company paths", () => {

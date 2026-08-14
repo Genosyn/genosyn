@@ -13,6 +13,7 @@ import { In, IsNull } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
+import { User } from "../db/entities/User.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { Skill } from "../db/entities/Skill.js";
@@ -27,6 +28,7 @@ import { registerRoutine } from "../services/cron.js";
 import { recordAudit } from "../services/audit.js";
 import {
   resolveMcpToken,
+  revokeMcpToken,
   stageAttachmentForToken,
   stageSidecarForToken,
 } from "../services/mcpTokens.js";
@@ -40,9 +42,16 @@ import {
 import { recordAttachmentBytes } from "../services/uploads.js";
 import { resolveAttachmentFile } from "../services/uploads.js";
 import { Attachment } from "../db/entities/Attachment.js";
+import { Conversation } from "../db/entities/Conversation.js";
+import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup } from "pdf-lib";
 import { Approval } from "../db/entities/Approval.js";
-import { createBrowserActionApproval } from "../services/approvals.js";
+import {
+  browserApprovalWasExecuted,
+  claimApprovedBrowserAction,
+  completeClaimedBrowserAction,
+  createBrowserActionApproval,
+} from "../services/approvals.js";
 import { createNotification } from "../services/notifications.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { validateParentTodo } from "./projects.js";
@@ -114,10 +123,10 @@ import {
   listChannelsForEmployee,
   postMessage,
   renameChannel,
+  userHasChannelAccess,
 } from "../services/workspaceChat.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
-import { User } from "../db/entities/User.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Team } from "../db/entities/Team.js";
 import { Handoff, type HandoffStatus } from "../db/entities/Handoff.js";
@@ -468,6 +477,7 @@ import {
   upsertDashboardGrant,
 } from "../services/explore.js";
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
+import { memberInternalCallbackPolicy, memberToolPolicy } from "../services/memberToolAuthority.js";
 
 /**
  * Internal HTTP surface for the built-in `genosyn` tools.
@@ -495,6 +505,10 @@ type McpRequest = Request & {
    * provenance on the rows they write read these. */
   mcpRunId?: string | null;
   mcpRoutineId?: string | null;
+  mcpAuthority?: "employee" | "member" | "untrusted";
+  mcpRequesterUserId?: string | null;
+  /** Re-read for every tool call so removal/demotion takes effect immediately. */
+  mcpRequesterMembership?: Membership;
 };
 
 async function requireMcpToken(req: McpRequest, res: Response, next: NextFunction) {
@@ -504,9 +518,18 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   if (!token) return res.status(401).json({ error: "Missing bearer token" });
   const info = resolveMcpToken(token);
   if (!info) return res.status(401).json({ error: "Invalid or expired token" });
-  const [emp, co] = await Promise.all([
+  const [emp, co, requesterMembership, requesterUser] = await Promise.all([
     AppDataSource.getRepository(AIEmployee).findOneBy({ id: info.employeeId }),
     AppDataSource.getRepository(Company).findOneBy({ id: info.companyId }),
+    info.authority === "member" && info.requesterUserId
+      ? AppDataSource.getRepository(Membership).findOneBy({
+          companyId: info.companyId,
+          userId: info.requesterUserId,
+        })
+      : Promise.resolve(null),
+    info.authority === "member" && info.requesterUserId
+      ? AppDataSource.getRepository(User).findOneBy({ id: info.requesterUserId })
+      : Promise.resolve(null),
   ]);
   if (!emp || !co || emp.companyId !== co.id) {
     return res.status(401).json({ error: "Token resolves to a stale actor" });
@@ -516,10 +539,83 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   req.mcpToken = token;
   req.mcpRunId = info.runId;
   req.mcpRoutineId = info.routineId;
+  req.mcpAuthority = info.authority;
+  req.mcpRequesterUserId = info.requesterUserId;
+  if (info.authority === "member") {
+    if (!requesterUser || requesterUser.sessionVersion !== info.requesterSessionVersion) {
+      revokeMcpToken(token);
+      return res.status(403).json({
+        error:
+          "The requesting Member's authentication changed. Start a new turn after signing in again.",
+      });
+    }
+    if (!requesterMembership) {
+      revokeMcpToken(token);
+      return res.status(403).json({
+        error: "The requesting Member no longer has access to this company.",
+      });
+    }
+    req.mcpRequesterMembership = requesterMembership;
+  }
   next();
 }
 
 mcpInternalRouter.use(requireMcpToken);
+
+/**
+ * Company tools are never ambient authority. Unknown chat surfaces carry an
+ * untrusted token and receive no company data. Interactive Member turns are
+ * checked against their live membership here before the employee-specific
+ * Grants in each handler run; administrative configuration and external
+ * Connections stay owner/admin-only just like their browser routes.
+ */
+function requireDelegatedToolAuthority(
+  req: McpRequest,
+  res: Response,
+  next: NextFunction,
+): void | Response {
+  if (req.path === "/manifest") return next();
+  if (req.mcpAuthority === "untrusted") {
+    return res.status(403).json({
+      error: "Company tools require an authenticated Genosyn Member or trusted automation.",
+    });
+  }
+  if (req.mcpAuthority !== "member") return next();
+
+  const membership = req.mcpRequesterMembership;
+  if (!membership) return res.status(403).json({ error: "Member authority is unavailable." });
+  const administrative = membership.role === "owner" || membership.role === "admin";
+  if (req.path.startsWith("/integrations/") && !administrative) {
+    return res.status(403).json({
+      error: "An owner or admin must delegate access to external Connections.",
+    });
+  }
+  const toolName = /^\/tools\/([^/]+)/.exec(req.path)?.[1];
+  if (!toolName) return next();
+  const policy = memberToolPolicy(toolName) ?? memberInternalCallbackPolicy(toolName);
+  if (!policy) {
+    return res.status(403).json({
+      error: "This company tool has not been approved for interactive Member delegation.",
+    });
+  }
+  if (policy === "admin" && !administrative) {
+    return res.status(403).json({
+      error: "An owner or admin must delegate this company tool.",
+    });
+  }
+  const financeAccess = administrative ? "full" : membership.financeAccess;
+  if (policy === "finance.read" && financeAccess === "none") {
+    return res.status(403).json({ error: "The requesting Member has no Finance access." });
+  }
+  if (policy === "finance.write" && financeAccess !== "full") {
+    return res.status(403).json({
+      error: "The requesting Member does not have full Finance access.",
+    });
+  }
+  return next();
+}
+
+mcpInternalRouter.use(requireDelegatedToolAuthority);
 
 // ----- Tool manifest -----
 
@@ -673,9 +769,32 @@ async function employeeFinanceAccessLevel(req: McpRequest): Promise<FinanceAcces
     employeeId: req.mcpEmployee!.id,
     companyId: req.mcpCompany!.id,
   });
-  return grant && typeof FINANCE_ACCESS_RANK[grant.accessLevel] === "number"
-    ? grant.accessLevel
-    : null;
+  const employeeLevel =
+    grant && typeof FINANCE_ACCESS_RANK[grant.accessLevel] === "number" ? grant.accessLevel : null;
+  if (!employeeLevel || req.mcpAuthority !== "member") return employeeLevel;
+
+  // Interactive authority is the lower of the Member's current Finance
+  // access and the AI Employee's Finance Grant. Owners/admins have the same
+  // full human access as the browser Finance routes. A read-only Member can
+  // never turn an employee's invoice/full Grant into write authority.
+  const membership = req.mcpRequesterMembership;
+  if (!membership) return null;
+  if (membership.role === "owner" || membership.role === "admin") return employeeLevel;
+  if (membership.financeAccess === "none") return null;
+  if (membership.financeAccess === "read") return "read";
+  return membership.financeAccess === "full" ? employeeLevel : null;
+}
+
+function delegatedMemberFinanceAccess(req: McpRequest): "none" | "read" | "full" {
+  if (req.mcpAuthority !== "member") return "full";
+  const membership = req.mcpRequesterMembership;
+  if (!membership) return "none";
+  if (membership.role === "owner" || membership.role === "admin") return "full";
+  return membership.financeAccess === "none" ||
+    membership.financeAccess === "read" ||
+    membership.financeAccess === "full"
+    ? membership.financeAccess
+    : "none";
 }
 
 /**
@@ -7325,6 +7444,39 @@ function mcpActorOf(req: McpRequest): ProjectActor {
   return { kind: "ai", id: req.mcpEmployee!.id };
 }
 
+function mcpProjectActors(req: McpRequest): ProjectActor[] {
+  const actors: ProjectActor[] = [mcpActorOf(req)];
+  if (req.mcpAuthority === "member" && req.mcpRequesterMembership) {
+    actors.push({
+      kind: "user",
+      id: req.mcpRequesterMembership.userId,
+      role: req.mcpRequesterMembership.role,
+    });
+  }
+  return actors;
+}
+
+async function hasDelegatedProjectAccess(
+  req: McpRequest,
+  project: Project,
+  required: "read" | "write",
+): Promise<boolean> {
+  const checks = await Promise.all(
+    mcpProjectActors(req).map((actor) => hasProjectAccess(project, actor, required)),
+  );
+  return checks.every(Boolean);
+}
+
+async function listDelegatedProjectIds(req: McpRequest): Promise<Set<string>> {
+  const companyId = req.mcpCompany!.id;
+  const sets = await Promise.all(
+    mcpProjectActors(req).map((actor) => listAccessibleProjectIds(companyId, actor)),
+  );
+  const [first, ...rest] = sets;
+  if (!first) return new Set();
+  return new Set([...first].filter((id) => rest.every((set) => set.has(id))));
+}
+
 /**
  * Whether a human reviewer can still open `project`. Reads their real role —
  * an owner reaches every project in their company, so assuming "member" here
@@ -7347,7 +7499,7 @@ mcpInternalRouter.post("/tools/list_projects", async (req: McpRequest, res) => {
   const co = req.mcpCompany!;
   // Filter rather than 403 — an employee shouldn't be told a project exists
   // just to be refused it.
-  const accessible = await listAccessibleProjectIds(co.id, mcpActorOf(req));
+  const accessible = await listDelegatedProjectIds(req);
   if (accessible.size === 0) return res.json({ projects: [] });
   const projects = await AppDataSource.getRepository(Project).find({
     where: { companyId: co.id, id: In([...accessible]) },
@@ -7450,7 +7602,7 @@ mcpInternalRouter.post(
       slug: body.projectSlug,
     });
     if (!p) return res.status(404).json({ error: "Project not found" });
-    if (!(await hasProjectAccess(p, mcpActorOf(req), "read"))) {
+    if (!(await hasDelegatedProjectAccess(req, p, "read"))) {
       return res.status(403).json({ error: "No access to that project" });
     }
     const todos = await AppDataSource.getRepository(Todo).find({
@@ -7512,7 +7664,7 @@ mcpInternalRouter.post(
     const projRepo = AppDataSource.getRepository(Project);
     const project = await projRepo.findOneBy({ companyId: co.id, slug: body.projectSlug });
     if (!project) return res.status(404).json({ error: "Project not found" });
-    if (!(await hasProjectAccess(project, mcpActorOf(req), "write"))) {
+    if (!(await hasDelegatedProjectAccess(req, project, "write"))) {
       return res.status(403).json({ error: "No access to that project" });
     }
 
@@ -7631,7 +7783,7 @@ mcpInternalRouter.post(
       companyId: co.id,
     });
     if (!project) return res.status(404).json({ error: "Todo not found" });
-    if (!(await hasProjectAccess(project, mcpActorOf(req), "write"))) {
+    if (!(await hasDelegatedProjectAccess(req, project, "write"))) {
       return res.status(403).json({ error: "No access to that project" });
     }
 
@@ -8071,7 +8223,8 @@ mcpInternalRouter.post(
       }),
       buildResourceOptionsFor(co.id, fields, {
         maxPerKind: MCP_LINK_OPTIONS_PER_TABLE,
-        projectViewer: mcpActorOf(req),
+        projectViewers: mcpProjectActors(req),
+        excludedKinds: delegatedMemberFinanceAccess(req) === "none" ? ["customer", "invoice"] : [],
       }),
     ]);
     res.json({
@@ -8292,7 +8445,8 @@ mcpInternalRouter.post(
       }),
       buildResourceOptionsFor(co.id, fields, {
         maxPerKind: MCP_LINK_OPTIONS_PER_TABLE,
-        projectViewer: mcpActorOf(req),
+        projectViewers: mcpProjectActors(req),
+        excludedKinds: delegatedMemberFinanceAccess(req) === "none" ? ["customer", "invoice"] : [],
       }),
     ]);
     const [comments, attachments] = await Promise.all([
@@ -9297,6 +9451,53 @@ function integrationToolDescription(
 
 // ─────────────────── Workspace channels (AI-admin) ──────────────────────
 
+/**
+ * Interactive chat authority is the intersection of the human Member and the
+ * AI Employee they are talking to. Public channels are company-visible to
+ * both. Private channels and DMs require an explicit ChannelMember row for
+ * each principal. Routine Runs and other employee-authority calls retain the
+ * historical employee-only behaviour.
+ */
+async function delegatedMemberCanAccessChannel(
+  req: McpRequest,
+  channel: Pick<Channel, "id" | "companyId" | "kind">,
+): Promise<boolean> {
+  if (req.mcpAuthority !== "member") return true;
+  const requesterUserId = req.mcpRequesterUserId;
+  const employeeId = req.mcpEmployee?.id;
+  const companyId = req.mcpCompany?.id;
+  if (!requesterUserId || !employeeId || !companyId || channel.companyId !== companyId) {
+    return false;
+  }
+
+  const memberCanAccess = await userHasChannelAccess({
+    channelId: channel.id,
+    userId: requesterUserId,
+    companyId,
+  });
+  if (!memberCanAccess) return false;
+  if (channel.kind === "public") return true;
+
+  const employeeMembership = await AppDataSource.getRepository(ChannelMember).findOneBy({
+    channelId: channel.id,
+    memberKind: "ai",
+    employeeId,
+  });
+  return employeeMembership !== null;
+}
+
+async function requireDelegatedChannelAccess(
+  req: McpRequest,
+  res: Response,
+  channel: Pick<Channel, "id" | "companyId" | "kind">,
+): Promise<boolean> {
+  if (await delegatedMemberCanAccessChannel(req, channel)) return true;
+  // Match the browser surface: callers outside a private channel cannot use
+  // the response to distinguish it from a nonexistent channel.
+  res.status(404).json({ error: "Channel not found" });
+  return false;
+}
+
 const listChannelsSchema = z.object({}).strict();
 mcpInternalRouter.post(
   "/tools/list_workspace_channels",
@@ -9304,7 +9505,19 @@ mcpInternalRouter.post(
   async (req: McpRequest, res) => {
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const channels = await listChannelsForEmployee(co.id, self.id);
+    let channels = await listChannelsForEmployee(co.id, self.id);
+    if (req.mcpAuthority === "member") {
+      const visibility = await Promise.all(
+        channels.map((channel) =>
+          userHasChannelAccess({
+            channelId: channel.id,
+            userId: req.mcpRequesterUserId!,
+            companyId: co.id,
+          }),
+        ),
+      );
+      channels = channels.filter((_channel, index) => visibility[index]);
+    }
     res.json({ channels });
   },
 );
@@ -9323,16 +9536,20 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof createChannelMcpSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
+    const delegatedRequesterUserId =
+      req.mcpAuthority === "member" ? req.mcpRequesterMembership!.userId : null;
+    const createdByUserId = delegatedRequesterUserId ?? (await companyOwnerId(co.id));
     try {
       const channel = await createChannel({
         companyId: co.id,
         name: body.name,
         topic: body.topic ?? "",
         kind: body.kind ?? "public",
-        // Credit the creator as the company's owner rather than a fake
-        // userId. Falls back to null if the company has no owner row.
-        createdByUserId: await companyOwnerId(co.id),
-        initialMemberUserIds: [],
+        // A delegated Member creates a channel as themselves and remains able
+        // to see a private room they asked the AI Employee to create. Routine
+        // Runs retain the historical owner attribution.
+        createdByUserId,
+        initialMemberUserIds: delegatedRequesterUserId ? [delegatedRequesterUserId] : [],
         initialEmployeeIds: [self.id],
       });
       await recordAudit({
@@ -9380,6 +9597,7 @@ mcpInternalRouter.post(
     const self = req.mcpEmployee!;
     const ch = await findChannelBySlugOrId(co.id, body.channel);
     if (!ch) return res.status(404).json({ error: "Channel not found" });
+    if (!(await requireDelegatedChannelAccess(req, res, ch))) return;
     if (body.name === undefined && body.topic === undefined) {
       return res.status(400).json({ error: "Pass at least one of `name` or `topic`." });
     }
@@ -9436,6 +9654,7 @@ mcpInternalRouter.post(
     const self = req.mcpEmployee!;
     const ch = await findChannelBySlugOrId(co.id, body.channel);
     if (!ch) return res.status(404).json({ error: "Channel not found" });
+    if (!(await requireDelegatedChannelAccess(req, res, ch))) return;
     if (ch.kind === "dm") {
       return res.status(400).json({ error: "DMs cannot be archived via MCP." });
     }
@@ -9493,6 +9712,7 @@ mcpInternalRouter.post(
     if (body.channel) {
       const ch = await findChannelBySlugOrId(co.id, body.channel);
       if (!ch) return res.status(404).json({ error: "Channel not found" });
+      if (!(await requireDelegatedChannelAccess(req, res, ch))) return;
       if (ch.archivedAt) {
         return res.status(400).json({ error: "Channel is archived" });
       }
@@ -9534,6 +9754,11 @@ mcpInternalRouter.post(
       };
       journalTitle = `${self.name} posted in #${ch.slug ?? "channel"}`;
     } else if (body.dmEmployee) {
+      if (req.mcpAuthority === "member") {
+        return res.status(403).json({
+          error: "A delegated Member cannot send into a private DM they cannot access.",
+        });
+      }
       const empRepo = AppDataSource.getRepository(AIEmployee);
       const target =
         (await empRepo.findOneBy({
@@ -9562,6 +9787,11 @@ mcpInternalRouter.post(
       };
       journalTitle = `${self.name} DM'd ${target.name}`;
     } else if (body.dmUser) {
+      if (req.mcpAuthority === "member" && req.mcpRequesterUserId !== body.dmUser) {
+        return res.status(403).json({
+          error: "A delegated Member can only ask an AI Employee to DM them directly.",
+        });
+      }
       // Human Member of the same company. Cross-company DMs are refused.
       const member = await AppDataSource.getRepository(Membership).findOneBy({
         companyId: co.id,
@@ -11232,10 +11462,10 @@ mcpInternalRouter.get("/tools/check_browser_approval/:id", async (req: McpReques
   // Return the held action alongside the status so `browser_resume` can
   // re-fire it even when the MCP child that queued it is long gone — the
   // child is spawned per chat turn, and approvals usually land later. The
-  // `pageUrl` lets the child refuse to fire if the page has since changed
-  // (the approval is bound to what the human actually saw), and `executed`
-  // makes the approval one-shot so it can't be replayed indefinitely.
-  let payload: { selector?: unknown; key?: unknown; pageUrl?: unknown; executedAt?: unknown } = {};
+  // `pageUrl` lets the child refuse to claim if the page has since changed.
+  // The check is informational only: the separate claim endpoint performs the
+  // atomic approved -> executing transition before the browser side effect.
+  let payload: { selector?: unknown; key?: unknown; pageUrl?: unknown } = {};
   try {
     payload = JSON.parse(approval.payloadJson || "{}") as typeof payload;
   } catch {
@@ -11246,40 +11476,87 @@ mcpInternalRouter.get("/tools/check_browser_approval/:id", async (req: McpReques
     selector: typeof payload.selector === "string" ? payload.selector : null,
     key: typeof payload.key === "string" ? payload.key : null,
     pageUrl: typeof payload.pageUrl === "string" ? payload.pageUrl : null,
-    executed: typeof payload.executedAt === "string",
+    executed: browserApprovalWasExecuted(approval),
   });
 });
 
 /**
- * Mark a browser_action approval as fired, so it can't be replayed. Called
- * by the MCP child right after a successful `browser_resume`. Idempotent —
- * a second call is a no-op — and scoped to the resolving employee.
+ * Consume a human-approved browser action before touching the live page. Only
+ * one concurrent resume can move approved -> executing and receive a claim
+ * token. If that child crashes, the executing row is intentionally never
+ * replayed because the external outcome is unknowable.
  */
+mcpInternalRouter.post("/tools/claim_browser_approval/:id", async (req: McpRequest, res) => {
+  const id = req.params.id;
+  const emp = req.mcpEmployee!;
+  const result = await claimApprovedBrowserAction({
+    companyId: req.mcpCompany!.id,
+    employeeId: emp.id,
+    approvalId: id,
+  });
+  if (result.outcome === "not_found") {
+    return res.status(404).json({ error: "Approval not found" });
+  }
+  if (result.outcome === "forbidden") {
+    return res.status(403).json({ error: "Approval belongs to another employee" });
+  }
+  if (result.outcome === "invalid_payload") {
+    return res.status(409).json({ error: "Approval action is invalid and cannot be executed" });
+  }
+  if (result.outcome === "conflict") {
+    return res.status(409).json({
+      error: `Approval cannot be claimed from status ${result.approval.status}`,
+      status: result.approval.status,
+      executed: browserApprovalWasExecuted(result.approval),
+    });
+  }
+  return res.json({
+    status: result.approval.status,
+    claimToken: result.claimToken,
+    selector: result.action.selector,
+    key: result.action.key,
+    pageUrl: result.action.pageUrl,
+  });
+});
+
+const finishBrowserApprovalSchema = z
+  .object({
+    claimToken: z.string().min(32).max(128),
+    outcome: z.enum(["executed", "failed"]),
+    errorMessage: z.string().max(2000).optional(),
+  })
+  .strict();
+
+/** Persist a terminal receipt for the one child that won the claim. */
 mcpInternalRouter.post(
-  "/tools/mark_browser_approval_executed/:id",
+  "/tools/finish_browser_approval/:id",
+  validateBody(finishBrowserApprovalSchema),
   async (req: McpRequest, res) => {
     const id = req.params.id;
     const emp = req.mcpEmployee!;
-    const repo = AppDataSource.getRepository(Approval);
-    const approval = await repo.findOneBy({ id });
-    if (!approval || approval.kind !== "browser_action") {
+    const body = req.body as z.infer<typeof finishBrowserApprovalSchema>;
+    const result = await completeClaimedBrowserAction({
+      companyId: req.mcpCompany!.id,
+      employeeId: emp.id,
+      approvalId: id,
+      claimToken: body.claimToken,
+      outcome: body.outcome,
+      errorMessage: body.errorMessage,
+    });
+    if (result.outcome === "not_found") {
       return res.status(404).json({ error: "Approval not found" });
     }
-    if (approval.employeeId !== emp.id) {
+    if (result.outcome === "forbidden") {
       return res.status(403).json({ error: "Approval belongs to another employee" });
     }
-    let payload: Record<string, unknown> = {};
-    try {
-      payload = JSON.parse(approval.payloadJson || "{}") as Record<string, unknown>;
-    } catch {
-      // overwrite an unreadable payload rather than fail the mark
+    if (result.outcome === "conflict") {
+      return res.status(409).json({ error: "Browser approval claim does not match" });
     }
-    if (typeof payload.executedAt !== "string") {
-      payload.executedAt = new Date().toISOString();
-      approval.payloadJson = JSON.stringify(payload);
-      await repo.save(approval);
-    }
-    res.json({ ok: true });
+    return res.json({
+      ok: true,
+      status: result.approval.status,
+      alreadyCompleted: result.outcome === "already_completed",
+    });
   },
 );
 
@@ -11403,6 +11680,31 @@ function describePdfFieldType(field: unknown): string {
   return "unknown";
 }
 
+async function delegatedMemberCanUseAttachment(
+  req: McpRequest,
+  attachmentId: string,
+): Promise<boolean> {
+  if (req.mcpAuthority !== "member") return true;
+  const membership = req.mcpRequesterMembership;
+  if (!membership) return false;
+  const attachment = await AppDataSource.getRepository(Attachment).findOneBy({
+    id: attachmentId,
+    companyId: req.mcpCompany!.id,
+  });
+  if (!attachment) return false;
+  if (attachment.uploadedByUserId === membership.userId) return true;
+  if (!attachment.messageId) return false;
+  const message = await AppDataSource.getRepository(ConversationMessage).findOneBy({
+    id: attachment.messageId,
+  });
+  if (!message) return false;
+  const conversation = await AppDataSource.getRepository(Conversation).findOneBy({
+    id: message.conversationId,
+    ownerUserId: membership.userId,
+  });
+  return Boolean(conversation);
+}
+
 /**
  * List the form fields in a PDF attachment so the AI knows what to fill.
  * Returns each field's name, type, and current value (if any). For radio
@@ -11413,6 +11715,9 @@ mcpInternalRouter.post(
   validateBody(pdfFieldsSchema),
   async (req: McpRequest, res) => {
     const body = req.body as z.infer<typeof pdfFieldsSchema>;
+    if (!(await delegatedMemberCanUseAttachment(req, body.attachmentId))) {
+      return res.status(404).json({ error: "Attachment not found" });
+    }
     const co = req.mcpCompany!;
     const loaded = await loadAttachmentPdf(body.attachmentId, co.id);
     if ("error" in loaded) {
@@ -11465,6 +11770,9 @@ mcpInternalRouter.post(
   validateBody(fillPdfSchema),
   async (req: McpRequest, res) => {
     const body = req.body as z.infer<typeof fillPdfSchema>;
+    if (!(await delegatedMemberCanUseAttachment(req, body.attachmentId))) {
+      return res.status(404).json({ error: "Attachment not found" });
+    }
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
     const token = req.mcpToken!;

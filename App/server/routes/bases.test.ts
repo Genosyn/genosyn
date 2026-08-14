@@ -118,7 +118,7 @@ beforeEach(async () => {
     employeeId: employee.id,
     baseId: base.id,
   });
-  token = issueMcpToken(employee.id, company.id);
+  token = issueMcpToken(employee.id, company.id, { authority: "employee" });
 });
 
 type ApiResponse<T = Record<string, unknown>> = { status: number; body: T };
