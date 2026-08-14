@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { before, describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { DOCS_FLAT, DOCS_NAV, findPageMeta } from "../client/docs/nav.js";
 import { PRODUCT_CATEGORIES, PRODUCTS, findProduct } from "../client/products/data.js";
@@ -124,6 +126,43 @@ describe("route metadata and LLM indexes", () => {
   test("puts the build version into homepage structured data", () => {
     const home = siteMeta.findRouteHead("/");
     assert.match(JSON.stringify(home?.jsonLd), /9\.9\.9-test/);
+  });
+
+  test("the /products snippet names every product it links to", () => {
+    const products = siteMeta.findRouteHead("/products");
+    for (const product of PRODUCTS) {
+      assert.ok(
+        products?.description.includes(product.name),
+        `/products description omits ${product.name}`,
+      );
+    }
+  });
+
+  // Both hero previews are pictures of the product, not real UI, and both are
+  // mounted inside the page's own <main>. A <main> of their own is an HTML
+  // conformance error and leaves screen readers two "main" regions to choose
+  // between. (Their other landmark elements are fine — each preview keeps its
+  // mock chrome under an aria-hidden wrapper.)
+  test("hero preview mocks never render a nested <main>", () => {
+    for (const file of [
+      "../client/sections/CompanyPreview.tsx",
+      "../client/products/ProductPrototype.tsx",
+    ]) {
+      const source = readFileSync(fileURLToPath(new URL(file, import.meta.url)), "utf8");
+      const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+      assert.doesNotMatch(code, /<main[\s>]/, `${file}: renders a <main> inside the page <main>`);
+    }
+  });
+
+  test("every product hero docs CTA points at a real docs page", () => {
+    const docsPaths = new Set(DOCS_FLAT.map((page) => page.path));
+    for (const product of PRODUCTS) {
+      if (product.docsPath === null) continue;
+      assert.ok(
+        docsPaths.has(product.docsPath),
+        `${product.slug}: docsPath ${product.docsPath} is not a docs page`,
+      );
+    }
   });
 
   test("the compact LLM index links every product and docs page", () => {

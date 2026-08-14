@@ -2,6 +2,19 @@ import { ArrowRight, BookOpen, CheckCircle2, ChevronDown } from "lucide-react";
 import { Nav } from "@/sections/Nav";
 import { Footer, InstallCta } from "@/sections/Footer";
 import { SectionEyebrow } from "@/sections/Primitives";
+import {
+  HeroActions,
+  HeroBadge,
+  HeroBadgeDot,
+  HeroButton,
+  HeroCopy,
+  HeroGrid,
+  HeroLede,
+  HeroPanel,
+  HeroSection,
+  HeroTagline,
+  HeroTitle,
+} from "@/sections/HeroKit";
 import { Link } from "@/lib/router";
 import { PRODUCTS, type ProductDef } from "@/products/data";
 import { productIcon } from "@/products/productIcons";
@@ -16,99 +29,99 @@ export function ProductPage({ product }: { product: ProductDef }) {
     <div className="min-h-screen bg-white text-slate-950">
       <Nav />
       <main>
-        <section className="relative overflow-hidden border-b border-slate-200 bg-white">
-          <div
-            aria-hidden
-            className="marketing-grid pointer-events-none absolute inset-0 opacity-60"
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -top-48 left-1/2 h-[42rem] w-[68rem] -translate-x-1/2 rounded-full bg-slate-200/70 blur-3xl"
-          />
-          <div className="relative mx-auto max-w-[90rem] px-5 pb-14 pt-10 sm:px-6 sm:pb-18 sm:pt-14 lg:pb-20 lg:pt-16">
-            <div className="grid gap-12 lg:grid-cols-[0.78fr_1.22fr] lg:items-center lg:gap-14 xl:gap-20">
-              <div className="mx-auto max-w-2xl lg:mx-0">
-                <nav
-                  aria-label="Breadcrumb"
-                  className="flex items-center gap-2 text-xs font-medium text-slate-500"
-                >
-                  <Link href="/products" className="transition hover:text-slate-950">
-                    Products
-                  </Link>
-                  <span className="text-slate-300">/</span>
-                  <span>{product.category}</span>
-                </nav>
+        <HeroSection>
+          <HeroGrid>
+            <HeroCopy>
+              <nav
+                aria-label="Breadcrumb"
+                className="flex items-center gap-2 text-xs font-medium text-slate-500"
+              >
+                <Link href="/products" className="transition hover:text-slate-950">
+                  Products
+                </Link>
+                <span aria-hidden className="text-slate-400">
+                  /
+                </span>
+                <span>{product.category}</span>
+              </nav>
 
-                <div className="mt-7 inline-flex items-center gap-2.5 rounded-full border border-slate-200 bg-white py-1.5 pl-1.5 pr-3.5 text-[11px] font-semibold text-slate-800 shadow-sm">
-                  <span
-                    className={`flex h-7 w-7 items-center justify-center rounded-full ring-1 ${product.accent}`}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                  </span>
-                  {product.name}
-                  <span className="h-1 w-1 rounded-full bg-slate-300" />
-                  <span className="font-medium text-slate-500">Built into Genosyn</span>
-                </div>
-
-                <h1 className="mt-6 text-balance text-[3.2rem] font-semibold leading-[0.98] tracking-[-0.055em] text-slate-950 sm:text-[4.4rem] lg:text-[4.7rem]">
-                  {product.tagline}
-                </h1>
-                <p className="mt-4 max-w-xl text-balance text-xl font-medium leading-7 tracking-[-0.02em] text-slate-500 sm:text-2xl sm:leading-8">
-                  {product.taglineAccent}
-                </p>
-                <p className="mt-5 max-w-2xl text-pretty text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">
-                  {product.intro}
-                </p>
-                <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-                  <a
-                    href="/#quickstart"
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.8)] transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md"
-                  >
-                    Install Genosyn
-                    <ArrowRight className="h-4 w-4" />
-                  </a>
-                  <Link
-                    href={product.docsPath ?? "/docs"}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400 hover:bg-slate-50"
-                  >
-                    <BookOpen className="h-4 w-4" />
-                    Read the docs
-                  </Link>
-                </div>
-              </div>
-
-              <div className="relative">
-                <div className="mb-3 flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                  <span>{product.name} · Live product story</span>
-                  <span className="inline-flex items-center gap-1.5 text-emerald-700">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    Running
-                  </span>
-                </div>
-                <ProductPrototype product={product} compact />
-              </div>
-            </div>
-
-            <ul className="mt-10 grid overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:grid-cols-2 lg:grid-cols-4">
-              {product.checks.map((check, index) => (
-                <li
-                  key={check}
-                  className="flex items-center gap-3 border-slate-200 px-4 py-3.5 text-[11px] font-medium text-slate-600 sm:[&:nth-child(even)]:border-l lg:border-l lg:first:border-l-0"
-                >
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-950">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                  </span>
-                  <span>
-                    <span className="block text-[8px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                      {String(index + 1).padStart(2, "0")}
+              <div className="mt-6">
+                <HeroBadge
+                  className="pl-1.5"
+                  leading={
+                    <span
+                      aria-hidden
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-1 ${product.accent}`}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
                     </span>
-                    <span className="mt-0.5 block">{check}</span>
+                  }
+                >
+                  {product.name}
+                  <HeroBadgeDot />
+                  <span className="font-medium text-slate-500">Built into Genosyn</span>
+                </HeroBadge>
+              </div>
+
+              <HeroTitle>{product.tagline}</HeroTitle>
+              <HeroTagline>{product.taglineAccent}</HeroTagline>
+              <HeroLede>{product.intro}</HeroLede>
+
+              <HeroActions>
+                <HeroButton href="/#quickstart">
+                  Install Genosyn
+                  <ArrowRight aria-hidden className="h-4 w-4" />
+                </HeroButton>
+                {/* Notes and Resources have no page of their own yet, so the
+                    label has to promise the index, not a page. */}
+                <HeroButton href={product.docsPath ?? "/docs"} variant="secondary">
+                  <BookOpen aria-hidden className="h-4 w-4" />
+                  {product.docsPath ? "Read the docs" : "Browse the docs"}
+                </HeroButton>
+              </HeroActions>
+            </HeroCopy>
+
+            <HeroPanel label={`${product.name} · Live product story`} status="Running">
+              <ProductPrototype product={product} compact />
+            </HeroPanel>
+          </HeroGrid>
+
+          <ul className="mt-12 grid overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:grid-cols-2 lg:grid-cols-4">
+            {product.checks.map((check, index) => (
+              // Dividers are derived from the item's index against the column
+              // count at each breakpoint (1 / 2 / 4), so a list whose length is
+              // not a multiple of four still wraps into a properly ruled row.
+              // Paid Marketing ships five checks; the old nth-child rules left
+              // its fifth item as a borderless orphan with a stray left rule.
+              <li
+                key={check}
+                className={[
+                  "flex items-center gap-3 border-slate-200 px-4 py-3.5 text-xs font-medium text-slate-600",
+                  index >= 1 ? "border-t" : "",
+                  index >= 2 ? "sm:border-t" : "sm:border-t-0",
+                  index % 2 === 1 ? "sm:border-l" : "sm:border-l-0",
+                  index >= 4 ? "lg:border-t" : "lg:border-t-0",
+                  index % 4 === 0 ? "lg:border-l-0" : "lg:border-l",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                <span
+                  aria-hidden
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-950"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                </span>
+                <span>
+                  <span aria-hidden className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    {String(index + 1).padStart(2, "0")}
                   </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
+                  <span className="mt-0.5 block">{check}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </HeroSection>
 
         <section className="bg-white">
           <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24">

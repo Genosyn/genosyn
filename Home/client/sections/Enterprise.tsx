@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import {
   ArrowRight,
   Boxes,
-  CheckCircle2,
   Cloud,
   Database,
   Github,
@@ -18,6 +17,20 @@ import {
 } from "lucide-react";
 import { GITHUB_URL } from "@/lib/constants";
 import { SectionEyebrow } from "@/sections/Primitives";
+import {
+  HeroActions,
+  HeroBadge,
+  HeroBadgeDot,
+  HeroButton,
+  HeroCopy,
+  HeroGrid,
+  HeroLede,
+  HeroPanel,
+  HeroProof,
+  HeroSection,
+  HeroTitle,
+  HeroTitleMuted,
+} from "@/sections/HeroKit";
 
 const CONTACT_EMAIL = "enterprise@genosyn.com";
 const CONTACT_SUBJECT = "Genosyn in our environment";
@@ -91,80 +104,57 @@ export function Enterprise(): ReactNode {
   );
 }
 
+const ENTERPRISE_PROOF = ["MIT licensed", "Your model keys", "SQLite or Postgres", "SSO-ready"];
+
 function EnterpriseHero() {
   return (
-    <section className="relative overflow-hidden border-b border-slate-800 bg-slate-950 text-white">
-      <div
-        aria-hidden
-        className="marketing-grid-dark pointer-events-none absolute inset-0 opacity-60"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-64 left-1/3 h-[44rem] w-[56rem] -translate-x-1/2 rounded-full bg-slate-700/30 blur-3xl"
-      />
-      <div className="relative mx-auto grid max-w-[90rem] gap-12 px-5 pb-16 pt-12 sm:px-6 sm:pb-20 sm:pt-16 lg:grid-cols-[0.78fr_1.22fr] lg:items-center lg:gap-16 lg:pt-20 xl:gap-20">
-        <div className="mx-auto max-w-2xl text-center lg:mx-0 lg:text-left">
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1.5 text-[11px] font-semibold text-slate-200 shadow-sm">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+    <HeroSection tone="dark">
+      <HeroGrid>
+        <HeroCopy>
+          <HeroBadge>
             Genosyn for Enterprise
-            <span className="text-slate-600">·</span>
-            Your infrastructure
-          </span>
-          <h1 className="mt-6 text-balance text-[3.3rem] font-semibold leading-[0.97] tracking-[-0.055em] text-white sm:text-[4.6rem] lg:text-[5rem]">
-            Your company. Your models. <span className="text-slate-400">Your control.</span>
-          </h1>
-          <p className="mx-auto mt-6 max-w-xl text-pretty text-base leading-7 text-slate-300 sm:text-lg sm:leading-8 lg:mx-0">
+            <HeroBadgeDot />
+            <span className="font-medium text-slate-400">Your infrastructure</span>
+          </HeroBadge>
+
+          <HeroTitle>
+            Your company. Your models. <HeroTitleMuted>Your control.</HeroTitleMuted>
+          </HeroTitle>
+
+          <HeroLede>
             Run the open-source company operating system inside the network, identity, database, and
-            AI Model stack your team already trusts—with a production path designed around your
+            AI Model stack your team already trusts — with a production path designed around your
             controls.
-          </p>
-          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row lg:justify-start">
-            <a
-              href={CONTACT_HREF}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-5 py-3 text-sm font-semibold text-slate-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-100 hover:shadow-md"
-            >
-              <Mail className="h-4 w-4" />
+          </HeroLede>
+
+          <HeroActions>
+            <HeroButton href={CONTACT_HREF}>
+              <Mail aria-hidden className="h-4 w-4" />
               Talk to us
-              <ArrowRight className="h-4 w-4" />
-            </a>
-            <a
-              href="#deployment"
-              className="inline-flex items-center justify-center rounded-lg border border-white/20 bg-white/[0.06] px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:border-white/30 hover:bg-white/10"
-            >
+              <ArrowRight aria-hidden className="h-4 w-4" />
+            </HeroButton>
+            <HeroButton href="#deployment" variant="secondary">
               See deployment paths
-            </a>
-          </div>
-          <ul className="mx-auto mt-7 grid max-w-lg grid-cols-2 gap-x-4 gap-y-2 text-left text-[11px] font-medium text-slate-400 lg:mx-0">
-            {["MIT licensed", "Your model keys", "SQLite or Postgres", "SSO-ready"].map((item) => (
-              <li key={item} className="inline-flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-white" />
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
+            </HeroButton>
+          </HeroActions>
+
+          <HeroProof items={ENTERPRISE_PROOF} />
+        </HeroCopy>
 
         <ArchitectureCard />
-      </div>
-    </section>
+      </HeroGrid>
+    </HeroSection>
   );
 }
 
 function ArchitectureCard() {
   return (
-    <div className="relative">
-      <div className="mb-3 flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-        <span>Deployment profile · Private stack</span>
-        <span className="inline-flex items-center gap-1.5 text-emerald-400">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-          Owned by you
-        </span>
-      </div>
+    <HeroPanel label="Deployment profile · Private stack" status="Owned by you">
       <div className="rounded-2xl border border-white/15 bg-white/[0.07] p-3 shadow-[0_32px_80px_-38px_rgba(0,0,0,0.8)] backdrop-blur-sm">
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-5 sm:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
                 Your environment
               </div>
               <div className="mt-1 text-sm font-semibold text-slate-900">
@@ -204,7 +194,7 @@ function ArchitectureCard() {
           </div>
         </div>
       </div>
-    </div>
+    </HeroPanel>
   );
 }
 
@@ -221,7 +211,7 @@ function ArchitectureNode({
     <div className="rounded-lg border border-slate-200 bg-white p-3 text-center shadow-sm">
       <Icon className="mx-auto h-4 w-4 text-slate-500" />
       <div className="mt-2 text-[10px] font-semibold text-slate-800">{label}</div>
-      <div className="mt-0.5 text-[9px] text-slate-400">{detail}</div>
+      <div className="mt-0.5 text-[10px] text-slate-600">{detail}</div>
     </div>
   );
 }

@@ -1,7 +1,19 @@
-import { ArrowRight, BookOpen, CheckCircle2 } from "lucide-react";
+import { ArrowRight, BookOpen } from "lucide-react";
 import { Nav } from "@/sections/Nav";
 import { Footer, InstallCta } from "@/sections/Footer";
-import { SectionEyebrow } from "@/sections/Primitives";
+import {
+  HeroActions,
+  HeroBadge,
+  HeroBadgeDot,
+  HeroButton,
+  HeroCopy,
+  HeroGrid,
+  HeroLede,
+  HeroProof,
+  HeroSection,
+  HeroTitle,
+  HeroTitleMuted,
+} from "@/sections/HeroKit";
 import { Link } from "@/lib/router";
 import { PRODUCTS, PRODUCT_CATEGORIES, type ProductDef } from "@/products/data";
 import { productIcon } from "@/products/productIcons";
@@ -11,6 +23,7 @@ const CHECKS = [
   "Built into one workspace",
   "Shared by Members and AI Employees",
   "Self-hosted on your infrastructure",
+  "MIT licensed",
 ];
 
 export function ProductsIndex() {
@@ -20,59 +33,40 @@ export function ProductsIndex() {
     <div className="min-h-screen bg-white text-slate-950">
       <Nav />
       <main>
-        <section className="relative overflow-hidden border-b border-slate-200 bg-white">
-          <div
-            aria-hidden
-            className="marketing-grid pointer-events-none absolute inset-0 opacity-60"
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -top-48 left-1/2 h-[42rem] w-[68rem] -translate-x-1/2 rounded-full bg-slate-200/70 blur-3xl"
-          />
-          <div className="relative mx-auto max-w-[90rem] px-5 pb-16 pt-12 sm:px-6 sm:pb-20 sm:pt-16 lg:pt-20">
-            <div className="grid gap-12 lg:grid-cols-[0.72fr_1.28fr] lg:items-center lg:gap-14 xl:gap-20">
-              <div className="mx-auto max-w-2xl text-center lg:mx-0 lg:text-left">
-                <SectionEyebrow>Genosyn products</SectionEyebrow>
-                <h1 className="mt-6 text-balance text-[3.25rem] font-semibold leading-[0.98] tracking-[-0.055em] text-slate-950 sm:text-[4.55rem] lg:text-[4.8rem]">
-                  Every team. Every tool.{" "}
-                  <span className="text-slate-500">One company system.</span>
-                </h1>
-                <p className="mx-auto mt-6 max-w-xl text-pretty text-base leading-7 text-slate-600 sm:text-lg sm:leading-8 lg:mx-0">
-                  Bring chat, work, knowledge, automation, analytics, revenue, finance, and code
-                  into one operating model shared by Members and AI Employees.
-                </p>
+        <HeroSection>
+          <HeroGrid>
+            <HeroCopy>
+              <HeroBadge>
+                Genosyn products
+                <HeroBadgeDot />
+                <span className="font-medium text-slate-500">{PRODUCTS.length} built in</span>
+              </HeroBadge>
+              <HeroTitle>
+                Every team. Every tool.{" "}
+                <HeroTitleMuted>One company system.</HeroTitleMuted>
+              </HeroTitle>
+              <HeroLede>
+                Bring chat, work, knowledge, automation, analytics, revenue, finance, and code into
+                one operating model shared by Members and AI Employees.
+              </HeroLede>
 
-                <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
-                  <Link
-                    href="/products/ai-employees"
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-[0_8px_20px_-10px_rgba(15,23,42,0.8)] transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-md sm:w-auto"
-                  >
-                    Explore AI Employees
-                    <ArrowRight className="h-4 w-4" />
-                  </Link>
-                  <Link
-                    href="/docs"
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-400 hover:bg-slate-50 sm:w-auto"
-                  >
-                    <BookOpen className="h-4 w-4" />
-                    Browse the docs
-                  </Link>
-                </div>
+              <HeroActions>
+                <HeroButton href="/products/ai-employees">
+                  Explore AI Employees
+                  <ArrowRight aria-hidden className="h-4 w-4" />
+                </HeroButton>
+                <HeroButton href="/docs" variant="secondary">
+                  <BookOpen aria-hidden className="h-4 w-4" />
+                  Browse the docs
+                </HeroButton>
+              </HeroActions>
 
-                <ul className="mx-auto mt-7 grid max-w-lg gap-2 text-left text-[11px] font-medium text-slate-500 sm:grid-cols-2 lg:mx-0">
-                  {CHECKS.map((item) => (
-                    <li key={item} className="inline-flex items-center gap-1.5">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-slate-950" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <HeroProof items={CHECKS} />
+            </HeroCopy>
 
-              {flagship && <Flagship product={flagship} />}
-            </div>
-          </div>
-        </section>
+            {flagship && <Flagship product={flagship} />}
+          </HeroGrid>
+        </HeroSection>
 
         <section id="product-catalog" className="bg-white">
           <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24">

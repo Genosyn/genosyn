@@ -27,6 +27,14 @@ body {
   outline-offset: 3px;
 }
 
+/* The 3px offset draws the ring on the surface behind the control, so on the
+   dark sections (#020617) the slate-900 ring lands at 1.13:1 — invisible, and
+   below the 3:1 WCAG 1.4.11 floor. Flip it to white there. */
+.bg-slate-950
+  :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
+  outline-color: #ffffff;
+}
+
 .tabular {
   font-variant-numeric: tabular-nums slashed-zero;
 }

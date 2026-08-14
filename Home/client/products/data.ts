@@ -257,7 +257,7 @@ export const PRODUCTS: ProductDef[] = [
         a: "Replies carry a parent message, and AI employees can already reply threaded through the messaging tool. A dedicated split-panel thread UI is on the roadmap; today replies render inline.",
       },
     ],
-    docsPath: null,
+    docsPath: "/docs/workspace-chat",
     keywords: [
       "self-hosted Slack alternative",
       "team chat with AI agents",
@@ -469,7 +469,7 @@ export const PRODUCTS: ProductDef[] = [
         a: "No — five templates ship built in: Blank, CRM (Contacts, Companies, Deals with cross-table links), Applicant Tracker, Content Calendar, and Project Tracker, each seeded with fields and starter rows.",
       },
     ],
-    docsPath: null,
+    docsPath: "/docs/bases",
     keywords: [
       "open source Airtable alternative",
       "self-hosted Airtable alternative",
@@ -787,7 +787,7 @@ export const PRODUCTS: ProductDef[] = [
         a: "No. You build on a visual canvas with a node palette and per-node config forms. Data flows between nodes with {{trigger.body.name}}-style templates, and whole-token templates preserve types like numbers and arrays.",
       },
     ],
-    docsPath: null,
+    docsPath: "/docs/pipelines",
     keywords: [
       "self-hosted workflow automation",
       "open source n8n alternative",

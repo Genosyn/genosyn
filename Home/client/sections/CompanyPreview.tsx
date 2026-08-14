@@ -53,14 +53,29 @@ const ACTIVITY = [
   },
 ];
 
+/**
+ * A mock of the product dashboard, used as the landing hero's visual. It is a
+ * picture, not a UI: the whole tree is `aria-hidden` behind one `sr-only`
+ * sentence, the same way ProductPrototype handles its own chrome. Without that
+ * the invented navigation and copy get read out between the hero CTAs and the
+ * next section — and the mock's own landmarks (it used to render a nested
+ * `<main>`) collide with the page's real ones.
+ */
 export function CompanyPreview({ compact = false }: { compact?: boolean }) {
   return (
     <div className="preview-enter relative mx-auto max-w-[84rem] select-none">
+      <span className="sr-only">
+        A Genosyn workspace showing pending approvals, scheduled Routines, and the AI Employees on
+        duty at an example company.
+      </span>
       <div
         aria-hidden
         className="absolute -inset-8 -z-10 rounded-[3rem] bg-slate-300/30 blur-3xl"
       />
-      <div className="overflow-hidden rounded-2xl border border-slate-300/90 bg-white shadow-[0_38px_90px_-38px_rgba(15,23,42,0.42)] ring-1 ring-white">
+      <div
+        aria-hidden
+        className="overflow-hidden rounded-2xl border border-slate-300/90 bg-white shadow-[0_38px_90px_-38px_rgba(15,23,42,0.42)] ring-1 ring-white"
+      >
         <PreviewHeader />
         <div
           className={`grid min-h-[31rem] ${
@@ -106,11 +121,11 @@ function PreviewHeader() {
 
 function PreviewSidebar() {
   return (
-    <aside className="hidden border-r border-slate-200 bg-slate-50/80 p-3 md:block">
+    <div className="hidden border-r border-slate-200 bg-slate-50/80 p-3 md:block">
       <div className="px-2 pb-2 pt-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400">
         Company
       </div>
-      <nav className="space-y-0.5">
+      <div className="space-y-0.5">
         {NAV_ITEMS.map((item) => (
           <div
             key={item.label}
@@ -124,7 +139,7 @@ function PreviewSidebar() {
             {item.label}
           </div>
         ))}
-      </nav>
+      </div>
 
       <div className="mt-5 px-2 pb-2 text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400">
         On duty
@@ -146,13 +161,13 @@ function PreviewSidebar() {
           </div>
         ))}
       </div>
-    </aside>
+    </div>
   );
 }
 
 function PreviewMain({ compact }: { compact: boolean }) {
   return (
-    <main className="min-w-0 bg-slate-50 px-4 py-5 sm:px-6 sm:py-6">
+    <div className="min-w-0 bg-slate-50 px-4 py-5 sm:px-6 sm:py-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="text-lg font-semibold tracking-[-0.02em] text-slate-900">
@@ -240,7 +255,7 @@ function PreviewMain({ compact }: { compact: boolean }) {
           </div>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
 

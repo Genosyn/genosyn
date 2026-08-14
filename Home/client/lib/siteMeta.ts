@@ -126,8 +126,9 @@ export function allRoutes(): RouteHead[] {
     {
       path: "/products",
       title: "Products — every tool in the box · Genosyn",
-      description:
-        "Every tool Genosyn ships built in: AI Employees, Workspace chat, Tasks, Bases, Notes, Resources, Pipelines, Explore BI, Revenue, Email, Customers, Finance, and Code.",
+      // Derived, not hand-listed: the hand-written version had drifted and
+      // omitted Paid Marketing while the page itself advertised the full count.
+      description: `Every tool Genosyn ships built in: ${PRODUCTS.map((p) => p.name).join(", ")}.`,
       jsonLd: [
         ORGANIZATION,
         WEBSITE,
