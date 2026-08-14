@@ -193,15 +193,19 @@ export default function App() {
   const isPublicSigning = location.pathname.startsWith("/sign/");
   const [auth, setAuth] = React.useState<AuthState>({ status: "loading" });
 
+  const refreshAuthenticatedState = React.useCallback(async () => {
+    const me = await api.get<Me>("/api/auth/me");
+    const companies = await api.get<Company[]>("/api/companies");
+    setAuth({ status: "ready", me, companies });
+  }, []);
+
   const refresh = React.useCallback(async () => {
     try {
-      const me = await api.get<Me>("/api/auth/me");
-      const companies = await api.get<Company[]>("/api/companies");
-      setAuth({ status: "ready", me, companies });
+      await refreshAuthenticatedState();
     } catch {
       setAuth({ status: "anon" });
     }
-  }, []);
+  }, [refreshAuthenticatedState]);
 
   React.useEffect(() => {
     if (!isPublicSigning) void refresh();
@@ -244,7 +248,12 @@ export default function App() {
                   auth.me.emailVerificationRequired ? (
                     <VerifyEmailRequired email={auth.me.email} />
                   ) : (
-                    <AuthedRoutes me={auth.me} companies={auth.companies} onChanged={refresh} />
+                    <AuthedRoutes
+                      me={auth.me}
+                      companies={auth.companies}
+                      onChanged={refresh}
+                      onCompaniesChanged={refreshAuthenticatedState}
+                    />
                   )
                 }
               />
@@ -260,15 +269,17 @@ function AuthedRoutes({
   me,
   companies,
   onChanged,
+  onCompaniesChanged,
 }: {
   me: Me;
   companies: Company[];
   onChanged: () => Promise<void>;
+  onCompaniesChanged: () => Promise<void>;
 }) {
   if (companies.length === 0) {
     return (
       <Routes>
-        <Route path="/onboarding" element={<Onboarding onDone={onChanged} />} />
+        <Route path="/onboarding" element={<Onboarding onDone={onCompaniesChanged} />} />
         <Route path="/invite/:token" element={<Invite />} />
         <Route
           path="/security"
@@ -296,7 +307,14 @@ function AuthedRoutes({
       />
       <Route
         path="/c/:companySlug/*"
-        element={<CompanyRoutes me={me} companies={companies} onChanged={onChanged} />}
+        element={
+          <CompanyRoutes
+            me={me}
+            companies={companies}
+            onChanged={onChanged}
+            onCompaniesChanged={onCompaniesChanged}
+          />
+        }
       />
       <Route path="*" element={<Navigate to={`/c/${companies[0].slug}`} replace />} />
     </Routes>
@@ -307,17 +325,25 @@ function CompanyRoutes({
   me,
   companies,
   onChanged,
+  onCompaniesChanged,
 }: {
   me: Me;
   companies: Company[];
   onChanged: () => Promise<void>;
+  onCompaniesChanged: () => Promise<void>;
 }) {
   const { companySlug } = useParams();
   const company = companies.find((c) => c.slug === companySlug);
   if (!company) return <Navigate to="/" replace />;
 
   return (
-    <AppShell me={me} companies={companies} current={company} onCompaniesChanged={onChanged}>
+    <AppShell
+      me={me}
+      companies={companies}
+      current={company}
+      onAuthChanged={onChanged}
+      onCompaniesChanged={onCompaniesChanged}
+    >
       <ChatSessionsProvider key={company.id}>
         <Routes>
           {/* Home — the post-sign-in landing page: everything that needs the

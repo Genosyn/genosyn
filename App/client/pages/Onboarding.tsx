@@ -16,6 +16,7 @@ import { EmployeeStep } from "./onboarding/EmployeeStep";
 import { FirstRequestStep } from "./onboarding/FirstRequestStep";
 import { RecommendationsStep } from "./onboarding/RecommendationsStep";
 import { selectOnboardingEmployee } from "../lib/onboardingRecommendations";
+import { createCompanyAndSwitch } from "../lib/companySwitch";
 
 type OnboardingStep = "employee" | "recommendations" | "email" | "first_task";
 
@@ -48,13 +49,17 @@ export default function Onboarding({ onDone }: { onDone: () => Promise<void> }) 
     setError(null);
     setLoading(true);
     try {
-      const company = await api.post<Company>("/api/companies", {
-        name: name.trim(),
-        mission: mission.trim(),
-        vision: vision.trim(),
+      await createCompanyAndSwitch({
+        createCompany: () =>
+          api.post<Company>("/api/companies", {
+            name: name.trim(),
+            mission: mission.trim(),
+            vision: vision.trim(),
+          }),
+        refreshCompanies: onDone,
+        navigate,
+        suffix: "/onboarding",
       });
-      await onDone();
-      navigate(`/c/${company.slug}/onboarding`);
     } catch (err) {
       setError((err as Error).message);
     } finally {

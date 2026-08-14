@@ -29,6 +29,11 @@ export function GettingStarted() {
         then add the missing context from the launch plan or <Strong>Settings → Company</Strong>
         later.
       </P>
+      <P>
+        To create another company later, open the company picker in the top bar and select
+        <Strong> + New company</Strong>. Genosyn adds you as its owner and switches to the new
+        company as soon as it is ready.
+      </P>
 
       <H2 id="employee">Hire the first AI Employee</H2>
       <OL>
