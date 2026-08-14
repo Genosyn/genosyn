@@ -32,7 +32,7 @@ export function GettingStarted() {
       <P>
         To create another company later, open the company picker in the top bar and select
         <Strong> + New company</Strong>. Genosyn adds you as its owner and switches to the new
-        company as soon as it is ready.
+        company&apos;s onboarding guide as soon as it is ready.
       </P>
 
       <H2 id="employee">Hire the first AI Employee</H2>
@@ -59,8 +59,8 @@ export function GettingStarted() {
 
       <H2 id="launch-plan">Put the new hire to work</H2>
       <P>
-        Every hire ends with a <Strong>Launch plan</Strong>. This is the next step in the
-        first-company guide and the final step when you hire another AI Employee from{" "}
+        Every hire ends with a <Strong>Launch plan</Strong>. This is the next step in the company
+        onboarding guide and the final step when you hire another AI Employee from{" "}
         <Strong>AI → Employees</Strong>. Genosyn combines the employee&apos;s role, chosen template,
         and the company mission and vision to recommend useful first work. The same inputs always
         produce a stable plan, so refreshing or returning to the guide does not reshuffle it.
@@ -163,7 +163,7 @@ export function GettingStarted() {
 
       <H2 id="return">Return to the guide</H2>
       <P>
-        The Launch plan and later setup steps are skippable. If you leave the first-company guide
+        The Launch plan and later setup steps are skippable. If you leave a company onboarding guide
         before finishing, open <Code>/c/&lt;company-slug&gt;/onboarding</Code>. Its URL keeps the
         current step and employee, and the guide re-checks the employee&apos;s Routines,
         Connections, mailbox, and Grants so completed setup does not need to be repeated.

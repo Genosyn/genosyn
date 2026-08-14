@@ -286,6 +286,8 @@ export const config = {
       healthy Connection and employee Grant status, before optional Gmail setup
       with a safe draft Grant and a reviewable starter chat request. The regular
       later-hire wizard reuses the same skippable Launch plan after Soul review
+- [x] Every additional company created from the app-shell picker becomes active
+      immediately and opens its company onboarding guide at the AI Employee step
 - [x] Company switcher in app shell
 - [x] Invite member by email (token link)
 - [x] Roles: owner / admin / member

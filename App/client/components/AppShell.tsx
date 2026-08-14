@@ -250,6 +250,7 @@ function TopNav({
                       navigate: (destination) => {
                         if (!navigationGuard.request(destination)) navigate(destination);
                       },
+                      suffix: "/onboarding",
                     });
                   } catch (e) {
                     toast((e as Error).message, "error");
