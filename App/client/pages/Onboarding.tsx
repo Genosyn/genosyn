@@ -164,7 +164,7 @@ export function CompanyOnboarding({ company }: { company: Company }) {
   }, [company.id, requestedEmployeeId, toast]);
 
   return (
-    <div className="min-h-full bg-slate-50/70 dark:bg-slate-950">
+    <div className="min-h-full w-full bg-slate-50/70 dark:bg-slate-950">
       <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:py-12">
         <div className="mb-8 text-center">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-600 dark:text-indigo-400">

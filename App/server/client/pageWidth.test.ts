@@ -154,6 +154,12 @@ describe("wide operational page layout", () => {
     }
   });
 
+  test("centers onboarding within the full application pane", () => {
+    const source = readAppFile("client/pages/Onboarding.tsx");
+
+    assert.match(source, /className="min-h-full w-full bg-slate-50\/70 dark:bg-slate-950"/);
+  });
+
   test("keeps the main application pane shrink-safe around full-width children", () => {
     const shell = readAppFile("client/components/AppShell.tsx");
 
