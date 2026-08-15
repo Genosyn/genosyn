@@ -140,6 +140,7 @@ function toPublic(m: AIModel, isActive: boolean): PublicModel {
   const customEndpointModelId = typeof cfg.modelId === "string" ? (cfg.modelId as string) : null;
   const spec = PROVIDERS[m.provider];
   const connected = isModelConnected(m);
+  const unavailable = spec.supportsSubscription ? subscriptionUnavailableReason() : null;
   return {
     id: m.id,
     employeeId: m.employeeId,
@@ -153,13 +154,14 @@ function toPublic(m: AIModel, isActive: boolean): PublicModel {
     apiKeyEnv: spec.apiKeyEnv,
     supportsApiKey: spec.supportsApiKey,
     supportsSubscription: spec.supportsSubscription,
-    subscriptionAvailable: spec.supportsSubscription && subscriptionUnavailableReason() === null,
-    subscriptionUnavailableReason: spec.supportsSubscription
-      ? subscriptionUnavailableReason()
-      : null,
+    subscriptionAvailable: spec.supportsSubscription && unavailable === null,
+    subscriptionUnavailableReason: unavailable,
     subscriptionCredentialKind: subscriptionCredentialKind(m),
     subscriptionShellAvailable:
-      config.agent.codingTools.enabled && config.agent.codingTools.executionMode === "bubblewrap",
+      spec.supportsSubscription &&
+      unavailable === null &&
+      config.agent.codingTools.enabled &&
+      config.agent.codingTools.executionMode === "bubblewrap",
     supportsCustomEndpoint: spec.supportsCustomEndpoint,
     customEndpointHost,
     customEndpointModelId,

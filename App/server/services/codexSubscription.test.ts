@@ -27,6 +27,14 @@ test("repository materialization is isolated or omitted when subscription auth c
     shouldMaterializeRepositoriesForTurnFor({
       authMode: "subscription",
       codingToolsEnabled: true,
+      codingToolsExecutionMode: "disabled",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldMaterializeRepositoriesForTurnFor({
+      authMode: "subscription",
+      codingToolsEnabled: true,
       codingToolsExecutionMode: "bubblewrap",
     }),
     true,
@@ -46,6 +54,14 @@ test("repository materialization is isolated or omitted when subscription auth c
       codingToolsExecutionMode: "host",
     }),
     false,
+  );
+  assert.equal(
+    shouldMaterializeRepositoriesForTurnFor({
+      authMode: "apikey",
+      codingToolsEnabled: true,
+      codingToolsExecutionMode: "host",
+    }),
+    true,
   );
 });
 
@@ -108,26 +124,40 @@ test("managed login success follows the ChatGPT account discriminator", () => {
   );
 });
 
-test("subscription auth rejects shared and same-UID host-shell deployments", () => {
-  assert.match(
-    subscriptionUnavailableReasonFor({
-      multiTenant: true,
-      codingToolsExecutionMode: "disabled",
-      bubblewrapAvailable: false,
-    }) ?? "",
-    /self-hosted/,
-  );
+test("subscription auth accepts safe disabled and isolated bubblewrap deployments", () => {
+  for (const codingToolsExecutionMode of ["disabled", "host", "bubblewrap"] as const) {
+    assert.match(
+      subscriptionUnavailableReasonFor({
+        multiTenant: true,
+        codingToolsEnabled: true,
+        codingToolsExecutionMode,
+        bubblewrapAvailable: true,
+      }) ?? "",
+      /self-hosted/,
+    );
+  }
   assert.match(
     subscriptionUnavailableReasonFor({
       multiTenant: false,
+      codingToolsEnabled: true,
       codingToolsExecutionMode: "host",
       bubblewrapAvailable: true,
     }) ?? "",
-    /bubblewrap isolation/,
+    /host-process tools/,
   );
   assert.equal(
     subscriptionUnavailableReasonFor({
       multiTenant: false,
+      codingToolsEnabled: true,
+      codingToolsExecutionMode: "disabled",
+      bubblewrapAvailable: false,
+    }),
+    null,
+  );
+  assert.equal(
+    subscriptionUnavailableReasonFor({
+      multiTenant: false,
+      codingToolsEnabled: true,
       codingToolsExecutionMode: "bubblewrap",
       bubblewrapAvailable: true,
     }),
@@ -136,9 +166,28 @@ test("subscription auth rejects shared and same-UID host-shell deployments", () 
   assert.match(
     subscriptionUnavailableReasonFor({
       multiTenant: false,
+      codingToolsEnabled: true,
       codingToolsExecutionMode: "bubblewrap",
       bubblewrapAvailable: false,
     }) ?? "",
     /working bubblewrap/,
+  );
+  assert.equal(
+    subscriptionUnavailableReasonFor({
+      multiTenant: false,
+      codingToolsEnabled: false,
+      codingToolsExecutionMode: "bubblewrap",
+      bubblewrapAvailable: false,
+    }),
+    null,
+  );
+  assert.match(
+    subscriptionUnavailableReasonFor({
+      multiTenant: false,
+      codingToolsEnabled: false,
+      codingToolsExecutionMode: "host",
+      bubblewrapAvailable: false,
+    }) ?? "",
+    /host-process tools/,
   );
 });

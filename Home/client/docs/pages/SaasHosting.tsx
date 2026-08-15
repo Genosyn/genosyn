@@ -125,11 +125,12 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
 
       <H2 id="execution">AI execution isolation</H2>
       <P>
-        Each AI employee&apos;s shell runs inside a Bubblewrap user, mount, PID, IPC, UTS, cgroup,
-        and network namespace. Only that employee&apos;s workspace is writable; the API process
-        environment is not inherited. File tools resolve real paths and reject symlink escapes. The
-        hosted runtime lets Routine runs and chat continue in parallel while capping total
-        concurrent AI work per company. Two chat replies for one employee remain serialized.
+        Each AI employee&apos;s shell runs inside Bubblewrap user, mount, PID, IPC, UTS, and network
+        namespaces, plus a cgroup namespace where the kernel supports it. Only that employee&apos;s
+        workspace is writable; the API process environment is not inherited. File tools resolve real
+        paths and reject symlink escapes. The hosted runtime lets Routine runs and chat continue in
+        parallel while capping total concurrent AI work per company. Two chat replies for one
+        employee remain serialized.
       </P>
       <UL>
         <LI>Company secrets are not injected into hosted coding shells.</LI>

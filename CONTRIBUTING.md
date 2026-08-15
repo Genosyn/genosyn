@@ -82,16 +82,20 @@ docker run -d --name genosyn-home -p 8472:8472 \
 # → http://localhost:8472
 ```
 
-The `genosyn-data` volume holds the SQLite database (Souls, Skills, Routines, and run
-logs) plus per-employee provider credentials. It persists across restarts and upgrades.
+The `genosyn-data` volume holds the SQLite database (Souls, Skills, Routines, Run
+logs, and encrypted AI Model credentials) plus employee working data. It persists
+across restarts and upgrades.
 
-To override `config.ts` without rebuilding, mount your own on top:
+The runtime imports the compiled `/app/dist/config.js`. The `/app/config.ts`
+file in the image is a reference copy, so mounting a replacement there does not
+change the running App. To test a config change, edit `App/config.ts` and build
+an image from the repository root:
 
 ```bash
+docker build -f App/Dockerfile -t genosyn-app:local .
 docker run -d --name genosyn -p 8471:8471 \
   -v genosyn-data:/app/data \
-  -v "$PWD/config.ts:/app/config.ts:ro" \
-  ghcr.io/genosyn/app:main
+  genosyn-app:local
 ```
 
 ---

@@ -5,7 +5,12 @@ import path from "node:path";
 import test, { afterEach, beforeEach } from "node:test";
 import { config } from "../../config.js";
 import { resetInstanceSecretsCacheForTests } from "../lib/instanceSecrets.js";
-import { secureSessionCookies, validateRuntimeSecurity } from "./runtimeSecurity.js";
+import {
+  bubblewrapProbeError,
+  resetBubblewrapProbeCacheForTests,
+  secureSessionCookies,
+  validateRuntimeSecurity,
+} from "./runtimeSecurity.js";
 
 type MutableConfig = {
   dataDir: string;
@@ -14,6 +19,7 @@ type MutableConfig = {
     codingTools: {
       allowNetwork: boolean;
       allowUnsafeHostExecution: boolean;
+      bubblewrapPath: string;
       executionMode: "host" | "bubblewrap" | "disabled";
     };
     maxConcurrentRunsPerCompany: number;
@@ -53,6 +59,7 @@ afterEach(() => {
   mutable.agent.codingTools.allowNetwork = original.agent.codingTools.allowNetwork;
   mutable.agent.codingTools.allowUnsafeHostExecution =
     original.agent.codingTools.allowUnsafeHostExecution;
+  mutable.agent.codingTools.bubblewrapPath = original.agent.codingTools.bubblewrapPath;
   mutable.agent.codingTools.executionMode = original.agent.codingTools.executionMode;
   mutable.agent.maxConcurrentRunsPerCompany = original.agent.maxConcurrentRunsPerCompany;
   mutable.db.driver = original.db.driver;
@@ -67,8 +74,15 @@ afterEach(() => {
   mutable.security.trustedProxyHops = original.security.trustedProxyHops;
   mutable.sessionSecret = original.sessionSecret;
   resetInstanceSecretsCacheForTests();
+  resetBubblewrapProbeCacheForTests();
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
+
+function fakeBubblewrap(name: string, body: string): string {
+  const executable = path.join(tempDir, name);
+  fs.writeFileSync(executable, `#!/bin/sh\nset -eu\n${body}\n`, { mode: 0o700 });
+  return executable;
+}
 
 test("explicit cookie settings override automatic detection", () => {
   mutable.security.secureCookies = true;
@@ -107,6 +121,64 @@ test("self-hosted defaults remain bootable", () => {
   assert.equal(config.agent.codingTools.executionMode, "disabled");
   assert.equal(config.agent.codingTools.allowUnsafeHostExecution, false);
   assert.equal(config.agent.codingTools.allowNetwork, false);
+});
+
+test("bubblewrap probe verifies execution, diagnostics, and missing binaries", () => {
+  mutable.agent.codingTools.bubblewrapPath = fakeBubblewrap("ignored-bwrap", "exit 0");
+  resetBubblewrapProbeCacheForTests();
+  assert.match(bubblewrapProbeError() ?? "", /without running the isolated probe command/);
+
+  const failureLog = path.join(tempDir, "failed-probe-count.log");
+  mutable.agent.codingTools.bubblewrapPath = fakeBubblewrap(
+    "failing-bwrap",
+    `printf 'x' >> "${failureLog}"
+printf "%s" "user namespaces denied" >&2
+exit 17`,
+  );
+  resetBubblewrapProbeCacheForTests();
+  assert.equal(bubblewrapProbeError(), "user namespaces denied");
+  assert.equal(bubblewrapProbeError(), "user namespaces denied");
+  assert.equal(fs.readFileSync(failureLog, "utf8"), "x", "failed probes should be cached too");
+
+  mutable.agent.codingTools.bubblewrapPath = path.join(tempDir, "missing-bwrap");
+  resetBubblewrapProbeCacheForTests();
+  assert.match(bubblewrapProbeError() ?? "", /ENOENT|no such file/i);
+});
+
+test("bubblewrap probe follows the runtime network posture and caches that exact shape", () => {
+  const invocationLog = path.join(tempDir, "bubblewrap-invocations.log");
+  mutable.agent.codingTools.bubblewrapPath = fakeBubblewrap(
+    "working-bwrap",
+    `printf '%s\\n' "$*" >> "${invocationLog}"
+workspace=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '--bind' ]; then
+    workspace="$2"
+    shift 3
+  else
+    shift
+  fi
+done
+[ -n "$workspace" ]
+printf '%s' 'genosyn-bubblewrap-probe-v1' > "$workspace/.genosyn-bubblewrap-probe"`,
+  );
+
+  mutable.agent.codingTools.allowNetwork = false;
+  resetBubblewrapProbeCacheForTests();
+  assert.equal(bubblewrapProbeError(), null);
+  assert.equal(bubblewrapProbeError(), null);
+  let invocations = fs.readFileSync(invocationLog, "utf8").trim().split("\n");
+  assert.equal(invocations.length, 1, "same probe shape should use the cached result");
+  assert.match(invocations[0], /--unshare-net/);
+  const boundRoot = invocations[0].match(/--bind ([^ ]+) \/workspace/)?.[1];
+  assert.ok(boundRoot);
+  assert.equal(fs.existsSync(boundRoot), false, "probe workspaces must be removed after use");
+
+  mutable.agent.codingTools.allowNetwork = true;
+  assert.equal(bubblewrapProbeError(), null);
+  invocations = fs.readFileSync(invocationLog, "utf8").trim().split("\n");
+  assert.equal(invocations.length, 2, "network-policy changes must invalidate the probe cache");
+  assert.doesNotMatch(invocations[1], /--unshare-net/);
 });
 
 test("self-hosted explicit weak secrets fail instead of bypassing managed defaults", () => {

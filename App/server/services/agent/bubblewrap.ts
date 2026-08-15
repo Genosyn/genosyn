@@ -39,7 +39,11 @@ export function buildBubblewrapCommandArgs(options: BubblewrapCommandOptions): s
     "--unshare-pid",
     "--unshare-ipc",
     "--unshare-uts",
-    "--unshare-cgroup",
+    // A private cgroup namespace is useful where the kernel exposes one, but
+    // it is not part of the credential boundary (user/PID namespaces and the
+    // private /tmp are). Do not reject otherwise valid Linux sandboxes solely
+    // because their kernel or container runtime omits cgroup namespaces.
+    "--unshare-cgroup-try",
     "--proc",
     "/proc",
     "--dev",

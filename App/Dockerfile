@@ -73,9 +73,18 @@ RUN npm prune --omit=dev && npm cache clean --force
 # Built artifacts (server + client)
 COPY --from=build /build/App/dist ./dist
 
-# config.ts is bundled by tsc into dist/, but keep the source around for
-# self-hosters who want to read/edit it post-build.
+# config.ts is bundled by tsc into dist/. Keep the source as a reference only;
+# the runtime imports dist/config.js, so configuration changes require rebuilding
+# the image rather than editing or mounting this copy after the build.
 COPY --from=build /build/App/config.ts ./config.ts
+
+# Fail the image build if the standard runtime contract drifts: subscription
+# sign-in depends on disabled mode being the stock posture, while source-managed
+# installs that opt into isolated coding need the bubblewrap executable present.
+# Neither check enters a namespace, so the build needs no privileged flags.
+RUN command -v bwrap >/dev/null \
+    && bwrap --version >/dev/null \
+    && node --input-type=module -e 'const { config } = await import("./dist/config.js"); if (config.agent.codingTools.executionMode !== "disabled") throw new Error(`Expected stock executionMode=disabled, received ${config.agent.codingTools.executionMode}`);'
 
 # Help conversations can inspect the exact code that produced this image.
 # Keep the snapshot read-only by placing it outside config.dataDir and exposing

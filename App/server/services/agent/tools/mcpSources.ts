@@ -189,10 +189,13 @@ export function userStdioMcpAvailableFor(options: {
   codingToolsExecutionMode: "host" | "bubblewrap" | "disabled";
 }): boolean {
   // An arbitrary same-UID child can inspect sibling /proc entries and private
-  // temp directories. Bubblewrap is the install-wide signal that credentials
-  // require process isolation, so user stdio servers stay off for every turn
-  // in that mode—not only the subscription turn that holds the credential.
-  return !options.multiTenant && options.codingToolsExecutionMode !== "bubblewrap";
+  // temp directories. Both safe modes therefore omit user stdio servers for
+  // every turn—not only the subscription turn that holds the credential.
+  // `disabled` is the no-coding/repository/user-stdio subscription posture;
+  // `bubblewrap` is the isolated-shell posture. Selecting `host` opts out of
+  // subscription auth and is the only trusted self-hosted mode where arbitrary
+  // stdio children can run beside the App process.
+  return !options.multiTenant && options.codingToolsExecutionMode === "host";
 }
 
 export async function loadUserServerSpecs(

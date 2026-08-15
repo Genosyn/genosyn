@@ -110,11 +110,11 @@ export const PRODUCTS: ProductDef[] = [
     ],
     employees: {
       heading: "How the pieces fit",
-      body: "Genosyn owns the model loop and tool registry. API-key and custom models run in-process; eligible OpenAI subscription models use the official Codex app-server on source-managed Linux. Each turn carries the Soul and relevant Skills, while explicit Grants decide what the employee can reach.",
+      body: "Genosyn owns the model loop and tool registry. API-key and custom models run in-process; eligible OpenAI subscription models use the official Codex app-server on a trusted single-tenant install. Docker supports subscription Runs without coding by default, while Linux bubblewrap can add isolated coding. Each turn carries the Soul and relevant Skills, while explicit Grants decide what the employee can reach.",
       bullets: [
         {
-          title: "Real tools, sandboxed",
-          body: "Built-in coding tools (bash, file edits, grep) run inside the employee's own working directory; opt-in browser tools drive a headless Chromium with a host allow-list and human take-over for captchas.",
+          title: "Tools match the deployment",
+          body: "Coding tools are off by default. Separately acknowledged trusted host mode adds path-confined file helpers; Linux bubblewrap adds isolated bash and repository work. Opt-in browser tools drive a headless Chromium with a host allow-list and human take-over for captchas.",
         },
         {
           title: "Memory that persists",
@@ -133,7 +133,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Which models can an employee run on?",
-        a: "Anthropic (Claude), OpenAI (GPT), or Custom — any OpenAI-compatible endpoint such as Ollama, vLLM, llama.cpp, LM Studio, or a gateway. Eligible source-managed Linux deployments can also connect OpenAI through a ChatGPT subscription. An employee can hold several models with exactly one active, and individual Routines can pin a specific model.",
+        a: "Anthropic (Claude), OpenAI (GPT), or Custom — any OpenAI-compatible endpoint such as Ollama, vLLM, llama.cpp, LM Studio, or a gateway. Trusted single-tenant deployments can also connect OpenAI through a ChatGPT subscription; the Docker default runs without coding tools, while Linux bubblewrap can add isolated coding. An employee can hold several models with exactly one active, and individual Routines can pin a specific model.",
       },
       {
         q: "Where do model credentials live?",
@@ -1443,15 +1443,15 @@ export const PRODUCTS: ProductDef[] = [
     category: "Engineering",
     icon: "gitBranch",
     accent: "bg-slate-100 text-slate-700 ring-slate-200",
-    tagline: "Give your AI a real checkout.",
+    tagline: "Enable real git checkouts for AI.",
     taglineAccent: "Any git repo, per-employee grants, ordinary git.",
     summary:
-      "Point at any git URL — GitHub, GitLab, Bitbucket, self-hosted — and grant chosen AI employees a live checkout for reference or local engineering work.",
+      "With coding enabled, point at any git URL — GitHub, GitLab, Bitbucket, self-hosted — and grant chosen AI employees a live checkout for reference or local engineering work.",
     seoTitle: "Code Repositories — Git access for AI · Genosyn",
     description:
-      "Give AI employees real git checkouts of any repo — GitHub, GitLab, Bitbucket, or self-hosted — with per-employee access and server-held encrypted credentials.",
+      "With coding enabled, give AI employees real git checkouts of any repo — GitHub, GitLab, Bitbucket, or self-hosted — with per-employee access and server-held encrypted credentials.",
     intro:
-      "Code Repositories make any git repo a first-class resource your AI employees can actually work on — not read through an API. Every granted employee gets a live checkout and committer identity, while reusable repository credentials stay outside model-controlled tools. AI prepares branches and commits for a governed publish step.",
+      "Code Repositories make any git repo a first-class resource your AI employees can work on when coding execution is enabled — not read through an API. Granted employees get a live checkout and committer identity, while reusable repository credentials stay outside model-controlled tools. The standard Docker default does not materialize repos; Linux bubblewrap adds isolated repository work for eligible subscription models. AI prepares branches and commits for a governed publish step.",
     checks: [
       "Any HTTPS or SSH clone URL",
       "Reference-only or local work, per employee",
@@ -1477,7 +1477,7 @@ export const PRODUCTS: ProductDef[] = [
       {
         icon: "folderGit2",
         title: "Checkouts that persist",
-        body: "Repos materialize into the employee's workspace before every chat and Routine Run, then only fetch between runs — never hard-reset. The branch an employee prepared yesterday is still there today.",
+        body: "With host or bubblewrap coding enabled, repos materialize into the employee's workspace before every chat and Routine Run, then only fetch between runs — never hard-reset. The branch an employee prepared yesterday is still there today.",
       },
       {
         icon: "terminal",

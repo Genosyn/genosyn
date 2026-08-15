@@ -263,20 +263,20 @@ function EnterpriseDeployments() {
             <DeploymentRow
               icon={Boxes}
               label="Standard self-hosted"
-              title="Docker with API-key or custom AI Models"
-              body="The default path for one host: persistent application data, SQLite or Postgres, and the built-in Genosyn CLI for operations."
+              title="Docker with API keys, custom models, or ChatGPT sign-in"
+              body="The default path for one trusted host: persistent data, SQLite or Postgres, subscription Runs without coding tools, and the built-in Genosyn CLI for operations."
             />
             <DeploymentRow
               icon={Server}
               label="Source-managed Linux"
-              title="Advanced isolation and eligible OpenAI subscription access"
-              body="Run the App process directly on Linux with bubblewrap when you need the supported ChatGPT subscription path and its locked temporary credential boundary."
+              title="Advanced isolation for coding and repository work"
+              body="Run the App process directly on Linux with bubblewrap when AI Models, including eligible ChatGPT subscriptions, need isolated bash and repository materialization."
             />
             <DeploymentRow
               icon={Database}
               label="Shared deployment"
               title="Postgres-backed, multi-company operation"
-              body="Use Postgres and API-key or custom AI Models for shared or horizontally scaled environments; OpenAI subscription access stays on a single source-managed process."
+              body="Use Postgres and API-key or custom AI Models for shared or horizontally scaled environments; OpenAI subscription access stays on one trusted single-tenant App process."
             />
           </div>
         </div>

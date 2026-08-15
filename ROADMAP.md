@@ -65,14 +65,15 @@ don't re-litigate them.
     sign-in or a Business / Enterprise Codex access token. The credential stays
     encrypted on `AIModel.configJson`. Managed sessions are materialized only
     in a locked temporary `CODEX_HOME`; access tokens enter only the child
-    process environment. `config.security.multiTenant` rejects
-    this mode. Subscription auth requires working Linux `bubblewrap` isolation
-    for coding tools and repository materialization. The standard Docker
-    installer retains host mode because Docker's default namespace policy
-    blocks that isolation; operators currently enable it in a source-managed
-    Linux deployment. This mode supports one App replica. Anthropic
-    subscription credentials remain unsupported because Anthropic prohibits
-    third-party products from routing traffic against subscription limits.
+    process environment. `config.security.multiTenant` rejects this mode, as
+    does coding-tools `host` mode because it permits same-UID child processes.
+    The safe `disabled` mode supports subscription sign-in and Runs without
+    coding tools, repository materialization, or user-configured stdio MCP; it
+    is the standard Docker default. A source-managed Linux install can select
+    working `bubblewrap` to add isolated `bash` and repository work. This mode
+    supports one App replica. Anthropic subscription credentials remain
+    unsupported because Anthropic prohibits third-party products from routing
+    traffic against subscription limits.
 
 ---
 
@@ -90,7 +91,7 @@ don't re-litigate them.
 - **Routine** — a scheduled recurring piece of work. Cron-triggered. Markdown
   brief on `Routine.body` alongside cron metadata.
 - **AI Model** — a brain an AI Employee can run on: normally a direct
-  connection to a model API, with a source-managed Linux OpenAI subscription
+  connection to a model API, with a trusted single-tenant OpenAI subscription
   path through the official Codex app-server. An employee can register several
   and keep exactly one active (`AIModel.isActive`). Provider is `anthropic`
   (Claude), `openai` (GPT), or `custom` (any OpenAI-compatible endpoint); the
@@ -598,8 +599,8 @@ sends system mail); this is the company's real inbox. Internal namespace is
 
 > **Superseded by M22.** The generic provider-CLI harnesses, subscription
 > sign-in, and persistent per-provider config materialization below were
-> removed in M22. M22 later gained one deliberately narrow exception:
-> source-managed Linux OpenAI subscription access through the official Codex
+> removed in M22. M22 later gained one deliberately narrow exception: trusted
+> single-tenant OpenAI subscription access through the official Codex
 > app-server. That is not a revival of the provider-harness architecture. The
 > employee-owned / one-active model remains.
 
@@ -629,11 +630,12 @@ sends system mail); this is the company's real inbox. Internal namespace is
 - [x] Bounded transient model retries: five total attempts with exponential
       jitter and `Retry-After` support, cancelled with the parent turn and
       never replayed after visible output starts
-- [x] Tools provided directly to the model: built-in coding tools (bash +
-      file read/write/edit/directory listing/glob/grep), the genosyn tools
-      (dispatched in-process over loopback), browser tools (bridged from the stdio
-      MCP child), and
-      company-configured MCP servers (bridged over stdio/HTTP)
+- [x] Tools provided directly to the model: mode-dependent built-in coding
+      tools (none when disabled, path-confined file helpers in acknowledged host
+      mode, or sandboxed bash in bubblewrap), the genosyn tools (dispatched
+      in-process over loopback), browser tools (bridged from the built-in stdio MCP child),
+      and company-configured MCP servers (HTTP in the safe disabled/bubblewrap
+      modes; stdio is also available in trusted single-tenant host mode)
 - [x] **Bounded parallel delegation.** Chat turns and Routine runs expose
       `delegate_parallel_work`: one AI Employee can run up to four temporary
       copies of itself concurrently (eight briefs per call, twelve per turn),
@@ -649,7 +651,7 @@ sends system mail); this is the company's real inbox. Internal namespace is
 - [x] Data migration remapping existing rows onto the new provider/authMode
       vocabulary
 - [x] **OpenAI subscription access, without reviving provider harnesses.**
-      Source-managed Linux OpenAI models may use `authMode: "subscription"`
+      Trusted single-tenant OpenAI models may use `authMode: "subscription"`
       through the official pinned `@openai/codex` app-server; a Member
       completes ChatGPT device sign-in or supplies a Business / Enterprise
       Codex access token. Anthropic subscription credentials are explicitly
@@ -661,18 +663,20 @@ sends system mail); this is the company's real inbox. Internal namespace is
       afterward and never place credentials in the employee working tree or a
       persistent provider directory. Cleanup retries and startup removes stale
       Genosyn Codex temp directories.
-- [x] **Subscription tool isolation.** Subscription auth is unavailable without
-      working Linux bubblewrap, because any concurrent AI Employee could use the
-      same-UID shell to inspect app-server auth or process environment.
-      Every model turn in a bubblewrap deployment retains only `bash` behind
-      private PID and `/tmp` namespaces; host-process file tools are omitted
-      install-wide so a concurrent API-key or custom-model turn cannot win a
-      symlink race into the subscription credential. Every server-managed Git
-      command that touches an AI-writable checkout runs through that namespace,
-      with a cleared environment, executable Git settings overridden, and only
-      the configured remote fetched. User-configured stdio MCP children are
-      omitted install-wide in bubblewrap mode; HTTP MCP and the audited built-in
-      browser remain available.
+- [x] **Subscription tool isolation.** Safe disabled mode supports subscription
+      sign-in and Runs without coding tools, repository materialization, or
+      user-configured stdio MCP children; this is also the standard Docker
+      default. On source-managed Linux, working bubblewrap additionally permits
+      `bash` and repository work behind private PID and `/tmp` namespaces.
+      Host-process file tools are omitted install-wide in bubblewrap so a
+      concurrent API-key or custom-model turn cannot win a symlink race into
+      the subscription credential. Every server-managed Git command that
+      touches an AI-writable checkout runs through that namespace, with a
+      cleared environment, executable Git settings overridden, and only the
+      configured remote fetched. User-configured stdio MCP children are omitted
+      in disabled and bubblewrap modes; HTTP MCP and the audited built-in browser
+      remain available. Host mode permits user stdio children and therefore
+      rejects subscription auth.
 - [x] **Single-tenant boundary.** Model create/update, sign-in, and execution
       reject subscription auth when `config.security.multiTenant` is true.
       Shared SaaS uses API keys; API-key and custom-endpoint models continue
@@ -1732,7 +1736,8 @@ boundaries.
       Password-input values are redacted from model snapshots, and screenshots
       are refused after the session observes or fills a password;
       plaintext never enters model output, Run transcripts, audit detail, or
-      logs. Host-mode AI Employees receive only path-confined file/search tools;
+      logs. AI Employees in acknowledged host mode receive only path-confined
+      file/search tools;
       unrestricted `bash` is available only behind the bubblewrap boundary, so
       a zero-Grant employee cannot bypass Vault policy through the App filesystem
       or sibling process tokens.
@@ -1999,9 +2004,9 @@ of the original V1 backlog has shipped — what remains is mostly
 ### Runner
 
 - [x] **Real execution** via the in-process agent against the model API
-      (Anthropic / OpenAI / custom OpenAI-compatible), plus the source-managed
-      Linux OpenAI subscription path through the official Codex app-server;
-      see M22
+      (Anthropic / OpenAI / custom OpenAI-compatible), plus the trusted
+      single-tenant OpenAI subscription path through the official Codex
+      app-server; see M22
 - [x] **Streaming logs to UI** (SSE on `employeeSurface.ts`)
 - [x] **cwd-scoped tools** — the coding tools are rooted at the employee's
       working directory; bash inherits company secrets + repo env
@@ -2054,10 +2059,10 @@ of the original V1 backlog has shipped — what remains is mostly
         flips into "Take over" mode. Solves captcha / 2FA without an
         external service. The async `browser_submit` Approval flow
         stays as the fallback for unattended routines.
-- [x] **Genosyn-level sandbox** — Bubblewrap user/mount/PID/IPC/UTS/cgroup
-      namespaces, a single writable employee workspace, explicit environment,
-      optional network namespace, and realpath/symlink containment. Shared SaaS
-      requires this mode with networking disabled.
+- [x] **Genosyn-level sandbox** — Bubblewrap user/mount/PID/IPC/UTS namespaces,
+      a best-effort cgroup namespace, a single writable employee workspace,
+      explicit environment, optional network namespace, and realpath/symlink
+      containment. Shared SaaS requires this mode with networking disabled.
 - [x] **Per-run context window budget** — the loop budgets each turn against
       `AIModel.contextWindow` (85% of it, leaving room to reply), and drops the
       oldest tool results to a stub when the next prompt wouldn't fit. Results

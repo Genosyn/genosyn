@@ -22,8 +22,8 @@ export function CodeRepositories() {
         lead={
           <>
             Add any git repository to your company and grant the AI employees you choose access to
-            work on it. Each granted employee gets a real checkout in its workspace — read, branch,
-            edit, test, and commit with ordinary <Code>git</Code>.
+            work on it. When coding execution is enabled, each granted employee gets a real checkout
+            in its workspace — read, branch, edit, test, and commit with ordinary <Code>git</Code>.
           </>
         }
       />
@@ -33,15 +33,22 @@ export function CodeRepositories() {
         A <Strong>Code Repository</Strong> is a provider-agnostic git repo the company registers
         under the <DocLink to="/docs">Code</DocLink> section. Point it at GitHub, GitLab, Bitbucket,
         or a self-hosted server over HTTPS or SSH. Unlike a read-only API integration, this gives
-        employees an editable working tree: the runner clones each granted repo into{" "}
-        <Code>code-repos/&lt;slug&gt;/</Code> inside the employee&apos;s workspace before every chat
-        and Routine Run, with the committer identity already configured. Credentials stay in the
-        server-owned refresh operation and never enter that working tree.
+        employees an editable working tree when coding execution is enabled: the runner clones each
+        granted repo into <Code>code-repos/&lt;slug&gt;/</Code> inside the employee&apos;s workspace
+        before every chat and Routine Run, with the committer identity already configured.
+        Credentials stay in the server-owned refresh operation and never enter that working tree.
       </P>
 
       <Callout kind="info" title="Access is opt-in, per employee.">
         Adding a repository does not expose it to anyone. You decide which employees can touch it,
         and whether each is reference-only or authorized to prepare a local change.
+      </Callout>
+      <Callout kind="info" title="Repository work needs an enabled coding mode.">
+        Disabled execution, the standard Docker default, does not materialize repositories for chats
+        or Routine Runs. A trusted host-mode install with <Code>allowUnsafeHostExecution</Code>{" "}
+        acknowledged can prepare repositories for API-key and custom AI Models. To give an OpenAI
+        subscription model repository access, use working bubblewrap on a source-managed Linux
+        install; host mode rejects subscription auth.
       </Callout>
 
       <H2 id="add">Adding a repository</H2>

@@ -332,9 +332,10 @@ export function filterCodingToolsForCredentialIsolation(
   if (executionMode === "bubblewrap") {
     return tools.filter((tool) => tool.name === "bash");
   }
-  // A subscription row cannot run outside bubblewrap. Keep this secondary
-  // fail-closed branch even though the install-level availability gate rejects
-  // the turn before the Codex credential is materialized.
+  // Safe disabled-mode subscription turns normally never reach this branch,
+  // because codingRuntimeAvailability omits the entire coding family first.
+  // Keep the explicit filter as defense in depth so a future alternate caller
+  // cannot hand host-process file tools to a subscription model.
   if (required) return [];
   // A host shell runs as the App's own OS user. A working-directory setting is
   // not a filesystem boundary: it can read the database, managed encryption

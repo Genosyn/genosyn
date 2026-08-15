@@ -15,6 +15,10 @@ test("only bubblewrap deployments expose bash to an AI Employee", () => {
     ["bash"],
   );
   assert.deepEqual(
+    filterCodingToolsForCredentialIsolation(tools, true, "disabled").map((tool) => tool.name),
+    [],
+  );
+  assert.deepEqual(
     filterCodingToolsForCredentialIsolation(tools, false, "host").map((tool) => tool.name),
     ["read_file"],
   );

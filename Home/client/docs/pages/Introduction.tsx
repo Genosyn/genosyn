@@ -68,8 +68,9 @@ export function Introduction() {
         <LI>
           <Strong>Anyone</Strong> who prefers their tools open source, self-hosted, and
           bring-your-own-model: use Anthropic / OpenAI API keys, a custom OpenAI-compatible
-          endpoint, or eligible ChatGPT subscription access for OpenAI on a source-managed Linux
-          install with bubblewrap isolation.
+          endpoint, or eligible ChatGPT subscription access for OpenAI on a trusted single-tenant
+          install. Docker supports subscription work without coding by default; source-managed Linux
+          can add isolated coding with bubblewrap.
         </LI>
       </UL>
 
@@ -90,9 +91,10 @@ export function Introduction() {
         <LI>
           <Strong>BYO model.</Strong> Genosyn doesn&apos;t resell AI. You bring an Anthropic /
           OpenAI API key, a custom OpenAI-compatible endpoint, or eligible ChatGPT subscription
-          access for OpenAI on a source-managed Linux install with bubblewrap isolation, then point
-          each employee at the model you choose. Claude subscription credentials are not supported;
-          see <DocLink to="/docs/models">AI Models</DocLink>.
+          access for OpenAI on a trusted single-tenant install, then point each employee at the
+          model you choose. The Docker default runs subscriptions without coding tools; Linux
+          bubblewrap can add isolated coding and repository work. Claude subscription credentials
+          are not supported; see <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
           <Strong>Fast feedback.</Strong> Everyday actions update the screen immediately while the

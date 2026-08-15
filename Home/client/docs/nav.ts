@@ -73,7 +73,8 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/models",
         title: "AI Models",
-        blurb: "Connect API keys, a custom endpoint, or a self-hosted OpenAI subscription.",
+        blurb:
+          "Connect API keys, a custom endpoint, or a trusted single-tenant OpenAI subscription.",
       },
       {
         path: "/docs/tool-discovery",

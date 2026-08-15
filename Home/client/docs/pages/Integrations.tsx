@@ -95,12 +95,13 @@ export function Integrations() {
         Brand Writer doesn&apos;t. Both employees share the same company, but the MCP surface they
         see is different.
       </Callout>
-      <Callout kind="warn" title="Hosted restrictions">
+      <Callout kind="warn" title="Process and hosted restrictions">
+        Company-configured stdio MCP servers run only in trusted single-tenant host execution mode.
+        The safe disabled and bubblewrap modes omit those same-UID children; host mode in turn
+        rejects OpenAI subscription auth. HTTP MCP servers remain available. In shared SaaS,
         Connection URLs and hosts must resolve to public addresses, including at socket connection
-        time. Shared SaaS also skips company-configured stdio MCP servers because arbitrary child
-        processes require a separate worker boundary; HTTP MCP servers remain subject to the same
-        outbound policy. Raw-TCP Postgres, MySQL, and Redis Connections stay disabled until an
-        isolated egress worker is configured.
+        time, and HTTP MCP servers remain subject to the same outbound policy. Raw-TCP Postgres,
+        MySQL, and Redis Connections stay disabled until an isolated egress worker is configured.
       </Callout>
 
       <H2 id="product-pages">Connect from the product you are using</H2>

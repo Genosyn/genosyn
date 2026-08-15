@@ -66,23 +66,25 @@ into its working directory. Everything under `data/` is gitignored.
 The cron-driven runner in `server/services/runner.ts` drives the employee's
 active model with a prompt composed from their Soul + Skills + Routine.
 Anthropic and OpenAI API keys, plus OpenAI-compatible custom endpoints, use
-the direct in-process agent loop. A source-managed Linux OpenAI subscription
+the direct in-process agent loop. A trusted, single-tenant OpenAI subscription
 model uses the official pinned `@openai/codex` app-server with an isolated
 temporary `CODEX_HOME` and a separate empty scratch directory; generic provider
-CLI harnesses remain removed. Subscription auth requires coding tools to use
-working Linux `bubblewrap`; host and disabled execution modes are rejected.
-Every model turn in a bubblewrap deployment receives only sandboxed `bash` from
-the coding family. Host-process file tools are omitted install-wide so a
-concurrent API-key or custom-model turn cannot race a workspace symlink into
-the subscription credential. Server-managed repository clone/fetch and
-credential wiring use the same boundary, a cleared environment, and only the
-configured remote. The model receives the genosyn MCP tools
-(routines/todos/journal/memory/bases/attachments), browser tools when enabled,
-and company-configured HTTP MCP servers. User-configured stdio MCP servers are
-omitted install-wide in bubblewrap mode so an arbitrary same-UID child cannot
-inspect a subscription credential. The agent transcript is written to
-`Run.logContent` (capped at 256KB). When no model or usable credential is
-configured, the run is marked `skipped` with an explanatory log. Subscription
-auth currently supports a source-managed, single-App-process Linux deployment;
-use API-key models with the standard Docker installer or when horizontally
-scaling App replicas.
+CLI harnesses remain removed. The default disabled execution mode—including in
+the standard Docker installer—supports subscription sign-in and Runs without
+coding tools, repository materialization, or user-configured stdio MCP. A
+source-managed Linux operator can select working `bubblewrap` to add sandboxed
+`bash` and repository work. Every model turn in a bubblewrap deployment
+receives only sandboxed `bash` from the coding family. Host-process file tools
+are omitted install-wide so a concurrent API-key or custom-model turn cannot
+race a workspace symlink into the subscription credential. Server-managed
+repository clone/fetch and credential wiring use the same boundary, a cleared
+environment, and only the configured remote. The model receives the genosyn
+MCP tools (routines/todos/journal/memory/bases/attachments), browser tools when
+enabled, and company-configured HTTP MCP servers. User-configured stdio MCP
+servers are omitted in disabled and bubblewrap modes so an arbitrary same-UID
+child cannot inspect a subscription credential. Host mode permits those child
+processes and therefore rejects subscription auth. The agent transcript is
+written to `Run.logContent` (capped at 256KB). When no model or usable credential
+is configured, the run is marked `skipped` with an explanatory log. Subscription
+auth supports one trusted, single-tenant App process; use API-key models when
+horizontally scaling App replicas.

@@ -126,14 +126,21 @@ export const CODEX_CONFIG_OVERRIDES = [
 
 export function subscriptionUnavailableReasonFor(options: {
   multiTenant: boolean;
+  codingToolsEnabled: boolean;
   codingToolsExecutionMode: "host" | "bubblewrap" | "disabled";
   bubblewrapAvailable: boolean;
 }): string | null {
   if (options.multiTenant) {
     return "ChatGPT subscription sign-in is limited to trusted self-hosted Genosyn installs.";
   }
-  if (options.codingToolsExecutionMode !== "bubblewrap") {
-    return 'ChatGPT subscription auth requires Linux bubblewrap isolation. Set config.agent.codingTools.executionMode to "bubblewrap".';
+  if (options.codingToolsExecutionMode === "disabled") {
+    return null;
+  }
+  if (options.codingToolsExecutionMode === "host") {
+    return 'ChatGPT subscription auth cannot run beside host-process tools. Set config.agent.codingTools.executionMode to "disabled" for subscription access without coding tools, or use "bubblewrap" on Linux for an isolated shell.';
+  }
+  if (!options.codingToolsEnabled) {
+    return null;
   }
   if (!options.bubblewrapAvailable) {
     return "ChatGPT subscription auth requires a working bubblewrap executable and user namespaces.";
@@ -147,15 +154,18 @@ export function subscriptionUnavailableReason(): string | null {
   // a restrictive container, so run it only after the operator has explicitly
   // selected bubblewrap.
   const executionMode = config.agent.codingTools.executionMode;
-  if (config.security.multiTenant || executionMode !== "bubblewrap") {
+  const codingToolsEnabled = config.agent.codingTools.enabled;
+  if (config.security.multiTenant || executionMode !== "bubblewrap" || !codingToolsEnabled) {
     return subscriptionUnavailableReasonFor({
       multiTenant: config.security.multiTenant,
+      codingToolsEnabled,
       codingToolsExecutionMode: executionMode,
       bubblewrapAvailable: false,
     });
   }
   return subscriptionUnavailableReasonFor({
     multiTenant: false,
+    codingToolsEnabled,
     codingToolsExecutionMode: executionMode,
     bubblewrapAvailable: bubblewrapProbeError() === null,
   });

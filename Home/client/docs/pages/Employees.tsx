@@ -122,9 +122,9 @@ export function Employees() {
         </LI>
         <LI>
           <Strong>Attach a model.</Strong> Pick a provider and authentication method. Anthropic
-          takes an API key; OpenAI takes an API key or, on self-hosted Genosyn, eligible ChatGPT
-          subscription access; Custom takes an OpenAI-compatible endpoint. You can skip this and
-          connect one later.
+          takes an API key; OpenAI takes an API key or, on trusted single-tenant Genosyn, eligible
+          ChatGPT subscription access; Custom takes an OpenAI-compatible endpoint. You can skip this
+          and connect one later.
         </LI>
         <LI>
           <Strong>Write the Soul.</Strong> Answer the short About questions, then review the seeded
@@ -159,28 +159,29 @@ export function Employees() {
       <P>Each employee gets their own folder on disk under the company:</P>
       <pre className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-slate-700">
         {`data/companies/<co-slug>/employees/<emp-slug>/
-└── ...   # files the employee's coding tools read and write`}
+└── ...   # files enabled coding tools read and write`}
       </pre>
       <P>
-        The runner gives the selected agent runtime path-confined file and search tools rooted in
-        this directory (<Code>read_file</Code>, <Code>write_file</Code>, <Code>edit_file</Code>,{" "}
-        <Code>list_dir</Code>, <Code>glob</Code>, and <Code>grep</Code>) and captures the agent
-        transcript into a Run log. Host mode never exposes <Code>bash</Code>, because a working
-        directory is not a security boundary for an unrestricted same-user shell. API-key and custom
-        models use Genosyn&apos;s in-process loop; OpenAI subscription models use the official Codex
-        app-server. A Routine does not make its AI employee unavailable: Members can keep chatting
-        with that employee and start independent Routines in parallel, up to the company workload
-        limit. Concurrent work shares this directory, so give overlapping Runs distinct output files
-        and avoid simultaneous edits to the same git working tree. Model credentials stay encrypted
-        in the database. They never enter the employee working directory. For an OpenAI subscription
-        login or Run, Genosyn gives the official app-server a locked temporary{" "}
-        <Code>CODEX_HOME</Code>. Managed ChatGPT sessions are materialized there; access tokens
-        enter only the child process environment. Genosyn removes the directory afterward.
-        Subscription auth is unavailable while coding tools use host mode. Use working Linux
-        bubblewrap mode. In that mode every AI Model turn uses sandboxed <Code>bash</Code> for file
-        work, and repository synchronization stays inside the same namespace; Genosyn omits its
-        host-process file helpers install-wide so concurrent turns cannot race them across the
-        boundary.
+        Coding access depends on the installation mode. The default disabled mode exposes no coding
+        tools and materializes no repositories. Separately acknowledged host mode provides
+        path-confined file and search tools rooted in this directory (<Code>read_file</Code>,{" "}
+        <Code>write_file</Code>, <Code>edit_file</Code>, <Code>list_dir</Code>, <Code>glob</Code>,
+        and <Code>grep</Code>) but never exposes <Code>bash</Code>, because a working directory is
+        not a security boundary for an unrestricted same-user shell. Bubblewrap mode instead
+        provides sandboxed <Code>bash</Code>. The runner captures the agent transcript into a Run
+        log. API-key and custom models use Genosyn&apos;s in-process loop; OpenAI subscription
+        models use the official Codex app-server. A Routine does not make its AI employee
+        unavailable: Members can keep chatting with that employee and start independent Routines in
+        parallel, up to the company workload limit. Concurrent work shares this directory when
+        coding is enabled, so give overlapping Runs distinct output files and avoid simultaneous
+        edits to the same git working tree. Model credentials stay encrypted in the database. They
+        never enter the employee working directory. For an OpenAI subscription login or Run, Genosyn
+        gives the official app-server a locked temporary <Code>CODEX_HOME</Code>. Managed ChatGPT
+        sessions are materialized there; access tokens enter only the child process environment.
+        Genosyn removes the directory afterward. Trusted single-tenant installs support subscription
+        auth in the disabled default, including standard Docker, with no coding tools or repository
+        materialization. A source-managed Linux install can use working bubblewrap to add isolated
+        coding and repository synchronization. Host mode rejects subscription auth.
       </P>
 
       <H3 id="org-chart">Org chart</H3>

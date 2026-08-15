@@ -36,9 +36,10 @@ export function ToolDiscovery() {
       </P>
       <UL>
         <LI>
-          <Strong>Coding tools</Strong> — the path-confined file/search tools in host mode, or
-          isolated <Code>bash</Code> in bubblewrap mode. Their arguments are large free-form
-          strings, which survive better sent directly.
+          <Strong>Coding tools</Strong> — none in disabled mode, the path-confined file/search tools
+          in separately acknowledged host mode, or isolated <Code>bash</Code> in bubblewrap mode.
+          When present, their arguments are large free-form strings, which survive better sent
+          directly.
         </LI>
         <LI>
           <Strong>Everything that writes</Strong> — creating a Routine, a Project, a Todo, a journal

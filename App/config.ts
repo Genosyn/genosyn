@@ -58,11 +58,14 @@ export const config = {
   },
 
   // AI Employee execution controls. Coding execution is disabled by default:
-  // `host` keeps the path-confined file/search tools but never exposes bash: a
+  // Acknowledged `host` mode keeps path-confined file/search tools but never exposes bash: a
   // same-UID host shell could read App data, Vault encryption roots, and sibling
-  // process tokens. Sandboxed bash and ChatGPT subscription auth are available
-  // only when an operator deliberately selects `bubblewrap` on a Linux
-  // deployment whose user-namespace policy passes Genosyn's startup probe.
+  // process tokens. The safe `disabled` mode supports ChatGPT subscription
+  // auth without coding tools, repository materialization, or user-configured
+  // stdio MCP children. Sandboxed bash and repository work are available only
+  // when an operator deliberately selects `bubblewrap` on a Linux deployment
+  // whose user-namespace policy passes Genosyn's probe. `host` mode permits
+  // user stdio MCP and therefore rejects subscription credentials.
   // Bubblewrap runs every shell invocation and repository Git child in
   // user/mount/PID namespaces with only the employee workspace writable. Shared
   // SaaS requires bubblewrap and disables network access inside the coding
@@ -75,9 +78,10 @@ export const config = {
       bubblewrapPath: "/usr/bin/bwrap",
       allowNetwork: false,
       // Emergency compatibility escape hatch for a trusted, single-company
-      // install only. Host mode keeps model tools path-confined, but its
-      // server-owned Git work still runs outside a namespace; selecting host
-      // mode is not sufficient without this separate acknowledgement.
+      // install only. This acknowledgement enables host-mode coding tools and
+      // server-owned Git work. The model tools stay path-confined, but all of
+      // that work runs outside a namespace; selecting host mode alone is not
+      // sufficient.
       allowUnsafeHostExecution: false,
     },
     // The current app-owned Chromium process shares the API container. Keep it

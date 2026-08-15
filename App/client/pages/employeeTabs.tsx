@@ -1016,7 +1016,7 @@ function ModelForm({
           {provider === "anthropic"
             ? "Claude subscriptions cannot be connected. Create an API key in the Anthropic Console and use API billing."
             : authMode === "subscription"
-              ? "Self-hosted Linux with bubblewrap is required. Sign in with ChatGPT after saving this model."
+              ? "Sign in with ChatGPT after saving. The default safe mode runs without coding tools; Linux bubblewrap adds an isolated shell."
               : "GPT via the OpenAI API. Add the API key after saving."}
         </div>
       )}

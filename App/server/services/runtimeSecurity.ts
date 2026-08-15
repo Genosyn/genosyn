@@ -8,27 +8,42 @@ import { getPublicUrl, isPublicUrlConfigured } from "./publicUrl.js";
 import { buildBubblewrapCommandArgs } from "./agent/bubblewrap.js";
 import { getEffectiveInstanceSecrets, isStrongInstanceSecret } from "../lib/instanceSecrets.js";
 
-let bubblewrapProbeCache: { path: string; error: string | null } | null = null;
+const BUBBLEWRAP_PROBE_MARKER = ".genosyn-bubblewrap-probe";
+const BUBBLEWRAP_PROBE_VALUE = "genosyn-bubblewrap-probe-v1";
+
+let bubblewrapProbeCache: {
+  path: string;
+  unshareNetwork: boolean;
+  error: string | null;
+} | null = null;
 
 export function bubblewrapProbeError(): string | null {
-  if (bubblewrapProbeCache?.path === config.agent.codingTools.bubblewrapPath) {
+  const unshareNetwork = !config.agent.codingTools.allowNetwork;
+  if (
+    bubblewrapProbeCache?.path === config.agent.codingTools.bubblewrapPath &&
+    bubblewrapProbeCache.unshareNetwork === unshareNetwork
+  ) {
     return bubblewrapProbeCache.error;
   }
   const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-bwrap-probe-"));
+  const markerPath = path.join(probeRoot, BUBBLEWRAP_PROBE_MARKER);
   try {
     const result = spawnSync(
       config.agent.codingTools.bubblewrapPath,
       buildBubblewrapCommandArgs({
         workspaceRoot: probeRoot,
         cwd: probeRoot,
-        executable: "/bin/true",
-        args: [],
+        executable: "/bin/sh",
+        args: [
+          "-c",
+          `printf '%s' '${BUBBLEWRAP_PROBE_VALUE}' > /workspace/${BUBBLEWRAP_PROBE_MARKER}`,
+        ],
         env: {
           PATH: "/usr/local/bin:/usr/bin:/bin",
           HOME: "/workspace",
           LANG: "C.UTF-8",
         },
-        unshareNetwork: true,
+        unshareNetwork,
       }),
       {
         encoding: "utf8",
@@ -36,15 +51,31 @@ export function bubblewrapProbeError(): string | null {
         env: { PATH: "/usr/local/bin:/usr/bin:/bin" },
       },
     );
-    const error =
-      !result.error && result.status === 0
-        ? null
-        : (result.stderr || result.error?.message || `exit status ${result.status}`).trim();
-    bubblewrapProbeCache = { path: config.agent.codingTools.bubblewrapPath, error };
+    let error: string | null;
+    if (result.error || result.status !== 0) {
+      error = (result.stderr || result.error?.message || `exit status ${result.status}`).trim();
+    } else if (
+      !fs.existsSync(markerPath) ||
+      fs.readFileSync(markerPath, "utf8") !== BUBBLEWRAP_PROBE_VALUE
+    ) {
+      error = "bubblewrap exited without running the isolated probe command";
+    } else {
+      error = null;
+    }
+    bubblewrapProbeCache = {
+      path: config.agent.codingTools.bubblewrapPath,
+      unshareNetwork,
+      error,
+    };
     return error;
   } finally {
     fs.rmSync(probeRoot, { recursive: true, force: true });
   }
+}
+
+/** Test-only seam for deterministic fake-executable probe coverage. */
+export function resetBubblewrapProbeCacheForTests(): void {
+  bubblewrapProbeCache = null;
 }
 
 export function secureSessionCookies(): boolean {

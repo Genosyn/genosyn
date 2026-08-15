@@ -59,7 +59,7 @@ describe("bubblewrap isolation posture", () => {
       "--unshare-pid",
       "--unshare-ipc",
       "--unshare-uts",
-      "--unshare-cgroup",
+      "--unshare-cgroup-try",
       "--proc",
       "--dev",
       "--tmpfs",
@@ -67,6 +67,8 @@ describe("bubblewrap isolation posture", () => {
     ]) {
       assert.ok(args.includes(flag), flag);
     }
+    assert.equal(args.includes("--unshare-cgroup"), false);
+    assert.equal(args.filter((arg) => arg === "--unshare-cgroup-try").length, 1);
 
     const bind = args.indexOf("--bind");
     assert.deepEqual(args.slice(bind, bind + 3), ["--bind", "/srv/genosyn/employee", "/workspace"]);

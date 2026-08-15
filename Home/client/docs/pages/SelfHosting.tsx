@@ -75,8 +75,9 @@ export function SelfHosting() {
   agent: {
     codingTools: {
       enabled: true,
-      // Disabled is the safe cross-platform default. Select bubblewrap only
-      // after its complete Linux isolation probe succeeds.
+      // Disabled is the safe cross-platform default and supports trusted
+      // single-tenant subscription Runs without coding or repository work.
+      // Select bubblewrap only after its Linux isolation probe succeeds.
       executionMode: "disabled",
       bubblewrapPath: "/usr/bin/bwrap", allowNetwork: false,
       allowUnsafeHostExecution: false,
@@ -105,22 +106,24 @@ export function SelfHosting() {
         other independent Routines for the same employee. Increase it only when your AI Model quotas
         and host capacity can support the extra parallel requests.
       </P>
-      <Callout kind="info" title="Subscription auth needs an isolated Linux deployment.">
-        Coding execution is disabled by default. Host mode can expose only the path-confined file and
-        search tools; it never gives an AI Employee an unrestricted shell that could read App data,
-        Vault keys, or sibling process tokens. To use sandboxed bash or ChatGPT subscription auth,
-        run Genosyn from source on Linux, set the mode to <Code>bubblewrap</Code>, and confirm the
-        model card reports that the isolation check passed. The standard Docker installer does not
-        currently relax Docker&apos;s namespace policy, so subscription auth remains unavailable in
-        that container; API-key and custom-endpoint models continue to work normally. Do not make
-        the App container privileged or disable its security profile just to bypass the check.
+      <Callout kind="info" title="The Docker default supports subscription auth without coding.">
+        Coding execution is disabled by default. In this mode a trusted single-tenant install,
+        including the standard Docker container, supports ChatGPT subscription sign-in and Runs
+        without coding tools, repository materialization, or user-configured stdio MCP. For
+        sandboxed <Code>bash</Code> and repository work, run Genosyn from source on Linux, set the
+        mode to <Code>bubblewrap</Code>, and confirm the model card reports that the isolation check
+        passed. Do not make the App container privileged or disable its security profile just to
+        force bubblewrap through Docker&apos;s namespace policy. Separately acknowledged host mode
+        exposes path-confined file and search tools and permits host child processes, so it rejects
+        subscription auth.
       </Callout>
       <Callout kind="warn" title="Host execution is an explicit unsafe compatibility mode.">
         A trusted, single-company operator can select <Code>host</Code> and separately set{" "}
-        <Code>allowUnsafeHostExecution: true</Code> to let Genosyn&apos;s repository Git operations run
-        outside bubblewrap. AI Employees still receive no host shell, but those server-owned Git
-        children share the App process user&apos;s filesystem and network authority. Never use it for
-        multiple companies or with untrusted Members, prompts, Skills, repositories, or content.
+        <Code>allowUnsafeHostExecution: true</Code> to enable path-confined file/search tools and
+        let Genosyn&apos;s repository Git operations run outside bubblewrap. AI Employees still
+        receive no host shell, but the coding tools and server-owned Git children share the App
+        process user&apos;s filesystem and network authority. Never use it for multiple companies or
+        with untrusted Members, prompts, Skills, repositories, or content.
       </Callout>
 
       <H2 id="public-url">Public URL</H2>

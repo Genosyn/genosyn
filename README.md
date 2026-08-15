@@ -93,9 +93,10 @@ and AI alike:
 
 - **Open source and self-hosted.** It's your data, on your machine.
 - **Bring your own AI.** Plug in an Anthropic or OpenAI API key, any
-  OpenAI-compatible / self-hosted endpoint, or — on a source-managed Linux
-  deployment with bubblewrap isolation — an eligible ChatGPT plan with Codex
-  access for OpenAI. Your credentials, your limits, your spend.
+  OpenAI-compatible / self-hosted endpoint, or an eligible ChatGPT plan with
+  Codex access for OpenAI. The standard Docker install supports ChatGPT sign-in
+  without coding tools; source-managed Linux can add isolated coding and
+  repository work with bubblewrap. Your credentials, your limits, your spend.
 - **No black box.** Souls, Skills, and Routines are markdown. You can read every word an
   employee acts on, and every run leaves a paper trail.
 - **A real company OS.** Not a wrapper around a chat box — a workspace, a task board, a

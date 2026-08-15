@@ -24,8 +24,10 @@ export function Models() {
             Every AI Employee can register one or more <Strong>AI Models</Strong> — their brains —
             and keep exactly one <Strong>active</Strong> at a time. Connect Anthropic or OpenAI with
             an API key, point at your own OpenAI-compatible endpoint, or use eligible ChatGPT
-            subscription access for OpenAI on a source-managed Linux server with bubblewrap
-            isolation. Switch the active model any time without losing the others&apos; credentials.
+            subscription access for OpenAI on a trusted single-tenant install. The standard Docker
+            default supports subscription work without coding tools; source-managed Linux can add
+            isolated coding with bubblewrap. Switch the active model any time without losing the
+            others&apos; credentials.
           </>
         }
       />
@@ -68,7 +70,7 @@ export function Models() {
         <ProviderCard
           name="OpenAI (GPT)"
           vendor="OpenAI"
-          creds="API key, or source-managed Linux ChatGPT subscription access."
+          creds="API key, or trusted single-tenant ChatGPT subscription access."
           connects="Models available to the selected OpenAI access method."
         />
         <ProviderCard
@@ -106,10 +108,11 @@ export function Models() {
           access through Genosyn&apos;s in-process model loop.
         </LI>
         <LI>
-          <Strong>OpenAI subscription.</Strong> On a source-managed Linux Genosyn deployment with
-          bubblewrap isolation, complete ChatGPT device sign-in or paste a Codex access token from
-          an eligible Business or Enterprise workspace. Genosyn runs this model through the pinned{" "}
-          <Code>@openai/codex</Code> app-server.
+          <Strong>OpenAI subscription.</Strong> On a trusted single-tenant Genosyn deployment,
+          complete ChatGPT device sign-in or paste a Codex access token from an eligible Business or
+          Enterprise workspace. Genosyn runs this model through the pinned{" "}
+          <Code>@openai/codex</Code> app-server. The standard Docker default supports this without
+          coding tools; working Linux bubblewrap can add isolated coding and repository work.
         </LI>
         <LI>
           <Strong>Custom.</Strong> Paste a base URL and a model id, plus an optional API key if your
@@ -119,10 +122,11 @@ export function Models() {
 
       <H3 id="openai-subscription">Use an OpenAI subscription</H3>
       <P>
-        Subscription access is available only on a source-managed Linux deployment whose bubblewrap
-        isolation check passes. In the add-model form, choose <Strong>OpenAI (GPT)</Strong>, set{" "}
-        <Strong>Authentication</Strong> to <Strong>ChatGPT subscription</Strong>, choose the model,
-        then select <Strong>Add model</Strong>. The model card offers two official Codex
+        Subscription access is available on a trusted single-tenant deployment when coding execution
+        is disabled or isolated with working Linux bubblewrap. The standard Docker install uses the
+        safe disabled mode by default. In the add-model form, choose <Strong>OpenAI (GPT)</Strong>,
+        set <Strong>Authentication</Strong> to <Strong>ChatGPT subscription</Strong>, choose the
+        model, then select <Strong>Add model</Strong>. The model card offers two official Codex
         authentication paths:
       </P>
       <UL>
@@ -158,20 +162,24 @@ export function Models() {
       <Callout kind="warn" title="Unavailable in shared SaaS mode">
         When <Code>config.security.multiTenant</Code> is on, Genosyn rejects subscription model
         creation, sign-in, and Runs. Use an OpenAI API key in shared SaaS. Subscription credentials
-        represent a person or workspace identity and may run code, so Genosyn keeps this path inside
-        the trust boundary of a self-hosted deployment.
+        represent a person or workspace identity, and their device sessions and refresh locks are
+        process-local, so Genosyn keeps this path inside the trust boundary of one self-hosted App
+        process.
       </Callout>
-      <Callout kind="info" title="Subscription auth needs coding-tool isolation">
-        Genosyn requires working Linux bubblewrap for subscription auth. Host mode deliberately
-        omits bash because a same-user shell could inspect temporary credentials and Vault data. Set{" "}
-        <Code>config.agent.codingTools.executionMode</Code> to <Code>bubblewrap</Code>; host and
-        disabled modes are rejected. API-key models are unchanged.
+      <Callout kind="info" title="Choose no coding or an isolated Linux shell">
+        Keep <Code>config.agent.codingTools.executionMode</Code> set to <Code>disabled</Code> for
+        subscription sign-in and Runs with no coding tools, repository materialization, or
+        user-configured stdio MCP. This is the standard Docker default. On a source-managed Linux
+        install, select <Code>bubblewrap</Code> to add isolated <Code>bash</Code> and repository
+        work. <Code>host</Code> mode permits same-UID child processes and therefore rejects
+        subscription auth. API-key models are unchanged.
       </Callout>
       <Callout kind="info" title="Coding and repository sync share one boundary">
-        Every model turn in a bubblewrap deployment exposes only sandboxed <Code>bash</Code> from
-        the coding family. The host-process file tools are omitted install-wide, so an overlapping
-        API-key or custom-model turn cannot race a workspace symlink into a subscription credential.
-        Automatic repository clone, fetch, and credential setup run through the same private PID and
+        Disabled mode skips coding tools and repository materialization entirely. Every model turn
+        in a bubblewrap deployment exposes only sandboxed <Code>bash</Code> from the coding family.
+        The host-process file tools are omitted install-wide, so an overlapping API-key or
+        custom-model turn cannot race a workspace symlink into a subscription credential. Automatic
+        repository clone, fetch, and credential setup run through the same private PID and
         temporary-filesystem boundary with a cleared environment and only the configured remote.
       </Callout>
       <Callout kind="warn" title="Run one App replica">
@@ -239,22 +247,24 @@ export function Models() {
       <P>
         API-key and custom-endpoint models run through Genosyn&apos;s in-process agent loop; an
         OpenAI subscription model runs through the official Codex app-server. Both receive the same
-        granted product, browser, and MCP <Strong>catalogue</Strong>. Subscription turns omit
-        parallel delegation because they serialize on the model&apos;s credential-refresh lock, and
-        the coding surface follows the installation&apos;s isolation mode as described below. An
+        granted product and built-in browser <Strong>catalogue</Strong>. Subscription turns omit
+        parallel delegation because they serialize on the model&apos;s credential-refresh lock. The
+        installation mode controls coding tools and user-configured stdio MCP as described below. An
         employee is shown a small working set every turn and looks the rest up on demand; see{" "}
         <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>. The catalogue is:
       </P>
       <UL>
         <LI>
-          <Strong>Coding tools.</Strong> In host mode, <Code>read_file</Code>,{" "}
+          <Strong>Coding tools.</Strong> Disabled mode exposes no coding tools and materializes no
+          repositories. In separately acknowledged host mode, <Code>read_file</Code>,{" "}
           <Code>write_file</Code>, <Code>edit_file</Code>, <Code>list_dir</Code>, <Code>glob</Code>,
           and <Code>grep</Code> are confined to the employee directory; unrestricted host bash is
           never exposed to an AI Employee. In bubblewrap mode, every model receives only sandboxed{" "}
-          <Code>bash</Code> and performs file work through it. OpenAI subscription access requires
-          working bubblewrap mode. The dedicated file helpers cap full reads, writes, and edits at
-          400 KiB; <Code>read_file</Code> can still stream a bounded line slice from a larger text
-          file, and <Code>bash</Code> handles larger generated artifacts.
+          <Code>bash</Code> and performs file work through it. OpenAI subscription access supports
+          disabled or working bubblewrap mode, but rejects host mode. The dedicated file helpers cap
+          full reads, writes, and edits at 400 KiB; <Code>read_file</Code> can still stream a
+          bounded line slice from a larger text file, and <Code>bash</Code> handles larger generated
+          artifacts.
         </LI>
         <LI>
           <Code>genosyn</Code> — the tools the employee calls to run Routines and Todos, write
@@ -273,9 +283,10 @@ export function Models() {
         </LI>
         <LI>
           <Strong>Company MCP servers.</Strong> HTTP MCP servers your company has configured are
-          added alongside the built-ins. User-configured stdio servers are omitted whenever
-          bubblewrap mode is active, across every model turn, because an arbitrary same-UID child
-          would break the subscription credential boundary.
+          added alongside the built-ins. User-configured stdio servers are omitted in disabled and
+          bubblewrap modes, across every model turn, because an arbitrary same-UID child would break
+          the subscription credential boundary. They are available only in trusted single-tenant
+          host mode, which rejects subscription auth.
         </LI>
       </UL>
 

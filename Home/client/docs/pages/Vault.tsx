@@ -126,12 +126,13 @@ export function Vault() {
         work is finished. Grant checks happen again at the moment of use, so revocation fails
         closed.
       </Callout>
-      <Callout kind="info" title="Host mode never exposes an unrestricted shell">
+      <Callout kind="info" title="Coding is disabled or isolated by mode">
         A working directory alone cannot contain a same-user shell: it could read the Vault
-        database, installation encryption key, or another Browser session. Genosyn therefore gives
-        host-mode AI Employees only path-confined file and search tools. Sandboxed <Code>bash</Code>{" "}
-        is available only in a working Linux bubblewrap deployment. This boundary applies even to an
-        employee with no Vault Grants.
+        database, installation encryption key, or another Browser session. The default disabled mode
+        exposes no coding tools. Genosyn gives AI Employees in separately acknowledged host mode
+        only path-confined file and search tools, while sandboxed <Code>bash</Code> is available
+        only in a working Linux bubblewrap deployment. This boundary applies even to an employee
+        with no Vault Grants.
       </Callout>
       <P>
         With Manage, <Code>update_vault_login</Code> can change the title, username, or private
