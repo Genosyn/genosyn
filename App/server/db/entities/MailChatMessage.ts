@@ -39,9 +39,15 @@ export class MailChatMessage {
   @Column({ type: "text", default: "" })
   content!: string;
 
-  /** Mirror of the chat seam's ChatResult status; null on user rows. */
+  /**
+   * Mirror of the chat seam's ChatResult status; null on user rows.
+   *
+   * `working` is the in-flight state: the row is persisted before the model
+   * runs, so a dropped browser connection (or a closed panel) can find the
+   * turn again and follow it to its real answer instead of losing the reply.
+   */
   @Column({ type: "varchar", nullable: true })
-  status!: "ok" | "skipped" | "error" | null;
+  status!: "working" | "ok" | "skipped" | "error" | null;
 
   /** JSON MessageAction[] — what the employee actually did this turn. */
   @Column({ type: "text", default: "" })

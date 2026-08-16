@@ -20,6 +20,7 @@ import {
 } from "./backupDestinations.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
 import { bootDurableChatTurnRecovery, stopDurableChatTurnRecovery } from "./durableChatTurns.js";
+import { finalizeInterruptedAssistantTurns } from "./mail/assistant.js";
 import {
   INSTANCE_SECRETS_FILENAME,
   INSTANCE_SECRETS_SENTINEL_FILENAME,
@@ -901,6 +902,9 @@ export async function restoreFromBackup(id: string): Promise<{
     // Rebuild in-memory schedules from the restored DB rows.
     await bootCron();
     await bootDurableChatTurnRecovery();
+    // Per-email AI chat rows captured mid-turn by the archive have no process
+    // behind them any more; close them out rather than restoring a spinner.
+    await finalizeInterruptedAssistantTurns();
     await bootBackups();
 
     return { safety, restored: target };

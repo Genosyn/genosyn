@@ -18,6 +18,7 @@ import { bootMailSync } from "./services/mail/sync.js";
 import { bootMailHandovers } from "./services/mail/handovers.js";
 import { bootMailDraftSendQueue } from "./services/mail/draftSendQueue.js";
 import { bootMailAutomationQueue } from "./services/mail/automationQueue.js";
+import { finalizeInterruptedAssistantTurns } from "./services/mail/assistant.js";
 import { attachRealtime, bootRealtimeBridge } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
@@ -149,6 +150,10 @@ async function main() {
   void bootMailDraftSendQueue().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[mail] draft-send queue boot failed:", err);
+  });
+  void finalizeInterruptedAssistantTurns().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[mail] assistant turn recovery failed:", err);
   });
 
   const app = express();
