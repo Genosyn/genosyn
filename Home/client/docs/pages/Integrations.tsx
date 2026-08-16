@@ -146,6 +146,83 @@ export function Integrations() {
         working set — see <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>.
       </P>
 
+      <H2 id="browser-login">Browser-login Connections</H2>
+      <P>
+        Most Connections talk to an API. A few sites either have no usable API or paywall the parts
+        that matter, so those Integrations also offer a <Strong>Browser login</Strong> tab: you
+        store a username and password, and Genosyn drives the real site in a headless browser. X is
+        the main one today.
+      </P>
+      <P>
+        A browser-login Connection is <Strong>not</Strong> the site&apos;s API, and Genosyn is
+        careful not to let an AI employee believe otherwise:
+      </P>
+      <UL>
+        <LI>
+          <Strong>It only lists what it can do.</Strong> X over OAuth exposes search, timelines and
+          DMs; X over browser login exposes posting, replies, likes, retweets and follows, because
+          those are the only ones with a stable web UI to drive. The employee never sees the others,
+          so it cannot plan around them.
+        </LI>
+        <LI>
+          <Strong>Every tool description says so.</Strong> Each browser-login tool carries a caveat
+          naming the mode and warning that the site can interrupt with a challenge — so an employee
+          will not promise you a path that &quot;avoids the login page&quot;.
+        </LI>
+        <LI>
+          <Strong>The status pill tells the truth.</Strong> It reflects the last session Genosyn
+          actually used, not merely whether a password is stored. A Connection whose sign-in is
+          blocked shows <Strong>Error</Strong> or <Strong>Expired</Strong> with the reason and the
+          fix printed underneath it.
+        </LI>
+      </UL>
+
+      <H3 id="browser-login-challenges">When the site challenges the sign-in</H3>
+      <P>
+        Sites like X run captchas, two-factor prompts and &quot;unusual activity&quot; checks.
+        <Strong> Genosyn never solves a challenge.</Strong> It stops, records what it saw, and backs
+        off — repeated sign-in attempts make a soft block harden into a real one, so a blocked
+        Connection is not retried until a cooldown lapses.
+      </P>
+      <P>
+        The way through is to sign in <Strong>once, by hand</Strong>, using the live browser panel:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "1. Browser access",
+            def: (
+              <>
+                Turn on Browser for an AI employee that holds the Connection — see{" "}
+                <DocLink to="/docs/browser">Browser</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "2. Open the login",
+            def: "Ask it to open the site's login page. The page appears in the live browser panel in chat.",
+          },
+          {
+            term: "3. Take over",
+            def: "Click “Take over” and drive the real browser yourself: type the password, clear the captcha, enter the 2FA code. The employee waits.",
+          },
+          {
+            term: "4. Carry on",
+            def: "The signed-in session is saved for that employee, and the Connection picks it up on its next call. Nothing to copy anywhere.",
+          },
+        ]}
+      />
+      <Callout kind="info" title="One session, both paths.">
+        An employee&apos;s browser session and its browser-login Connections share the same cookie
+        jar. Signing in by hand fixes the Connection, and a sign-in the Connection managed on its own
+        saves you from signing in again in chat.
+      </Callout>
+      <P>
+        The one thing a manual sign-in cannot fix is a wrong stored password — for that, use{" "}
+        <Strong>Reconnect</Strong> on the Connection. If a site keeps challenging an account, prefer
+        the Integration&apos;s official API mode where one exists.
+      </P>
+
       <H2 id="external-mcp">Connecting an external MCP client</H2>
       <P>
         The built-in <Code>genosyn</Code> tools an employee gets inside a run — the same tool

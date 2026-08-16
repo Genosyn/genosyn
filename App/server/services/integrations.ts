@@ -13,9 +13,11 @@ import {
 } from "../integrations/index.js";
 import {
   ApprovalRequiredError,
+  ConnectionAuthError,
   type IntegrationConfig,
   type IntegrationRuntimeContext,
 } from "../integrations/types.js";
+import { loadStorageState, saveStorageState } from "./browserStorage.js";
 import { refreshTelegramListener } from "./telegramListener.js";
 import { createAdSpendApproval, createPaymentApproval } from "./approvals.js";
 import { makeResourceAttachmentResolver } from "./resourceAttachments.js";
@@ -213,6 +215,55 @@ export async function withConnectionCredentialMutation<T>(
       connectionCredentialTails.delete(connectionId);
     }
   }
+}
+
+/**
+ * Hand a provider read/write access to one employee's shared browser
+ * storage state without telling it whose it is or where it lives. The
+ * identity is closed over here; the provider only ever sees `load()` /
+ * `save()`.
+ *
+ * `saveStorageState` wants a live Playwright context, but the only thing it
+ * asks of one is `storageState()` — so a provider that already holds a
+ * plain state object can hand it over through the same door.
+ */
+function makeSharedBrowserState(args: {
+  companyId: string;
+  employeeId: string;
+}): NonNullable<IntegrationRuntimeContext["sharedBrowserState"]> {
+  return {
+    async load() {
+      return loadStorageState(args.companyId, args.employeeId);
+    },
+    async save(state: unknown) {
+      if (!state || typeof state !== "object") return;
+      await saveStorageState(args.companyId, args.employeeId, {
+        storageState: async () => state,
+      });
+    },
+  };
+}
+
+/**
+ * Record that a Connection's credential itself is unusable. Keyed on the
+ * row rather than compare-and-swapped against the config, because the
+ * provider may have just rewritten that config (a browser driver stamps its
+ * health record there) and losing the status write is worse than losing a
+ * race for the newest message.
+ */
+async function markConnectionUnusable(args: {
+  connection: IntegrationConnection;
+  status: "error" | "expired";
+  message: string;
+}): Promise<void> {
+  await AppDataSource.getRepository(IntegrationConnection).update(
+    { id: args.connection.id, companyId: args.connection.companyId },
+    {
+      status: args.status,
+      statusMessage: args.message.slice(0, 2000),
+      lastCheckedAt: new Date(),
+    },
+  );
 }
 
 async function persistConnectionStatusIfCurrent(args: {
@@ -781,7 +832,9 @@ export async function refreshConnectionStatus(
   const result = await provider.checkStatus(ctx);
   await persistConnectionStatusIfCurrent({
     connection: conn,
-    status: result.ok ? "connected" : "error",
+    // A provider may say "not broken, just signed out" — that's `expired`,
+    // and it reads very differently to an operator than a hard error.
+    status: result.status ?? (result.ok ? "connected" : "error"),
     statusMessage: result.ok ? "" : (result.message ?? "Unknown error"),
     lastCheckedAt: new Date(),
     config: refreshed ?? undefined,
@@ -923,6 +976,14 @@ export async function invokeConnectionTool(args: {
   if (!provider) throw new Error(`Unknown provider: ${pair.connection.provider}`);
   const tool = provider.tools.find((t) => t.name === args.toolName);
   if (!tool) throw new Error(`Unknown tool: ${args.toolName}`);
+  // The tool listing already hides what this auth mode can't do; enforce it
+  // here too so a name the model remembers from another Connection can't
+  // reach a provider path that has no implementation behind it.
+  if (provider.supportsTool && !provider.supportsTool(args.toolName, pair.connection.authMode)) {
+    throw new Error(
+      `${provider.catalog.name} connection "${pair.connection.label}" is ${pair.connection.authMode} mode, which does not support ${args.toolName}.`,
+    );
+  }
 
   const cfg = decryptConnectionConfig(pair.connection);
   const credentialSnapshot = pair.connection.encryptedConfig;
@@ -954,12 +1015,39 @@ export async function invokeConnectionTool(args: {
       connection: pair.connection,
       employeeId: args.employee.id,
     }),
+    // Bound to this employee's cookie jar — the same one their `browser_*`
+    // tools use, which a human can watch and take over. A browser-login
+    // provider that hits a captcha has nowhere else to turn; this is how a
+    // sign-in a human completed by hand reaches the Connection.
+    sharedBrowserState: makeSharedBrowserState({
+      companyId: pair.connection.companyId,
+      employeeId: args.employee.id,
+    }),
   };
 
   let result: unknown;
   try {
     result = await provider.invokeTool(args.toolName, args.toolArgs, ctx);
   } catch (err) {
+    // A provider that rotated credentials and *then* failed must not lose
+    // the rotation — dropping it would replay a spent refresh token, or
+    // re-drive a login we already know is walled off, on the next call.
+    if (refreshed) {
+      await persistConnectionConfigIfCurrent({
+        connectionId: pair.connection.id,
+        companyId: pair.connection.companyId,
+        previousEncryptedConfig: credentialSnapshot,
+        config: refreshed,
+      });
+    }
+    if (err instanceof ConnectionAuthError) {
+      await markConnectionUnusable({
+        connection: pair.connection,
+        status: err.connectionStatus,
+        message: err.message,
+      });
+      throw err;
+    }
     if (err instanceof ApprovalRequiredError) {
       const approval =
         err.request?.kind === "ad_spend"

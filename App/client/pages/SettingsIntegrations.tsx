@@ -475,6 +475,14 @@ function IntegrationsPage({
                         <div className="truncate text-xs text-slate-500 dark:text-slate-400">
                           {entry?.name ?? c.provider} · {c.accountHint || "—"}
                         </div>
+                        {c.status !== "connected" && c.statusMessage ? (
+                          // Not a tooltip: a browser-login connection that a
+                          // site has challenged needs the operator to *do*
+                          // something, and the instructions are the fix.
+                          <p className="mt-1 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+                            {c.statusMessage}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         <Button

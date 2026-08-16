@@ -2059,6 +2059,27 @@ of the original V1 backlog has shipped — what remains is mostly
         flips into "Take over" mode. Solves captcha / 2FA without an
         external service. The async `browser_submit` Approval flow
         stays as the fallback for unattended routines.
+  - [x] **Browser-login Connections rejoin the same browser.** The
+        `authMode: "browser"` Integration drivers (X today) ran a second,
+        private Chromium that no human could see or take over, kept its own
+        cookie jar, announced itself with a `Genosyn/0.1` user agent, and
+        reported "Connected" whenever a password was merely stored. An
+        employee therefore promised a "direct integration with no login
+        page", drove the same walled-off login, and told the operator to
+        finish a sign-in in a session that did not exist. Now:
+        the desktop-Chrome disguise is shared (`services/browserProfile.ts`)
+        so the driver stops advertising itself as a bot; the driver reads
+        and writes the employee's shared storage state via a host-bound
+        `ctx.sharedBrowserState`, so a human take-over sign-in in the live
+        panel *is* the remedy and a driver-managed login saves the human one
+        later; failures are classified, recorded on the Connection and
+        backed off (`services/browserConnectionHealth.ts`) rather than
+        re-driven every call; `checkStatus` reports the session actually
+        observed, so the pill reads Error/Expired with the remedy printed
+        under it; and each Connection advertises only the tools its auth
+        mode can run, with the mode's caveat appended to every description
+        (`services/integrationToolListing.ts`). Genosyn still never solves
+        a challenge — it hands the page to a person and reuses the result.
 - [x] **Genosyn-level sandbox** — Bubblewrap user/mount/PID/IPC/UTS namespaces,
       a best-effort cgroup namespace, a single writable employee workspace,
       explicit environment, optional network namespace, and realpath/symlink
