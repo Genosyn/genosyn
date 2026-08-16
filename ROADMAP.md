@@ -291,6 +291,24 @@ export const config = {
       healthy Connection and employee Grant status, before optional Gmail setup
       with a safe draft Grant and a reviewable starter chat request. The regular
       later-hire wizard reuses the same skippable Launch plan after Soul review
+- [x] The guide teaches before it configures. A first "How it works" step
+      defines AI Employee, Soul, Skill, Routine, Run, Connection, Grant, and AI
+      Model at first use, walks the loop a scheduled Run actually follows, and
+      states up front the two things members were previously left to discover:
+      that they bring and pay for their own AI Model, and what an AI Employee
+      can and cannot do without a human. Template cards teach Skill and Routine
+      by naming the ones each template ships with
+- [x] The guide finishes. A terminal summary reads the company's derived
+      onboarding status back from the server — Skills written, AI Models
+      connected, Routines that will actually fire and when, the mailbox access
+      level actually granted — so it reports what is true rather than what the
+      wizard believes it did, then hands off to chat or Home. The Launch plan's
+      forward action now creates the selected Routines instead of discarding
+      them, and says out loud that they start running on their own schedule
+- [x] Onboarding is resumable from outside itself: Home shows a "finish setting
+      up" banner while a company has no AI Employee that can answer. Progress is
+      derived from real state rather than a stored flag, so it stays honest when
+      setup happens outside the guide and needs no schema of its own
 - [x] Every additional company created from the app-shell picker becomes active
       immediately and opens its company onboarding guide at the AI Employee step
 - [x] Company switcher in app shell

@@ -14,6 +14,7 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
 import { Logo } from "../components/Logo";
+import { clsx } from "../components/ui/clsx";
 
 export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
   const [email, setEmail] = React.useState("");
@@ -276,13 +277,25 @@ function TwoFactorPrompt({
   );
 }
 
-export function AuthShell({ title, children }: { title: string; children: React.ReactNode }) {
+export function AuthShell({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  /** One line saying what this is, for anyone who has never seen Genosyn. */
+  subtitle?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex min-h-full items-center justify-center p-6">
-      <div className="w-full max-w-sm">
+      <div className={clsx("w-full", subtitle ? "max-w-md" : "max-w-sm")}>
         <div className="mb-6 flex flex-col items-center text-center">
           <Logo className="h-8 w-auto text-slate-900 dark:text-slate-100" />
           <h1 className="mt-5 text-xl font-semibold text-slate-900 dark:text-slate-100">{title}</h1>
+          {subtitle && (
+            <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{subtitle}</p>
+          )}
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:bg-slate-900 dark:border-slate-700">
           {children}

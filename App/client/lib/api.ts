@@ -748,6 +748,24 @@ export type CreateRecommendedRoutinesResponse = {
   existing: Array<{ recommendationId: string; routineId: string }>;
 };
 
+/**
+ * First-run progress, derived server-side from the company's real state — see
+ * `server/services/onboardingStatus.ts`. Never a stored flag, so it stays true
+ * when setup happens outside the guide.
+ */
+export type OnboardingStatus = {
+  complete: boolean;
+  employee: { id: string; name: string; slug: string; role: string } | null;
+  modelConnected: boolean;
+  routineCount: number;
+  scheduledRoutineCount: number;
+  nextRunAt: string | null;
+  skillCount: number;
+  mailGranted: boolean;
+  mailAccessLevel: "read" | "draft" | "send" | null;
+  nextStep: "intro" | "employee" | "recommendations" | "email" | "first_request" | "done";
+};
+
 export type UsageBucket = {
   runs: number;
   completed: number;

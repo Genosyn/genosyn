@@ -157,7 +157,17 @@ describe("wide operational page layout", () => {
   test("centers onboarding within the full application pane", () => {
     const source = readAppFile("client/pages/Onboarding.tsx");
 
-    assert.match(source, /className="min-h-full w-full bg-slate-50\/70 dark:bg-slate-950"/);
+    // The guide owns the whole pane, so it must BE the scroll container the
+    // rest of the app gets from `ContextualLayout` rather than a plain div
+    // inside it — otherwise the shell scrolls, the top bar drifts, and the
+    // "Skip to main content" link has no target on the first authenticated
+    // screen anyone ever sees. It also uses the product's slate-900 dark
+    // canvas, not slate-950, so the top bar still reads as chrome.
+    assert.match(
+      source,
+      /id="main-content"[\s\S]*?className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900"/,
+    );
+    assert.match(source, /className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:py-12"/);
   });
 
   test("keeps the main application pane shrink-safe around full-width children", () => {

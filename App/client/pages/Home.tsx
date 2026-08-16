@@ -41,6 +41,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { useToast } from "../components/ui/Toast";
 import { useCompanySocketSubscription } from "../components/CompanySocket";
+import { SetupBanner } from "../components/SetupBanner";
 import { enablePush, pushSupported } from "../lib/push";
 import { clsx } from "../components/ui/clsx";
 
@@ -91,6 +92,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     <ContextualLayout>
       <div className="page-shell px-6 py-8 lg:px-8">
         <Greeting me={me} company={company} />
+        <SetupBanner company={company} />
         <PushPromptBanner />
         {data === null ? (
           <div className="flex min-h-[40vh] items-center justify-center">

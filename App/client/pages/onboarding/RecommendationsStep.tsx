@@ -165,13 +165,17 @@ export function RecommendationsStep({
       const suggested = next.routines
         .filter((routine) => routine.status === "suggested")
         .map((routine) => routine.id);
-      setSelectedRoutineIds((current) => {
-        if (!seededSelection.current) {
-          seededSelection.current = true;
-          return new Set(defaultOnboardingRoutineIds(next.routines));
-        }
-        return new Set([...current].filter((id) => suggested.includes(id)));
-      });
+      // Decide *before* the updater runs. Writing the ref inside it made the
+      // updater impure, and React re-invokes updaters to catch exactly that —
+      // the second pass saw `seeded` already true and returned the empty set,
+      // so the launch plan arrived with nothing preselected.
+      const seeding = !seededSelection.current;
+      seededSelection.current = true;
+      setSelectedRoutineIds((current) =>
+        seeding
+          ? new Set(defaultOnboardingRoutineIds(next.routines))
+          : new Set([...current].filter((id) => suggested.includes(id))),
+      );
     },
     [endpoint],
   );
@@ -198,6 +202,7 @@ export function RecommendationsStep({
 
   React.useEffect(() => {
     function handleOauthMessage(event: MessageEvent) {
+      // The popup is same-origin; anything else is not ours to trust.
       if (event.origin !== window.location.origin) return;
       const data = event.data as {
         source?: string;
@@ -232,8 +237,17 @@ export function RecommendationsStep({
     });
   }
 
-  async function addSelectedRoutines() {
-    if (selectedRoutineIds.size === 0) return;
+  /**
+   * Create the selected Routines. Returns false when the write failed, so the
+   * caller can keep the member on this step instead of advancing past an error.
+   *
+   * The toast says "scheduled", not "ready": the server creates each Routine
+   * enabled with a live `nextRunAt`, and "ready" reads as staged rather than
+   * armed. This is the moment the product starts acting on its own, and it
+   * should not be the quietest one in the guide.
+   */
+  async function addSelectedRoutines(): Promise<boolean> {
+    if (selectedRoutineIds.size === 0) return true;
     setAddingRoutines(true);
     setError(null);
     try {
@@ -246,16 +260,27 @@ export function RecommendationsStep({
       const total = created + existing;
       toast(
         total === 1
-          ? `1 Routine is ready for ${employee.name}`
-          : `${total} Routines are ready for ${employee.name}`,
+          ? `1 Routine is now scheduled for ${employee.name}`
+          : `${total} Routines are now scheduled for ${employee.name}`,
         "success",
       );
       await load();
+      return true;
     } catch (err) {
       setError((err as Error).message);
+      return false;
     } finally {
       setAddingRoutines(false);
     }
+  }
+
+  /**
+   * The forward action. It applies the selection first — the previous version
+   * called `onContinue` directly, so the plan's whole point was thrown away by
+   * the button most members press.
+   */
+  async function applyAndContinue() {
+    if (await addSelectedRoutines()) onContinue();
   }
 
   async function saveCompanyContext() {
@@ -365,7 +390,7 @@ export function RecommendationsStep({
               )}
               <div className="flex gap-2">
                 <Button variant="secondary" onClick={onContinue}>
-                  Skip for now
+                  Continue without a plan
                 </Button>
                 <Button
                   onClick={() => {
@@ -467,10 +492,11 @@ export function RecommendationsStep({
               <CalendarClock size={17} className="text-indigo-600 dark:text-indigo-400" />
               Suggested Routines
             </h2>
-            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-              Selected for {plan.context.employeeName}&apos;s {plan.context.employeeRole} role and
-              the outcomes {plan.context.companyName} cares about. You can edit every brief and
-              schedule later.
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+              A <strong className="font-semibold">Routine</strong> is work that runs on a schedule
+              without being asked. These were matched to {plan.context.employeeName}&apos;s{" "}
+              {plan.context.employeeRole} role and what {plan.context.companyName} is building. Pick
+              the ones you want — every brief and schedule stays editable.
             </p>
           </div>
           {suggested.length > 0 && (
@@ -499,18 +525,27 @@ export function RecommendationsStep({
         )}
 
         {suggested.length > 0 && (
-          <div className="mt-4 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center dark:border-slate-800 dark:bg-slate-900">
-            <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
-              {ready.length > 0
-                ? `${ready.length} ${ready.length === 1 ? "Routine is" : "Routines are"} already ready. Add only the ideas you want.`
-                : "Add the selected briefs now, then refine them any time from Routines."}
-            </p>
+          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 sm:flex-row sm:items-center dark:border-indigo-500/30 dark:bg-indigo-500/10">
+            <div className="flex items-start gap-2.5">
+              <Clock3
+                size={16}
+                className="mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-300"
+                aria-hidden="true"
+              />
+              <p className="text-sm leading-6 text-indigo-900/80 dark:text-indigo-200/80">
+                Anything you add starts running on its own schedule straight away — using{" "}
+                {employee.name}&apos;s AI Model, and so the credit on the key you registered. Turn
+                any of them off at any time from Routines.
+                {ready.length > 0 &&
+                  ` ${ready.length} matching ${ready.length === 1 ? "Routine already exists" : "Routines already exist"} for ${employee.name}.`}
+              </p>
+            </div>
             <Button
-              className="sm:ml-auto"
+              className="shrink-0 sm:ml-auto"
               onClick={addSelectedRoutines}
               disabled={addingRoutines || selectedRoutineIds.size === 0}
             >
-              {addingRoutines ? "Adding Routines…" : "Add selected Routines"}
+              {addingRoutines ? "Scheduling…" : "Add selected Routines"}
               {!addingRoutines && <ArrowRight size={14} />}
             </Button>
           </div>
@@ -526,9 +561,12 @@ export function RecommendationsStep({
             <Plug size={17} className="text-indigo-600 dark:text-indigo-400" />
             Recommended Integrations
           </h2>
-          <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-            Connect the sources that make this role useful, then give {employee.name} a Grant to the
-            specific Connection they should use.
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+            An <strong className="font-semibold">Integration</strong> is a connector type; a{" "}
+            <strong className="font-semibold">Connection</strong> is one account your company links
+            through it; a <strong className="font-semibold">Grant</strong> is {employee.name}
+            &apos;s access to that one Connection. They can reach nothing you have not granted, and
+            all of this is optional right now.
           </p>
         </div>
         {plan.integrations.length === 0 ? (
@@ -555,24 +593,35 @@ export function RecommendationsStep({
 
       <FormError message={error} />
 
-      <div className="flex flex-col gap-2 border-t border-slate-200 pt-5 sm:flex-row sm:items-center dark:border-slate-800">
-        {onBack ? (
-          <Button variant="ghost" onClick={onBack}>
+      <div className="flex flex-col-reverse gap-2 border-t border-slate-200 pt-5 sm:flex-row sm:items-center dark:border-slate-800">
+        {onBack && (
+          <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={onBack}>
             <ArrowLeft size={14} /> Back
           </Button>
-        ) : (
-          <span />
         )}
-        <button
-          type="button"
-          onClick={onContinue}
-          className="text-sm font-medium text-slate-500 hover:text-slate-800 sm:ml-auto dark:text-slate-400 dark:hover:text-slate-200"
-        >
-          Skip for now
-        </button>
-        <Button onClick={onContinue}>
-          {continueLabel} <ArrowRight size={14} />
-        </Button>
+        <div className="flex flex-col-reverse gap-2 sm:ml-auto sm:flex-row sm:items-center">
+          {selectedRoutineIds.size > 0 && (
+            <button
+              type="button"
+              onClick={onContinue}
+              className="rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-800 sm:py-0 dark:text-slate-400 dark:hover:text-slate-200"
+            >
+              Continue without adding them
+            </button>
+          )}
+          <Button
+            className="w-full sm:w-auto"
+            onClick={applyAndContinue}
+            disabled={addingRoutines}
+          >
+            {addingRoutines
+              ? "Scheduling…"
+              : selectedRoutineIds.size > 0
+                ? `Schedule ${selectedRoutineIds.size} ${selectedRoutineIds.size === 1 ? "Routine" : "Routines"} and continue`
+                : continueLabel}
+            {!addingRoutines && <ArrowRight size={14} />}
+          </Button>
+        </div>
       </div>
 
       <ApiKeyModal
@@ -656,10 +705,10 @@ function RoutineCard({
       className={clsx(
         "relative flex min-h-48 flex-col rounded-xl border bg-white p-4 shadow-sm transition dark:bg-slate-900",
         ready
-          ? "border-emerald-200 dark:border-emerald-900"
+          ? "border-emerald-200 dark:border-emerald-500/30"
           : selected
-            ? "border-indigo-400 ring-2 ring-indigo-100 focus-within:ring-indigo-400 dark:border-indigo-600 dark:ring-indigo-950 dark:focus-within:ring-indigo-600"
-            : "border-slate-200 hover:border-indigo-300 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-200 dark:border-slate-800 dark:hover:border-indigo-700 dark:focus-within:border-indigo-600 dark:focus-within:ring-indigo-900",
+            ? "border-indigo-400 ring-2 ring-indigo-100 focus-within:ring-indigo-400 dark:border-indigo-500 dark:ring-indigo-500/30 dark:focus-within:ring-indigo-500"
+            : "border-slate-200 hover:border-indigo-300 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-200 dark:border-slate-800 dark:hover:border-indigo-500/60 dark:focus-within:border-indigo-500 dark:focus-within:ring-indigo-500/30",
       )}
     >
       {!ready && (
@@ -672,15 +721,21 @@ function RoutineCard({
         />
       )}
       <div className="flex items-start gap-3">
+        {/* For a selectable card the leading tile IS the checkbox — four
+          uniform tiles read as a list of facts, and members did not learn
+          they were choosing until they mis-clicked. */}
         <div
+          aria-hidden="true"
           className={clsx(
-            "grid h-9 w-9 shrink-0 place-items-center rounded-lg",
+            "grid h-9 w-9 shrink-0 place-items-center transition-colors",
             ready
-              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-              : "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
+              ? "rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300"
+              : selected
+                ? "rounded-md border border-indigo-600 bg-indigo-600 text-white dark:border-indigo-500 dark:bg-indigo-500"
+                : "rounded-md border border-slate-300 bg-white text-transparent dark:border-slate-600 dark:bg-slate-900",
           )}
         >
-          {ready ? <CheckCircle2 size={16} /> : <Clock3 size={16} />}
+          {ready ? <CheckCircle2 size={16} /> : <Check size={16} />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2">
@@ -691,13 +746,13 @@ function RoutineCard({
               className={clsx(
                 "ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold",
                 ready
-                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
                   : selected
-                    ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+                    ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300"
                     : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
               )}
             >
-              {ready ? "Ready" : selected ? "Selected" : "Suggested"}
+              {ready ? "Scheduled" : selected ? "Selected" : "Suggested"}
             </span>
           </div>
           <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">

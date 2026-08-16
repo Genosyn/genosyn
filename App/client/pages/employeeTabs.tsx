@@ -779,8 +779,8 @@ export function EmployeeModelSection({ company, emp }: { company: Company; emp: 
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
             {models.length === 1
-              ? "One brain registered. Add another to switch between them any time."
-              : `${models.length} brains registered — the active one is the default for chats and runs routines.`}
+              ? "One AI Model registered. Add another to switch between them any time."
+              : `${models.length} AI Models registered — the active one is the default for chat and runs Routines.`}
           </div>
         </div>
         {!adding && (
@@ -840,10 +840,10 @@ function ModelSetup({
       <CardBody className="flex flex-col gap-4">
         <div>
           <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            Connect a brain for {emp.name}
+            Connect an AI Model for {emp.name}
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            Each AI Employee signs into their own provider — pick one and connect it.
+            Pick where {emp.name} thinks, then paste the key. Each AI Employee keeps their own.
           </div>
         </div>
         <ModelForm

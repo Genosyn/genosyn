@@ -3,14 +3,17 @@ import { clsx } from "./clsx";
 
 export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
   label?: string;
+  /** Explains what the field is for. Rendered below and wired up for readers. */
+  hint?: React.ReactNode;
 };
 
 export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
-  { label, className, id, ...rest },
+  { label, hint, className, id, ...rest },
   ref,
 ) {
   const genId = React.useId();
   const tid = id ?? genId;
+  const hintId = `${tid}-hint`;
   return (
     <div className="flex flex-col gap-1">
       {label && (
@@ -21,6 +24,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(fun
       <textarea
         ref={ref}
         id={tid}
+        aria-describedby={hint ? hintId : undefined}
         {...rest}
         className={clsx(
           "min-h-[160px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm",
@@ -30,6 +34,11 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(fun
           className,
         )}
       />
+      {hint && (
+        <p id={hintId} className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+          {hint}
+        </p>
+      )}
     </div>
   );
 });

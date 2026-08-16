@@ -7,7 +7,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { Invitation } from "../db/entities/Invitation.js";
 import { User } from "../db/entities/User.js";
 import { In } from "typeorm";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import {
   requireAuth,
   requireBrowserSession,
@@ -18,6 +18,7 @@ import { toSlug } from "../lib/slug.js";
 import { generateToken, hashToken } from "../lib/token.js";
 import { sendEmail } from "../services/email.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
+import { loadOnboardingStatus } from "../services/onboardingStatus.js";
 import { deleteCompanyCascade } from "../services/companyDelete.js";
 import { companyDir } from "../services/paths.js";
 import { avatarAbsPath, mimeFromKey } from "../services/avatars.js";
@@ -128,6 +129,30 @@ companiesRouter.get("/:cid", requireCompanyMember, async (req, res) => {
     requireTwoFactor: co.requireTwoFactor,
   });
 });
+
+const onboardingStatusParamsSchema = z.object({ cid: z.string().uuid() });
+const onboardingStatusQuerySchema = z.object({ employeeId: z.string().uuid().optional() });
+
+/**
+ * First-run progress, derived from the company's real state rather than a
+ * stored flag — see `services/onboardingStatus.ts`. Read by the guide's
+ * closing summary, which names an employee, and by Home's "finish setting up"
+ * banner, which asks about the company's first hire and so passes none.
+ */
+companiesRouter.get(
+  "/:cid/onboarding-status",
+  requireCompanyMember,
+  validateParams(onboardingStatusParamsSchema),
+  async (req, res) => {
+    const query = onboardingStatusQuerySchema.safeParse(req.query);
+    if (!query.success) {
+      return res.status(400).json({ error: "ValidationError", issues: query.error.issues });
+    }
+    const co = await AppDataSource.getRepository(Company).findOneBy({ id: req.params.cid });
+    if (!co) return res.status(404).json({ error: "Not found" });
+    res.json(await loadOnboardingStatus(co.id, query.data.employeeId));
+  },
+);
 
 const patchSchema = z
   .object({

@@ -1,17 +1,10 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  ArrowRight,
-  BrainCircuit,
-  Clock3,
-  Mail,
-  Search,
-  Sparkles,
-} from "lucide-react";
+import { ArrowRight, BrainCircuit, Clock3, Mail, Search, Sparkles } from "lucide-react";
 import { Company, Employee } from "../../lib/api";
 import { Button } from "../../components/ui/Button";
-import { Card, CardBody } from "../../components/ui/Card";
 import { Textarea } from "../../components/ui/Textarea";
+import { StepCard, StepFooter, StepHeading } from "./OnboardingFrame";
 
 const STARTER_REQUESTS = [
   {
@@ -44,6 +37,14 @@ const STARTER_REQUESTS = [
   },
 ];
 
+/**
+ * The optional last thing: one concrete request, so a member watches how an AI
+ * Employee works before trusting it with a schedule.
+ *
+ * Every starter prompt ends in a guardrail ("do not send anything") and the
+ * step says why out loud — the constraints used to be visible only to whoever
+ * read the prompt text carefully.
+ */
 export function FirstRequestStep({
   company,
   employee,
@@ -63,76 +64,70 @@ export function FirstRequestStep({
   }
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <Card>
-        <CardBody className="p-5 sm:p-7">
-          <div className="text-center">
-            <div className="mx-auto grid h-11 w-11 place-items-center rounded-xl bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-              <Sparkles size={20} />
-            </div>
-            <h2 className="mt-3 text-xl font-semibold text-slate-900 dark:text-slate-100">
-              Give {employee.name} a useful first request
-            </h2>
-            <p className="mx-auto mt-1 max-w-xl text-sm leading-6 text-slate-500 dark:text-slate-400">
-              Pick an example or write your own. Genosyn will prefill chat so you can review the
-              request before sending it.
-            </p>
-          </div>
+    <StepCard>
+      <StepHeading
+        icon={Sparkles}
+        title={`Give ${employee.name} a first request`}
+        description={
+          <>
+            Pick one and Genosyn writes it into chat for you to review before sending — nothing is
+            sent on your behalf. Each example asks {employee.name} to check with you before creating
+            or sending anything, which is how a request should read until you trust the work.
+          </>
+        }
+      />
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            {STARTER_REQUESTS.map((request) => {
-              const Icon = request.icon;
-              return (
-                <button
-                  key={request.title}
-                  type="button"
-                  onClick={() => openChat(request.prompt)}
-                  className="group rounded-xl border border-slate-200 p-4 text-left transition hover:border-indigo-300 hover:bg-indigo-50/50 dark:border-slate-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/30"
-                >
-                  <div className="flex items-center gap-2">
-                    <Icon
-                      size={15}
-                      className="text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400"
-                    />
-                    <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      {request.title}
-                    </span>
-                    <ArrowRight
-                      size={14}
-                      className="ml-auto text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-500"
-                    />
-                  </div>
-                  <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                    {request.description}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        {STARTER_REQUESTS.map((request) => {
+          const Icon = request.icon;
+          return (
+            <button
+              key={request.title}
+              type="button"
+              onClick={() => openChat(request.prompt)}
+              className="group rounded-xl border border-slate-200 p-4 text-left transition hover:border-indigo-300 hover:bg-indigo-50/50 dark:border-slate-800 dark:hover:border-indigo-500/60 dark:hover:bg-indigo-500/10"
+            >
+              <div className="flex items-center gap-2">
+                <Icon
+                  size={15}
+                  className="shrink-0 text-slate-400 group-hover:text-indigo-600 dark:text-slate-500 dark:group-hover:text-indigo-400"
+                />
+                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {request.title}
+                </span>
+                <ArrowRight
+                  size={14}
+                  className="ml-auto shrink-0 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-indigo-500 dark:text-slate-600"
+                />
+              </div>
+              <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                {request.description}
+              </p>
+            </button>
+          );
+        })}
+      </div>
 
-          <div className="mt-6">
-            <Textarea
-              label="Or write your own"
-              value={customPrompt}
-              onChange={(e) => setCustomPrompt(e.target.value)}
-              placeholder={`What should ${employee.name} help with first?`}
-              rows={3}
-            />
-            <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
-              <Button variant="ghost" onClick={onBack}>
-                Back
-              </Button>
-              <Button
-                className="sm:ml-auto"
-                disabled={!customPrompt.trim()}
-                onClick={() => openChat(customPrompt.trim())}
-              >
-                Open chat <ArrowRight size={15} />
-              </Button>
-            </div>
-          </div>
-        </CardBody>
-      </Card>
-    </div>
+      <div className="mt-5">
+        <Textarea
+          label="Or write your own"
+          value={customPrompt}
+          onChange={(e) => setCustomPrompt(e.target.value)}
+          placeholder={`What should ${employee.name} help with first?`}
+          rows={3}
+          className="min-h-24"
+        />
+      </div>
+
+      <StepFooter onBack={onBack} backLabel="Back to summary">
+        <Button
+          className="w-full sm:w-auto"
+          disabled={!customPrompt.trim()}
+          onClick={() => openChat(customPrompt.trim())}
+        >
+          Open chat <ArrowRight size={15} />
+        </Button>
+      </StepFooter>
+    </StepCard>
   );
 }

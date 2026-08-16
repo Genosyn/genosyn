@@ -1,24 +1,21 @@
 import React from "react";
-import { ArrowRight, CheckCircle2, Mail } from "lucide-react";
-import {
-  api,
-  Company,
-  Employee,
-  IntegrationCatalogEntry,
-} from "../../lib/api";
-import {
-  MailAccount,
-  MailConnectCandidate,
-  MailGrant,
-  mailApi,
-} from "../../lib/mail";
+import { ArrowRight, CheckCircle2, Mail, ShieldCheck } from "lucide-react";
+import { api, Company, Employee, IntegrationCatalogEntry } from "../../lib/api";
+import { MailAccount, MailConnectCandidate, MailGrant, mailApi } from "../../lib/mail";
 import { Button } from "../../components/ui/Button";
-import { Card, CardBody } from "../../components/ui/Card";
 import { FormError } from "../../components/ui/FormError";
 import { Spinner } from "../../components/ui/Spinner";
 import { useToast } from "../../components/ui/Toast";
 import { OauthOrServiceAccountModal } from "../SettingsIntegrations";
+import { Note, SkipLink, StepCard, StepFooter, StepHeading } from "./OnboardingFrame";
 
+/**
+ * Optional Gmail access, at the deliberately safe `draft` level.
+ *
+ * The step is labelled "Gmail" rather than "Email" because the catalog lookup
+ * is hard-filtered to `provider === "google"`. Calling it "Email" sent members
+ * on other providers hunting for a misconfiguration that did not exist.
+ */
 export function EmailStep({
   company,
   employee,
@@ -43,9 +40,7 @@ export function EmailStep({
   const load = React.useCallback(async () => {
     setError(null);
     const [catalog, candidateResult, accountResult] = await Promise.all([
-      api.get<IntegrationCatalogEntry[]>(
-        `/api/companies/${company.id}/integrations/catalog`,
-      ),
+      api.get<IntegrationCatalogEntry[]>(`/api/companies/${company.id}/integrations/catalog`),
       mailApi.connectCandidates(company.id),
       mailApi.accounts(company.id),
     ]);
@@ -83,6 +78,7 @@ export function EmailStep({
 
   React.useEffect(() => {
     function handleOauthMessage(event: MessageEvent) {
+      // The popup is same-origin; anything else is not ours to trust.
       if (event.origin !== window.location.origin) return;
       const data = event.data as { source?: string; ok?: boolean; detail?: string } | null;
       if (!data || data.source !== "genosyn-oauth") return;
@@ -118,7 +114,7 @@ export function EmailStep({
         employeeId: employee.id,
         accessLevel: "draft",
       });
-      toast(`Email connected for ${employee.name}`, "success");
+      toast(`Draft access granted to ${employee.name}`, "success");
       await load();
     } catch (err) {
       setError((err as Error).message);
@@ -147,113 +143,104 @@ export function EmailStep({
   }
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <Card>
-        <CardBody className="p-5 sm:p-7">
-          <div className="flex items-start gap-3">
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-              <Mail size={18} />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                Connect email
-              </h2>
-              <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
-                Add a Gmail mailbox and give {employee.name} draft access. They can read, triage,
-                and prepare replies, but cannot send without you raising the Grant later.
-              </p>
-            </div>
+    <StepCard>
+      <StepHeading
+        icon={Mail}
+        title="Connect Gmail"
+        description={
+          <>
+            Optional, and only Gmail for now — other mailboxes connect later from Email →
+            Integrations. Linking one lets {employee.name} read the inbox and prepare replies inside
+            Genosyn.
+          </>
+        }
+      />
+
+      <Note kind="info" icon={ShieldCheck} className="mt-4" title="They get draft access, not send">
+        Mailbox access has three levels. <strong className="font-semibold">Read</strong> browses
+        threads. <strong className="font-semibold">Draft</strong> — what this step grants — also
+        writes replies, applies labels, archives, and marks read, so {employee.name} can clear an
+        inbox and leave a finished reply in the thread while a human presses Send.{" "}
+        <strong className="font-semibold">Send</strong> is never granted here. Change the level any
+        time at Email → Settings → AI access.
+      </Note>
+
+      <div className="my-5 border-t border-slate-100 dark:border-slate-800" />
+      <FormError message={error} />
+
+      {loading ? (
+        <div className="flex justify-center py-10">
+          <Spinner size={22} />
+        </div>
+      ) : emailReady ? (
+        // The Grant may pre-date this step at any level, so report the level
+        // that is actually on it — claiming "sending stays with you" about a
+        // `send` Grant misstates a safety property.
+        <Note kind="success" icon={CheckCircle2} title={`${account.address} is ready`}>
+          {grant.accessLevel === "read"
+            ? `${employee.name} has read access — they can browse and search threads, but not write replies.`
+            : grant.accessLevel === "send"
+              ? `${employee.name} already has send access to this mailbox and can send without asking. Change it at Email → Settings → AI access.`
+              : `${employee.name} has draft access to this mailbox. Sending stays with you.`}
+        </Note>
+      ) : account ? (
+        <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            Mailbox connected: {account.address}
           </div>
-
-          <div className="my-6 border-t border-slate-100 dark:border-slate-800" />
-          <FormError message={error} />
-
-          {loading ? (
-            <div className="flex justify-center py-10">
-              <Spinner size={22} />
-            </div>
-          ) : emailReady ? (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
-              <div className="flex items-center gap-2 text-sm font-medium text-emerald-900 dark:text-emerald-200">
-                <CheckCircle2 size={16} />
-                {account.address} is ready
-              </div>
-              <p className="mt-1 text-xs leading-5 text-emerald-700 dark:text-emerald-300">
-                {employee.name} has draft access. Sending remains under human control.
-              </p>
-            </div>
-          ) : account ? (
-            <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-              <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                Mailbox connected: {account.address}
-              </div>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Finish by giving {employee.name} safe draft access.
-              </p>
-              <Button className="mt-4" onClick={grantMailbox} disabled={busy}>
-                {busy ? "Granting…" : "Grant draft access"}
-              </Button>
-            </div>
-          ) : candidate ? (
-            <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-              <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                Google is connected
-              </div>
-              <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                Connect {candidate.accountHint || candidate.label} as a mailbox and grant{" "}
-                {employee.name} draft access in one step.
-              </p>
-              <Button className="mt-4" onClick={connectMailbox} disabled={busy}>
-                {busy ? "Connecting…" : "Connect mailbox"}
-              </Button>
-            </div>
-          ) : catalogEntry?.enabled ? (
-            <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-              <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                Connect Google Workspace
-              </div>
-              <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                You will create or choose an OAuth client, then approve Gmail access in Google.
-                Genosyn stores each Connection&apos;s credentials encrypted.
-              </p>
-              <Button className="mt-4" onClick={() => setOauthOpen(true)}>
-                Connect Gmail
-              </Button>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/30">
-              <div className="text-sm font-medium text-amber-900 dark:text-amber-200">
-                Gmail needs operator setup
-              </div>
-              <p className="mt-1 text-xs leading-5 text-amber-700 dark:text-amber-300">
-                {catalogEntry?.disabledReason ??
-                  "Google Workspace is not enabled on this Genosyn instance."}{" "}
-                You can continue now and connect it later from Email → Integrations.
-              </p>
-            </div>
-          )}
-
-          <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
-            <Button variant="ghost" onClick={onBack}>
-              Back
-            </Button>
-            {!emailReady && (
-              <button
-                type="button"
-                onClick={onContinue}
-                className="text-sm font-medium text-slate-500 hover:text-slate-800 sm:ml-auto dark:text-slate-400 dark:hover:text-slate-200"
-              >
-                Set up email later
-              </button>
-            )}
-            {emailReady && (
-              <Button className="sm:ml-auto" onClick={onContinue}>
-                Continue to first request <ArrowRight size={15} />
-              </Button>
-            )}
+          <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
+            One step left — give {employee.name} draft access to it.
+          </p>
+          <Button className="mt-4" onClick={grantMailbox} disabled={busy}>
+            {busy ? "Granting…" : "Grant draft access"}
+          </Button>
+        </div>
+      ) : candidate ? (
+        <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            Google is already connected
           </div>
-        </CardBody>
-      </Card>
+          <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
+            Link {candidate.accountHint || candidate.label} as a mailbox and grant {employee.name}{" "}
+            draft access in one step.
+          </p>
+          <Button className="mt-4" onClick={connectMailbox} disabled={busy}>
+            {busy ? "Connecting…" : "Connect mailbox"}
+          </Button>
+        </div>
+      ) : catalogEntry?.enabled ? (
+        <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            Connect Google Workspace
+          </div>
+          <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
+            You will pick or create an OAuth client, then approve Gmail access in Google. That
+            creates a <strong className="font-semibold">Connection</strong> — one authenticated
+            account your company owns — whose credentials Genosyn stores encrypted.
+          </p>
+          <Button className="mt-4" onClick={() => setOauthOpen(true)}>
+            Connect Gmail
+          </Button>
+        </div>
+      ) : (
+        <Note kind="warn" title="Gmail needs operator setup on this instance">
+          {catalogEntry?.disabledReason ??
+            "Google Workspace is not enabled on this Genosyn instance."}{" "}
+          Skip this step — nothing else depends on it — and connect a mailbox later from Email →
+          Integrations.
+        </Note>
+      )}
+
+      <StepFooter
+        onBack={onBack}
+        secondary={
+          !emailReady ? <SkipLink onClick={onContinue}>Skip email for now</SkipLink> : undefined
+        }
+      >
+        <Button className="w-full sm:w-auto" onClick={onContinue}>
+          {emailReady ? "Finish setup" : "Continue"} <ArrowRight size={15} />
+        </Button>
+      </StepFooter>
 
       {catalogEntry && (
         <OauthOrServiceAccountModal
@@ -274,6 +261,6 @@ export function EmailStep({
           }}
         />
       )}
-    </div>
+    </StepCard>
   );
 }

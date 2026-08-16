@@ -1,4 +1,4 @@
-import { Callout, Code, DocLink, H2, H3, KeyList, P, PageHeader, Pre } from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, H3, KeyList, P, PageHeader, Pre, Strong } from "@/docs/Prose";
 
 export function Install() {
   return (
@@ -92,11 +92,13 @@ export function Install() {
       <Pre lang="bash">{`genosyn user grant-master-admin you@example.com`}</Pre>
       <P>
         Being first to reach public signup never grants operator access; the command proves control
-        of the Docker host and refuses an unverified account. Sign in again, create your first
-        company, and follow the in-app launch guide through hiring an AI Employee, connecting its AI
-        Model, setting up Gmail, and opening a first request in chat. Follow{" "}
+        of the Docker host and refuses an unverified account. Sign in again, name your first
+        company, and follow the five-step first-run guide — how it works, hiring an AI Employee and
+        connecting its AI Model, its launch plan of Routines, optional Gmail access, then a first
+        request in chat. Follow{" "}
         <DocLink to="/docs/getting-started">Onboard your first AI Employee</DocLink> for the
-        complete walkthrough.
+        complete walkthrough. If you leave partway, Home keeps a{" "}
+        <Strong>Finish setting up</Strong> banner back into it.
       </P>
 
       <H2 id="upgrading">Upgrading</H2>

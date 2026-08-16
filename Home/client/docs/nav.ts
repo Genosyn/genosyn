@@ -26,7 +26,7 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/getting-started",
         title: "Onboard your first AI Employee",
-        blurb: "Hire, connect email, and make a useful first request.",
+        blurb: "The five-step first-run guide, from what an AI Employee is to a first request.",
       },
       {
         path: "/docs/help",

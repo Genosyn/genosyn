@@ -133,8 +133,10 @@ export function Employees() {
         <LI>
           <Strong>Review the Launch plan.</Strong> Genosyn uses the role, chosen template, and
           company mission and vision to show dynamic Routine and Integration recommendations.
-          Template-created Routines appear as <Strong>Ready</Strong>; new suggestions remain opt-in
-          until you select them and choose <Strong>Add selected Routines</Strong>.
+          Template-created Routines appear as <Strong>Scheduled</Strong>; new suggestions remain
+          opt-in until you select them and choose either <Strong>Add selected Routines</Strong> or
+          the primary <Strong>Schedule N Routines and continue</Strong>, which creates them and
+          advances in one press.
         </LI>
         <LI>
           <Strong>Connect the work.</Strong> Integration cards distinguish between Connect, Grant
@@ -148,11 +150,13 @@ export function Employees() {
       </OL>
 
       <Callout kind="tip" title="The Launch plan appears after every hire.">
-        The first-company guide opens it between the AI Employee and Email steps. The regular{" "}
+        The first-company guide opens it between the AI Employee and Gmail steps. The regular{" "}
         <Strong>AI → Employees → Hire AI Employee</Strong> flow opens it after the Soul review. Both
-        use the same recommendation rules, and both can be skipped. Suggestions never overwrite an
-        existing Routine or create a duplicate; skipping creates no Routines, Connections, or
-        Grants. See <DocLink to="/docs/getting-started">Getting started</DocLink> for the full flow.
+        use the same recommendation rules, and both can be skipped — in the guide with{" "}
+        <Strong>Continue without adding them</Strong>. Suggestions never overwrite an existing
+        Routine or create a duplicate; skipping creates no Routines, Connections, or Grants.
+        Anything you do add starts running on its own schedule straight away. See{" "}
+        <DocLink to="/docs/getting-started">Getting started</DocLink> for the full flow.
       </Callout>
 
       <H2 id="working-directory">Working directory</H2>
