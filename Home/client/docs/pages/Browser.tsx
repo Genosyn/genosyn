@@ -271,6 +271,15 @@ export function Browser() {
         on disk.
       </P>
       <P>
+        That snapshot is written whenever a session is torn down — including on <Code>SIGTERM</Code>
+        , so stopping or updating the container flushes every live browser before it exits rather
+        than dropping whatever the session had learned since it started. Page loads also trigger a
+        debounced save, which bounds what an ungraceful kill can cost to the last page. Two things
+        are deliberately <Strong>not</Strong> kept: IndexedDB and service-worker storage, so a site
+        that keys its auth off those needs a fresh sign-in; and Chrome&apos;s own profile directory,
+        which is new on every launch, so the HTTP cache always starts cold.
+      </P>
+      <P>
         That per-employee session is also what{" "}
         <DocLink to="/docs/integrations">browser-login Connections</DocLink> use. When a site
         challenges a stored-password sign-in with a captcha or a 2FA prompt, the fix is to take over

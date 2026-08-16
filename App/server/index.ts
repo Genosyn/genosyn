@@ -435,6 +435,63 @@ async function main() {
     // eslint-disable-next-line no-console
     console.log(`[genosyn] listening on :${config.port}`);
   });
+  installShutdownHandlers(server);
+}
+
+/**
+ * Stop cleanly on the signals a container runtime actually sends.
+ *
+ * The reason this exists is browser state. An employee's cookies and
+ * localStorage are only written to disk when a browser session is torn down
+ * deliberately, so before this handler every `docker stop` and every
+ * `genosyn update` killed live browsers mid-flight and silently rolled that
+ * employee back to the previous snapshot — a sign-in performed two minutes
+ * before an update was simply gone.
+ *
+ * `docker stop` allows ten seconds before it escalates to `SIGKILL`, so the
+ * flush is bounded well inside that: losing a few sessions' cookies is bad, but
+ * hanging until the runtime shoots us loses all of them *and* leaves the
+ * container in a worse state.
+ */
+function installShutdownHandlers(server: http.Server): void {
+  const FLUSH_BUDGET_MS = 6_000;
+  let shuttingDown = false;
+
+  const shutdown = (signal: NodeJS.Signals): void => {
+    // A second Ctrl-C should not start a second flush over the first.
+    if (shuttingDown) return;
+    shuttingDown = true;
+    // eslint-disable-next-line no-console
+    console.log(`[genosyn] ${signal} received — flushing browser sessions`);
+
+    // Stop taking new connections immediately; in-flight requests finish or
+    // die with the process, which is the same outcome they had before.
+    server.close();
+
+    const flush = (async () => {
+      const { releaseAllPages } = await import("./services/browserChromium.js");
+      const count = await releaseAllPages("shutdown");
+      if (count > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[genosyn] flushed ${count} browser session(s)`);
+      }
+    })();
+
+    const budget = new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, FLUSH_BUDGET_MS);
+      // Don't let the budget timer itself hold the event loop open.
+      timer.unref?.();
+    });
+
+    void Promise.race([flush, budget])
+      .catch(() => {
+        // A failed flush still exits — see the doc comment.
+      })
+      .then(() => process.exit(0));
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
 main().catch((err) => {

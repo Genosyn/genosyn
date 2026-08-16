@@ -42,6 +42,18 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
  */
 const REMOTE_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
+/**
+ * How long after a navigation settles before we snapshot cookies to disk.
+ *
+ * `releasePage` is the authoritative save, but it only runs on a teardown we
+ * chose — idle, manual, shutdown. A `SIGKILL`, an OOM kill, or a host power cut
+ * reaches none of those, and everything the session had learned since it
+ * started would be lost back to the previous snapshot. This bounds that loss to
+ * "since the last page load", which for a sign-in flow is the difference
+ * between keeping the login and re-doing it.
+ */
+const PERSIST_DEBOUNCE_MS = 20_000;
+
 // Which binary to launch, and how, lives in `browserProfile.ts` — shared with
 // the browser-login Integration drivers, which face the same login pages. The
 // image ships real Google Chrome running headed against a virtual display, so
@@ -76,6 +88,8 @@ type SessionRuntime = {
   pendingAdoption: Promise<void> | null;
   /** Trailing-debounce timer for the nav mirror (DB write + viewer fanout). */
   navTimer: NodeJS.Timeout | null;
+  /** Trailing-debounce timer for the opportunistic storage-state snapshot. */
+  persistTimer: NodeJS.Timeout | null;
   /** Last URL/title actually mirrored, to skip redundant writes. */
   lastNavUrl: string;
   lastNavTitle: string;
@@ -203,6 +217,7 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
     selfCreating: false,
     pendingAdoption: null,
     navTimer: null,
+    persistTimer: null,
     lastNavUrl: "",
     lastNavTitle: "",
     memberBrowserId: null,
@@ -336,6 +351,7 @@ async function acquireRemotePage(sessionRow: BrowserSession): Promise<unknown> {
     selfCreating: false,
     pendingAdoption: null,
     navTimer: null,
+    persistTimer: null,
     lastNavUrl: "",
     lastNavTitle: "",
     memberBrowserId,
@@ -551,6 +567,27 @@ function scheduleNavMirror(r: SessionRuntime): void {
       // best-effort
     });
   }, 300);
+  schedulePersist(r);
+}
+
+/**
+ * Trailing-debounce a storage snapshot behind page activity, so an ungraceful
+ * death loses at most the last page load rather than the whole session. Never
+ * for a member browser — the same rule as `releasePage`: their cookie jar stays
+ * on their machine.
+ */
+function schedulePersist(r: SessionRuntime): void {
+  if (r.memberBrowserId) return;
+  if (r.persistTimer) clearTimeout(r.persistTimer);
+  r.persistTimer = setTimeout(() => {
+    r.persistTimer = null;
+    // The runtime may have been released while the debounce was pending; its
+    // teardown already saved, and writing a closed context would throw.
+    if (runtimes.get(r.id) !== r) return;
+    void saveStorageState(r.companyId, r.employeeId, r.context).catch(() => {
+      // best-effort — `releasePage` remains the authoritative save
+    });
+  }, PERSIST_DEBOUNCE_MS);
 }
 
 async function mirrorNav(r: SessionRuntime): Promise<void> {
@@ -662,6 +699,7 @@ export async function releasePage(
   runtimes.delete(sessionId);
   if (r.idleTimer) clearTimeout(r.idleTimer);
   if (r.navTimer) clearTimeout(r.navTimer);
+  if (r.persistTimer) clearTimeout(r.persistTimer);
   // Snapshot cookies + localStorage before the context is torn down so the
   // next session for this employee picks up where we left off. Skip on
   // `error` — a context that crashed mid-flight may have a corrupted
@@ -705,6 +743,35 @@ export async function releasePage(
     releaseMemberBrowserLease(r.memberBrowserId, sessionId);
   }
   await closeBrowserSession(sessionId, reason);
+}
+
+/**
+ * Tear every live session down, flushing each one's cookies on the way out.
+ *
+ * This is what a process signal calls. Without it, `docker stop` and every
+ * `genosyn update` killed live browsers mid-flight: the storage snapshot only
+ * ever happened on a teardown we initiated, so an employee who had just signed
+ * into a site lost that login unless the idle watchdog happened to fire first.
+ * The `"shutdown"` reason existed in {@link releasePage} from the start — it
+ * simply had no caller.
+ *
+ * Never rejects. A shutdown path that throws is a shutdown path that skips the
+ * remaining sessions, and one browser refusing to close is not a reason to drop
+ * the others' cookies on the floor.
+ */
+export async function releaseAllPages(
+  reason: "shutdown" | "manual" = "shutdown",
+): Promise<number> {
+  // Snapshot the ids first: `releasePage` mutates the map as it goes.
+  const ids = [...runtimes.keys()];
+  await Promise.all(
+    ids.map((id) =>
+      releasePage(id, reason).catch(() => {
+        // best-effort, per session
+      }),
+    ),
+  );
+  return ids.length;
 }
 
 function resetIdleTimer(r: SessionRuntime): void {

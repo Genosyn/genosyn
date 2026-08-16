@@ -2215,6 +2215,17 @@ of the original V1 backlog has shipped — what remains is mostly
         is the honest answer when a site refuses server-hosted browsers as
         such. Genosyn still solves no captcha; this removes *false* signals
         from a browser doing legitimate work.
+  - [x] **Browser sessions survive a container update.** `releasePage` was the
+        only thing that wrote an employee's cookies to disk, and its
+        `"shutdown"` reason had no caller — the App had no `SIGTERM` handler at
+        all. So every `docker stop` and every `genosyn update` killed live
+        browsers mid-flight and rolled that employee back to the previous
+        snapshot; a sign-in performed inside the five-minute idle window was
+        simply lost. Signals now flush every session through `releaseAllPages`
+        within a 6s budget (well inside Docker's 10s before `SIGKILL`), and a
+        debounced save behind page navigation bounds what an ungraceful kill
+        can cost to the last page load. IndexedDB and service-worker storage
+        remain out of scope, as does Chrome's own profile directory.
 - [x] **Genosyn-level sandbox** — Bubblewrap user/mount/PID/IPC/UTS namespaces,
       a best-effort cgroup namespace, a single writable employee workspace,
       explicit environment, optional network namespace, and realpath/symlink
