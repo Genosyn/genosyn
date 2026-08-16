@@ -97,7 +97,7 @@ export function AppShell({
         {/* Outside the palette so pages can publish contextual actions into it,
             and the palette can read them, from the same tree. */}
         <CommandRegistryProvider>
-          <CommandPaletteProvider me={me} companyId={current.id} companySlug={current.slug}>
+          <CommandPaletteProvider companyId={current.id} companySlug={current.slug}>
             <ContextualSidebarContext.Provider value={sidebarState}>
               <div className="flex h-full flex-col">
                 <a

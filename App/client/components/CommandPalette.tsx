@@ -20,10 +20,9 @@ import {
   Wrench,
   Zap,
 } from "lucide-react";
-import { api, CompanySearchResult, Me, SearchResultKind } from "../lib/api";
+import { api, CompanySearchResult, SearchResultKind } from "../lib/api";
 import {
   ACCOUNT_SECTION,
-  ADMIN_SECTION,
   HELP_SECTION,
   SECTION_GROUPS,
   SectionGroup,
@@ -77,21 +76,21 @@ const IS_APPLE =
 export const PALETTE_SHORTCUT = IS_APPLE ? "⌘K" : "Ctrl K";
 
 /**
- * Account and Admin sit outside `SECTION_GROUPS` because they aren't scoped to
+ * Help and Account sit outside `SECTION_GROUPS` because they aren't scoped to
  * the current company — but a palette is a search-everything surface, so they
  * get a group here rather than being unreachable to someone typing "password".
+ *
+ * Admin is the deliberate exception: it's an instance-operator surface, not
+ * somewhere you navigate between day to day, so it stays out of the palette
+ * and is reached from the avatar menu (or the `G D` chord) instead.
  */
-function paletteGroups(isMasterAdmin: boolean): SectionGroup[] {
-  return [
-    ...SECTION_GROUPS,
-    {
-      label: "You",
-      items: isMasterAdmin
-        ? [HELP_SECTION, ACCOUNT_SECTION, ADMIN_SECTION]
-        : [HELP_SECTION, ACCOUNT_SECTION],
-    },
-  ];
-}
+const PALETTE_GROUPS: SectionGroup[] = [
+  ...SECTION_GROUPS,
+  { label: "You", items: [HELP_SECTION, ACCOUNT_SECTION] },
+];
+
+/** The same set flattened, which is what ranking a query runs over. */
+const PALETTE_ITEMS: SectionItem[] = PALETTE_GROUPS.flatMap((g) => g.items);
 
 /**
  * How each entity kind renders: the group header it files under and the icon
@@ -184,12 +183,10 @@ const KIND_META: Record<SearchResultKind, { group: string; icon: LucideIcon; ico
 // ──────────────────────────────── provider ─────────────────────────────────
 
 export function CommandPaletteProvider({
-  me,
   companyId,
   companySlug,
   children,
 }: {
-  me: Me;
   companyId: string;
   companySlug: string;
   children: React.ReactNode;
@@ -230,7 +227,7 @@ export function CommandPaletteProvider({
     <CommandPaletteContext.Provider value={value}>
       {children}
       {isOpen && (
-        <CommandPalette me={me} companyId={companyId} companySlug={companySlug} onClose={close} />
+        <CommandPalette companyId={companyId} companySlug={companySlug} onClose={close} />
       )}
     </CommandPaletteContext.Provider>
   );
@@ -311,12 +308,10 @@ function entryId(entry: PaletteEntry): string {
 }
 
 function CommandPalette({
-  me,
   companyId,
   companySlug,
   onClose,
 }: {
-  me: Me;
   companyId: string;
   companySlug: string;
   onClose: () => void;
@@ -329,9 +324,7 @@ function CommandPalette({
   const [query, setQuery] = React.useState("");
   const [active, setActive] = React.useState(0);
 
-  const groups = React.useMemo(() => paletteGroups(Boolean(me.isMasterAdmin)), [me.isMasterAdmin]);
-  const items = React.useMemo(() => groups.flatMap((g) => g.items), [groups]);
-  const matches = React.useMemo(() => searchSections(items, query), [items, query]);
+  const matches = React.useMemo(() => searchSections(PALETTE_ITEMS, query), [query]);
   const searching = query.trim().length > 0;
   const currentKey = activeSection(location.pathname);
   const { hits: entityHits, pending: entityPending } = useEntitySearch(companyId, query);
@@ -564,7 +557,7 @@ function CommandPalette({
                   )}
                 </>
               ) : (
-                groups.map((g) => (
+                PALETTE_GROUPS.map((g) => (
                   <div key={g.label} className="mb-1 last:mb-0">
                     <GroupHeader>{g.label}</GroupHeader>
                     {g.items.map((item) => {

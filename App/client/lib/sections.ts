@@ -409,10 +409,13 @@ export const SECTION_GROUPS: SectionGroup[] = [
 // ────────────────── Sections outside the company groups ──────────────────
 // Account and Admin are NOT part of `SECTION_GROUPS`: everything in that list
 // is scoped to the company you're currently viewing, and these two are not.
-// They stay out of Home's "Jump to" grid for that reason, but the command
-// palette does list them (under their own group) — a palette is a
-// search-everything surface, and typing "password" or "backups" finding
-// nothing is worse than the tidy distinction is worth.
+// They stay out of Home's "Jump to" grid for that reason.
+//
+// Account still shows up in the command palette — a palette is a
+// search-everything surface, and typing "password" finding nothing is worse
+// than the tidy distinction is worth. Admin does not: it's an
+// instance-operator surface rather than a place you navigate between, so its
+// entry points are the avatar menu and the `G D` chord.
 
 /** Settings for the signed-in person, global across every company they belong to. */
 export const ACCOUNT_SECTION: SectionItem = {
