@@ -5,6 +5,7 @@ import {
   promptBudget,
   toolResultCap,
 } from "./contextBudget.js";
+import { contextUsage } from "./contextUsage.js";
 import type {
   AgentMessage,
   ModelClient,
@@ -124,7 +125,13 @@ export async function runAgentLoop(params: {
 
     lastPromptTokens = turn.usage?.inputTokens ?? null;
     anchoredThrough = promptedThrough;
-    if (turn.usage) callbacks?.onUsage?.(turn.usage);
+    if (turn.usage) {
+      callbacks?.onUsage?.(turn.usage);
+      // Only ever from a real provider count — a turn the provider reported no
+      // usage for leaves the gauge on its previous reading rather than
+      // inventing one. See `contextUsage.ts`.
+      callbacks?.onContextUsage?.(contextUsage(turn.usage.inputTokens, contextWindow));
+    }
 
     messages.push({ role: "assistant", content: turn.blocks });
 

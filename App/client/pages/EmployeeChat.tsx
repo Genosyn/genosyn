@@ -12,6 +12,7 @@ import {
   CircleSlash,
   Clock,
   Download,
+  Gauge,
   MessageSquarePlus,
   Paperclip,
   Plug,
@@ -26,10 +27,12 @@ import {
   api,
   AIModel,
   ChatAttachment,
+  ChatContextUsage,
   ConversationMessage,
   ConversationSummary,
   MessageAction,
 } from "../lib/api";
+import { describeContextUsage } from "../lib/chatContextUsage";
 import { type EmployeeSession, QueuedChatMessage, useEmployeeSession } from "../lib/chatSessions";
 import { type ComposerModelOverride, resolveComposerModelId } from "../lib/composerModel";
 import { useComposerFileDrop } from "../lib/fileDrop";
@@ -67,6 +70,7 @@ export default function EmployeeChat() {
     messages,
     streamingReply,
     progress,
+    contextUsage,
     connectionState,
     sendingConvId,
     sending,
@@ -333,6 +337,12 @@ export default function EmployeeChat() {
   // conv-list fetch and the messages fetch.
   const isLoadingMessages =
     !convsLoaded || convLoading || (!!activeConvId && loadedConvId !== activeConvId);
+  // Gate the context gauge on the load rather than reading it straight off the
+  // session. Clicking a thread in the sidebar flips `activeConvId` in the click
+  // handler but only clears the gauge inside the async load, so without this the
+  // badge paints one frame of the previous thread's reading under the new
+  // thread's title. Every other per-thread surface is already behind this flag.
+  const visibleContextUsage = isLoadingMessages ? null : contextUsage;
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-white dark:bg-slate-950">
@@ -452,6 +462,8 @@ export default function EmployeeChat() {
             models={chatModels}
             selectedModelId={selectedModelId}
             onModelChange={(modelId) => setModelOverride({ convId: activeConvId, modelId })}
+            contextUsage={visibleContextUsage}
+            employeeSlug={emp.slug}
           />
         )}
       </section>
@@ -1129,6 +1141,8 @@ function Composer({
   models,
   selectedModelId,
   onModelChange,
+  contextUsage,
+  employeeSlug,
 }: {
   inputRef: React.RefObject<HTMLTextAreaElement>;
   value: string;
@@ -1145,6 +1159,8 @@ function Composer({
   models: AIModel[];
   selectedModelId: string | null;
   onModelChange: (modelId: string) => void;
+  contextUsage: ChatContextUsage | null;
+  employeeSlug: string;
 }) {
   const canSend = value.trim().length > 0 || attachments.length > 0;
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -1372,6 +1388,13 @@ function Composer({
                 : "Enter queues your follow-up"}
             </span>
           ) : null}
+          {contextUsage && (
+            <ContextUsageBadge
+              usage={contextUsage}
+              companySlug={companySlug}
+              employeeSlug={employeeSlug}
+            />
+          )}
           {models.length > 1 && selectedModelId && (
             <label className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
               <Brain size={12} aria-hidden="true" />
@@ -1394,6 +1417,82 @@ function Composer({
         </span>
       </div>
     </form>
+  );
+}
+
+/**
+ * How full the model's context window is, in the composer footer.
+ *
+ * Deliberately not a second bubble in the message column: the employee-authored
+ * progress bar already lives there, and two labelled percentages side by side
+ * would read as one feature. This sits with the other per-turn facts — the AI
+ * Model picker — as a quiet, always-available readout rather than an alert.
+ *
+ * The unknown-window state is the primary one, not an edge case: an OpenAI
+ * subscription model never reports a window and an API-key OpenAI model has
+ * none until someone sets it, so that branch links straight to the model
+ * settings panel that can fix it.
+ */
+function ContextUsageBadge({
+  usage,
+  companySlug,
+  employeeSlug,
+}: {
+  usage: ChatContextUsage;
+  companySlug: string;
+  employeeSlug: string;
+}) {
+  const display = describeContextUsage(usage);
+  const tint =
+    display.tone === "warn"
+      ? "text-amber-700 dark:text-amber-300"
+      : "text-slate-500 dark:text-slate-400";
+
+  const body = (
+    <>
+      <Gauge size={12} aria-hidden="true" />
+      <span className="whitespace-nowrap">
+        Context <span className="font-medium tabular-nums">{display.label}</span>
+      </span>
+      {display.fillPercent !== null && (
+        <span
+          className="h-1.5 w-10 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
+          aria-hidden="true"
+        >
+          <span
+            className={
+              "block h-full rounded-full " +
+              (display.tone === "warn" ? "bg-amber-500" : "bg-indigo-500")
+            }
+            style={{ width: `${display.fillPercent}%` }}
+          />
+        </span>
+      )}
+    </>
+  );
+
+  if (display.windowUnknown) {
+    return (
+      <Link
+        to={`/c/${companySlug}/employees/${employeeSlug}/settings/model`}
+        title={display.title}
+        aria-label={display.title}
+        className={`inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 underline decoration-dotted underline-offset-2 transition hover:text-slate-700 dark:hover:text-slate-200 ${tint}`}
+      >
+        {body}
+      </Link>
+    );
+  }
+
+  return (
+    <span
+      title={display.title}
+      aria-label={display.title}
+      role="status"
+      className={`inline-flex items-center gap-1.5 px-1 py-0.5 ${tint}`}
+    >
+      {body}
+    </span>
   );
 }
 

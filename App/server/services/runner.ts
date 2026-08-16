@@ -21,6 +21,7 @@ import { composeSigningContext } from "./signing.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
+import { contextUsagePercent, isContextUsageHigh } from "./agent/contextUsage.js";
 import type { CompactionInfo, ToolDeferralInfo, ToolTrimInfo, TurnUsage } from "./agent/types.js";
 import { config } from "../../config.js";
 import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
@@ -555,13 +556,6 @@ function previewArgs(input: Record<string, unknown>): string {
 }
 
 /**
- * Warn once the prompt is using this share of the window — just under the point
- * where the loop starts compacting, so the transcript shows the squeeze building
- * before it shows history being dropped.
- */
-const CONTEXT_WARN_PCT = 80;
-
-/**
  * Record what each turn's prompt cost, so a run approaching the model's ceiling
  * is visible in the transcript rather than arriving as an unexplained provider
  * 400 on the turn that finally overflows.
@@ -572,15 +566,15 @@ const CONTEXT_WARN_PCT = 80;
  */
 function usageLine(u: TurnUsage, contextWindow: number | null): string {
   const base = `[tokens] in=${u.inputTokens} out=${u.outputTokens}`;
+  const pct = contextUsagePercent(u.inputTokens, contextWindow);
   // Say "unknown" rather than implying a ceiling we were never told. This is
   // also a nudge: with no window there's no budget, so the loop can only react
   // to an overflow after the fact instead of preventing one.
-  if (!contextWindow) {
+  if (pct === null) {
     return `${base} (context window unknown — set it on the model to let this run budget its context)`;
   }
-  const pct = Math.round((u.inputTokens / contextWindow) * 100);
   const line = `${base} — ${pct}% of ${contextWindow}`;
-  return pct >= CONTEXT_WARN_PCT
+  return isContextUsageHigh(pct)
     ? `${line}\n[warn] Prompt is using ${pct}% of this model's context window. Older tool results will be dropped to make room.`
     : line;
 }

@@ -363,6 +363,12 @@ async function runDelegatedBrief(
     onUsage: parent.callbacks?.onUsage,
     onCompact: parent.callbacks?.onCompact,
     onToolsTrimmed: parent.callbacks?.onToolsTrimmed,
+    // `onContextUsage` is deliberately absent. A worker's `messages` is
+    // replaced below with a single fresh brief, so its prompt is small and
+    // unrelated to the parent conversation — forwarding it would make the
+    // Member's context gauge drop to a worker's reading mid-turn and then jump
+    // back. `onUsage` is still forwarded because a cost line legitimately wants
+    // every provider call, worker or not.
   };
 
   const result = await runEmployeeAgent({

@@ -708,6 +708,13 @@ sends system mail); this is the company's real inbox. Internal namespace is
       resume after server restarts through renewable database worker leases,
       guard recovered work against repeated side effects, keep follow-ups
       queueable, and allow up to six hours per turn across every attempt
+- [x] Context-window gauge in direct chat: the composer shows what share of the
+      AI Model's window the last turn's prompt occupied, measured from the
+      provider's own token counts rather than a local estimate, persisted per
+      message so a reload or a turn recovered in another process still reports
+      it, warning at the same 80% threshold the Run transcript uses, and
+      degrading to a plain token count (linked to the model settings) when the
+      model publishes no window
 - [x] Workspace file editor with path-traversal guards, 2 MiB text-only cap
 
 ### M8 — Polish + QA ✅

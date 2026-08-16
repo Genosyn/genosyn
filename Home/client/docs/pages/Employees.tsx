@@ -213,6 +213,18 @@ export function Employees() {
           continuing so completed side effects are not repeated. The final reply reappears in the
           same thread. You can keep writing while the employee works — follow-ups queue and send in
           order. Chat stays available while that employee&apos;s Routines run.
+          <br />
+          <br />
+          Under the composer, next to the model picker, Genosyn shows{" "}
+          <Strong>how full the model&apos;s context window is</Strong> — the share of it the last
+          turn&apos;s prompt occupied. The number comes from the provider&apos;s own token count for
+          that turn, never a local estimate, and it updates as the employee works. Hover it for the
+          exact figures. Past 80% it turns amber: the employee is close to the point where Genosyn
+          starts dropping the oldest tool results to make room, which is the moment to finish the
+          thread or type <Code>/new</Code> for a fresh context. If the AI Model has no known context
+          window the badge shows the token count alone and links to the model settings, because
+          there is no ceiling to measure against — see{" "}
+          <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
           <Strong>Workspace.</Strong> File editor scoped to the employee&apos;s directory — read

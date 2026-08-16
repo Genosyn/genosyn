@@ -665,3 +665,85 @@ test("does not retry a permanent error or replay a partial streamed answer", asy
   );
   assert.equal(partialCalls, 1);
 });
+
+test("reports how full the context window is after every counted turn", async () => {
+  const readings: string[] = [];
+  let calls = 0;
+
+  await runAgentLoop({
+    client: client(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          blocks: [{ type: "tool_use", id: "t1", name: "echo", input: {} }],
+          stopReason: "tool_use",
+          usage: { inputTokens: 40_000, outputTokens: 120 },
+        };
+      }
+      return {
+        blocks: [{ type: "text", text: "done" }],
+        stopReason: "end_turn",
+        usage: { inputTokens: 92_000, outputTokens: 40 },
+      };
+    }),
+    system: "test",
+    messages: [{ role: "user", content: [{ type: "text", text: "work" }] }],
+    registry: residentOnlyRegistry([tool("echo", async () => ({ content: "ok" }))]),
+    maxSteps: 2,
+    contextWindow: 200_000,
+    callbacks: {
+      onContextUsage: (usage) =>
+        readings.push(`${usage.promptTokens}/${String(usage.contextWindow)}=${String(usage.percent)}`),
+    },
+  });
+
+  assert.deepEqual(readings, ["40000/200000=20", "92000/200000=46"]);
+});
+
+test("reports the prompt size with a null share when the window is unknown", async () => {
+  const readings: { promptTokens: number; contextWindow: number | null; percent: number | null }[] =
+    [];
+
+  await runAgentLoop({
+    client: client(async () => ({
+      blocks: [{ type: "text", text: "done" }],
+      stopReason: "end_turn",
+      usage: { inputTokens: 142_311, outputTokens: 12 },
+    })),
+    system: "test",
+    messages: [{ role: "user", content: [{ type: "text", text: "work" }] }],
+    registry: residentOnlyRegistry([]),
+    maxSteps: 1,
+    // The OpenAI-subscription and unprobeable-custom-endpoint case.
+    contextWindow: null,
+    callbacks: { onContextUsage: (usage) => readings.push(usage) },
+  });
+
+  assert.deepEqual(readings, [{ promptTokens: 142_311, contextWindow: null, percent: null }]);
+});
+
+test("stays silent on a turn the provider reported no usage for", async () => {
+  const readings: unknown[] = [];
+  const usages: unknown[] = [];
+
+  await runAgentLoop({
+    client: client(async () => ({
+      blocks: [{ type: "text", text: "done" }],
+      stopReason: "end_turn",
+    })),
+    system: "test",
+    messages: [{ role: "user", content: [{ type: "text", text: "work" }] }],
+    registry: residentOnlyRegistry([]),
+    maxSteps: 1,
+    contextWindow: 200_000,
+    callbacks: {
+      onUsage: (usage) => usages.push(usage),
+      onContextUsage: (usage) => readings.push(usage),
+    },
+  });
+
+  // Inventing a reading here would put a made-up number in front of a human;
+  // the gauge keeps its previous value instead.
+  assert.deepEqual(usages, []);
+  assert.deepEqual(readings, []);
+});

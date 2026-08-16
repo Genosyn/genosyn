@@ -597,6 +597,20 @@ export type ChatProgress = {
   percent: number;
   label: string;
 };
+/**
+ * How full the model's context window was on the last model turn behind a
+ * reply, measured from the provider's own token counts.
+ *
+ * `window` and `percent` are null together whenever the AI Model has no known
+ * context window — the normal state for an OpenAI subscription model, and for
+ * any custom endpoint that publishes nothing. Surfaces show the token count
+ * alone in that case rather than implying a ceiling.
+ */
+export type ChatContextUsage = {
+  tokens: number;
+  window: number | null;
+  percent: number | null;
+};
 export type ConversationMessage = {
   id: string;
   conversationId: string;
@@ -604,6 +618,7 @@ export type ConversationMessage = {
   content: string;
   status: ConversationMessageStatus | null;
   progress?: ChatProgress | null;
+  context?: ChatContextUsage | null;
   actions?: MessageAction[];
   attachments?: ChatAttachment[];
   createdAt: string;

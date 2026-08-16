@@ -19,6 +19,7 @@ import {
 import { validateBody } from "../middleware/validate.js";
 import { parseActions } from "../services/turnActions.js";
 import { lastChatModelId, lastChatModelIds } from "../services/conversationModels.js";
+import { contextUsagePercent } from "../services/agent/contextUsage.js";
 import { enqueueDurableChatTurn, executeDurableChatTurn } from "../services/durableChatTurns.js";
 import { resolveChatModel } from "../services/models.js";
 import {
@@ -152,6 +153,25 @@ function summarizeAttachment(a: Attachment): AttachmentSummary {
   };
 }
 
+/**
+ * Project the persisted context gauge onto the wire.
+ *
+ * Null whenever the provider never reported a prompt count — legacy rows,
+ * Telegram-authored replies, and any turn that failed before its first model
+ * response all land here, and the client renders nothing rather than a
+ * confident zero. The window may still be null on a row that has tokens: that
+ * is the normal state for OpenAI subscription models, so `percent` is null too
+ * and the UI shows the token count alone.
+ */
+function serializeContextUsage(m: ConversationMessage) {
+  if (typeof m.contextTokens !== "number") return null;
+  return {
+    tokens: m.contextTokens,
+    window: m.contextWindow,
+    percent: contextUsagePercent(m.contextTokens, m.contextWindow),
+  };
+}
+
 function serializeMessage(m: ConversationMessage, attachments: Attachment[] = []) {
   const progress =
     m.status === "working" &&
@@ -168,6 +188,7 @@ function serializeMessage(m: ConversationMessage, attachments: Attachment[] = []
     content: m.content,
     status: m.status,
     progress,
+    context: serializeContextUsage(m),
     actions: parseActions(m.actionsJson),
     attachments: attachments.map(summarizeAttachment),
     createdAt: m.createdAt,
@@ -474,6 +495,12 @@ const sendSchema = z.object({
  *   event: chunk      — raw stdout delta from the CLI (`{ text: "..." }`)
  *   event: working    — durable assistant placeholder for this turn
  *   event: progress   — live employee-authored progress (`{ percent, label }`)
+ *   event: context    — how full the model's context window is after the last
+ *                       model turn (`{ tokens, window, percent }`, the last two
+ *                       null together when the model has no known window).
+ *                       Measured from the provider's token counts, not
+ *                       self-reported. Same shape as a message's `context`, so
+ *                       the client has one type for the live and stored value.
  *   event: assistant  — persisted assistant message row (final reply text,
  *                       or an error/skipped body)
  *   event: conversation — updated conversation row (for sidebar refresh)
@@ -578,6 +605,12 @@ employeeSurfaceRouter.post(
       await executeDurableChatTurn(enqueued.assistantMessage.id, {
         onChunk: (chunk) => writeEvent("chunk", { text: chunk }),
         onProgress: (progress) => writeEvent("progress", progress),
+        onContextUsage: (usage) =>
+          writeEvent("context", {
+            tokens: usage.promptTokens,
+            window: usage.contextWindow,
+            percent: usage.percent,
+          }),
         onFinal: ({ message, attachments, conversation }) => {
           writeEvent("assistant", serializeMessage(message, attachments));
           writeEvent(

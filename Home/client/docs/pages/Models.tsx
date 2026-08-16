@@ -249,7 +249,8 @@ export function Models() {
         when the provider rejects a turn. Genosyn recovers — it drops history and retries once
         rather than failing the run — but it wastes a round-trip and loses more history than it
         needed to. Small self-hosted models feel this first: a 64k window can be half spent on the
-        system prompt before any work begins.
+        system prompt before any work begins. It also costs you the percentage readout under the
+        chat composer — see <DocLink to="/docs/employees">AI Employees</DocLink>.
       </Callout>
 
       <H2 id="built-in-tools">Built-in agent tools</H2>
