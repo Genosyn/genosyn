@@ -39,7 +39,7 @@ import { removeDir, soulTemplate, skillTemplate, routineTemplate } from "../serv
 import { registerRoutine } from "../services/cron.js";
 import { deleteEmployeeConversations } from "./employeeSurface.js";
 import { recordAudit } from "../services/audit.js";
-import { findTemplate } from "../services/templates.js";
+import { findTemplate, personalizeTemplateSoul } from "../services/templates.js";
 import { archiveEmployeeDirectMessages } from "../services/workspaceChat.js";
 import {
   closeAllBrowserSessionsForEmployee,
@@ -155,10 +155,7 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   }
 
   const soulBody = template
-    ? template.soul.replace(
-        /\b(Avery|Casey|Wren|Sam|Ivy|Sage|Remy|Juno|Quinn|Pax|Nova)\b/g,
-        body.name,
-      )
+    ? personalizeTemplateSoul(template, body.name)
     : soulTemplate(body.name, body.role);
 
   const emp = repo.create({

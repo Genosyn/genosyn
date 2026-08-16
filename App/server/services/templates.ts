@@ -1292,3 +1292,32 @@ If a number can't be trusted yet, say so explicitly instead of hiding it.
 export function findTemplate(id: string): EmployeeTemplate | undefined {
   return EMPLOYEE_TEMPLATES.find((t) => t.id === id);
 }
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Matches any template protagonist ("Avery", "Robin", …). Derived from the
+ * template rows themselves so adding a template can never leave a name behind
+ * — a hard-coded list silently drifted for three of them once already.
+ * Longest-first so a name that is a prefix of another still wins.
+ */
+const TEMPLATE_NAME_RE = new RegExp(
+  `\\b(?:${[...new Set(EMPLOYEE_TEMPLATES.map((t) => t.name.trim()).filter(Boolean))]
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegex)
+    .join("|")})\\b`,
+  "g",
+);
+
+/**
+ * A template Soul is written about its protagonist ("You are **Avery**, an
+ * executive assistant…"). Hiring swaps that placeholder for the name the
+ * Member chose, so the new AI Employee's Soul addresses them by name.
+ */
+export function personalizeTemplateSoul(template: EmployeeTemplate, name: string): string {
+  // Replacement is a function, not a string, so `$&`-style sequences in a
+  // Member-supplied name are inserted literally instead of being expanded.
+  return template.soul.replace(TEMPLATE_NAME_RE, () => name);
+}
