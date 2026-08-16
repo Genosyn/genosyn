@@ -94,6 +94,7 @@ function serializeConversation(c: Conversation, lastMessageAt: Date | null = nul
     lastMessageAt,
     source: c.source ?? "web",
     connectionId: c.connectionId ?? null,
+    memberBrowserId: c.memberBrowserId ?? null,
     legacyUnclaimed: c.ownerUserId === null && (c.source === "web" || c.source === "help"),
   };
 }

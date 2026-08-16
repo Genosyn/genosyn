@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { MemberBrowser } from "../db/entities/MemberBrowser.js";
 import type { VaultItemType } from "../db/entities/VaultItem.js";
 import { validateBody } from "../middleware/validate.js";
 import {
@@ -38,6 +39,7 @@ import {
   browserAccessEnabledForSession,
   closeBrowserSessionForPolicy,
 } from "../services/browserAccess.js";
+import { memberBrowserUrlAllowed } from "../services/memberBrowsers.js";
 
 /**
  * Internal HTTP surface called by the stripped-down `browser` MCP child.
@@ -69,6 +71,10 @@ export const browserRpcRouter = Router({ mergeParams: true });
 type BrowserRpcReq = Request<{ id: string }> & {
   browserSession?: BrowserSession;
   browserEmployee?: AIEmployee;
+  /** The Member's browser this session drives, or null for App Chromium. */
+  memberBrowser?: MemberBrowser | null;
+  /** Employee policy OR browser policy — resolved once, in the middleware. */
+  approvalRequired?: boolean;
 };
 
 const SNAPSHOT_MAX_LINES = 400;
@@ -124,8 +130,13 @@ async function requireBrowserSession(req: BrowserRpcReq, res: Response, next: Ne
     await closeBrowserSessionForPolicy(sessionId);
     return res.status(403).json({ error: "Browser access is disabled for this AI Employee" });
   }
+  const memberBrowser = row.memberBrowserId
+    ? await AppDataSource.getRepository(MemberBrowser).findOneBy({ id: row.memberBrowserId })
+    : null;
   req.browserSession = row;
   req.browserEmployee = emp;
+  req.memberBrowser = memberBrowser;
+  req.approvalRequired = browserApprovalRequiredForSession(emp, memberBrowser);
   next();
 }
 
@@ -706,6 +717,37 @@ function urlAllowed(
   };
 }
 
+/**
+ * The browser's own allow list, when the session drives a Member's computer.
+ * Returns `{ok:true}` untouched for the container's Chromium, so the local
+ * path keeps exactly the semantics it had.
+ */
+async function memberBrowserOpenAllowed(
+  req: BrowserRpcReq,
+  url: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const browserId = req.browserSession?.memberBrowserId;
+  if (!browserId) return { ok: true };
+  const row = await AppDataSource.getRepository(MemberBrowser).findOneBy({ id: browserId });
+  if (!row) return { ok: false, reason: "That browser is no longer connected." };
+  return memberBrowserUrlAllowed(url, row, (candidate, allowList) =>
+    urlAllowed(candidate, allowList),
+  );
+}
+
+/**
+ * Approvals are the union of the employee's setting and the browser's. A
+ * Member's own machine defaults to requiring them, and that default must not
+ * be silently undone by an employee configured for the unattended container
+ * browser.
+ */
+export function browserApprovalRequiredForSession(
+  employee: AIEmployee,
+  memberBrowser: { approvalRequired: boolean } | null,
+): boolean {
+  return employee.browserApprovalRequired || Boolean(memberBrowser?.approvalRequired);
+}
+
 export function vaultUrlAllowedForEmployee(url: string, rawAllowList: string | null): boolean {
   return urlAllowed(url, parseAllowList(rawAllowList)).ok;
 }
@@ -1043,6 +1085,15 @@ browserRpcRouter.post("/open", validateBody(openSchema), async (req: BrowserRpcR
   const allow = parseAllowList(req.browserEmployee!.browserAllowedHosts);
   const ok = urlAllowed(url, allow);
   if (!ok.ok) return res.status(403).json({ error: ok.reason });
+  // Two lists, checked independently. Glob lists cannot be merged into a
+  // third — `*.example.com` and `mail.*` have no common list form — so the URL
+  // simply has to pass both. The browser's own list is also the stricter one:
+  // empty means "opens nothing", where an empty employee list means
+  // "unrestricted".
+  const memberBrowserVerdict = await memberBrowserOpenAllowed(req, url);
+  if (!memberBrowserVerdict.ok) {
+    return res.status(403).json({ error: memberBrowserVerdict.reason });
+  }
   const sessionId = req.browserSession!.id;
   try {
     const page = await bumpAndAcquire(req);
@@ -1154,7 +1205,7 @@ browserRpcRouter.post("/click", validateBody(clickSchema), async (req: BrowserRp
   let guardedPage: Page | null = null;
   try {
     const page = await bumpAndAcquire(req);
-    if (!employee.browserApprovalRequired && !body.approvalId) {
+    if (!req.approvalRequired && !body.approvalId) {
       const loc = await locate(page, session.id, body.selector);
       await loc.click({ timeout: ACTION_TIMEOUT_MS });
     } else {
@@ -1368,6 +1419,18 @@ browserRpcRouter.post(
     const employee = req.browserEmployee!;
     let claimId: string | null = null;
     let actionAttempted = false;
+    // Never on a Member's own machine. Chrome's password manager autofills
+    // that field with the human's personal credential, and the approver is any
+    // company owner or admin reading a model-supplied title — so the flow
+    // would let an employee walk somebody's private password into the company
+    // Vault with a plausible label. That credential is not the company's to take.
+    if (session.memberBrowserId) {
+      return res.status(403).json({
+        error:
+          "Saving a login to the Vault is not available in a Member's own browser. " +
+          "Those credentials belong to the person whose computer it is.",
+      });
+    }
     try {
       const page = await bumpAndAcquire(req);
       let target = await inspectBrowserApprovalTarget({
@@ -1492,7 +1555,7 @@ browserRpcRouter.post("/press", validateBody(pressSchema), async (req: BrowserRp
   let guardedPage: Page | null = null;
   try {
     const page = await bumpAndAcquire(req);
-    if (employee.browserApprovalRequired && browserKeyMaySubmit(body.key) && !body.approvalId) {
+    if (req.approvalRequired && browserKeyMaySubmit(body.key) && !body.approvalId) {
       throw new BrowserApprovalError(
         "Pressing Enter or Space can submit a form and requires browser_submit approval",
         409,
@@ -1553,7 +1616,7 @@ browserRpcRouter.post("/press", validateBody(pressSchema), async (req: BrowserRp
       });
       claimId = null;
     } else {
-      if (employee.browserApprovalRequired) {
+      if (req.approvalRequired) {
         await armUnapprovedFormSubmitGuard(page);
         guardedPage = page;
       }

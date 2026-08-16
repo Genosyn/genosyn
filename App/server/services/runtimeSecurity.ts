@@ -151,6 +151,13 @@ export function validateRuntimeSecurity(): void {
   if (config.agent.browserEnabledInMultiTenant) {
     problems.push("the in-process browser must be disabled");
   }
+  if (config.agent.memberBrowsersEnabled) {
+    // Fails the shared-SaaS bar for a different and worse reason than the
+    // in-process browser above: a tenant would leave a bearer-authenticated
+    // channel into a personal computer standing against shared infrastructure,
+    // and the operator has no way to reason about whose laptop it reaches.
+    problems.push("config.agent.memberBrowsersEnabled must be false");
+  }
   if (!config.security.bootstrapMasterAdminEmail.trim()) {
     problems.push("config.security.bootstrapMasterAdminEmail is required");
   }

@@ -96,6 +96,12 @@ export const DOCS_NAV: DocsSection[] = [
         title: "Browser",
         blurb: "A persistent headless Chromium per employee — watch live, take over anytime.",
       },
+      {
+        path: "/docs/member-browsers",
+        title: "Member browsers",
+        blurb:
+          "Connect a Chrome on your own computer — a dedicated profile you sign into, driven by the same tools.",
+      },
     ],
   },
   {

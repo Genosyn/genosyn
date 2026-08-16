@@ -45,6 +45,20 @@ export class BrowserSession {
   runId!: string | null;
 
   /**
+   * The {@link MemberBrowser} this session drives, or NULL for the App-owned
+   * headless Chromium. Stamped once at spawn from the human's choice on the
+   * Conversation or Routine — never from anything the model can influence.
+   *
+   * A session bound to a member browser never silently falls back to the
+   * server browser: if the bridge is offline the browser tools fail with a
+   * message naming the browser, because quietly running the same actions in a
+   * different browser is worse than not running them.
+   */
+  @Index()
+  @Column({ type: "varchar", nullable: true })
+  memberBrowserId!: string | null;
+
+  /**
    * Bearer token the MCP child uses on its outbound `/api/internal/mcp/
    * browser-sessions/:id/stream` WebSocket. Random hex, scoped to this
    * session only — distinct from the per-spawn `GENOSYN_MCP_TOKEN` so a

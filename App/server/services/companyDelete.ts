@@ -25,6 +25,8 @@ import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { BaseView } from "../db/entities/BaseView.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
+import { MemberBrowser } from "../db/entities/MemberBrowser.js";
+import { EmployeeMemberBrowserGrant } from "../db/entities/EmployeeMemberBrowserGrant.js";
 import { Bill } from "../db/entities/Bill.js";
 import { BillLineItem } from "../db/entities/BillLineItem.js";
 import { BillPayment } from "../db/entities/BillPayment.js";
@@ -474,6 +476,10 @@ export async function deleteCompanyCascade(args: {
     await m.delete(Dashboard, { companyId });
     await m.delete(CodeRepository, { companyId });
     await m.delete(BrowserSession, { companyId });
+    // Grants first: the row that authorizes an employee to drive a Member's
+    // computer must never outlive the browser it points at.
+    await m.delete(EmployeeMemberBrowserGrant, { companyId });
+    await m.delete(MemberBrowser, { companyId });
     await m.delete(Pipeline, { companyId });
     await m.delete(Tag, { companyId });
     await m.delete(Team, { companyId });

@@ -124,12 +124,14 @@ export async function gatherEmployeeTools(params: {
           conversationId: params.conversationId,
           runId: params.runId,
         })
-      : Promise.resolve({
+      : Promise.resolve<BrowserConfig>({
           enabled: false,
           allowedHosts: "",
           approvalRequired: false,
           sessionId: null,
           sessionToken: null,
+          memberBrowserId: null,
+          memberBrowserName: null,
         }),
     allowPrivileged ? loadUserServerSpecs(params.employeeId) : Promise.resolve([]),
   ]);

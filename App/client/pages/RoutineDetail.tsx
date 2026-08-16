@@ -21,6 +21,7 @@ import {
   api,
   CatchUpPolicy,
   Company,
+  MemberBrowser,
   Routine,
   RoutineWithMeta,
   Run,
@@ -420,6 +421,7 @@ function OverviewTab({
               : routine.browserEnabledOverride === false
                 ? "Forced off for this routine"
                 : "Inherits the employee setting"}
+            {routine.memberBrowserId && " · runs in a connected browser"}
           </Row>
           <Row icon={<History size={14} />} label="Catch-up">
             {routine.catchUpPolicy === "skip"
@@ -832,6 +834,10 @@ function SettingsTab({
         ? "off"
         : "inherit",
   );
+  const [memberBrowserId, setMemberBrowserId] = React.useState<string | null>(
+    routine.memberBrowserId ?? null,
+  );
+  const [memberBrowsers, setMemberBrowsers] = React.useState<MemberBrowser[]>([]);
   const [webhookEnabled, setWebhookEnabled] = React.useState(routine.webhookEnabled);
   const [webhookToken, setWebhookToken] = React.useState(routine.webhookToken);
   const [saving, setSaving] = React.useState(false);
@@ -847,6 +853,16 @@ function SettingsTab({
         setModelId((cur) => (cur && !list.some((m) => m.id === cur) ? "" : cur));
       })
       .catch(() => setModels([]));
+  }, [company.id, emp]);
+
+  React.useEffect(() => {
+    if (!emp) return;
+    api
+      .get<MemberBrowser[]>(`/api/companies/${company.id}/member-browsers/for-employee/${emp.id}`)
+      // Only browsers whose owner opted into unattended use can be scheduled;
+      // offering the rest would be offering a run that is designed to fail.
+      .then((list) => setMemberBrowsers(list.filter((b) => b.allowUnattended)))
+      .catch(() => setMemberBrowsers([]));
   }, [company.id, emp]);
 
   async function toggleWebhook(next: boolean) {
@@ -874,6 +890,7 @@ function SettingsTab({
         modelId: modelId || null,
         browserEnabledOverride:
           browserOverride === "on" ? true : browserOverride === "off" ? false : null,
+        memberBrowserId,
         catchUpPolicy,
         maxAttempts,
         retryBackoffSec,
@@ -1028,6 +1045,31 @@ function SettingsTab({
               this routine&apos;s runs.
             </div>
           </div>
+
+          {memberBrowsers.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Which browser
+              </span>
+              <Select
+                aria-label="Browser this routine runs in"
+                value={memberBrowserId ?? ""}
+                onChange={(e) => setMemberBrowserId(e.target.value || null)}
+              >
+                <option value="">Genosyn&apos;s browser</option>
+                {memberBrowsers.map((browser) => (
+                  <option key={browser.id} value={browser.id}>
+                    {browser.name}
+                  </option>
+                ))}
+              </Select>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                A routine fires on a schedule with nobody watching. If you point it at a browser
+                on your own computer and that computer is asleep when the routine runs, the run
+                fails rather than quietly using a different browser.
+              </div>
+            </div>
+          )}
         </CardBody>
       </Card>
 

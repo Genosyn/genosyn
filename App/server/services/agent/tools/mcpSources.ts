@@ -7,6 +7,7 @@ import { Company } from "../../../db/entities/Company.js";
 import { Routine } from "../../../db/entities/Routine.js";
 import { config } from "../../../../config.js";
 import { createBrowserSession } from "../../browserSessions.js";
+import { pushCurrentPolicyToAgent, resolveMemberBrowserForSpawn } from "../../memberBrowsers.js";
 import { migrateLegacyBrowserStorage } from "../../browserStorage.js";
 import { purgeLegacyCodeRepoSshFiles } from "../../codeRepoSshFiles.js";
 import { employeeDir } from "../../paths.js";
@@ -47,6 +48,9 @@ export type BrowserConfig = {
   approvalRequired: boolean;
   sessionId: string | null;
   sessionToken: string | null;
+  /** Set when this spawn drives a Member's own computer instead of App Chromium. */
+  memberBrowserId: string | null;
+  memberBrowserName: string | null;
 };
 
 const BROWSER_DISABLED: BrowserConfig = {
@@ -55,6 +59,8 @@ const BROWSER_DISABLED: BrowserConfig = {
   approvalRequired: false,
   sessionId: null,
   sessionToken: null,
+  memberBrowserId: null,
+  memberBrowserName: null,
 };
 
 /**
@@ -93,22 +99,46 @@ export async function loadBrowserConfig(
       approvalRequired: employee.browserApprovalRequired,
       sessionId: null,
       sessionToken: null,
+      memberBrowserId: null,
+      memberBrowserName: null,
     };
   }
+
+  // Which browser this spawn drives, from the human's choice on the Routine or
+  // the Conversation. Never from anything the model said: picking whose
+  // signed-in browser an employee may drive is a delegation of authority, so
+  // it is a human act recorded on a row, not a tool call.
+  const memberBrowser = await resolveMemberBrowserForSpawn({
+    employeeId: employee.id,
+    companyId: employee.companyId,
+    conversationId: options.conversationId ?? null,
+    routineId: options.routineId ?? null,
+  });
 
   const session = await createBrowserSession({
     companyId: employee.companyId,
     employeeId: employee.id,
     conversationId: options.conversationId ?? null,
     runId: options.runId ?? null,
+    memberBrowserId: memberBrowser?.id ?? null,
   });
+
+  if (memberBrowser) {
+    // Refresh the agent's local copy of the host policy while we know it is
+    // current. The agent enforces it a second time on the laptop, so a
+    // compromised App still cannot drive the browser off the list. It is also
+    // pushed on connect and on edit — this is belt and braces.
+    await pushCurrentPolicyToAgent(memberBrowser.id);
+  }
 
   return {
     enabled: true,
     allowedHosts: employee.browserAllowedHosts ?? "",
-    approvalRequired: employee.browserApprovalRequired,
+    approvalRequired: employee.browserApprovalRequired || Boolean(memberBrowser?.approvalRequired),
     sessionId: session.id,
     sessionToken: session.mcpToken,
+    memberBrowserId: memberBrowser?.id ?? null,
+    memberBrowserName: memberBrowser?.name ?? null,
   };
 }
 

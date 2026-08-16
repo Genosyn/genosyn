@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ExternalLink, Globe2, Loader2, Monitor, X } from "lucide-react";
+import { ExternalLink, Globe2, Laptop, Loader2, Monitor, X } from "lucide-react";
 import { api } from "../lib/api";
 
 /**
@@ -27,6 +27,9 @@ export type BrowserSessionDto = {
   viewportHeight: number;
   viewerCount: number;
   hasMcp: boolean;
+  /** Set when this session drives a browser on a Member's own computer. */
+  memberBrowserId?: string | null;
+  memberBrowserName?: string | null;
   startedAt: string | null;
   closedAt: string | null;
   createdAt: string;
@@ -382,6 +385,39 @@ function PanelBody({
             className="mt-1 inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
           >
             Open final URL <ExternalLink size={12} />
+          </a>
+        )}
+      </div>
+    );
+  }
+
+  // A member browser is already on the human's own screen. Streaming a
+  // laggy, downscaled copy of a window six inches away is worse than the
+  // original, and offering "Take over" there is actively confusing: their real
+  // mouse and the viewer's synthetic events would both be driving one page.
+  // So this branch says where the work is happening instead of showing it.
+  if (session.memberBrowserId) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+        <Laptop size={30} className="text-slate-400 dark:text-slate-500" />
+        <div>
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+            Working in {session.memberBrowserName ?? "your browser"}
+          </h3>
+          <p className="mt-1 max-w-xs text-xs text-slate-500 dark:text-slate-400">
+            This is running in the Genosyn Chrome window on your own computer. Switch to that
+            window to watch, or to sign in when a site asks.
+          </p>
+        </div>
+        {session.pageUrl && (
+          <a
+            href={session.pageUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex max-w-full items-center gap-1 truncate text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            <span className="truncate">{session.pageUrl}</span>
+            <ExternalLink size={12} className="shrink-0" />
           </a>
         )}
       </div>

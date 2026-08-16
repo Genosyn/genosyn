@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { AppDataSource } from "../db/datasource.js";
 import { Membership } from "../db/entities/Membership.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
+import { MemberBrowser } from "../db/entities/MemberBrowser.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
 import { attachViewerSocket } from "./browserSessions.js";
@@ -361,6 +362,23 @@ async function userCanViewBrowserSession(userId: string, companyId: string): Pro
 }
 
 /**
+ * Extra gate for sessions bound to a {@link MemberBrowser}: only the person
+ * whose computer it is may attach. Company role is the wrong instrument here —
+ * being an admin of a company is not consent to watch a colleague's screen.
+ */
+async function userMayViewMemberBrowserSession(
+  userId: string,
+  session: BrowserSession,
+): Promise<boolean> {
+  if (!session.memberBrowserId) return true;
+  const browser = await AppDataSource.getRepository(MemberBrowser).findOneBy({
+    id: session.memberBrowserId,
+  });
+  if (!browser) return false;
+  return browser.ownerUserId === userId;
+}
+
+/**
  * Attach the WebSocket server to an HTTP server. Called once during boot
  * from server/index.ts so the HTTP and WS surfaces share a port (the Vite
  * dev proxy and any prod reverse-proxy only need to forward `/api/ws` as
@@ -388,6 +406,10 @@ function matchViewerWsPath(pathname: string): { cid: string; eid: string; sid: s
 export function attachRealtime(httpServer: HttpServer): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
   const browserWss = new WebSocketServer({ noServer: true });
+  // CDP screencast frames ride this socket, so the default 100 MB cap is
+  // generous but the frames themselves are small; the ceiling exists to stop a
+  // misbehaving agent from allocating unboundedly.
+  const bridgeWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 * 1024 });
 
   // Bring app-wide live sync online: the TypeORM subscriber's coalesced
   // changes now fan out to the company room (and, on Postgres, to every other
@@ -406,6 +428,53 @@ export function attachRealtime(httpServer: HttpServer): WebSocketServer {
       parsed = new URL(url, "http://localhost");
     } catch {
       socket.destroy();
+      return;
+    }
+
+    // ---------- Bridge agent socket (a Node process on a Member's laptop) ----------
+    if (parsed.pathname === "/api/internal/member-browsers/socket") {
+      try {
+        // Upgrades bypass every Express middleware, including
+        // `requireTrustedOrigin`. The agent is not a browser and never sends
+        // an Origin, so refusing anything that does keeps a web page from
+        // opening this socket with a token it happened to obtain.
+        if (req.headers.origin) {
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        const { memberBrowsersEnabled, resolveBridgeToken } = await import("./memberBrowsers.js");
+        if (!memberBrowsersEnabled()) {
+          socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        const header = req.headers.authorization ?? "";
+        const bearer = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim() ?? "";
+        const browser = bearer ? await resolveBridgeToken(bearer) : null;
+        if (!browser) {
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        const stillAMember = await userHasMembership(browser.ownerUserId, browser.companyId);
+        if (!stillAMember) {
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        const { registerBridgeSocket } = await import("./memberBrowserHub.js");
+        bridgeWss.handleUpgrade(req, socket, head, (ws) => {
+          registerBridgeSocket({
+            browserId: browser.id,
+            companyId: browser.companyId,
+            ownerUserId: browser.ownerUserId,
+            ws,
+          });
+        });
+      } catch {
+        socket.destroy();
+      }
       return;
     }
 
@@ -439,6 +508,15 @@ export function attachRealtime(httpServer: HttpServer): WebSocketServer {
         const row = await AppDataSource.getRepository(BrowserSession).findOneBy({
           id: viewerMatch.sid,
         });
+        // A session driving somebody's own computer is theirs to watch, not
+        // the company's. Company role governs the container's Chromium; it
+        // must not let an admin stream — or, with take-over, drive — a
+        // colleague's signed-in browser.
+        if (row && !(await userMayViewMemberBrowserSession(rec.userId, row))) {
+          socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          socket.destroy();
+          return;
+        }
         if (!row || row.companyId !== rec.companyId || row.employeeId !== viewerMatch.eid) {
           socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
           socket.destroy();

@@ -54,6 +54,7 @@ import { AdminBackup } from "./pages/AdminBackup";
 import { AdminUsers } from "./pages/AdminUsers";
 import { AdminCompanies } from "./pages/AdminCompanies";
 import { ProductIntegrationsPage, SettingsIntegrations } from "./pages/SettingsIntegrations";
+import { SettingsMemberBrowsers } from "./pages/SettingsMemberBrowsers";
 import { PRODUCT_INTEGRATION_KEYS, type ProductIntegrationKey } from "./lib/productIntegrations";
 import { SettingsTeams } from "./pages/SettingsTeams";
 import { SettingsTags } from "./pages/SettingsTags";
@@ -612,6 +613,7 @@ function CompanyRoutes({
             <Route path="teams" element={<SettingsTeams />} />
             <Route path="tags" element={<SettingsTags />} />
             <Route path="integrations" element={<SettingsIntegrations />} />
+            <Route path="browsers" element={<SettingsMemberBrowsers />} />
             <Route path="email" element={<SettingsEmail />}>
               <Route index element={<Navigate to="providers" replace />} />
               <Route path="providers" element={<SettingsEmailProviders />} />

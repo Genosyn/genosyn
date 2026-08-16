@@ -104,6 +104,8 @@ import { Bill } from "./entities/Bill.js";
 import { BillLineItem } from "./entities/BillLineItem.js";
 import { BillPayment } from "./entities/BillPayment.js";
 import { BrowserSession } from "./entities/BrowserSession.js";
+import { MemberBrowser } from "./entities/MemberBrowser.js";
+import { EmployeeMemberBrowserGrant } from "./entities/EmployeeMemberBrowserGrant.js";
 import { Chart } from "./entities/Chart.js";
 import { Dashboard } from "./entities/Dashboard.js";
 import { DashboardCard } from "./entities/DashboardCard.js";
@@ -279,6 +281,8 @@ const entities = [
   BillLineItem,
   BillPayment,
   BrowserSession,
+  MemberBrowser,
+  EmployeeMemberBrowserGrant,
   Chart,
   Dashboard,
   DashboardCard,
