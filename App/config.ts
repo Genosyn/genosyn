@@ -118,6 +118,44 @@ export const config = {
     },
   },
 
+  // The browser an AI Employee drives when it runs inside Genosyn's own
+  // container (as opposed to a Member browser, which is a Chrome on a human's
+  // own computer — see `agent.memberBrowsersEnabled`).
+  //
+  // The Docker image ships **real Google Chrome**, not Chromium, and runs it
+  // headed against an Xvfb display. That is deliberate and it is the whole
+  // anti-blocking strategy: a genuine Chrome needs no disguise, so there is no
+  // disguise left to catch it out. Sites bounce automation by finding
+  // *contradictions* — a browser claiming to be Chrome on macOS while its
+  // fonts, WebGL renderer and `navigator.platform` say headless Chromium on
+  // Linux — and the cheapest way to have no contradictions is to tell the
+  // truth. Genosyn still never solves a captcha; when a site genuinely
+  // challenges us we hand the page to a human.
+  //
+  // A source-managed install on a host without Chrome falls back to whatever
+  // Chromium it can find, and only then does the compatibility mask in
+  // `services/browserProfile.ts` switch on.
+  browser: {
+    // Absolute path to the Chrome/Chromium binary. Empty means autodetect:
+    // the `GENOSYN_CHROME_PATH` / `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` env
+    // vars first (the Docker image sets the latter), then the usual install
+    // locations for this platform, then Playwright's own download.
+    executablePath: "",
+    // "auto" runs headed whenever a display is available (`DISPLAY` set — the
+    // container's entrypoint starts Xvfb and sets it) and headless otherwise.
+    // Headed is what a real person's Chrome is, and headless remains the
+    // single loudest automation signal, so prefer leaving this on "auto".
+    // Force `true` only if your host cannot run Xvfb.
+    headless: "auto" as "auto" | boolean,
+    // Locale and IANA timezone reported to sites. Empty means "inherit
+    // whatever Chrome derives from the container", which is the honest
+    // answer. Set these only to match where this deployment actually egresses
+    // from — a browser claiming Los Angeles from a German IP is a mismatch a
+    // detector reads the same way it reads a spoofed user agent.
+    locale: "",
+    timezone: "",
+  },
+
   // Global SMTP fallback for system-level sends (password resets, invites).
   // Leave host empty to disable — reset links then log to the console instead.
   // This block is the file-based default; operators can override it at runtime

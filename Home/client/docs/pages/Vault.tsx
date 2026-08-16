@@ -153,7 +153,7 @@ export function Vault() {
         <LI>The employee opens the website saved on the login item.</LI>
         <LI>
           <Code>browser_fill_vault</Code> asks the App to resolve a granted username or password and
-          fill the selected field directly in App-owned Chromium. The top page and target frame must
+          fill the selected field directly in App-owned Chrome. The top page and target frame must
           both match the item&apos;s exact saved origin — scheme, host, and port. A password is
           accepted only from a Login item and only into an input with <Code>type=password</Code>.
         </LI>
@@ -171,7 +171,7 @@ export function Vault() {
         screenshots are refused; use the redacted structural snapshot instead.
       </P>
       <Callout kind="info" title="A Member session cannot become AI authority">
-        A Member session used inside App-owned Chromium is marked as an AI Browser request. The App
+        A Member session used inside App-owned Chrome is marked as an AI Browser request. The App
         rejects every Genosyn API request from that browser, even when the stored cookies belong to
         an owner or admin. This also prevents settings, API keys, invitations, and role changes from
         becoming a route back to Vault authority. AI Employees must use their own item-level Grants

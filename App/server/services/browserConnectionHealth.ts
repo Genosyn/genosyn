@@ -49,7 +49,7 @@ export type BrowserBlockReason =
   | "bad_credentials"
   /** Too many attempts; the site is throttling us. */
   | "rate_limited"
-  /** Chromium/Playwright is missing, or the site never loaded. */
+  /** The browser binary or Playwright is missing, or the site never loaded. */
   | "unavailable"
   /** Anything we could not place. */
   | "unknown";
@@ -236,21 +236,29 @@ export function remedyForBlock(args: {
     ? ` Ask the AI employee to open ${siteName}'s login page with its Browser tools, then use "Take over" in the live browser panel to finish the sign-in yourself — the signed-in session is picked up by this connection from then on.`
     : ` Turn on Browser access for an AI employee that holds this connection, then ask it to open ${siteName}'s login page and use "Take over" in the live browser panel to sign in once — the signed-in session is picked up by this connection from then on.`;
 
+  // Some sites will not accept a server-hosted browser at all, however honest
+  // it is: the block is on the address and the absence of history, not on
+  // anything the profile can change. A Member browser is the way out — it is a
+  // Chrome on a human's own computer, on their own connection, which is not a
+  // disguise but simply a different, ordinary browser. Worth naming in the
+  // remedy, because otherwise an operator re-runs the same doomed login.
+  const memberBrowserHint = ` If ${siteName} keeps challenging this deployment specifically, connect a Member browser under Settings → Member browsers and grant it to this employee — the sign-in then happens in a Chrome on your own computer.`;
+
   switch (reason) {
     case "captcha":
-      return `${siteName} is showing a captcha or an anti-automation interstitial instead of the login form. Genosyn does not solve captchas — a human has to clear it once.${handoff}`;
+      return `${siteName} is showing a captcha or an anti-automation interstitial instead of the login form. Genosyn does not solve captchas — a human has to clear it once.${handoff}${memberBrowserHint}`;
     case "two_factor":
       return `${siteName} is asking for a two-factor code, which a stored password cannot answer.${handoff} Alternatively, connect ${siteName} over its official API instead of browser login.`;
     case "verification_required":
-      return `${siteName} is running an "unusual activity" check and wants the account's email or phone. Add a Verification value to the connection under Settings → Integrations, or clear the check once by hand.${handoff}`;
+      return `${siteName} is running an "unusual activity" check and wants the account's email or phone. Add a Verification value to the connection under Settings → Integrations, or clear the check once by hand.${handoff}${memberBrowserHint}`;
     case "bad_credentials":
       return `${siteName} rejected the stored username or password. Update the credentials under Settings → Integrations → this connection → Reconnect.`;
     case "rate_limited":
-      return `${siteName} is throttling sign-ins from this account. Leave it alone for a while — Genosyn already backs off automatically — and avoid re-running the routine in the meantime.`;
+      return `${siteName} is throttling sign-ins from this account. Leave it alone for a while — Genosyn already backs off automatically — and avoid re-running the routine in the meantime.${memberBrowserHint}`;
     case "session_expired":
       return `The saved ${siteName} session expired. Genosyn will try to sign in again on the next call; if that keeps failing, sign in once by hand.${handoff}`;
     case "unavailable":
-      return `The headless browser is not available in this deployment, so browser-login connections cannot run at all. Use an image that bundles Chromium and playwright-core, or connect ${siteName} over its official API.`;
+      return `The browser is not available in this deployment, so browser-login connections cannot run at all. Use an image that ships Google Chrome and playwright-core, or connect ${siteName} over its official API.`;
     case "unknown":
     default:
       return `Genosyn could not classify the failure. Check the message above against ${siteName}'s current login page.${handoff}`;

@@ -45,10 +45,10 @@ export function MemberBrowsers() {
 
       <H2 id="what-it-is">What it is</H2>
       <P>
-        The <DocLink to="/docs/browser">Browser</DocLink> an AI Employee normally uses is a headless
-        Chromium inside the Genosyn container. It is fine for public pages and for logins you are
-        willing to store in Genosyn, but it is not your computer: it has a different IP, a different
-        device fingerprint, and none of the sessions you are already signed into.
+        The <DocLink to="/docs/browser">Browser</DocLink> an AI Employee normally uses is a real
+        Google Chrome inside the Genosyn container. It is fine for public pages and for logins you
+        are willing to store in Genosyn, but it is not your computer: it has a different IP and none
+        of the sessions you are already signed into.
       </P>
       <P>
         A member browser moves the browsing to your machine. Genosyn can never dial your laptop, so
@@ -91,7 +91,7 @@ export function MemberBrowsers() {
         signed into nothing at all. You sign in there once per site — the profile persists on your
         disk between runs, so you do not repeat it. Passwords you type into that window are yours;
         Genosyn never copies its cookie jar, and never writes its storage state into the App&apos;s
-        data directory the way it does for its own Chromium.
+        data directory the way it does for its own Chrome.
       </P>
 
       <H2 id="connecting">Connecting one</H2>

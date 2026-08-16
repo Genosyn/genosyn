@@ -19,8 +19,9 @@
  * this module does instead, in order:
  *
  *   1. **Don't look like a robot in the first place.** The launch profile is
- *      the same desktop-Chrome disguise the App-owned browser uses
- *      (`services/browserProfile.ts`). This driver used to announce itself
+ *      the same one the App-owned browser uses
+ *      (`services/browserProfile.ts`) — on the shipped image, a real headed
+ *      Google Chrome with nothing spoofed. This driver used to announce itself
  *      with a `Genosyn/0.1` user agent and leave `navigator.webdriver` set,
  *      which is a large part of why its logins got challenged at all.
  *   2. **Reuse a session a human already established.** The employee's own
@@ -236,7 +237,7 @@ export async function runWithXBrowser<T>(opts: RunOpts<T>): Promise<T> {
     const chromium: ChromiumLauncher = await loadChromiumLauncher(
       "Browser-login connections require the App container to bundle Chromium and playwright-core.",
     );
-    browser = (await chromium.launch(chromiumLaunchOptions())) as PWBrowser;
+    browser = (await chromium.launch(await chromiumLaunchOptions())) as PWBrowser;
   } catch (err) {
     throw blockAndDescribe({ cfg: opts.cfg, ctx: opts.ctx, error: err, now });
   }
@@ -349,13 +350,17 @@ async function newXContext(
   storageState: Record<string, unknown> | undefined | null,
 ): Promise<PWContext> {
   const context = await browser.newContext({
-    ...chromeContextOptions(),
+    ...(await chromeContextOptions()),
     storageState: storageState ?? undefined,
   });
-  // Best-effort: an older playwright-core without addInitScript on the
-  // context shouldn't take the whole call down, it just means a weaker
+  // Empty on real headed Chrome, which is the shipped configuration. Where it
+  // is non-empty, best-effort: an older playwright-core without addInitScript
+  // on the context shouldn't take the whole call down, it just means a weaker
   // disguise.
-  await context.addInitScript?.({ content: chromeMaskInitScript() }).catch(() => undefined);
+  const maskScript = await chromeMaskInitScript();
+  if (maskScript) {
+    await context.addInitScript?.({ content: maskScript }).catch(() => undefined);
+  }
   return context;
 }
 

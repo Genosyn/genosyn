@@ -218,6 +218,33 @@ adminRouter.post("/email-transport/test", validateBody(testSchema), async (req, 
   }
 });
 
+// ──────────────────────────── browser profile ──────────────────────────────
+//
+// Launches the real browser profile and checks it for the self-contradictions
+// that get an AI Employee blocked — a user agent disagreeing with
+// `navigator.platform`, a Chrome claim with no Chrome fonts behind it, a patch
+// that reads as a patch. POST rather than GET because it starts a browser, and
+// admin-only for the same reason: it is a deliberate diagnostic, not something
+// a health poll should be able to trigger.
+
+const browserSelfTestSchema = z.object({});
+
+adminRouter.post(
+  "/browser-self-test",
+  validateBody(browserSelfTestSchema),
+  async (_req, res) => {
+    try {
+      const { runBrowserSelfTest } = await import("../services/browserFingerprint.js");
+      res.json({ ok: true, result: await runBrowserSelfTest() });
+    } catch (err) {
+      res.status(400).json({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+);
+
 // ─────────────────────────── sign-up policy ────────────────────────────────
 //
 // Instance-wide toggle for self-service registration. When disabled, the public

@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import { resolveBrowserExecutable } from "./browserProfile.js";
 import type { EmailAttachment } from "./emailTransports.js";
 
 /**
@@ -8,23 +8,16 @@ import type { EmailAttachment } from "./emailTransports.js";
  * so a slow render can't pin a long-lived process; volume is low enough
  * that pooling isn't worth the complexity yet.
  *
- * The Chromium binary path follows the same `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`
- * env var the MCP browser feature uses (set by App's Dockerfile to
- * `/usr/bin/chromium-browser`). For local dev on macOS we fall through
- * to the system Google Chrome — pdf rendering is identical to Chromium
- * for our purposes.
+ * The binary is resolved by `browserProfile.resolveBrowserExecutable()`, the
+ * same way the browser tools resolve theirs — the shipped image points that at
+ * real Google Chrome, and a dev machine falls through to whatever Chrome or
+ * Chromium it has. Rendering is equivalent across all of them for our
+ * purposes; this call site shares the resolver so there is only one place that
+ * knows where a browser lives.
+ *
+ * Nothing here needs the anti-blocking profile: this browser never leaves
+ * `setContent`, so it faces no site and no bot detection.
  */
-
-const MACOS_CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-
-function resolveChromiumPath(): string | undefined {
-  const env = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
-  if (env) return env;
-  if (process.platform === "darwin" && fs.existsSync(MACOS_CHROME_PATH)) {
-    return MACOS_CHROME_PATH;
-  }
-  return undefined;
-}
 
 let chromiumModule: { launch: (opts: unknown) => Promise<unknown> } | null = null;
 
@@ -58,7 +51,7 @@ export async function htmlToPdf(
   options: HtmlToPdfOptions = {},
 ): Promise<Buffer> {
   const chromium = await getChromium();
-  const executablePath = resolveChromiumPath();
+  const executablePath = resolveBrowserExecutable();
   const browser = (await chromium.launch({
     headless: true,
     executablePath,

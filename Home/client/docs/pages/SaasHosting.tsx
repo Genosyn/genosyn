@@ -136,7 +136,7 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         <LI>Company secrets are not injected into hosted coding shells.</LI>
         <LI>Arbitrary stdio MCP servers are not started in shared SaaS mode.</LI>
         <LI>
-          The app-owned Chromium browser is unavailable until it moves to a separately isolated
+          The app-owned browser is unavailable until it moves to a separately isolated
           browser worker. See <DocLink to="/docs/browser">Browser</DocLink> for self-hosted mode.
         </LI>
       </UL>

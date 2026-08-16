@@ -2163,6 +2163,40 @@ of the original V1 backlog has shipped — what remains is mostly
         mode can run, with the mode's caveat appended to every description
         (`services/integrationToolListing.ts`). Genosyn still never solves
         a challenge — it hands the page to a person and reuses the result.
+  - [x] **Real Chrome in the container.** The disguise above was the wrong
+        shape of fix and it did not hold: the image was Alpine, Google ships
+        Chrome for glibc only, so the browser was Alpine's `chromium` claiming
+        to be Chrome 134 on macOS. Sites do not detect automation so much as
+        *contradictions*, and that profile contradicted itself everywhere the
+        costume did not reach — `navigator.platform` still read Linux, the UA
+        carried a full build number Chrome's UA reduction stopped sending,
+        WebGL read SwiftShader, `ttf-freefont` was the entire font list, and
+        every patched getter printed its own arrow-function source when asked
+        for `toString()`. Two of the patches were worse than the tells they
+        hid: `navigator.webdriver` was forced to `undefined` (real Chrome
+        answers `false`; no browser answers `undefined`), and the notification
+        patch produced `denied` + `prompt`, a pairing that occurs nowhere.
+        Now the App image is Debian and ships **real Google Chrome** from
+        Google's apt repo on both amd64 and arm64 (Google shipped official
+        arm64 Linux builds in July 2026), running **headed** against an Xvfb
+        display started by `docker-entrypoint.sh`, with real font packages.
+        `browserProfile.ts` asks the binary what it is and, on real headed
+        Chrome, overrides *nothing* — no UA, no client hints, no init script —
+        because a true identity is self-consistent for free. The mask survives
+        only as a compatibility path for a source-managed host with no Chrome,
+        rewritten so no patch is detectable as a patch (native-looking
+        `toString`, `webdriver === false`, real `PluginArray`/`MimeTypeArray`,
+        `Notification.permission` and `permissions.query` patched as a pair).
+        Locale and timezone are no longer hardcoded to Los Angeles — empty
+        means "inherit", because a browser claiming LA from a European IP is
+        the same kind of mismatch. `services/browserFingerprint.ts` states the
+        invariants as code and `POST /api/admin/browser-self-test` runs them
+        against the live profile, so a Chrome bump or a silent fallback to
+        Chromium is caught by a diagnostic rather than by a 3am Routine
+        failure. Blocked-connection remedies now name Member browsers, which
+        is the honest answer when a site refuses server-hosted browsers as
+        such. Genosyn still solves no captcha; this removes *false* signals
+        from a browser doing legitimate work.
 - [x] **Genosyn-level sandbox** — Bubblewrap user/mount/PID/IPC/UTS namespaces,
       a best-effort cgroup namespace, a single writable employee workspace,
       explicit environment, optional network namespace, and realpath/symlink

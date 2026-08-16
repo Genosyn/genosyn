@@ -8,7 +8,7 @@ export function Browser() {
         title="Browser"
         lead={
           <>
-            Give an AI employee a real, persistent web browser. A headless Chromium runs inside the
+            Give an AI employee a real, persistent web browser. Real Google Chrome runs inside the
             App container; the employee reads pages as ref-annotated snapshots and acts on them with
             a small set of <Code>browser_*</Code> tools, while you watch live and take over whenever
             a human is needed.
@@ -17,12 +17,12 @@ export function Browser() {
       />
 
       <Callout kind="warn" title="Unavailable in shared SaaS mode">
-        The current Chromium runtime shares the App container and filesystem, so the fail-closed
+        The current browser runtime shares the App container and filesystem, so the fail-closed
         hosted profile disables it. It remains available for single-tenant self-hosting. A hosted
         browser needs a separately isolated worker before operators should enable it.
       </Callout>
       <Callout kind="info" title="Genosyn Member sessions are isolated from AI Browser authority">
-        If App-owned Chromium holds a Member&apos;s Genosyn session, every Genosyn App API request
+        If App-owned Chrome holds a Member&apos;s Genosyn session, every Genosyn App API request
         from that browser is refused. The session cannot mint API keys, change company roles, or
         become a shortcut around Vault access. Use the AI Employee&apos;s Grants and governed tools
         instead.
@@ -210,7 +210,7 @@ export function Browser() {
         password into Chat or type it during take-over. The employee first calls{" "}
         <Code>list_vault_items</Code> for safe metadata, opens the saved website, then calls{" "}
         <Code>browser_fill_vault</Code> for the username or password field. The App resolves the
-        current item-level Grant and types the value directly into Chromium. The tool result only
+        current item-level Grant and types the value directly into Chrome. The tool result only
         confirms that the field was filled.
       </P>
       <P>
@@ -255,7 +255,7 @@ export function Browser() {
       <P>
         While the employee browses, the chat panel shows the page live. Click{" "}
         <Strong>Take over</Strong> to drive it yourself — your mouse and keyboard go straight to the
-        same Chromium. Use Vault autofill for a granted stored credential; take-over remains the
+        same Chrome. Use Vault autofill for a granted stored credential; take-over remains the
         fallback for a credential not in the Vault and the intended flow for captchas and 2FA. The
         employee navigates to the right page, you complete the human-only step, and the employee
         carries on. The browser is never torn down while someone is watching.
@@ -277,6 +277,45 @@ export function Browser() {
         here and sign in once — the Connection picks up the session you established and stops
         failing.
       </P>
+
+      <H2 id="runtime">The browser it actually runs</H2>
+      <P>
+        The App image ships <Strong>real Google Chrome</Strong> — the same build Google publishes
+        for Debian, on both x86-64 and ARM — and runs it <Strong>headed</Strong> against a virtual
+        display started by the container&apos;s entrypoint. That is a deliberate anti-blocking
+        choice, not an implementation detail.
+      </P>
+      <P>
+        Sites rarely detect &quot;automation&quot; as such. They detect{" "}
+        <Strong>contradictions</Strong>: a browser claiming to be Chrome on macOS while its fonts,
+        GPU strings and <Code>navigator.platform</Code> all say headless Chromium on Linux. Genosyn
+        used to ship exactly that — a Chromium wearing a hand-written costume — and the costume was
+        what got it challenged. A real Chrome needs no costume, so there is none to catch out: its
+        user agent, client hints, font list and renderer strings agree with each other because they
+        are all simply true.
+      </P>
+      <P>
+        Genosyn still never solves a captcha and never defeats a challenge. This only removes{" "}
+        <em>false</em> signals from a browser doing legitimate work. If a site challenges the
+        employee anyway, the answer is still a human: take over here, or use a{" "}
+        <DocLink to="/docs/member-browsers">Member browser</DocLink>.
+      </P>
+      <P>
+        Nothing here needs configuring. The knobs exist in <Code>config.ts</Code> under{" "}
+        <Code>browser</Code> if you need them — a different Chrome binary, forced headless on a host
+        that cannot run a virtual display, or a locale and timezone matching where your deployment
+        egresses from. Leave them empty and Chrome tells the truth about itself, which is the
+        setting you want. A source-managed install on a host with no Chrome falls back to whatever
+        Chromium it finds, and only then does a compatibility layer start filling in the
+        differences.
+      </P>
+      <Callout kind="info" title="Checking the profile">
+        A master admin can <Code>POST /api/admin/browser-self-test</Code> to launch the real profile
+        and have it checked for self-contradictions — user agent against platform, client hints
+        against user agent, fonts, renderer, and whether any compatibility patch is detectable as a
+        patch. Worth running after a Chrome upgrade or an image rebuild; it is the difference
+        between finding a regression now and finding it when a Routine fails at 3am.
+      </Callout>
 
       <Callout title="Reserved name">
         <Code>browser</Code> is a reserved MCP server name — a user-configured server with that name

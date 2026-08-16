@@ -11,7 +11,7 @@ import {
 } from "./browserProfile.js";
 
 /**
- * App-owned headless Chromium per `BrowserSession`. Decoupled from the MCP
+ * App-owned browser per `BrowserSession`. Decoupled from the MCP
  * child's lifecycle so the browser persists across chat turns: the agent
  * can promise "I'll wait while you drop in your credentials" without
  * lying, because the same Chromium is still running when the next turn
@@ -42,9 +42,10 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
  */
 const REMOTE_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
-// The "look like desktop Chrome" profile lives in `browserProfile.ts` and is
-// shared with the browser-login Integration drivers, which face the same
-// login pages and need the same disguise.
+// Which binary to launch, and how, lives in `browserProfile.ts` — shared with
+// the browser-login Integration drivers, which face the same login pages. The
+// image ships real Google Chrome running headed against a virtual display, so
+// on the standard deployment there is no disguise involved at all.
 
 type SessionRuntime = {
   id: string;
@@ -148,13 +149,13 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
   const chromium = await loadChromiumLauncher(
     "Browser tools require the App container to bundle Chromium and playwright-core.",
   );
-  const browser = await chromium.launch(chromiumLaunchOptions());
+  const browser = await chromium.launch(await chromiumLaunchOptions());
   const context = await (
     browser as {
       newContext: (opts: unknown) => Promise<unknown>;
     }
   ).newContext({
-    ...chromeContextOptions(),
+    ...(await chromeContextOptions()),
     // Context routing is the security boundary that marks a Member session
     // used inside App-owned Chromium. Service workers can bypass Playwright
     // routes, so they are disabled in this governed Browser context.
@@ -175,11 +176,16 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
     const headers = await route.request().allHeaders();
     await route.continue({ headers: markAiBrowserSessionRequestHeaders(headers) });
   });
-  await (
-    context as {
-      addInitScript: (script: { content: string }) => Promise<void>;
-    }
-  ).addInitScript({ content: chromeMaskInitScript() });
+  // Empty on the shipped configuration — real headed Chrome has nothing to
+  // fake — so don't install a no-op script into every page.
+  const maskScript = await chromeMaskInitScript();
+  if (maskScript) {
+    await (
+      context as {
+        addInitScript: (script: { content: string }) => Promise<void>;
+      }
+    ).addInitScript({ content: maskScript });
+  }
   const page = await (context as { newPage: () => Promise<unknown> }).newPage();
   const cdp = await attachCdp(page);
 
@@ -224,6 +230,14 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
         const cur = runtimes.get(sessionId);
         if (cur && cur.pendingAdoption === r.pendingAdoption) cur.pendingAdoption = null;
       });
+  });
+
+  // Headed Chrome paints into a real window, so the page is shorter than the
+  // window by however much browser chrome the build draws. Ask the page rather
+  // than assuming — with `viewport: null` there is no forced size to assume.
+  await syncViewportFromBrowser(runtime).catch(() => {
+    // The session keeps the default size; the viewer self-corrects from the
+    // first screencast frame's metadata.
   });
 
   return page;
@@ -358,7 +372,7 @@ async function acquireRemotePage(sessionRow: BrowserSession): Promise<unknown> {
       });
   });
 
-  await syncRemoteViewport(runtime).catch(() => {
+  await syncViewportFromBrowser(runtime).catch(() => {
     // The session keeps the default size; the viewer self-corrects from the
     // first screencast frame's metadata.
   });
@@ -367,11 +381,13 @@ async function acquireRemotePage(sessionRow: BrowserSession): Promise<unknown> {
 }
 
 /**
- * Read the real window size out of the remote browser and tell the session
- * about it, so the screencast is captured at native resolution and the
- * viewer's take-over clicks land where the human aimed them.
+ * Read the real window size out of the browser and tell the session about it,
+ * so the screencast is captured at native resolution and the viewer's
+ * take-over clicks land where the human aimed them. Both paths need this: a
+ * Member's browser is whatever size their screen made it, and the container's
+ * own Chrome is headed against a virtual display.
  */
-async function syncRemoteViewport(runtime: SessionRuntime): Promise<void> {
+async function syncViewportFromBrowser(runtime: SessionRuntime): Promise<void> {
   const cdp = runtime.cdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null;
   if (!cdp) return;
   const metrics = (await cdp.send("Page.getLayoutMetrics")) as {

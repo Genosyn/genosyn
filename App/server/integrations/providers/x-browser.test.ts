@@ -656,7 +656,7 @@ describe("runWithXBrowser — being blocked", () => {
     );
 
     assert.ok(err instanceof ConnectionAuthError);
-    assert.match(err.message, /headless browser is not available/);
+    assert.match(err.message, /browser is not available/);
     assert.equal(readSessionHealth(persisted()).reason, "unavailable");
   });
 });

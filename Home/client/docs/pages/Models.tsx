@@ -288,7 +288,7 @@ export function Models() {
           catalogue and runs anything in it. Always on.
         </LI>
         <LI>
-          <Code>browser</Code> — browser tools backed by a headless Chromium when{" "}
+          <Code>browser</Code> — browser tools backed by real Chrome when{" "}
           <Code>browserEnabled</Code> is true on the employee. Skipped when off.
         </LI>
         <LI>

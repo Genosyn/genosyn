@@ -87,8 +87,8 @@ export function Employees() {
             term: "browserEnabled",
             def: (
               <>
-                Flips on the built-in <Code>browser</Code> MCP server that drives a headless
-                Chromium. Off by default. See <DocLink to="/docs/browser">Browser</DocLink>.
+                Flips on the built-in <Code>browser</Code> MCP server that drives real Google
+                Chrome. Off by default. See <DocLink to="/docs/browser">Browser</DocLink>.
               </>
             ),
           },

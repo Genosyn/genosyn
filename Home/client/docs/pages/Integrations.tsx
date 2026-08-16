@@ -150,8 +150,8 @@ export function Integrations() {
       <P>
         Most Connections talk to an API. A few sites either have no usable API or paywall the parts
         that matter, so those Integrations also offer a <Strong>Browser login</Strong> tab: you
-        store a username and password, and Genosyn drives the real site in a headless browser. X is
-        the main one today.
+        store a username and password, and Genosyn drives the real site in a real Chrome. X is the
+        main one today.
       </P>
       <P>
         A browser-login Connection is <Strong>not</Strong> the site&apos;s API, and Genosyn is

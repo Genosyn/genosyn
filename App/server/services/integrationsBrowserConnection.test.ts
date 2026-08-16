@@ -88,12 +88,12 @@ describe("a blocked browser-login Connection", () => {
         toolName: "post_tweet",
         toolArgs: { text: "Shipping today." },
       }),
-      /headless browser is not available/,
+      /browser is not available/,
     );
 
     const row = await reload(connection.id);
     assert.equal(row.status, "error");
-    assert.match(row.statusMessage, /headless browser is not available/);
+    assert.match(row.statusMessage, /browser is not available/);
   });
 
   test("the classification survives on the connection for the next call", async () => {
