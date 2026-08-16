@@ -553,6 +553,13 @@ export type ConversationSummary = {
   createdAt: string;
   updatedAt: string;
   lastMessageAt: string | null;
+  /**
+   * AI Model this thread last ran a turn on, while that model still belongs to
+   * the employee and is connected. The chat composer reopens the thread on it
+   * so a past conversation keeps the brain it was held with; null means fall
+   * back to the employee's active model.
+   */
+  lastModelId: string | null;
   /** Upgrade-only direct thread that an owner/admin may explicitly claim. */
   legacyUnclaimed?: boolean;
 };

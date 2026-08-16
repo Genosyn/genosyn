@@ -330,10 +330,17 @@ export function Models() {
       </P>
       <P>
         When at least two models are connected, the dedicated employee Chat composer shows an{" "}
-        <Strong>AI Model</Strong> picker. It starts on the active model, but you can choose a
-        different brain for the next message without changing the employee&apos;s active model or
-        any Routine. Follow-ups remember the model selected when each message entered the queue,
-        including while a durable turn recovers after a disconnect or server restart.
+        <Strong>AI Model</Strong> picker. You can choose a different brain for the next message
+        without changing the employee&apos;s active model or any Routine. Follow-ups remember the
+        model selected when each message entered the queue, including while a durable turn recovers
+        after a disconnect or server restart.
+      </P>
+      <P>
+        <Strong>Each conversation keeps its own model.</Strong> Reopening a past thread puts the
+        picker back on the model that thread last answered on, not on whatever is active now — so a
+        long conversation carries on with the same brain, context window, and billing you started
+        it with. A brand-new thread starts on the active model, and so does a thread whose model has
+        since been deleted or disconnected.
       </P>
 
       <H3 id="model-errors">When a chat or Run reports a model error</H3>

@@ -18,6 +18,7 @@ import {
 } from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { parseActions } from "../services/turnActions.js";
+import { lastChatModelId, lastChatModelIds } from "../services/conversationModels.js";
 import { enqueueDurableChatTurn, executeDurableChatTurn } from "../services/durableChatTurns.js";
 import { resolveChatModel } from "../services/models.js";
 import {
@@ -83,7 +84,17 @@ async function loadEmpAndCompany(
  */
 const CHAT_STREAM_HEARTBEAT_MS = 15_000;
 
-function serializeConversation(c: Conversation, lastMessageAt: Date | null = null) {
+/**
+ * `lastModelId` is the brain this thread last ran a turn on, resolved by
+ * {@link lastChatModelId}. The composer preselects it so reopening a past
+ * conversation keeps talking to the same model instead of silently jumping to
+ * whichever one happens to be active now; null means "use the active model".
+ */
+function serializeConversation(
+  c: Conversation,
+  lastMessageAt: Date | null = null,
+  lastModelId: string | null = null,
+) {
   return {
     id: c.id,
     employeeId: c.employeeId,
@@ -92,6 +103,7 @@ function serializeConversation(c: Conversation, lastMessageAt: Date | null = nul
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     lastMessageAt,
+    lastModelId,
     source: c.source ?? "web",
     connectionId: c.connectionId ?? null,
     legacyUnclaimed: c.ownerUserId === null && (c.source === "web" || c.source === "help"),
@@ -209,7 +221,11 @@ employeeSurfaceRouter.get("/:eid/conversations", async (req, res) => {
       : ownedWhere,
     order: { updatedAt: "DESC" },
   });
-  res.json(rows.map((r) => serializeConversation(r, r.updatedAt)));
+  const lastModelIds = await lastChatModelIds(
+    eid,
+    rows.map((r) => r.id),
+  );
+  res.json(rows.map((r) => serializeConversation(r, r.updatedAt, lastModelIds.get(r.id) ?? null)));
 });
 
 employeeSurfaceRouter.post(
@@ -244,7 +260,7 @@ employeeSurfaceRouter.get("/:eid/conversations/:convId", async (req, res) => {
   });
   const attachmentsByMsg = await attachmentsForMessages(messages.map((m) => m.id));
   res.json({
-    conversation: serializeConversation(conv, conv.updatedAt),
+    conversation: serializeConversation(conv, conv.updatedAt, await lastChatModelId(eid, conv.id)),
     messages: messages.map((m) => serializeMessage(m, attachmentsByMsg.get(m.id) ?? [])),
   });
 });
@@ -309,10 +325,18 @@ employeeSurfaceRouter.post(
         ownerUserId: req.userId!,
       });
       if (alreadyOwned)
-        return res.json(serializeConversation(alreadyOwned, alreadyOwned.updatedAt));
+        return res.json(
+          serializeConversation(
+            alreadyOwned,
+            alreadyOwned.updatedAt,
+            await lastChatModelId(eid, alreadyOwned.id),
+          ),
+        );
       return res.status(409).json({ error: "Conversation has already been claimed" });
     }
-    res.json(serializeConversation(claimed, claimed.updatedAt));
+    res.json(
+      serializeConversation(claimed, claimed.updatedAt, await lastChatModelId(eid, claimed.id)),
+    );
   },
 );
 
@@ -331,7 +355,7 @@ employeeSurfaceRouter.post("/:eid/conversations/:convId/archive", async (req, re
     conv.archivedAt = new Date();
     await repo.save(conv);
   }
-  res.json(serializeConversation(conv, conv.updatedAt));
+  res.json(serializeConversation(conv, conv.updatedAt, await lastChatModelId(eid, conv.id)));
 });
 
 employeeSurfaceRouter.post("/:eid/conversations/:convId/unarchive", async (req, res) => {
@@ -349,7 +373,7 @@ employeeSurfaceRouter.post("/:eid/conversations/:convId/unarchive", async (req, 
     conv.archivedAt = null;
     await repo.save(conv);
   }
-  res.json(serializeConversation(conv, conv.updatedAt));
+  res.json(serializeConversation(conv, conv.updatedAt, await lastChatModelId(eid, conv.id)));
 });
 
 employeeSurfaceRouter.delete("/:eid/conversations/:convId", async (req, res) => {
@@ -536,11 +560,19 @@ employeeSurfaceRouter.post(
         requesterSessionVersion: req.session!.sessionVersion!,
       });
       acceptedTurn = true;
+      // The accepted turn is now this thread's newest one, so its model is what
+      // the composer must reopen on. Resolved once here because `onFinal` is
+      // synchronous and executing the turn never changes the persisted choice.
+      const threadModelId = await lastChatModelId(eid, enqueued.conversation.id);
       writeEvent("user", serializeMessage(enqueued.userMessage, enqueued.userAttachments));
       writeEvent("working", serializeMessage(enqueued.assistantMessage));
       writeEvent(
         "conversation",
-        serializeConversation(enqueued.conversation, enqueued.conversation.updatedAt),
+        serializeConversation(
+          enqueued.conversation,
+          enqueued.conversation.updatedAt,
+          threadModelId,
+        ),
       );
 
       await executeDurableChatTurn(enqueued.assistantMessage.id, {
@@ -548,7 +580,10 @@ employeeSurfaceRouter.post(
         onProgress: (progress) => writeEvent("progress", progress),
         onFinal: ({ message, attachments, conversation }) => {
           writeEvent("assistant", serializeMessage(message, attachments));
-          writeEvent("conversation", serializeConversation(conversation, conversation.updatedAt));
+          writeEvent(
+            "conversation",
+            serializeConversation(conversation, conversation.updatedAt, threadModelId),
+          );
         },
       });
       writeEvent("done", {});

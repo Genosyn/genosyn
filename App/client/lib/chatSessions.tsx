@@ -140,10 +140,20 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
     ) => {
       const working = latestWorkingMessage(detail.messages);
       update(empId, (s) => {
-        if (s.activeConvId !== convId) return s;
+        // The freshly-loaded row is newer than whatever the sidebar cached, so
+        // fold it back in — otherwise a thread whose model or title changed in
+        // another tab keeps reopening on the stale summary.
+        const convs = withRefreshedSummary(s.convs, detail.conversation);
+        const archivedConvs = withRefreshedSummary(s.archivedConvs, detail.conversation);
+        if (s.activeConvId !== convId) {
+          if (convs === s.convs && archivedConvs === s.archivedConvs) return s;
+          return { ...s, convs, archivedConvs };
+        }
         const wasFollowingThisConversation = s.sendingConvId === convId;
         return {
           ...s,
+          convs,
+          archivedConvs,
           messages: detail.messages,
           loadedConvId: convId,
           convLoading: false,
@@ -768,6 +778,33 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
   const value = React.useMemo<ChatSessionsCtx>(() => ({ sessions, actions }), [sessions, actions]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+/**
+ * Replace a cached sidebar summary with a freshly-loaded one, in place. Returns
+ * the same array when the thread isn't in this list or nothing the UI reads has
+ * changed, so the 3s in-flight refresh poll doesn't re-render the sidebar.
+ */
+function withRefreshedSummary(
+  list: ConversationSummary[],
+  fresh: ConversationSummary,
+): ConversationSummary[] {
+  const index = list.findIndex((conversation) => conversation.id === fresh.id);
+  if (index === -1) return list;
+  const current = list[index];
+  if (
+    current.title === fresh.title &&
+    current.lastModelId === fresh.lastModelId &&
+    current.updatedAt === fresh.updatedAt &&
+    current.lastMessageAt === fresh.lastMessageAt &&
+    current.archivedAt === fresh.archivedAt &&
+    current.legacyUnclaimed === fresh.legacyUnclaimed
+  ) {
+    return list;
+  }
+  const next = [...list];
+  next[index] = fresh;
+  return next;
 }
 
 function latestWorkingMessage(messages: ConversationMessage[]): ConversationMessage | null {

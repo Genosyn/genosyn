@@ -18,5 +18,6 @@
     },
     "types": ["vite/client"]
   },
-  "include": ["client/**/*.ts", "client/**/*.tsx"]
+  "include": ["client/**/*.ts", "client/**/*.tsx"],
+  "exclude": ["client/**/*.test.ts"]
 }
