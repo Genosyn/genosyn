@@ -36,6 +36,19 @@ export class MailChatMessage {
   @Column({ type: "varchar", nullable: true })
   employeeId!: string | null;
 
+  /**
+   * The AI Model this turn actually ran on, resolved at acceptance time.
+   *
+   * Persisted for the same reason employee chat persists it: reopening the
+   * panel on the employee's *current* active model would silently swap brains
+   * mid-conversation — different context window, different tool habits,
+   * different bill — on a transcript the human reads as one conversation.
+   * Null on human rows, and on assistant rows written before the picker
+   * shipped or answered by an employee with no connected model.
+   */
+  @Column({ type: "varchar", nullable: true })
+  modelId!: string | null;
+
   @Column({ type: "text", default: "" })
   content!: string;
 

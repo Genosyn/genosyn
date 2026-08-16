@@ -4,6 +4,8 @@ import { z } from "zod";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { Company } from "../db/entities/Company.js";
+import { MailChatMessage } from "../db/entities/MailChatMessage.js";
 import {
   EmployeeMailAccountGrant,
   MAIL_ACCESS_LEVELS,
@@ -22,11 +24,7 @@ import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { decryptConnectionConfig } from "../services/integrations.js";
 import { broadcastToCompany } from "../services/realtime.js";
-import {
-  createMailAccount,
-  serializeMailAccount,
-  accessTokenForAccount,
-} from "../services/mail/accounts.js";
+import { createMailAccount, serializeMailAccount } from "../services/mail/accounts.js";
 import { hasGoogleGmailMailboxScope } from "../integrations/providers/google/auth.js";
 import {
   MAX_BULK_THREAD_IDS,
@@ -53,21 +51,28 @@ import {
   createDraftSendBatch,
   getLatestDraftSendBatch,
 } from "../services/mail/draftSendQueue.js";
+import { decodeHtmlEntities } from "../services/mail/gmailClient.js";
 import {
-  decodeHtmlEntities,
-  extractBodies,
-  getAttachment,
-  getMessage,
-} from "../services/mail/gmailClient.js";
+  MailAttachmentError,
+  fetchMailAttachmentBytes,
+  summarizeMailAttachments,
+} from "../services/mail/attachments.js";
 import { stageAttachment } from "../services/mail/outbox.js";
+import {
+  recordAttachment,
+  resolveAttachmentFile,
+  uploadMiddleware,
+} from "../services/uploads.js";
 import {
   createMailHandover,
   handoverGrantError,
   retryMailHandover,
 } from "../services/mail/handovers.js";
 import {
+  assistantAttachments,
   assistantRoster,
   clearAssistantMessages,
+  lastAssistantModelId,
   listAssistantMessages,
   markSuggestionExecuted,
   runAssistantTurn,
@@ -128,23 +133,6 @@ async function loadThread(
   return { thread, account };
 }
 
-type AttachmentMeta = {
-  partId: string;
-  attachmentId: string;
-  filename: string;
-  mimeType: string;
-  size: number;
-};
-
-function parseAttachments(json: string): AttachmentMeta[] {
-  try {
-    const parsed = JSON.parse(json) as AttachmentMeta[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
 function serializeThread(t: MailThread) {
   return {
     id: t.id,
@@ -186,12 +174,7 @@ function serializeMessage(m: MailMessage) {
     createdByEmployeeId: m.createdByEmployeeId,
     createdByRoutineId: m.createdByRoutineId,
     createdByRunId: m.createdByRunId,
-    attachments: parseAttachments(m.attachmentsJson).map((a, index) => ({
-      index,
-      filename: a.filename,
-      mimeType: a.mimeType,
-      size: a.size,
-    })),
+    attachments: summarizeMailAttachments(m.attachmentsJson),
   };
 }
 
@@ -1062,11 +1045,9 @@ mailRouter.delete("/mail/saved-searches/:sid", async (req, res) => {
 // ───────────────────────────── attachments ─────────────────────────────
 
 /**
- * Stream one attachment. Gmail attachment ids drift over time, so the
- * message is re-fetched and its current attachment ids recomputed. We match
- * by the same positional index the stored metadata used (`extractBodies`
- * walks parts in a stable order), which handles single-part attachment
- * messages where Gmail omits `partId` — the stored id is only a fallback.
+ * Stream one attachment. The bytes live in Gmail, not here — see
+ * services/mail/attachments.ts for how a drifting Gmail attachment id is
+ * resolved back to the position the stored metadata recorded.
  */
 mailRouter.get("/mail/messages/:mid/attachments/:index", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
@@ -1077,33 +1058,20 @@ mailRouter.get("/mail/messages/:mid/attachments/:index", async (req, res) => {
   if (!row) return res.status(404).json({ error: "Message not found" });
   const account = await loadAccount(cid, row.accountId);
   if (!account) return res.status(404).json({ error: "Mail account not found" });
-  const metas = parseAttachments(row.attachmentsJson);
   const index = parseInt(String(req.params.index), 10);
-  const meta = Number.isInteger(index) ? metas[index] : undefined;
-  if (!meta) return res.status(404).json({ error: "Attachment not found" });
   try {
-    const token = await accessTokenForAccount(account);
-    const fresh = await getMessage(token, row.gmailMessageId, "full");
-    // Recompute current attachment ids from the fresh payload and match by
-    // index; fall back to the stored id (and by partId) only if the shape
-    // shifted under us.
-    const current = extractBodies(fresh.payload).attachments;
-    const attachmentId =
-      current[index]?.attachmentId ||
-      current.find((a) => a.partId && a.partId === meta.partId)?.attachmentId ||
-      meta.attachmentId;
-    if (!attachmentId) return res.status(404).json({ error: "Attachment not found" });
-    const data = await getAttachment(token, row.gmailMessageId, attachmentId);
-    if (!data.data) return res.status(404).json({ error: "Attachment is empty" });
-    const buf = Buffer.from(data.data, "base64url");
+    const { meta, bytes } = await fetchMailAttachmentBytes(account, row, index);
     res.setHeader("content-type", meta.mimeType || "application/octet-stream");
     res.setHeader("x-content-type-options", "nosniff");
     res.setHeader(
       "content-disposition",
       `attachment; filename="${meta.filename.replace(/["\r\n]/g, "")}"`,
     );
-    res.send(buf);
+    res.send(bytes);
   } catch (err) {
+    if (err instanceof MailAttachmentError) {
+      return res.status(err.status).json({ error: err.message });
+    }
     res.status(400).json({ error: err instanceof Error ? err.message : "Download failed" });
   }
 });
@@ -1451,9 +1419,20 @@ mailRouter.get("/mail/accounts/:aid/assistant", async (req, res) => {
     listAssistantMessages(account, thread.id, parsed.data.limit),
     assistantRoster(cid, account.id),
   ]);
+  const attachments = await assistantAttachments(messages);
+  // The employee the panel is talking to, and the brain their last answered
+  // turn ran on — so reopening the panel resumes on the same model rather
+  // than silently switching to whatever is active now.
+  const lastAnswered = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant" && m.employeeId);
+  const modelId = lastAnswered?.employeeId
+    ? await lastAssistantModelId(account.id, thread.id, lastAnswered.employeeId)
+    : null;
   res.json({
-    messages: messages.map(serializeAssistantMessage),
+    messages: messages.map((m) => serializeAssistantMessage(m, attachments.get(m.id) ?? [])),
     roster,
+    modelId,
   });
 });
 
@@ -1480,6 +1459,90 @@ const assistantSendSchema = z.object({
   threadId: z.string().uuid(),
   focusedMessageId: z.string().uuid().optional(),
   employeeId: z.string().uuid().optional(),
+  /** Files uploaded through the route below, bound to this turn on send. */
+  attachmentIds: z.array(z.string().uuid()).max(10).optional().default([]),
+  /** Employee-owned AI Model for this turn; null inherits the active one. */
+  modelId: z.string().uuid().nullable().optional().default(null),
+});
+
+/**
+ * Upload a file into an email's AI chat.
+ *
+ * Distinct from `outbox-attachments` above, which stages bytes in memory for
+ * an outgoing message. This is a chat upload: it becomes an ordinary
+ * `Attachment` row bound to the human's turn, so the employee sees it in its
+ * prompt with an `attachmentId` it can pass to the PDF tools — the same
+ * contract employee chat and workspace channels use.
+ */
+mailRouter.post(
+  "/mail/accounts/:aid/assistant/attachments",
+  async (req, res, next) => {
+    // The upload middleware writes into the company's attachment directory,
+    // which it resolves from `req.company` — the mail router doesn't set it.
+    const cid = (req.params as Record<string, string>).cid;
+    const company = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
+    if (!company) return res.status(404).json({ error: "Company not found" });
+    (req as unknown as { company: Company }).company = company;
+    next();
+  },
+  uploadMiddleware.single("file"),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const account = await loadAccount(cid, req.params.aid as string);
+    if (!account) return res.status(404).json({ error: "Mail account not found" });
+    const company = (req as unknown as { company: Company }).company;
+    const file = (req as unknown as { file?: Express.Multer.File }).file;
+    if (!file) return res.status(400).json({ error: "No file uploaded" });
+    const row = await recordAttachment({
+      companyId: company.id,
+      companySlug: company.slug,
+      file,
+      uploadedByUserId: req.userId!,
+    });
+    res.status(201).json({
+      attachment: {
+        id: row.id,
+        filename: row.filename,
+        mimeType: row.mimeType,
+        sizeBytes: Number(row.sizeBytes),
+        isImage: row.mimeType.startsWith("image/"),
+      },
+    });
+  },
+);
+
+/**
+ * Download a file from an email's AI chat — either one the teammate uploaded
+ * or one the employee produced. Scoped to attachments actually bound to a
+ * turn of THIS mailbox's chat (plus the requester's own not-yet-sent upload),
+ * so an attachment id from elsewhere in the company can't be read through
+ * this route.
+ */
+mailRouter.get("/mail/accounts/:aid/assistant/attachments/:attachmentId", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const account = await loadAccount(cid, req.params.aid as string);
+  if (!account) return res.status(404).json({ error: "Mail account not found" });
+  const resolved = await resolveAttachmentFile(req.params.attachmentId as string, cid);
+  const missing = { error: "Attachment not found" };
+  if (!resolved) return res.status(404).json(missing);
+  if (resolved.row.messageId) {
+    const owner = await AppDataSource.getRepository(MailChatMessage).findOneBy({
+      id: resolved.row.messageId,
+      accountId: account.id,
+      companyId: cid,
+    });
+    if (!owner) return res.status(404).json(missing);
+  } else if (resolved.row.uploadedByUserId !== req.userId) {
+    return res.status(404).json(missing);
+  }
+  res.setHeader("content-type", resolved.row.mimeType);
+  res.setHeader("x-content-type-options", "nosniff");
+  const disposition = resolved.row.mimeType.startsWith("image/") ? "inline" : "attachment";
+  res.setHeader(
+    "content-disposition",
+    `${disposition}; filename="${encodeURIComponent(resolved.row.filename)}"`,
+  );
+  res.sendFile(resolved.absPath);
 });
 
 /**
@@ -1554,6 +1617,8 @@ mailRouter.post(
         threadId: thread.id,
         focusedMessageId: body.focusedMessageId ?? null,
         employeeId: body.employeeId,
+        attachmentIds: body.attachmentIds,
+        modelId: body.modelId,
         userId: req.userId!,
         requesterSessionVersion: req.session!.sessionVersion!,
         callbacks: {

@@ -66,6 +66,20 @@ const tokens = new Map<string, McpTokenInfo>();
 const stagedAttachments = new Map<string, string[]>();
 
 /**
+ * Every attachment this turn brought into existence — the ones staged for the
+ * reply above, plus files opened out of an email by `read_mail_attachment`,
+ * which are deliberately *not* staged (importing a supplier's form to read it
+ * is not the same as handing it back to the human).
+ *
+ * It exists because the ownership check on the attachment tools asks "may this
+ * Member reach this file?", and a file the employee itself just produced has
+ * no uploader and no message to trace. Without this set an employee could
+ * import a PDF and then be told the attachment does not exist when it tried to
+ * read the form fields one call later.
+ */
+const tokenAttachments = new Map<string, Set<string>>();
+
+/**
  * Per-token staging area for arbitrary structured payloads a tool wants to
  * hand back to whichever surface ran the turn — same lifecycle as
  * `stagedAttachments`, but keyed by a payload kind so unrelated tools don't
@@ -136,6 +150,24 @@ export function stageAttachmentForToken(token: string, attachmentId: string): vo
   const list = stagedAttachments.get(token) ?? [];
   list.push(attachmentId);
   stagedAttachments.set(token, list);
+  noteAttachmentForToken(token, attachmentId);
+}
+
+/**
+ * Record an attachment as this turn's own without offering it to the reply.
+ * Used by `read_mail_attachment`: the file is the employee's to work with,
+ * but the human already has it — it arrived in their inbox.
+ */
+export function noteAttachmentForToken(token: string, attachmentId: string): void {
+  if (!tokens.has(token)) return;
+  const owned = tokenAttachments.get(token) ?? new Set<string>();
+  owned.add(attachmentId);
+  tokenAttachments.set(token, owned);
+}
+
+/** Did this turn create or open the attachment? */
+export function tokenOwnsAttachment(token: string, attachmentId: string): boolean {
+  return tokenAttachments.get(token)?.has(attachmentId) ?? false;
 }
 
 export function drainAttachmentsForToken(token: string): string[] {
@@ -185,6 +217,7 @@ export function resolveMcpToken(token: string): McpTokenInfo | null {
 export function revokeMcpToken(token: string): void {
   tokens.delete(token);
   stagedAttachments.delete(token);
+  tokenAttachments.delete(token);
   stagedSidecars.delete(token);
 }
 
@@ -194,6 +227,7 @@ function sweep(): void {
     if (v.expiresAt < now) {
       tokens.delete(k);
       stagedAttachments.delete(k);
+      tokenAttachments.delete(k);
       stagedSidecars.delete(k);
     }
   }
@@ -201,6 +235,9 @@ function sweep(): void {
   // against any staging that raced a revoke.
   for (const k of stagedAttachments.keys()) {
     if (!tokens.has(k)) stagedAttachments.delete(k);
+  }
+  for (const k of tokenAttachments.keys()) {
+    if (!tokens.has(k)) tokenAttachments.delete(k);
   }
   for (const k of stagedSidecars.keys()) {
     if (!tokens.has(k)) stagedSidecars.delete(k);

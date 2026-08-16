@@ -72,6 +72,7 @@ const MEMBER_TOOLS = [
   "list_mail_accounts",
   "search_mail",
   "get_mail_thread",
+  "read_mail_attachment",
   "create_mail_draft",
   "edit_mail_draft",
   "update_mail_thread",
@@ -279,6 +280,15 @@ const FINANCE_WRITE_TOOLS = [
 ] as const;
 
 const PROJECT_TOOLS = ["list_projects", "list_todos", "create_todo", "update_todo"] as const;
+/**
+ * The open web carries no company data in either direction, so it needs no
+ * Member intersection beyond an authenticated one. The risk these tools do
+ * carry — a hostile page trying to steer the model, or a URL aimed at the
+ * operator's internal network — is answered where it lives: the outbound
+ * guard in `lib/outboundUrl.ts` and the untrusted-content framing on every
+ * result, both of which apply to Routine Runs identically.
+ */
+const WEB_TOOLS = ["search_web", "fetch_web_page", "download_web_file"] as const;
 const ATTACHMENT_TOOLS = ["read_pdf_fields", "fill_pdf_form"] as const;
 /**
  * Workspace chat has its own per-channel participant model. Each handler must
@@ -301,6 +311,7 @@ const entries: Array<readonly [string, MemberToolPolicy]> = [
   ...FINANCE_READ_TOOLS.map((name) => [name, "finance.read"] as const),
   ...FINANCE_WRITE_TOOLS.map((name) => [name, "finance.write"] as const),
   ...PROJECT_TOOLS.map((name) => [name, "project"] as const),
+  ...WEB_TOOLS.map((name) => [name, "member"] as const),
   ...ATTACHMENT_TOOLS.map((name) => [name, "attachment"] as const),
   ...CHANNEL_TOOLS.map((name) => [name, "channel"] as const),
 ];

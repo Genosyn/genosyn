@@ -247,18 +247,38 @@ export type MailSuggestion = {
   executedAt?: string;
 };
 
+/** A file on an email-chat turn — uploaded by the human or produced by the AI. */
+export type MailAssistantAttachment = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  isImage: boolean;
+};
+
 export type MailAssistantMessage = {
   id: string;
   accountId: string;
   threadId: string | null;
   role: "user" | "assistant";
   employeeId: string | null;
+  /** The AI Model the turn ran on; null on human rows. */
+  modelId: string | null;
   content: string;
   /** `working` is an in-flight reply the panel follows until it resolves. */
   status: "working" | "ok" | "skipped" | "error" | null;
   actions: MessageAction[];
   suggestions: MailSuggestion[];
+  attachments: MailAssistantAttachment[];
   createdAt: string;
+};
+
+/** One brain an employee can answer on, for the panel's model picker. */
+export type MailAssistantModel = {
+  id: string;
+  provider: "anthropic" | "openai" | "custom";
+  model: string;
+  isActive: boolean;
 };
 
 export type MailAssistantRosterEntry = {
@@ -269,6 +289,7 @@ export type MailAssistantRosterEntry = {
   avatarKey: string | null;
   accessLevel: MailAccessLevel | null;
   hasModel: boolean;
+  models: MailAssistantModel[];
 };
 
 // ───────────────────────────── drafts review queue ─────────────────────────────
@@ -581,6 +602,8 @@ export const mailApi = {
     api.get<{
       messages: MailAssistantMessage[];
       roster: MailAssistantRosterEntry[];
+      /** The model the last answered turn ran on, when it is still usable. */
+      modelId: string | null;
     }>(`${base(cid)}/accounts/${aid}/assistant?threadId=${encodeURIComponent(threadId)}`),
   assistantSend: (
     cid: string,
@@ -590,10 +613,21 @@ export const mailApi = {
       threadId: string;
       focusedMessageId?: string;
       employeeId?: string;
+      attachmentIds?: string[];
+      modelId?: string | null;
     },
     onEvent: (event: string, data: unknown) => void,
     opts: { signal?: AbortSignal } = {},
   ) => api.stream(`${base(cid)}/accounts/${aid}/assistant/messages`, input, onEvent, opts),
+  /** Upload a file into an email's AI chat; the id travels with the next send. */
+  assistantUpload: (cid: string, aid: string, file: File) =>
+    api
+      .uploadFile<{
+        attachment: MailAssistantAttachment;
+      }>(`${base(cid)}/accounts/${aid}/assistant/attachments`, file)
+      .then((r) => r.attachment),
+  assistantAttachmentUrl: (cid: string, aid: string, attachmentId: string) =>
+    `${base(cid)}/accounts/${aid}/assistant/attachments/${attachmentId}`,
   assistantClear: (cid: string, aid: string, threadId: string) =>
     api.del<{ ok: true }>(
       `${base(cid)}/accounts/${aid}/assistant/messages?threadId=${encodeURIComponent(threadId)}`,

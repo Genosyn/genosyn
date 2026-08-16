@@ -54,6 +54,30 @@ function isExtractableAttachment(mime: string, filename: string): boolean {
   ].includes(ext);
 }
 
+/**
+ * Text out of bytes already in hand. Split out from the on-disk path because
+ * an email attachment is fetched from Gmail into memory and never cached
+ * under `data/` — it needs the same extraction without a file to read.
+ * Returns null for types we can't turn into text (and for a parse failure,
+ * which reads the same to the caller: announce the file, don't inline it).
+ */
+export async function extractAttachmentTextFromBuffer(
+  buf: Buffer,
+  mime: string,
+  filename: string,
+): Promise<string | null> {
+  if (!isExtractableAttachment(mime, filename)) return null;
+  try {
+    const ext = path.extname(filename).toLowerCase();
+    if (mime === "application/pdf" || ext === ".pdf") {
+      return await pdfBufferToText(buf);
+    }
+    return buf.toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
 async function extractAttachmentText(
   absPath: string,
   mime: string,
@@ -62,11 +86,7 @@ async function extractAttachmentText(
   if (!isExtractableAttachment(mime, filename)) return null;
   try {
     const buf = await fs.promises.readFile(absPath);
-    const ext = path.extname(filename).toLowerCase();
-    if (mime === "application/pdf" || ext === ".pdf") {
-      return await pdfBufferToText(buf);
-    }
-    return buf.toString("utf8");
+    return await extractAttachmentTextFromBuffer(buf, mime, filename);
   } catch {
     return null;
   }

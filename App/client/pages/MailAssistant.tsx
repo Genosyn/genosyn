@@ -5,9 +5,12 @@ import {
   Archive,
   ArrowUpRight,
   Bot,
+  Brain,
   Check,
   ExternalLink,
+  FileText,
   Inbox,
+  Paperclip,
   Reply,
   RotateCcw,
   Send,
@@ -22,7 +25,9 @@ import { Company, MessageAction } from "../lib/api";
 import {
   ComposeInput,
   MailAccount,
+  MailAssistantAttachment,
   MailAssistantMessage,
+  MailAssistantModel,
   MailAssistantRosterEntry,
   MailSuggestion,
   mailApi,
@@ -30,6 +35,7 @@ import {
 import { ChatMarkdown } from "../components/ChatMarkdown";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { useDialog } from "../components/ui/Dialog";
+import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { useToast } from "../components/ui/Toast";
@@ -147,8 +153,18 @@ export function MailAssistant({
     name: string;
     slug: string;
   } | null>(null);
+  /** Files chosen for the next message — uploaded already, bound on send. */
+  const [pending, setPending] = React.useState<MailAssistantAttachment[]>([]);
+  const [uploading, setUploading] = React.useState(0);
+  /**
+   * The brain for the next turn. Null means "whatever the employee's active
+   * model is" until the server tells us which one this email's chat has been
+   * running on, or the human picks one.
+   */
+  const [modelId, setModelId] = React.useState<string | null>(null);
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   // In-flight SSE turn — aborted when the mailbox changes or the panel
   // unmounts, so a slow reply can't paint into the wrong conversation.
   const streamAbortRef = React.useRef<AbortController | null>(null);
@@ -175,6 +191,8 @@ export function MailAssistant({
     setStreaming(null);
     setStreamOpen(false);
     setReconnecting(false);
+    setPending([]);
+    setModelId(null);
     mailApi
       .assistant(company.id, account.id, threadId)
       .then((res) => {
@@ -195,6 +213,9 @@ export function MailAssistant({
             setTarget((cur) => cur ?? { id: emp.id, name: emp.name, slug: emp.slug });
           }
         }
+        // Carry on with the brain this email's chat has been using, so
+        // reopening the panel doesn't quietly switch models mid-conversation.
+        setModelId((cur) => cur ?? res.modelId);
       })
       .catch((err) => {
         if (!cancelled) toast((err as Error).message, "error");
@@ -227,6 +248,24 @@ export function MailAssistant({
   );
   const workingId = workingMessage?.id ?? null;
   const turnInFlight = streamOpen || workingId !== null;
+
+  /** The models the employee on this conversation can actually answer on. */
+  const targetModels = React.useMemo(
+    () => (target ? (roster.find((r) => r.id === target.id)?.models ?? []) : []),
+    [target, roster],
+  );
+
+  /**
+   * What the next turn will run on. A model belonging to a *previous* target
+   * is not a valid choice for the employee now on the conversation, so tagging
+   * somebody else falls back to their own active model rather than sending an
+   * id the server would reject.
+   */
+  const selectedModelId = React.useMemo(() => {
+    if (targetModels.length === 0) return null;
+    if (modelId && targetModels.some((m) => m.id === modelId)) return modelId;
+    return targetModels.find((m) => m.isActive)?.id ?? targetModels[0].id;
+  }, [modelId, targetModels]);
 
   // Follow a turn this panel is not streaming: the stream dropped, the panel
   // was reopened mid-reply, or another tab started it. Polling the bootstrap
@@ -275,6 +314,7 @@ export function MailAssistant({
           setMessages([]);
           setTarget(null);
           setDraft("");
+          setPending([]);
           setMentionQuery(null);
           setResourceQuery(null);
           toast("New context started.", "success");
@@ -288,6 +328,10 @@ export function MailAssistant({
       setDraft("");
       setMentionQuery(null);
       setResourceQuery(null);
+      // Hand the files to this turn and clear the tray: a second send must
+      // not re-attach what the first one already carried.
+      const attachments = pending;
+      setPending([]);
       // Optimistic bubble; swapped for the persisted row on the `user` event.
       const temp: MailAssistantMessage = {
         id: `temp-${Date.now()}`,
@@ -295,10 +339,12 @@ export function MailAssistant({
         threadId,
         role: "user",
         employeeId: null,
+        modelId: null,
         content: message,
         status: null,
         actions: [],
         suggestions: [],
+        attachments,
         createdAt: new Date().toISOString(),
       };
       setMessages((prev) => [...(prev ?? []), temp]);
@@ -318,6 +364,8 @@ export function MailAssistant({
             threadId,
             focusedMessageId: focusedMessageId ?? undefined,
             employeeId: target?.id,
+            attachmentIds: attachments.map((a) => a.id),
+            modelId: selectedModelId,
           },
           (event, data) => {
             if (event === "user") {
@@ -377,6 +425,7 @@ export function MailAssistant({
             role: "assistant",
             status: "error",
             content: formatSendFailure((err as Error).message),
+            attachments: [],
           },
         ]);
       } finally {
@@ -392,9 +441,33 @@ export function MailAssistant({
       threadId,
       focusedMessageId,
       target,
+      pending,
+      selectedModelId,
       scrollToBottom,
       toast,
     ],
+  );
+
+  /**
+   * Files are uploaded the moment they're chosen, so the send payload is just
+   * ids and a failed upload is reported while the human is still composing —
+   * not after they hit send.
+   */
+  const addFiles = React.useCallback(
+    async (files: FileList | File[]) => {
+      for (const file of Array.from(files)) {
+        setUploading((n) => n + 1);
+        try {
+          const attachment = await mailApi.assistantUpload(company.id, account.id, file);
+          setPending((prev) => [...prev, attachment]);
+        } catch (err) {
+          toast((err as Error).message, "error");
+        } finally {
+          setUploading((n) => n - 1);
+        }
+      }
+    },
+    [company.id, account.id, toast],
   );
 
   /**
@@ -679,7 +752,48 @@ export function MailAssistant({
             className="absolute bottom-full left-3 right-3 z-10 mb-1"
           />
         )}
+        {pending.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap gap-1.5">
+            {pending.map((a) => (
+              <span
+                key={a.id}
+                className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+              >
+                <FileText size={11} className="shrink-0 text-slate-400" />
+                <span className="max-w-40 truncate">{a.filename}</span>
+                <span className="text-slate-400">{formatBytes(a.sizeBytes)}</span>
+                <button
+                  type="button"
+                  onClick={() => setPending((prev) => prev.filter((p) => p.id !== a.id))}
+                  className="text-slate-400 hover:text-rose-500"
+                  title="Remove"
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 focus-within:border-indigo-400 dark:border-slate-700 dark:bg-slate-900">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0) void addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={turnInFlight}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+            title="Attach a file"
+          >
+            {uploading > 0 ? <Spinner size={12} /> : <Paperclip size={14} />}
+          </button>
           <textarea
             ref={textareaRef}
             value={draft}
@@ -715,13 +829,51 @@ export function MailAssistant({
             <Send size={14} />
           </button>
         </div>
-        <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-          <span className="font-mono">@</span> AI employee · <span className="font-mono">#</span>{" "}
-          resource · <span className="font-mono">/new</span> new context
+        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-slate-400 dark:text-slate-500">
+          <span>
+            <span className="font-mono">@</span> AI employee · <span className="font-mono">#</span>{" "}
+            resource · <span className="font-mono">/new</span> new context
+          </span>
+          {targetModels.length > 1 && (
+            <label className="inline-flex shrink-0 items-center gap-1.5">
+              <Brain size={11} aria-hidden="true" />
+              <span className="sr-only">AI Model for this message</span>
+              <Select
+                aria-label="AI Model for this message"
+                value={selectedModelId ?? ""}
+                onChange={(event) => setModelId(event.target.value)}
+                className="max-w-44 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-600 outline-none transition focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+              >
+                {targetModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {assistantModelLabel(model)}
+                    {model.isActive ? " (active)" : ""}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          )}
         </div>
       </div>
     </div>
   );
+}
+
+function assistantModelLabel(model: MailAssistantModel): string {
+  const provider =
+    model.provider === "openai"
+      ? "OpenAI"
+      : model.provider === "anthropic"
+        ? "Anthropic"
+        : "Custom";
+  return `${provider} · ${model.model}`;
+}
+
+function formatBytes(n: number): string {
+  if (n <= 0) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // ───────────────────────────── empty state ─────────────────────────────
@@ -809,12 +961,18 @@ function MessageRow({
   /** This panel lost the stream and is polling the row instead. */
   reconnecting?: boolean;
 }) {
+  const attachmentUrl = (id: string) =>
+    mailApi.assistantAttachmentUrl(company.id, account.id, id);
+
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-1">
         <div className="max-w-[85%] break-words rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white [&_a]:text-white [&_a]:underline">
           <ChatMarkdown content={message.content} />
         </div>
+        {message.attachments.length > 0 && (
+          <AttachmentChips attachments={message.attachments} urlFor={attachmentUrl} align="end" />
+        )}
       </div>
     );
   }
@@ -882,6 +1040,9 @@ function MessageRow({
             <ChatMarkdown content={message.content} />
           )}
         </div>
+        {message.attachments.length > 0 && (
+          <AttachmentChips attachments={message.attachments} urlFor={attachmentUrl} align="start" />
+        )}
         {canRetry && (
           <button
             onClick={() => onRetry(message)}
@@ -934,6 +1095,45 @@ function WorkingBody({
       {reconnecting
         ? `Reconnecting — ${name} is still working on this, and the reply will appear here.`
         : `${name} is working…`}
+    </div>
+  );
+}
+
+/**
+ * Files on a turn: what the teammate uploaded, and what the employee produced
+ * (a filled form, a generated document). Rendered as download chips rather
+ * than inline previews — the panel is a narrow rail beside the email, and
+ * these are usually documents to keep, not images to look at.
+ */
+function AttachmentChips({
+  attachments,
+  urlFor,
+  align,
+}: {
+  attachments: MailAssistantAttachment[];
+  urlFor: (id: string) => string;
+  align: "start" | "end";
+}) {
+  return (
+    <div
+      className={clsx(
+        "mt-1.5 flex flex-wrap gap-1.5",
+        align === "end" ? "justify-end" : "justify-start",
+      )}
+    >
+      {attachments.map((a) => (
+        <a
+          key={a.id}
+          href={urlFor(a.id)}
+          download={a.filename}
+          title={`Download ${a.filename}`}
+          className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:text-indigo-300"
+        >
+          <FileText size={11} className="shrink-0 text-slate-400" />
+          <span className="max-w-[180px] truncate">{a.filename}</span>
+          <span className="shrink-0 text-slate-400">{formatBytes(a.sizeBytes)}</span>
+        </a>
+      ))}
     </div>
   );
 }

@@ -28,6 +28,48 @@ export function Browser() {
         instead.
       </Callout>
 
+      <H2 id="web-tools">Reading the web without a browser</H2>
+      <P>
+        Most of the time an employee does not need a browser at all — it needs to find a page and
+        read it. Three tools do that for every employee, with no Chromium, no setup, and no toggle:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "search_web",
+            def: "Search the public web and get back titles, URLs and snippets.",
+          },
+          {
+            term: "fetch_web_page",
+            def: "Read one page as plain text. HTML, plain text, JSON and PDF pages are all extracted.",
+          },
+          {
+            term: "download_web_file",
+            def: "Download a file and keep it as a chat attachment — a blank form the employee can then fill in with the PDF tools and attach to an email.",
+          },
+        ]}
+      />
+      <P>
+        That last one is the useful chain: an employee working an email thread can find the current
+        version of a form online, download it, complete it from what your company already knows, and
+        attach the finished file to a Gmail draft. See{" "}
+        <DocLink to="/docs/email#assistant">AI chat on every email</DocLink>.
+      </P>
+      <P>
+        Every request goes through the same outbound guard as the rest of the product: http(s) only,
+        no credentials in the URL, and every redirect re-checked so a link cannot be used to reach
+        loopback, private, or cloud-metadata addresses inside your network. Fetched content is fed to
+        the model as untrusted data, and the employee is told plainly that a web page giving it
+        instructions is a stranger talking, not its teammate. Operators who want this off entirely —
+        or search off while direct fetches stay — set <Code>web.enabled</Code> and{" "}
+        <Code>web.searchProvider</Code> in <Code>config.ts</Code>. Search uses DuckDuckGo&apos;s
+        no-JavaScript endpoint by default, so no API key or account is involved.
+      </P>
+      <P>
+        Everything below is about the heavier capability: a real browser that holds a session,
+        clicks, and fills forms.
+      </P>
+
       <H2 id="enabling">Enabling it</H2>
       <P>
         Browser access is off by default. Open the employee, go to{" "}

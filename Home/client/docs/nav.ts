@@ -93,8 +93,9 @@ export const DOCS_NAV: DocsSection[] = [
       },
       {
         path: "/docs/browser",
-        title: "Browser",
-        blurb: "A persistent headless Chromium per employee — watch live, take over anytime.",
+        title: "Web & Browser",
+        blurb:
+          "Search, read and download from the web — plus a persistent headless Chromium per employee.",
       },
       {
         path: "/docs/member-browsers",

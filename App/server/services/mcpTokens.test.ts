@@ -5,10 +5,12 @@ import {
   drainAttachmentsForToken,
   drainSidecarsForToken,
   issueMcpToken,
+  noteAttachmentForToken,
   resolveMcpToken,
   revokeMcpToken,
   stageAttachmentForToken,
   stageSidecarForToken,
+  tokenOwnsAttachment,
 } from "./mcpTokens.js";
 
 describe("short-lived MCP tokens", () => {
@@ -101,6 +103,46 @@ describe("short-lived MCP tokens", () => {
     assert.deepEqual(drainAttachmentsForToken(token), ["a", "b"]);
     assert.deepEqual(drainAttachmentsForToken(token), []);
     revokeMcpToken(token);
+  });
+
+  test("a staged attachment is also owned by the turn that staged it", () => {
+    const token = issueMcpToken("employee", "company");
+    stageAttachmentForToken(token, "produced");
+    assert.equal(tokenOwnsAttachment(token, "produced"), true);
+    // Draining hands the ids to the caller for binding; the turn can still
+    // work with the file afterwards (e.g. attach the filled form to a draft).
+    drainAttachmentsForToken(token);
+    assert.equal(tokenOwnsAttachment(token, "produced"), true);
+    revokeMcpToken(token);
+  });
+
+  test("a noted attachment is owned without being offered to the reply", () => {
+    // `read_mail_attachment` opens a file the human already has — working
+    // material, not something to hand back as a download.
+    const token = issueMcpToken("employee", "company");
+    noteAttachmentForToken(token, "opened-from-email");
+    assert.equal(tokenOwnsAttachment(token, "opened-from-email"), true);
+    assert.deepEqual(drainAttachmentsForToken(token), []);
+    revokeMcpToken(token);
+  });
+
+  test("ownership does not leak between turns", () => {
+    const mine = issueMcpToken("employee", "company");
+    const theirs = issueMcpToken("employee", "company");
+    noteAttachmentForToken(mine, "my-file");
+    assert.equal(tokenOwnsAttachment(theirs, "my-file"), false);
+    assert.equal(tokenOwnsAttachment(mine, "unknown-file"), false);
+    revokeMcpToken(mine);
+    revokeMcpToken(theirs);
+  });
+
+  test("revocation drops ownership, and a dead token cannot claim more", () => {
+    const token = issueMcpToken("employee", "company");
+    noteAttachmentForToken(token, "a");
+    revokeMcpToken(token);
+    assert.equal(tokenOwnsAttachment(token, "a"), false);
+    noteAttachmentForToken(token, "late");
+    assert.equal(tokenOwnsAttachment(token, "late"), false);
   });
 
   test("groups sidecars by kind while preserving per-kind order", () => {

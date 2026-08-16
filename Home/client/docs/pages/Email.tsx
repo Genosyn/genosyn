@@ -249,6 +249,29 @@ export function Email() {
         handover, rule) are marked done after they run, so a reload can&apos;t re-arm them.
       </P>
       <P>
+        <Strong>Files go both ways.</Strong> An employee can open anything attached to the email
+        itself — a supplier form, a signed order, a statement — without you downloading and
+        re-uploading it. Ask it to fill in a PDF form that arrived on the thread and it reads the
+        form&apos;s fields, completes them from what your company already knows, and hands the
+        finished file back as a download on its reply. It can attach that same file to a Gmail
+        draft, so the reply leaves with the paperwork on it. If the blank form isn&apos;t on the
+        thread at all, the employee can search the web for the current version, check the page, and
+        download it to work on.
+      </P>
+      <P>
+        You can attach files to the chat too — the paperclip in the composer. Text, Markdown, CSV
+        and PDF contents are read directly; anything else is announced by name so the employee knows
+        it arrived. Files in an email&apos;s chat are visible to anyone who can open that mailbox,
+        since the conversation belongs to the email rather than to one person.
+      </P>
+      <P>
+        <Strong>Picking the model.</Strong> When the tagged employee has more than one connected{" "}
+        <DocLink to="/docs/models">AI Model</DocLink>, a selector appears under the composer. It
+        defaults to that employee&apos;s active model, and an email&apos;s chat stays on whichever
+        model answered last — so reopening it days later does not quietly continue on a different
+        brain. Tagging a different employee switches to their models.
+      </P>
+      <P>
         A reply in progress belongs to the server, not to your browser tab. Work that takes a while
         shows as <Strong>working</Strong> beside the email; if the connection drops, the panel says{" "}
         <Strong>reconnecting</Strong> and picks the same reply back up when it lands — closing the

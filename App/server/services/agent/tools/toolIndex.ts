@@ -194,6 +194,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "list_mail_accounts",
       "search_mail",
       "get_mail_thread",
+      "read_mail_attachment",
       "create_mail_draft",
       "edit_mail_draft",
       "update_mail_thread",
@@ -374,6 +375,11 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     blurb: "Send a file to a teammate, and read or fill PDF forms.",
     tools: ["send_chat_attachment", "read_pdf_fields", "fill_pdf_form"],
   },
+  web: {
+    label: "web",
+    blurb: "Search the web, read a page, download a file to work on.",
+    tools: ["search_web", "fetch_web_page", "download_web_file"],
+  },
   code: {
     label: "code",
     blurb: "The git repositories granted to you.",
@@ -446,6 +452,13 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   list_mail_accounts: ["inbox", "mailbox", "gmail", "email account"],
   search_mail: ["inbox", "email", "gmail", "find message", "search inbox"],
   get_mail_thread: ["inbox", "email", "read email", "conversation"],
+  read_mail_attachment: [
+    "attachment",
+    "email attachment",
+    "open the attached file",
+    "the pdf they sent",
+    "form attached to the email",
+  ],
   create_mail_draft: ["email", "compose", "write email", "reply", "draft"],
   edit_mail_draft: ["email", "revise draft", "amend"],
   update_mail_thread: ["archive email", "label", "mark read", "inbox"],
@@ -1008,6 +1021,17 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   send_chat_attachment: ["file", "download", "attach", "send file", "deliver"],
   read_pdf_fields: ["pdf", "form", "fields"],
   fill_pdf_form: ["pdf", "form", "complete form", "fill in"],
+
+  // Web — people ask to "look something up", not to "search the web".
+  search_web: ["google", "look up", "search online", "find online", "internet"],
+  fetch_web_page: ["open url", "read page", "website", "link", "browse"],
+  download_web_file: [
+    "download",
+    "get the form",
+    "blank form",
+    "save the pdf",
+    "find the form online",
+  ],
 
   // Everything else where an obvious synonym is missing.
   create_routine: ["schedule", "recurring", "cron", "every day", "automate"],

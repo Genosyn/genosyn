@@ -64,10 +64,16 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * exact tool names would make autonomous operations undiscoverable. M20's
  * three AI-native Explore tools take the miss-case footer just over 4,000
  * characters. The six granular signing tools add their exact, independently
- * callable names to that same recall backstop; 4,300 still leaves nearly half
- * the 8,000-char result envelope for returned schemas.
+ * callable names to that same recall backstop.
+ *
+ * Raised to 4,400 for the `web` domain (`search_web`, `fetch_web_page`,
+ * `download_web_file`) plus `read_mail_attachment`. These four are the tools
+ * an employee reaches for precisely when it does *not* already know what it
+ * has — "find the current form", "open what they sent" — so a lexical miss
+ * that hid them would be the exact failure this footer exists to prevent.
+ * 4,400 still leaves 45% of the 8,000-char result envelope for schemas.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 4_300;
+const DOMAIN_FOOTER_CHARS_MAX = 4_400;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

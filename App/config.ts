@@ -176,4 +176,31 @@ export const config = {
     // to the last year on a very large account.
     backfillDays: 0,
   },
+
+  // Open-web tools for AI Employees: `search_web`, `fetch_web_page`, and
+  // `download_web_file` (which saves a file — a blank tax form, a price
+  // list — as a chat attachment the PDF and mail tools can then use).
+  //
+  // Every request goes through the same outbound guard as the rest of the
+  // product (`security.outbound*`): http(s) only, no credentials in the URL,
+  // and every hop re-validated against private, loopback and link-local
+  // addresses. Fetched pages are DATA, never instructions — the employee's
+  // system prompt says so, and tool results are labelled as untrusted.
+  web: {
+    // Master switch. false makes all three tools refuse with an explanation
+    // instead of disappearing, so an employee can tell the human why.
+    enabled: true,
+    // Search backend. "duckduckgo" reads DuckDuckGo's no-JavaScript HTML
+    // endpoint and needs no API key or account, which is the only kind of
+    // default a self-hosted install can ship. "disabled" turns search off
+    // and leaves direct fetches and downloads working.
+    searchProvider: "duckduckgo" as "duckduckgo" | "disabled",
+    maxSearchResults: 8,
+    // Bytes a page fetch or download may pull. Below the 25 MB attachment
+    // cap on purpose: a blank form is kilobytes, and anything larger is
+    // usually a mis-clicked link.
+    maxDocumentBytes: 10 * 1024 * 1024,
+    // Characters of extracted page text handed to the model per fetch.
+    maxTextChars: 20_000,
+  },
 } as const;

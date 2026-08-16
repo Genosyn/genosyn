@@ -595,6 +595,58 @@ sends system mail); this is the company's real inbox. Internal namespace is
       human's own authority — so a `draft`-level employee can _propose_ a
       send the human approves with one click — and consuming buttons are
       stamped executed server-side so a reload can't re-arm them.
+- [x] **Files in the per-email chat, both directions.** The panel was
+      text-only, so an employee could see "FIF_2026.pdf" listed on a thread,
+      have no way to open it, and end up asking the human to download and
+      re-upload a file the mailbox already held. Now:
+      `read_mail_attachment` (messageId + the attachment `index` that
+      `get_mail_thread` and the injected thread context both carry) fetches
+      the bytes from Gmail and records them as an ordinary chat `Attachment`,
+      so every tool that speaks `attachmentId` — `read_pdf_fields`,
+      `fill_pdf_form`, `send_chat_attachment`, and the compose tools'
+      `attachments` list — works on an email attachment. Files the employee
+      produces bind to its `MailChatMessage` and render as download chips on
+      the reply; humans can upload into the panel with the same plumbing every
+      other chat surface uses. `create_mail_draft` / `send_mail` /
+      `edit_mail_draft` accept `{attachmentId}` specs, so a filled form goes
+      out on the reply itself. Reach is deliberately narrow: a turn may use
+      what it produced or opened (tracked per MCP token), what the requesting
+      Member uploaded, or what is bound to that mailbox's shared chat —
+      never an arbitrary row in the company's attachment table.
+- [x] **Per-email model selection.** `MailChatMessage.modelId` records the
+      brain each turn ran on, the roster carries each employee's connected
+      models, and the panel offers a picker that defaults to the active model
+      and stays on whichever model last answered — the same "don't swap brains
+      mid-thread" rule employee chat follows. A pick that doesn't belong to the
+      employee now on the conversation falls back to their active model rather
+      than failing the turn.
+
+### M38 — Web tools (search, read, download) ✅
+
+An employee that can only see company data stops at "I need the current blank
+form". Three tools close that, with no browser and no per-employee toggle:
+`search_web`, `fetch_web_page` (HTML / text / JSON / PDF extracted to text),
+and `download_web_file`, which lands the file as a chat attachment so the PDF
+and mail tools can pick it straight up — find the form, fill it, attach it to
+the reply.
+
+- [x] **One network path.** Everything goes through `lib/outboundUrl.ts`:
+      http(s) only, no embedded credentials, every redirect hop re-resolved
+      and refused if it lands on a private, loopback, link-local, or
+      cloud-metadata address. A link from a hostile email cannot turn an
+      employee into a probe of the operator's internal network.
+- [x] **Untrusted by construction.** Every result is labelled as third-party
+      content, and the system prompt says plainly that attachments, pages, and
+      email bodies are data — text inside them addressing the model is the
+      document's author talking, not the teammate.
+- [x] **Operator controls** in `config.ts` (`web.enabled`,
+      `web.searchProvider`, size and text caps). Search defaults to
+      DuckDuckGo's no-JavaScript HTML endpoint — the only backend a
+      self-hosted install can ship with no account and no API key. The parser
+      is isolated and covered against captured markup so an upstream change
+      surfaces as a failing test rather than silently empty results.
+- [ ] A keyed search backend (Brave, Google CSE) for operators who get rate
+      limited — the provider seam is in place; only the adapter is missing.
 
 ### M6 — AI Models (employee-owned) ✅
 
