@@ -333,10 +333,16 @@ export type IntegrationRuntimeContext = {
    * read back off `employeeId` here. Contexts with no employee (pipelines,
    * approval replay) leave it undefined, and providers must treat that as
    * "no shared session available" rather than reaching for a default.
+   *
+   * `domains` scopes both directions to the site the provider actually owns
+   * (e.g. `["x.com", "twitter.com"]`). It is not a convenience: the jar
+   * holds every site the employee browses, a provider persists what it
+   * reads onto a Connection row other employees may hold, and a provider
+   * writing back must not clear logins it knows nothing about.
    */
   sharedBrowserState?: {
-    load(): Promise<unknown | undefined>;
-    save(state: unknown): Promise<void>;
+    load(domains: string[]): Promise<unknown | undefined>;
+    save(state: unknown, domains: string[]): Promise<void>;
   };
 };
 

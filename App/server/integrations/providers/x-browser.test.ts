@@ -52,6 +52,11 @@ class FakePlaywright {
   scripts: PageScript[] = [];
   /** Records the storageState each context was created with. */
   restored: unknown[] = [];
+  /** What every context reports back from `storageState()`. */
+  storageStateOut: unknown = {
+    cookies: [{ name: "auth_token", domain: ".x.com", path: "/", value: "fresh" }],
+    origins: [],
+  };
 
   constructor(scripts: PageScript[]) {
     this.scripts = [...scripts];
@@ -76,7 +81,7 @@ class FakePlaywright {
           options,
           initScripts: [],
           closed: false,
-          storageStateOut: { cookies: [{ name: "auth_token", value: "fresh" }], origins: [] },
+          storageStateOut: this.storageStateOut,
         };
         record.contexts.push(ctx);
         return this.makeContext(ctx, script);
@@ -177,6 +182,9 @@ type SharedJar = {
   state: unknown;
   loads: number;
   saves: unknown[];
+  /** Domain scopes the driver asked the host to clip to. */
+  loadDomains: string[][];
+  saveDomains: string[][];
 };
 
 function makeCtx(opts: { shared?: SharedJar; config: Record<string, unknown> }): {
@@ -196,12 +204,14 @@ function makeCtx(opts: { shared?: SharedJar; config: Record<string, unknown> }):
   if (opts.shared) {
     const jar = opts.shared;
     ctx.sharedBrowserState = {
-      async load() {
+      async load(domains) {
         jar.loads += 1;
+        jar.loadDomains.push(domains);
         return jar.state;
       },
-      async save(state) {
+      async save(state, domains) {
         jar.saves.push(state);
+        jar.saveDomains.push(domains);
         jar.state = state;
       },
     };
@@ -308,7 +318,7 @@ describe("runWithXBrowser — where the session comes from", () => {
     t.after(restorePlaywright);
     const fake = new FakePlaywright([{ loggedIn: true }]);
     installFakePlaywright(fake);
-    const jar: SharedJar = { state: SIGNED_IN_STATE, loads: 0, saves: [] };
+    const jar: SharedJar = { state: SIGNED_IN_STATE, loads: 0, saves: [], loadDomains: [], saveDomains: [] };
     const connectionState = { cookies: [{ name: "auth_token", value: "own" }], origins: [] };
     const config = { ...CREDENTIALS, storageStateJson: JSON.stringify(connectionState) };
     const { ctx, persisted } = makeCtx({ config, shared: jar });
@@ -334,7 +344,7 @@ describe("runWithXBrowser — where the session comes from", () => {
       { loggedIn: true }, // the human's session works
     ]);
     installFakePlaywright(fake);
-    const jar: SharedJar = { state: SIGNED_IN_STATE, loads: 0, saves: [] };
+    const jar: SharedJar = { state: SIGNED_IN_STATE, loads: 0, saves: [], loadDomains: [], saveDomains: [] };
     const connectionState = { cookies: [{ name: "auth_token", value: "stale" }], origins: [] };
     const config = { ...CREDENTIALS, storageStateJson: JSON.stringify(connectionState) };
     const { ctx, persisted } = makeCtx({ config, shared: jar });
@@ -351,11 +361,51 @@ describe("runWithXBrowser — where the session comes from", () => {
     assert.equal(jar.saves.length, 0);
   });
 
+  /**
+   * The jar holds every site the employee browses, and what this driver
+   * persists lands on a Connection row other employees may hold a Grant on.
+   * Both directions have to be clipped to X.
+   */
+  test("only X's cookies cross between the connection and the employee's jar", async (t) => {
+    t.after(restorePlaywright);
+    const fake = new FakePlaywright([{ loggedIn: true }]);
+    // The live context ends up holding cookies for several sites, the way a
+    // real shared jar would.
+    fake.storageStateOut = {
+      cookies: [
+        { name: "auth_token", domain: ".x.com", path: "/", value: "x" },
+        { name: "SID", domain: ".google.com", path: "/", value: "g" },
+      ],
+      origins: [
+        { origin: "https://x.com", localStorage: [] },
+        { origin: "https://mail.google.com", localStorage: [] },
+      ],
+    };
+    installFakePlaywright(fake);
+    const jar: SharedJar = { state: undefined, loads: 0, saves: [], loadDomains: [], saveDomains: [] };
+    const config = { ...CREDENTIALS };
+    const { ctx, persisted } = makeCtx({ config, shared: jar });
+
+    await runDriver({ fake, ctx, config });
+
+    // Nothing but X reaches the Connection row.
+    const stored = JSON.parse(String(persisted().storageStateJson)) as {
+      cookies: Array<{ name: string }>;
+      origins: Array<{ origin: string }>;
+    };
+    assert.deepEqual(stored.cookies.map((c) => c.name), ["auth_token"]);
+    assert.deepEqual(stored.origins.map((o) => o.origin), ["https://x.com"]);
+
+    // And the driver asks the host to scope both directions for it.
+    assert.deepEqual(jar.saveDomains[0], ["x.com", "twitter.com"]);
+    assert.deepEqual(jar.loadDomains[0], ["x.com", "twitter.com"]);
+  });
+
   test("a login the driver managed itself is pushed back to the shared jar", async (t) => {
     t.after(restorePlaywright);
     const fake = new FakePlaywright([{ loggedIn: true }]);
     installFakePlaywright(fake);
-    const jar: SharedJar = { state: undefined, loads: 0, saves: [] };
+    const jar: SharedJar = { state: undefined, loads: 0, saves: [], loadDomains: [], saveDomains: [] };
     const config = { ...CREDENTIALS };
     const { ctx } = makeCtx({ config, shared: jar });
 
@@ -363,7 +413,7 @@ describe("runWithXBrowser — where the session comes from", () => {
 
     assert.equal(jar.saves.length, 1, "the employee should not have to sign in again separately");
     assert.deepEqual(jar.saves[0], {
-      cookies: [{ name: "auth_token", value: "fresh" }],
+      cookies: [{ name: "auth_token", domain: ".x.com", path: "/", value: "fresh" }],
       origins: [],
     });
   });

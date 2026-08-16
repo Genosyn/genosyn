@@ -49,6 +49,7 @@ import {
   loadChromiumLauncher,
   type ChromiumLauncher,
 } from "../../services/browserProfile.js";
+import { asStorageState, filterStorageState } from "../../services/browserStorage.js";
 import {
   isCoolingDown,
   readSessionHealth,
@@ -89,6 +90,16 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const POST_TIMEOUT_MS = 60_000;
 const X_LOGIN_URL = "https://x.com/i/flow/login";
 const X_HOME_URL = "https://x.com/home";
+
+/**
+ * The only domains this connection has any business holding cookies for.
+ * Everything read from or written to the employee's shared jar is clipped
+ * to these, and so is what we persist on the Connection row — a Connection
+ * other employees may hold a Grant on must not end up carrying somebody's
+ * unrelated logins. `twitter.com` is still live for redirects and some
+ * auth hops.
+ */
+const X_COOKIE_DOMAINS = ["x.com", "twitter.com"];
 
 type RunOpts<T> = {
   cfg: XBrowserConfig;
@@ -280,8 +291,10 @@ export async function runWithXBrowser<T>(opts: RunOpts<T>): Promise<T> {
     }
 
     // Persist fresh cookies for the next call, and clear the health record —
-    // whatever was blocking us isn't any more.
-    const fresh = await context.storageState();
+    // whatever was blocking us isn't any more. Clipped to X's own domains:
+    // the context may have been seeded from the employee's shared jar, and
+    // this blob lands on a Connection row other employees can hold.
+    const fresh = scopeToX(await context.storageState());
     const next: XBrowserConfig = {
       ...opts.cfg,
       storageStateJson: JSON.stringify(fresh),
@@ -319,6 +332,16 @@ export async function runWithXBrowser<T>(opts: RunOpts<T>): Promise<T> {
   }
 }
 
+/**
+ * Clip a Playwright storage state to X's own cookies and origins. Anything
+ * we cannot parse as a storage state passes through untouched rather than
+ * being silently emptied — losing the session would be the worse failure.
+ */
+function scopeToX(state: unknown): unknown {
+  const parsed = asStorageState(state);
+  return parsed ? filterStorageState(parsed, X_COOKIE_DOMAINS) : state;
+}
+
 /** One context factory so the disguise and the init script can't drift
  * between the first attempt and the shared-session retry. */
 async function newXContext(
@@ -341,7 +364,7 @@ async function loadSharedState(
 ): Promise<Record<string, unknown> | null> {
   if (!ctx.sharedBrowserState) return null;
   try {
-    const state = await ctx.sharedBrowserState.load();
+    const state = await ctx.sharedBrowserState.load(X_COOKIE_DOMAINS);
     if (state && typeof state === "object") return state as Record<string, unknown>;
   } catch {
     // The shared jar is an optimization, never a gate — a read failure just
@@ -353,7 +376,7 @@ async function loadSharedState(
 async function saveSharedState(ctx: IntegrationRuntimeContext, state: unknown): Promise<void> {
   if (!ctx.sharedBrowserState) return;
   try {
-    await ctx.sharedBrowserState.save(state);
+    await ctx.sharedBrowserState.save(state, X_COOKIE_DOMAINS);
   } catch {
     // Same — best effort.
   }

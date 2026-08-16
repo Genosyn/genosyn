@@ -17,7 +17,13 @@ import {
   type IntegrationConfig,
   type IntegrationRuntimeContext,
 } from "../integrations/types.js";
-import { loadStorageState, saveStorageState } from "./browserStorage.js";
+import {
+  asStorageState,
+  filterStorageState,
+  loadStorageState,
+  mergeStorageState,
+  saveStorageState,
+} from "./browserStorage.js";
 import { refreshTelegramListener } from "./telegramListener.js";
 import { createAdSpendApproval, createPaymentApproval } from "./approvals.js";
 import { makeResourceAttachmentResolver } from "./resourceAttachments.js";
@@ -221,24 +227,35 @@ export async function withConnectionCredentialMutation<T>(
  * Hand a provider read/write access to one employee's shared browser
  * storage state without telling it whose it is or where it lives. The
  * identity is closed over here; the provider only ever sees `load()` /
- * `save()`.
+ * `save()`, and only for the domains it names.
+ *
+ * The scoping is the load-bearing part. The jar holds every site the
+ * employee browses, so an unscoped read would copy their Gmail cookies into
+ * a Connection row that other employees hold Grants on, and an unscoped
+ * write would replace the whole jar with the one site the provider happened
+ * to visit — silently signing the employee out of everything else.
  *
  * `saveStorageState` wants a live Playwright context, but the only thing it
- * asks of one is `storageState()` — so a provider that already holds a
- * plain state object can hand it over through the same door.
+ * asks of one is `storageState()` — so a merged plain object can go through
+ * the same door.
  */
 function makeSharedBrowserState(args: {
   companyId: string;
   employeeId: string;
 }): NonNullable<IntegrationRuntimeContext["sharedBrowserState"]> {
   return {
-    async load() {
-      return loadStorageState(args.companyId, args.employeeId);
+    async load(domains: string[]) {
+      const state = await loadStorageState(args.companyId, args.employeeId);
+      if (!state) return undefined;
+      return filterStorageState(state, domains);
     },
-    async save(state: unknown) {
-      if (!state || typeof state !== "object") return;
+    async save(state: unknown, domains: string[]) {
+      const incoming = asStorageState(state);
+      if (!incoming) return;
+      const existing = await loadStorageState(args.companyId, args.employeeId);
+      const merged = mergeStorageState(existing, incoming, domains);
       await saveStorageState(args.companyId, args.employeeId, {
-        storageState: async () => state,
+        storageState: async () => merged,
       });
     },
   };
