@@ -60,10 +60,19 @@ const CONTEXT_TRANSCRIPT_CHARS_CAP = 16_000;
 const BUSY_RETRY_DELAY_MS = 10_000;
 const BUSY_MAX_WAIT_MS = 5 * 60_000;
 
+/**
+ * The busy-retry sleep. Deliberately ref'd, unlike the heartbeats and sweep
+ * timers elsewhere in the server: this timer is the sole continuation of a
+ * turn that is already in flight, with an assistant row sitting at `working`
+ * waiting on it. Unref'd, the event loop can drain mid-wait and the promise
+ * then never settles — the row is stranded until the recovery sweep finds it,
+ * and under `node:test` the file dies with "Promise resolution is still
+ * pending but the event loop has already resolved". Holding the loop open for
+ * at most one retry delay is the cheaper side of that trade.
+ */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
+    setTimeout(resolve, ms);
   });
 }
 
