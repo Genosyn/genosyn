@@ -81,6 +81,8 @@ import { systemHealthRouter } from "./routes/systemHealth.js";
 import { pushRouter } from "./routes/push.js";
 import { browserSessionsRouter } from "./routes/browserSessions.js";
 import { browserRpcRouter } from "./routes/browserRpc.js";
+import { memberBrowserBridgeRouter } from "./routes/memberBrowserBridge.js";
+import { memberBrowsersRouter } from "./routes/memberBrowsers.js";
 import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
 import { tagsRouter } from "./routes/tags.js";
 import { backfillLegacyResourceTags, backfillTagColors } from "./services/tags.js";
@@ -246,6 +248,15 @@ async function main() {
   // tokens. Everything below also rejects cross-origin browser mutations.
   app.use(requireTrustedOrigin);
 
+  // The bridge agent's own surface: redeem a pairing code, download the agent.
+  // It is session-less and bearer-shaped like the two internal routers above,
+  // but it is mounted *below* `requireTrustedOrigin` on purpose. The agent is
+  // a Node process and sends no `Origin`, so it passes that gate untouched,
+  // while a web page cannot POST `/pair` cross-origin. Being below
+  // `rejectAiBrowserAppRequests` matters more: without it an AI-driven browser
+  // holding a Member session could pair a browser for itself.
+  app.use("/api/internal/member-browsers", memberBrowserBridgeRouter);
+
   // SSO sign-in (status probe, IdP redirect, callback). Mounted before the
   // main auth router so its more-specific `/api/auth/sso/*` paths win; the
   // callback authenticates via the single-use state token, then writes the
@@ -316,6 +327,10 @@ async function main() {
   // Live browser-view sessions — the iframe-able viewer + WS plumbing for
   // the headless Chromium the AI employee drives. See `services/browserSessions.ts`.
   app.use("/api/companies/:cid/employees/:eid/browser-sessions", browserSessionsRouter);
+
+  // Browsers Members connect from their own computers. Owner-scoped, never
+  // role-scoped — see routes/memberBrowsers.ts.
+  app.use("/api/companies/:cid/member-browsers", memberBrowsersRouter);
 
   // Integrations + Connections. Company-scoped because connections belong
   // to the company and are granted out to employees.

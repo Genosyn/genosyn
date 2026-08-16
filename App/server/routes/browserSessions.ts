@@ -5,6 +5,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { AppDataSource } from "../db/datasource.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
+import { MemberBrowser } from "../db/entities/MemberBrowser.js";
 import {
   requireAuth,
   requireBrowserSession,
@@ -37,7 +38,21 @@ browserSessionsRouter.use((req, res, next) => {
   next();
 });
 
-function serializeSession(row: BrowserSession) {
+/**
+ * Names for the member browsers referenced by these rows, so the panel can say
+ * *which* computer the work is happening on rather than just that it is
+ * elsewhere. One query for the whole page.
+ */
+async function memberBrowserNames(rows: BrowserSession[]): Promise<Map<string, string>> {
+  const ids = [...new Set(rows.map((r) => r.memberBrowserId).filter((id): id is string => !!id))];
+  if (ids.length === 0) return new Map();
+  const browsers = await AppDataSource.getRepository(MemberBrowser).findBy(
+    ids.map((id) => ({ id })),
+  );
+  return new Map(browsers.map((b) => [b.id, b.name]));
+}
+
+function serializeSession(row: BrowserSession, names?: Map<string, string>) {
   const snap = getSessionSnapshot(row.id);
   return {
     id: row.id,
@@ -52,6 +67,8 @@ function serializeSession(row: BrowserSession) {
     viewportHeight: row.viewportHeight,
     viewerCount: snap?.viewerCount ?? 0,
     hasMcp: snap?.hasMcp ?? false,
+    memberBrowserId: row.memberBrowserId,
+    memberBrowserName: row.memberBrowserId ? (names?.get(row.memberBrowserId) ?? null) : null,
     startedAt: row.startedAt,
     closedAt: row.closedAt,
     createdAt: row.createdAt,
@@ -81,7 +98,8 @@ browserSessionsRouter.get("/", async (req: ScopedReq, res) => {
     qb.andWhere("s.status IN (:...statuses)", { statuses: statusFilter });
   }
   const rows = await qb.getMany();
-  res.json(rows.map(serializeSession));
+  const names = await memberBrowserNames(rows);
+  res.json(rows.map((row) => serializeSession(row, names)));
 });
 
 browserSessionsRouter.get("/:id", async (req: ScopedReq, res) => {
@@ -92,7 +110,7 @@ browserSessionsRouter.get("/:id", async (req: ScopedReq, res) => {
     employeeId: req.params.eid,
   });
   if (!row) return res.status(404).json({ error: "Not found" });
-  res.json(serializeSession(row));
+  res.json(serializeSession(row, await memberBrowserNames([row])));
 });
 
 // ---------- ws-token mint ----------

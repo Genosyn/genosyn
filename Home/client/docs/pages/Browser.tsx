@@ -38,6 +38,14 @@ export function Browser() {
         <DocLink to="/docs/routines">Routine</DocLink> can override the toggle per schedule — useful
         for an employee who may browse during a nightly research run but not in ad-hoc chat.
       </P>
+      <P>
+        The browser an employee drives does not have to be the one inside the container. A Member
+        can connect a Chrome running on their own computer and point a conversation at it, so the
+        employee works from that machine and its signed-in sites, with the same tools and the same
+        live view. It is a dedicated Chrome profile rather than their everyday browser, and it comes
+        with a stricter policy of its own — see{" "}
+        <DocLink to="/docs/member-browsers">Member browsers</DocLink>.
+      </P>
 
       <H2 id="tools">The tools</H2>
       <P>

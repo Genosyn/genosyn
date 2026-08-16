@@ -88,6 +88,7 @@ code, UI copy, commits, and docs.
 | **Run** (one execution of a Routine) | Execution, Invocation |
 | **Integration** (a connector type: Stripe, Gmail, …; static in code) | Provider, Plugin, Service (in product copy) |
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
+| **Member browser** (a Chrome a human connected from their own computer — `MemberBrowser`) | Connection, Browser Connection, Device |
 | **Grant** (an AI employee's access to a resource — a Connection, Note, Chart, Repo, …) | Permission, Attachment, Binding |
 | **Project member** (a human Member *or* an AI Employee authorized on a Project — `ProjectMember`) | Grant, Permission, Collaborator |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
@@ -100,6 +101,14 @@ code, UI copy, commits, and docs.
 
 **"Tasks" is reserved** for the task-manager feature (Projects + Todos), which
 has shipped. Do not use "Task" for scheduled AI work, ever.
+
+**"Connection" stays reserved** for one authenticated account inside an
+Integration. A Chrome someone connects from their own machine is a **Member
+browser** (`MemberBrowser`, granted to employees through
+`EmployeeMemberBrowserGrant` like every other resource) — never a "Connection",
+not least because `IntegrationAuthMode` already has a `"browser"` mode meaning
+"a Connection whose credentials the headless browser replays". Two unrelated
+meanings on one word is what this table exists to prevent.
 
 **"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
 pipeline is a flat, ordered list of **Deal Stages** — there is no container
@@ -232,7 +241,14 @@ working tree or injected into model coding tools.
       `server/services/agent/tools/` and ROADMAP M30;
     * the built-in **browser** tools — a stdio MCP child at
       `server/mcp-browser/` that the agent connects to as an MCP client — when
-      `AIEmployee.browserEnabled` is true;
+      `AIEmployee.browserEnabled` is true. The same tools drive a **Member
+      browser** when the conversation or Routine selects one: the Chrome then
+      runs on a human's computer, reached through the zero-dependency bridge
+      agent in `server/browser-bridge/` (served to Members from the App, paired
+      with a one-time code) which launches a dedicated Chrome profile and
+      relays CDP back over an outbound WebSocket. Nothing from that browser —
+      cookies, storage state, downloads — is written under `config.dataDir`;
+
     * any company-configured **MCP servers** (stdio/HTTP), which the agent
       connects to as an MCP client. User-configured stdio servers are omitted
       in disabled and bubblewrap modes; HTTP servers remain available. Host is

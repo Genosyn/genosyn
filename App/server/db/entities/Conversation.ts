@@ -78,6 +78,18 @@ export class Conversation {
   @Column({ type: "varchar", nullable: true })
   connectionId!: string | null;
 
+  /**
+   * The {@link MemberBrowser} this thread's browser work runs in, or NULL for
+   * the App-owned headless Chromium. Set by the human from the chat header;
+   * there is deliberately no model-facing tool for it, because choosing whose
+   * signed-in browser to drive is a delegation of authority, not a step.
+   *
+   * Only the thread's `ownerUserId` may point it at a browser, and only at one
+   * they own.
+   */
+  @Column({ type: "varchar", nullable: true })
+  memberBrowserId!: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

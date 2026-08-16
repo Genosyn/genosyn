@@ -15,6 +15,14 @@ export async function browserAccessEnabledForSession(
   employee: AIEmployee,
 ): Promise<boolean> {
   if (config.security.multiTenant && !config.agent.browserEnabledInMultiTenant) return false;
+  // A session bound to someone's own computer answers to that browser's
+  // policy as well as the employee's, re-read on every call. Revoking a grant
+  // has to stop the Run that is already using it, not merely the next one.
+  if (session.memberBrowserId) {
+    const { memberBrowserUsableForSession } = await import("./memberBrowsers.js");
+    const verdict = await memberBrowserUsableForSession(session, employee);
+    if (!verdict.ok) return false;
+  }
   if (!session.runId) return employee.browserEnabled;
   const run = await AppDataSource.getRepository(Run).findOneBy({ id: session.runId });
   if (!run) return false;

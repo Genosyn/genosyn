@@ -23,6 +23,7 @@ import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
 import { cancelPendingRetry } from "../services/runRecovery.js";
 import { recordAudit } from "../services/audit.js";
+import { getOwnedMemberBrowser } from "../services/memberBrowsers.js";
 import { revokeDisabledBrowserSessionsForEmployee } from "../services/browserAccess.js";
 import {
   deleteTagAssignments,
@@ -271,6 +272,7 @@ const patchSchema = z.object({
   // Three-valued: null inherits the employee's `browserEnabled`; explicit
   // boolean overrides for this routine only.
   browserEnabledOverride: z.boolean().nullable().optional(),
+  memberBrowserId: z.string().uuid().nullable().optional(),
   // Reliability. Defaults catch up once after downtime and disable ordinary
   // failure/timeout retries. A future initial scheduled Run on an enabled,
   // ungated routine marked interrupted is the safety exception: one durable
@@ -330,6 +332,23 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
   }
   if (body.browserEnabledOverride !== undefined) {
     r.browserEnabledOverride = body.browserEnabledOverride;
+  }
+  if (body.memberBrowserId !== undefined) {
+    // The requester must own the browser and have opted it into unattended
+    // use. Checked here rather than only at spawn time so the person editing
+    // the routine finds out now, not at 3am when the run fails.
+    if (body.memberBrowserId !== null) {
+      const browser = await getOwnedMemberBrowser(found.co.id, req.userId!, body.memberBrowserId);
+      if (!browser) {
+        return res.status(404).json({ error: "That browser is not one of yours" });
+      }
+      if (!browser.allowUnattended) {
+        return res.status(400).json({
+          error: `"${browser.name}" is not available to scheduled Routines. Turn on unattended use for it first.`,
+        });
+      }
+    }
+    r.memberBrowserId = body.memberBrowserId;
   }
   if (body.catchUpPolicy !== undefined) r.catchUpPolicy = body.catchUpPolicy;
   if (body.maxAttempts !== undefined) r.maxAttempts = body.maxAttempts;

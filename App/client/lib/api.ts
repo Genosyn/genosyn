@@ -337,6 +337,12 @@ export type Routine = {
    */
   browserEnabledOverride?: boolean | null;
   /**
+   * Run this routine's browser work in a Member browser instead of the one
+   * inside Genosyn. Only browsers whose owner allowed unattended use are
+   * offered, since a routine fires with nobody watching.
+   */
+  memberBrowserId?: string | null;
+  /**
    * What to do about slots missed while the server was unavailable.
    *   * `"once"` (default) — one catch-up run however many were missed.
    *   * `"skip"` — decline a catch-up that is already more than a minute late.
@@ -560,6 +566,11 @@ export type ConversationSummary = {
    * back to the employee's active model.
    */
   lastModelId: string | null;
+  /**
+   * The Member browser this thread's browser work runs in, or null for the
+   * one inside Genosyn. Chosen by the thread's owner from the chat header.
+   */
+  memberBrowserId?: string | null;
   /** Upgrade-only direct thread that an owner/admin may explicitly claim. */
   legacyUnclaimed?: boolean;
 };
@@ -889,6 +900,42 @@ export type ConnectionGrantWithEmployee = {
     role: string;
     avatarKey: string | null;
   };
+};
+
+/**
+ * A Chrome a Member has connected from their own computer. `status` is derived
+ * from the live bridge socket, not the stored row, so a browser whose laptop
+ * went to sleep reads `offline` immediately rather than after a sweep.
+ *
+ * `pairingCode` is only ever present on the create/re-pair responses — the
+ * server keeps a hash and can never show it again.
+ */
+export type MemberBrowser = {
+  id: string;
+  name: string;
+  status: "pending" | "online" | "offline";
+  /** Has the bridge agent ever redeemed a pairing code for this browser? */
+  paired: boolean;
+  /** A session is driving it right now; a second one would be refused. */
+  busy: boolean;
+  tokenPrefix: string | null;
+  /** Newline-separated host globs. Empty means this browser opens nothing. */
+  allowedHosts: string | null;
+  approvalRequired: boolean;
+  allowUnattended: boolean;
+  browserVersion: string | null;
+  platform: string | null;
+  agentVersion: string | null;
+  lastSeenAt: string | null;
+  createdAt: string;
+  pairingCode?: string;
+};
+
+export type MemberBrowserGrantee = {
+  employeeId: string;
+  name: string;
+  slug: string;
+  role: string;
 };
 
 export type Secret = {

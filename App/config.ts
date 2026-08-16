@@ -88,6 +88,17 @@ export const config = {
     // off in multi-tenant mode until a separately isolated browser worker is
     // configured; startup validation enforces this boundary.
     browserEnabledInMultiTenant: false,
+    // Member browsers: a human connects a Chrome running on their own
+    // computer, and a granted AI Employee drives that instead of the
+    // container's headless Chromium. The bridge agent on their machine
+    // launches a dedicated Chrome profile and relays CDP back over an
+    // outbound WebSocket, so the App reaches a machine it could never dial.
+    //
+    // Forced off in multi-tenant mode by startup validation, and for a
+    // stronger reason than the shared-container one above: a tenant would be
+    // leaving a bearer-authenticated channel into a personal laptop standing
+    // against shared infrastructure. Self-hosters can turn it off here too.
+    memberBrowsersEnabled: true,
     // Total top-level chats + Routine runs allowed at once in one company.
     // Routines may overlap each other and chat; chats serialize per employee.
     maxConcurrentRunsPerCompany: 4,

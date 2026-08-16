@@ -40,6 +40,7 @@ import { ChatMarkdown } from "../components/ChatMarkdown";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { BrowserLivePanel } from "../components/BrowserLivePanel";
+import { ChatBrowserTarget } from "../components/ChatBrowserTarget";
 import {
   ChatResourceReference,
   insertResourceReference,
@@ -369,6 +370,17 @@ export default function EmployeeChat() {
           empRole={emp.role}
           convTitle={activeConv?.title ?? null}
           onNew={handleNewClick}
+          browserTarget={
+            activeConvId && !activeConv?.legacyUnclaimed ? (
+              <ChatBrowserTarget
+                companyId={company.id}
+                employeeId={emp.id}
+                conversationId={activeConvId}
+                browserEnabled={Boolean(emp.browserEnabled)}
+                initialValue={activeConv?.memberBrowserId ?? null}
+              />
+            ) : null
+          }
         />
 
         {activeConv?.legacyUnclaimed && (
@@ -691,11 +703,13 @@ function ChatHeader({
   empRole,
   convTitle,
   onNew,
+  browserTarget,
 }: {
   empName: string;
   empRole: string;
   convTitle: string | null;
   onNew: () => void;
+  browserTarget?: React.ReactNode;
 }) {
   return (
     <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-6">
@@ -713,6 +727,7 @@ function ChatHeader({
           {convTitle ?? "New conversation"}
         </div>
       </div>
+      {browserTarget}
       <button
         onClick={onNew}
         className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 md:hidden dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"

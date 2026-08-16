@@ -34,6 +34,13 @@ import {
 // flips browserEnabled on.
 
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+/**
+ * Member browsers get a longer leash. Tearing one down frees nothing on the
+ * App side — Chromium is running on someone else's laptop — while it does cost
+ * the human their page state and the model a reconnect. The watchdog is only
+ * here so a forgotten session eventually lets go of the single-driver lease.
+ */
+const REMOTE_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 // The "look like desktop Chrome" profile lives in `browserProfile.ts` and is
 // shared with the browser-login Integration drivers, which face the same
@@ -71,9 +78,27 @@ type SessionRuntime = {
   /** Last URL/title actually mirrored, to skip redundant writes. */
   lastNavUrl: string;
   lastNavTitle: string;
+  /**
+   * The {@link MemberBrowser} this runtime drives, when it is not the
+   * container's own Chromium. Everything that differs — no storage state, no
+   * masquerade, opener-scoped tab adoption, a disconnect instead of a
+   * teardown — keys off this being non-null.
+   */
+  memberBrowserId: string | null;
+  /**
+   * Pages this runtime opened itself. On a CDP-attached browser Playwright
+   * auto-attaches to every target, so "is this page ours?" cannot be inferred
+   * from the context — it has to be remembered.
+   */
+  ownedPages: WeakSet<object>;
 };
 
 const runtimes = new Map<string, SessionRuntime>();
+
+/** True when this session drives a Member's own machine, not the container. */
+export function runtimeIsRemote(sessionId: string): boolean {
+  return Boolean(runtimes.get(sessionId)?.memberBrowserId);
+}
 
 /**
  * Launch (or reuse) Chromium for this session and return a ready-to-use
@@ -96,6 +121,7 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
     } finally {
       existing.selfCreating = false;
     }
+    existing.ownedPages.add(existing.page as object);
     const oldCdp = existing.cdp;
     existing.cdp = await attachCdp(existing.page);
     wirePage(existing, existing.page);
@@ -113,6 +139,9 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
   const sessionRow = await AppDataSource.getRepository(BrowserSession).findOneBy({ id: sessionId });
   if (!sessionRow) {
     throw new Error(`browser session ${sessionId} not found in DB`);
+  }
+  if (sessionRow.memberBrowserId) {
+    return acquireRemotePage(sessionRow);
   }
   const storageState = await loadStorageState(sessionRow.companyId, sessionRow.employeeId);
 
@@ -170,7 +199,10 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
     navTimer: null,
     lastNavUrl: "",
     lastNavTitle: "",
+    memberBrowserId: null,
+    ownedPages: new WeakSet<object>(),
   };
+  runtime.ownedPages.add(page as object);
   runtimes.set(sessionId, runtime);
   resetIdleTimer(runtime);
   wirePage(runtime, page);
@@ -195,6 +227,163 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
   });
 
   return page;
+}
+
+/**
+ * Attach to the Chrome running on a Member's own computer, through the bridge
+ * relay, and open one tab in it.
+ *
+ * Almost everything the local path does is wrong here, and each omission is
+ * load-bearing rather than stylistic:
+ *
+ *  * **No `newContext`.** `connectOverCDP` hands back a *persistent* context
+ *    whose options Playwright fixes at `{noDefaultViewport: true}`. Viewport,
+ *    UA, locale, `serviceWorkers: "block"` and `storageState` are all
+ *    unreachable — not ignored by us, unavailable. The service-worker block in
+ *    particular is gone, so a response served from a worker's Cache API never
+ *    passes through the request marker below.
+ *  * **No storage state, in either direction.** `context.storageState()` works
+ *    fine on a remote context, which is exactly the danger: it would copy the
+ *    human's cookie jar into the App's data directory. Their sessions stay on
+ *    their machine.
+ *  * **No masquerade init script.** It is real Google Chrome, so there is
+ *    nothing to fake — and `addInitScript` is context-wide, so it would
+ *    redefine `navigator` internals in every tab of that browser.
+ *  * **Real viewport, not ours.** The window is whatever size the human's
+ *    screen made it. We read that and tell the session, rather than forcing
+ *    1280×800 with `setViewportSize` — which desyncs the page from the window
+ *    and makes `page.screenshot()` hang whenever the tab is in the background.
+ */
+async function acquireRemotePage(sessionRow: BrowserSession): Promise<unknown> {
+  const sessionId = sessionRow.id;
+  const memberBrowserId = sessionRow.memberBrowserId!;
+  const { acquireMemberBrowserLease, isMemberBrowserOnline } = await import(
+    "./memberBrowserHub.js"
+  );
+  const { mintCdpEndpoint } = await import("./memberBrowserRelay.js");
+  const { describeMemberBrowserUnavailable } = await import("./memberBrowserErrors.js");
+
+  if (!isMemberBrowserOnline(memberBrowserId)) {
+    throw new Error(await describeMemberBrowserUnavailable(memberBrowserId, "offline"));
+  }
+  const lease = acquireMemberBrowserLease(memberBrowserId, sessionId);
+  if (!lease.ok) {
+    throw new Error(await describeMemberBrowserUnavailable(memberBrowserId, lease.reason));
+  }
+
+  const endpoint = await mintCdpEndpoint({ browserId: memberBrowserId, sessionId });
+  const chromium = await loadChromiumLauncher(
+    "Member browsers require playwright-core in the App container.",
+  );
+  if (!chromium.connectOverCDP) {
+    throw new Error("This Playwright build cannot attach to an existing browser.");
+  }
+  const browser = await chromium.connectOverCDP(endpoint);
+  const contexts = (browser as { contexts: () => unknown[] }).contexts();
+  const context = contexts[0];
+  if (!context) {
+    await (browser as { close: () => Promise<void> }).close().catch(() => {});
+    throw new Error(await describeMemberBrowserUnavailable(memberBrowserId, "no-context"));
+  }
+
+  // Same marker as the local path, and it does reach the wire over CDP. Here
+  // it only covers the Genosyn-profile browser the agent launched, which is
+  // the entire point of the agent owning that browser instead of attaching to
+  // the human's everyday one.
+  await (
+    context as {
+      route: (
+        url: string,
+        handler: (route: {
+          request: () => { allHeaders: () => Promise<Record<string, string>> };
+          continue: (options: { headers: Record<string, string> }) => Promise<void>;
+        }) => Promise<void>,
+      ) => Promise<void>;
+    }
+  ).route("**/*", async (route) => {
+    const headers = await route.request().allHeaders();
+    await route.continue({ headers: markAiBrowserSessionRequestHeaders(headers) });
+  });
+
+  const page = await (context as { newPage: () => Promise<unknown> }).newPage();
+  const cdp = await attachCdp(page);
+
+  const runtime: SessionRuntime = {
+    id: sessionId,
+    companyId: sessionRow.companyId,
+    employeeId: sessionRow.employeeId,
+    browser,
+    context,
+    page,
+    cdp,
+    idleTimer: null,
+    activeHolders: 0,
+    notices: [],
+    selfCreating: false,
+    pendingAdoption: null,
+    navTimer: null,
+    lastNavUrl: "",
+    lastNavTitle: "",
+    memberBrowserId,
+    ownedPages: new WeakSet<object>(),
+  };
+  runtime.ownedPages.add(page as object);
+  runtimes.set(sessionId, runtime);
+  resetIdleTimer(runtime);
+  wirePage(runtime, page);
+
+  // Only follow tabs *we* opened. On a CDP-attached browser Playwright
+  // auto-attaches to every target, so without the opener check a tab the human
+  // opened in that window would become the page the model snapshots, screenshots
+  // and streams to the live viewer.
+  (context as { on: (ev: string, cb: (p: unknown) => void) => void }).on("page", (newPage) => {
+    const r = runtimes.get(sessionId);
+    if (!r) return;
+    const prev = r.pendingAdoption ?? Promise.resolve();
+    r.pendingAdoption = prev
+      .then(async () => {
+        const opener = await (newPage as { opener: () => Promise<unknown> })
+          .opener()
+          .catch(() => null);
+        if (!opener || !r.ownedPages.has(opener as object)) return;
+        r.ownedPages.add(newPage as object);
+        await adoptPage(sessionId, newPage);
+      })
+      .catch(() => {
+        // best-effort — worst case the agent stays on the old tab
+      })
+      .finally(() => {
+        const cur = runtimes.get(sessionId);
+        if (cur && cur.pendingAdoption === r.pendingAdoption) cur.pendingAdoption = null;
+      });
+  });
+
+  await syncRemoteViewport(runtime).catch(() => {
+    // The session keeps the default size; the viewer self-corrects from the
+    // first screencast frame's metadata.
+  });
+
+  return page;
+}
+
+/**
+ * Read the real window size out of the remote browser and tell the session
+ * about it, so the screencast is captured at native resolution and the
+ * viewer's take-over clicks land where the human aimed them.
+ */
+async function syncRemoteViewport(runtime: SessionRuntime): Promise<void> {
+  const cdp = runtime.cdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null;
+  if (!cdp) return;
+  const metrics = (await cdp.send("Page.getLayoutMetrics")) as {
+    cssLayoutViewport?: { clientWidth?: number; clientHeight?: number };
+    layoutViewport?: { clientWidth?: number; clientHeight?: number };
+  };
+  const viewport = metrics.cssLayoutViewport ?? metrics.layoutViewport;
+  const width = Math.round(viewport?.clientWidth ?? 0);
+  const height = Math.round(viewport?.clientHeight ?? 0);
+  if (width < 320 || height < 240) return;
+  const { setSessionViewport } = await import("./browserSessions.js");
+  await setSessionViewport(runtime.id, width, height);
 }
 
 /**
@@ -364,15 +553,30 @@ async function mirrorNav(r: SessionRuntime): Promise<void> {
   if (url === r.lastNavUrl && title === r.lastNavTitle) return;
   r.lastNavUrl = url;
   r.lastNavTitle = title;
+  // On a Member's own machine the mirror keeps the origin only. The full URL
+  // is written to the App database and broadcast to every attached viewer, and
+  // on plenty of sites the path carries a token or a document the human would
+  // not expect to leave their laptop.
+  const mirroredUrl = r.memberBrowserId ? originOnly(url) : url;
   await AppDataSource.getRepository(BrowserSession).update(
     { id: r.id },
-    { pageUrl: url, pageTitle: title || null },
+    { pageUrl: mirroredUrl, pageTitle: title || null },
   );
   // The fanout hub picks up nav events via the screencast loop's snapshot,
   // but pushing one explicitly keeps the viewer URL-bar in sync between
   // frames.
   const { broadcastNav } = await import("./browserSessions.js");
-  broadcastNav(r.id, url, title || null);
+  broadcastNav(r.id, mirroredUrl, title || null);
+}
+
+function originOnly(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+    return url.origin;
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -446,7 +650,11 @@ export async function releasePage(
   // next session for this employee picks up where we left off. Skip on
   // `error` — a context that crashed mid-flight may have a corrupted
   // storage state we don't want to overwrite the last good snapshot with.
-  if (reason !== "error") {
+  //
+  // Never for a member browser. `context.storageState()` succeeds there, which
+  // is precisely why the guard is a branch and not a comment: it would write
+  // the human's own cookie jar into the App's data directory.
+  if (reason !== "error" && !r.memberBrowserId) {
     await saveStorageState(r.companyId, r.employeeId, r.context);
   }
   try {
@@ -455,17 +663,30 @@ export async function releasePage(
   } catch {
     // ignore
   }
-  try {
-    const cx = r.context as { close: () => Promise<void> } | null;
-    if (cx) await cx.close();
-  } catch {
-    // ignore
+  if (!r.memberBrowserId) {
+    // Only for a context we created. On a CDP-attached persistent context
+    // `context.close()` has no browserContextId to close, so Playwright closes
+    // the whole transport instead — which would sever any other session
+    // attached to the same machine.
+    try {
+      const cx = r.context as { close: () => Promise<void> } | null;
+      if (cx) await cx.close();
+    } catch {
+      // ignore
+    }
   }
   try {
+    // For a member browser this closes our CDP socket and nothing else: the
+    // human's Chrome keeps running, because Playwright's teardown for a
+    // connected browser is `transport.closeAndWait()`.
     const br = r.browser as { close: () => Promise<void> } | null;
     if (br) await br.close();
   } catch {
     // ignore
+  }
+  if (r.memberBrowserId) {
+    const { releaseMemberBrowserLease } = await import("./memberBrowserHub.js");
+    releaseMemberBrowserLease(r.memberBrowserId, sessionId);
   }
   await closeBrowserSession(sessionId, reason);
 }
@@ -473,9 +694,12 @@ export async function releasePage(
 function resetIdleTimer(r: SessionRuntime): void {
   if (r.idleTimer) clearTimeout(r.idleTimer);
   if (r.activeHolders > 0) return;
-  r.idleTimer = setTimeout(() => {
-    void releasePage(r.id, "idle");
-  }, IDLE_TIMEOUT_MS);
+  r.idleTimer = setTimeout(
+    () => {
+      void releasePage(r.id, "idle");
+    },
+    r.memberBrowserId ? REMOTE_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS,
+  );
 }
 
 /** Mark this session as recently active, deferring the idle teardown. */

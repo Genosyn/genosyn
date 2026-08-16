@@ -140,6 +140,7 @@ genosyn/
 │   │   ├── services/             # cron, runner, chat, repoSync, oauth, …
 │   │   ├── integrations/providers/  # Stripe, Gmail, GitHub, Lightning, …
 │   │   ├── mcp-browser/          # Isolated browser MCP child for self-hosting
+│   │   ├── browser-bridge/       # Zero-dep agent a Member runs to connect their Chrome
 │   │   └── middleware/           # session, auth guard, error, zod validate
 │   ├── client/                   # React + Vite + Tailwind SPA
 │   │   └── pages/                # 40+ pages
@@ -2066,6 +2067,28 @@ of the original V1 backlog has shipped — what remains is mostly
         flips into "Take over" mode. Solves captcha / 2FA without an
         external service. The async `browser_submit` Approval flow
         stays as the fallback for unattended routines.
+  - [x] **Member browsers.** A Member connects a Chrome running on their
+        own computer and a granted employee drives that instead of the
+        container's Chromium. A zero-dependency Node bridge
+        (`server/browser-bridge/agent.mjs`, served from the App and paired
+        with a one-time code) launches a **dedicated** Chrome profile —
+        Chrome 136+ refuses `--remote-debugging-port` on the default
+        user-data-dir, and attaching to the human's everyday browser would
+        expose their tabs, cookies, and dialogs — then dials out over one
+        WebSocket relaying raw CDP. The App mints a loopback-only
+        single-use `ws://` endpoint for `chromium.connectOverCDP()`, so all
+        16 `browser_*` tools work unchanged. `MemberBrowser` +
+        `EmployeeMemberBrowserGrant` rows; grant and policy re-checked on
+        every RPC, so revocation stops an in-flight Run. The browser's own
+        allow list is mandatory (empty = opens nothing, unlike the employee
+        list) and re-enforced on the laptop alongside a CDP deny list;
+        approvals default on and union with the employee setting;
+        unattended Routine use is opt-in; only the owner may select, watch,
+        or take over; one driver at a time; `browser_save_vault_login` is
+        refused there. Offline / busy / mid-action failures tell the model
+        to stop rather than silently fall back to the server browser.
+        Forced off in shared SaaS by startup validation. Docs at
+        `/docs/member-browsers`.
   - [x] **Browser-login Connections rejoin the same browser.** The
         `authMode: "browser"` Integration drivers (X today) ran a second,
         private Chromium that no human could see or take over, kept its own

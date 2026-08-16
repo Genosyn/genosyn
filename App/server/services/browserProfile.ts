@@ -51,9 +51,15 @@ export const BROWSER_VIEWPORT_HEIGHT = 800;
 export const CHROMIUM_EXECUTABLE_PATH =
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined;
 
-/** The one bit of Playwright the launch path actually needs. */
+/** The bits of Playwright the launch paths actually need. */
 export type ChromiumLauncher = {
   launch(options: Record<string, unknown>): Promise<unknown>;
+  /**
+   * Attach to a Chrome we did not start. Optional so an injected test double
+   * only has to implement the half it exercises — the member-browser path is
+   * the only caller.
+   */
+  connectOverCDP?(endpointURL: string, options?: Record<string, unknown>): Promise<unknown>;
 };
 
 let chromiumLauncherForTests: ChromiumLauncher | null = null;

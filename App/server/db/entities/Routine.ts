@@ -117,6 +117,18 @@ export class Routine {
   browserEnabledOverride!: boolean | null;
 
   /**
+   * Run this routine's browser work in a {@link MemberBrowser} instead of the
+   * App-owned headless Chromium. NULL (default) uses the server browser.
+   *
+   * A routine fires on cron with nobody watching, so this is gated twice: the
+   * browser's owner must have set `allowUnattended`, and the grant to this
+   * employee must still exist when the Run starts. A sleeping laptop makes the
+   * Run fail loudly rather than quietly re-target the server browser.
+   */
+  @Column({ type: "varchar", nullable: true })
+  memberBrowserId!: string | null;
+
+  /**
    * What to do when the server was unavailable across one or more of this
    * routine's scheduled slots.
    *

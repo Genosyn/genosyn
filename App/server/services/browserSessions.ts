@@ -172,6 +172,8 @@ export async function createBrowserSession(args: {
   employeeId: string;
   conversationId: string | null;
   runId: string | null;
+  /** The Member's browser to drive, or null for the App's own Chromium. */
+  memberBrowserId?: string | null;
   viewportWidth?: number;
   viewportHeight?: number;
 }): Promise<BrowserSession> {
@@ -189,7 +191,11 @@ export async function createBrowserSession(args: {
       .andWhere("s.status IN (:...statuses)", { statuses: ["pending", "live"] })
       .orderBy("s.createdAt", "DESC")
       .getOne();
-    if (existing && existing.mcpTokenExpiresAt.getTime() > Date.now()) {
+    // A session is only reusable if it drives the same browser. Someone who
+    // switched the thread from Genosyn's browser to their own mid-conversation
+    // must get a new session, not keep driving the old one.
+    const sameTarget = (existing?.memberBrowserId ?? null) === (args.memberBrowserId ?? null);
+    if (existing && sameTarget && existing.mcpTokenExpiresAt.getTime() > Date.now()) {
       // Re-register the token → session mapping: after an App restart the
       // in-memory map is empty, and without this line every tool call in a
       // resumed conversation 401s until the token's 7h TTL lapses.
@@ -203,6 +209,7 @@ export async function createBrowserSession(args: {
     employeeId: args.employeeId,
     conversationId: args.conversationId,
     runId: args.runId,
+    memberBrowserId: args.memberBrowserId ?? null,
     mcpToken: newToken(),
     mcpTokenExpiresAt: new Date(Date.now() + MCP_TOKEN_TTL_MS),
     status: "pending",
@@ -659,6 +666,42 @@ function ensureState(sessionId: string): SessionState {
     sessions.set(sessionId, state);
   }
   return state;
+}
+
+/**
+ * Adopt the real size of a browser we do not own.
+ *
+ * The App picks 1280×800 for its own Chromium and every downstream consumer
+ * assumes it. A Member's browser is whatever size their screen made it, and
+ * getting this wrong is not cosmetic: the screencast would be captured with
+ * the wrong `maxWidth`/`maxHeight` caps (so the frame is downscaled and the
+ * text is permanently soft), and the viewer scales take-over clicks by
+ * `viewportWidth / rect.width` — with a stale width, a click near the right
+ * edge lands hundreds of pixels away from where the human aimed it.
+ *
+ * The viewer does self-correct from the first frame's metadata, but frames
+ * only arrive on repaint, so an idle page never sends one.
+ */
+export async function setSessionViewport(
+  sessionId: string,
+  width: number,
+  height: number,
+): Promise<void> {
+  const state = ensureState(sessionId);
+  if (state.viewportWidth === width && state.viewportHeight === height) return;
+  state.viewportWidth = width;
+  state.viewportHeight = height;
+  await AppDataSource.getRepository(BrowserSession).update(
+    { id: sessionId },
+    { viewportWidth: width, viewportHeight: height },
+  );
+  broadcastToViewers(state, { type: "viewport.set", width, height });
+  // Re-cap an in-flight cast at the true size rather than waiting for the
+  // next page swap to do it.
+  if (state.screencasting) {
+    stopScreencast(state);
+    startScreencast(state);
+  }
 }
 
 function broadcastToViewers(state: SessionState, msg: LiveMessage): void {
