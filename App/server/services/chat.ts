@@ -20,7 +20,7 @@ import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { composeTaggedChatReferenceContext } from "./chatReferences.js";
 import { runEmployeeAgent } from "./agent/runEmployee.js";
-import type { AgentMessage, AgentProgress } from "./agent/types.js";
+import type { AgentMessage, AgentProgress, ContextUsage } from "./agent/types.js";
 import { config } from "../../config.js";
 import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
@@ -124,6 +124,13 @@ type ChatBaseOptions = {
    * Omit it on chat surfaces that cannot display ephemeral progress.
    */
   onProgress?: (progress: AgentProgress) => void;
+  /**
+   * Receives how full the model's context window is after every model turn.
+   * Unlike `onProgress` this is not a control the employee can reach — it is
+   * measured from the provider's own token counts, so the employee cannot
+   * flatter it. Omit it on surfaces with nowhere to render a gauge.
+   */
+  onContextUsage?: (usage: ContextUsage) => void;
   /** `help` adds the shipped Genosyn source snapshot and support briefing. */
   surface?: "chat" | "help";
   /**
@@ -534,6 +541,7 @@ export async function streamChatWithEmployee(
             }
           },
           onProgress: options.onProgress,
+          onContextUsage: options.onContextUsage,
         },
       });
       const attachmentIds = drainAttachmentsForToken(mcpToken);

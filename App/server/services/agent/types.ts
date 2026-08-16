@@ -12,6 +12,10 @@
  * client converts to/from its own wire format.
  */
 
+import type { ContextUsage } from "./contextUsage.js";
+
+export type { ContextUsage } from "./contextUsage.js";
+
 /** The three brains an employee can run on now that harnesses are gone. */
 export type AgentProvider = "anthropic" | "openai" | "custom";
 
@@ -93,6 +97,18 @@ export type StreamCallbacks = {
   onToolResult?: (name: string, result: ToolResult) => void;
   /** Fired once per turn with what the provider says the turn cost. */
   onUsage?: (usage: TurnUsage) => void;
+  /**
+   * Fired once per turn with how full the model's context window now is —
+   * {@link onUsage}'s prompt count divided by `AIModel.contextWindow`.
+   *
+   * Separate from {@link onUsage} rather than derived at each consumer because
+   * the two have different audiences: `onUsage` is a cost line for the Run
+   * transcript, this is a human-facing gauge. Keeping it its own callback also
+   * lets the delegation seam forward one and withhold the other — a delegated
+   * worker runs its own short conversation, so its prompt size says nothing
+   * about how full the Member's chat is.
+   */
+  onContextUsage?: (usage: ContextUsage) => void;
   /**
    * Fired when the loop dropped older tool results to keep the prompt inside
    * the model's context window. Worth surfacing: it's the difference between a

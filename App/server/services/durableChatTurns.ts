@@ -9,13 +9,14 @@ import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage, type MessageAction } from "../db/entities/ConversationMessage.js";
 import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
-import type { AgentProgress } from "./agent/types.js";
+import type { AgentProgress, ContextUsage } from "./agent/types.js";
 import {
   CHAT_HARD_TIMEOUT_MS,
   type ChatResult,
   type ChatTurn,
   streamChatWithEmployee,
 } from "./chat.js";
+import { createChatTurnContextUsageRecorder } from "./chatTurnContextUsage.js";
 import { createChatTurnProgressRecorder } from "./chatTurnProgress.js";
 import { historicalAttachmentSummaries, inlineAttachmentsForMessage } from "./attachmentText.js";
 import { captureTurnActionsForAuthority } from "./turnActions.js";
@@ -32,6 +33,7 @@ const MAX_RECOVERIES_PER_SWEEP = 10;
 export type DurableChatTurnCallbacks = {
   onChunk?: (chunk: string) => void;
   onProgress?: (progress: AgentProgress) => void;
+  onContextUsage?: (usage: ContextUsage) => void;
   onFinal?: (result: {
     message: ConversationMessage;
     attachments: Attachment[];
@@ -253,6 +255,20 @@ export async function executeDurableChatTurn(
       );
     },
   });
+  const contextUsageRecorder = createChatTurnContextUsageRecorder({
+    repository: messageRepo,
+    messageId: claimedMessage.id,
+    workerId,
+    onContextUsage: callbacks.onContextUsage,
+    onPersistenceError: (error) => {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[chat] context usage save failed conversation=${claimedMessage.conversationId} ` +
+          `message=${claimedMessage.id}`,
+        error,
+      );
+    },
+  });
 
   try {
     const context = await loadTurnContext(claimedMessage, workerId);
@@ -324,6 +340,7 @@ export async function executeDurableChatTurn(
           surface: context.conversation.source === "help" ? "help" : "chat",
           ...requesterAuthority,
           onProgress: progressRecorder.report,
+          onContextUsage: contextUsageRecorder.report,
           workloadKey: claimedMessage.id,
           throwOnWorkloadUnavailable: true,
           timeoutMs: remainingMs,
@@ -333,7 +350,7 @@ export async function executeDurableChatTurn(
     } catch (error) {
       if (lostClaim) return "claimed_elsewhere";
       if (error instanceof WorkloadLimitError || error instanceof EmployeeWorkloadBusyError) {
-        await progressRecorder.flush();
+        await Promise.all([progressRecorder.flush(), contextUsageRecorder.flush()]);
         const label = "Waiting for AI workload capacity";
         const deferred = await messageRepo.update(
           {
@@ -363,7 +380,7 @@ export async function executeDurableChatTurn(
       throw error;
     }
 
-    await progressRecorder.flush();
+    await Promise.all([progressRecorder.flush(), contextUsageRecorder.flush()]);
     if (lostClaim) return "claimed_elsewhere";
     await renewClaim();
     if (lostClaim) return "claimed_elsewhere";
@@ -390,6 +407,7 @@ export async function executeDurableChatTurn(
           context.employee.companyId,
         )
       : [];
+    const finalContextUsage = contextUsageRecorder.latest();
     const finalized = await messageRepo.update(
       {
         id: claimedMessage.id,
@@ -401,6 +419,20 @@ export async function executeDurableChatTurn(
         status: result.status,
         progressPercent: null,
         progressLabel: null,
+        // Unlike progress, the context gauge is not cleared on completion — it
+        // describes the turn that just ran and is exactly what a Member wants
+        // to read once the reply lands. Restated here rather than left to the
+        // recorder's own writes because this conditional UPDATE is the last one
+        // that can win: after it commits, `status` is no longer `working` and
+        // every later recorder write is a no-op. Omitted entirely when this
+        // attempt saw no provider count, so a recovery that dies before its
+        // first model response cannot erase the previous attempt's reading.
+        ...(finalContextUsage
+          ? {
+              contextTokens: finalContextUsage.promptTokens,
+              contextWindow: finalContextUsage.contextWindow,
+            }
+          : {}),
         actionsJson: actions.length > 0 ? JSON.stringify(actions) : "",
         turnWorkerId: null,
         turnLeaseExpiresAt: null,

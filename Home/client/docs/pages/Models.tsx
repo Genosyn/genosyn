@@ -235,12 +235,22 @@ export function Models() {
         <Code>--max-model-len</Code> or llama.cpp&apos;s <Code>-c</Code>. A number you set by hand
         always wins over the probe, and <Strong>Clear</Strong> hands the field back to it.
       </P>
+      <P>
+        Genosyn also <Strong>re-asks every three hours</Strong>, because the answer changes:
+        relaunch vLLM with a different <Code>--max-model-len</Code>, point the same model id at new
+        weights, or wait for a hosted provider to raise a published limit, and the card catches up
+        on its own. A failed check keeps the number it already had rather than blanking it, and a
+        window you set by hand is never touched — so the recheck can only ever improve what Genosyn
+        budgets against. <Strong>Ask the provider</Strong> is the shortcut when you just changed
+        something and don&apos;t want to wait for the next pass.
+      </P>
       <Callout kind="warn" title="Unknown is worth fixing.">
         With no window there is nothing to budget against, so a run can only discover it has overrun
         when the provider rejects a turn. Genosyn recovers — it drops history and retries once
         rather than failing the run — but it wastes a round-trip and loses more history than it
         needed to. Small self-hosted models feel this first: a 64k window can be half spent on the
-        system prompt before any work begins.
+        system prompt before any work begins. It also costs you the percentage readout under the
+        chat composer — see <DocLink to="/docs/employees">AI Employees</DocLink>.
       </Callout>
 
       <H2 id="built-in-tools">Built-in agent tools</H2>
@@ -330,10 +340,17 @@ export function Models() {
       </P>
       <P>
         When at least two models are connected, the dedicated employee Chat composer shows an{" "}
-        <Strong>AI Model</Strong> picker. It starts on the active model, but you can choose a
-        different brain for the next message without changing the employee&apos;s active model or
-        any Routine. Follow-ups remember the model selected when each message entered the queue,
-        including while a durable turn recovers after a disconnect or server restart.
+        <Strong>AI Model</Strong> picker. You can choose a different brain for the next message
+        without changing the employee&apos;s active model or any Routine. Follow-ups remember the
+        model selected when each message entered the queue, including while a durable turn recovers
+        after a disconnect or server restart.
+      </P>
+      <P>
+        <Strong>Each conversation keeps its own model.</Strong> Reopening a past thread puts the
+        picker back on the model that thread last answered on, not on whatever is active now — so a
+        long conversation carries on with the same brain, context window, and billing you started
+        it with. A brand-new thread starts on the active model, and so does a thread whose model has
+        since been deleted or disconnected.
       </P>
 
       <H3 id="model-errors">When a chat or Run reports a model error</H3>

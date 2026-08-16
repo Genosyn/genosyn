@@ -116,6 +116,7 @@ import {
 } from "../services/baseRecordUploads.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
 import { getProvider } from "../integrations/index.js";
+import { buildIntegrationToolListing } from "../services/integrationToolListing.js";
 import {
   archiveChannel,
   createChannel,
@@ -9290,50 +9291,8 @@ mcpInternalRouter.post(
  *     (e.g. `stripe_us_list_customers`, `stripe_eu_list_customers`)
  */
 mcpInternalRouter.post("/integrations/_list", async (req: McpRequest, res) => {
-  const emp = req.mcpEmployee!;
-  const items = await loadEmployeeConnections(emp);
-
-  // Group by provider so we know when to disambiguate by connection.
-  const byProvider = new Map<string, typeof items>();
-  for (const it of items) {
-    const arr = byProvider.get(it.connection.provider) ?? [];
-    arr.push(it);
-    byProvider.set(it.connection.provider, arr);
-  }
-
-  const out: Array<{
-    name: string;
-    description: string;
-    inputSchema: unknown;
-    connectionId: string;
-    providerToolName: string;
-  }> = [];
-
-  for (const [providerId, group] of byProvider) {
-    const provider = getProvider(providerId);
-    if (!provider) continue;
-    const disambiguate = group.length > 1;
-    for (const { connection } of group) {
-      const connSlug = toolNameSegment(connection.label || connection.id);
-      const prefix = disambiguate ? `${providerId}_${connSlug}` : providerId;
-      for (const tool of provider.tools) {
-        const name = `${prefix}_${tool.name}`;
-        out.push({
-          name,
-          description: integrationToolDescription(
-            provider.catalog.name,
-            connection.label,
-            tool.description,
-          ),
-          inputSchema: tool.inputSchema,
-          connectionId: connection.id,
-          providerToolName: tool.name,
-        });
-      }
-    }
-  }
-
-  res.json({ tools: out });
+  const items = await loadEmployeeConnections(req.mcpEmployee!);
+  res.json({ tools: buildIntegrationToolListing(items.map(({ connection }) => connection)) });
 });
 
 const invokeToolSchema = z
@@ -9440,22 +9399,6 @@ function previewForAudit(value: unknown, capBytes = 20_000): string {
  * digits, underscores only. We lowercase, replace non-alphanum with `_`,
  * collapse repeats, and trim.
  */
-function toolNameSegment(label: string): string {
-  const cleaned = label
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return cleaned || "conn";
-}
-
-function integrationToolDescription(
-  providerName: string,
-  connectionLabel: string,
-  inner: string,
-): string {
-  return `[${providerName} · ${connectionLabel}] ${inner}`;
-}
-
 // ─────────────────── Workspace channels (AI-admin) ──────────────────────
 
 /**

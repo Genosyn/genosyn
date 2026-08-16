@@ -12,6 +12,7 @@ import {
   CircleSlash,
   Clock,
   Download,
+  Gauge,
   MessageSquarePlus,
   Paperclip,
   Plug,
@@ -26,11 +27,14 @@ import {
   api,
   AIModel,
   ChatAttachment,
+  ChatContextUsage,
   ConversationMessage,
   ConversationSummary,
   MessageAction,
 } from "../lib/api";
+import { describeContextUsage } from "../lib/chatContextUsage";
 import { type EmployeeSession, QueuedChatMessage, useEmployeeSession } from "../lib/chatSessions";
+import { type ComposerModelOverride, resolveComposerModelId } from "../lib/composerModel";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { ChatMarkdown } from "../components/ChatMarkdown";
 import { useToast } from "../components/ui/Toast";
@@ -67,6 +71,7 @@ export default function EmployeeChat() {
     messages,
     streamingReply,
     progress,
+    contextUsage,
     connectionState,
     sendingConvId,
     sending,
@@ -84,7 +89,13 @@ export default function EmployeeChat() {
    * send / when switching conversations. */
   const [pendingAttachments, setPendingAttachments] = React.useState<ChatAttachment[]>([]);
   const [chatModels, setChatModels] = React.useState<AIModel[]>([]);
-  const [selectedModelId, setSelectedModelId] = React.useState<string | null>(null);
+  /**
+   * Model the human picked by hand, scoped to the thread they picked it on.
+   * Switching threads drops it so the new thread's own model takes over again,
+   * and a thread created lazily by the first send inherits its persisted choice
+   * rather than an override keyed to the not-yet-existing conversation.
+   */
+  const [modelOverride, setModelOverride] = React.useState<ComposerModelOverride | null>(null);
   const [claimingLegacy, setClaimingLegacy] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
@@ -136,28 +147,18 @@ export default function EmployeeChat() {
   }, [emp.id]);
 
   // The dedicated employee chat can override the active model per message.
-  // Keep only connected models in the picker and initialize it from the
-  // employee's effective active model (the models endpoint normalizes legacy
-  // rows that predate `isActive`).
+  // Only connected models can answer, so they're the only ones offered.
   React.useEffect(() => {
     let cancelled = false;
     api
       .get<AIModel[]>(`/api/companies/${company.id}/employees/${emp.id}/models`)
       .then((models) => {
         if (cancelled) return;
-        const connected = models.filter((model) => model.status === "connected");
-        setChatModels(connected);
-        setSelectedModelId((current) => {
-          if (current && connected.some((model) => model.id === current)) {
-            return current;
-          }
-          return connected.find((model) => model.isActive)?.id ?? connected[0]?.id ?? null;
-        });
+        setChatModels(models.filter((model) => model.status === "connected"));
       })
       .catch(() => {
         if (cancelled) return;
         setChatModels([]);
-        setSelectedModelId(null);
       });
     return () => {
       cancelled = true;
@@ -323,11 +324,26 @@ export default function EmployeeChat() {
     convs.find((c) => c.id === activeConvId) ??
     session.archivedConvs.find((c) => c.id === activeConvId) ??
     null;
+  // Reopening a past thread must keep the brain it was held with — the server
+  // reports each thread's last model on the summary. See `composerModel.ts`
+  // for the full precedence rule.
+  const selectedModelId = resolveComposerModelId({
+    models: chatModels,
+    activeConvId,
+    threadModelId: activeConv?.lastModelId ?? null,
+    override: modelOverride,
+  });
   // Show a skeleton while bootstrapping or while the active thread is still
   // loading — otherwise there's a visible EmptyState flash between the
   // conv-list fetch and the messages fetch.
   const isLoadingMessages =
     !convsLoaded || convLoading || (!!activeConvId && loadedConvId !== activeConvId);
+  // Gate the context gauge on the load rather than reading it straight off the
+  // session. Clicking a thread in the sidebar flips `activeConvId` in the click
+  // handler but only clears the gauge inside the async load, so without this the
+  // badge paints one frame of the previous thread's reading under the new
+  // thread's title. Every other per-thread surface is already behind this flag.
+  const visibleContextUsage = isLoadingMessages ? null : contextUsage;
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-white dark:bg-slate-950">
@@ -457,7 +473,9 @@ export default function EmployeeChat() {
             onRemoveAttachment={removePendingAttachment}
             models={chatModels}
             selectedModelId={selectedModelId}
-            onModelChange={setSelectedModelId}
+            onModelChange={(modelId) => setModelOverride({ convId: activeConvId, modelId })}
+            contextUsage={visibleContextUsage}
+            employeeSlug={emp.slug}
           />
         )}
       </section>
@@ -1138,6 +1156,8 @@ function Composer({
   models,
   selectedModelId,
   onModelChange,
+  contextUsage,
+  employeeSlug,
 }: {
   inputRef: React.RefObject<HTMLTextAreaElement>;
   value: string;
@@ -1154,6 +1174,8 @@ function Composer({
   models: AIModel[];
   selectedModelId: string | null;
   onModelChange: (modelId: string) => void;
+  contextUsage: ChatContextUsage | null;
+  employeeSlug: string;
 }) {
   const canSend = value.trim().length > 0 || attachments.length > 0;
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -1381,6 +1403,13 @@ function Composer({
                 : "Enter queues your follow-up"}
             </span>
           ) : null}
+          {contextUsage && (
+            <ContextUsageBadge
+              usage={contextUsage}
+              companySlug={companySlug}
+              employeeSlug={employeeSlug}
+            />
+          )}
           {models.length > 1 && selectedModelId && (
             <label className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
               <Brain size={12} aria-hidden="true" />
@@ -1403,6 +1432,82 @@ function Composer({
         </span>
       </div>
     </form>
+  );
+}
+
+/**
+ * How full the model's context window is, in the composer footer.
+ *
+ * Deliberately not a second bubble in the message column: the employee-authored
+ * progress bar already lives there, and two labelled percentages side by side
+ * would read as one feature. This sits with the other per-turn facts — the AI
+ * Model picker — as a quiet, always-available readout rather than an alert.
+ *
+ * The unknown-window state is the primary one, not an edge case: an OpenAI
+ * subscription model never reports a window and an API-key OpenAI model has
+ * none until someone sets it, so that branch links straight to the model
+ * settings panel that can fix it.
+ */
+function ContextUsageBadge({
+  usage,
+  companySlug,
+  employeeSlug,
+}: {
+  usage: ChatContextUsage;
+  companySlug: string;
+  employeeSlug: string;
+}) {
+  const display = describeContextUsage(usage);
+  const tint =
+    display.tone === "warn"
+      ? "text-amber-700 dark:text-amber-300"
+      : "text-slate-500 dark:text-slate-400";
+
+  const body = (
+    <>
+      <Gauge size={12} aria-hidden="true" />
+      <span className="whitespace-nowrap">
+        Context <span className="font-medium tabular-nums">{display.label}</span>
+      </span>
+      {display.fillPercent !== null && (
+        <span
+          className="h-1.5 w-10 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
+          aria-hidden="true"
+        >
+          <span
+            className={
+              "block h-full rounded-full " +
+              (display.tone === "warn" ? "bg-amber-500" : "bg-indigo-500")
+            }
+            style={{ width: `${display.fillPercent}%` }}
+          />
+        </span>
+      )}
+    </>
+  );
+
+  if (display.windowUnknown) {
+    return (
+      <Link
+        to={`/c/${companySlug}/employees/${employeeSlug}/settings/model`}
+        title={display.title}
+        aria-label={display.title}
+        className={`inline-flex items-center gap-1.5 rounded-md px-1 py-0.5 underline decoration-dotted underline-offset-2 transition hover:text-slate-700 dark:hover:text-slate-200 ${tint}`}
+      >
+        {body}
+      </Link>
+    );
+  }
+
+  return (
+    <span
+      title={display.title}
+      aria-label={display.title}
+      role="status"
+      className={`inline-flex items-center gap-1.5 px-1 py-0.5 ${tint}`}
+    >
+      {body}
+    </span>
   );
 }
 

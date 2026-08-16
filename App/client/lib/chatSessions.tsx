@@ -2,11 +2,13 @@ import React from "react";
 import {
   api,
   ChatAttachment,
+  ChatContextUsage,
   ChatProgress,
   ConversationDetail,
   ConversationMessage,
   ConversationSummary,
 } from "./api";
+import { latestContextUsage, parseContextUsageEvent } from "./chatContextUsage";
 
 /**
  * Per-employee chat state held at the company-shell level so it survives
@@ -24,6 +26,16 @@ export type EmployeeSession = {
   streamingReply: string | null;
   /** Latest employee-authored progress update for the in-flight reply. */
   progress: ChatProgress | null;
+  /**
+   * How full the model's context window is in this thread.
+   *
+   * Unlike {@link progress} this is *not* an in-flight-only signal. It
+   * describes the turn that just ran and stays on screen after the reply lands
+   * — that is the moment a Member actually wants to read it, before deciding
+   * whether to keep going or start a fresh context. It is cleared only when the
+   * thread changes, and re-derived from the loaded transcript on every load.
+   */
+  contextUsage: ChatContextUsage | null;
   /** How this browser is following the durable in-flight turn. */
   connectionState: "streaming" | "polling" | "reconnecting" | null;
   /** Conversation currently receiving the in-flight reply. */
@@ -60,6 +72,7 @@ const EMPTY: EmployeeSession = Object.freeze({
   messages: [],
   streamingReply: null,
   progress: null,
+  contextUsage: null,
   connectionState: null,
   sendingConvId: null,
   sending: false,
@@ -140,10 +153,20 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
     ) => {
       const working = latestWorkingMessage(detail.messages);
       update(empId, (s) => {
-        if (s.activeConvId !== convId) return s;
+        // The freshly-loaded row is newer than whatever the sidebar cached, so
+        // fold it back in — otherwise a thread whose model or title changed in
+        // another tab keeps reopening on the stale summary.
+        const convs = withRefreshedSummary(s.convs, detail.conversation);
+        const archivedConvs = withRefreshedSummary(s.archivedConvs, detail.conversation);
+        if (s.activeConvId !== convId) {
+          if (convs === s.convs && archivedConvs === s.archivedConvs) return s;
+          return { ...s, convs, archivedConvs };
+        }
         const wasFollowingThisConversation = s.sendingConvId === convId;
         return {
           ...s,
+          convs,
+          archivedConvs,
           messages: detail.messages,
           loadedConvId: convId,
           convLoading: false,
@@ -159,6 +182,12 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
             : wasFollowingThisConversation
               ? null
               : s.progress,
+          // Always re-derived from the thread we just loaded, never merged with
+          // whatever the previous thread left behind. A turn recovered by
+          // another process has no SSE subscriber at all, so the persisted row
+          // is the only place its reading exists — including while it is still
+          // `working`, which is what keeps the gauge live under polling.
+          contextUsage: latestContextUsage(detail.messages),
           connectionState: working
             ? connectionState
             : wasFollowingThisConversation
@@ -207,7 +236,9 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
     async (companyId: string, empId: string, convId: string) => {
       const cur = sessionsRef.current[empId] ?? EMPTY;
       if (cur.loadedConvId === convId && cur.activeConvId === convId) return;
-      update(empId, { activeConvId: convId, convLoading: true });
+      // Drop the previous thread's gauge immediately; `applyConversationDetail`
+      // re-derives it from whatever this conversation actually holds.
+      update(empId, { activeConvId: convId, convLoading: true, contextUsage: null });
       const base = `/api/companies/${companyId}/employees/${empId}`;
       try {
         const detail = await api.get<ConversationDetail>(`${base}/conversations/${convId}`);
@@ -251,6 +282,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         activeConvId: created.id,
         loadedConvId: created.id,
         messages: [],
+        contextUsage: null,
         input: "",
       }));
     },
@@ -270,6 +302,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
           activeConvId: wasActive ? null : s.activeConvId,
           loadedConvId: wasActive ? null : s.loadedConvId,
           messages: wasActive ? [] : s.messages,
+          contextUsage: wasActive ? null : s.contextUsage,
         };
       });
     },
@@ -319,6 +352,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
           activeConvId: wasActive ? null : s.activeConvId,
           loadedConvId: wasActive ? null : s.loadedConvId,
           messages: wasActive ? [] : s.messages,
+          contextUsage: wasActive ? null : s.contextUsage,
         };
       });
     },
@@ -533,17 +567,46 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
                     : s.messages,
                 };
               });
+            } else if (event === "context") {
+              const usage = parseContextUsageEvent(data);
+              if (!usage) return;
+              update(empId, (s) => {
+                if (s.activeConvId !== streamConvId) return s;
+                // This fires once per model step — up to CHAT_MAX_STEPS times
+                // in one turn, and during a long tool phase it is the only
+                // thing changing. Nothing but `contextUsage` is touched, and
+                // even that only when the reading moves: handing back a new
+                // `messages` array would retrigger the transcript's
+                // scroll-to-bottom effect and repeatedly yank a Member who had
+                // scrolled up to re-read something. A reload mid-turn re-reads
+                // the persisted row from the server anyway, so a local mirror
+                // onto the in-flight message would buy nothing for the cost.
+                if (
+                  s.contextUsage &&
+                  s.contextUsage.tokens === usage.tokens &&
+                  s.contextUsage.window === usage.window
+                ) {
+                  return s;
+                }
+                return { ...s, contextUsage: usage };
+              });
             } else if (event === "assistant") {
               const assistantMsg = data as ConversationMessage;
               workingMessageId = assistantMsg.id;
               gotAssistant = true;
               update(empId, (s) => {
                 if (s.activeConvId !== streamConvId) return s;
+                const messages = upsertMessage(s.messages, assistantMsg);
                 return {
                   ...s,
-                  messages: upsertMessage(s.messages, assistantMsg),
+                  messages,
                   streamingReply: null,
                   progress: null,
+                  // The finalized row is authoritative — a mid-turn live event
+                  // can be a step behind what the finalize patch wrote. Falling
+                  // back to the current reading keeps the badge steady when the
+                  // provider reported no usage at all for this turn.
+                  contextUsage: latestContextUsage(messages) ?? s.contextUsage,
                   connectionState: null,
                 };
               });
@@ -768,6 +831,33 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
   const value = React.useMemo<ChatSessionsCtx>(() => ({ sessions, actions }), [sessions, actions]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+/**
+ * Replace a cached sidebar summary with a freshly-loaded one, in place. Returns
+ * the same array when the thread isn't in this list or nothing the UI reads has
+ * changed, so the 3s in-flight refresh poll doesn't re-render the sidebar.
+ */
+function withRefreshedSummary(
+  list: ConversationSummary[],
+  fresh: ConversationSummary,
+): ConversationSummary[] {
+  const index = list.findIndex((conversation) => conversation.id === fresh.id);
+  if (index === -1) return list;
+  const current = list[index];
+  if (
+    current.title === fresh.title &&
+    current.lastModelId === fresh.lastModelId &&
+    current.updatedAt === fresh.updatedAt &&
+    current.lastMessageAt === fresh.lastMessageAt &&
+    current.archivedAt === fresh.archivedAt &&
+    current.legacyUnclaimed === fresh.legacyUnclaimed
+  ) {
+    return list;
+  }
+  const next = [...list];
+  next[index] = fresh;
+  return next;
 }
 
 function latestWorkingMessage(messages: ConversationMessage[]): ConversationMessage | null {

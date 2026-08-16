@@ -306,8 +306,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
         <LI>
           A pin only affects this routine&apos;s <Strong>Runs</Strong>. Dedicated employee Chat has
-          its own per-message picker when multiple models are connected and defaults to the active
-          model.
+          its own per-message picker when multiple models are connected; it defaults to whatever
+          model that conversation last answered on, and to the active model for a new thread.
         </LI>
         <LI>
           Remove a pinned model and its routines quietly revert to <Strong>Inherit</Strong> rather

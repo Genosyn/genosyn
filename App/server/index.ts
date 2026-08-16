@@ -11,6 +11,7 @@ import { ensureBootstrapMasterAdmin } from "./services/masterAdmin.js";
 import { bootCron } from "./services/cron.js";
 import { bootBackups } from "./services/backups.js";
 import { bootPipelineCron } from "./services/pipelines/index.js";
+import { bootContextWindowRefresh } from "./services/agent/contextWindowRefresh.js";
 import { bootRecurringInvoices } from "./services/recurringInvoices.js";
 import { bootRevenue } from "./services/revenue/boot.js";
 import { bootTelegramListeners } from "./services/telegramListener.js";
@@ -18,6 +19,7 @@ import { bootMailSync } from "./services/mail/sync.js";
 import { bootMailHandovers } from "./services/mail/handovers.js";
 import { bootMailDraftSendQueue } from "./services/mail/draftSendQueue.js";
 import { bootMailAutomationQueue } from "./services/mail/automationQueue.js";
+import { finalizeInterruptedAssistantTurns } from "./services/mail/assistant.js";
 import { attachRealtime, bootRealtimeBridge } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
@@ -124,6 +126,10 @@ async function main() {
   await bootBackups();
   await bootPipelineCron();
   await bootRecurringInvoices();
+  // A provider's context window moves when an operator re-launches their server
+  // with a different max length — re-ask every three hours so the agent loop
+  // budgets against today's number rather than the one saved with the key.
+  bootContextWindowRefresh();
   // Revenue (M32): the sequence and signal heartbeats, plus the two callbacks
   // that let them reach the agent runtime. Synchronous — it only installs
   // timers; the first pass of each runs on its own interval.
@@ -151,6 +157,10 @@ async function main() {
   void bootMailDraftSendQueue().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[mail] draft-send queue boot failed:", err);
+  });
+  void finalizeInterruptedAssistantTurns().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[mail] assistant turn recovery failed:", err);
   });
 
   const app = express();

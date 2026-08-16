@@ -1483,11 +1483,27 @@ const assistantSendSchema = z.object({
 });
 
 /**
+ * How often this stream emits an SSE keepalive comment. A turn can spend
+ * minutes between visible `chunk` events while the employee reads the thread
+ * and runs tools, and any idle reverse proxy in front of a self-hosted
+ * Genosyn (nginx `proxy_read_timeout` 60s, Caddy, cloud load balancers at
+ * 30–100s) resets a silent connection — which the browser reports as a bare
+ * `network error` mid-reply. A comment line every 15s stays under those
+ * timers. Same value the employee chat stream uses.
+ */
+const ASSISTANT_STREAM_HEARTBEAT_MS = 15_000;
+
+/**
  * One assistant turn, streamed over SSE (same event grammar as employee
  * chat): `user` → the persisted human turn, `target` → the resolved
- * employee, `chunk` → reply text deltas, `assistant` → the persisted reply
- * (with actions + suggestions), `done` → end marker. Errors also arrive as
- * events so the client rendering stays uniform.
+ * employee, `working` → the persisted in-flight assistant row, `chunk` →
+ * reply text deltas, `assistant` → the finalized reply (with actions +
+ * suggestions), `done` → end marker. Errors also arrive as events so the
+ * client rendering stays uniform.
+ *
+ * The turn is not tied to this connection: once `working` has been written
+ * the row owns the reply, and a client that loses the stream re-reads it
+ * from the panel bootstrap instead of losing the answer.
  */
 mailRouter.post(
   "/mail/accounts/:aid/assistant/messages",
@@ -1504,9 +1520,16 @@ mailRouter.post(
     res.flushHeaders?.();
 
     const writeEvent = (event: string, data: unknown) => {
+      if (res.writableEnded || res.destroyed) return;
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
+
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded && !res.destroyed) res.write(`: keepalive\n\n`);
+    }, ASSISTANT_STREAM_HEARTBEAT_MS);
+    heartbeat.unref?.();
+    res.on("close", () => clearInterval(heartbeat));
 
     try {
       const account = await loadAccount(cid, req.params.aid as string);
@@ -1536,22 +1559,25 @@ mailRouter.post(
         callbacks: {
           onUser: (msg) => writeEvent("user", msg),
           onTarget: (employee) => writeEvent("target", { employee }),
+          onWorking: (msg) => writeEvent("working", msg),
           onChunk: (text) => writeEvent("chunk", { text }),
           onAssistant: (msg) => writeEvent("assistant", msg),
         },
       });
       writeEvent("done", {});
-      res.end();
+      if (!res.writableEnded && !res.destroyed) res.end();
     } catch (e) {
-      if (!res.writableEnded) {
+      if (!res.writableEnded && !res.destroyed) {
         writeEvent("error", {
           message: e instanceof Error ? e.message : String(e),
         });
         writeEvent("done", {});
         res.end();
-      } else {
+      } else if (!res.destroyed) {
         next(e);
       }
+    } finally {
+      clearInterval(heartbeat);
     }
   },
 );

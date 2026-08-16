@@ -709,6 +709,13 @@ sends system mail); this is the company's real inbox. Internal namespace is
       resume after server restarts through renewable database worker leases,
       guard recovered work against repeated side effects, keep follow-ups
       queueable, and allow up to six hours per turn across every attempt
+- [x] Context-window gauge in direct chat: the composer shows what share of the
+      AI Model's window the last turn's prompt occupied, measured from the
+      provider's own token counts rather than a local estimate, persisted per
+      message so a reload or a turn recovered in another process still reports
+      it, warning at the same 80% threshold the Run transcript uses, and
+      degrading to a plain token count (linked to the model settings) when the
+      model publishes no window
 - [x] Workspace file editor with path-traversal guards, 2 MiB text-only cap
 
 ### M8 — Polish + QA ✅
@@ -2082,6 +2089,27 @@ of the original V1 backlog has shipped — what remains is mostly
         to stop rather than silently fall back to the server browser.
         Forced off in shared SaaS by startup validation. Docs at
         `/docs/member-browsers`.
+  - [x] **Browser-login Connections rejoin the same browser.** The
+        `authMode: "browser"` Integration drivers (X today) ran a second,
+        private Chromium that no human could see or take over, kept its own
+        cookie jar, announced itself with a `Genosyn/0.1` user agent, and
+        reported "Connected" whenever a password was merely stored. An
+        employee therefore promised a "direct integration with no login
+        page", drove the same walled-off login, and told the operator to
+        finish a sign-in in a session that did not exist. Now:
+        the desktop-Chrome disguise is shared (`services/browserProfile.ts`)
+        so the driver stops advertising itself as a bot; the driver reads
+        and writes the employee's shared storage state via a host-bound
+        `ctx.sharedBrowserState`, so a human take-over sign-in in the live
+        panel *is* the remedy and a driver-managed login saves the human one
+        later; failures are classified, recorded on the Connection and
+        backed off (`services/browserConnectionHealth.ts`) rather than
+        re-driven every call; `checkStatus` reports the session actually
+        observed, so the pill reads Error/Expired with the remedy printed
+        under it; and each Connection advertises only the tools its auth
+        mode can run, with the mode's caveat appended to every description
+        (`services/integrationToolListing.ts`). Genosyn still never solves
+        a challenge — it hands the page to a person and reuses the result.
 - [x] **Genosyn-level sandbox** — Bubblewrap user/mount/PID/IPC/UTS namespaces,
       a best-effort cgroup namespace, a single writable employee workspace,
       explicit environment, optional network namespace, and realpath/symlink
@@ -2095,7 +2123,10 @@ of the original V1 backlog has shipped — what remains is mostly
       degrades instead of killing the run. Per-result caps scale to the window;
       the transcript shows `[compact]` whenever history was dropped. Operators
       can set the window by hand (`contextWindowSource: "manual"`) for the many
-      servers that report none
+      servers that report none. A three-hourly sweep re-asks every probeable,
+      connected model so a relaunched server's new limit lands on its own
+      (`services/agent/contextWindowRefresh.ts`); a failed probe keeps the last
+      known number and a hand-set window is never overwritten
 
 ---
 

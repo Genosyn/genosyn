@@ -1,4 +1,5 @@
-import { In } from "typeorm";
+import { In, LessThanOrEqual } from "typeorm";
+import { config } from "../../../config.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { AIModel } from "../../db/entities/AIModel.js";
@@ -7,12 +8,15 @@ import {
   MAIL_ACCESS_RANK,
   type MailAccessLevel,
 } from "../../db/entities/EmployeeMailAccountGrant.js";
+import type { MessageAction } from "../../db/entities/ConversationMessage.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailChatMessage } from "../../db/entities/MailChatMessage.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailThread } from "../../db/entities/MailThread.js";
-import { streamChatWithEmployee } from "../chat.js";
+import { WorkloadLease } from "../../db/entities/WorkloadLease.js";
+import { CHAT_HARD_TIMEOUT_MS, streamChatWithEmployee, type ChatResult } from "../chat.js";
 import { captureTurnActionsForAuthority, parseActions } from "../turnActions.js";
+import { EmployeeWorkloadBusyError, WorkloadLimitError } from "../workloadLeases.js";
 import { columnHasLabel } from "./store.js";
 
 /**
@@ -29,6 +33,13 @@ import { columnHasLabel } from "./store.js";
  *  - `actions`      — what the employee actually did (from AuditEvents);
  *  - `suggestions`  — one-click buttons it proposed via `suggest_mail_actions`,
  *                     executed client-side through the human routes.
+ *
+ * Robustness: the assistant row is persisted as `working` before the model
+ * runs and updated in place when the turn ends, so the reply belongs to the
+ * database rather than to one browser connection. A dropped stream, a closed
+ * panel, or a reload finds the same row and follows it to its real answer.
+ * A turn that arrives while the employee is mid-reply waits for the slot
+ * instead of asking the human to send the message again.
  */
 
 /** Same shape the workspace chat uses to find `@slug` tokens. */
@@ -39,6 +50,22 @@ const MAX_REPLAY_TURNS = 20;
 /** Keep the injected thread context bounded. */
 const CONTEXT_MESSAGE_CHARS_CAP = 4_000;
 const CONTEXT_TRANSCRIPT_CHARS_CAP = 16_000;
+
+/**
+ * An employee answers one chat at a time. A turn that loses the race — the
+ * teammate is also chatting in the employee's own panel, or a sibling mail
+ * thread got there first — waits for the slot rather than coming back as
+ * "send it again", which is a chore the human should never have to do.
+ */
+const BUSY_RETRY_DELAY_MS = 10_000;
+const BUSY_MAX_WAIT_MS = 5 * 60_000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
+}
 
 export type MailSuggestionRecord = {
   id: string;
@@ -355,6 +382,12 @@ async function composeTurnContext(
 export type AssistantTurnCallbacks = {
   onUser: (msg: ReturnType<typeof serializeAssistantMessage>) => void;
   onTarget: (employee: { id: string; name: string; slug: string } | null) => void;
+  /**
+   * The persisted in-flight row. A client that receives this knows the turn
+   * is the database's responsibility now, so a stream that dies afterwards
+   * is a lost subscriber rather than a lost reply.
+   */
+  onWorking: (msg: ReturnType<typeof serializeAssistantMessage>) => void;
   onChunk: (text: string) => void;
   onAssistant: (msg: ReturnType<typeof serializeAssistantMessage>) => void;
 };
@@ -373,6 +406,13 @@ type AssistantTurnArgs = {
   focusedMessageId?: string | null;
   employeeId?: string;
   callbacks: AssistantTurnCallbacks;
+  /**
+   * Test seams. Production passes none of these: the turn runs through the
+   * chat seam and waits on the real contention timings.
+   */
+  runChat?: typeof streamChatWithEmployee;
+  busyRetryDelayMs?: number;
+  busyMaxWaitMs?: number;
 } & (
   | { userId: string; requesterSessionVersion: number }
   | { userId: null; requesterSessionVersion?: never }
@@ -408,7 +448,7 @@ export async function runAssistantTurn(args: AssistantTurnArgs): Promise<void> {
   const saveAssistant = async (fields: {
     employeeId: string | null;
     content: string;
-    status: "ok" | "skipped" | "error";
+    status: "working" | "ok" | "skipped" | "error";
     actionsJson?: string;
     suggestionsJson?: string;
   }): Promise<MailChatMessage> =>
@@ -463,7 +503,9 @@ export async function runAssistantTurn(args: AssistantTurnArgs): Promise<void> {
     ).map((e) => [e.id, e.name]),
   );
   const history = prior
-    .filter((m) => m.id !== userMsg.id)
+    // An interrupted turn's row is an empty placeholder, and a live sibling
+    // turn's row has no text yet. Neither is something to replay as speech.
+    .filter((m) => m.id !== userMsg.id && m.status !== "working")
     .reverse()
     .map((m) => {
       // Grant boundary: earlier assistant turns may quote mailbox contents
@@ -501,46 +543,191 @@ export async function runAssistantTurn(args: AssistantTurnArgs): Promise<void> {
         requesterSessionVersion: args.requesterSessionVersion,
       }
     : { toolAuthority: "untrusted" as const };
-  const result = await streamChatWithEmployee(
-    account.companyId,
-    employee.id,
-    prompt,
-    history,
-    callbacks.onChunk,
+
+  // Persist the in-flight row before the model starts. From here on the turn
+  // survives the browser: whatever happens to this connection, the human's
+  // question has a visible answer waiting on it.
+  const working = await saveAssistant({
+    employeeId: employee.id,
+    content: "",
+    status: "working",
+  });
+  callbacks.onWorking(serializeAssistantMessage(working));
+
+  try {
+    const runChat = args.runChat ?? streamChatWithEmployee;
+    const busyRetryDelayMs = args.busyRetryDelayMs ?? BUSY_RETRY_DELAY_MS;
+    const busyMaxWaitMs = args.busyMaxWaitMs ?? BUSY_MAX_WAIT_MS;
+    const waitingSince = Date.now();
+    let result: ChatResult | null = null;
+    let gaveUpWaiting: "employee" | "company" | null = null;
+    for (;;) {
+      try {
+        result = await runChat(account.companyId, employee.id, prompt, history, callbacks.onChunk, {
+          extraSystem: assistantBriefing(account, accessLevel),
+          extraToolset: MAIL_ASSISTANT_TOOLS,
+          // The lease is keyed to this row so a process that dies mid-turn
+          // doesn't leave the employee looking busy for the six-hour lease
+          // TTL — recovery clears the lease along with the row.
+          workloadKey: working.id,
+          throwOnWorkloadUnavailable: true,
+          ...authority,
+        });
+        break;
+      } catch (error) {
+        const contended =
+          error instanceof EmployeeWorkloadBusyError || error instanceof WorkloadLimitError;
+        if (!contended) throw error;
+        if (Date.now() - waitingSince >= busyMaxWaitMs) {
+          gaveUpWaiting = error instanceof EmployeeWorkloadBusyError ? "employee" : "company";
+          break;
+        }
+        await delay(busyRetryDelayMs);
+      }
+    }
+
+    if (!result) {
+      const waited = Math.max(1, Math.round(busyMaxWaitMs / 60_000));
+      const waitedFor = `${waited} minute${waited === 1 ? "" : "s"}`;
+      const row = await finalizeAssistantMessage(working.id, {
+        content:
+          gaveUpWaiting === "employee"
+            ? `${employee.name} was busy with another message for the whole ${waitedFor} this ` +
+              "one waited, so it wasn’t answered. Try again once they are free."
+            : `This company was at its concurrent AI workload limit for the whole ${waitedFor} ` +
+              "this message waited, so it wasn’t answered. Try again shortly.",
+        // No dedicated busy state on this panel: "skipped" already means
+        // "didn't run, not a failure".
+        status: "skipped",
+      });
+      callbacks.onAssistant(serializeAssistantMessage(row));
+      return;
+    }
+
+    let actions: MessageAction[] = [];
+    try {
+      actions = await captureTurnActionsForAuthority({
+        companyId: account.companyId,
+        employeeId: employee.id,
+        // This panel is always an authenticated Member surface. Keep the
+        // timestamp for the future correlated capture implementation, but do
+        // not project the employee-wide audit window into this Member's
+        // message today.
+        since: userMsg.createdAt,
+        authority: "member",
+      });
+    } catch (error) {
+      // The reply is the valuable part. Losing the action-pill projection is
+      // not a reason to turn completed work into an error.
+      console.error(`[mail:assistant] action capture failed message=${working.id}`, error);
+    }
+    // The suggest tool accepts any mailbox the employee holds a read grant on;
+    // this panel renders and executes buttons for ITS mailbox only, so
+    // cross-account suggestions are dropped rather than shown out of context.
+    const suggestions = (
+      (result.sidecars["mail.suggestions"] ?? []) as MailSuggestionRecord[]
+    ).filter((s) => s.accountId === account.id);
+
+    const row = await finalizeAssistantMessage(working.id, {
+      content: result.reply,
+      status: result.status === "busy" ? "skipped" : result.status,
+      actionsJson: actions.length > 0 ? JSON.stringify(actions) : "",
+      suggestionsJson: suggestions.length > 0 ? JSON.stringify(suggestions) : "",
+    });
+    callbacks.onAssistant(serializeAssistantMessage(row));
+  } catch (error) {
+    console.error(
+      `[mail:assistant] turn failed account=${account.id} thread=${args.threadId} ` +
+        `message=${working.id}`,
+      error,
+    );
+    const row = await finalizeAssistantMessage(working.id, {
+      content: formatTurnFailure(error),
+      status: "error",
+    });
+    callbacks.onAssistant(serializeAssistantMessage(row));
+  }
+}
+
+/**
+ * Close out the in-flight row. Guarded on `working` so a recovery sweep that
+ * already finalized this row (its process was presumed dead and came back)
+ * doesn't get overwritten — whichever answer landed first is the one the
+ * human is looking at.
+ */
+async function finalizeAssistantMessage(
+  messageId: string,
+  fields: {
+    content: string;
+    status: "ok" | "skipped" | "error";
+    actionsJson?: string;
+    suggestionsJson?: string;
+  },
+): Promise<MailChatMessage> {
+  const repo = AppDataSource.getRepository(MailChatMessage);
+  await repo.update(
+    { id: messageId, status: "working" },
     {
-      extraSystem: assistantBriefing(account, accessLevel),
-      extraToolset: MAIL_ASSISTANT_TOOLS,
-      ...authority,
+      content: fields.content,
+      status: fields.status,
+      actionsJson: fields.actionsJson ?? "",
+      suggestionsJson: fields.suggestionsJson ?? "",
     },
   );
+  return repo.findOneByOrFail({ id: messageId });
+}
 
-  const actions = await captureTurnActionsForAuthority({
-    companyId: account.companyId,
-    employeeId: employee.id,
-    // This panel is always an authenticated Member surface. Keep the timestamp
-    // for the future correlated capture implementation, but do not project the
-    // employee-wide audit window into this Member's message today.
-    since: userMsg.createdAt,
-    authority: "member",
-  });
-  // The suggest tool accepts any mailbox the employee holds a read grant on;
-  // this panel renders and executes buttons for ITS mailbox only, so
-  // cross-account suggestions are dropped rather than shown out of context.
-  const suggestions = (
-    (result.sidecars["mail.suggestions"] ?? []) as MailSuggestionRecord[]
-  ).filter((s) => s.accountId === account.id);
+function formatTurnFailure(error: unknown): string {
+  const detail = (error instanceof Error ? error.message : String(error))
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500);
+  return [
+    "This reply couldn’t be completed.",
+    "",
+    `Details: ${detail || "Unknown server error"}`,
+    "",
+    "Nothing was sent from your mailbox. Check the Genosyn server logs for the [mail:assistant] entry, then try again.",
+  ].join("\n");
+}
 
-  const row = await saveAssistant({
-    employeeId: employee.id,
-    content: result.reply,
-    // The mail panel has no dedicated "working" state, so a busy employee
-    // (mid-Run or mid-chat elsewhere) collapses to "skipped" — same "didn't
-    // run, not a failure" meaning. The reply text still names what they're on.
-    status: result.status === "busy" ? "skipped" : result.status,
-    actionsJson: actions.length > 0 ? JSON.stringify(actions) : "",
-    suggestionsJson: suggestions.length > 0 ? JSON.stringify(suggestions) : "",
+/**
+ * Rows left `working` by a process that died mid-turn. Nothing is going to
+ * finish them, so they are closed out with an honest explanation instead of
+ * leaving a permanent spinner beside the email — and their capacity lease is
+ * dropped, so the employee isn't reported busy until the six-hour TTL lapses.
+ *
+ * SQLite is single-process: every inherited row is known dead at boot.
+ * Postgres may have live sibling replicas mid-turn, so only rows past the
+ * hard turn ceiling are presumed abandoned there.
+ */
+export async function finalizeInterruptedAssistantTurns(): Promise<number> {
+  const repo = AppDataSource.getRepository(MailChatMessage);
+  const abandoned = await repo.find({
+    where:
+      config.db.driver === "postgres"
+        ? {
+            role: "assistant",
+            status: "working",
+            createdAt: LessThanOrEqual(new Date(Date.now() - CHAT_HARD_TIMEOUT_MS)),
+          }
+        : { role: "assistant", status: "working" },
   });
-  callbacks.onAssistant(serializeAssistantMessage(row));
+  if (abandoned.length === 0) return 0;
+
+  const ids = abandoned.map((row) => row.id);
+  await repo.update(
+    { id: In(ids), status: "working" },
+    {
+      content:
+        "Genosyn restarted before this reply finished, so it was stopped. " +
+        "Send the message again to pick it back up.",
+      status: "error",
+    },
+  );
+  await AppDataSource.getRepository(WorkloadLease).delete({ ownerKey: In(ids) });
+  console.warn(`[mail:assistant] closed ${ids.length} interrupted turn(s) after restart`);
+  return ids.length;
 }
 
 /**

@@ -6,6 +6,7 @@ import {
 } from "../codexSubscription.js";
 import { CodexAppServer, CodexAppServerError } from "./codexAppServer.js";
 import { toolResultCap } from "./contextBudget.js";
+import { contextUsage } from "./contextUsage.js";
 import type { ToolRegistry } from "./tools/toolRegistry.js";
 import type { AgentMessage, AgentTool, StreamCallbacks, ToolResult, TurnUsage } from "./types.js";
 
@@ -178,6 +179,16 @@ export async function runCodexSubscriptionTurn(params: {
               lastUsageFingerprint = fingerprint;
               const reported: TurnUsage = { inputTokens, outputTokens };
               safeCallback(() => params.callbacks?.onUsage?.(reported));
+              // A ChatGPT subscription model has no probeable window and the
+              // manual override is refused for it, so this is almost always a
+              // token count with a null denominator. Reporting it anyway is
+              // still worth more than silence: "142,000 tokens, window unknown"
+              // tells a Member why a long thread started forgetting things.
+              safeCallback(() =>
+                params.callbacks?.onContextUsage?.(
+                  contextUsage(inputTokens, effectiveModel.contextWindow),
+                ),
+              );
             }
           }
           return;

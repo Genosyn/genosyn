@@ -20,6 +20,11 @@ import {
 } from "./backupDestinations.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
 import { bootDurableChatTurnRecovery, stopDurableChatTurnRecovery } from "./durableChatTurns.js";
+import { finalizeInterruptedAssistantTurns } from "./mail/assistant.js";
+import {
+  bootContextWindowRefresh,
+  stopContextWindowRefresh,
+} from "./agent/contextWindowRefresh.js";
 import {
   INSTANCE_SECRETS_FILENAME,
   INSTANCE_SECRETS_SENTINEL_FILENAME,
@@ -856,6 +861,10 @@ export async function restoreFromBackup(id: string): Promise<{
     // otherwise keep firing — and starting runs — across the wipe window.
     stopCron();
     stopDurableChatTurnRecovery();
+    // The context-window sweep is three-hourly, so it will rarely land here —
+    // but a tick that did would query the destroyed DataSource for the whole
+    // extract window. Cheap to take down; re-registered below.
+    stopContextWindowRefresh();
     await AppDataSource.destroy();
 
     // Last look before the point of no return. The checks above ran before the
@@ -901,6 +910,10 @@ export async function restoreFromBackup(id: string): Promise<{
     // Rebuild in-memory schedules from the restored DB rows.
     await bootCron();
     await bootDurableChatTurnRecovery();
+    // Per-email AI chat rows captured mid-turn by the archive have no process
+    // behind them any more; close them out rather than restoring a spinner.
+    await finalizeInterruptedAssistantTurns();
+    bootContextWindowRefresh();
     await bootBackups();
 
     return { safety, restored: target };

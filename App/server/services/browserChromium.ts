@@ -3,6 +3,12 @@ import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { closeBrowserSession } from "./browserSessions.js";
 import { markAiBrowserSessionRequestHeaders } from "./browserRequestBoundary.js";
 import { loadStorageState, saveStorageState } from "./browserStorage.js";
+import {
+  chromeContextOptions,
+  chromeMaskInitScript,
+  chromiumLaunchOptions,
+  loadChromiumLauncher,
+} from "./browserProfile.js";
 
 /**
  * App-owned headless Chromium per `BrowserSession`. Decoupled from the MCP
@@ -35,34 +41,10 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
  * here so a forgotten session eventually lets go of the single-driver lease.
  */
 const REMOTE_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
-const VIEWPORT_WIDTH = 1280;
-const VIEWPORT_HEIGHT = 800;
 
-const CHROMIUM_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined;
-
-// Pretend to be desktop Google Chrome on macOS so the sites we drive (login
-// pages, captcha gates, etc.) don't bounce us as "headless Chromium". We
-// can't ship the real Chrome binary — playwright's bundled Chromium is
-// glibc-only and the Alpine image only has `chromium` from apk — so we
-// fake the identity at every layer Chromium exposes:
-//
-//   * UA string → no "HeadlessChrome" token, no "Genosyn/" token, claims
-//     "Chrome" with a realistic version.
-//   * Sec-CH-UA / Sec-CH-UA-Platform request headers → "Google Chrome",
-//     not "Chromium".
-//   * `navigator.webdriver` → undefined (the `--disable-blink-features=
-//     AutomationControlled` flag handles most of this; the init script is
-//     belt-and-braces in case Chromium re-adds it).
-//   * `navigator.userAgentData.brands` → contains "Google Chrome", which
-//     is the Client-Hints equivalent of the UA spoof above.
-//
-// CHROME_MAJOR is the only piece that needs touching when we want to look
-// like a newer Chrome — the rest is derived from it. Bump it when sites
-// start sniffing for a newer baseline.
-const CHROME_MAJOR = 134;
-const CHROME_FULL_VERSION = `${CHROME_MAJOR}.0.6998.166`;
-const CHROME_USER_AGENT = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_FULL_VERSION} Safari/537.36`;
-const CHROME_SEC_CH_UA = `"Chromium";v="${CHROME_MAJOR}", "Google Chrome";v="${CHROME_MAJOR}", "Not.A/Brand";v="24"`;
+// The "look like desktop Chrome" profile lives in `browserProfile.ts` and is
+// shared with the browser-login Integration drivers, which face the same
+// login pages and need the same disguise.
 
 type SessionRuntime = {
   id: string;
@@ -112,31 +94,6 @@ type SessionRuntime = {
 };
 
 const runtimes = new Map<string, SessionRuntime>();
-type PlaywrightChromium = {
-  launch: (opts: unknown) => Promise<unknown>;
-  connectOverCDP: (endpointURL: string, opts?: unknown) => Promise<unknown>;
-};
-let playwrightModule: { chromium: PlaywrightChromium } | null = null;
-
-async function getPlaywright(): Promise<
-  typeof playwrightModule extends infer T ? NonNullable<T> : never
-> {
-  if (!playwrightModule) {
-    try {
-      const mod = await import("playwright-core");
-      playwrightModule = {
-        chromium: mod.chromium as unknown as PlaywrightChromium,
-      };
-    } catch (err) {
-      throw new Error(
-        `playwright-core is not installed: ${
-          err instanceof Error ? err.message : String(err)
-        }. Browser tools require the App container to bundle Chromium and playwright-core.`,
-      );
-    }
-  }
-  return playwrightModule as NonNullable<typeof playwrightModule>;
-}
 
 /** True when this session drives a Member's own machine, not the container. */
 export function runtimeIsRemote(sessionId: string): boolean {
@@ -188,37 +145,20 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
   }
   const storageState = await loadStorageState(sessionRow.companyId, sessionRow.employeeId);
 
-  const pw = await getPlaywright();
-  const browser = await pw.chromium.launch({
-    headless: true,
-    executablePath: CHROMIUM_PATH,
-    args: [
-      "--no-sandbox",
-      "--disable-dev-shm-usage",
-      // Strips the `navigator.webdriver = true` tell that headless
-      // Chromium injects, plus a handful of related automation hints
-      // sites use to bounce bots.
-      "--disable-blink-features=AutomationControlled",
-    ],
-  });
+  const chromium = await loadChromiumLauncher(
+    "Browser tools require the App container to bundle Chromium and playwright-core.",
+  );
+  const browser = await chromium.launch(chromiumLaunchOptions());
   const context = await (
     browser as {
       newContext: (opts: unknown) => Promise<unknown>;
     }
   ).newContext({
-    viewport: { width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT },
-    userAgent: CHROME_USER_AGENT,
-    locale: "en-US",
-    timezoneId: "America/Los_Angeles",
+    ...chromeContextOptions(),
     // Context routing is the security boundary that marks a Member session
     // used inside App-owned Chromium. Service workers can bypass Playwright
     // routes, so they are disabled in this governed Browser context.
     serviceWorkers: "block",
-    extraHTTPHeaders: {
-      "sec-ch-ua": CHROME_SEC_CH_UA,
-      "sec-ch-ua-mobile": "?0",
-      "sec-ch-ua-platform": '"macOS"',
-    },
     storageState,
   });
   await (
@@ -332,8 +272,13 @@ async function acquireRemotePage(sessionRow: BrowserSession): Promise<unknown> {
   }
 
   const endpoint = await mintCdpEndpoint({ browserId: memberBrowserId, sessionId });
-  const pw = await getPlaywright();
-  const browser = await pw.chromium.connectOverCDP(endpoint);
+  const chromium = await loadChromiumLauncher(
+    "Member browsers require playwright-core in the App container.",
+  );
+  if (!chromium.connectOverCDP) {
+    throw new Error("This Playwright build cannot attach to an existing browser.");
+  }
+  const browser = await chromium.connectOverCDP(endpoint);
   const contexts = (browser as { contexts: () => unknown[] }).contexts();
   const context = contexts[0];
   if (!context) {
@@ -764,119 +709,3 @@ export function markActivity(sessionId: string): void {
   resetIdleTimer(r);
 }
 
-/**
- * Page-init script that finishes the Chrome masquerade started in
- * `acquirePage`. Runs in every page (including iframes) before any site
- * script executes, so by the time the page's own bot-detection runs the
- * automation tells are already gone.
- */
-function chromeMaskInitScript(): string {
-  const brandsJson = JSON.stringify([
-    { brand: "Chromium", version: String(CHROME_MAJOR) },
-    { brand: "Google Chrome", version: String(CHROME_MAJOR) },
-    { brand: "Not.A/Brand", version: "24" },
-  ]);
-  return `
-    (() => {
-      try {
-        // navigator.webdriver — the canonical "is this a bot" check.
-        // The launch flag covers most of it, but some Chromium builds
-        // re-add the property; force-define it to undefined.
-        Object.defineProperty(Navigator.prototype, 'webdriver', {
-          configurable: true,
-          enumerable: true,
-          get: () => undefined,
-        });
-      } catch {}
-
-      try {
-        // navigator.userAgentData — Client Hints brands. Default
-        // Chromium reports only "Chromium" and "Not.A/Brand"; real
-        // Chrome adds a "Google Chrome" entry. Sites that key off this
-        // (rather than the UA string) can tell us apart otherwise.
-        const brands = ${brandsJson};
-        const uaData = {
-          brands,
-          mobile: false,
-          platform: 'macOS',
-          getHighEntropyValues: (hints) => Promise.resolve({
-            architecture: 'x86',
-            bitness: '64',
-            brands,
-            fullVersionList: brands.map(b => ({ brand: b.brand, version: '${CHROME_FULL_VERSION}' })),
-            mobile: false,
-            model: '',
-            platform: 'macOS',
-            platformVersion: '10.15.7',
-            uaFullVersion: '${CHROME_FULL_VERSION}',
-            wow64: false,
-          }),
-          toJSON: () => ({ brands, mobile: false, platform: 'macOS' }),
-        };
-        Object.defineProperty(Navigator.prototype, 'userAgentData', {
-          configurable: true,
-          enumerable: true,
-          get: () => uaData,
-        });
-      } catch {}
-
-      try {
-        // navigator.plugins / navigator.mimeTypes — headless Chromium
-        // returns empty arrays; real desktop Chrome ships with a small
-        // non-zero set. A length of 0 is a common bot heuristic.
-        const fakePlugins = [
-          { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-          { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-          { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-          { name: 'Microsoft Edge PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-          { name: 'WebKit built-in PDF', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
-        ];
-        Object.defineProperty(Navigator.prototype, 'plugins', {
-          configurable: true,
-          get: () => fakePlugins,
-        });
-      } catch {}
-
-      try {
-        // navigator.languages — headless Chromium sometimes returns an
-        // empty array if the locale isn't wired through. Pin to en-US
-        // so it matches the Accept-Language header from the context.
-        Object.defineProperty(Navigator.prototype, 'languages', {
-          configurable: true,
-          get: () => ['en-US', 'en'],
-        });
-      } catch {}
-
-      try {
-        // window.chrome — the runtime object real Chrome exposes that
-        // bare Chromium does not. Sites probe \`window.chrome.runtime\`
-        // as a "is this Google Chrome" gate; an empty stub is enough
-        // to pass that probe without emulating the full surface.
-        if (!window.chrome) {
-          Object.defineProperty(window, 'chrome', {
-            configurable: true,
-            enumerable: true,
-            writable: true,
-            value: { runtime: {}, app: {}, csi: () => {}, loadTimes: () => {} },
-          });
-        }
-      } catch {}
-
-      try {
-        // Notifications permission — headless Chromium always reports
-        // 'denied'; real Chrome reports 'default' until the user grants
-        // it. Some bot detectors compare \`Notification.permission\`
-        // against the result of \`navigator.permissions.query\` and
-        // flag the inconsistent headless pairing.
-        const origQuery = navigator.permissions && navigator.permissions.query;
-        if (origQuery) {
-          navigator.permissions.query = (params) => (
-            params && params.name === 'notifications'
-              ? Promise.resolve({ state: Notification.permission === 'denied' ? 'prompt' : Notification.permission })
-              : origQuery.call(navigator.permissions, params)
-          );
-        }
-      } catch {}
-    })();
-  `;
-}

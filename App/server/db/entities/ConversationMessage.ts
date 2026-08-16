@@ -48,6 +48,33 @@ export class ConversationMessage {
   progressLabel!: string | null;
 
   /**
+   * Prompt tokens the provider billed for the most recent model turn behind
+   * this reply, as counted by its own tokenizer. NULL on user messages, on
+   * replies from a provider that reported no usage, and on every row written
+   * before this column existed.
+   *
+   * Stored next to {@link contextWindow} rather than as a precomputed percent
+   * so the UI can say "128,000 of 200,000" and so a later window correction
+   * re-reads history correctly instead of freezing yesterday's arithmetic.
+   */
+  @Column({ type: "integer", nullable: true })
+  contextTokens!: number | null;
+
+  /**
+   * The model's context window at the time of this turn, or NULL when it was
+   * never probed or set by hand.
+   *
+   * Snapshotted per message rather than read live off the AIModel row, because
+   * the window genuinely moves: a Member can switch models mid-thread, an
+   * operator can restart vLLM with a different `--max-model-len`, and
+   * `agent/contextWindowRefresh.ts` re-probes every three hours. Joining an old
+   * token count to today's window would silently misreport turns that already
+   * happened.
+   */
+  @Column({ type: "integer", nullable: true })
+  contextWindow!: number | null;
+
+  /**
    * AI Model selected for this durable assistant turn. NULL on user messages,
    * legacy replies, and turns accepted while the employee had no model.
    * Persisting the choice keeps recovery on the same brain even if the

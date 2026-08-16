@@ -316,6 +316,34 @@ export type IntegrationRuntimeContext = {
    * days-old approval can't fire against changed campaign state.
    */
   approvalSnapshot?: Record<string, unknown>;
+  /**
+   * The calling employee's shared browser session state — the same cookie
+   * jar behind their `browser_*` tools, which a human can watch live and
+   * take over.
+   *
+   * Browser-login providers use it to escape a dead end: their own headless
+   * Chromium has no viewer and no takeover, so when a site challenges the
+   * login there is nobody to answer. Reading this lets a provider adopt the
+   * session a human established by hand in the live browser panel; writing
+   * it back means a login the provider *did* manage carries over to the
+   * employee's own browsing.
+   *
+   * Host-bound closure, same contract as `assertCapability`: the identity
+   * whose jar this is gets bound in by whoever builds the context, never
+   * read back off `employeeId` here. Contexts with no employee (pipelines,
+   * approval replay) leave it undefined, and providers must treat that as
+   * "no shared session available" rather than reaching for a default.
+   *
+   * `domains` scopes both directions to the site the provider actually owns
+   * (e.g. `["x.com", "twitter.com"]`). It is not a convenience: the jar
+   * holds every site the employee browses, a provider persists what it
+   * reads onto a Connection row other employees may hold, and a provider
+   * writing back must not clear logins it knows nothing about.
+   */
+  sharedBrowserState?: {
+    load(domains: string[]): Promise<unknown | undefined>;
+    save(state: unknown, domains: string[]): Promise<void>;
+  };
 };
 
 /**
@@ -361,6 +389,30 @@ export class ApprovalRequiredError extends Error {
   ) {
     super(`Human approval required: ${title}`);
     this.name = "ApprovalRequiredError";
+  }
+}
+
+/**
+ * Throw from inside `invokeTool` when the *Connection itself* is unusable —
+ * expired cookies, a captcha wall, a revoked token — as opposed to one call
+ * having bad arguments. The central dispatcher records the failure on the
+ * Connection row (so Settings → Integrations stops showing a green pill for
+ * something that cannot work) and hands the same sentence to the AI
+ * employee.
+ *
+ * That last part is the point. The employee and the operator previously got
+ * two different stories about the same failure, so the employee filled the
+ * gap with a guess. One `message`, carrying both what happened and what to
+ * do about it, goes to both.
+ */
+export class ConnectionAuthError extends Error {
+  constructor(
+    message: string,
+    /** How the Connection row should be marked. */
+    public readonly connectionStatus: "error" | "expired" = "error",
+  ) {
+    super(message);
+    this.name = "ConnectionAuthError";
   }
 }
 
@@ -453,13 +505,39 @@ export type IntegrationProvider = {
   ): Promise<{ config: IntegrationConfig; accountHint: string }>;
 
   /**
+   * Which of this provider's tools actually work under a given auth mode.
+   * Defaults to "all of them" when a provider doesn't implement it.
+   *
+   * A provider that supports several auth modes rarely supports the same
+   * tools in each: X's browser-login mode can post and like, but the DM and
+   * search endpoints have no stable UI to drive. Advertising the full list
+   * regardless is how an AI employee ends up promising a "direct API" path
+   * that does not exist and then reporting a browser failure it never
+   * expected. The dispatcher asks this before listing a tool, so the model
+   * only ever sees what the Connection in front of it can really do.
+   */
+  supportsTool?(toolName: string, authMode: IntegrationAuthMode): boolean;
+
+  /**
+   * A one-line, mode-specific caveat appended to every tool description for
+   * Connections in this auth mode — "drives a headless browser; a human may
+   * need to sign in". Purely informational, and only worth implementing
+   * where the mode changes what the model should expect or promise.
+   */
+  describeAuthMode?(authMode: IntegrationAuthMode): string | undefined;
+
+  /**
    * Cheap read-only health check. Called on demand from the UI and when the
    * connection is first created; never called automatically on every tool
    * invocation (we want tool calls to be fast).
+   *
+   * `status` lets a provider distinguish "this credential is broken" from
+   * "this credential merely needs a fresh sign-in"; omit it and `ok` maps to
+   * connected/error as before.
    */
   checkStatus?(
     ctx: IntegrationRuntimeContext,
-  ): Promise<{ ok: boolean; message?: string }>;
+  ): Promise<{ ok: boolean; message?: string; status?: "connected" | "error" | "expired" }>;
 
   /** Run one tool. Return any JSON-serializable value. */
   invokeTool(

@@ -228,6 +228,13 @@ export function Browser() {
         involved; see <DocLink to="/docs/self-hosting">Configuration</DocLink> for where data lives
         on disk.
       </P>
+      <P>
+        That per-employee session is also what{" "}
+        <DocLink to="/docs/integrations">browser-login Connections</DocLink> use. When a site
+        challenges a stored-password sign-in with a captcha or a 2FA prompt, the fix is to take over
+        here and sign in once — the Connection picks up the session you established and stops
+        failing.
+      </P>
 
       <Callout title="Reserved name">
         <Code>browser</Code> is a reserved MCP server name — a user-configured server with that name

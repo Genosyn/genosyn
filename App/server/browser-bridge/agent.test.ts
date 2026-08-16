@@ -61,7 +61,7 @@ const children = new Set<ChildProcess>();
 const servers = new Set<Server>();
 
 after(async () => {
-  for (const child of children) child.kill("SIGKILL");
+  for (const child of children) killTree(child);
   children.clear();
   await Promise.all(
     [...servers].map(
@@ -421,9 +421,25 @@ function runAgent(args: string[], env: Record<string, string> = {}): ChildProces
   const child = spawn(process.execPath, [AGENT_PATH, ...args], {
     env: { ...process.env, GENOSYN_BRIDGE_HOME: BRIDGE_HOME, ...env },
     stdio: ["ignore", "pipe", "pipe"],
+    // Its own process group, so teardown can take the Chrome it launched with
+    // it. SIGKILL gives the agent no chance to clean up after itself, and a
+    // surviving browser holds the runner's pipes open — a hung suite rather
+    // than a failing one, which is far harder to read.
+    detached: true,
   });
   children.add(child);
   return child;
+}
+
+/** Kill the agent and anything it started, not just the agent. */
+function killTree(child: ChildProcess): void {
+  if (child.pid === undefined) return;
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    // The group is already gone, or the child never made it that far.
+    child.kill("SIGKILL");
+  }
 }
 
 async function exited(child: ChildProcess): Promise<{ code: number | null; stderr: string }> {

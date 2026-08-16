@@ -266,6 +266,15 @@ llama-server \\
         detected. A number you type always wins over the probe, so it survives
         key rotations and re-saves; <Strong>Clear</Strong> hands the field back.
       </P>
+      <P>
+        For everything Genosyn does detect, it re-asks your server{" "}
+        <Strong>every three hours</Strong> — so restarting vLLM with a longer{" "}
+        <Code>--max-model-len</Code>, or swapping the weights behind the same
+        model id, lands on the card without you touching anything. A check that
+        can&apos;t reach the box keeps the last known number, and{" "}
+        <Strong>Ask the provider</Strong> runs it immediately when you don&apos;t
+        want to wait.
+      </P>
       <Callout kind="warn" title="Small windows fill up fast.">
         The system prompt carries the Soul, every Skill, and the whole tool
         catalog on <em>every</em> turn — easily 30k tokens on a well-equipped

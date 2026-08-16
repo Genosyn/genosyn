@@ -17,10 +17,93 @@ import { dataRoot, employeeBrowserStateFile, legacyEmployeeBrowserStateFile } fr
  * their auth off those will still need a re-login.
  */
 
-type StorageState = {
+export type StorageState = {
   cookies: unknown[];
   origins: Array<{ origin: string; localStorage: Array<{ name: string; value: string }> }>;
 };
+
+/**
+ * Does this cookie domain or origin belong to one of `domains`?
+ *
+ * Cookie domains may carry a leading dot (`.x.com` = "and all subdomains"),
+ * and an origin is a URL. Both reduce to a hostname, which either equals a
+ * listed domain or is a subdomain of it. Substring matching would be wrong
+ * and dangerous here — `evil-x.com` must not match `x.com`.
+ */
+function hostMatchesDomains(host: string, domains: string[]): boolean {
+  const normalized = host.replace(/^\./, "").toLowerCase();
+  return domains.some((domain) => {
+    const d = domain.replace(/^\./, "").toLowerCase();
+    return normalized === d || normalized.endsWith(`.${d}`);
+  });
+}
+
+function cookieMatchesDomains(cookie: unknown, domains: string[]): boolean {
+  const domain = (cookie as { domain?: unknown } | null)?.domain;
+  return typeof domain === "string" && hostMatchesDomains(domain, domains);
+}
+
+function originMatchesDomains(origin: string, domains: string[]): boolean {
+  try {
+    return hostMatchesDomains(new URL(origin).hostname, domains);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Narrow a storage state to the sites in `domains`.
+ *
+ * An employee's jar accumulates cookies for everything they browse. A
+ * browser-login Connection only has business with its own site, and its
+ * state is persisted onto a Connection row that other employees may hold a
+ * Grant for — so handing it the whole jar would put one employee's Gmail
+ * session inside a Connection another employee can use. Both directions of
+ * the share are scoped through here.
+ */
+export function filterStorageState(state: StorageState, domains: string[]): StorageState {
+  return {
+    cookies: state.cookies.filter((cookie) => cookieMatchesDomains(cookie, domains)),
+    origins: state.origins.filter((origin) => originMatchesDomains(origin.origin, domains)),
+  };
+}
+
+/**
+ * Fold `incoming` into `base`, but only for `domains`: every base entry for
+ * those sites is dropped and replaced wholesale, and everything else in
+ * `base` is left exactly as it was.
+ *
+ * Replace-per-domain rather than merge-per-cookie because a sign-out is
+ * expressed by a cookie's *absence*; merging key-by-key would resurrect a
+ * dead session token. Untouched domains survive because a Connection
+ * refreshing its own site must not clear the employee's other logins.
+ */
+export function mergeStorageState(
+  base: StorageState | undefined,
+  incoming: StorageState,
+  domains: string[],
+): StorageState {
+  const scoped = filterStorageState(incoming, domains);
+  if (!base) return scoped;
+  return {
+    cookies: [
+      ...base.cookies.filter((cookie) => !cookieMatchesDomains(cookie, domains)),
+      ...scoped.cookies,
+    ],
+    origins: [
+      ...base.origins.filter((origin) => !originMatchesDomains(origin.origin, domains)),
+      ...scoped.origins,
+    ],
+  };
+}
+
+/** Best-effort coercion of an unknown blob into a StorageState. */
+export function asStorageState(value: unknown): StorageState | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Partial<StorageState>;
+  if (!Array.isArray(record.cookies) || !Array.isArray(record.origins)) return undefined;
+  return { cookies: record.cookies, origins: record.origins };
+}
 
 type BrowserStorageIdentity = {
   companySlug: string;

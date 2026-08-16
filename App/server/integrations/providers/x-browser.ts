@@ -15,18 +15,56 @@
  *     time of writing) and DM endpoints are paywalled behind Basic+ access.
  *   - Some operators don't want to register an X dev project at all.
  *
- * Caveats — surfaced honestly in the UI:
- *   - X has aggressive anti-automation. "Unusual login" challenges, captchas,
- *     and 2FA can all block this flow. We don't attempt to defeat them; if
- *     login fails, we surface the actual error and the operator can sort it
- *     out (use a less-suspicious account, disable 2FA, complete the email
- *     verification once manually).
- *   - The DOM selectors below are X-internal `data-testid`s. They drift.
- *     Treat any flake from this module as a signal to re-check selectors
- *     against the current x.com login + compose surface.
+ * X has aggressive anti-automation, and we do not attempt to defeat it. What
+ * this module does instead, in order:
+ *
+ *   1. **Don't look like a robot in the first place.** The launch profile is
+ *      the same desktop-Chrome disguise the App-owned browser uses
+ *      (`services/browserProfile.ts`). This driver used to announce itself
+ *      with a `Genosyn/0.1` user agent and leave `navigator.webdriver` set,
+ *      which is a large part of why its logins got challenged at all.
+ *   2. **Reuse a session a human already established.** The employee's own
+ *      `browser_*` tools have a live view with "Take over", so a human can
+ *      sign into X by hand and solve whatever challenge appears. That
+ *      session is shared through `ctx.sharedBrowserState`, so this driver
+ *      picks it up instead of driving a doomed credential login. This is the
+ *      escape hatch: no captcha is ever solved by Genosyn, it is handed to a
+ *      person and the result is reused.
+ *   3. **Fail honestly, once.** When a login really is walled off, classify
+ *      it (`services/browserConnectionHealth.ts`), record it on the
+ *      connection, and refuse to re-drive the login until the cooldown
+ *      lapses — repeated attempts harden the block rather than clearing it.
+ *      The error carries the remedy, so the operator and the AI employee
+ *      read the same explanation.
+ *
+ * The DOM selectors below are X-internal `data-testid`s. They drift. Treat
+ * any flake from this module as a signal to re-check selectors against the
+ * current x.com login + compose surface.
  */
 
-import type { IntegrationConfig, IntegrationRuntimeContext } from "../types.js";
+import {
+  chromeContextOptions,
+  chromeMaskInitScript,
+  chromiumLaunchOptions,
+  loadChromiumLauncher,
+  type ChromiumLauncher,
+} from "../../services/browserProfile.js";
+import { asStorageState, filterStorageState } from "../../services/browserStorage.js";
+import {
+  isCoolingDown,
+  readSessionHealth,
+  recordBrowserBlock,
+  recordBrowserSessionOk,
+  describeBrowserBlock,
+  type BrowserSessionHealth,
+} from "../../services/browserConnectionHealth.js";
+import {
+  ConnectionAuthError,
+  type IntegrationConfig,
+  type IntegrationRuntimeContext,
+} from "../types.js";
+
+export const X_SITE_NAME = "X";
 
 export type XBrowserConfig = {
   username: string;
@@ -42,39 +80,26 @@ export type XBrowserConfig = {
   storageStateJson?: string;
   /** ms epoch of the last successful login. Informational only. */
   lastLoginAt?: number;
+  /** What we last observed about this session — signed in, or walled off
+   * and why. Read by `checkStatus` so the UI stops claiming "Connected"
+   * for a session that cannot post. */
+  sessionHealth?: BrowserSessionHealth;
 };
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const POST_TIMEOUT_MS = 60_000;
 const X_LOGIN_URL = "https://x.com/i/flow/login";
 const X_HOME_URL = "https://x.com/home";
-const X_USER_AGENT =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Genosyn/0.1 Safari/537.36";
-
-const CHROMIUM_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined;
-
-type Playwright = {
-  chromium: {
-    launch(options: Record<string, unknown>): Promise<unknown>;
-  };
-};
 
 /**
- * Lazy-load `playwright-core` so the integrations module stays cheap to
- * import for stock installs that never use a browser-mode connection.
+ * The only domains this connection has any business holding cookies for.
+ * Everything read from or written to the employee's shared jar is clipped
+ * to these, and so is what we persist on the Connection row — a Connection
+ * other employees may hold a Grant on must not end up carrying somebody's
+ * unrelated logins. `twitter.com` is still live for redirects and some
+ * auth hops.
  */
-async function getPlaywright(): Promise<Playwright> {
-  try {
-    const mod = await import("playwright-core");
-    return { chromium: mod.chromium as unknown as Playwright["chromium"] };
-  } catch (err) {
-    throw new Error(
-      `playwright-core is not installed: ${
-        err instanceof Error ? err.message : String(err)
-      }. Browser-login connections require the App container to bundle Chromium and playwright-core.`,
-    );
-  }
-}
+const X_COOKIE_DOMAINS = ["x.com", "twitter.com"];
 
 type RunOpts<T> = {
   cfg: XBrowserConfig;
@@ -110,6 +135,9 @@ type PWPage = {
 type PWContext = {
   newPage(): Promise<PWPage>;
   storageState(): Promise<unknown>;
+  /** Optional so an older playwright-core degrades to a weaker disguise
+   * rather than failing the call outright. */
+  addInitScript?(script: { content: string }): Promise<unknown>;
   close(): Promise<unknown>;
 };
 
@@ -117,6 +145,60 @@ type PWBrowser = {
   newContext(opts: Record<string, unknown>): Promise<PWContext>;
   close(): Promise<unknown>;
 };
+
+/**
+ * Where the cookies we're about to use came from. Worth distinguishing:
+ * a session a human established by hand in the live browser panel is the
+ * one path that survives a captcha, so when it works we say so, and when we
+ * *don't* have one that's the first thing to suggest.
+ */
+type SessionSource = "connection" | "shared" | "fresh-login";
+
+/**
+ * Human-driveable sign-in is only on the table when the calling employee
+ * has a shared browser jar — i.e. Browser access is on for them.
+ */
+function manualSignInAvailable(ctx: IntegrationRuntimeContext): boolean {
+  return Boolean(ctx.sharedBrowserState);
+}
+
+/**
+ * Turn any driver failure into the one sentence both the operator and the
+ * AI employee will see, stamp the health record onto the connection config,
+ * and hand back a `ConnectionAuthError` for the dispatcher to record.
+ *
+ * `ctx.setConfig` is called even though we're on our way to throwing: the
+ * dispatcher persists a config a provider rewrote before failing, precisely
+ * so the cooldown we just computed survives to the next call.
+ */
+function blockAndDescribe(args: {
+  cfg: XBrowserConfig;
+  ctx: IntegrationRuntimeContext;
+  error: unknown;
+  now?: number;
+}): ConnectionAuthError {
+  const now = args.now ?? Date.now();
+  const health = recordBrowserBlock({
+    previous: readSessionHealth(args.cfg),
+    error: args.error,
+    now,
+  });
+  const next: XBrowserConfig = { ...args.cfg, sessionHealth: health };
+  args.ctx.setConfig?.(next as unknown as IntegrationConfig);
+  args.ctx.config = next as unknown as IntegrationConfig;
+  const message = describeBrowserBlock({
+    health,
+    siteName: X_SITE_NAME,
+    now,
+    manualSignInAvailable: manualSignInAvailable(args.ctx),
+  });
+  // "Signed out" is a softer state than "broken" — the operator should see
+  // a connection that needs a sign-in, not one that needs rebuilding.
+  return new ConnectionAuthError(
+    message,
+    health.reason === "session_expired" ? "expired" : "error",
+  );
+}
 
 /**
  * Open a browser, restore (or create) a session, run `action`, persist the
@@ -128,39 +210,107 @@ type PWBrowser = {
  * web app). If we ever need throughput we can pool here.
  */
 export async function runWithXBrowser<T>(opts: RunOpts<T>): Promise<T> {
-  const pw = await getPlaywright();
-  const browser = (await pw.chromium.launch({
-    headless: true,
-    executablePath: CHROMIUM_PATH,
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
-  })) as PWBrowser;
+  const now = Date.now();
+  const health = readSessionHealth(opts.cfg);
+
+  // A blocked sign-in stays blocked. Re-driving it every call burns a
+  // minute apiece and teaches X that this account is automated — so refuse
+  // early and repeat the remedy instead of discovering the same wall again.
+  if (isCoolingDown(health, now)) {
+    throw new ConnectionAuthError(
+      describeBrowserBlock({
+        health,
+        siteName: X_SITE_NAME,
+        now,
+        manualSignInAvailable: manualSignInAvailable(opts.ctx),
+      }),
+      health.reason === "session_expired" ? "expired" : "error",
+    );
+  }
+
+  // A browser we cannot load *or* cannot spawn is the same problem to the
+  // operator — the image is missing a working Chromium — and neither is
+  // something the account's owner can fix by signing in.
+  let browser: PWBrowser;
+  try {
+    const chromium: ChromiumLauncher = await loadChromiumLauncher(
+      "Browser-login connections require the App container to bundle Chromium and playwright-core.",
+    );
+    browser = (await chromium.launch(chromiumLaunchOptions())) as PWBrowser;
+  } catch (err) {
+    throw blockAndDescribe({ cfg: opts.cfg, ctx: opts.ctx, error: err, now });
+  }
 
   let context: PWContext | null = null;
   let page: PWPage | null = null;
   try {
-    const storage = parseStorageState(opts.cfg.storageStateJson);
-    context = await browser.newContext({
-      viewport: { width: 1280, height: 800 },
-      userAgent: X_USER_AGENT,
-      storageState: storage ?? undefined,
-    });
+    // Two places a signed-in X session can come from, cheapest first:
+    // the one this connection saved, then the one the employee's own
+    // browser holds — which is where a human's manual sign-in lands.
+    const connectionState = parseStorageState(opts.cfg.storageStateJson);
+    const sharedState = await loadSharedState(opts.ctx);
+    let source: SessionSource = connectionState ? "connection" : "shared";
+
+    context = await newXContext(browser, connectionState ?? sharedState);
     page = await context.newPage();
 
-    if (!storage || !(await isLoggedIn(page))) {
-      await loginToX(page, opts.cfg);
+    let signedIn = Boolean(connectionState ?? sharedState) && (await isLoggedIn(page));
+
+    // The connection's own cookies died but the employee has a browser
+    // session of their own — very likely because a human just signed in
+    // there by hand. Try it before falling back to a credential login.
+    if (!signedIn && connectionState && sharedState) {
+      await context.close().catch(() => undefined);
+      context = await newXContext(browser, sharedState);
+      page = await context.newPage();
+      source = "shared";
+      signedIn = await isLoggedIn(page);
     }
 
-    const result = await opts.action(page, opts.cfg);
+    if (!signedIn) {
+      source = "fresh-login";
+      try {
+        await loginToX(page, opts.cfg);
+      } catch (err) {
+        throw blockAndDescribe({ cfg: opts.cfg, ctx: opts.ctx, error: err, now: Date.now() });
+      }
+    }
 
-    // Persist fresh cookies for the next call.
-    const fresh = await context.storageState();
+    let result: T;
+    try {
+      result = await opts.action(page, opts.cfg);
+    } catch (err) {
+      // A session can pass the cheap logged-in probe and still get bounced
+      // to a login or challenge page mid-action. That's a connection
+      // problem wearing a tool error's clothes — classify it as one so the
+      // operator gets the remedy instead of a selector timeout.
+      if (looksLikeAuthWall(page.url())) {
+        throw blockAndDescribe({ cfg: opts.cfg, ctx: opts.ctx, error: err, now: Date.now() });
+      }
+      throw err;
+    }
+
+    // Persist fresh cookies for the next call, and clear the health record —
+    // whatever was blocking us isn't any more. Clipped to X's own domains:
+    // the context may have been seeded from the employee's shared jar, and
+    // this blob lands on a Connection row other employees can hold.
+    const fresh = scopeToX(await context.storageState());
     const next: XBrowserConfig = {
       ...opts.cfg,
       storageStateJson: JSON.stringify(fresh),
       lastLoginAt: Date.now(),
+      sessionHealth: recordBrowserSessionOk(Date.now()),
     };
     opts.ctx.setConfig?.(next as unknown as IntegrationConfig);
     opts.ctx.config = next as unknown as IntegrationConfig;
+
+    // Push the session back to the employee's shared jar too, so a login
+    // this driver managed on its own saves the human a sign-in later. Only
+    // when we didn't get it from there in the first place — rewriting the
+    // jar with what we just read from it is pure churn.
+    if (source !== "shared") {
+      await saveSharedState(opts.ctx, fresh);
+    }
 
     return result;
   } finally {
@@ -182,6 +332,56 @@ export async function runWithXBrowser<T>(opts: RunOpts<T>): Promise<T> {
   }
 }
 
+/**
+ * Clip a Playwright storage state to X's own cookies and origins. Anything
+ * we cannot parse as a storage state passes through untouched rather than
+ * being silently emptied — losing the session would be the worse failure.
+ */
+function scopeToX(state: unknown): unknown {
+  const parsed = asStorageState(state);
+  return parsed ? filterStorageState(parsed, X_COOKIE_DOMAINS) : state;
+}
+
+/** One context factory so the disguise and the init script can't drift
+ * between the first attempt and the shared-session retry. */
+async function newXContext(
+  browser: PWBrowser,
+  storageState: Record<string, unknown> | undefined | null,
+): Promise<PWContext> {
+  const context = await browser.newContext({
+    ...chromeContextOptions(),
+    storageState: storageState ?? undefined,
+  });
+  // Best-effort: an older playwright-core without addInitScript on the
+  // context shouldn't take the whole call down, it just means a weaker
+  // disguise.
+  await context.addInitScript?.({ content: chromeMaskInitScript() }).catch(() => undefined);
+  return context;
+}
+
+async function loadSharedState(
+  ctx: IntegrationRuntimeContext,
+): Promise<Record<string, unknown> | null> {
+  if (!ctx.sharedBrowserState) return null;
+  try {
+    const state = await ctx.sharedBrowserState.load(X_COOKIE_DOMAINS);
+    if (state && typeof state === "object") return state as Record<string, unknown>;
+  } catch {
+    // The shared jar is an optimization, never a gate — a read failure just
+    // means we go the long way round.
+  }
+  return null;
+}
+
+async function saveSharedState(ctx: IntegrationRuntimeContext, state: unknown): Promise<void> {
+  if (!ctx.sharedBrowserState) return;
+  try {
+    await ctx.sharedBrowserState.save(state, X_COOKIE_DOMAINS);
+  } catch {
+    // Same — best effort.
+  }
+}
+
 function parseStorageState(raw: string | undefined): Record<string, unknown> | null {
   if (!raw) return null;
   try {
@@ -194,16 +394,25 @@ function parseStorageState(raw: string | undefined): Record<string, unknown> | n
 }
 
 /**
+ * URLs X sends us to when it wants a credential or a human. Used both to
+ * decide a session is dead and to recognise a mid-action bounce.
+ */
+export function looksLikeAuthWall(url: string): boolean {
+  return /\/i\/flow\/login|\/login|\/i\/flow\/(two|signup)|\/account\/access|\/i\/flow\/consent|\/challenge/.test(
+    url,
+  );
+}
+
+/**
  * Cheap signal that an X session is still good. We hit /home and look for
  * the "compose tweet" sidebar button; if it's there we're logged in, if
- * we get bounced back to /i/flow/login we're not.
+ * we get bounced to a login or challenge URL we're not.
  */
 async function isLoggedIn(page: PWPage): Promise<boolean> {
   try {
     await page.goto(X_HOME_URL, { waitUntil: "domcontentloaded", timeout: DEFAULT_TIMEOUT_MS });
     await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
-    const url = page.url();
-    if (/\/i\/flow\/login/.test(url) || /\/login/.test(url)) return false;
+    if (looksLikeAuthWall(page.url())) return false;
     const compose = page.locator('[data-testid="SideNav_NewTweet_Button"], [data-testid="tweetButtonInline"]').first();
     return await compose.isVisible();
   } catch {

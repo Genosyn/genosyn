@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Inbox,
   Reply,
+  RotateCcw,
   Send,
   SlidersHorizontal,
   Sparkles,
@@ -50,7 +51,67 @@ import {
  * Every mail thread has its own conversation, streamed over SSE like employee
  * chat. The employee the last reply came from stays on this email's chat until
  * somebody else is tagged.
+ *
+ * The reply belongs to the server, not to this connection. The turn is
+ * persisted as a `working` row before the model starts, so a dropped stream,
+ * a closed panel, or a reload picks the same turn back up by polling instead
+ * of dead-ending on a network error — and the human never has to guess
+ * whether re-sending would duplicate the work.
  */
+
+/** How often a panel that lost its stream re-reads the in-flight turn. */
+const FOLLOW_POLL_MS = 2_000;
+
+/** Replace a row by id, or append it when this panel hasn't seen it yet. */
+function upsertAssistantMessage(
+  prev: MailAssistantMessage[] | null,
+  incoming: MailAssistantMessage,
+): MailAssistantMessage[] {
+  const list = prev ?? [];
+  const index = list.findIndex((m) => m.id === incoming.id);
+  if (index === -1) return [...list, incoming];
+  const next = [...list];
+  next[index] = incoming;
+  return next;
+}
+
+/**
+ * Fold a freshly fetched conversation into what this panel is showing. The
+ * server list wins for anything persisted; purely local rows (an optimistic
+ * bubble, a transport-error notice) are kept unless the server now has the
+ * real thing.
+ */
+function mergeAssistantMessages(
+  prev: MailAssistantMessage[] | null,
+  incoming: MailAssistantMessage[],
+): MailAssistantMessage[] {
+  if (!prev || prev.length === 0) return incoming;
+  const known = new Set(incoming.map((m) => m.id));
+  const local = prev.filter((m) => {
+    if (known.has(m.id)) return false;
+    // A turn accepted while the stream was down persisted the human's
+    // message server-side; drop the optimistic twin rather than show both.
+    if (m.id.startsWith("temp-") && m.role === "user") {
+      return !incoming.some((row) => row.role === "user" && row.content === m.content);
+    }
+    return true;
+  });
+  return [...incoming, ...local];
+}
+
+/**
+ * Only shown once the server has confirmed it has no reply running for this
+ * message — so it can say plainly that nothing started, rather than leaving
+ * the human guessing whether a retry would duplicate the work.
+ */
+function formatSendFailure(detail: string): string {
+  const clean = detail.replace(/\s+/g, " ").trim() || "Unknown network error";
+  return [
+    `Genosyn didn’t start a reply to this message: ${clean}`,
+    "",
+    "Nothing was sent from your mailbox. Check that the Genosyn server is reachable from this browser, then try again.",
+  ].join("\n");
+}
 
 type Props = {
   company: Company;
@@ -76,7 +137,10 @@ export function MailAssistant({
   const [messages, setMessages] = React.useState<MailAssistantMessage[] | null>(null);
   const [roster, setRoster] = React.useState<MailAssistantRosterEntry[]>([]);
   const [draft, setDraft] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
+  /** True only while this panel holds the live SSE stream for a turn. */
+  const [streamOpen, setStreamOpen] = React.useState(false);
+  /** True once following the persisted turn has fallen back to polling. */
+  const [reconnecting, setReconnecting] = React.useState(false);
   const [streaming, setStreaming] = React.useState<string | null>(null);
   const [target, setTarget] = React.useState<{
     id: string;
@@ -109,18 +173,18 @@ export function MailAssistant({
     setResourceQuery(null);
     setResourceStart(null);
     setStreaming(null);
-    setBusy(false);
+    setStreamOpen(false);
+    setReconnecting(false);
     mailApi
       .assistant(company.id, account.id, threadId)
       .then((res) => {
         if (cancelled) return;
         // Merge rather than replace: a message sent while the bootstrap was
         // in flight must survive (its optimistic bubble isn't in `res`).
-        setMessages((prev) => {
-          if (!prev || prev.length === 0) return res.messages;
-          const known = new Set(res.messages.map((m) => m.id));
-          return [...res.messages, ...prev.filter((m) => !known.has(m.id))];
-        });
+        // A `working` row in the response means a turn started elsewhere —
+        // another tab, or this panel before it was closed — is still running;
+        // the follow effect below takes it from here.
+        setMessages((prev) => mergeAssistantMessages(prev, res.messages));
         setRoster(res.roster);
         const lastAnswered = [...res.messages]
           .reverse()
@@ -154,10 +218,57 @@ export function MailAssistant({
     scrollToBottom();
   }, [messages?.length, streaming, scrollToBottom]);
 
+  // The persisted in-flight turn, if any. It is the panel's single source of
+  // truth for "an answer is coming" — the live stream is only the fast path
+  // to the same row.
+  const workingMessage = React.useMemo(
+    () => (messages ?? []).find((m) => m.role === "assistant" && m.status === "working") ?? null,
+    [messages],
+  );
+  const workingId = workingMessage?.id ?? null;
+  const turnInFlight = streamOpen || workingId !== null;
+
+  // Follow a turn this panel is not streaming: the stream dropped, the panel
+  // was reopened mid-reply, or another tab started it. Polling the bootstrap
+  // is enough — the row finalizes exactly once, whoever is watching.
+  React.useEffect(() => {
+    if (!workingId || streamOpen) return;
+    let cancelled = false;
+    let timer = 0;
+    const tick = async () => {
+      try {
+        const res = await mailApi.assistant(company.id, account.id, threadId);
+        if (cancelled) return;
+        setRoster(res.roster);
+        setMessages((prev) => mergeAssistantMessages(prev, res.messages));
+        setReconnecting(false);
+      } catch {
+        // The server may be restarting. Keep waiting: the row outlives it,
+        // and boot recovery closes it out if the turn really was lost.
+        if (!cancelled) setReconnecting(true);
+      }
+      if (!cancelled) timer = window.setTimeout(tick, FOLLOW_POLL_MS);
+    };
+    timer = window.setTimeout(tick, FOLLOW_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [workingId, streamOpen, company.id, account.id, threadId]);
+
+  // Partial text from a stream that died has already been persisted on the
+  // finalized row, so drop the local copy once the turn resolves.
+  React.useEffect(() => {
+    if (!turnInFlight) {
+      setStreaming(null);
+      setReconnecting(false);
+    }
+  }, [turnInFlight]);
+
   const send = React.useCallback(
     async (text: string) => {
       const message = text.trim();
-      if (!message || busy) return;
+      if (!message || turnInFlight) return;
       if (message === "/new") {
         try {
           await mailApi.assistantClear(company.id, account.id, threadId);
@@ -172,7 +283,8 @@ export function MailAssistant({
         }
         return;
       }
-      setBusy(true);
+      setStreamOpen(true);
+      setReconnecting(false);
       setDraft("");
       setMentionQuery(null);
       setResourceQuery(null);
@@ -190,7 +302,9 @@ export function MailAssistant({
         createdAt: new Date().toISOString(),
       };
       setMessages((prev) => [...(prev ?? []), temp]);
-      let sawAssistant = false;
+      // Once the server has persisted the in-flight row, this stream is only
+      // a subscriber: losing it is not losing the reply.
+      let accepted = false;
       let accumulated = "";
       const controller = new AbortController();
       streamAbortRef.current?.abort();
@@ -216,13 +330,16 @@ export function MailAssistant({
                 }
               ).employee;
               setTarget(emp);
+            } else if (event === "working") {
+              accepted = true;
+              setMessages((prev) => upsertAssistantMessage(prev, data as MailAssistantMessage));
             } else if (event === "chunk") {
               accumulated += (data as { text: string }).text;
               setStreaming(accumulated);
             } else if (event === "assistant") {
-              sawAssistant = true;
+              accepted = true;
               setStreaming(null);
-              setMessages((prev) => [...(prev ?? []), data as MailAssistantMessage]);
+              setMessages((prev) => upsertAssistantMessage(prev, data as MailAssistantMessage));
             } else if (event === "error") {
               throw new Error((data as { message: string }).message);
             }
@@ -231,30 +348,72 @@ export function MailAssistant({
         );
       } catch (err) {
         // A deliberate cancel (mailbox switch, unmount) is not an error the
-        // human needs a bubble for.
+        // human needs a bubble for. Neither is a dropped connection once the
+        // turn was accepted: the follow effect polls that row to its answer.
         const aborted = (err as Error).name === "AbortError" || controller.signal.aborted;
-        if (!sawAssistant && !aborted) {
-          setMessages((prev) => [
-            ...(prev ?? []),
-            {
-              ...temp,
-              id: `temp-err-${Date.now()}`,
-              role: "assistant",
-              status: "error",
-              content: accumulated
-                ? `${accumulated}\n\n${(err as Error).message}`
-                : (err as Error).message,
-            },
-          ]);
+        if (aborted) return;
+        if (!accepted) {
+          // The connection can also die between the server accepting the turn
+          // and this stream hearing about it. Ask the server before telling
+          // the human nothing ran — the answer decides which is true.
+          try {
+            const res = await mailApi.assistant(company.id, account.id, threadId);
+            setRoster(res.roster);
+            setMessages((prev) => mergeAssistantMessages(prev, res.messages));
+            accepted = res.messages.some((m) => m.role === "assistant" && m.status === "working");
+          } catch {
+            // Server unreachable; fall through to the honest failure below.
+          }
         }
+        if (accepted) {
+          setReconnecting(true);
+          return;
+        }
+        setMessages((prev) => [
+          ...(prev ?? []),
+          {
+            ...temp,
+            id: `temp-err-${Date.now()}`,
+            role: "assistant",
+            status: "error",
+            content: formatSendFailure((err as Error).message),
+          },
+        ]);
       } finally {
         if (streamAbortRef.current === controller) streamAbortRef.current = null;
-        setStreaming(null);
-        setBusy(false);
+        setStreamOpen(false);
         scrollToBottom();
       }
     },
-    [busy, company.id, account.id, threadId, focusedMessageId, target, scrollToBottom, toast],
+    [
+      turnInFlight,
+      company.id,
+      account.id,
+      threadId,
+      focusedMessageId,
+      target,
+      scrollToBottom,
+      toast,
+    ],
+  );
+
+  /**
+   * Re-run the human message that produced a failed reply. The panel knows
+   * exactly which one it was, so recovering from an interrupted turn is one
+   * click rather than scrolling up and retyping.
+   */
+  const retryFrom = React.useCallback(
+    (failed: MailAssistantMessage) => {
+      const list = messages ?? [];
+      const index = list.findIndex((m) => m.id === failed.id);
+      for (let i = index - 1; i >= 0; i -= 1) {
+        if (list[i].role === "user") {
+          void send(list[i].content);
+          return;
+        }
+      }
+    },
+    [messages, send],
   );
 
   const markExecuted = React.useCallback((updated: MailAssistantMessage) => {
@@ -454,20 +613,17 @@ export function MailAssistant({
                 openCompose={openCompose}
                 navigate={(to) => navigate(to)}
                 onExecuted={markExecuted}
+                onRetry={retryFrom}
+                streamingText={m.id === workingId ? streaming : null}
+                reconnecting={m.id === workingId && reconnecting}
               />
             ))}
           </>
         )}
-        {busy && streaming === null && (
+        {streamOpen && workingId === null && (
           <div className="flex items-center gap-2 text-xs text-slate-400">
             <Spinner size={12} />
             {target ? `${target.name} is thinking…` : "Thinking…"}
-          </div>
-        )}
-        {streaming !== null && (
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
-            <ChatMarkdown content={streaming} />
-            <span className="ml-0.5 inline-block h-3.5 w-[2px] animate-pulse bg-slate-400 align-middle" />
           </div>
         )}
       </div>
@@ -528,7 +684,11 @@ export function MailAssistant({
             ref={textareaRef}
             value={draft}
             rows={2}
-            placeholder="Ask AI to summarize, reply, edit, or triage…"
+            placeholder={
+              turnInFlight
+                ? `${target?.name ?? "The employee"} is still on your last message…`
+                : "Ask AI to summarize, reply, edit, or triage…"
+            }
             onChange={(e) => {
               setDraft(e.target.value);
               refreshMentionState(e.target.value, e.target.selectionStart);
@@ -548,7 +708,7 @@ export function MailAssistant({
           />
           <button
             onClick={() => void send(draft)}
-            disabled={!draft.trim() || busy}
+            disabled={!draft.trim() || turnInFlight}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-indigo-600 text-white transition-opacity hover:bg-indigo-500 disabled:opacity-40"
             title="Send (Enter)"
           >
@@ -632,6 +792,9 @@ function MessageRow({
   openCompose,
   navigate,
   onExecuted,
+  onRetry,
+  streamingText,
+  reconnecting,
 }: {
   message: MailAssistantMessage;
   company: Company;
@@ -640,6 +803,11 @@ function MessageRow({
   openCompose: (init?: Partial<ComposeInput>) => void;
   navigate: (to: string) => void;
   onExecuted: (updated: MailAssistantMessage) => void;
+  onRetry: (message: MailAssistantMessage) => void;
+  /** Live deltas for an in-flight row this panel is streaming. */
+  streamingText?: string | null;
+  /** This panel lost the stream and is polling the row instead. */
+  reconnecting?: boolean;
 }) {
   if (message.role === "user") {
     return (
@@ -654,6 +822,13 @@ function MessageRow({
   const emp = message.employeeId ? roster.find((r) => r.id === message.employeeId) : undefined;
   const isError = message.status === "error";
   const isSkipped = message.status === "skipped";
+  const isWorking = message.status === "working";
+  // A skipped turn ran nothing and an error turn ended early — both are worth
+  // one click to re-run. The exception is the server-side "tag somebody"
+  // notice (an error row with nobody on it): re-sending the same untagged
+  // message would only earn the same instruction back.
+  const untargetedNotice = isError && !message.employeeId && !message.id.startsWith("temp-");
+  const canRetry = (isError || isSkipped) && !untargetedNotice;
 
   return (
     <div className="flex items-start gap-2">
@@ -683,6 +858,7 @@ function MessageRow({
         <div className="mb-0.5 text-[11px] text-slate-400 dark:text-slate-500">
           {emp?.name ?? "Email AI"}
           {isSkipped ? " · skipped" : ""}
+          {isWorking ? (reconnecting ? " · reconnecting" : " · working") : ""}
         </div>
         <div
           className={clsx(
@@ -694,12 +870,26 @@ function MessageRow({
                 : "bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-200",
           )}
         >
-          {isError || isSkipped ? (
+          {isWorking ? (
+            <WorkingBody
+              name={emp?.name ?? "The employee"}
+              text={streamingText ?? null}
+              reconnecting={Boolean(reconnecting)}
+            />
+          ) : isError || isSkipped ? (
             <div className="whitespace-pre-wrap break-words">{message.content}</div>
           ) : (
             <ChatMarkdown content={message.content} />
           )}
         </div>
+        {canRetry && (
+          <button
+            onClick={() => onRetry(message)}
+            className="mt-1.5 inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-slate-700 dark:text-slate-300 dark:hover:border-indigo-500/50 dark:hover:text-indigo-300"
+          >
+            <RotateCcw size={11} /> Try again
+          </button>
+        )}
         {message.actions.length > 0 && <ActionPills actions={message.actions} />}
         {message.suggestions.length > 0 && (
           <SuggestionButtons
@@ -712,6 +902,38 @@ function MessageRow({
           />
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The in-flight reply. Shows live text when this panel holds the stream, and
+ * an honest "still running, still connected to it" line when it doesn't —
+ * a reply being written somewhere else is not the same as a lost one.
+ */
+function WorkingBody({
+  name,
+  text,
+  reconnecting,
+}: {
+  name: string;
+  text: string | null;
+  reconnecting: boolean;
+}) {
+  if (text) {
+    return (
+      <div>
+        <ChatMarkdown content={text} />
+        <span className="ml-0.5 inline-block h-3.5 w-[2px] animate-pulse bg-slate-400 align-middle" />
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+      <Spinner size={12} />
+      {reconnecting
+        ? `Reconnecting — ${name} is still working on this, and the reply will appear here.`
+        : `${name} is working…`}
     </div>
   );
 }

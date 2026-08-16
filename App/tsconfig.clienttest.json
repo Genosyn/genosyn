@@ -1,0 +1,11 @@
+// Client unit tests run on `node --test`, so they need Node's types — which the
+// app's own client project deliberately does not have (a bare `setTimeout`
+// typed as Node's would quietly lie about what the browser returns). Keeping
+// the tests in their own project lets them import `node:test` without loosening
+// the code they exercise.
+{
+  "extends": "./tsconfig.client.json",
+  "compilerOptions": { "types": ["node"] },
+  "include": ["client/**/*.test.ts"],
+  "exclude": []
+}

@@ -254,7 +254,8 @@ export type MailAssistantMessage = {
   role: "user" | "assistant";
   employeeId: string | null;
   content: string;
-  status: "ok" | "skipped" | "error" | null;
+  /** `working` is an in-flight reply the panel follows until it resolves. */
+  status: "working" | "ok" | "skipped" | "error" | null;
   actions: MessageAction[];
   suggestions: MailSuggestion[];
   createdAt: string;
