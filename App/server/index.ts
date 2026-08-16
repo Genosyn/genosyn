@@ -11,6 +11,7 @@ import { ensureBootstrapMasterAdmin } from "./services/masterAdmin.js";
 import { bootCron } from "./services/cron.js";
 import { bootBackups } from "./services/backups.js";
 import { bootPipelineCron } from "./services/pipelines/index.js";
+import { bootContextWindowRefresh } from "./services/agent/contextWindowRefresh.js";
 import { bootRecurringInvoices } from "./services/recurringInvoices.js";
 import { bootRevenue } from "./services/revenue/boot.js";
 import { bootTelegramListeners } from "./services/telegramListener.js";
@@ -123,6 +124,10 @@ async function main() {
   await bootBackups();
   await bootPipelineCron();
   await bootRecurringInvoices();
+  // A provider's context window moves when an operator re-launches their server
+  // with a different max length — re-ask every three hours so the agent loop
+  // budgets against today's number rather than the one saved with the key.
+  bootContextWindowRefresh();
   // Revenue (M32): the sequence and signal heartbeats, plus the two callbacks
   // that let them reach the agent runtime. Synchronous — it only installs
   // timers; the first pass of each runs on its own interval.

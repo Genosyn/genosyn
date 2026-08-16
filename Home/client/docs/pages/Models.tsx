@@ -235,6 +235,15 @@ export function Models() {
         <Code>--max-model-len</Code> or llama.cpp&apos;s <Code>-c</Code>. A number you set by hand
         always wins over the probe, and <Strong>Clear</Strong> hands the field back to it.
       </P>
+      <P>
+        Genosyn also <Strong>re-asks every three hours</Strong>, because the answer changes:
+        relaunch vLLM with a different <Code>--max-model-len</Code>, point the same model id at new
+        weights, or wait for a hosted provider to raise a published limit, and the card catches up
+        on its own. A failed check keeps the number it already had rather than blanking it, and a
+        window you set by hand is never touched — so the recheck can only ever improve what Genosyn
+        budgets against. <Strong>Ask the provider</Strong> is the shortcut when you just changed
+        something and don&apos;t want to wait for the next pass.
+      </P>
       <Callout kind="warn" title="Unknown is worth fixing.">
         With no window there is nothing to budget against, so a run can only discover it has overrun
         when the provider rejects a turn. Genosyn recovers — it drops history and retries once

@@ -2093,7 +2093,10 @@ of the original V1 backlog has shipped — what remains is mostly
       degrades instead of killing the run. Per-result caps scale to the window;
       the transcript shows `[compact]` whenever history was dropped. Operators
       can set the window by hand (`contextWindowSource: "manual"`) for the many
-      servers that report none
+      servers that report none. A three-hourly sweep re-asks every probeable,
+      connected model so a relaunched server's new limit lands on its own
+      (`services/agent/contextWindowRefresh.ts`); a failed probe keeps the last
+      known number and a hand-set window is never overwritten
 
 ---
 

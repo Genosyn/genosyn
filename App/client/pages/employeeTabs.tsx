@@ -1193,6 +1193,10 @@ function ModelCard({
  * — so "unknown" is a normal resting state, not an error to shout about. We
  * offer a retry only when there's someone to ask, and otherwise let the operator
  * type the number in.
+ *
+ * The server also re-asks every three hours, which is worth saying out loud: it
+ * turns "Ask the provider" from the only way back to the truth into a shortcut
+ * for operators who just changed something and don't want to wait.
  */
 function ContextWindowPanel({
   company,
@@ -1271,6 +1275,12 @@ function ContextWindowPanel({
               </>
             )}
           </div>
+          {model.contextWindowProbeable && model.contextWindowSource !== "manual" && (
+            <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
+              Rechecked automatically every 3 hours, so a re-launched server{"'"}s new limit lands
+              on its own.
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {model.contextWindowProbeable && (

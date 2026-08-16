@@ -16,7 +16,8 @@ import { PROVIDERS, isModelConnected } from "../services/providers.js";
 import { clearRoutinePins, effectiveActiveId, setActiveModel } from "../services/models.js";
 import { encryptSecret, maskSecret } from "../lib/secret.js";
 import { previewBaseURL, readCustomEndpoint } from "../services/customEndpoint.js";
-import { canProbeContextWindow, probeContextWindow } from "../services/agent/contextWindow.js";
+import { canProbeContextWindow } from "../services/agent/contextWindow.js";
+import { refreshContextWindow } from "../services/agent/contextWindowRefresh.js";
 import { recordAudit } from "../services/audit.js";
 import { assertSafeOutboundUrl } from "../lib/outboundUrl.js";
 import { config } from "../../config.js";
@@ -170,37 +171,6 @@ function toPublic(m: AIModel, isActive: boolean): PublicModel {
     contextWindowSource: m.contextWindowSource ?? null,
     contextWindowProbeable: canProbeContextWindow(m),
   };
-}
-
-/**
- * Re-ask the provider for the model's context window and persist what it says.
- *
- * Called after a credential lands, because that's the first moment we can ask.
- * Best-effort by design: an unreachable endpoint must not block saving a model,
- * so a failed probe just leaves the window unknown and the operator can retry
- * with `POST /:id/refresh` — or set the number by hand via
- * `PUT /:id/context-window`.
- */
-async function refreshContextWindow(m: AIModel): Promise<void> {
-  // A human who typed a number has told us something the probe demonstrably
-  // couldn't work out. Don't relitigate it on every save — only an explicit
-  // clear returns this model to probing.
-  if (m.contextWindowSource === "manual") return;
-  const found = await probeContextWindow(m);
-  // Null means "couldn't ask", not "has no window" — keep whatever we already
-  // knew rather than letting one unreachable moment erase it. Callers that
-  // change the endpoint clear the field themselves, since the old number is
-  // stale by definition at that point.
-  if (found === null || found === m.contextWindow) return;
-  m.contextWindow = found;
-  m.contextWindowSource = "probed";
-  await AppDataSource.getRepository(AIModel).update(
-    { id: m.id },
-    {
-      contextWindow: found,
-      contextWindowSource: "probed",
-    },
-  );
 }
 
 /** Shape a single model for the wire, computing its `isActive` live. */
