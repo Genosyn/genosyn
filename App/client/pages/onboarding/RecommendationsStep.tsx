@@ -198,6 +198,7 @@ export function RecommendationsStep({
 
   React.useEffect(() => {
     function handleOauthMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
       const data = event.data as {
         source?: string;
         ok?: boolean;

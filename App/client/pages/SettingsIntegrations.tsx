@@ -220,6 +220,7 @@ function IntegrationsPage({
   // (this page). Refresh the list on success so the new connection appears.
   React.useEffect(() => {
     function handler(ev: MessageEvent) {
+      if (ev.origin !== window.location.origin) return;
       const data = ev.data as {
         source?: string;
         ok?: boolean;

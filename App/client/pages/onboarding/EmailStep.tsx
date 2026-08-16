@@ -83,6 +83,7 @@ export function EmailStep({
 
   React.useEffect(() => {
     function handleOauthMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
       const data = event.data as { source?: string; ok?: boolean; detail?: string } | null;
       if (!data || data.source !== "genosyn-oauth") return;
       if (data.ok) {
