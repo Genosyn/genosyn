@@ -413,6 +413,49 @@ describe("OpenAI subscription policy routes", () => {
     }
   });
 
+  test("device sign-in accepts a session Codex reports only after the refreshing read", async () => {
+    // The app-server answers `account/read` from the snapshot it booted with,
+    // which never contains the session the login just wrote into CODEX_HOME.
+    const signIn = await runDeviceSignIn(
+      (params) =>
+        params.refreshToken === false
+          ? { account: null, requiresOpenaiAuth: true }
+          : { account: { type: "chatgpt", email: "member@example.test" } },
+      "succeeded",
+    );
+
+    assert.equal(signIn.status.output, "ChatGPT subscription connected.");
+    assert.equal(signIn.status.error, null);
+    assert.deepEqual(signIn.accountReads, [{ refreshToken: false }, { refreshToken: true }]);
+
+    const stored = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+      id: signIn.modelId,
+    });
+    const storedConfig = JSON.parse(stored.configJson) as Record<string, unknown>;
+    assert.equal(stored.configJson.includes(signIn.managedAuth), false);
+    assert.equal(storedConfig.subscriptionCredentialKind, "chatgptSession");
+    assert.equal(decryptSecret(String(storedConfig.codexAuthEncrypted)), signIn.managedAuth);
+    assert.ok(stored.connectedAt instanceof Date);
+  });
+
+  test("device sign-in stores no credential when neither read confirms a ChatGPT account", async () => {
+    const signIn = await runDeviceSignIn(() => ({ account: { type: "apiKey" } }), "failed");
+
+    assert.match(String(signIn.status.error), /did not confirm the managed ChatGPT account/);
+    assert.equal(signIn.status.output, null);
+    assert.deepEqual(signIn.accountReads, [{ refreshToken: false }, { refreshToken: true }]);
+
+    const stored = await AppDataSource.getRepository(AIModel).findOneByOrFail({
+      id: signIn.modelId,
+    });
+    assert.equal(stored.configJson, "{}");
+    assert.equal(stored.connectedAt, null);
+
+    const listed = await call<PublicModel[]>("GET", "/");
+    assert.equal(listed.body[0].status, "not_connected");
+    assert.equal(listed.body[0].subscriptionCredentialKind, null);
+  });
+
   test("host execution rejects both model creation and credentials on an existing model", async () => {
     codingTools.executionMode = "host";
 
@@ -557,6 +600,116 @@ printf '%s' 'genosyn-bubblewrap-probe-v1' > "$workspace/.genosyn-bubblewrap-prob
     }
   });
 });
+
+type DeviceSignIn = {
+  modelId: string;
+  status: { status: string; output: string | null; error: string | null };
+  accountReads: Array<Record<string, unknown>>;
+  managedAuth: string;
+};
+
+/**
+ * Drive one whole device sign-in against a fake Codex app-server: start the
+ * login, let Codex write its managed session into the isolated CODEX_HOME,
+ * report the login completed, and settle. `accountFor` decides what each
+ * `account/read` answers, which is the seam the confirmation retry lives on.
+ */
+async function runDeviceSignIn(
+  accountFor: (params: Record<string, unknown>) => unknown,
+  expected: "succeeded" | "failed",
+): Promise<DeviceSignIn> {
+  const created = await call<PublicModel>("POST", "/", {
+    provider: "openai",
+    model: "gpt-5.4",
+    authMode: "subscription",
+  });
+  assert.equal(created.status, 200);
+
+  const originalStart = CodexAppServer.start;
+  const loginId = randomUUID();
+  const managedAuth = JSON.stringify({
+    auth_mode: "chatgpt",
+    tokens: {
+      access_token: `access-${randomUUID()}`,
+      id_token: `identity-${randomUUID()}`,
+      refresh_token: `refresh-${randomUUID()}`,
+    },
+  });
+  const accountReads: Array<Record<string, unknown>> = [];
+  const starts: Parameters<typeof CodexAppServer.start>[0][] = [];
+  const notifications: Array<(method: string, params: unknown) => void> = [];
+  let sessionId: string | null = null;
+
+  try {
+    CodexAppServer.start = async (options) => {
+      starts.push(options);
+      return {
+        request: async <T>(method: string, params?: unknown): Promise<T> => {
+          if (method === "account/login/start") {
+            return {
+              type: "chatgptDeviceCode",
+              loginId,
+              verificationUrl: "https://auth.openai.com/codex/device",
+              userCode: "WXYZ-1234",
+            } as T;
+          }
+          if (method === "account/read") {
+            const read = (params ?? {}) as Record<string, unknown>;
+            accountReads.push(read);
+            return accountFor(read) as T;
+          }
+          throw new Error(`Unexpected fake Codex request: ${method}`);
+        },
+        onNotification: (listener: (method: string, params: unknown) => void) => {
+          notifications.push(listener);
+          return () => undefined;
+        },
+        onExit: () => () => undefined,
+        close: async () => undefined,
+      } as unknown as CodexAppServer;
+    };
+
+    const started = await call<{ id: string; status: string }>(
+      "POST",
+      `/${created.body.id}/subscription/device`,
+    );
+    assert.equal(started.status, 200);
+    assert.equal(started.body.status, "running");
+    sessionId = started.body.id;
+
+    const startedOptions = starts[0];
+    assert.ok(startedOptions);
+    const authRoot = startedOptions.env.CODEX_HOME ?? "";
+    assert.ok(authRoot);
+    const notify = notifications[0];
+    assert.ok(notify);
+
+    await fs.writeFile(path.join(authRoot, "auth.json"), managedAuth, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    notify("account/login/completed", { loginId, success: true });
+
+    const status = await waitForDeviceStatus(created.body.id, sessionId, expected);
+    await waitUntilMissing(authRoot);
+    await waitUntilMissing(startedOptions.cwd);
+    sessionId = null;
+    return { modelId: created.body.id, status, accountReads, managedAuth };
+  } finally {
+    if (sessionId) {
+      await call("DELETE", `/${created.body.id}/subscription/device/${sessionId}`).catch(
+        () => undefined,
+      );
+    }
+    CodexAppServer.start = originalStart;
+    for (const options of starts) {
+      await fs.rm(options.env.CODEX_HOME ?? "", { recursive: true, force: true }).catch(
+        () => undefined,
+      );
+      await fs.rm(options.cwd, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+}
 
 async function assertMissing(target: string): Promise<void> {
   await assert.rejects(fs.stat(target), (error: unknown) => {

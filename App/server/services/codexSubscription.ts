@@ -11,6 +11,7 @@ import { CodexAppServer } from "./agent/codexAppServer.js";
 import { bubblewrapProbeError } from "./runtimeSecurity.js";
 
 const AUTH_FILE_MAX_BYTES = 2 * 1024 * 1024;
+const ACCOUNT_READ_TIMEOUT_MS = 30_000;
 const DEVICE_LOGIN_TIMEOUT_MS = 15 * 60 * 1_000;
 const TERMINAL_SESSION_TTL_MS = 15 * 60 * 1_000;
 const STALE_TEMP_MAX_AGE_MS = 8 * 60 * 60 * 1_000;
@@ -548,12 +549,10 @@ async function settleDeviceSession(
   session.settling = true;
   try {
     if (status === "succeeded") {
-      const account = await session.server.request<unknown>(
-        "account/read",
-        { refreshToken: false },
-        30_000,
+      const confirmed = await confirmManagedChatgptAccount((params) =>
+        session.server.request<unknown>("account/read", params, ACCOUNT_READ_TIMEOUT_MS),
       );
-      if (!isManagedChatgptAccount(account)) {
+      if (!confirmed) {
         throw new Error("OpenAI Codex did not confirm the managed ChatGPT account.");
       }
       const authJson = await readManagedAuthJson(session.home.authRoot);
@@ -804,6 +803,23 @@ export function isManagedChatgptAccount(value: unknown): boolean {
   const response = asObject(value);
   const account = asObject(response?.account);
   return account?.type === "chatgpt";
+}
+
+/**
+ * Codex answers `account/read` from the credential snapshot its app-server
+ * already holds. A device sign-in writes the managed session into `CODEX_HOME`
+ * long after that snapshot was taken, so the cheap non-refreshing read still
+ * reports the empty account the process booted with and every completed
+ * sign-in looked unconfirmed. Only the refreshing read reloads the credential,
+ * so ask a second time before rejecting the account. The first read stays
+ * because it costs nothing and skips the refresh-token flow whenever Codex
+ * already knows about the account.
+ */
+export async function confirmManagedChatgptAccount(
+  read: (params: { refreshToken: boolean }) => Promise<unknown>,
+): Promise<boolean> {
+  if (isManagedChatgptAccount(await read({ refreshToken: false }))) return true;
+  return isManagedChatgptAccount(await read({ refreshToken: true }));
 }
 
 function parseModelConfig(value: string): Record<string, unknown> {
