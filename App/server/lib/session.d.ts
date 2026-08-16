@@ -18,6 +18,8 @@ declare module "express-serve-static-core" {
       webAuthnPurpose?: "login" | "registration";
       webAuthnCredentialName?: string;
       webAuthnCredentialKind?: "passkey" | "security_key";
+      /** The `totp_credentials` row the in-flight enrollment belongs to. */
+      totpSetupId?: string;
       totpSetupExpiresAt?: number;
       ssoBrowserBinding?: string;
     } | null;

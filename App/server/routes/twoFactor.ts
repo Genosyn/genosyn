@@ -15,7 +15,7 @@ import {
   getTwoFactorLoginMethods,
   getTwoFactorStatus,
   regenerateRecoveryCodes,
-  removeTotp,
+  removeTotpCredential,
   removeWebAuthnCredential,
   TwoFactorError,
   useRecoveryCode,
@@ -57,6 +57,10 @@ const webAuthnResponseSchema = z
   })
   .passthrough();
 const webAuthnVerifySchema = z.object({ response: webAuthnResponseSchema });
+const totpEnrollmentSchema = z.object({
+  currentPassword: z.string().min(1).max(1000),
+  name: z.string().trim().min(1).max(100),
+});
 const webAuthnEnrollmentSchema = z.object({
   currentPassword: z.string().min(1).max(1000),
   name: z.string().trim().min(1).max(100),
@@ -280,12 +284,15 @@ twoFactorRouter.get("/two-factor", async (req, res, next) => {
 
 twoFactorRouter.post(
   "/two-factor/totp/setup",
-  validateBody(passwordSchema),
+  validateBody(totpEnrollmentSchema),
   async (req, res, next) => {
     try {
-      const { currentPassword } = req.body as z.infer<typeof passwordSchema>;
-      const setup = await beginTotpEnrollment(req.user!, currentPassword);
-      if (req.session) req.session.totpSetupExpiresAt = Date.now() + 10 * 60 * 1000;
+      const body = req.body as z.infer<typeof totpEnrollmentSchema>;
+      const setup = await beginTotpEnrollment(req.user!, body.currentPassword, body.name);
+      if (req.session) {
+        req.session.totpSetupId = setup.credentialId;
+        req.session.totpSetupExpiresAt = Date.now() + 10 * 60 * 1000;
+      }
       res.json(setup);
     } catch (err) {
       sendError(err, res, next);
@@ -298,11 +305,17 @@ twoFactorRouter.post(
   validateBody(totpSchema),
   async (req, res, next) => {
     try {
-      if (!req.session?.totpSetupExpiresAt || req.session.totpSetupExpiresAt <= Date.now()) {
+      const setupId = req.session?.totpSetupId;
+      if (
+        !setupId ||
+        !req.session?.totpSetupExpiresAt ||
+        req.session.totpSetupExpiresAt <= Date.now()
+      ) {
         return res.status(400).json({ error: "Authenticator setup expired. Start again." });
       }
       const { code } = req.body as z.infer<typeof totpSchema>;
-      const result = await finishTotpEnrollment(req.user!, code);
+      const result = await finishTotpEnrollment(req.user!, setupId, code);
+      delete req.session.totpSetupId;
       delete req.session.totpSetupExpiresAt;
       res.json(result);
     } catch (err) {
@@ -312,12 +325,22 @@ twoFactorRouter.post(
 );
 
 twoFactorRouter.post(
-  "/two-factor/totp/remove",
+  "/two-factor/totp/:id/remove",
   validateBody(passwordSchema),
   async (req, res, next) => {
+    const params = credentialParamsSchema.safeParse(req.params);
+    if (!params.success) {
+      return res.status(400).json({ error: "Invalid authenticator id" });
+    }
     try {
       const { currentPassword } = req.body as z.infer<typeof passwordSchema>;
-      res.json(await removeTotp(req.user!, currentPassword));
+      res.json(
+        await removeTotpCredential({
+          user: req.user!,
+          credentialId: params.data.id,
+          password: currentPassword,
+        }),
+      );
     } catch (err) {
       sendError(err, res, next);
     }

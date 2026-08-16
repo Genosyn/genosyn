@@ -33,8 +33,7 @@ export function Security() {
       <H2 id="enable">Enable two-factor authentication</H2>
       <OL>
         <LI>
-          Sign in, open <Strong>Account → Security</Strong>, and enter your current password in the
-          confirmation field.
+          Sign in and open <Strong>Account → Security</Strong>.
         </LI>
         <LI>
           Add at least one method: an authenticator app, a passkey, or a USB security key. Adding
@@ -45,6 +44,11 @@ export function Security() {
           again.
         </LI>
       </OL>
+      <P>
+        Every method opens in its own dialog that carries you from naming the device through to the
+        recovery codes without leaving the page. Each dialog asks for your current password at the
+        point it needs it, so there is no separate confirmation field to fill in first.
+      </P>
 
       <Callout kind="warn" title="Keep recovery codes separate.">
         Download or copy the codes and store them somewhere other than the device that holds your
@@ -52,13 +56,20 @@ export function Security() {
         operator must restore access at the database level.
       </Callout>
 
-      <H2 id="authenticator-app">Authenticator app</H2>
+      <H2 id="authenticator-app">Authenticator apps</H2>
       <P>
-        Choose <Strong>Set up authenticator app</Strong>, scan the QR code, then enter the current
-        six-digit code to finish enrollment. The standard TOTP format works with 1Password, Google
-        Authenticator, Authy, Microsoft Authenticator, and compatible apps. The encrypted seed stays
-        on the <Code>User</Code> row; Genosyn does not enable it until the first code verifies
-        successfully.
+        Choose <Strong>Add authenticator app</Strong>, name the device, confirm your password, scan
+        the QR code, then enter the current six-digit code to finish enrollment. The standard TOTP
+        format works with 1Password, Google Authenticator, Authy, Microsoft Authenticator, and
+        compatible apps.
+      </P>
+      <P>
+        Enroll as many as you like — a phone, a password manager, and a tablet can all hold a seed,
+        and a code from any of them completes a sign-in. Each one is listed separately with the date
+        it was added and last used, so you can remove a lost device without disturbing the rest.
+        Names must be unique within your account. Each seed is encrypted on its own{" "}
+        <Code>TotpCredential</Code> row, and Genosyn does not count it as a second factor until its
+        first code verifies successfully.
       </P>
 
       <H2 id="passkeys">Passkeys</H2>
@@ -146,7 +157,10 @@ export function Security() {
 
       <H2 id="manage">Manage methods</H2>
       <UL>
-        <LI>Add more than one passkey or security key so a spare device can get you back in.</LI>
+        <LI>
+          Add more than one authenticator app, passkey, or security key so a spare device can get
+          you back in.
+        </LI>
         <LI>
           Remove individual methods from <Strong>Account → Security</Strong>. Removing the last
           method turns 2FA off and clears recovery codes unless a company you belong to requires
@@ -157,7 +171,7 @@ export function Security() {
           and displays a fresh set once.
         </LI>
         <LI>
-          <Strong>Turn off two-factor authentication</Strong> removes the authenticator app, all
+          <Strong>Turn off two-factor authentication</Strong> removes every authenticator app, all
           passkeys/security keys, and all recovery codes.
         </LI>
       </UL>

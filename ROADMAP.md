@@ -1050,8 +1050,9 @@ Phase B+ (deferred — out of this PR)
 
 ### M15 — 2FA / TOTP + WebAuthn ✅
 
-- [x] `User` gets `totpSecret` (encrypted), `totpEnabledAt`, `recoveryCodes`
-- [x] Enroll flow with QR (otpauth://… → render via `qrcode` dep)
+- [x] `TotpCredential` rows hold each encrypted seed; `User` keeps `recoveryCodes`
+- [x] Multiple named authenticator apps — a code from any enrolled app signs you in
+- [x] Enroll flow with QR (otpauth://… → render via `qrcode` dep), start to finish in one modal
 - [x] Passkeys + FIDO2 USB security keys (WebAuthn), with multiple named credentials
 - [x] Verify password and SSO logins when enabled; recovery-code path
 - [ ] Per-company "require 2FA" admin policy (later)

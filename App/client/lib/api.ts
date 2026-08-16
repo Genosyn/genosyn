@@ -167,9 +167,15 @@ export type TwoFactorCredential = {
   createdAt: string;
   lastUsedAt: string | null;
 };
+export type TotpCredential = {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+};
 export type TwoFactorStatus = {
   enabled: boolean;
-  totpEnabled: boolean;
+  totpCredentials: TotpCredential[];
   webAuthnCredentials: TwoFactorCredential[];
   recoveryCodesRemaining: number;
 };

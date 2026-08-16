@@ -128,6 +128,7 @@ import { AdSpendEvent } from "./entities/AdSpendEvent.js";
 import { Tag } from "./entities/Tag.js";
 import { TagAssignment } from "./entities/TagAssignment.js";
 import { WebAuthnCredential } from "./entities/WebAuthnCredential.js";
+import { TotpCredential } from "./entities/TotpCredential.js";
 import { AuthRateLimit } from "./entities/AuthRateLimit.js";
 import { WorkloadLease } from "./entities/WorkloadLease.js";
 import { SchedulerLease } from "./entities/SchedulerLease.js";
@@ -195,6 +196,7 @@ const entities = [
   Tag,
   TagAssignment,
   WebAuthnCredential,
+  TotpCredential,
   AuthRateLimit,
   WorkloadLease,
   SchedulerLease,

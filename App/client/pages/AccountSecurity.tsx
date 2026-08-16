@@ -3,6 +3,7 @@ import {
   Copy,
   Download,
   KeyRound,
+  Plus,
   RefreshCw,
   ShieldCheck,
   ShieldOff,
@@ -18,10 +19,12 @@ import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
+import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 
 type TotpSetup = {
+  credentialId: string;
   secret: string;
   otpAuthUri: string;
   qrDataUrl: string;
@@ -32,219 +35,37 @@ type EnrollmentResult = {
   recoveryCodes: string[];
 };
 
-export function AccountSecurity() {
-  const [status, setStatus] = React.useState<TwoFactorStatus | null>(null);
-  const [currentPassword, setCurrentPassword] = React.useState("");
-  const [credentialName, setCredentialName] = React.useState("");
-  const [totpSetup, setTotpSetup] = React.useState<TotpSetup | null>(null);
-  const [totpCode, setTotpCode] = React.useState("");
-  const [recoveryCodes, setRecoveryCodes] = React.useState<string[]>([]);
-  const [action, setAction] = React.useState<string | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : "Something went wrong";
+}
+
+function formatDate(value: string): string {
+  return new Date(value).toLocaleDateString();
+}
+
+/**
+ * Shown the one time a set of recovery codes exists in plaintext — right after
+ * the first method is enrolled, or after a deliberate regeneration. Lives
+ * inside whichever modal produced them so nobody has to hunt for it.
+ */
+function RecoveryCodes({ codes }: { codes: string[] }) {
   const { toast } = useToast();
-  const supportsWebAuthn = browserSupportsWebAuthn();
 
-  const load = React.useCallback(async () => {
+  async function copy() {
     try {
-      setStatus(await api.get<TwoFactorStatus>("/api/auth/two-factor"));
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }, []);
-
-  React.useEffect(() => {
-    void load();
-  }, [load]);
-
-  function requirePassword(): boolean {
-    if (currentPassword) return true;
-    setError("Enter your current password to change two-factor settings");
-    return false;
-  }
-
-  function showNewRecoveryCodes(codes: string[]) {
-    if (codes.length > 0) setRecoveryCodes(codes);
-  }
-
-  async function startTotpSetup() {
-    if (!requirePassword()) return;
-    setError(null);
-    setAction("totp-setup");
-    try {
-      const setup = await api.post<TotpSetup>("/api/auth/two-factor/totp/setup", {
-        currentPassword,
-      });
-      setTotpSetup(setup);
-      setTotpCode("");
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setAction(null);
-    }
-  }
-
-  async function verifyTotp(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setAction("totp-verify");
-    try {
-      const result = await api.post<EnrollmentResult>("/api/auth/two-factor/totp/verify", {
-        code: totpCode,
-      });
-      setStatus(result.status);
-      showNewRecoveryCodes(result.recoveryCodes);
-      setTotpSetup(null);
-      setTotpCode("");
-      setCurrentPassword("");
-      toast("Authenticator app enabled", "success");
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setAction(null);
-    }
-  }
-
-  async function removeAuthenticatorApp() {
-    if (!requirePassword()) return;
-    if (!window.confirm("Remove the authenticator app from this account?")) return;
-    setError(null);
-    setAction("totp-remove");
-    try {
-      const next = await api.post<TwoFactorStatus>("/api/auth/two-factor/totp/remove", {
-        currentPassword,
-      });
-      setStatus(next);
-      setCurrentPassword("");
-      if (!next.enabled) setRecoveryCodes([]);
-      toast("Authenticator app removed", "success");
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setAction(null);
-    }
-  }
-
-  async function addWebAuthn(kind: "passkey" | "security_key") {
-    if (!supportsWebAuthn) {
-      setError("This browser does not support passkeys or FIDO2 security keys");
-      return;
-    }
-    if (!requirePassword()) return;
-    if (!credentialName.trim()) {
-      setError("Give this passkey or security key a name");
-      return;
-    }
-    setError(null);
-    setAction(`webauthn-${kind}`);
-    try {
-      const optionsJSON = await api.post<PublicKeyCredentialCreationOptionsJSON>(
-        "/api/auth/two-factor/webauthn/options",
-        {
-          currentPassword,
-          name: credentialName.trim(),
-          kind,
-        },
-      );
-      const response = await startRegistration({ optionsJSON });
-      const result = await api.post<EnrollmentResult>("/api/auth/two-factor/webauthn/verify", {
-        response,
-      });
-      setStatus(result.status);
-      showNewRecoveryCodes(result.recoveryCodes);
-      setCredentialName("");
-      setCurrentPassword("");
-      toast(kind === "passkey" ? "Passkey added" : "Security key added", "success");
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setAction(null);
-    }
-  }
-
-  async function removeCredential(id: string, name: string) {
-    if (!requirePassword()) return;
-    if (!window.confirm(`Remove “${name}” from this account?`)) return;
-    setError(null);
-    setAction(`remove-${id}`);
-    try {
-      const next = await api.post<TwoFactorStatus>(`/api/auth/two-factor/webauthn/${id}/remove`, {
-        currentPassword,
-      });
-      setStatus(next);
-      setCurrentPassword("");
-      if (!next.enabled) setRecoveryCodes([]);
-      toast("Credential removed", "success");
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setAction(null);
-    }
-  }
-
-  async function regenerateCodes() {
-    if (!requirePassword()) return;
-    if (
-      !window.confirm(
-        "Generate new recovery codes? Every existing recovery code will stop working.",
-      )
-    ) {
-      return;
-    }
-    setError(null);
-    setAction("recovery");
-    try {
-      const result = await api.post<EnrollmentResult>("/api/auth/two-factor/recovery/regenerate", {
-        currentPassword,
-      });
-      setStatus(result.status);
-      setRecoveryCodes(result.recoveryCodes);
-      setCurrentPassword("");
-      toast("Recovery codes regenerated", "success");
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setAction(null);
-    }
-  }
-
-  async function turnOffTwoFactor() {
-    if (!requirePassword()) return;
-    if (!window.confirm("Turn off two-factor authentication and remove every enrolled method?")) {
-      return;
-    }
-    setError(null);
-    setAction("disable");
-    try {
-      const next = await api.post<TwoFactorStatus>("/api/auth/two-factor/disable", {
-        currentPassword,
-      });
-      setStatus(next);
-      setCurrentPassword("");
-      setRecoveryCodes([]);
-      setTotpSetup(null);
-      toast("Two-factor authentication turned off", "success");
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setAction(null);
-    }
-  }
-
-  async function copyRecoveryCodes() {
-    try {
-      await navigator.clipboard.writeText(recoveryCodes.join("\n"));
+      await navigator.clipboard.writeText(codes.join("\n"));
       toast("Recovery codes copied", "success");
     } catch {
-      setError("Your browser could not copy the recovery codes");
+      toast("Your browser could not copy the recovery codes", "error");
     }
   }
 
-  function downloadRecoveryCodes() {
+  function download() {
     const contents = [
       "Genosyn recovery codes",
       "Each code can be used once. Store these somewhere safe.",
       "",
-      ...recoveryCodes,
+      ...codes,
       "",
     ].join("\n");
     const url = URL.createObjectURL(new Blob([contents], { type: "text/plain" }));
@@ -253,6 +74,529 @@ export function AccountSecurity() {
     link.download = "genosyn-recovery-codes.txt";
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+      <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+        Save these codes now
+      </p>
+      <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+        They will not be shown again. Store them somewhere separate from your authenticator.
+      </p>
+      <div className="mt-3 grid grid-cols-1 gap-1 font-mono text-sm text-slate-900 sm:grid-cols-2 dark:text-slate-100">
+        {codes.map((code) => (
+          <span key={code}>{code}</span>
+        ))}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Button type="button" size="sm" variant="secondary" onClick={copy}>
+          <Copy size={14} /> Copy
+        </Button>
+        <Button type="button" size="sm" variant="secondary" onClick={download}>
+          <Download size={14} /> Download
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Every security change re-proves the password, and each one asks for it in
+ * its own modal at the moment it is needed — no page-level password box to
+ * fill in first and no jumping between cards mid-flow.
+ */
+function ConfirmPasswordModal({
+  open,
+  title,
+  description,
+  confirmLabel,
+  busyLabel,
+  danger,
+  result,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  title: string;
+  description: React.ReactNode;
+  confirmLabel: string;
+  busyLabel: string;
+  danger?: boolean;
+  /** Rendered in place of the form once the action has produced something to show. */
+  result?: React.ReactNode;
+  onCancel: () => void;
+  onConfirm: (password: string) => Promise<void>;
+}) {
+  const [password, setPassword] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (open) {
+      setPassword("");
+      setError(null);
+      setBusy(false);
+    }
+  }, [open]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!password) {
+      setError("Enter your current password");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      await onConfirm(password);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (result) {
+    return (
+      <Modal open={open} onClose={onCancel} title={title}>
+        <div className="flex flex-col gap-4">
+          {result}
+          <div className="flex justify-end">
+            <Button type="button" onClick={onCancel}>
+              Done
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
+  return (
+    <Modal open={open} onClose={onCancel} title={title}>
+      <form className="flex flex-col gap-4" onSubmit={submit}>
+        <div className="text-sm text-slate-600 dark:text-slate-300">{description}</div>
+        <Input
+          label="Current password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="current-password"
+          autoFocus
+        />
+        <FormError message={error} />
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button type="submit" variant={danger ? "danger" : "primary"} disabled={busy}>
+            {busy ? busyLabel : confirmLabel}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/**
+ * Name → scan → verify → save your codes, all in one modal. The Member never
+ * loses their place, and the QR sits next to the field that consumes it.
+ */
+function AddAuthenticatorModal({
+  open,
+  onClose,
+  onEnrolled,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onEnrolled: (status: TwoFactorStatus) => void;
+}) {
+  const [name, setName] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [setup, setSetup] = React.useState<TotpSetup | null>(null);
+  const [code, setCode] = React.useState("");
+  const [recoveryCodes, setRecoveryCodes] = React.useState<string[]>([]);
+  const [error, setError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const { toast } = useToast();
+
+  React.useEffect(() => {
+    if (!open) return;
+    setName("");
+    setPassword("");
+    setSetup(null);
+    setCode("");
+    setRecoveryCodes([]);
+    setError(null);
+    setBusy(false);
+  }, [open]);
+
+  async function startSetup(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError("Give this authenticator a name");
+      return;
+    }
+    if (!password) {
+      setError("Enter your current password");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      setSetup(
+        await api.post<TotpSetup>("/api/auth/two-factor/totp/setup", {
+          currentPassword: password,
+          name: name.trim(),
+        }),
+      );
+      setPassword("");
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verify(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await api.post<EnrollmentResult>("/api/auth/two-factor/totp/verify", { code });
+      onEnrolled(result.status);
+      toast("Authenticator app added", "success");
+      if (result.recoveryCodes.length > 0) {
+        setRecoveryCodes(result.recoveryCodes);
+        setSetup(null);
+      } else {
+        onClose();
+      }
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const step = recoveryCodes.length > 0 ? "codes" : setup ? "scan" : "name";
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Add authenticator app"
+      size={step === "scan" ? "lg" : "md"}
+    >
+      {step === "name" && (
+        <form className="flex flex-col gap-4" onSubmit={startSetup}>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Name this authenticator so you can tell it apart from the others, then confirm your
+            password to get a QR code.
+          </p>
+          <Input
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. iPhone 1Password or Work laptop"
+            maxLength={100}
+            autoFocus
+          />
+          <Input
+            label="Current password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+          <FormError message={error} />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Preparing…" : "Continue"}
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {step === "scan" && setup && (
+        <form className="flex flex-col gap-4" onSubmit={verify}>
+          <div className="grid gap-5 sm:grid-cols-[220px_1fr]">
+            <img
+              src={setup.qrDataUrl}
+              alt="Authenticator app enrollment QR code"
+              className="h-52 w-52 shrink-0 rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-700"
+            />
+            <div className="flex flex-col gap-3">
+              <div>
+                <p className="text-sm font-medium">Scan this with {name.trim()}</p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Can&apos;t scan it? Enter this secret manually:
+                </p>
+                <code className="mt-2 block break-all rounded-lg bg-slate-100 p-2 text-xs dark:bg-slate-800">
+                  {setup.secret}
+                </code>
+              </div>
+              <Input
+                label="Six-digit verification code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                placeholder="000000"
+                required
+                autoFocus
+              />
+            </div>
+          </div>
+          <FormError message={error} />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Verifying…" : "Verify and add"}
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {step === "codes" && (
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Two-factor authentication is on. These recovery codes get you back in if you ever lose
+            every enrolled method.
+          </p>
+          <RecoveryCodes codes={recoveryCodes} />
+          <div className="flex justify-end">
+            <Button type="button" onClick={onClose}>
+              Done
+            </Button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/** Name → password → the browser's own passkey/security-key prompt. */
+function AddWebAuthnModal({
+  kind,
+  onClose,
+  onEnrolled,
+}: {
+  kind: "passkey" | "security_key" | null;
+  onClose: () => void;
+  onEnrolled: (status: TwoFactorStatus) => void;
+}) {
+  const [name, setName] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [recoveryCodes, setRecoveryCodes] = React.useState<string[]>([]);
+  const [error, setError] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const { toast } = useToast();
+  const isSecurityKey = kind === "security_key";
+
+  React.useEffect(() => {
+    if (!kind) return;
+    setName("");
+    setPassword("");
+    setRecoveryCodes([]);
+    setError(null);
+    setBusy(false);
+  }, [kind]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!kind) return;
+    if (!name.trim()) {
+      setError(isSecurityKey ? "Give this security key a name" : "Give this passkey a name");
+      return;
+    }
+    if (!password) {
+      setError("Enter your current password");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      const optionsJSON = await api.post<PublicKeyCredentialCreationOptionsJSON>(
+        "/api/auth/two-factor/webauthn/options",
+        { currentPassword: password, name: name.trim(), kind },
+      );
+      const response = await startRegistration({ optionsJSON });
+      const result = await api.post<EnrollmentResult>("/api/auth/two-factor/webauthn/verify", {
+        response,
+      });
+      onEnrolled(result.status);
+      toast(isSecurityKey ? "Security key added" : "Passkey added", "success");
+      if (result.recoveryCodes.length > 0) {
+        setRecoveryCodes(result.recoveryCodes);
+        setPassword("");
+      } else {
+        onClose();
+      }
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={kind !== null}
+      onClose={onClose}
+      title={isSecurityKey ? "Add USB security key" : "Add passkey"}
+    >
+      {recoveryCodes.length > 0 ? (
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Two-factor authentication is on. These recovery codes get you back in if you ever lose
+            every enrolled method.
+          </p>
+          <RecoveryCodes codes={recoveryCodes} />
+          <div className="flex justify-end">
+            <Button type="button" onClick={onClose}>
+              Done
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <form className="flex flex-col gap-4" onSubmit={submit}>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            {isSecurityKey
+              ? "Name the key, confirm your password, then touch the key when your browser asks."
+              : "Name this device, confirm your password, then approve the prompt from your browser."}
+          </p>
+          <Input
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={isSecurityKey ? "e.g. Office YubiKey" : "e.g. MacBook Touch ID"}
+            maxLength={100}
+            autoFocus
+          />
+          <Input
+            label="Current password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+          <FormError message={error} />
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Waiting…" : isSecurityKey ? "Add security key" : "Add passkey"}
+            </Button>
+          </div>
+        </form>
+      )}
+    </Modal>
+  );
+}
+
+/** One enrolled method: an authenticator app, a passkey, or a security key. */
+function MethodRow({
+  icon,
+  name,
+  detail,
+  onRemove,
+}: {
+  icon: React.ReactNode;
+  name: string;
+  detail: string;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-3 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="shrink-0 text-slate-500">{icon}</span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{name}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">{detail}</p>
+        </div>
+      </div>
+      <Button type="button" size="sm" variant="ghost" onClick={onRemove}>
+        <Trash2 size={14} /> Remove
+      </Button>
+    </div>
+  );
+}
+
+type PendingRemoval =
+  | { kind: "totp"; id: string; name: string }
+  | { kind: "webauthn"; id: string; name: string };
+
+export function AccountSecurity() {
+  const [status, setStatus] = React.useState<TwoFactorStatus | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [addingAuthenticator, setAddingAuthenticator] = React.useState(false);
+  const [addingWebAuthn, setAddingWebAuthn] = React.useState<"passkey" | "security_key" | null>(
+    null,
+  );
+  const [removing, setRemoving] = React.useState<PendingRemoval | null>(null);
+  const [regenerating, setRegenerating] = React.useState(false);
+  const [disabling, setDisabling] = React.useState(false);
+  const [newCodes, setNewCodes] = React.useState<string[]>([]);
+  const { toast } = useToast();
+  const supportsWebAuthn = browserSupportsWebAuthn();
+
+  const load = React.useCallback(async () => {
+    try {
+      setStatus(await api.get<TwoFactorStatus>("/api/auth/two-factor"));
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function confirmRemoval(password: string) {
+    if (!removing) return;
+    const path =
+      removing.kind === "totp"
+        ? `/api/auth/two-factor/totp/${removing.id}/remove`
+        : `/api/auth/two-factor/webauthn/${removing.id}/remove`;
+    setStatus(await api.post<TwoFactorStatus>(path, { currentPassword: password }));
+    toast(
+      removing.kind === "totp" ? "Authenticator app removed" : "Credential removed",
+      "success",
+    );
+    setRemoving(null);
+  }
+
+  async function confirmRegenerate(password: string) {
+    const result = await api.post<EnrollmentResult>("/api/auth/two-factor/recovery/regenerate", {
+      currentPassword: password,
+    });
+    setStatus(result.status);
+    setNewCodes(result.recoveryCodes);
+    toast("Recovery codes regenerated", "success");
+  }
+
+  function closeRegenerate() {
+    setRegenerating(false);
+    setNewCodes([]);
+  }
+
+  async function confirmDisable(password: string) {
+    setStatus(
+      await api.post<TwoFactorStatus>("/api/auth/two-factor/disable", {
+        currentPassword: password,
+      }),
+    );
+    setDisabling(false);
+    setNewCodes([]);
+    toast("Two-factor authentication turned off", "success");
   }
 
   return (
@@ -270,211 +614,150 @@ export function AccountSecurity() {
         ) : (
           <>
             <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-4">
+              <CardBody className="flex items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  {status.enabled ? (
+                    <ShieldCheck
+                      size={20}
+                      className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400"
+                    />
+                  ) : (
+                    <ShieldOff size={20} className="mt-0.5 shrink-0 text-slate-400" />
+                  )}
                   <div>
-                    <h2 className="flex items-center gap-2 text-sm font-semibold">
-                      {status.enabled ? (
-                        <ShieldCheck size={16} className="text-emerald-600 dark:text-emerald-400" />
-                      ) : (
-                        <ShieldOff size={16} className="text-slate-400" />
-                      )}
-                      Two-factor authentication
-                    </h2>
+                    <h2 className="text-sm font-semibold">Two-factor authentication</h2>
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                       {status.enabled
-                        ? "Enabled — sign-in requires your password and one enrolled method."
+                        ? "Sign-in requires your password and one enrolled method. Genosyn asks for your password again before any change below."
                         : "Optional and currently off. Add any method below to turn it on."}
                     </p>
                   </div>
-                  <span
-                    className={
-                      status.enabled
-                        ? "rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
-                        : "rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-                    }
-                  >
-                    {status.enabled ? "Enabled" : "Off"}
-                  </span>
+                </div>
+                <span
+                  className={
+                    status.enabled
+                      ? "shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                      : "shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                  }
+                >
+                  {status.enabled ? "Enabled" : "Off"}
+                </span>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="flex items-center gap-2 text-sm font-semibold">
+                      <Smartphone size={16} /> Authenticator apps
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Six-digit codes from 1Password, Google Authenticator, Authy, or another TOTP
+                      app. Add as many as you like — a code from any of them signs you in.
+                    </p>
+                  </div>
+                  <Button type="button" size="sm" onClick={() => setAddingAuthenticator(true)}>
+                    <Plus size={15} /> Add authenticator app
+                  </Button>
                 </div>
               </CardHeader>
               <CardBody>
-                <Input
-                  label="Current password"
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  autoComplete="current-password"
-                  placeholder="Required before security changes"
-                />
-                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  Genosyn asks for your password before adding, removing, or resetting a method.
-                </p>
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <h2 className="flex items-center gap-2 text-sm font-semibold">
-                  <Smartphone size={16} /> Authenticator app
-                </h2>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Use a six-digit code from 1Password, Google Authenticator, Authy, or another TOTP
-                  app.
-                </p>
-              </CardHeader>
-              <CardBody>
-                {status.totpEnabled ? (
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                        Authenticator app enrolled
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                        Six-digit codes can complete sign-in.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="danger"
-                      disabled={action !== null}
-                      onClick={removeAuthenticatorApp}
-                    >
-                      <Trash2 size={14} /> Remove
-                    </Button>
-                  </div>
-                ) : totpSetup ? (
-                  <div className="grid gap-5 md:grid-cols-[240px_1fr]">
-                    <img
-                      src={totpSetup.qrDataUrl}
-                      alt="Authenticator app enrollment QR code"
-                      className="h-60 w-60 rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-700"
-                    />
-                    <form className="flex flex-col justify-center gap-3" onSubmit={verifyTotp}>
-                      <div>
-                        <p className="text-sm font-medium">Scan this QR code</p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          Can&apos;t scan it? Enter this secret manually:
-                        </p>
-                        <code className="mt-2 block break-all rounded-lg bg-slate-100 p-2 text-xs dark:bg-slate-800">
-                          {totpSetup.secret}
-                        </code>
-                      </div>
-                      <Input
-                        label="Six-digit verification code"
-                        value={totpCode}
-                        onChange={(e) => setTotpCode(e.target.value)}
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        pattern="[0-9]{6}"
-                        placeholder="000000"
-                        required
-                      />
-                      <div className="flex gap-2">
-                        <Button type="submit" disabled={action !== null}>
-                          {action === "totp-verify" ? "Verifying…" : "Verify and enable"}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          onClick={() => setTotpSetup(null)}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </form>
-                  </div>
+                {status.totpCredentials.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    No authenticator app enrolled yet.
+                  </p>
                 ) : (
-                  <Button type="button" disabled={action !== null} onClick={startTotpSetup}>
-                    <Smartphone size={15} />
-                    {action === "totp-setup" ? "Preparing…" : "Set up authenticator app"}
-                  </Button>
-                )}
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <h2 className="flex items-center gap-2 text-sm font-semibold">
-                  <KeyRound size={16} /> Passkeys and security keys
-                </h2>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  Use Touch ID, Face ID, Windows Hello, a password manager passkey, or a FIDO2 USB
-                  key such as YubiKey.
-                </p>
-              </CardHeader>
-              <CardBody className="flex flex-col gap-4">
-                {status.webAuthnCredentials.length > 0 && (
                   <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
-                    {status.webAuthnCredentials.map((credential) => (
-                      <div
+                    {status.totpCredentials.map((credential) => (
+                      <MethodRow
                         key={credential.id}
-                        className="flex items-center justify-between gap-3 px-3 py-3"
-                      >
-                        <div className="flex min-w-0 items-center gap-3">
-                          {credential.kind === "security_key" ? (
-                            <Usb size={16} className="shrink-0 text-slate-500" />
-                          ) : (
-                            <KeyRound size={16} className="shrink-0 text-slate-500" />
-                          )}
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">{credential.name}</p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                              {credential.kind === "security_key" ? "Security key" : "Passkey"}
-                              {credential.backedUp ? " · synced" : ""} · added{" "}
-                              {new Date(credential.createdAt).toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          disabled={action !== null}
-                          onClick={() => removeCredential(credential.id, credential.name)}
-                        >
-                          <Trash2 size={14} /> Remove
-                        </Button>
-                      </div>
+                        icon={<Smartphone size={16} />}
+                        name={credential.name}
+                        detail={`Added ${formatDate(credential.createdAt)} · ${
+                          credential.lastUsedAt
+                            ? `last used ${formatDate(credential.lastUsedAt)}`
+                            : "never used"
+                        }`}
+                        onRemove={() =>
+                          setRemoving({
+                            kind: "totp",
+                            id: credential.id,
+                            name: credential.name,
+                          })
+                        }
+                      />
                     ))}
                   </div>
                 )}
+              </CardBody>
+            </Card>
 
-                {supportsWebAuthn ? (
-                  <div className="flex flex-col gap-3">
-                    <Input
-                      label="Credential name"
-                      value={credentialName}
-                      onChange={(e) => setCredentialName(e.target.value)}
-                      placeholder="e.g. MacBook Touch ID or Office YubiKey"
-                      maxLength={100}
-                    />
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="flex items-center gap-2 text-sm font-semibold">
+                      <KeyRound size={16} /> Passkeys and security keys
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      Touch ID, Face ID, Windows Hello, a password manager passkey, or a FIDO2 USB
+                      key such as YubiKey.
+                    </p>
+                  </div>
+                  {supportsWebAuthn && (
                     <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        disabled={action !== null}
-                        onClick={() => addWebAuthn("passkey")}
-                      >
-                        <KeyRound size={15} />
-                        {action === "webauthn-passkey" ? "Waiting…" : "Add passkey"}
+                      <Button type="button" size="sm" onClick={() => setAddingWebAuthn("passkey")}>
+                        <KeyRound size={15} /> Add passkey
                       </Button>
                       <Button
                         type="button"
+                        size="sm"
                         variant="secondary"
-                        disabled={action !== null}
-                        onClick={() => addWebAuthn("security_key")}
+                        onClick={() => setAddingWebAuthn("security_key")}
                       >
-                        <Usb size={15} />
-                        {action === "webauthn-security_key" ? "Waiting…" : "Add USB security key"}
+                        <Usb size={15} /> Add security key
                       </Button>
                     </div>
-                  </div>
-                ) : (
+                  )}
+                </div>
+              </CardHeader>
+              <CardBody>
+                {!supportsWebAuthn ? (
                   <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
                     This browser does not expose WebAuthn. Open Genosyn over HTTPS in a current
                     browser to add a passkey or security key.
                   </p>
+                ) : status.webAuthnCredentials.length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    No passkey or security key enrolled yet.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
+                    {status.webAuthnCredentials.map((credential) => (
+                      <MethodRow
+                        key={credential.id}
+                        icon={
+                          credential.kind === "security_key" ? (
+                            <Usb size={16} />
+                          ) : (
+                            <KeyRound size={16} />
+                          )
+                        }
+                        name={credential.name}
+                        detail={`${credential.kind === "security_key" ? "Security key" : "Passkey"}${
+                          credential.backedUp ? " · synced" : ""
+                        } · added ${formatDate(credential.createdAt)}`}
+                        onRemove={() =>
+                          setRemoving({
+                            kind: "webauthn",
+                            id: credential.id,
+                            name: credential.name,
+                          })
+                        }
+                      />
+                    ))}
+                  </div>
                 )}
               </CardBody>
             </Card>
@@ -482,60 +765,24 @@ export function AccountSecurity() {
             {status.enabled && (
               <Card>
                 <CardHeader>
-                  <h2 className="text-sm font-semibold">Recovery codes</h2>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Each code works once if your enrolled device is unavailable.{" "}
-                    {status.recoveryCodesRemaining} remaining.
-                  </p>
-                </CardHeader>
-                <CardBody className="flex flex-col gap-3">
-                  {recoveryCodes.length > 0 && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
-                      <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-                        Save these codes now
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-sm font-semibold">Recovery codes</h2>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        Each code works once if every enrolled method is unavailable.{" "}
+                        {status.recoveryCodesRemaining} remaining.
                       </p>
-                      <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
-                        They will not be shown again. Store them somewhere separate from your
-                        authenticator.
-                      </p>
-                      <div className="mt-3 grid grid-cols-1 gap-1 font-mono text-sm text-slate-900 sm:grid-cols-2 dark:text-slate-100">
-                        {recoveryCodes.map((code) => (
-                          <span key={code}>{code}</span>
-                        ))}
-                      </div>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          onClick={copyRecoveryCodes}
-                        >
-                          <Copy size={14} /> Copy
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          onClick={downloadRecoveryCodes}
-                        >
-                          <Download size={14} /> Download
-                        </Button>
-                      </div>
                     </div>
-                  )}
-                  <div>
                     <Button
                       type="button"
                       size="sm"
                       variant="secondary"
-                      disabled={action !== null}
-                      onClick={regenerateCodes}
+                      onClick={() => setRegenerating(true)}
                     >
-                      <RefreshCw size={14} />
-                      {action === "recovery" ? "Generating…" : "Generate new codes"}
+                      <RefreshCw size={14} /> Generate new codes
                     </Button>
                   </div>
-                </CardBody>
+                </CardHeader>
               </Card>
             )}
 
@@ -546,19 +793,12 @@ export function AccountSecurity() {
                     Turn off two-factor authentication
                   </h2>
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Removes the authenticator app, every passkey and security key, and all recovery
-                    codes.
+                    Removes every authenticator app, passkey, security key, and recovery code.
                   </p>
                 </CardHeader>
                 <CardBody>
-                  <Button
-                    type="button"
-                    variant="danger"
-                    disabled={action !== null}
-                    onClick={turnOffTwoFactor}
-                  >
-                    <ShieldOff size={15} />
-                    {action === "disable" ? "Turning off…" : "Turn off two-factor authentication"}
+                  <Button type="button" variant="danger" onClick={() => setDisabling(true)}>
+                    <ShieldOff size={15} /> Turn off two-factor authentication
                   </Button>
                 </CardBody>
               </Card>
@@ -566,6 +806,52 @@ export function AccountSecurity() {
           </>
         )}
       </div>
+
+      <AddAuthenticatorModal
+        open={addingAuthenticator}
+        onClose={() => setAddingAuthenticator(false)}
+        onEnrolled={setStatus}
+      />
+      <AddWebAuthnModal
+        kind={addingWebAuthn}
+        onClose={() => setAddingWebAuthn(null)}
+        onEnrolled={setStatus}
+      />
+      <ConfirmPasswordModal
+        open={removing !== null}
+        title={removing?.kind === "totp" ? "Remove authenticator app" : "Remove credential"}
+        description={
+          <>
+            Codes from <span className="font-medium">{removing?.name}</span> will stop working. Your
+            other enrolled methods are unaffected.
+          </>
+        }
+        confirmLabel="Remove"
+        busyLabel="Removing…"
+        danger
+        onCancel={() => setRemoving(null)}
+        onConfirm={confirmRemoval}
+      />
+      <ConfirmPasswordModal
+        open={regenerating}
+        title="Generate new recovery codes"
+        description="Every existing recovery code stops working the moment new ones are generated."
+        confirmLabel="Generate"
+        busyLabel="Generating…"
+        result={newCodes.length > 0 ? <RecoveryCodes codes={newCodes} /> : undefined}
+        onCancel={closeRegenerate}
+        onConfirm={confirmRegenerate}
+      />
+      <ConfirmPasswordModal
+        open={disabling}
+        title="Turn off two-factor authentication"
+        description="This removes every authenticator app, passkey, security key, and recovery code from your account."
+        confirmLabel="Turn off"
+        busyLabel="Turning off…"
+        danger
+        onCancel={() => setDisabling(false)}
+        onConfirm={confirmDisable}
+      />
     </>
   );
 }

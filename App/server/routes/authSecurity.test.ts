@@ -6,6 +6,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import bcrypt from "bcrypt";
 import express from "express";
+import { generate } from "otplib";
 
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
@@ -16,6 +17,7 @@ import { Company } from "../db/entities/Company.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
 import { Invitation } from "../db/entities/Invitation.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
+import { TotpCredential } from "../db/entities/TotpCredential.js";
 import { User } from "../db/entities/User.js";
 import { WebAuthnCredential } from "../db/entities/WebAuthnCredential.js";
 import { hashToken } from "../lib/token.js";
@@ -23,7 +25,14 @@ import { hashApiToken, requireAuth, requireMasterAdmin } from "../middleware/aut
 import { errorHandler } from "../middleware/error.js";
 import { createAuthFlowState } from "../services/authFlowState.js";
 import { hashEmailVerificationToken } from "../services/emailVerification.js";
-import { removeWebAuthnCredential } from "../services/twoFactor.js";
+import {
+  beginTotpEnrollment,
+  finishTotpEnrollment,
+  getTwoFactorStatus,
+  removeTotpCredential,
+  removeWebAuthnCredential,
+  verifyTotpLogin,
+} from "../services/twoFactor.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { authRouter } from "./auth.js";
 import { adminRouter } from "./admin.js";
@@ -664,6 +673,22 @@ describe("invitation confidentiality and email-log authorization", () => {
   });
 });
 
+/** A live six-digit code for a seed the test still holds in plaintext. */
+async function totpToken(credential: { secret: string }): Promise<string> {
+  return generate({ secret: credential.secret });
+}
+
+/** Walks the real enrollment path so the tests exercise what the UI calls. */
+async function enrollAuthenticator(
+  user: User,
+  password: string,
+  name: string,
+): Promise<{ id: string; secret: string }> {
+  const setup = await beginTotpEnrollment(user, password, name);
+  await finishTotpEnrollment(user, setup.credentialId, await totpToken(setup));
+  return { id: setup.credentialId, secret: setup.secret };
+}
+
 describe("two-factor hardening", () => {
   test("failed MFA attempts persist across replacement login sessions", async () => {
     security.authRateLimit.maxAttempts = 2;
@@ -671,9 +696,14 @@ describe("two-factor hardening", () => {
       email: "mfa@example.com",
       name: "MFA Member",
       passwordHash: "x",
-      totpSecret: "invalid-encrypted-secret",
-      totpEnabledAt: new Date(),
       sessionVersion: 0,
+    });
+    await insert(TotpCredential, {
+      userId: user.id,
+      name: "Phone",
+      secret: "invalid-encrypted-secret",
+      verifiedAt: new Date(),
+      lastUsedAt: null,
     });
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await call("POST", "/api/auth/login/two-factor/totp", {
@@ -691,6 +721,69 @@ describe("two-factor hardening", () => {
     const rows = await AppDataSource.getRepository(AuthRateLimit).find();
     assert.equal(rows.length, 2, "both IP and account identities are throttled");
     assert.ok(rows.every((row) => row.blockedUntil && row.blockedUntil > new Date()));
+  });
+
+  test("a Member can enroll several authenticator apps and sign in with any of them", async () => {
+    const password = "several-apps-password";
+    const user = await insert(User, {
+      email: "many-apps@example.com",
+      name: "Many Apps Member",
+      passwordHash: await bcrypt.hash(password, 4),
+      sessionVersion: 0,
+    });
+
+    const phone = await enrollAuthenticator(user, password, "Phone");
+    const laptop = await enrollAuthenticator(user, password, "Laptop");
+    assert.deepEqual(
+      (await getTwoFactorStatus(user.id)).totpCredentials.map((row) => row.name),
+      ["Phone", "Laptop"],
+    );
+
+    // Either seed completes a sign-in — the second app is a peer, not a spare.
+    assert.equal(await verifyTotpLogin(user, await totpToken(phone)), true);
+    assert.equal(await verifyTotpLogin(user, await totpToken(laptop)), true);
+    assert.equal(await verifyTotpLogin(user, "000000"), false);
+
+    // A duplicate name would make the two rows impossible to tell apart.
+    await assert.rejects(() => beginTotpEnrollment(user, password, "phone"), /already have/i);
+  });
+
+  test("removing one authenticator app leaves the others and the recovery codes alone", async () => {
+    const password = "keep-the-rest-password";
+    const user = await insert(User, {
+      email: "two-apps@example.com",
+      name: "Two Apps Member",
+      passwordHash: await bcrypt.hash(password, 4),
+      sessionVersion: 0,
+    });
+    const phone = await enrollAuthenticator(user, password, "Phone");
+    const laptop = await enrollAuthenticator(user, password, "Laptop");
+
+    const afterFirst = await removeTotpCredential({
+      user,
+      credentialId: phone.id,
+      password,
+    });
+    assert.equal(afterFirst.enabled, true);
+    assert.deepEqual(
+      afterFirst.totpCredentials.map((row) => row.name),
+      ["Laptop"],
+    );
+    assert.ok(afterFirst.recoveryCodesRemaining > 0);
+    assert.equal(await verifyTotpLogin(user, await totpToken(phone)), false);
+
+    // The last one going takes two-factor — and the codes backing it — with it.
+    const afterLast = await removeTotpCredential({
+      user,
+      credentialId: laptop.id,
+      password,
+    });
+    assert.equal(afterLast.enabled, false);
+    assert.equal(afterLast.recoveryCodesRemaining, 0);
+    assert.equal(
+      (await AppDataSource.getRepository(User).findOneByOrFail({ id: user.id })).recoveryCodes,
+      null,
+    );
   });
 
   test("removing the final WebAuthn method also removes its recovery codes", async () => {

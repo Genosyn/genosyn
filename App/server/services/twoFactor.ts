@@ -17,7 +17,8 @@ import { AppDataSource } from "../db/datasource.js";
 import { User } from "../db/entities/User.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
-import { In } from "typeorm";
+import { In, IsNull, Not } from "typeorm";
+import { TotpCredential } from "../db/entities/TotpCredential.js";
 import {
   WebAuthnCredential,
   type WebAuthnCredentialKind,
@@ -48,9 +49,16 @@ export type TwoFactorCredentialSummary = {
   lastUsedAt: string | null;
 };
 
+export type TotpCredentialSummary = {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+};
+
 export type TwoFactorStatus = {
   enabled: boolean;
-  totpEnabled: boolean;
+  totpCredentials: TotpCredentialSummary[];
   webAuthnCredentials: TwoFactorCredentialSummary[];
   recoveryCodesRemaining: number;
 };
@@ -122,29 +130,52 @@ function summarizeCredential(row: WebAuthnCredential): TwoFactorCredentialSummar
   };
 }
 
+function summarizeTotp(row: TotpCredential): TotpCredentialSummary {
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: row.createdAt.toISOString(),
+    lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+  };
+}
+
+/** Enrolled authenticator apps. Setups still mid-flow are not second factors. */
+function enrolledTotpCredentials(userId: string): Promise<TotpCredential[]> {
+  return AppDataSource.getRepository(TotpCredential).find({
+    where: { userId, verifiedAt: Not(IsNull()) },
+    order: { createdAt: "ASC" },
+  });
+}
+
+/** How many second factors this account can currently sign in with. */
+async function countTwoFactorMethods(userId: string): Promise<number> {
+  const [totp, webAuthn] = await Promise.all([
+    AppDataSource.getRepository(TotpCredential).countBy({ userId, verifiedAt: Not(IsNull()) }),
+    AppDataSource.getRepository(WebAuthnCredential).countBy({ userId }),
+  ]);
+  return totp + webAuthn;
+}
+
 export async function getTwoFactorStatus(userId: string): Promise<TwoFactorStatus> {
-  const [user, credentials] = await Promise.all([
+  const [user, totpCredentials, credentials] = await Promise.all([
     AppDataSource.getRepository(User).findOneBy({ id: userId }),
+    enrolledTotpCredentials(userId),
     AppDataSource.getRepository(WebAuthnCredential).find({
       where: { userId },
       order: { createdAt: "ASC" },
     }),
   ]);
   if (!user) throw new TwoFactorError("User not found", 404);
-  const totpEnabled = user.totpEnabledAt !== null;
   return {
-    enabled: totpEnabled || credentials.length > 0,
-    totpEnabled,
+    enabled: totpCredentials.length > 0 || credentials.length > 0,
+    totpCredentials: totpCredentials.map(summarizeTotp),
     webAuthnCredentials: credentials.map(summarizeCredential),
     recoveryCodesRemaining: parseRecoveryHashes(user.recoveryCodes).length,
   };
 }
 
 export async function hasTwoFactorMethod(userId: string): Promise<boolean> {
-  const user = await AppDataSource.getRepository(User).findOneBy({ id: userId });
-  if (!user) return false;
-  if (user.totpEnabledAt) return true;
-  return (await AppDataSource.getRepository(WebAuthnCredential).countBy({ userId })) > 0;
+  return (await countTwoFactorMethods(userId)) > 0;
 }
 
 async function assertMayRemoveLastTwoFactorMethod(userId: string): Promise<void> {
@@ -168,7 +199,7 @@ export async function getTwoFactorLoginMethods(userId: string): Promise<{
   const status = await getTwoFactorStatus(userId);
   return {
     enabled: status.enabled,
-    totp: status.totpEnabled,
+    totp: status.totpCredentials.length > 0,
     webAuthn: status.webAuthnCredentials.length > 0,
     recovery: status.recoveryCodesRemaining > 0,
   };
@@ -183,11 +214,18 @@ export async function confirmCurrentPassword(user: User, password: string): Prom
 export async function beginTotpEnrollment(
   user: User,
   password: string,
-): Promise<{ secret: string; otpAuthUri: string; qrDataUrl: string }> {
+  name: string,
+): Promise<{ credentialId: string; secret: string; otpAuthUri: string; qrDataUrl: string }> {
   await confirmCurrentPassword(user, password);
-  if (user.totpEnabledAt) {
-    throw new TwoFactorError("An authenticator app is already enrolled", 409);
+  const repo = AppDataSource.getRepository(TotpCredential);
+  const enrolled = await enrolledTotpCredentials(user.id);
+  if (enrolled.some((row) => row.name.toLowerCase() === name.toLowerCase())) {
+    throw new TwoFactorError("You already have an authenticator app with that name", 409);
   }
+
+  // Whatever the Member was setting up before this is now abandoned — a
+  // half-finished seed is not a second factor and must not linger.
+  await repo.delete({ userId: user.id, verifiedAt: IsNull() });
 
   const secret = generateSecret();
   const otpAuthUri = generateURI({
@@ -201,10 +239,16 @@ export async function beginTotpEnrollment(
     width: 240,
     color: { dark: "#0f172a", light: "#ffffff" },
   });
-  user.totpSecret = encryptSecret(secret, `user:${user.id}`);
-  user.totpEnabledAt = null;
-  await AppDataSource.getRepository(User).save(user);
-  return { secret, otpAuthUri, qrDataUrl };
+  const row = await repo.save(
+    repo.create({
+      userId: user.id,
+      name,
+      secret: encryptSecret(secret, `user:${user.id}`),
+      verifiedAt: null,
+      lastUsedAt: null,
+    }),
+  );
+  return { credentialId: row.id, secret, otpAuthUri, qrDataUrl };
 }
 
 async function verifyTotpSecret(secretBlob: string, token: string): Promise<boolean> {
@@ -222,36 +266,66 @@ async function verifyTotpSecret(secretBlob: string, token: string): Promise<bool
 
 export async function finishTotpEnrollment(
   user: User,
+  credentialId: string,
   token: string,
-): Promise<{ status: TwoFactorStatus; recoveryCodes: string[] }> {
-  if (!user.totpSecret || user.totpEnabledAt) {
-    throw new TwoFactorError("Start authenticator-app setup first", 400);
-  }
-  if (!(await verifyTotpSecret(user.totpSecret, token))) {
+): Promise<{
+  status: TwoFactorStatus;
+  credential: TotpCredentialSummary;
+  recoveryCodes: string[];
+}> {
+  const repo = AppDataSource.getRepository(TotpCredential);
+  const row = await repo.findOneBy({ id: credentialId, userId: user.id, verifiedAt: IsNull() });
+  if (!row) throw new TwoFactorError("Start authenticator-app setup first", 400);
+  if (!(await verifyTotpSecret(row.secret, token))) {
     throw new TwoFactorError("That verification code is invalid or expired", 400);
   }
-  user.totpEnabledAt = new Date();
+  row.verifiedAt = new Date();
+  await repo.save(row);
   const recoveryCodes = ensureRecoveryCodes(user);
-  await AppDataSource.getRepository(User).save(user);
-  return { status: await getTwoFactorStatus(user.id), recoveryCodes };
+  if (recoveryCodes.length > 0) {
+    await AppDataSource.getRepository(User).save(user);
+  }
+  return {
+    status: await getTwoFactorStatus(user.id),
+    credential: summarizeTotp(row),
+    recoveryCodes,
+  };
 }
 
 export async function verifyTotpLogin(user: User, token: string): Promise<boolean> {
-  if (!user.totpEnabledAt || !user.totpSecret) return false;
-  return verifyTotpSecret(user.totpSecret, token);
+  // A Member may carry several authenticators; any enrolled one completes the
+  // sign-in. Each seed is tried until one accepts the code.
+  for (const row of await enrolledTotpCredentials(user.id)) {
+    if (!(await verifyTotpSecret(row.secret, token))) continue;
+    row.lastUsedAt = new Date();
+    await AppDataSource.getRepository(TotpCredential).save(row);
+    return true;
+  }
+  return false;
 }
 
-export async function removeTotp(user: User, password: string): Promise<TwoFactorStatus> {
-  await confirmCurrentPassword(user, password);
-  const credentialCount = await AppDataSource.getRepository(WebAuthnCredential).countBy({
-    userId: user.id,
-  });
-  if (credentialCount === 0) await assertMayRemoveLastTwoFactorMethod(user.id);
-  user.totpSecret = null;
-  user.totpEnabledAt = null;
-  if (credentialCount === 0) user.recoveryCodes = null;
-  await AppDataSource.getRepository(User).save(user);
-  return getTwoFactorStatus(user.id);
+export async function removeTotpCredential(args: {
+  user: User;
+  credentialId: string;
+  password: string;
+}): Promise<TwoFactorStatus> {
+  await confirmCurrentPassword(args.user, args.password);
+  const repo = AppDataSource.getRepository(TotpCredential);
+  const row = await repo.findOneBy({ id: args.credentialId, userId: args.user.id });
+  if (!row) throw new TwoFactorError("Authenticator app not found", 404);
+  // An unverified row was never a second factor, so removing it can't strand
+  // the account and doesn't touch recovery codes.
+  const wasEnrolled = row.verifiedAt !== null;
+  if (wasEnrolled && (await countTwoFactorMethods(args.user.id)) === 1) {
+    await assertMayRemoveLastTwoFactorMethod(args.user.id);
+  }
+  await repo.remove(row);
+  if (wasEnrolled && (await countTwoFactorMethods(args.user.id)) === 0) {
+    // Recovery codes must not outlive the methods they back up.
+    args.user.recoveryCodes = null;
+    await AppDataSource.getRepository(User).save(args.user);
+  }
+  return getTwoFactorStatus(args.user.id);
 }
 
 export async function beginWebAuthnEnrollment(args: {
@@ -411,15 +485,13 @@ export async function removeWebAuthnCredential(args: {
   const repo = AppDataSource.getRepository(WebAuthnCredential);
   const row = await repo.findOneBy({ id: args.credentialId, userId: args.user.id });
   if (!row) throw new TwoFactorError("Credential not found", 404);
-  const remaining = await repo.countBy({ userId: args.user.id });
-  if (remaining === 1 && !args.user.totpEnabledAt) {
+  if ((await countTwoFactorMethods(args.user.id)) === 1) {
     await assertMayRemoveLastTwoFactorMethod(args.user.id);
   }
   await repo.remove(row);
-  // `remaining` was counted before removal, so one means the credential we
-  // just removed was the final WebAuthn method. Recovery codes must not remain
-  // usable after all second-factor methods are gone.
-  if (remaining === 1 && !args.user.totpEnabledAt) {
+  // Recovery codes must not remain usable once every second-factor method is
+  // gone, so re-count after the removal rather than trusting the earlier read.
+  if ((await countTwoFactorMethods(args.user.id)) === 0) {
     args.user.recoveryCodes = null;
     await AppDataSource.getRepository(User).save(args.user);
   }
@@ -459,8 +531,7 @@ export async function disableTwoFactor(user: User, password: string): Promise<Tw
   await assertMayRemoveLastTwoFactorMethod(user.id);
   await AppDataSource.transaction(async (manager) => {
     await manager.delete(WebAuthnCredential, { userId: user.id });
-    user.totpSecret = null;
-    user.totpEnabledAt = null;
+    await manager.delete(TotpCredential, { userId: user.id });
     user.recoveryCodes = null;
     await manager.save(User, user);
   });
