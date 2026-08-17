@@ -199,9 +199,11 @@ export function Browser() {
         </LI>
       </UL>
       <P>
-        The list is enforced server-side on <Code>browser_open</Code> and intersected with Vault
-        autofill and capture checks on the live top page and target frame. Edits apply immediately —
-        no restart needed — and a Vault Grant never widens this Browser policy.
+        The list is enforced server-side on <Code>browser_open</Code>, on the{" "}
+        <a href="#live-view">live view&apos;s address bar</a> during take-over, and intersected with
+        Vault autofill and capture checks on the live top page and target frame. Edits apply
+        immediately — no restart needed — and neither a Vault Grant nor a human holding control
+        widens this Browser policy.
       </P>
 
       <H2 id="vault">Vault autofill and capture</H2>
@@ -259,6 +261,16 @@ export function Browser() {
         fallback for a credential not in the Vault and the intended flow for captchas and 2FA. The
         employee navigates to the right page, you complete the human-only step, and the employee
         carries on. The browser is never torn down while someone is watching.
+      </P>
+      <P>
+        Taking over also unlocks the <Strong>address bar</Strong> above the page, along with back,
+        forward and reload. Type a URL and press Enter to go somewhere the employee did not — useful
+        when a sign-in bounces you to a settings page the model never opened.{" "}
+        <Code>Ctrl</Code>/<Code>⌘</Code>+<Code>L</Code> focuses it, as it would in a real browser. It
+        is the same Chrome carrying the same cookies, so the address bar answers to the same{" "}
+        <a href="#allow-list">allow list</a> <Code>browser_open</Code> does: a host the company
+        excluded is refused here too, with the reason shown under the bar. While you are only
+        watching, the bar shows the current URL and nothing else.
       </P>
 
       <H2 id="persistence">What persists</H2>

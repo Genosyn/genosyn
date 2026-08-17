@@ -66,6 +66,27 @@ function readStoredPanelWidth(): number {
 }
 
 /**
+ * Fields the panel actually renders. Anything not listed here (viewer counts,
+ * timestamps that only tick) must not cause a re-render — see the poll below.
+ */
+function sameSession(a: BrowserSessionDto | null, b: BrowserSessionDto | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.id === b.id &&
+    a.status === b.status &&
+    a.closeReason === b.closeReason &&
+    a.pageUrl === b.pageUrl &&
+    a.pageTitle === b.pageTitle &&
+    a.viewerCount === b.viewerCount &&
+    a.hasMcp === b.hasMcp &&
+    a.memberBrowserId === b.memberBrowserId &&
+    a.memberBrowserName === b.memberBrowserName &&
+    a.closedAt === b.closedAt
+  );
+}
+
+/**
  * Cap the panel width so the chat column always keeps a sensible minimum
  * (~360 px). Recalculated on every resize event so the panel reflows
  * gracefully when the window shrinks.
@@ -197,7 +218,11 @@ export function BrowserLivePanel(props: Props) {
           const lastActivity = new Date(s.closedAt ?? s.startedAt).getTime();
           return !Number.isNaN(lastActivity) && lastActivity >= cutoff;
         });
-        setSession(fresh ?? null);
+        // Keep the previous object when nothing meaningful moved. Every poll
+        // otherwise hands React a new object, and re-rendering the subtree that
+        // owns the <iframe> for a viewer-count field nobody is looking at is
+        // how a live view ends up flickering three times a second.
+        setSession((prev) => (sameSession(prev, fresh ?? null) ? prev : (fresh ?? null)));
       } catch {
         // Silently ignore — polling will retry. The panel just stays
         // hidden until the next successful tick.
@@ -256,7 +281,12 @@ export function BrowserLivePanel(props: Props) {
               onDismiss?.();
             }}
           />
-          <PanelBody session={session} companyId={companyId} employeeId={employeeId} />
+          <PanelBody
+            session={session}
+            companyId={companyId}
+            employeeId={employeeId}
+            resizing={resizing}
+          />
         </>
       )}
     </aside>
@@ -360,10 +390,12 @@ function PanelBody({
   session,
   companyId,
   employeeId,
+  resizing,
 }: {
   session: BrowserSessionDto;
   companyId: string;
   employeeId: string;
+  resizing: boolean;
 }) {
   const iframeSrc = `/api/companies/${companyId}/employees/${employeeId}/browser-sessions/${session.id}/view`;
 
@@ -445,11 +477,14 @@ function PanelBody({
         title="Live browser"
         src={iframeSrc}
         sandbox="allow-scripts allow-same-origin allow-pointer-lock"
-        className="h-full w-full border-0"
+        // While the panel edge is being dragged the cursor crosses the iframe,
+        // and an iframe that answers pointer events swallows the drag.
+        className={"h-full w-full border-0" + (resizing ? " pointer-events-none" : "")}
       />
       <div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-3 py-1.5 text-[10px] text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
         <span className="truncate">
-          Tip: click <span className="font-semibold">Take over</span> inside the panel to type or click yourself.
+          Tip: click <span className="font-semibold">Take over</span> to click, type, and use the
+          address bar yourself.
         </span>
       </div>
     </div>

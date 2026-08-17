@@ -2,11 +2,33 @@
 //
 // Loads inside the iframe at /api/companies/.../browser-sessions/:sid/view.
 // Renders JPEG screencast frames into a <canvas> and forwards mouse/keyboard
-// events back to the MCP child via the App's WebSocket fan-out hub when the
-// human flips the "Take over" toggle.
+// events back to the App's WebSocket fan-out hub when the human flips the
+// "Take over" toggle. Taking over also unlocks the address bar, so a human
+// who has control can go where the page needs them to go.
 //
 // The viewer page is auth'd by cookie session (the iframe URL load); the WS
 // upgrade is auth'd by a single-use 60-second token minted at start-up.
+//
+// ---------------------------------------------------------------------------
+// Why the frame pipeline looks like this
+//
+// The obvious implementation — one <img>, set `.src` per frame, resize the
+// canvas from the frame metadata, draw on `onload` — flickers badly, and the
+// reason is worth writing down so nobody reintroduces it:
+//
+//   * Assigning `canvas.width`/`canvas.height` resets the drawing surface and
+//     clears it, *even when the value is unchanged*. Doing that once per frame
+//     means the canvas spends the whole decode blank, at the screencast frame
+//     rate. So: resize only when the size genuinely changes, and only ever in
+//     the same synchronous block as the draw that refills it.
+//   * Reassigning `.src` while a decode is in flight aborts it, so under load
+//     frames were dropped *and* never acked — and CDP will not send another
+//     frame until the current one is acked, so the stream stalled and then
+//     burst. So: one decode at a time, newest-frame-wins, and every frame is
+//     acked exactly once whether it is painted or dropped.
+//   * Painting straight out of the decode callback paints more often than the
+//     display can show. So: decode eagerly (which keeps acks flowing even in a
+//     backgrounded tab), paint on rAF.
 
 const segments = window.location.pathname.split("/").filter(Boolean);
 // Path: /api/companies/<cid>/employees/<eid>/browser-sessions/<sid>/view
@@ -21,41 +43,65 @@ const ctx = canvas.getContext("2d", { alpha: false });
 const overlay = document.getElementById("overlay");
 const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
-const statusUrl = document.getElementById("status-url");
 const statusBadge = document.getElementById("status-badge");
 const statusHint = document.getElementById("status-hint");
 const takeoverBtn = document.getElementById("takeover");
+const omnibox = document.getElementById("omnibox");
+const urlInput = document.getElementById("url");
+const goBtn = document.getElementById("go");
+const backBtn = document.getElementById("nav-back");
+const forwardBtn = document.getElementById("nav-forward");
+const reloadBtn = document.getElementById("nav-reload");
+const notice = document.getElementById("notice");
 
 let ws = null;
 let takeover = false;
 let viewportWidth = 1280;
 let viewportHeight = 800;
 let sessionClosed = false;
+let connectionLabel = "Connecting…";
+let pageTitle = "";
+let currentUrl = "";
+let urlDirty = false;
+
+// ---------- status chrome ----------
 
 function setStatus(state, label) {
   statusDot.className = "dot " + state;
-  statusText.textContent = label;
+  statusDot.title = label;
+  connectionLabel = label;
+  renderStatusText();
+  canvas.classList.toggle("stale", state !== "live" && paintedOnce);
 }
 
-function setUrl(url, title) {
-  if (!url) {
-    statusUrl.textContent = "";
-    return;
-  }
-  statusUrl.textContent = title ? title + " — " + url : url;
-  statusUrl.title = url;
+/**
+ * The address bar owns the URL now, so this line is free to carry the page
+ * title once we are live — which is the thing a watcher actually reads.
+ */
+function renderStatusText() {
+  statusText.textContent =
+    connectionLabel === "Live" ? pageTitle || "Live" : connectionLabel;
 }
 
 function setHint(text) {
   statusHint.textContent = text || "";
 }
 
-function applyViewport(width, height) {
-  if (!Number.isFinite(width) || !Number.isFinite(height)) return;
-  viewportWidth = Math.max(1, Math.round(width));
-  viewportHeight = Math.max(1, Math.round(height));
-  canvas.width = viewportWidth;
-  canvas.height = viewportHeight;
+let noticeTimer = null;
+function showNotice(message) {
+  notice.textContent = message;
+  notice.classList.add("visible");
+  if (noticeTimer) clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => {
+    notice.classList.remove("visible");
+    noticeTimer = null;
+  }, 7000);
+}
+
+function clearNotice() {
+  if (noticeTimer) clearTimeout(noticeTimer);
+  noticeTimer = null;
+  notice.classList.remove("visible");
 }
 
 function showOverlay(title, body) {
@@ -63,15 +109,31 @@ function showOverlay(title, body) {
   const h1 = overlay.querySelector("h1");
   const p = overlay.querySelector("p");
   if (h1) h1.textContent = title;
-  if (p) p.innerHTML = body;
+  if (p) p.textContent = body;
 }
 
 function hideOverlay() {
   overlay.classList.add("hidden");
 }
 
+/**
+ * The size the *page* thinks it is, in CSS pixels. Used only to scale
+ * take-over clicks; the canvas backing store follows the decoded frame
+ * instead, so this never touches the drawing surface.
+ */
+function applyViewport(width, height) {
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+  const w = Math.max(1, Math.round(width));
+  const h = Math.max(1, Math.round(height));
+  if (w === viewportWidth && h === viewportHeight) return;
+  viewportWidth = w;
+  viewportHeight = h;
+}
+
+// ---------- take over ----------
+
 function setTakeover(next) {
-  if (sessionClosed) return;
+  if (sessionClosed && next) return;
   takeover = next;
   takeoverBtn.classList.toggle("active", takeover);
   takeoverBtn.setAttribute("aria-pressed", takeover ? "true" : "false");
@@ -79,49 +141,212 @@ function setTakeover(next) {
   statusBadge.textContent = takeover ? "Driving" : "Observing";
   statusBadge.classList.toggle("driving", takeover);
   canvas.classList.toggle("takeover", takeover);
+  syncOmniboxMode();
   send({ type: "control.takeover", userId: "self", takeover });
-  if (takeover) canvas.focus();
+  if (takeover) {
+    canvas.focus();
+  } else {
+    resetUrlInput();
+    clearNotice();
+  }
 }
 
 function send(msg) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  try { ws.send(JSON.stringify(msg)); } catch { /* drop */ }
+  try {
+    ws.send(JSON.stringify(msg));
+  } catch {
+    /* drop */
+  }
 }
 
-// ---------- frame decode ----------
+// ---------- address bar ----------
 
-const decoder = new Image();
-let pendingFrameId = null;
+function syncOmniboxMode() {
+  const enabled = takeover && !sessionClosed;
+  urlInput.readOnly = !enabled;
+  urlInput.placeholder = enabled ? "Type a URL and press Enter" : "Take over to type an address";
+  backBtn.disabled = !enabled;
+  forwardBtn.disabled = !enabled;
+  reloadBtn.disabled = !enabled;
+  goBtn.classList.toggle("visible", enabled && urlDirty);
+}
 
-decoder.onload = () => {
-  if (pendingFrameId === null) return;
-  const id = pendingFrameId;
-  pendingFrameId = null;
-  ctx.drawImage(decoder, 0, 0, canvas.width, canvas.height);
-  send({ type: "frame.ack", frameId: id });
-};
+function setUrl(url, title) {
+  currentUrl = url || "";
+  pageTitle = title || "";
+  urlInput.title = pageTitle ? `${pageTitle} — ${currentUrl}` : currentUrl;
+  renderStatusText();
+  // Never overwrite an address the human is part-way through typing.
+  if (urlDirty && document.activeElement === urlInput) return;
+  urlInput.value = currentUrl;
+  urlDirty = false;
+  syncOmniboxMode();
+}
 
-decoder.onerror = () => {
-  // Drop the frame; ack so the MCP keeps going.
-  if (pendingFrameId !== null) {
-    send({ type: "frame.ack", frameId: pendingFrameId });
-    pendingFrameId = null;
+function resetUrlInput() {
+  urlInput.value = currentUrl;
+  urlDirty = false;
+  syncOmniboxMode();
+}
+
+urlInput.addEventListener("input", () => {
+  urlDirty = urlInput.value !== currentUrl;
+  syncOmniboxMode();
+});
+
+urlInput.addEventListener("focus", () => {
+  if (takeover && !urlDirty) urlInput.select();
+});
+
+urlInput.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape") return;
+  ev.preventDefault();
+  resetUrlInput();
+  urlInput.blur();
+  if (takeover) canvas.focus();
+});
+
+omnibox.addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (!takeover || sessionClosed) return;
+  const value = urlInput.value.trim();
+  if (!value) return;
+  clearNotice();
+  send({ type: "control.navigate", url: value });
+  urlDirty = false;
+  syncOmniboxMode();
+  urlInput.blur();
+  canvas.focus();
+});
+
+function sendHistory(action) {
+  if (!takeover || sessionClosed) return;
+  clearNotice();
+  send({ type: "control.history", action });
+  canvas.focus();
+}
+
+backBtn.addEventListener("click", () => sendHistory("back"));
+forwardBtn.addEventListener("click", () => sendHistory("forward"));
+reloadBtn.addEventListener("click", () => sendHistory("reload"));
+takeoverBtn.addEventListener("click", () => setTakeover(!takeover));
+
+// ---------- frame decode + paint ----------
+
+let decodeBusy = false;
+/** Newest frame received while a decode was in flight. Older ones are dropped. */
+let nextFrame = null;
+/** Decoded and waiting for the next animation frame. */
+let queuedBitmap = null;
+let paintScheduled = false;
+let paintedOnce = false;
+
+function ackFrame(frameId) {
+  send({ type: "frame.ack", frameId });
+}
+
+function base64ToBytes(b64) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function decodeJpeg(base64) {
+  const blob = new Blob([base64ToBytes(base64)], { type: "image/jpeg" });
+  if (typeof createImageBitmap === "function") return createImageBitmap(blob);
+  // Fallback for engines without createImageBitmap. `decode()` resolves once
+  // the bitmap is ready, so the object URL can be released before we draw.
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = objectUrl;
+    if (typeof img.decode === "function") {
+      await img.decode();
+    } else {
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+      });
+    }
+    return img;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
   }
-};
+}
 
-function paintFrame(frame) {
-  hideOverlay();
-  if (frame.metadata && Number.isFinite(frame.metadata.deviceWidth)) {
-    applyViewport(frame.metadata.deviceWidth, frame.metadata.deviceHeight);
+function releaseBitmap(bitmap) {
+  if (bitmap && typeof bitmap.close === "function") bitmap.close();
+}
+
+function enqueueFrame(frame) {
+  if (decodeBusy) {
+    // The frame already waiting will never be shown — ack it now so CDP keeps
+    // advancing, and keep only the newest.
+    if (nextFrame) ackFrame(nextFrame.frameId);
+    nextFrame = frame;
+    return;
   }
-  pendingFrameId = frame.frameId;
-  decoder.src = "data:image/jpeg;base64," + frame.data;
+  void decodeLoop(frame);
+}
+
+async function decodeLoop(first) {
+  decodeBusy = true;
+  let frame = first;
+  while (frame) {
+    const current = frame;
+    frame = null;
+    try {
+      const bitmap = await decodeJpeg(current.data);
+      if (current.metadata) {
+        applyViewport(current.metadata.deviceWidth, current.metadata.deviceHeight);
+      }
+      releaseBitmap(queuedBitmap);
+      queuedBitmap = bitmap;
+      schedulePaint();
+    } catch {
+      // A corrupt frame is a dropped frame, never a stalled stream.
+    }
+    ackFrame(current.frameId);
+    frame = nextFrame;
+    nextFrame = null;
+  }
+  decodeBusy = false;
+}
+
+function schedulePaint() {
+  if (paintScheduled) return;
+  paintScheduled = true;
+  window.requestAnimationFrame(paint);
+}
+
+function paint() {
+  paintScheduled = false;
+  const bitmap = queuedBitmap;
+  if (!bitmap) return;
+  queuedBitmap = null;
+  const width = bitmap.width;
+  const height = bitmap.height;
+  // Resizing clears the surface, so it only ever happens immediately before
+  // the draw that refills it — and only when the capture size really changed.
+  if (width > 0 && height > 0 && (canvas.width !== width || canvas.height !== height)) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  releaseBitmap(bitmap);
+  if (!paintedOnce) {
+    paintedOnce = true;
+    hideOverlay();
+  }
 }
 
 // ---------- input forwarding ----------
 
 function viewportCoords(ev) {
   const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
   const x = (ev.clientX - rect.left) * (viewportWidth / rect.width);
   const y = (ev.clientY - rect.top) * (viewportHeight / rect.height);
   return { x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) };
@@ -198,21 +423,25 @@ canvas.addEventListener("contextmenu", (ev) => {
   if (takeover) ev.preventDefault();
 });
 
-canvas.addEventListener("wheel", (ev) => {
-  if (!takeover) return;
-  ev.preventDefault();
-  const { x, y } = viewportCoords(ev);
-  send({
-    type: "input.mouse",
-    action: "mouseWheel",
-    x,
-    y,
-    deltaX: ev.deltaX,
-    deltaY: ev.deltaY,
-    buttons: ev.buttons,
-    modifiers: modifiersFrom(ev),
-  });
-}, { passive: false });
+canvas.addEventListener(
+  "wheel",
+  (ev) => {
+    if (!takeover) return;
+    ev.preventDefault();
+    const { x, y } = viewportCoords(ev);
+    send({
+      type: "input.mouse",
+      action: "mouseWheel",
+      x,
+      y,
+      deltaX: ev.deltaX,
+      deltaY: ev.deltaY,
+      buttons: ev.buttons,
+      modifiers: modifiersFrom(ev),
+    });
+  },
+  { passive: false },
+);
 
 function isPrintable(key) {
   return typeof key === "string" && key.length === 1;
@@ -243,8 +472,18 @@ function specialKeyText(ev) {
 
 canvas.addEventListener("keydown", (ev) => {
   if (!takeover) return;
+  // ⌘L / Ctrl+L focuses the address bar, exactly as it would in a real browser.
+  if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "l") {
+    ev.preventDefault();
+    urlInput.focus();
+    urlInput.select();
+    return;
+  }
   // Let the iframe's parent keep ⌘R / ⌘W / browser shortcuts.
-  if ((ev.metaKey || ev.ctrlKey) && (ev.key === "r" || ev.key === "w" || ev.key === "t" || ev.key === "n")) {
+  if (
+    (ev.metaKey || ev.ctrlKey) &&
+    (ev.key === "r" || ev.key === "w" || ev.key === "t" || ev.key === "n")
+  ) {
     return;
   }
   ev.preventDefault();
@@ -278,8 +517,6 @@ canvas.addEventListener("keyup", (ev) => {
   });
 });
 
-takeoverBtn.addEventListener("click", () => setTakeover(!takeover));
-
 // ---------- WS lifecycle ----------
 
 async function mintToken() {
@@ -299,42 +536,97 @@ function wsUrl(token) {
   return `${proto}//${window.location.host}${baseUrl}/ws?token=${encodeURIComponent(token)}`;
 }
 
+/**
+ * Reconnect forever with a capped backoff rather than giving up after three
+ * tries and telling the human to refresh a frame they cannot easily reload.
+ * An App restart mid-session is routine; the viewer should simply come back.
+ * Retries pause while the tab is hidden — nobody is watching, and a token mint
+ * per attempt against a sleeping tab is pure waste.
+ */
+const RECONNECT_BASE_MS = 500;
+const RECONNECT_MAX_MS = 15_000;
 let reconnectAttempts = 0;
+let reconnectTimer = null;
+let connecting = false;
+
+function scheduleReconnect() {
+  if (sessionClosed || reconnectTimer || connecting) return;
+  // Nobody is watching a hidden tab, and a token mint per attempt against one
+  // is pure waste. The visibility listener picks it back up. Only *retries*
+  // are gated: the first connect always runs, because an iframe can report
+  // hidden while it is perfectly well rendered.
+  if (document.visibilityState === "hidden") return;
+  const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** reconnectAttempts);
+  reconnectAttempts += 1;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    void connect();
+  }, delay);
+}
+
 async function connect() {
-  if (sessionClosed) return;
-  setStatus("pending", "Connecting…");
+  if (sessionClosed || connecting) return;
+  connecting = true;
+  if (!paintedOnce) setStatus("pending", "Connecting…");
+  else setStatus("pending", "Reconnecting…");
   let token;
   try {
     token = await mintToken();
   } catch (err) {
-    setStatus("closed", "Auth failed");
-    showOverlay("Couldn't authenticate", "Refresh the page to try again. Error: " + (err && err.message ? err.message : err));
+    connecting = false;
+    setStatus("closed", "Reconnecting…");
+    if (reconnectAttempts >= 3) {
+      showNotice(
+        "Can't reach the live view — retrying. " + (err && err.message ? err.message : ""),
+      );
+    }
+    scheduleReconnect();
     return;
   }
-  ws = new WebSocket(wsUrl(token));
-  ws.addEventListener("open", () => {
+
+  const socket = new WebSocket(wsUrl(token));
+  ws = socket;
+  socket.addEventListener("open", () => {
+    connecting = false;
     reconnectAttempts = 0;
-    setStatus("pending", "Live view connected, waiting for the agent…");
+    clearNotice();
+    // A reconnect replays the last frame, and the canvas still holds it — so
+    // come straight back as live rather than dimming a picture that is about
+    // to be refreshed.
+    if (paintedOnce) setStatus("live", "Live");
+    else setStatus("pending", "Waiting for the agent…");
+    // The hub tracks take-over per socket, so a reconnect starts as an
+    // observer on the server. Re-assert it rather than showing a Driving badge
+    // over a session we are no longer driving.
+    if (takeover) send({ type: "control.takeover", userId: "self", takeover: true });
   });
-  ws.addEventListener("message", (ev) => {
+  socket.addEventListener("message", (ev) => {
     let msg;
-    try { msg = JSON.parse(ev.data); } catch { return; }
+    try {
+      msg = JSON.parse(ev.data);
+    } catch {
+      return;
+    }
     handleServerMessage(msg);
   });
-  ws.addEventListener("close", () => {
+  socket.addEventListener("close", () => {
+    if (ws === socket) ws = null;
+    connecting = false;
     if (sessionClosed) return;
-    setStatus("closed", "Disconnected");
-    if (reconnectAttempts < 3) {
-      reconnectAttempts += 1;
-      setTimeout(connect, 1000 * reconnectAttempts);
-    } else {
-      showOverlay("Disconnected", "The live view dropped. Refresh the page to reconnect.");
-    }
+    setStatus("closed", "Reconnecting…");
+    scheduleReconnect();
   });
-  ws.addEventListener("error", () => {
+  socket.addEventListener("error", () => {
     // The close handler does the reconnect dance.
   });
 }
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (sessionClosed || ws || connecting) return;
+  reconnectAttempts = 0;
+  void connect();
+});
 
 function handleServerMessage(msg) {
   if (msg.type === "hello") {
@@ -343,25 +635,32 @@ function handleServerMessage(msg) {
     return;
   }
   if (msg.type === "frame") {
-    if (statusDot.classList.contains("pending") || statusDot.classList.contains("closed")) {
-      setStatus("live", "Live");
-    }
-    paintFrame(msg);
+    if (connectionLabel !== "Live") setStatus("live", "Live");
+    enqueueFrame(msg);
     return;
   }
   if (msg.type === "nav") {
     setUrl(msg.url, msg.title);
     return;
   }
+  if (msg.type === "nav.error") {
+    showNotice(msg.message);
+    return;
+  }
+  if (msg.type === "viewport.set") {
+    applyViewport(msg.width, msg.height);
+    return;
+  }
   if (msg.type === "viewers") {
-    setHint(msg.count > 1 ? `${msg.count} viewers` : "");
+    setHint(msg.count > 1 ? `${msg.count} watching` : "");
     return;
   }
   if (msg.type === "closed") {
     sessionClosed = true;
+    if (takeover) setTakeover(false);
     setStatus("closed", reasonLabel(msg.reason));
-    setTakeover(false);
     takeoverBtn.disabled = true;
+    syncOmniboxMode();
     showOverlay("Session ended", explainClose(msg.reason));
     return;
   }
@@ -382,4 +681,5 @@ function explainClose(reason) {
   return "The agent finished or the session was closed.";
 }
 
+syncOmniboxMode();
 connect();

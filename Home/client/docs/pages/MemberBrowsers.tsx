@@ -243,6 +243,11 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
         human — and here you are already sitting at the machine, so you can also just use the Chrome
         window directly.
       </P>
+      <P>
+        The address bar that take-over unlocks is bounded by both allow lists, this browser&apos;s
+        and the employee&apos;s, exactly as <Code>browser_open</Code> is. Holding control does not
+        let the session reach a host you left off your own list.
+      </P>
 
       <H2 id="offline">When the laptop sleeps</H2>
       <P>

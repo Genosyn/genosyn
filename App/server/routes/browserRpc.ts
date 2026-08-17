@@ -40,6 +40,7 @@ import {
   closeBrowserSessionForPolicy,
 } from "../services/browserAccess.js";
 import { memberBrowserUrlAllowed } from "../services/memberBrowsers.js";
+import { parseAllowList, urlAllowed } from "../services/browserHostPolicy.js";
 
 /**
  * Internal HTTP surface called by the stripped-down `browser` MCP child.
@@ -659,62 +660,6 @@ function safeVaultWebsiteUrl(pageUrl: string): string {
   // Deliberately discard path/query/hash: account setup links often carry
   // bearer material in the URL, and the Vault only needs the origin/host.
   return parsed.origin;
-}
-
-function parseAllowList(raw: string | null): string[] {
-  if (!raw) return [];
-  return raw
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !s.startsWith("#"));
-}
-
-/**
- * Allow-list matching rules (documented in the UI hint and the Browser docs
- * page — keep all three in sync). A bare host is an EXACT match so an
- * operator can pin one host precisely; use the `*.` form for subdomains:
- *   - `mail.google.com` → that exact host, and nothing else
- *   - `*.example.com`   → the apex `example.com` and every subdomain
- *   - `app.*.example.com` → a general glob, matched label-safely (each `*`
- *                           spans one label, never a dot)
- */
-function hostMatches(hostname: string, pattern: string): boolean {
-  const h = hostname.toLowerCase();
-  const p = pattern.toLowerCase();
-  if (!p.includes("*")) {
-    return h === p;
-  }
-  if (p.startsWith("*.")) {
-    const suffix = p.slice(2);
-    if (h === suffix) return true;
-    if (h.endsWith("." + suffix)) return true;
-    return false;
-  }
-  // General glob. `*` matches within a single DNS label only — it must not
-  // cross a dot, or `example.*` would admit `example.attacker.com`. Escaping
-  // every metachar first also keeps the pattern ReDoS-free.
-  const escaped = p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^.]*");
-  return new RegExp(`^${escaped}$`).test(h);
-}
-
-function urlAllowed(
-  url: string,
-  allowList: string[],
-): { ok: true } | { ok: false; reason: string } {
-  if (allowList.length === 0) return { ok: true };
-  let host: string;
-  try {
-    host = new URL(url).hostname;
-  } catch {
-    return { ok: false, reason: "URL is not parseable" };
-  }
-  for (const pattern of allowList) {
-    if (hostMatches(host, pattern)) return { ok: true };
-  }
-  return {
-    ok: false,
-    reason: `Host \`${host}\` is not in the allow list. Allowed: ${allowList.join(", ")}`,
-  };
 }
 
 /**

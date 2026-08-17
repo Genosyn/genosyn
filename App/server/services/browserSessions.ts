@@ -1,8 +1,12 @@
 import crypto from "node:crypto";
 import { WebSocket } from "ws";
 import { AppDataSource } from "../db/datasource.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { BrowserSession, type BrowserSessionCloseReason } from "../db/entities/BrowserSession.js";
+import { MemberBrowser } from "../db/entities/MemberBrowser.js";
 import { getRuntime, holdRuntime, releaseRuntime, markActivity } from "./browserChromium.js";
+import { normalizeViewerNavigationUrl, parseAllowList, urlAllowed } from "./browserHostPolicy.js";
+import { memberBrowserUrlAllowed } from "./memberBrowsers.js";
 import { withSchedulerLease } from "./schedulerLeases.js";
 import { registerMembershipAuthorizationChangeSink } from "./resourceEvents.js";
 
@@ -111,12 +115,29 @@ export type LiveMessage =
       windowsVirtualKeyCode?: number;
     }
   | { type: "viewport.set"; width: number; height: number }
-  | { type: "control.takeover"; userId: string; takeover: boolean };
+  | { type: "control.takeover"; userId: string; takeover: boolean }
+  /** Address-bar navigation from a viewer that has taken control. */
+  | { type: "control.navigate"; url: string }
+  /** Back / forward / reload from the viewer's toolbar. */
+  | { type: "control.history"; action: "back" | "forward" | "reload" }
+  /** Why the last take-over navigation was refused, shown under the address bar. */
+  | { type: "nav.error"; message: string };
 
 type ViewerSocket = {
   ws: WebSocket;
   userId: string;
   takeover: boolean;
+};
+
+type PendingAck = {
+  cdpSessionId: string;
+  /**
+   * Fires if no viewer acks in time. CDP will not emit another frame until the
+   * current one is acked, so a viewer that stops acking — a decode failure, a
+   * socket wedged behind a proxy — would otherwise freeze the picture for
+   * *every* watcher until they all disconnect.
+   */
+  timer: NodeJS.Timeout;
 };
 
 type SessionState = {
@@ -125,7 +146,7 @@ type SessionState = {
   employeeId: string;
   viewers: Set<ViewerSocket>;
   /** Frames waiting on viewer-side ack before we tell CDP to advance. */
-  pendingCdpAcks: Map<number, string>; // ourFrameId → cdpSessionId
+  pendingCdpAcks: Map<number, PendingAck>; // ourFrameId → CDP ack bookkeeping
   /** Last frame we saw, replayed to viewers that connect mid-stream. */
   lastFrame: LiveMessage | null;
   pageUrl: string;
@@ -277,6 +298,8 @@ export async function closeBrowserSession(
 }
 
 function teardown(sessionId: string): void {
+  const state = sessions.get(sessionId);
+  if (state) clearPendingAcks(state);
   for (const listener of cleanupListeners) {
     try {
       listener(sessionId);
@@ -358,7 +381,7 @@ export async function notifyPageSwapped(sessionId: string): Promise<void> {
   if (!state) return;
   const wasCasting = state.screencasting;
   state.screencasting = false;
-  state.pendingCdpAcks.clear();
+  clearPendingAcks(state);
   cdpListenerAttached.delete(sessionId);
   if (wasCasting && state.viewers.size > 0) {
     await startScreencast(state);
@@ -366,6 +389,35 @@ export async function notifyPageSwapped(sessionId: string): Promise<void> {
 }
 
 // ---------- screencast control (called when viewers come and go) ----------
+
+/**
+ * How long a frame may sit unacked before we tell CDP to advance anyway.
+ *
+ * Long enough that a viewer decoding at a sane rate always wins the race (so
+ * back-pressure still works and Chromium doesn't render frames nobody will
+ * see), short enough that a wedged viewer costs everyone a hiccup rather than
+ * a frozen picture.
+ */
+const ACK_TIMEOUT_MS = 1200;
+
+/** Tell CDP the frame is done with, once, whoever got there first. */
+function ackCdpFrame(state: SessionState, frameId: number): void {
+  const pending = state.pendingCdpAcks.get(frameId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  state.pendingCdpAcks.delete(frameId);
+  const runtime = getRuntime(state.id);
+  const cdp = runtime?.cdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null;
+  if (!cdp) return;
+  cdp.send("Page.screencastFrameAck", { sessionId: pending.cdpSessionId }).catch(() => {
+    // Chromium may have gone away between the frame and the ack.
+  });
+}
+
+function clearPendingAcks(state: SessionState): void {
+  for (const pending of state.pendingCdpAcks.values()) clearTimeout(pending.timer);
+  state.pendingCdpAcks.clear();
+}
 
 async function startScreencast(state: SessionState): Promise<void> {
   if (state.screencasting) return;
@@ -398,7 +450,9 @@ async function startScreencast(state: SessionState): Promise<void> {
         });
         return;
       }
-      state.pendingCdpAcks.set(id, ev.sessionId);
+      const timer = setTimeout(() => ackCdpFrame(state, id), ACK_TIMEOUT_MS);
+      if (typeof timer.unref === "function") timer.unref();
+      state.pendingCdpAcks.set(id, { cdpSessionId: ev.sessionId, timer });
       broadcastToViewers(state, msg);
     });
     cdpListenerAttached.add(state.id);
@@ -422,7 +476,7 @@ async function stopScreencast(state: SessionState): Promise<void> {
   if (!state.screencasting) return;
   const runtime = getRuntime(state.id);
   state.screencasting = false;
-  state.pendingCdpAcks.clear();
+  clearPendingAcks(state);
   if (!runtime) return;
   const cdp = runtime.cdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null;
   if (!cdp) return;
@@ -467,11 +521,11 @@ export function attachViewerSocket(args: {
   };
   sendToWs(ws, hello);
 
-  if (state.lastFrame) {
-    sendToWs(ws, state.lastFrame);
-    const frame = state.lastFrame as { frameId: number };
-    state.pendingCdpAcks.has(frame.frameId);
-  }
+  // Replay the last frame so a viewer joining mid-stream sees the page
+  // immediately instead of a blank canvas until the next repaint. It may
+  // already have been acked to CDP; the ack this viewer sends back is then a
+  // no-op, which is exactly what we want.
+  if (state.lastFrame) sendToWs(ws, state.lastFrame);
 
   broadcastViewerCount(state);
 
@@ -511,22 +565,22 @@ async function handleViewerMessage(
   msg: LiveMessage,
 ): Promise<void> {
   if (msg.type === "frame.ack") {
-    const cdpSid = state.pendingCdpAcks.get(msg.frameId);
-    if (!cdpSid) return;
-    state.pendingCdpAcks.delete(msg.frameId);
-    const runtime = getRuntime(state.id);
-    if (!runtime) return;
-    const cdp = runtime.cdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null;
-    if (!cdp) return;
-    try {
-      await cdp.send("Page.screencastFrameAck", { sessionId: cdpSid });
-    } catch {
-      /* ignore */
-    }
+    ackCdpFrame(state, msg.frameId);
     return;
   }
   if (msg.type === "control.takeover") {
     viewer.takeover = !!msg.takeover;
+    return;
+  }
+  if (msg.type === "control.navigate") {
+    if (!viewer.takeover) return;
+    await navigateFromViewer(state, viewer, msg.url);
+    return;
+  }
+  if (msg.type === "control.history") {
+    if (!viewer.takeover) return;
+    if (msg.action !== "back" && msg.action !== "forward" && msg.action !== "reload") return;
+    await historyFromViewer(state, viewer, msg.action);
     return;
   }
   if (msg.type === "input.mouse" || msg.type === "input.key") {
@@ -576,6 +630,135 @@ async function handleViewerMessage(
       }
     }
     return;
+  }
+}
+
+function sessionCdp(
+  sessionId: string,
+): { send: (m: string, p?: unknown) => Promise<unknown> } | null {
+  const runtime = getRuntime(sessionId);
+  return (runtime?.cdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null) ?? null;
+}
+
+/**
+ * Whether a human who has taken control may send this browser to `url`.
+ *
+ * Take-over is a way to finish a step the model cannot — a captcha, a 2FA
+ * prompt — not a way around the host policy the company set. It is still the
+ * employee's browser, carrying the employee's cookies, so the address bar
+ * answers to exactly the same two allow lists `browser_open` does. Re-read per
+ * navigation rather than snapshotted, for the same reason every other browser
+ * check is: revoking access has to bite the session already open.
+ */
+async function viewerNavigationAllowed(
+  state: SessionState,
+  url: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
+    id: state.employeeId,
+  });
+  if (!employee) return { ok: false, reason: "This AI Employee no longer exists." };
+  const byEmployee = urlAllowed(url, parseAllowList(employee.browserAllowedHosts));
+  if (!byEmployee.ok) return byEmployee;
+
+  const row = await AppDataSource.getRepository(BrowserSession).findOneBy({ id: state.id });
+  if (!row?.memberBrowserId) return { ok: true };
+  const browser = await AppDataSource.getRepository(MemberBrowser).findOneBy({
+    id: row.memberBrowserId,
+  });
+  if (!browser) return { ok: false, reason: "That browser is no longer connected." };
+  return memberBrowserUrlAllowed(url, browser, (candidate, allowList) =>
+    urlAllowed(candidate, allowList),
+  );
+}
+
+/** Address-bar navigation from a viewer holding control. */
+async function navigateFromViewer(
+  state: SessionState,
+  viewer: ViewerSocket,
+  rawUrl: string,
+): Promise<void> {
+  const normalized = normalizeViewerNavigationUrl(String(rawUrl ?? ""));
+  if (!normalized.ok) {
+    sendToWs(viewer.ws, { type: "nav.error", message: normalized.reason });
+    return;
+  }
+  const verdict = await viewerNavigationAllowed(state, normalized.url);
+  if (!verdict.ok) {
+    sendToWs(viewer.ws, { type: "nav.error", message: verdict.reason });
+    return;
+  }
+  const cdp = sessionCdp(state.id);
+  if (!cdp) {
+    sendToWs(viewer.ws, { type: "nav.error", message: "The browser is no longer running." });
+    return;
+  }
+  markActivity(state.id);
+  // Last chance to see what the page held: navigating destroys it, and the
+  // redaction listeners have to keep covering anything typed into it.
+  await observeRuntimePasswordValues(state.id);
+  try {
+    // `Page.navigate` rather than Playwright's `page.goto` — this returns as
+    // soon as the load is committed, so the viewer's toolbar doesn't sit dead
+    // for the length of a slow page. The nav mirror on the page's
+    // `framenavigated` listener updates the address bar when it lands.
+    const result = (await cdp.send("Page.navigate", { url: normalized.url })) as {
+      errorText?: string;
+    };
+    // A load that never starts — bad DNS, refused connection — comes back as a
+    // result, not a rejection. Silence there reads as a broken address bar.
+    if (result?.errorText) {
+      sendToWs(viewer.ws, {
+        type: "nav.error",
+        message: `Couldn't open that page: ${result.errorText}`,
+      });
+    }
+  } catch {
+    sendToWs(viewer.ws, { type: "nav.error", message: "That page could not be opened." });
+  }
+}
+
+/** Back / forward / reload from the viewer's toolbar. */
+async function historyFromViewer(
+  state: SessionState,
+  viewer: ViewerSocket,
+  action: "back" | "forward" | "reload",
+): Promise<void> {
+  const cdp = sessionCdp(state.id);
+  if (!cdp) {
+    sendToWs(viewer.ws, { type: "nav.error", message: "The browser is no longer running." });
+    return;
+  }
+  markActivity(state.id);
+  await observeRuntimePasswordValues(state.id);
+  try {
+    if (action === "reload") {
+      await cdp.send("Page.reload", {});
+      return;
+    }
+    const history = (await cdp.send("Page.getNavigationHistory")) as {
+      currentIndex: number;
+      entries: Array<{ id: number; url: string }>;
+    };
+    const target = history.entries[history.currentIndex + (action === "back" ? -1 : 1)];
+    if (!target) {
+      sendToWs(viewer.ws, {
+        type: "nav.error",
+        message: action === "back" ? "Nothing to go back to." : "Nothing to go forward to.",
+      });
+      return;
+    }
+    // The entry was allowed when it was first opened, but the list may have
+    // been tightened since, and history is a way back to a host the company
+    // has since removed.
+    const verdict = await viewerNavigationAllowed(state, target.url);
+    if (!verdict.ok) {
+      sendToWs(viewer.ws, { type: "nav.error", message: verdict.reason });
+      return;
+    }
+    await cdp.send("Page.navigateToHistoryEntry", { entryId: target.id });
+  } catch {
+    sendToWs(viewer.ws, { type: "nav.error", message: "That navigation could not be performed." });
   }
 }
 
@@ -697,10 +880,13 @@ export async function setSessionViewport(
   );
   broadcastToViewers(state, { type: "viewport.set", width, height });
   // Re-cap an in-flight cast at the true size rather than waiting for the
-  // next page swap to do it.
+  // next page swap to do it. Awaited so the restart has actually happened by
+  // the time the caller continues — `syncViewportFromBrowser` runs this during
+  // page acquisition, and returning early leaves the first tool call racing a
+  // cast that is still stopped.
   if (state.screencasting) {
-    stopScreencast(state);
-    startScreencast(state);
+    await stopScreencast(state);
+    await startScreencast(state);
   }
 }
 
