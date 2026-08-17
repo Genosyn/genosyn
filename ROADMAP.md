@@ -86,6 +86,16 @@ don't re-litigate them.
     everyday questions behind an admin with a second factor, and leave the
     feature unused. Anything privileged the employee does with its answer
     still meets its own Approval, so nothing is weakened by the split.
+12. **Home shows only what it has.** Every panel there is a queue, and an empty
+    queue is not news. Cards that rendered "Nothing is waiting on a human
+    decision" or "No unread channels or DMs" cost a grid slot each to say
+    nothing, and six of them pushed the one thing that *did* need a human below
+    the fold — the exact failure the page exists to prevent. So each panel, and
+    each counter in the strip above them, hides itself when it is empty; the
+    decision stack and the failure alert always worked this way and the rest now
+    match. A day with nothing outstanding gets one `AllClear` message instead of
+    a wall of reassurance. If you are about to add a card to Home, give it the
+    same guard.
 
 ---
 

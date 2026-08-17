@@ -130,6 +130,15 @@ export function Introduction() {
         thing you see.
       </P>
       <P>
+        Home only shows you what it actually has. Every panel — the{" "}
+        <DocLink to="/docs/decisions">decision stack</DocLink>, failed{" "}
+        <DocLink to="/docs/routines">routines</DocLink>, mentions,{" "}
+        <DocLink to="/docs/tasks">todos</DocLink>, reviews, unread messages, approvals, system
+        health — disappears when it&apos;s empty rather than sitting there reporting that nothing is
+        waiting. So the page is only ever as long as your day is busy, and on a quiet one it says{" "}
+        <Strong>Nothing needs you right now</Strong> and leaves it at that.
+      </P>
+      <P>
         To get anywhere else, press <Code>⌘K</Code> (<Code>Ctrl K</Code> on Windows and Linux). That
         opens the command palette: every section in one searchable list, with Essentials first —
         type a few letters, press <Code>↵</Code>, done. It answers to the words you already know, so

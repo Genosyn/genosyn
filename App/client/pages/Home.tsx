@@ -49,6 +49,13 @@ import { clsx } from "../components/ui/clsx";
  * (`GET /api/companies/:cid/home`) fills the cards: unread notifications,
  * todos assigned to me, reviews waiting on my sign-off, pending approvals,
  * and unread channels. Every card deep-links into the full section.
+ *
+ * **Every panel here hides itself when it has nothing.** Each one is a queue,
+ * and an empty queue is not news — a card that spends a grid slot to say
+ * "nothing is waiting on you" pushes the things that *are* waiting further
+ * down, and six of them turn a quiet day into a wall of reassurance nobody
+ * reads. The decision stack and the failure alert have always worked this way;
+ * the rest now match. When every panel is empty {@link AllClear} says it once.
  */
 
 const PUSH_PROMPT_DISMISSED_KEY = "genosyn.pushPromptDismissed";
@@ -99,12 +106,14 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
           <div className="flex min-h-[40vh] items-center justify-center">
             <Spinner size={22} />
           </div>
-        ) : (
+        ) : hasAnythingToShow(data) ? (
           <>
             <DecisionStack company={company} data={data} onResolved={reload} />
             <FailedRoutinesAlert company={company} data={data} onDismissed={reload} />
             <StatStrip company={company} data={data} />
-            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {/* `empty:hidden` so the grid's own top margin goes away too on a
+                day when every card inside it has hidden itself. */}
+            <div className="mt-4 grid grid-cols-1 gap-4 empty:hidden lg:grid-cols-2">
               <AttentionCard company={company} data={data} onChanged={reload} />
               <SystemHealthCard company={company} data={data} />
               <MyTodosCard company={company} data={data} />
@@ -113,9 +122,77 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
               <ApprovalsCard company={company} data={data} />
             </div>
           </>
+        ) : (
+          <AllClear company={company} data={data} />
         )}
       </div>
     </ContextualLayout>
+  );
+}
+
+// ───────────────────────── visibility ────────────────────────────────────────
+
+/**
+ * True when at least one panel below has something in it.
+ *
+ * These predicates are the same conditions the panels themselves guard on, in
+ * the same order they render. Keep them in step: a panel that renders while
+ * this returns `false` would sit under the all-clear message contradicting it.
+ *
+ * System health is the one that isn't a row count. A check the viewer dismissed
+ * on this device still counts as visible, because the card stays up to offer it
+ * back — {@link SystemHealthCard} owns that distinction and only disappears
+ * when nothing is failing at all.
+ */
+function hasAnythingToShow(data: HomeData): boolean {
+  return (
+    data.decisions.length > 0 ||
+    data.failedRuns.length > 0 ||
+    statTotal(data) > 0 ||
+    data.notifications.length > 0 ||
+    data.myTodos.length > 0 ||
+    data.reviewTodos.length > 0 ||
+    data.unreadChannels.length > 0 ||
+    data.approvals.length > 0 ||
+    data.systemHealth.checks.some((c) => c.severity !== "ok")
+  );
+}
+
+/**
+ * What Home shows on a day when nothing needs a human.
+ *
+ * Hiding the empty panels leaves a greeting over blank space, which reads as a
+ * page that failed to load rather than one with nothing to report. This says
+ * the quiet part once, in the space six empty cards used to take.
+ *
+ * It also carries the one thing those empty cards were genuinely useful for: a
+ * company with no Projects has nowhere for todos to come from, so point at
+ * Tasks rather than telling them their empty queue is empty.
+ */
+function AllClear({ company, data }: { company: Company; data: HomeData }) {
+  const noProjects = data.counts.projects === 0;
+  return (
+    <section className="mt-6 flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300">
+        <CheckCircle2 size={20} />
+      </span>
+      <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+        Nothing needs you right now
+      </h2>
+      <p className="max-w-sm text-xs text-slate-500 dark:text-slate-400">
+        Decisions your AI employees stack, failed routines, mentions, todos, and approvals appear
+        here the moment they arrive.
+      </p>
+      <Link
+        to={noProjects ? `/c/${company.slug}/tasks` : `/c/${company.slug}/employees`}
+        className="mt-1 flex items-center gap-0.5 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+      >
+        {noProjects
+          ? "Create a project to start tracking work"
+          : "See what your AI employees are doing"}{" "}
+        <ChevronRight size={12} />
+      </Link>
+    </section>
   );
 }
 
@@ -211,6 +288,29 @@ function PushPromptBanner() {
 
 // ───────────────────────── stat strip ────────────────────────────────────────
 
+/**
+ * The four counters the strip can show. Split out so {@link hasAnythingToShow}
+ * can ask whether any of them is non-zero without rebuilding the tiles.
+ */
+function statTotal(data: HomeData): number {
+  return (
+    data.unreadNotificationCount +
+    data.myTodoCount +
+    data.reviewTodoCount +
+    data.pendingApprovalCount
+  );
+}
+
+/**
+ * Counters across the top. A tile at zero is dropped rather than rendered — the
+ * strip exists to say how much is waiting, and "0" is the one number that says
+ * nothing. All four at zero and the strip goes with them.
+ *
+ * The counts are the company's real backlog, not the length of the list in the
+ * card below: a Member whose only pending approvals are vault captures sees the
+ * tile (the count was never the sensitive part) while the card, which would
+ * have to name them, stays hidden.
+ */
 function StatStrip({ company, data }: { company: Company; data: HomeData }) {
   const stats: {
     label: string;
@@ -247,7 +347,8 @@ function StatStrip({ company, data }: { company: Company; data: HomeData }) {
       to: `/c/${company.slug}/approvals`,
       accent: "text-amber-600 bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300",
     },
-  ];
+  ].filter((s) => s.value > 0);
+  if (stats.length === 0) return null;
   return (
     <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
       {stats.map((s) => (
@@ -486,15 +587,6 @@ function HomeCard({
   );
 }
 
-function CardEmpty({ label }: { label: string }) {
-  return (
-    <div className="flex h-full min-h-[8rem] flex-col items-center justify-center gap-1.5 px-6 py-6 text-center">
-      <CheckCircle2 size={18} className="text-emerald-500 dark:text-emerald-400" />
-      <span className="text-xs text-slate-500 dark:text-slate-400">{label}</span>
-    </div>
-  );
-}
-
 // ───────────────────────── notifications card ────────────────────────────────
 
 function AttentionCard({
@@ -520,6 +612,7 @@ function AttentionCard({
     if (n.link) navigate(n.link);
   }
 
+  if (data.notifications.length === 0) return null;
   return (
     <HomeCard
       title="Needs your attention"
@@ -528,30 +621,26 @@ function AttentionCard({
       linkTo={`/c/${company.slug}`}
       linkLabel="Bell has history"
     >
-      {data.notifications.length === 0 ? (
-        <CardEmpty label="You're all caught up — new mentions, reviews, and approvals land here." />
-      ) : (
-        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-          {data.notifications.map((n) => (
-            <li key={n.id}>
-              <button
-                onClick={() => open(n)}
-                className="flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
-              >
-                <NotificationAvatar company={company} n={n} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm text-slate-900 dark:text-slate-100">
-                    {n.title}
-                  </span>
-                  <span className="block text-[11px] text-slate-400 dark:text-slate-500">
-                    {formatRelative(n.createdAt)}
-                  </span>
+      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        {data.notifications.map((n) => (
+          <li key={n.id}>
+            <button
+              onClick={() => open(n)}
+              className="flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
+            >
+              <NotificationAvatar company={company} n={n} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-slate-900 dark:text-slate-100">
+                  {n.title}
                 </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+                <span className="block text-[11px] text-slate-400 dark:text-slate-500">
+                  {formatRelative(n.createdAt)}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </HomeCard>
   );
 }
@@ -669,6 +758,7 @@ function TodoList({ company, todos }: { company: Company; todos: HomeTodo[] }) {
 }
 
 function MyTodosCard({ company, data }: { company: Company; data: HomeData }) {
+  if (data.myTodos.length === 0) return null;
   return (
     <HomeCard
       title="Your todos"
@@ -677,22 +767,13 @@ function MyTodosCard({ company, data }: { company: Company; data: HomeData }) {
       linkTo={`/c/${company.slug}/tasks`}
       linkLabel="All tasks"
     >
-      {data.myTodos.length === 0 ? (
-        <CardEmpty
-          label={
-            data.counts.projects === 0
-              ? "No projects yet — create one under Tasks to start tracking work."
-              : "Nothing assigned to you right now."
-          }
-        />
-      ) : (
-        <TodoList company={company} todos={data.myTodos} />
-      )}
+      <TodoList company={company} todos={data.myTodos} />
     </HomeCard>
   );
 }
 
 function ReviewsCard({ company, data }: { company: Company; data: HomeData }) {
+  if (data.reviewTodos.length === 0) return null;
   return (
     <HomeCard
       title="Reviews waiting on you"
@@ -701,11 +782,7 @@ function ReviewsCard({ company, data }: { company: Company; data: HomeData }) {
       linkTo={`/c/${company.slug}/tasks/review`}
       linkLabel="Review queue"
     >
-      {data.reviewTodos.length === 0 ? (
-        <CardEmpty label="No todos are waiting for your sign-off." />
-      ) : (
-        <TodoList company={company} todos={data.reviewTodos} />
-      )}
+      <TodoList company={company} todos={data.reviewTodos} />
     </HomeCard>
   );
 }
@@ -713,6 +790,7 @@ function ReviewsCard({ company, data }: { company: Company; data: HomeData }) {
 // ───────────────────────── messages card ─────────────────────────────────────
 
 function MessagesCard({ company, data }: { company: Company; data: HomeData }) {
+  if (data.unreadChannels.length === 0) return null;
   return (
     <HomeCard
       title="Unread messages"
@@ -721,37 +799,43 @@ function MessagesCard({ company, data }: { company: Company; data: HomeData }) {
       linkTo={`/c/${company.slug}/workspace`}
       linkLabel="Workspace"
     >
-      {data.unreadChannels.length === 0 ? (
-        <CardEmpty label="No unread channels or DMs." />
-      ) : (
-        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-          {data.unreadChannels.map((c: HomeChannel) => (
-            <li key={c.id}>
-              <Link
-                to={`/c/${company.slug}/workspace/${c.id}`}
-                className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
-              >
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
-                  <MessageSquare size={12} />
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm text-slate-900 dark:text-slate-100">
-                  {c.label}
-                </span>
-                <span className="shrink-0 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-white">
-                  {c.unreadCount > 99 ? "99+" : c.unreadCount}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        {data.unreadChannels.map((c: HomeChannel) => (
+          <li key={c.id}>
+            <Link
+              to={`/c/${company.slug}/workspace/${c.id}`}
+              className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+            >
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+                <MessageSquare size={12} />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm text-slate-900 dark:text-slate-100">
+                {c.label}
+              </span>
+              <span className="shrink-0 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-white">
+                {c.unreadCount > 99 ? "99+" : c.unreadCount}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </HomeCard>
   );
 }
 
 // ───────────────────────── approvals card ────────────────────────────────────
 
+/**
+ * Pending approvals — gates the system put in front of an action an employee
+ * already attempted. Not the decision stack above, which the employee raised
+ * itself; see `AGENTS.md` on why the two never share a surface.
+ *
+ * Hidden when there is nothing to approve. The count in the header is the
+ * company's full backlog, so it can exceed the rows shown when the server
+ * withheld a vault-capture row from a non-admin Member.
+ */
 function ApprovalsCard({ company, data }: { company: Company; data: HomeData }) {
+  if (data.approvals.length === 0) return null;
   return (
     <HomeCard
       title="Pending approvals"
@@ -760,33 +844,29 @@ function ApprovalsCard({ company, data }: { company: Company; data: HomeData }) 
       linkTo={`/c/${company.slug}/approvals`}
       linkLabel="Approvals"
     >
-      {data.approvals.length === 0 ? (
-        <CardEmpty label="Nothing is waiting on a human decision." />
-      ) : (
-        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-          {data.approvals.map((a: HomeApproval) => (
-            <li key={a.id}>
-              <Link
-                to={`/c/${company.slug}/approvals`}
-                className="flex items-start gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
-              >
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
-                  <ShieldCheck size={12} />
+      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        {data.approvals.map((a: HomeApproval) => (
+          <li key={a.id}>
+            <Link
+              to={`/c/${company.slug}/approvals`}
+              className="flex items-start gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+            >
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
+                <ShieldCheck size={12} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-slate-900 dark:text-slate-100">
+                  {a.title || (a.routine ? `Run "${a.routine.name}"` : "Approval requested")}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm text-slate-900 dark:text-slate-100">
-                    {a.title || (a.routine ? `Run "${a.routine.name}"` : "Approval requested")}
-                  </span>
-                  <span className="block truncate text-[11px] text-slate-400 dark:text-slate-500">
-                    {a.employee ? `${a.employee.name} · ` : ""}
-                    {formatRelative(a.requestedAt)}
-                  </span>
+                <span className="block truncate text-[11px] text-slate-400 dark:text-slate-500">
+                  {a.employee ? `${a.employee.name} · ` : ""}
+                  {formatRelative(a.requestedAt)}
                 </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </HomeCard>
   );
 }
