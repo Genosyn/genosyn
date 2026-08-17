@@ -56,6 +56,14 @@ import {
   readBrowserActionPayload,
 } from "../services/approvals.js";
 import { createNotification } from "../services/notifications.js";
+import { Decision } from "../db/entities/Decision.js";
+import {
+  MAX_DECISION_OPTIONS,
+  cancelDecision,
+  createDecision,
+  expireStaleDecisions,
+  parseDecisionOptions,
+} from "../services/decisions.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { validateParentTodo } from "./projects.js";
 import { ProjectActor, hasProjectAccess, listAccessibleProjectIds } from "../services/projects.js";
@@ -10095,6 +10103,171 @@ mcpInternalRouter.post(
   validateBody(transitionHandoffSchema),
   async (req: McpRequest, res) => {
     await applyMcpTransition(req, res, "cancelled", "from");
+  },
+);
+
+// ----- Decision Stack (questions an employee raised for a human) -----
+
+const requestDecisionSchema = z
+  .object({
+    title: z.string().min(1).max(200),
+    body: z.string().max(20_000).optional(),
+    options: z
+      .array(
+        z
+          .object({
+            label: z.string().min(1).max(80),
+            detail: z.string().max(240).optional(),
+            tone: z.enum(["primary", "neutral", "danger"]).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(MAX_DECISION_OPTIONS),
+    urgency: z.enum(["low", "normal", "high"]).optional(),
+    assignee: z.string().min(1).max(200).optional(),
+    expiresInHours: z.number().min(1).max(720).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/request_decision",
+  validateBody(requestDecisionSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof requestDecisionSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+
+    // An assignee has to be a Member of *this* company: resolving a handle
+    // company-wide would otherwise let an employee address a stranger, and a
+    // silently-dropped assignee would look like it worked.
+    let assigneeUserId: string | null = null;
+    if (body.assignee) {
+      const needle = body.assignee.trim().toLowerCase().replace(/^@/, "");
+      const memberships = await AppDataSource.getRepository(Membership).find({
+        where: { companyId: co.id },
+      });
+      const users = memberships.length
+        ? await AppDataSource.getRepository(User).find({
+            where: { id: In(memberships.map((m) => m.userId)) },
+          })
+        : [];
+      const match = users.find(
+        (u) =>
+          u.id === body.assignee ||
+          (u.handle ?? "").toLowerCase() === needle ||
+          u.email.toLowerCase() === needle,
+      );
+      if (!match) {
+        return res.status(404).json({
+          error: `No Member matches "${body.assignee}". Omit \`assignee\` to let anyone answer.`,
+        });
+      }
+      assigneeUserId = match.id;
+    }
+
+    try {
+      const { decision, options } = await createDecision({
+        companyId: co.id,
+        employeeId: self.id,
+        title: body.title,
+        body: body.body,
+        options: body.options,
+        urgency: body.urgency,
+        assigneeUserId,
+        expiresAt: body.expiresInHours
+          ? new Date(Date.now() + body.expiresInHours * 60 * 60 * 1000)
+          : null,
+        routineId: req.mcpRoutineId ?? null,
+        runId: req.mcpRunId ?? null,
+      });
+      await journal(
+        self.id,
+        `Asked for a decision: ${decision.title}`,
+        `Options: ${options.map((o) => o.label).join(" · ")}`,
+      );
+      res.json({
+        decisionId: decision.id,
+        status: decision.status,
+        options: options.map((o) => ({ id: o.id, label: o.label })),
+        note: "Stacked for a human. Stop this line of work — the answer will reach you through your journal, and list_decisions reads it back.",
+      });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const listDecisionsSchema = z
+  .object({
+    status: z.enum(["pending", "decided", "cancelled", "expired"]).optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_decisions",
+  validateBody(listDecisionsSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof listDecisionsSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    await expireStaleDecisions(co.id);
+    const rows = await AppDataSource.getRepository(Decision).find({
+      where: {
+        companyId: co.id,
+        employeeId: self.id,
+        ...(body.status ? { status: body.status } : {}),
+      },
+      order: { createdAt: "DESC" },
+      take: body.limit ?? 20,
+    });
+    res.json({
+      decisions: rows.map((d) => ({
+        id: d.id,
+        title: d.title,
+        status: d.status,
+        urgency: d.urgency,
+        options: parseDecisionOptions(d.optionsJson).map((o) => ({ id: o.id, label: o.label })),
+        chosenOptionId: d.chosenOptionId,
+        chosenOptionLabel: d.chosenOptionLabel,
+        note: d.note,
+        decidedAt: d.decidedAt?.toISOString() ?? null,
+        createdAt: d.createdAt.toISOString(),
+      })),
+    });
+  },
+);
+
+const cancelDecisionSchema = z
+  .object({
+    decisionId: z.string().uuid(),
+    reason: z.string().max(4_000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/cancel_decision",
+  validateBody(cancelDecisionSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof cancelDecisionSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const result = await cancelDecision({
+      companyId: co.id,
+      decisionId: body.decisionId,
+      employeeId: self.id,
+      reason: body.reason ?? null,
+    });
+    if (result.outcome === "not_found") {
+      return res.status(404).json({ error: "No decision of yours has that id." });
+    }
+    if (result.outcome === "conflict") {
+      return res.status(400).json({
+        error: `That decision is already ${result.decision.status}; only pending ones can be cancelled.`,
+      });
+    }
+    res.json({ decisionId: result.decision.id, status: result.decision.status });
   },
 );
 

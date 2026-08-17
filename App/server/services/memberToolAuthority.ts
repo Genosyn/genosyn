@@ -49,6 +49,12 @@ const MEMBER_TOOLS = [
   "complete_handoff",
   "decline_handoff",
   "cancel_handoff",
+  // The Decision Stack is member-level on the human route too, and every row is
+  // company-scoped. A Member driving a turn can raise, read back, and retract a
+  // question exactly as they could from the Decisions page.
+  "request_decision",
+  "list_decisions",
+  "cancel_decision",
   "list_notebooks",
   "list_notes",
   "search_notes",

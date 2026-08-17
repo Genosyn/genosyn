@@ -74,6 +74,18 @@ don't re-litigate them.
     supports one App replica. Anthropic subscription credentials remain
     unsupported because Anthropic prohibits third-party products from routing
     traffic against subscription limits.
+11. **An employee asking a human is a different primitive from the system
+    gating an employee.** `Decision` was not folded into `Approval.kind`, even
+    though both end in a human pressing a button. An Approval exists because
+    the server is holding a specific action it will replay on ✓ — binary,
+    admin-gated, payload-redacted, and never the employee's idea. A Decision
+    exists because the employee decided to stop: it authors the question and
+    the options, answering fires no side effect, and a Member can answer it.
+    Sharing a table would have meant sharing an authorization model, and the
+    only way to share it is to take the stricter one — which would put
+    everyday questions behind an admin with a second factor, and leave the
+    feature unused. Anything privileged the employee does with its answer
+    still meets its own Approval, so nothing is weakened by the split.
 
 ---
 
@@ -121,6 +133,10 @@ don't re-litigate them.
   reply, or triage (Email section, M25). Distinct from a Handoff, which is
   AI→AI.
 - **Approval** — gate that blocks an action until a human ✓.
+- **Decision** — a question an AI employee stacked for a human, with the
+  options it will act on. The employee raises it; a Member picks one; nothing
+  is replayed. Distinct from an Approval, which the *system* raises to block a
+  specific action it will then execute (M39).
 
 ---
 
@@ -1929,6 +1945,55 @@ the functional prerequisites land before the tools that need them:
       the whole repository into every model request.
 - [x] User documentation at `/docs/help`, including the boundary between
       read-only product Help and ordinary AI Employee Chat.
+
+### M39 — Decision Stack ✅
+
+An AI employee that reaches a fork it should not take alone had two options,
+and both were bad: guess, or stop and hope somebody reads the journal. In a
+Routine there was nobody to ask at all — the brief was written hours earlier
+and the run has no interlocutor. So employees guessed, and the guesses that
+mattered were the ones nobody saw until afterwards.
+
+The Decision Stack is the third option. The employee does the work up to the
+fork, writes the question and the exact choices it will act on, and stops. A
+human presses one. The answer reaches the employee through its journal, which
+is already injected into every prompt it runs.
+
+- [x] **`Decision` is its own entity, not another `Approval.kind`.** An
+      Approval is the system interposing on an action the employee already
+      attempted, and the server replays that action on ✓ — which is why it is
+      binary, admin-gated, and redacted at every boundary. A Decision is the
+      employee choosing to stop: it authors the question and up to six options,
+      answering one fires no side effect, and an ordinary Member can answer it.
+      Collapsing the two would have put a privileged replay path and an
+      everyday question behind the same button. Anything privileged the
+      employee does afterwards still meets its own Approval.
+- [x] **The employee raises it explicitly, and only when it should.**
+      `request_decision` is resident in the working set rather than deferred
+      behind `find_tools`: a model that has hit a fork it should not take alone
+      is not in a state where it thinks to go looking for permission to stop.
+      Its read-back partners, `list_decisions` and `cancel_decision`, defer.
+      The briefing spends its sentence on the discipline — ask when a human's
+      judgement changes what happens next, not for permission to do the job.
+- [x] **The stack is the first thing on Home.** Above the failure alert, and
+      deliberately: a failed routine already happened, a pending decision is
+      work not happening yet. Each row carries the drafted text one click away
+      and a button per option. It renders nothing when empty. `/decisions`
+      holds the full list plus what was decided and why.
+- [x] **Answered exactly once, by someone allowed to.** The pending→terminal
+      write is a conditional UPDATE, so two tabs or two people in a standup
+      produce one answer and one 409. `optionId` is matched against the stored
+      options, so an employee can branch on `chosenOptionId` without
+      re-validating. A decision raised for a named Member is answerable by them
+      or by an owner/admin, so nothing strands behind someone on holiday.
+- [x] **Model-written copy is scrubbed at the boundary**, through the same
+      redaction the approvals inbox uses, so a title quoting a header it read
+      cannot turn the stack into an exfiltration path. The same pass closed a
+      live gap next door: Home was returning raw approval titles and Vault
+      capture rows to any Member, while `GET /approvals` refused them.
+- Next: let a human's answer resume the employee's run directly rather than
+  waiting for its next scheduled turn. The journal delivery is durable and
+  needs no scheduler, which is why it shipped first.
 
 ## V1 backlog (post-MVP)
 

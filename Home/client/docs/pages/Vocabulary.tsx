@@ -167,6 +167,16 @@ export function Vocabulary() {
             def: "A gate that blocks an action until a human ✓. Kinds include routine and lightning_payment.",
           },
           {
+            term: "Decision",
+            def: (
+              <>
+                A question an AI employee stopped to ask, with the options it will act on. The
+                employee raises it and a Member answers; unlike an Approval, nothing is executed on
+                your behalf. See <DocLink to="/docs/decisions">Decision stack</DocLink>.
+              </>
+            ),
+          },
+          {
             term: "Audit event",
             def: "Append-only log of every consequential action. Used for after-the-fact review and the activity feed.",
           },

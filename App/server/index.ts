@@ -35,6 +35,7 @@ import { modelsRouter } from "./routes/models.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
 import { projectsRouter } from "./routes/projects.js";
 import { approvalsRouter } from "./routes/approvals.js";
+import { decisionsRouter } from "./routes/decisions.js";
 import { webhooksRouter } from "./routes/webhooks.js";
 import { mcpRouter } from "./routes/mcp.js";
 import { mcpConnectRouter } from "./routes/mcpConnect.js";
@@ -307,6 +308,9 @@ async function main() {
   // Bases (Airtable-style workspaces) — companion to Tasks.
   app.use("/api/companies/:cid", basesRouter);
   app.use("/api/companies/:cid", approvalsRouter);
+  // The Decision Stack — questions an AI employee raised for a human to answer.
+  // Member-level, unlike the admin-gated approvals inbox above it.
+  app.use("/api/companies/:cid", decisionsRouter);
   app.use("/api/companies/:cid", secretsRouter);
   app.use("/api/companies/:cid/vault", vaultRouter);
   app.use("/api/companies/:cid", auditRouter);

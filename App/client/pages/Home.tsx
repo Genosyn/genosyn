@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardCheck,
+  GitBranch,
   Landmark,
   ListChecks,
   Mail,
@@ -33,11 +34,12 @@ import {
   TodoPriority,
 } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
+import { DecisionCard } from "../components/DecisionCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { useToast } from "../components/ui/Toast";
-import { useCompanySocketSubscription } from "../components/CompanySocket";
+import { useCompanySocketSubscription, useLiveRefetch } from "../components/CompanySocket";
 import { SetupBanner } from "../components/SetupBanner";
 import { enablePush, pushSupported } from "../lib/push";
 import { clsx } from "../components/ui/clsx";
@@ -83,6 +85,9 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [reload]);
+  // The stack is the first thing on the page, so it has to be current: a
+  // teammate answering in another tab should empty it here without a refresh.
+  useLiveRefetch("decision", reload);
 
   return (
     <ContextualLayout>
@@ -96,6 +101,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
           </div>
         ) : (
           <>
+            <DecisionStack company={company} data={data} onResolved={reload} />
             <FailedRoutinesAlert company={company} data={data} onDismissed={reload} />
             <StatStrip company={company} data={data} />
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -269,6 +275,66 @@ function StatStrip({ company, data }: { company: Company; data: HomeData }) {
         </Link>
       ))}
     </div>
+  );
+}
+
+// ───────────────────────── decision stack ────────────────────────────────────
+
+/**
+ * The Decision Stack — the first thing on Home, above everything else.
+ *
+ * These are questions AI employees stopped to ask rather than guess at, so
+ * every row here is an employee that is *blocked* until somebody answers. That
+ * is why it outranks the failure alert below it: a failed routine already
+ * happened, a pending decision is work not happening yet.
+ *
+ * Renders nothing when the stack is empty. A clean day should look clean.
+ */
+function DecisionStack({
+  company,
+  data,
+  onResolved,
+}: {
+  company: Company;
+  data: HomeData;
+  onResolved: () => Promise<void> | void;
+}) {
+  if (data.decisions.length === 0) return null;
+  const hidden = data.pendingDecisionCount - data.decisions.length;
+  return (
+    <section className="mt-6 overflow-hidden rounded-xl border border-violet-200 bg-violet-50/50 shadow-sm dark:border-violet-500/30 dark:bg-violet-500/10">
+      <div className="flex items-center gap-2 border-b border-violet-200/70 px-4 py-3 dark:border-violet-500/20">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300">
+          <GitBranch size={15} />
+        </span>
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Decision stack</h2>
+        <span className="rounded-full bg-violet-100 px-1.5 text-[10px] font-semibold tabular-nums text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
+          {data.pendingDecisionCount}
+        </span>
+        <span className="hidden truncate text-xs text-slate-500 sm:inline dark:text-slate-400">
+          Your AI employees are waiting on these
+        </span>
+        <Link
+          to={`/c/${company.slug}/decisions`}
+          className="ml-auto flex shrink-0 items-center gap-0.5 text-xs text-violet-700 hover:underline dark:text-violet-300"
+        >
+          All decisions <ChevronRight size={12} />
+        </Link>
+      </div>
+      <ul className="divide-y divide-violet-100 bg-white/60 dark:divide-violet-500/15 dark:bg-slate-900/40">
+        {data.decisions.map((d) => (
+          <DecisionCard key={d.id} company={company} decision={d} onResolved={onResolved} />
+        ))}
+      </ul>
+      {hidden > 0 && (
+        <Link
+          to={`/c/${company.slug}/decisions`}
+          className="block border-t border-violet-100 px-4 py-2 text-center text-xs font-medium text-violet-700 hover:bg-violet-100/50 dark:border-violet-500/15 dark:text-violet-300 dark:hover:bg-violet-500/10"
+        >
+          {hidden} more waiting
+        </Link>
+      )}
+    </section>
   );
 }
 
@@ -522,6 +588,8 @@ function KindIcon({ kind, className }: { kind: NotificationKind; className?: str
       return <ClipboardCheck size={12} className={className} />;
     case "approval_pending":
       return <ShieldCheck size={12} className={className} />;
+    case "decision_pending":
+      return <GitBranch size={12} className={className} />;
     case "finance_review_ready":
       return <Landmark size={12} className={className} />;
     case "mail_handover":
@@ -541,6 +609,10 @@ const KIND_TONE: Record<NotificationKind, { bg: string; fg: string }> = {
   approval_pending: {
     bg: "bg-amber-100 dark:bg-amber-500/15",
     fg: "text-amber-600 dark:text-amber-300",
+  },
+  decision_pending: {
+    bg: "bg-violet-100 dark:bg-violet-500/15",
+    fg: "text-violet-600 dark:text-violet-300",
   },
   finance_review_ready: {
     bg: "bg-emerald-100 dark:bg-emerald-500/15",

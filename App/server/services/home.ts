@@ -15,6 +15,9 @@ import {
 import { listAccessibleProjectIds } from "./projects.js";
 import { getSystemHealthSummary, SystemHealthSummary } from "./systemHealth.js";
 import { listChannelsForUser } from "./workspaceChat.js";
+import { redactApprovalSummary } from "./approvalRedaction.js";
+import { isVaultCaptureApproval } from "./approvals.js";
+import { DecisionDTO, listPendingDecisions } from "./decisions.js";
 
 /**
  * Aggregation behind the Home page — the landing surface after sign-in.
@@ -45,6 +48,8 @@ export type HomeApproval = {
   routine: { id: string; name: string; slug: string } | null;
 };
 
+export type HomeDecision = DecisionDTO;
+
 export type HomeChannel = {
   id: string;
   kind: string;
@@ -66,6 +71,9 @@ export type HomeFailedRun = {
 export type HomeData = {
   notifications: NotificationDTO[];
   unreadNotificationCount: number;
+  /** The Decision Stack — questions AI employees raised, highest urgency first. */
+  decisions: HomeDecision[];
+  pendingDecisionCount: number;
   myTodos: HomeTodo[];
   myTodoCount: number;
   reviewTodos: HomeTodo[];
@@ -168,11 +176,24 @@ export async function getHomeData(params: {
   mine.sort(compareTodos);
 
   const approvalRepo = AppDataSource.getRepository(Approval);
-  const [pendingApprovals, pendingApprovalCount] = await approvalRepo.findAndCount({
+  const [allPendingApprovals, pendingApprovalCount] = await approvalRepo.findAndCount({
     where: { companyId, status: "pending" },
     order: { requestedAt: "DESC" },
-    take: 5,
+    // Wider than the five we render because the vault-capture filter below runs
+    // in memory — `payloadJson` is opaque to SQL. Fifty is far past any real
+    // pending backlog; past it a Member could see fewer than five rows, which
+    // degrades the card rather than leaking anything.
+    take: 50,
   });
+  // Home must not show a Member what `GET /approvals` refuses them. Vault
+  // capture rows name the origin a stored credential would be written to, so
+  // they are owner/admin-only there and owner/admin-only here; every surviving
+  // row still has its copy redacted below, exactly as the inbox does. The
+  // count stays the company's true backlog — that was never the sensitive part.
+  const canSeeVaultCaptures = role === "owner" || role === "admin";
+  const pendingApprovals = allPendingApprovals
+    .filter((a) => canSeeVaultCaptures || !isVaultCaptureApproval(a))
+    .slice(0, 5);
   const routineIds = [
     ...new Set(pendingApprovals.map((a) => a.routineId).filter(Boolean)),
   ];
@@ -272,15 +293,18 @@ export async function getHomeData(params: {
       .filter((r): r is HomeFailedRun => r !== null);
   }
 
-  const [notifications, unreadNotificationCount, systemHealth] = await Promise.all([
+  const [notifications, unreadNotificationCount, systemHealth, decisionStack] = await Promise.all([
     listUnreadForUser({ companyId, userId, limit: 8 }),
     countUnreadForUser({ companyId, userId }),
     getSystemHealthSummary(companyId),
+    listPendingDecisions({ companyId, limit: 5 }),
   ]);
 
   return {
     notifications,
     unreadNotificationCount,
+    decisions: decisionStack.decisions,
+    pendingDecisionCount: decisionStack.total,
     myTodos: mine
       .slice(0, 8)
       .map((t) => toHomeTodo(t, projectById.get(t.projectId)!))
@@ -297,8 +321,10 @@ export async function getHomeData(params: {
       return {
         id: a.id,
         kind: a.kind,
-        title: a.title,
-        summary: a.summary,
+        // Model-written copy that may quote a header or a URL it saw. The
+        // approvals inbox scrubs both fields on the way out; so does this.
+        title: redactApprovalSummary(a.title),
+        summary: redactApprovalSummary(a.summary),
         requestedAt: a.requestedAt.toISOString(),
         employee: e ? { id: e.id, name: e.name, slug: e.slug } : null,
         routine: r ? { id: r.id, name: r.name, slug: r.slug } : null,

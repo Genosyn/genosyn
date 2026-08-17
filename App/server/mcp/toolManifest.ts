@@ -1259,6 +1259,90 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "request_decision",
+    description:
+      "Stack a decision for a human when you have worked up to a fork you should not take alone — a reply you could send, a post you could publish, two options you could pick. Write the question, put the context (the draft itself) in `body`, and give the exact choices you will act on. It appears at the top of the company's Home page with one button per option. Then STOP this line of work: the answer reaches you through your journal, and `list_decisions` reads it back. Use this only when a human's judgement genuinely changes what you do next — not to ask permission for ordinary work you were hired to do, and not for something you could look up.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description:
+            "The question, as a question. E.g. 'Send this pricing reply to Acme?'. Max 200 chars.",
+        },
+        body: {
+          type: "string",
+          description:
+            "Markdown context so a human can decide without asking you anything: the drafted text in full, what you already checked, and what each option costs.",
+        },
+        options: {
+          type: "array",
+          minItems: 1,
+          maxItems: 6,
+          description: "The choices, in the order they should appear. Each becomes a button.",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string", description: "Button text, e.g. 'Send it'. Max 80 chars." },
+              detail: { type: "string", description: "Optional one line under the button." },
+              tone: {
+                type: "string",
+                enum: ["primary", "neutral", "danger"],
+                description:
+                  "'primary' for the option you recommend, 'danger' for a destructive one.",
+              },
+            },
+            required: ["label"],
+            additionalProperties: false,
+          },
+        },
+        urgency: { type: "string", enum: ["low", "normal", "high"] },
+        assignee: {
+          type: "string",
+          description:
+            "Optional. Handle or email of the one Member who should answer. Omit so anyone can.",
+        },
+        expiresInHours: {
+          type: "number",
+          description:
+            "Optional. After this the question is moot and stops nagging anyone (1–720).",
+        },
+      },
+      required: ["title", "options"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_decisions",
+    description:
+      "Read back the decisions you asked for with request_decision, newest first — including which option a human picked and any note they left. Check this when you are resuming work you parked on a human's answer. Defaults to every status; pass `status: 'decided'` for the ones that now have an answer.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["pending", "decided", "cancelled", "expired"],
+        },
+        limit: { type: "number", description: "Max rows (1–100, default 20)." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "cancel_decision",
+    description:
+      "Retract a decision you raised that no longer matters — the situation moved on, or you found the answer yourself. Clears it off the humans' stack. Only your own pending decisions can be cancelled.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        decisionId: { type: "string", description: "UUID from list_decisions." },
+        reason: { type: "string", description: "Optional note on why it stopped mattering." },
+      },
+      required: ["decisionId"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "send_workspace_message",
     description:
       "Post a message into the workspace chat — a public/private channel, a DM with another AI employee, or a DM with a human Member. Specify exactly one of `channel`, `dmEmployee`, or `dmUser`. If you @mention another employee by slug (e.g. 'can you take this @bob-pm?'), they will be auto-invited to public channels and reply on their own. Posts into a public channel auto-add you as a member; private channels require an existing membership. Use this for proactive updates (standups, status, handoffs) — don't spam, every message costs tokens for any employee asked to reply.",

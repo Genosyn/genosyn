@@ -48,6 +48,12 @@ import type { PrivilegedToolCallAuthorizer } from "../../memberTurnAuthority.js"
  * - **`send_chat_attachment` stays** for the same shape of reason: if sending
  *   the file costs a round-trip and describing it does not, the model
  *   describes it.
+ * - **`request_decision` stays** because it is the escape hatch, and an escape
+ *   hatch you have to go looking for is not one. A model that has hit a fork it
+ *   should not take alone is, by construction, not in a state where it thinks
+ *   to search the catalogue for permission to stop — it guesses instead. Its
+ *   read-back partners (`list_decisions`, `cancel_decision`) defer: by the time
+ *   you are collecting an answer you already know the tool exists.
  *
  * Coding and browser tools are resident too, but for a different reason — see
  * where they are added below.
@@ -61,6 +67,8 @@ export const RESIDENT_GENOSYN_TOOLS = [
   "create_todo",
   "update_todo",
   "add_journal_entry",
+  // the escape hatch — see above
+  "request_decision",
   // orientation — small, and the model needs them to know what it is
   "get_self",
   "list_employees",

@@ -97,6 +97,7 @@ const REGISTRY: Record<string, Mapping> = {
 
   // ── Approvals & audit ────────────────────────────────────────────────────
   Approval: { kind: "approval", company: "direct" },
+  Decision: { kind: "decision", company: "direct" },
   AuditEvent: { kind: "audit", company: "direct" },
 
   // ── Bases ────────────────────────────────────────────────────────────────

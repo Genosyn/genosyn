@@ -11,6 +11,7 @@ import { AccountingPeriod } from "../db/entities/AccountingPeriod.js";
 import { AdSpendEvent } from "../db/entities/AdSpendEvent.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
 import { Approval } from "../db/entities/Approval.js";
+import { Decision } from "../db/entities/Decision.js";
 import { Attachment } from "../db/entities/Attachment.js";
 import { AuditEvent } from "../db/entities/AuditEvent.js";
 import { BankFeed } from "../db/entities/BankFeed.js";
@@ -375,6 +376,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(Notebook, { companyId });
     await m.delete(Notification, { companyId });
     await m.delete(Approval, { companyId });
+    await m.delete(Decision, { companyId });
     await m.delete(Handoff, { companyId });
     await m.delete(Project, { companyId });
     await m.delete(Bill, { companyId });

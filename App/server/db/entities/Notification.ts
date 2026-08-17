@@ -21,6 +21,7 @@ export type NotificationKind =
   | "mention"
   | "todo_review_requested"
   | "approval_pending"
+  | "decision_pending"
   | "finance_review_ready"
   | "mail_handover"
   | "revenue_follow_up";
@@ -31,6 +32,7 @@ export type NotificationEntityKind =
   | "channel_message"
   | "todo"
   | "approval"
+  | "decision"
   | "ledger_entry"
   | "mail_handover"
   | "revenue_follow_up";

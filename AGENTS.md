@@ -89,6 +89,7 @@ code, UI copy, commits, and docs.
 | **Integration** (a connector type: Stripe, Gmail, …; static in code) | Provider, Plugin, Service (in product copy) |
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
 | **Member browser** (a Chrome a human connected from their own computer — `MemberBrowser`) | Connection, Browser Connection, Device |
+| **Decision** (a question an AI Employee stacked for a human to answer — `Decision`) | Approval, Question, Ask, Escalation |
 | **Grant** (an AI employee's access to a resource — a Connection, Note, Chart, Repo, …) | Permission, Attachment, Binding |
 | **Project member** (a human Member *or* an AI Employee authorized on a Project — `ProjectMember`) | Grant, Permission, Collaborator |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
@@ -109,6 +110,18 @@ browser** (`MemberBrowser`, granted to employees through
 not least because `IntegrationAuthMode` already has a `"browser"` mode meaning
 "a Connection whose credentials the headless browser replays". Two unrelated
 meanings on one word is what this table exists to prevent.
+
+**"Decision" and "Approval" are not synonyms**, and the split is the whole
+point of both. An **Approval** is the *system* interposing on an action an
+employee already attempted — a gated routine tick, a payment over a threshold,
+a guarded tool call — and the server replays that exact action once a human
+ticks it. It is binary, it is never the employee's idea, and because approving
+it fires a privileged side effect it is admin-gated and its payload is redacted
+at every boundary. A **Decision** is the employee choosing to stop and ask:
+it writes the question and the options itself, answering one performs no side
+effect, and an ordinary Member can answer it. Never label a Decision "approve /
+reject", and never route a gated action through the Decision Stack — anything
+privileged the employee does afterwards still meets its own Approval.
 
 **"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
 pipeline is a flat, ordered list of **Deal Stages** — there is no container

@@ -52,6 +52,11 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     blurb: "One-off work items for humans and AI employees.",
     tools: ["list_projects", "create_project", "list_todos", "create_todo", "update_todo"],
   },
+  decisions: {
+    label: "decisions",
+    blurb: "Ask a human to choose, and read back what they chose.",
+    tools: ["request_decision", "list_decisions", "cancel_decision"],
+  },
   journal: {
     label: "journal",
     blurb: "Your own diary. The last week is auto-injected into every prompt.",
@@ -1052,6 +1057,24 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   create_handoff: ["delegate", "escalate", "hand over", "ask a colleague"],
   list_handoffs: ["delegate", "escalate", "my queue"],
   complete_handoff: ["done", "resolve"],
+
+  // Decisions — a human choosing, not a colleague taking the work. The overlap
+  // with handoff vocabulary ("escalate", "ask") is deliberate: a model reaching
+  // for either phrasing should see both and pick.
+  request_decision: [
+    "ask a human",
+    "ask the team",
+    "escalate to a human",
+    "human in the loop",
+    "sign off",
+    "approve this draft",
+    "which option",
+    "i am stuck",
+    "need a decision",
+    "check with someone",
+  ],
+  list_decisions: ["what did they choose", "answer", "my questions", "did they reply"],
+  cancel_decision: ["retract", "never mind", "withdraw question"],
   decline_handoff: ["reject", "refuse"],
   cancel_handoff: ["withdraw"],
   list_code_repositories: ["git", "repo", "codebase", "source"],

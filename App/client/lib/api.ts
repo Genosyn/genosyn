@@ -442,6 +442,40 @@ export type Approval = {
   routine: { id: string; name: string; slug: string } | null;
   employee: { id: string; name: string; slug: string } | null;
 };
+export type DecisionStatus = "pending" | "decided" | "cancelled" | "expired";
+export type DecisionUrgency = "low" | "normal" | "high";
+export type DecisionOption = {
+  id: string;
+  label: string;
+  detail: string | null;
+  tone: "primary" | "neutral" | "danger";
+};
+/**
+ * One question an AI Employee stopped to ask a human. Unlike an `Approval`,
+ * nothing is queued behind it — answering records the choice so the employee
+ * can read it back and carry on.
+ */
+export type Decision = {
+  id: string;
+  companyId: string;
+  title: string;
+  body: string;
+  options: DecisionOption[];
+  status: DecisionStatus;
+  urgency: DecisionUrgency;
+  routineId: string | null;
+  runId: string | null;
+  conversationId: string | null;
+  chosenOptionId: string | null;
+  chosenOptionLabel: string | null;
+  note: string | null;
+  decidedAt: string | null;
+  decidedByUserId: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  employee: { id: string; name: string; slug: string; avatarKey: string | null } | null;
+  assignee: { id: string; name: string } | null;
+};
 export type RunStatus =
   | "running"
   | "completed"
@@ -1874,12 +1908,18 @@ export type NotificationKind =
   | "mention"
   | "todo_review_requested"
   | "approval_pending"
+  | "decision_pending"
   | "finance_review_ready"
   | "mail_handover";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
-export type NotificationEntityKind = "channel_message" | "todo" | "approval" | "ledger_entry";
+export type NotificationEntityKind =
+  | "channel_message"
+  | "todo"
+  | "approval"
+  | "decision"
+  | "ledger_entry";
 
 export type NotificationActor = {
   kind: NotificationActorKind;
@@ -2181,6 +2221,9 @@ export type AdminQueryResult = {
 export type HomeData = {
   notifications: Notification[];
   unreadNotificationCount: number;
+  /** The Decision Stack, highest urgency first. Empty on a clean day. */
+  decisions: Decision[];
+  pendingDecisionCount: number;
   myTodos: HomeTodo[];
   myTodoCount: number;
   reviewTodos: HomeTodo[];

@@ -29,6 +29,25 @@ import { Membership } from "../db/entities/Membership.js";
 export { approvalArgsPreview, redactApprovalSummary } from "./approvalRedaction.js";
 
 /**
+ * Whether this row is a Vault password capture — the one approval kind that is
+ * owner/admin-only to even *see*, because its summary names the origin and item
+ * a stored credential would be written to.
+ *
+ * Lives here rather than beside a single reader: both the approvals inbox and
+ * the Home roll-up have to apply it, and two copies of a visibility predicate
+ * is how one of them ends up out of date.
+ */
+export function isVaultCaptureApproval(approval: Approval): boolean {
+  if (approval.kind !== "browser_action") return false;
+  try {
+    const payload = JSON.parse(approval.payloadJson || "{}") as { action?: unknown };
+    return payload.action === "vault_capture";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Fire-and-forget notification fan-out for a freshly-created approval.
  * Owners/admins get a bell + websocket + web-push row; a notify failure
  * must never fail the tool call that queued the approval.

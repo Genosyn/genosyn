@@ -13,6 +13,7 @@ import {
 } from "../middleware/auth.js";
 import {
   approvePendingApproval,
+  isVaultCaptureApproval,
   readBrowserActionPayload,
   redactApprovalSummary,
   rejectPendingApproval,
@@ -56,16 +57,6 @@ function approvalResponse(approval: Approval) {
     decidedAt: approval.decidedAt,
     decidedByUserId: approval.decidedByUserId,
   };
-}
-
-function isVaultCaptureApproval(approval: Approval): boolean {
-  if (approval.kind !== "browser_action") return false;
-  try {
-    const payload = JSON.parse(approval.payloadJson || "{}") as { action?: unknown };
-    return payload.action === "vault_capture";
-  } catch {
-    return false;
-  }
 }
 
 function vaultCaptureApprovalExpired(approval: Approval): boolean {

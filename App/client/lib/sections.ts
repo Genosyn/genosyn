@@ -57,6 +57,7 @@ export type SectionKey =
   | "signatures"
   | "finance"
   | "pipelines"
+  | "decisions"
   | "approvals"
   | "settings"
   | "help"
@@ -372,6 +373,18 @@ export const SECTION_GROUPS: SectionGroup[] = [
         path: "/inbox",
         iconBg: "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300",
         keywords: ["diary", "activity", "digest", "log"],
+      },
+      {
+        key: "decisions",
+        label: "Decisions",
+        description: "Questions your AI employees stopped to ask.",
+        icon: GitBranch,
+        // Not "D": Marketing already holds it, and the chord map is keyed by
+        // letter, so a third claim would shadow one of them.
+        shortcut: "I",
+        path: "/decisions",
+        iconBg: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
+        keywords: ["decision", "stack", "choose", "blocked", "waiting on me", "ask"],
       },
       {
         key: "approvals",

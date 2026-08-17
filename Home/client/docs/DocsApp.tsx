@@ -30,6 +30,7 @@ import { WorkspaceChat } from "@/docs/pages/WorkspaceChat";
 import { Vault } from "@/docs/pages/Vault";
 import { Email } from "@/docs/pages/Email";
 import { Tasks } from "@/docs/pages/Tasks";
+import { Decisions } from "@/docs/pages/Decisions";
 import { Pipelines } from "@/docs/pages/Pipelines";
 import { Bases } from "@/docs/pages/Bases";
 import { Customers } from "@/docs/pages/Customers";
@@ -73,6 +74,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/vault": Vault,
   "/docs/email": Email,
   "/docs/tasks": Tasks,
+  "/docs/decisions": Decisions,
   "/docs/pipelines": Pipelines,
   "/docs/bases": Bases,
   "/docs/customers": Customers,

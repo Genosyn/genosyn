@@ -5,6 +5,7 @@ import {
   Bell,
   CheckCircle2,
   ClipboardCheck,
+  GitBranch,
   Landmark,
   Mail,
   ShieldCheck,
@@ -318,6 +319,8 @@ function KindIcon({
       return <ClipboardCheck size={size} className={className} />;
     case "approval_pending":
       return <ShieldCheck size={size} className={className} />;
+    case "decision_pending":
+      return <GitBranch size={size} className={className} />;
     case "finance_review_ready":
       return <Landmark size={size} className={className} />;
     case "mail_handover":
@@ -337,6 +340,10 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
   approval_pending: {
     iconBg: "bg-amber-100 dark:bg-amber-500/15",
     iconFg: "text-amber-600 dark:text-amber-300",
+  },
+  decision_pending: {
+    iconBg: "bg-violet-100 dark:bg-violet-500/15",
+    iconFg: "text-violet-600 dark:text-violet-300",
   },
   finance_review_ready: {
     iconBg: "bg-emerald-100 dark:bg-emerald-500/15",

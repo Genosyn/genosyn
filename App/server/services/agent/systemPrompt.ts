@@ -165,6 +165,16 @@ export function toolsBriefing(
       "auto-injected into every prompt), and `memory` to curate durable facts that are also " +
       "auto-injected.",
     "- `send_chat_attachment` to send a generated file back as a download chip.",
+    "- `request_decision` when you reach a fork you should not take alone — a reply you could " +
+      "send, a post you could publish, two options with different consequences. Do the work up to " +
+      "the fork, then stack the question with the exact choices you will act on; it lands at the " +
+      "top of the company's Home page and the answer comes back through your journal. Ask when a " +
+      "human's judgement genuinely changes what you do next" +
+      (isChat
+        ? " and the teammate is not in front of you — in a live chat, just ask them."
+        : ". A routine's brief was written in advance and there is nobody to ask mid-run, so this " +
+          "is how you stop instead of guessing.") +
+      " Do not use it to ask permission for the ordinary work you were hired to do.",
   );
 
   if (parallelDelegationAvailable) {
