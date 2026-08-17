@@ -20,6 +20,16 @@ const AUTH_TEMP_PREFIX = "genosyn-codex-auth-";
 const WORK_TEMP_PREFIX = "genosyn-codex-work-";
 const REMOVE_RETRY_DELAYS_MS = [0, 50, 250] as const;
 
+/**
+ * Codex keeps its diagnostics in a SQLite log database inside `CODEX_HOME` and
+ * writes nothing to stderr unless `RUST_LOG` asks it to. Both this service's
+ * login and turn paths delete that home the moment they finish, so without this
+ * filter every failure arrives with its cause already destroyed. Warnings and
+ * errors alone are near-silent on a healthy sign-in; `codex_login::server`
+ * additionally confirms at info level that a token exchange was attempted.
+ */
+const CODEX_LOG_FILTER = "warn,codex_login::server=info";
+
 export type SubscriptionCredentialKind = "chatgptSession" | "accessToken";
 export type SubscriptionDeviceStatus = "running" | "succeeded" | "failed" | "cancelled";
 
@@ -590,7 +600,9 @@ async function settleDeviceSession(
     } else {
       session.status = "failed";
       session.output = null;
-      session.error = safePublicError(error || "ChatGPT sign-in failed.");
+      session.error = safePublicError(
+        describeDeviceLoginFailure(error || "ChatGPT sign-in failed."),
+      );
     }
   } catch (persistError) {
     session.status = "failed";
@@ -612,12 +624,50 @@ async function finishDeviceSession(session: DeviceSession): Promise<void> {
   try {
     clearTimeout(session.timeout);
     await session.server.close().catch(() => undefined);
+    // Delete the home that just held a credential before doing anything as
+    // optional as logging: the stderr this reports is already buffered in
+    // memory, so it survives the directory it described.
     await removeIsolatedCodexHome(session.home);
+    logFailedDeviceLogin(session);
     const expiry = setTimeout(() => deviceSessions.delete(session.id), TERMINAL_SESSION_TTL_MS);
     expiry.unref?.();
   } finally {
     session.resolveFinished();
   }
+}
+
+/** How reqwest words a request that never got an answer, in all its shapes. */
+const TRANSPORT_FAILURE_PATTERN =
+  /error sending request|error trying to connect|tcp connect error|connection closed before message completed|dns error|operation timed out/i;
+
+/**
+ * Codex reports a failed token exchange in reqwest's transport wording, which
+ * names the endpoint but never the cause: the connect, DNS, TLS or timeout
+ * detail behind it stays in Codex's own log. Reaching this point means the
+ * one-time code was already accepted, so the browser half of the sign-in
+ * worked and only the call from this install to OpenAI did not. Say that,
+ * because "error sending request" alone reads like a dead end.
+ */
+export function describeDeviceLoginFailure(error: string): string {
+  if (!TRANSPORT_FAILURE_PATTERN.test(error)) return error;
+  return `${error}. Your one-time code was accepted, so this is a network problem between Genosyn and OpenAI, not a rejected sign-in. Check outbound HTTPS, DNS, and any proxy or TLS interception on this install, then start a new sign-in. The Genosyn server log records the underlying cause.`;
+}
+
+/**
+ * The isolated `CODEX_HOME` is about to be deleted, and with it the SQLite log
+ * database holding Codex's own account of the failure. Its stderr stream is the
+ * only copy that outlives the temporary home, so record it for the operator —
+ * the Member reading the sign-in card is told what to check, but only this line
+ * names which of connect, DNS, TLS or timeout actually failed.
+ */
+function logFailedDeviceLogin(session: DeviceSession): void {
+  if (session.status !== "failed") return;
+  const detail = session.server.stderrSummary();
+  console.warn(
+    `[genosyn] ChatGPT sign-in failed for AI Model ${session.modelId}: ${
+      session.error ?? "unknown error"
+    }${detail ? ` | codex: ${detail}` : ""}`,
+  );
 }
 
 async function persistRefreshedManagedAuth(
@@ -731,24 +781,34 @@ async function sweepStaleCodexHomes(): Promise<void> {
   }
 }
 
+/**
+ * Every name here either points at a CA bundle or names a proxy Codex should
+ * dial through, so forwarding one can only follow the operator's own outbound
+ * policy — none of them reach the isolated `CODEX_HOME` or the credential this
+ * service materializes. The list has to match what the pinned Codex actually
+ * reads: an install whose only proxy setting is `ALL_PROXY`, or whose CA lives
+ * in `CODEX_CA_CERTIFICATE`, has a working `curl` and a Codex child that tries
+ * to connect directly and fails with a bare transport error.
+ */
+const INHERITED_NETWORK_ENV = [
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "NODE_EXTRA_CA_CERTS",
+  "CODEX_CA_CERTIFICATE",
+  "REQUESTS_CA_BUNDLE",
+  "CURL_CA_BUNDLE",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "all_proxy",
+  "no_proxy",
+] as const;
+
 function codexEnvironment(root: string, accessToken?: string): NodeJS.ProcessEnv {
-  const inherited = [
-    "PATH",
-    "TMPDIR",
-    "TMP",
-    "TEMP",
-    "LANG",
-    "LC_ALL",
-    "SSL_CERT_FILE",
-    "SSL_CERT_DIR",
-    "NODE_EXTRA_CA_CERTS",
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "NO_PROXY",
-    "http_proxy",
-    "https_proxy",
-    "no_proxy",
-  ];
+  const inherited = ["PATH", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", ...INHERITED_NETWORK_ENV];
   const env: NodeJS.ProcessEnv = {};
   for (const key of inherited) {
     if (process.env[key]) env[key] = process.env[key];
@@ -757,6 +817,7 @@ function codexEnvironment(root: string, accessToken?: string): NodeJS.ProcessEnv
   env.XDG_CONFIG_HOME = root;
   env.CODEX_HOME = root;
   env.NO_COLOR = "1";
+  env.RUST_LOG = CODEX_LOG_FILTER;
   if (accessToken) env.CODEX_ACCESS_TOKEN = accessToken;
   return env;
 }

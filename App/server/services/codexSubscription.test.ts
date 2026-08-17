@@ -5,6 +5,7 @@ import { decryptSecret } from "../lib/secret.js";
 import {
   configWithSubscriptionAccessToken,
   confirmManagedChatgptAccount,
+  describeDeviceLoginFailure,
   hasSubscriptionCredential,
   isManagedChatgptAccount,
   parseDeviceVerificationUrl,
@@ -21,6 +22,46 @@ test("device sign-in accepts only absolute HTTPS verification URLs", () => {
   assert.equal(parseDeviceVerificationUrl("javascript:alert(1)"), null);
   assert.equal(parseDeviceVerificationUrl("http://auth.openai.com/codex/device"), null);
   assert.equal(parseDeviceVerificationUrl("/codex/device"), null);
+});
+
+test("a token exchange that never reached OpenAI is reported as a network problem", () => {
+  const described = describeDeviceLoginFailure(
+    "device code exchange failed: error sending request for url (https://auth.openai.com/oauth/token)",
+  );
+  // The raw upstream wording stays: an operator matching it against the server
+  // log should still find the same sentence.
+  assert.match(
+    described,
+    /error sending request for url \(https:\/\/auth\.openai\.com\/oauth\/token\)/,
+  );
+  assert.match(described, /one-time code was accepted/);
+  assert.match(described, /start a new sign-in/);
+});
+
+test("a sign-in OpenAI actually rejected is left to speak for itself", () => {
+  for (const rejection of [
+    "token endpoint returned status 400: invalid_grant",
+    "device auth failed with status 403 Forbidden",
+    "Login is restricted to workspace(s) acme.",
+    "ChatGPT sign-in expired. Start a new sign-in to try again.",
+  ]) {
+    assert.equal(describeDeviceLoginFailure(rejection), rejection);
+  }
+});
+
+test("every transport wording Codex can report earns the network guidance", () => {
+  for (const transport of [
+    "device code exchange failed: error sending request for url (https://auth.openai.com/oauth/token)",
+    "device code exchange failed: error trying to connect: tcp connect error",
+    "device code exchange failed: dns error: failed to lookup address information",
+    "device code exchange failed: connection closed before message completed",
+    "device code exchange failed: operation timed out",
+  ]) {
+    assert.match(
+      describeDeviceLoginFailure(transport),
+      /network problem between Genosyn and OpenAI/,
+    );
+  }
 });
 
 test("repository materialization is isolated or omitted when subscription auth can run", () => {

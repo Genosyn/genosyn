@@ -252,6 +252,7 @@ describe("OpenAI subscription policy routes", () => {
       },
       onNotification: () => () => undefined,
       onExit: () => () => undefined,
+      stderrSummary: () => "",
       close: async () => {
         closeCalls += 1;
       },
@@ -354,6 +355,7 @@ describe("OpenAI subscription policy routes", () => {
             return () => undefined;
           },
           onExit: () => () => undefined,
+          stderrSummary: () => "",
           close: async () => undefined,
         } as unknown as CodexAppServer;
       };
@@ -665,6 +667,7 @@ async function runDeviceSignIn(
           return () => undefined;
         },
         onExit: () => () => undefined,
+        stderrSummary: () => "",
         close: async () => undefined,
       } as unknown as CodexAppServer;
     };
@@ -703,9 +706,9 @@ async function runDeviceSignIn(
     }
     CodexAppServer.start = originalStart;
     for (const options of starts) {
-      await fs.rm(options.env.CODEX_HOME ?? "", { recursive: true, force: true }).catch(
-        () => undefined,
-      );
+      await fs
+        .rm(options.env.CODEX_HOME ?? "", { recursive: true, force: true })
+        .catch(() => undefined);
       await fs.rm(options.cwd, { recursive: true, force: true }).catch(() => undefined);
     }
   }

@@ -444,8 +444,13 @@ function appendCapped(current: string, next: string, cap: number): string {
   return combined.length <= cap ? combined : combined.slice(combined.length - cap);
 }
 
+/**
+ * Keep the end of the stream, not the start: whether the server exited or a
+ * sign-in failed, the lines that explain it are the ones Codex printed last.
+ */
 function cleanDiagnostic(value: string): string {
-  return value.replace(ANSI_ESCAPE, "").replace(/\s+/g, " ").trim().slice(0, 1_000);
+  const collapsed = value.replace(ANSI_ESCAPE, "").replace(/\s+/g, " ").trim();
+  return collapsed.slice(Math.max(0, collapsed.length - 1_000));
 }
 
 function safeErrorMessage(error: unknown): string {

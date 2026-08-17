@@ -38,6 +38,12 @@ lines.on("line", (line) => {
     send({ id: message.id, result: message.params });
     return;
   }
+  if (message.method === "floodStderr") {
+    process.stderr.write("x".repeat(4000) + "\n");
+    process.stderr.write("oauth token exchange transport failure is_connect=true\n");
+    send({ id: message.id, result: {} });
+    return;
+  }
   if (message.method === "badJsonHang") {
     process.stdout.write("not-json\n");
     setInterval(() => undefined, 1000);
@@ -135,6 +141,25 @@ test("protocol failures terminate a child that would otherwise stay alive", asyn
       env: { PATH: process.env.PATH, CODEX_HOME: home, HOME: home },
     });
     await assert.rejects(server.request("badJsonHang"), /emitted invalid JSON/);
+    await server.close();
+  });
+});
+
+test("the stderr summary keeps the last thing Codex said, not the first", async () => {
+  await withFakeServer(async ({ entrypoint, home, cwd }) => {
+    const server = await CodexAppServer.start({
+      entrypoint,
+      cwd,
+      env: { PATH: process.env.PATH, CODEX_HOME: home, HOME: home },
+    });
+    await server.request("floodStderr");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const summary = server.stderrSummary();
+    assert.ok(
+      summary.includes("oauth token exchange transport failure is_connect=true"),
+      `expected the trailing diagnostic, got: ${summary.slice(0, 120)}…`,
+    );
+    assert.ok(summary.length <= 1_000);
     await server.close();
   });
 });
