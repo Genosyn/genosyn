@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
+import { kickoffDecision } from "../services/decisionKickoff.js";
 import {
   cancelDecision,
   decideDecision,
@@ -83,6 +84,19 @@ decisionsRouter.post(
       case "conflict":
         return res.status(409).json({ error: `Decision is already ${result.decision.status}` });
       case "decided": {
+        // Answering is the "go" signal — the employee asked because it was
+        // blocked, so start the work session now instead of leaving the answer
+        // to be noticed on its next routine tick. Fire-and-forget: the row
+        // carries the progress, and every guard lives in the service.
+        void kickoffDecision({
+          companyId: cid,
+          decisionId: result.decision.id,
+          requesterUserId: req.userId!,
+          requesterSessionVersion: req.session?.sessionVersion ?? null,
+        }).catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error("[decisions] pickup failed", err);
+        });
         const [dto] = await hydrateDecisions([result.decision]);
         return res.json(dto);
       }

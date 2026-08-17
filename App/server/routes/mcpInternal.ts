@@ -538,6 +538,9 @@ type McpRequest = Request & {
    * provenance on the rows they write read these. */
   mcpRunId?: string | null;
   mcpRoutineId?: string | null;
+  /** The chat thread / email thread behind this call, when the surface has one. */
+  mcpConversationId?: string | null;
+  mcpMailThreadId?: string | null;
   mcpAuthority?: "employee" | "member" | "untrusted";
   mcpRequesterUserId?: string | null;
   /** Re-read for every tool call so removal/demotion takes effect immediately. */
@@ -572,6 +575,8 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   req.mcpToken = token;
   req.mcpRunId = info.runId;
   req.mcpRoutineId = info.routineId;
+  req.mcpConversationId = info.conversationId;
+  req.mcpMailThreadId = info.mailThreadId;
   req.mcpAuthority = info.authority;
   req.mcpRequesterUserId = info.requesterUserId;
   if (info.authority === "member") {
@@ -10328,6 +10333,8 @@ mcpInternalRouter.post(
           : null,
         routineId: req.mcpRoutineId ?? null,
         runId: req.mcpRunId ?? null,
+        conversationId: req.mcpConversationId ?? null,
+        mailThreadId: req.mcpMailThreadId ?? null,
       });
       await journal(
         self.id,
@@ -10338,7 +10345,7 @@ mcpInternalRouter.post(
         decisionId: decision.id,
         status: decision.status,
         options: options.map((o) => ({ id: o.id, label: o.label })),
-        note: "Stacked for a human. Stop this line of work — the answer will reach you through your journal, and list_decisions reads it back.",
+        note: "Stacked for a human. Stop this line of work and finish your turn — when someone answers, you are started again in a fresh session briefed with their answer, so you can carry on then. The answer also lands on your journal, and list_decisions reads it back.",
       });
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });

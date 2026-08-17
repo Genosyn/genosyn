@@ -4,10 +4,14 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
+import { Conversation } from "../db/entities/Conversation.js";
 import { Decision } from "../db/entities/Decision.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
+import { MailThread } from "../db/entities/MailThread.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Notification } from "../db/entities/Notification.js";
+import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
 import {
   closeTestDb,
@@ -21,6 +25,7 @@ import {
   canDecide,
   createDecision,
   decideDecision,
+  listDecisions,
   listPendingDecisions,
   normalizeDecisionOptions,
   parseDecisionOptions,
@@ -412,5 +417,237 @@ describe("the stack itself", () => {
     const { decisions, total } = await listPendingDecisions({ companyId: b.companyId, limit: 10 });
     assert.equal(total, 0);
     assert.deepEqual(decisions, []);
+  });
+});
+
+/**
+ * Provenance — "where did this come from?".
+ *
+ * The stack renders a link per row, so what matters is that the resolved
+ * `source` names the right surface and degrades honestly when the thing it
+ * points at has been deleted. A row that silently claims to be a chat because
+ * its routine is gone would be worse than one that admits the routine is gone.
+ */
+describe("decision provenance", () => {
+  test("a routine-raised row resolves the routine, its run, and the employee slug", async () => {
+    const { companyId, employeeId } = await scenario();
+    const routine = await insert(Routine, {
+      employeeId,
+      name: "Nightly outreach",
+      slug: "nightly-outreach",
+      cronExpr: "0 2 * * *",
+      body: "",
+    });
+    const run = await insert(Run, {
+      routineId: routine.id,
+      startedAt: new Date(),
+      status: "completed",
+      triggerKind: "schedule",
+    });
+    await stack(companyId, employeeId, { routineId: routine.id, runId: run.id });
+
+    const [dto] = await listDecisions({ companyId });
+    assert.equal(dto.source.kind, "routine");
+    assert.equal(dto.source.routine?.name, "Nightly outreach");
+    assert.equal(dto.source.routine?.slug, "nightly-outreach");
+    assert.ok(dto.source.routine?.employeeSlug, "the link needs the routine owner's slug");
+    assert.equal(dto.source.run?.id, run.id);
+    assert.equal(dto.source.run?.triggerKind, "schedule");
+  });
+
+  test("a mail-raised row resolves the thread it is about", async () => {
+    const { companyId, employeeId } = await scenario();
+    const thread = await insert(MailThread, {
+      companyId,
+      accountId: "acct-1",
+      gmailThreadId: `g-${companyId.slice(0, 8)}`,
+      subject: "Pricing for Acme",
+      lastMessageAt: new Date(),
+    });
+    await stack(companyId, employeeId, { mailThreadId: thread.id });
+
+    const [dto] = await listDecisions({ companyId });
+    assert.equal(dto.source.kind, "mail");
+    assert.equal(dto.source.mailThread?.subject, "Pricing for Acme");
+    assert.equal(dto.source.mailThread?.id, thread.id);
+  });
+
+  test("a chat-raised row resolves the conversation", async () => {
+    const { companyId, employeeId, memberId } = await scenario();
+    const conversation = await insert(Conversation, {
+      employeeId,
+      ownerUserId: memberId,
+      title: "Acme renewal",
+      source: "web",
+    });
+    await stack(companyId, employeeId, { conversationId: conversation.id });
+
+    const [dto] = await listDecisions({ companyId });
+    assert.equal(dto.source.kind, "chat");
+    assert.equal(dto.source.conversation?.title, "Acme renewal");
+  });
+
+  test("a row with no recorded surface is `unknown`, not mislabelled", async () => {
+    const { companyId, employeeId } = await scenario();
+    await stack(companyId, employeeId);
+
+    const [dto] = await listDecisions({ companyId });
+    assert.equal(dto.source.kind, "unknown");
+    assert.equal(dto.source.routine, null);
+    assert.equal(dto.source.conversation, null);
+  });
+
+  test("a deleted routine still reads as a routine, with nothing to link to", async () => {
+    const { companyId, employeeId } = await scenario();
+    const routine = await insert(Routine, {
+      employeeId,
+      name: "Gone",
+      slug: "gone",
+      cronExpr: "0 2 * * *",
+      body: "",
+    });
+    await stack(companyId, employeeId, { routineId: routine.id });
+    await AppDataSource.getRepository(Routine).delete({ id: routine.id });
+
+    const [dto] = await listDecisions({ companyId });
+    assert.equal(dto.source.kind, "routine");
+    assert.equal(dto.source.routine, null);
+  });
+
+  test("a routine beats an email beats a chat when a row carries more than one", async () => {
+    const { companyId, employeeId, memberId } = await scenario();
+    const routine = await insert(Routine, {
+      employeeId,
+      name: "Sweep",
+      slug: "sweep",
+      cronExpr: "0 2 * * *",
+      body: "",
+    });
+    const conversation = await insert(Conversation, {
+      employeeId,
+      ownerUserId: memberId,
+      title: "Chat",
+      source: "web",
+    });
+    const thread = await insert(MailThread, {
+      companyId,
+      accountId: "acct-2",
+      gmailThreadId: `gg-${companyId.slice(0, 8)}`,
+      subject: "Thread",
+      lastMessageAt: new Date(),
+    });
+    await stack(companyId, employeeId, {
+      routineId: routine.id,
+      conversationId: conversation.id,
+      mailThreadId: thread.id,
+    });
+
+    const [dto] = await listDecisions({ companyId });
+    assert.equal(dto.source.kind, "routine");
+    // The other two are still resolved — the row links to all of them.
+    assert.equal(dto.source.mailThread?.subject, "Thread");
+    assert.equal(dto.source.conversation?.title, "Chat");
+  });
+
+  test("who answered is resolved for display, not left as a bare id", async () => {
+    const { companyId, employeeId, memberId } = await scenario();
+    const decision = await stack(companyId, employeeId);
+    await decideDecision({
+      companyId,
+      decisionId: decision.id,
+      userId: memberId,
+      role: "member",
+      optionId: "send-it",
+    });
+
+    const [dto] = await listDecisions({ companyId });
+    assert.equal(dto.decidedBy?.id, memberId);
+    assert.equal(dto.decidedBy?.name, "Mo Member");
+  });
+
+  test("hydrating a mixed stack issues no per-row lookups it cannot batch", async () => {
+    const { companyId, employeeId } = await scenario();
+    const routine = await insert(Routine, {
+      employeeId,
+      name: "Sweep",
+      slug: "sweep-many",
+      cronExpr: "0 2 * * *",
+      body: "",
+    });
+    for (let i = 0; i < 12; i += 1) {
+      await stack(companyId, employeeId, {
+        title: `Question ${i}`,
+        ...(i % 2 === 0 ? { routineId: routine.id } : {}),
+      });
+    }
+    const rows = await listDecisions({ companyId });
+    assert.equal(rows.length, 12);
+    assert.equal(rows.filter((r) => r.source.kind === "routine").length, 6);
+    assert.equal(rows.filter((r) => r.source.kind === "unknown").length, 6);
+  });
+});
+
+/**
+ * The read-path sweep for pickups that died with their process. A row stuck on
+ * `running` renders a spinner nobody can clear, so the rule is: once a session
+ * has been quiet longer than the chat seam's own hard timeout, it is dead.
+ */
+describe("stale pickup reconciliation", () => {
+  async function decidedRow(companyId: string, employeeId: string, userId: string) {
+    const decision = await stack(companyId, employeeId);
+    await decideDecision({
+      companyId,
+      decisionId: decision.id,
+      userId,
+      role: "member",
+      optionId: "send-it",
+    });
+    return decision;
+  }
+
+  test("a pickup abandoned by a crash is failed, with an explanation", async () => {
+    const { companyId, employeeId, memberId } = await scenario();
+    const decision = await decidedRow(companyId, employeeId, memberId);
+    await AppDataSource.getRepository(Decision).update(
+      { id: decision.id },
+      {
+        pickupStatus: "running",
+        pickupStartedAt: new Date(Date.now() - 8 * 60 * 60 * 1000),
+      },
+    );
+
+    const [dto] = await listDecisions({ companyId });
+    assert.equal(dto.pickupStatus, "failed");
+    assert.match(dto.pickupSummary ?? "", /journal/);
+    assert.ok(dto.pickupFinishedAt);
+  });
+
+  test("a session still inside its budget is left alone", async () => {
+    const { companyId, employeeId, memberId } = await scenario();
+    const decision = await decidedRow(companyId, employeeId, memberId);
+    await AppDataSource.getRepository(Decision).update(
+      { id: decision.id },
+      { pickupStatus: "running", pickupStartedAt: new Date(Date.now() - 60_000) },
+    );
+
+    const [dto] = await listDecisions({ companyId });
+    assert.equal(dto.pickupStatus, "running");
+  });
+
+  test("the sweep never reaches another company's rows", async () => {
+    const a = await scenario();
+    const b = await scenario();
+    const decision = await decidedRow(a.companyId, a.employeeId, a.memberId);
+    await AppDataSource.getRepository(Decision).update(
+      { id: decision.id },
+      {
+        pickupStatus: "running",
+        pickupStartedAt: new Date(Date.now() - 8 * 60 * 60 * 1000),
+      },
+    );
+
+    await listDecisions({ companyId: b.companyId });
+    const row = await AppDataSource.getRepository(Decision).findOneByOrFail({ id: decision.id });
+    assert.equal(row.pickupStatus, "running");
   });
 });

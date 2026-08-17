@@ -266,3 +266,76 @@ describe("decision route race handling", () => {
     assert.equal(response.body.status, "cancelled");
   });
 });
+
+/**
+ * The wire contract the stack renders from, and the pickup the answer starts.
+ *
+ * There is no AI Model in these fixtures, so a pickup degrades to `skipped`
+ * rather than running a model turn — which is itself the behaviour worth
+ * pinning: a fresh self-host uses the stack long before anyone connects a
+ * brain, and pressing a button there must record why nothing started instead
+ * of looking broken. `decisionKickoff.test.ts` covers the sessions that do run.
+ */
+describe("decision route payload", () => {
+  test("a listed row carries its provenance and pickup state", async () => {
+    await stack();
+    const list = await call<Array<Record<string, unknown>>>("GET", "/decisions");
+    assert.equal(list.status, 200);
+    const row = list.body[0] as unknown as {
+      source: { kind: string };
+      pickupStatus: string;
+      pickupSummary: string | null;
+      mailThreadId: string | null;
+      decidedBy: unknown;
+    };
+    assert.equal(row.source.kind, "unknown");
+    assert.equal(row.pickupStatus, "none");
+    assert.equal(row.pickupSummary, null);
+    assert.equal(row.mailThreadId, null);
+    assert.equal(row.decidedBy, null);
+  });
+
+  test("answering starts a pickup, and it reaches a terminal state", async () => {
+    const decision = await stack();
+    const decided = await call("POST", `/decisions/${decision.id}/decide`, {
+      optionId: "send-it",
+    });
+    assert.equal(decided.status, 200);
+
+    const row = await waitForPickup(decision.id);
+    assert.equal(row.pickupStatus, "skipped", row.pickupSummary ?? "");
+    assert.match(row.pickupSummary ?? "", /no AI Model connected/i);
+    assert.ok(row.pickupFinishedAt, "a settled pickup records when it finished");
+  });
+
+  test("dismissing never starts a pickup", async () => {
+    const decision = await stack();
+    await call("POST", `/decisions/${decision.id}/dismiss`, { reason: "Handled by hand." });
+    // Give a stray kickoff the same window the decide path gets before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const row = (await AppDataSource.getRepository(Decision).findOneBy({ id: decision.id }))!;
+    assert.equal(row.pickupStatus, "none");
+  });
+
+  test("a losing racer does not start a second pickup", async () => {
+    const decision = await stack();
+    await call("POST", `/decisions/${decision.id}/decide`, { optionId: "send-it" });
+    await waitForPickup(decision.id);
+    const second = await call("POST", `/decisions/${decision.id}/decide`, { optionId: "hold" });
+    assert.equal(second.status, 409);
+
+    const row = (await AppDataSource.getRepository(Decision).findOneBy({ id: decision.id }))!;
+    assert.equal(row.chosenOptionId, "send-it");
+    assert.equal(row.pickupStatus, "skipped");
+  });
+});
+
+/** Poll until the fire-and-forget pickup settles, so the assertions aren't racy. */
+async function waitForPickup(id: string): Promise<Decision> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const row = (await AppDataSource.getRepository(Decision).findOneBy({ id }))!;
+    if (row.pickupStatus !== "none" && row.pickupStatus !== "running") return row;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error("pickup never settled");
+}

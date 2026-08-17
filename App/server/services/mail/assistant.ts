@@ -727,6 +727,10 @@ export async function runAssistantTurn(args: AssistantTurnArgs): Promise<void> {
         result = await runChat(account.companyId, employee.id, prompt, history, callbacks.onChunk, {
           extraSystem: assistantBriefing(account, accessLevel),
           extraToolset: MAIL_ASSISTANT_TOOLS,
+          // This panel is per-email, so anything the employee stacks for a
+          // human from here is about *this* thread. Carry it so the Decision
+          // Stack can link back to the email instead of saying "a chat".
+          mailThreadId: args.threadId,
           modelId: selectedModel?.id ?? null,
           // The lease is keyed to this row so a process that dies mid-turn
           // doesn't leave the employee looking busy for the six-hour lease

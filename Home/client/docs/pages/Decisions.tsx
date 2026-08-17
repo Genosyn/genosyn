@@ -37,7 +37,8 @@ export function Decisions() {
         </LI>
         <LI>
           Press <Strong>Show context</Strong> to read what the employee actually wrote — the draft,
-          what it already checked, and what each option costs.
+          what it already checked, and what each option costs. It is rendered as the employee wrote
+          it, so a drafted email reads like an email.
         </LI>
         <LI>
           Press the option you want. You can add a note first; the employee reads it alongside your
@@ -62,11 +63,31 @@ export function Decisions() {
 
       <H2 id="what-happens-next">What happens next</H2>
       <P>
-        Your answer lands in that employee&apos;s journal, and the last week of its journal is part
-        of every prompt it runs — so it picks the work back up on its next turn without anyone
-        scheduling anything. It can also read the answer immediately with its{" "}
-        <Code>list_decisions</Code> tool. The <Strong>Decided</Strong> list on the Decisions page
-        keeps the trail: what was asked, what was chosen, who chose it, and any note.
+        The employee starts working again immediately. Pressing an option kicks off a work session
+        right away, briefed with your choice, your note, and the context it stacked with the
+        question — so a reply you approved goes out in the next minute rather than waiting for that
+        employee&apos;s next scheduled run. The row shows the session running, then the
+        employee&apos;s own report of what it did.
+      </P>
+      <P>
+        Your answer is also written to that employee&apos;s journal, and the last week of its
+        journal is part of every prompt it runs. That is the backstop: if no session can start — no{" "}
+        <DocLink to="/docs/models">AI Model</DocLink> is connected yet, or the server restarted
+        mid-session — the row says so, and the employee still picks the work up on its next run. It
+        can also read the answer at any time with its <Code>list_decisions</Code> tool.
+      </P>
+      <P>
+        The <Strong>Already answered</Strong> list keeps the trail: what was asked, what was chosen,
+        who chose it, any note, and what the employee did next.
+      </P>
+
+      <H2 id="where-it-came-from">Where a question came from</H2>
+      <P>
+        Every row says which surface the employee was working when it asked, and links straight to
+        it — the <DocLink to="/docs/routines">Routine</DocLink> and the exact run, the email thread,
+        or the chat. It is the context that decides how you read the question: &ldquo;send the
+        pricing reply to Acme?&rdquo; means one thing out of the nightly outreach routine and
+        another out of a conversation you had five minutes ago.
       </P>
       <P>
         An employee can retract its own question if the situation moves on. A decision can also
@@ -83,9 +104,10 @@ export function Decisions() {
         re-authenticate.
       </P>
       <P>
-        A decision performs nothing. It records which option a human picked so the employee can
-        carry on, which is why an ordinary Member can answer one. If the employee then does
-        something privileged with your answer, that step still meets its own approval gate.
+        A decision performs nothing itself. It records which option a human picked and hands that
+        back to the employee, which is why an ordinary Member can answer one. The work session your
+        answer starts runs under the employee&apos;s own authority, so anything privileged it then
+        does still meets its own approval gate.
       </P>
 
       <Callout kind="tip" title="Nothing waiting is the normal state.">

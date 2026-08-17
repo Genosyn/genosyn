@@ -281,7 +281,10 @@ async function runHandover(id: string): Promise<void> {
         "This manual handover predates secure Member delegation. Retry it from a logged-in browser to authorize a new attempt.",
       );
     }
-    const result = await chatWithEmployee(account.companyId, employee.id, prompt, [], authority);
+    const result = await chatWithEmployee(account.companyId, employee.id, prompt, [], {
+      ...authority,
+      mailThreadId: handover.threadId,
+    });
     if (result.status === "ok") {
       handover.status = "completed";
       handover.resultSummary = result.reply.slice(0, RESULT_SUMMARY_CAP);

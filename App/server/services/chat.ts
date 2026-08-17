@@ -114,6 +114,12 @@ function formatBusyReply(employeeName: string): string {
 type ChatBaseOptions = {
   conversationId?: string;
   /**
+   * The email thread this turn is about, for surfaces that are per-thread —
+   * mail handovers and the per-email assistant. Carried on the turn's MCP token
+   * so a tool that records provenance can point a human back at the email.
+   */
+  mailThreadId?: string | null;
+  /**
    * Employee-owned AI Model selected for this turn. Omit/null to inherit the
    * employee's active model, which remains the default for every other chat
    * surface.
@@ -476,16 +482,21 @@ export async function streamChatWithEmployee(
       });
     }
 
+    const tokenOrigin = {
+      conversationId: options.conversationId ?? null,
+      mailThreadId: options.mailThreadId ?? null,
+    };
     mcpToken = issueMcpToken(
       emp.id,
       co.id,
       options.requesterUserId
         ? {
+            ...tokenOrigin,
             authority: "member",
             requesterUserId: options.requesterUserId,
             requesterSessionVersion: requesterSessionVersion!,
           }
-        : { authority: options.toolAuthority ?? "untrusted" },
+        : { ...tokenOrigin, authority: options.toolAuthority ?? "untrusted" },
     );
     const controller = new AbortController();
     const timeoutMs = Math.max(1, options.timeoutMs ?? CHAT_HARD_TIMEOUT_MS);

@@ -27,6 +27,14 @@ export type McpTokenInfo = {
   runId: string | null;
   routineId: string | null;
   /**
+   * The chat thread or email thread this turn is working, when the surface that
+   * spawned it has one. Same best-effort provenance role as `runId` above: a
+   * tool that records where a write came from (the Decision Stack, for one)
+   * reads these so a human can open the conversation the question came out of.
+   */
+  conversationId: string | null;
+  mailThreadId: string | null;
+  /**
    * Authority carried by this turn. Routine Runs and other trusted internal
    * automation deliberately act as the AI Employee. Browser-originated chat
    * carries the requesting Member so tool handlers can intersect both
@@ -104,6 +112,8 @@ export function issueMcpToken(
   origin: {
     runId?: string;
     routineId?: string;
+    conversationId?: string | null;
+    mailThreadId?: string | null;
     authority?: "employee" | "member" | "untrusted";
     requesterUserId?: string;
     requesterSessionVersion?: number;
@@ -135,6 +145,8 @@ export function issueMcpToken(
     companyId,
     runId: origin.runId ?? null,
     routineId: origin.routineId ?? null,
+    conversationId: origin.conversationId ?? null,
+    mailThreadId: origin.mailThreadId ?? null,
     authority,
     requesterUserId,
     requesterSessionVersion: origin.requesterSessionVersion ?? null,

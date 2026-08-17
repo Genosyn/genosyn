@@ -595,7 +595,7 @@ function CompanyRoutes({
           </Route>
 
           <Route path="approvals" element={<Approvals company={company} />} />
-          <Route path="decisions" element={<Decisions company={company} />} />
+          <Route path="decisions" element={<Decisions company={company} me={me} />} />
           <Route path="help" element={<Help company={company} />} />
 
           {/* Workspace chat — Slack-style channels and DMs (M9). */}

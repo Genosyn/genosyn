@@ -168,7 +168,9 @@ export function toolsBriefing(
     "- `request_decision` when you reach a fork you should not take alone — a reply you could " +
       "send, a post you could publish, two options with different consequences. Do the work up to " +
       "the fork, then stack the question with the exact choices you will act on; it lands at the " +
-      "top of the company's Home page and the answer comes back through your journal. Ask when a " +
+      "top of the company's Home page. When someone answers, you are started again in a fresh " +
+      "session briefed with their choice — so stack everything the follow-up needs in the " +
+      "question's body, then end your turn rather than waiting. Ask when a " +
       "human's judgement genuinely changes what you do next" +
       (isChat
         ? " and the teammate is not in front of you — in a live chat, just ask them."

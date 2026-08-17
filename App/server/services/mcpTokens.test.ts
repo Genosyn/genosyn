@@ -29,6 +29,8 @@ describe("short-lived MCP tokens", () => {
       companyId: "company",
       runId: "run",
       routineId: "routine",
+      conversationId: null,
+      mailThreadId: null,
       authority: "employee",
       requesterUserId: null,
       requesterSessionVersion: null,
@@ -38,6 +40,32 @@ describe("short-lived MCP tokens", () => {
     assert.equal(resolveMcpToken(second)?.runId, null);
     revokeMcpToken(first);
     revokeMcpToken(second);
+  });
+
+  test("carries the chat or email thread a turn is working, for provenance", () => {
+    // The Decision Stack reads these back to say where a question came from, so
+    // a surface that forgets to stamp them must degrade to null, not to another
+    // surface's id.
+    const chat = issueMcpToken("employee", "company", {
+      authority: "employee",
+      conversationId: "conv-1",
+    });
+    const mail = issueMcpToken("employee", "company", {
+      authority: "employee",
+      mailThreadId: "thread-1",
+    });
+    const bare = issueMcpToken("employee", "company", { authority: "employee" });
+
+    assert.equal(resolveMcpToken(chat)?.conversationId, "conv-1");
+    assert.equal(resolveMcpToken(chat)?.mailThreadId, null);
+    assert.equal(resolveMcpToken(mail)?.mailThreadId, "thread-1");
+    assert.equal(resolveMcpToken(mail)?.conversationId, null);
+    assert.equal(resolveMcpToken(bare)?.conversationId, null);
+    assert.equal(resolveMcpToken(bare)?.mailThreadId, null);
+
+    revokeMcpToken(chat);
+    revokeMcpToken(mail);
+    revokeMcpToken(bare);
   });
 
   test("binds an interactive token to its requesting Member", () => {

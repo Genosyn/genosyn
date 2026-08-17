@@ -2,14 +2,19 @@ import { In, LessThanOrEqual } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
+import { Conversation } from "../db/entities/Conversation.js";
 import {
   Decision,
   DecisionOption,
+  DecisionPickupStatus,
   DecisionStatus,
   DecisionUrgency,
 } from "../db/entities/Decision.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
+import { MailThread } from "../db/entities/MailThread.js";
 import { Membership, Role } from "../db/entities/Membership.js";
+import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
 import { User } from "../db/entities/User.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 import { recordAudit } from "./audit.js";
@@ -41,6 +46,28 @@ import { toSlug } from "../lib/slug.js";
 /** Hard ceiling on options, so the stack stays a decision and not a survey. */
 export const MAX_DECISION_OPTIONS = 6;
 
+/**
+ * Where the employee was standing when it asked.
+ *
+ * `kind` is what the stack labels the row with, and the sibling fields are what
+ * it links to. A routine Run beats a mail thread beats a chat when an employee
+ * somehow has more than one — the outermost context is the one a human needs to
+ * understand *why* the question exists.
+ *
+ * Every field is best-effort. A routine deleted since the question was asked
+ * leaves `kind: "routine"` with a null `routine`, which the UI renders as
+ * "a routine that has since been deleted" rather than pretending it was a chat.
+ */
+export type DecisionSourceKind = "routine" | "mail" | "chat" | "unknown";
+
+export type DecisionSource = {
+  kind: DecisionSourceKind;
+  routine: { id: string; name: string; slug: string; employeeSlug: string | null } | null;
+  run: { id: string; status: string; startedAt: string; triggerKind: string } | null;
+  conversation: { id: string; title: string | null } | null;
+  mailThread: { id: string; subject: string | null; accountId: string } | null;
+};
+
 export type DecisionDTO = {
   id: string;
   companyId: string;
@@ -52,11 +79,20 @@ export type DecisionDTO = {
   routineId: string | null;
   runId: string | null;
   conversationId: string | null;
+  mailThreadId: string | null;
+  /** Resolved provenance — see {@link DecisionSource}. */
+  source: DecisionSource;
   chosenOptionId: string | null;
   chosenOptionLabel: string | null;
   note: string | null;
   decidedAt: string | null;
   decidedByUserId: string | null;
+  /** Who answered, resolved for display. Null when nobody has yet. */
+  decidedBy: { id: string; name: string } | null;
+  pickupStatus: DecisionPickupStatus;
+  pickupSummary: string | null;
+  pickupStartedAt: string | null;
+  pickupFinishedAt: string | null;
   expiresAt: string | null;
   createdAt: string;
   employee: { id: string; name: string; slug: string; avatarKey: string | null } | null;
@@ -120,15 +156,74 @@ export function normalizeDecisionOptions(inputs: DecisionOptionInput[]): Decisio
   return out;
 }
 
+/**
+ * Resolve the "came from" line. Kind is chosen by outermost context: a Run is
+ * the biggest story a row can tell, an email thread is the next, and a chat is
+ * the fallback. `unknown` covers rows whose surface recorded nothing — every
+ * decision raised before this shipped, for one.
+ */
+function resolveSource(
+  decision: Decision,
+  lookups: {
+    routine?: Routine | null;
+    run?: Run | null;
+    conversation?: Conversation | null;
+    mailThread?: MailThread | null;
+    routineEmployee?: AIEmployee | null;
+  },
+): DecisionSource {
+  const routine = lookups.routine ?? null;
+  const run = lookups.run ?? null;
+  const conversation = lookups.conversation ?? null;
+  const mailThread = lookups.mailThread ?? null;
+  const kind: DecisionSourceKind = decision.routineId
+    ? "routine"
+    : decision.mailThreadId
+      ? "mail"
+      : decision.conversationId
+        ? "chat"
+        : "unknown";
+  return {
+    kind,
+    routine: routine
+      ? {
+          id: routine.id,
+          name: routine.name,
+          slug: routine.slug,
+          employeeSlug: lookups.routineEmployee?.slug ?? null,
+        }
+      : null,
+    run: run
+      ? {
+          id: run.id,
+          status: run.status,
+          startedAt: run.startedAt.toISOString(),
+          triggerKind: run.triggerKind,
+        }
+      : null,
+    conversation: conversation ? { id: conversation.id, title: conversation.title } : null,
+    mailThread: mailThread
+      ? { id: mailThread.id, subject: mailThread.subject || null, accountId: mailThread.accountId }
+      : null,
+  };
+}
+
 export function serializeDecision(
   decision: Decision,
   lookups: {
     employee?: AIEmployee | null;
     assignee?: User | null;
+    decidedBy?: User | null;
+    routine?: Routine | null;
+    run?: Run | null;
+    conversation?: Conversation | null;
+    mailThread?: MailThread | null;
+    routineEmployee?: AIEmployee | null;
   } = {},
 ): DecisionDTO {
   const employee = lookups.employee ?? null;
   const assignee = lookups.assignee ?? null;
+  const decidedBy = lookups.decidedBy ?? null;
   return {
     id: decision.id,
     companyId: decision.companyId,
@@ -140,11 +235,18 @@ export function serializeDecision(
     routineId: decision.routineId,
     runId: decision.runId,
     conversationId: decision.conversationId,
+    mailThreadId: decision.mailThreadId,
+    source: resolveSource(decision, lookups),
     chosenOptionId: decision.chosenOptionId,
     chosenOptionLabel: decision.chosenOptionLabel,
     note: decision.note,
     decidedAt: decision.decidedAt?.toISOString() ?? null,
     decidedByUserId: decision.decidedByUserId,
+    decidedBy: decidedBy ? { id: decidedBy.id, name: decidedBy.name || decidedBy.email } : null,
+    pickupStatus: decision.pickupStatus,
+    pickupSummary: decision.pickupSummary,
+    pickupStartedAt: decision.pickupStartedAt?.toISOString() ?? null,
+    pickupFinishedAt: decision.pickupFinishedAt?.toISOString() ?? null,
     expiresAt: decision.expiresAt?.toISOString() ?? null,
     createdAt: decision.createdAt.toISOString(),
     employee: employee
@@ -173,24 +275,90 @@ export async function expireStaleDecisions(companyId: string): Promise<void> {
   );
 }
 
+/**
+ * How long a `running` pickup can go quiet before we call it dead. Matches the
+ * chat seam's own hard timeout, so a genuinely long session is never cut short
+ * by somebody loading the page.
+ */
+const STALE_PICKUP_MS = 7 * 60 * 60 * 1000;
+
+/**
+ * Flip pickups that were still `running` when the process died back to
+ * `failed`. Same read-path philosophy as {@link expireStaleDecisions}: the row
+ * is only wrong when somebody is looking at it, so a conditional UPDATE on the
+ * indexed `(companyId, status)` beats a scheduled sweep of every company.
+ *
+ * Without this a crash mid-session leaves a spinner on the stack that nothing
+ * would ever clear.
+ */
+export async function reconcileStalePickups(companyId: string): Promise<void> {
+  await AppDataSource.getRepository(Decision).update(
+    {
+      companyId,
+      pickupStatus: "running",
+      pickupStartedAt: LessThanOrEqual(new Date(Date.now() - STALE_PICKUP_MS)),
+    },
+    {
+      pickupStatus: "failed",
+      pickupSummary:
+        "The server stopped while this was being worked on. Your answer is on the " +
+        "employee's journal, so it still reaches them on their next run.",
+      pickupFinishedAt: new Date(),
+    },
+  );
+}
+
+/** `In([])` is a SQL syntax error on some drivers — never issue the query. */
+function ids(values: (string | null)[]): string[] {
+  return [...new Set(values.filter((v): v is string => !!v))];
+}
+
+async function findByIds<T extends { id: string }>(
+  entity: new () => T,
+  wanted: string[],
+): Promise<Map<string, T>> {
+  if (wanted.length === 0) return new Map();
+  const rows = await AppDataSource.getRepository(entity).find({ where: { id: In(wanted) } as never });
+  return new Map(rows.map((r) => [r.id, r]));
+}
+
+/**
+ * Turn rows into DTOs, resolving the employee, the people, and the provenance
+ * in one batch each.
+ *
+ * Six round-trips regardless of how many rows come in — the stack renders on
+ * Home for every member on every load, so an N+1 here would be felt. Routine
+ * employees need a second employee lookup because the routine that raised the
+ * question may belong to a different employee than the one that asked (a
+ * delegated run), and the link needs that employee's slug.
+ */
 export async function hydrateDecisions(rows: Decision[]): Promise<DecisionDTO[]> {
   if (rows.length === 0) return [];
-  const employeeIds = [...new Set(rows.map((r) => r.employeeId).filter(Boolean))];
-  const userIds = [...new Set(rows.map((r) => r.assigneeUserId).filter((id): id is string => !!id))];
-  const [employees, users] = await Promise.all([
-    employeeIds.length
-      ? AppDataSource.getRepository(AIEmployee).find({ where: { id: In(employeeIds) } })
-      : Promise.resolve([] as AIEmployee[]),
-    userIds.length
-      ? AppDataSource.getRepository(User).find({ where: { id: In(userIds) } })
-      : Promise.resolve([] as User[]),
-  ]);
-  const employeeById = new Map(employees.map((e) => [e.id, e]));
-  const userById = new Map(users.map((u) => [u.id, u]));
+  const [employeeById, userById, routineById, runById, conversationById, mailThreadById] =
+    await Promise.all([
+      findByIds(AIEmployee, ids(rows.map((r) => r.employeeId))),
+      findByIds(User, ids(rows.flatMap((r) => [r.assigneeUserId, r.decidedByUserId]))),
+      findByIds(Routine, ids(rows.map((r) => r.routineId))),
+      findByIds(Run, ids(rows.map((r) => r.runId))),
+      findByIds(Conversation, ids(rows.map((r) => r.conversationId))),
+      findByIds(MailThread, ids(rows.map((r) => r.mailThreadId))),
+    ]);
+  const routineEmployeeById = await findByIds(
+    AIEmployee,
+    ids([...routineById.values()].map((r) => r.employeeId)),
+  );
   return rows.map((row) =>
     serializeDecision(row, {
       employee: employeeById.get(row.employeeId) ?? null,
       assignee: row.assigneeUserId ? (userById.get(row.assigneeUserId) ?? null) : null,
+      decidedBy: row.decidedByUserId ? (userById.get(row.decidedByUserId) ?? null) : null,
+      routine: row.routineId ? (routineById.get(row.routineId) ?? null) : null,
+      run: row.runId ? (runById.get(row.runId) ?? null) : null,
+      conversation: row.conversationId ? (conversationById.get(row.conversationId) ?? null) : null,
+      mailThread: row.mailThreadId ? (mailThreadById.get(row.mailThreadId) ?? null) : null,
+      routineEmployee: row.routineId
+        ? (routineEmployeeById.get(routineById.get(row.routineId)?.employeeId ?? "") ?? null)
+        : null,
     }),
   );
 }
@@ -200,7 +368,10 @@ export async function listDecisions(params: {
   status?: DecisionStatus;
   limit?: number;
 }): Promise<DecisionDTO[]> {
-  await expireStaleDecisions(params.companyId);
+  await Promise.all([
+    expireStaleDecisions(params.companyId),
+    reconcileStalePickups(params.companyId),
+  ]);
   const rows = await AppDataSource.getRepository(Decision).find({
     where: {
       companyId: params.companyId,
@@ -222,7 +393,10 @@ export async function listPendingDecisions(params: {
   companyId: string;
   limit: number;
 }): Promise<{ decisions: DecisionDTO[]; total: number }> {
-  await expireStaleDecisions(params.companyId);
+  await Promise.all([
+    expireStaleDecisions(params.companyId),
+    reconcileStalePickups(params.companyId),
+  ]);
   const [rows, total] = await AppDataSource.getRepository(Decision).findAndCount({
     where: { companyId: params.companyId, status: "pending" },
     // Sorting is finished in memory: urgency is a string column, so ordering on
@@ -247,6 +421,7 @@ export async function createDecision(params: {
   routineId?: string | null;
   runId?: string | null;
   conversationId?: string | null;
+  mailThreadId?: string | null;
 }): Promise<{ decision: Decision; options: DecisionOption[] }> {
   const options = normalizeDecisionOptions(params.options);
   if (options.length === 0) {
@@ -266,6 +441,7 @@ export async function createDecision(params: {
     routineId: params.routineId ?? null,
     runId: params.runId ?? null,
     conversationId: params.conversationId ?? null,
+    mailThreadId: params.mailThreadId ?? null,
     title,
     body,
     optionsJson: JSON.stringify(options),
@@ -277,6 +453,10 @@ export async function createDecision(params: {
     note: null,
     decidedByUserId: null,
     decidedAt: null,
+    pickupStatus: "none",
+    pickupSummary: null,
+    pickupStartedAt: null,
+    pickupFinishedAt: null,
     expiresAt: params.expiresAt ?? null,
   });
   await repo.save(decision);

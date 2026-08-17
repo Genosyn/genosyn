@@ -455,6 +455,23 @@ export type DecisionOption = {
  * nothing is queued behind it — answering records the choice so the employee
  * can read it back and carry on.
  */
+/**
+ * Where the employee was working when it stacked the question. `kind` picks the
+ * label; the sibling fields are what the stack links to, and any of them can be
+ * null when the thing has since been deleted.
+ */
+export type DecisionSourceKind = "routine" | "mail" | "chat" | "unknown";
+export type DecisionSource = {
+  kind: DecisionSourceKind;
+  routine: { id: string; name: string; slug: string; employeeSlug: string | null } | null;
+  run: { id: string; status: string; startedAt: string; triggerKind: string } | null;
+  conversation: { id: string; title: string | null } | null;
+  mailThread: { id: string; subject: string | null; accountId: string } | null;
+};
+
+/** How far the employee has got with the answer. See `Decision.pickupStatus`. */
+export type DecisionPickupStatus = "none" | "running" | "done" | "failed" | "skipped";
+
 export type Decision = {
   id: string;
   companyId: string;
@@ -466,11 +483,18 @@ export type Decision = {
   routineId: string | null;
   runId: string | null;
   conversationId: string | null;
+  mailThreadId: string | null;
+  source: DecisionSource;
   chosenOptionId: string | null;
   chosenOptionLabel: string | null;
   note: string | null;
   decidedAt: string | null;
   decidedByUserId: string | null;
+  decidedBy: { id: string; name: string } | null;
+  pickupStatus: DecisionPickupStatus;
+  pickupSummary: string | null;
+  pickupStartedAt: string | null;
+  pickupFinishedAt: string | null;
   expiresAt: string | null;
   createdAt: string;
   employee: { id: string; name: string; slug: string; avatarKey: string | null } | null;

@@ -132,6 +132,25 @@ export default function EmployeeChat() {
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }, [actions, emp.id, location.pathname, location.search, location.state, navigate]);
 
+  // `?conversation=<id>` opens a specific thread. The Decision Stack links here
+  // when an employee stacked its question mid-chat, and landing on whatever
+  // thread happened to be selected would be worse than not linking at all. The
+  // param is consumed once and stripped, so the back button and a later manual
+  // thread switch don't fight each other over the selection.
+  React.useEffect(() => {
+    const wanted = new URLSearchParams(location.search).get("conversation");
+    if (!wanted) return;
+    const params = new URLSearchParams(location.search);
+    params.delete("conversation");
+    const query = params.toString();
+    navigate(`${location.pathname}${query ? `?${query}` : ""}`, { replace: true });
+    actions
+      .selectConversation(company.id, emp.id, wanted)
+      .catch((err) => toast((err as Error).message, "error"));
+    // `toast` is stable for the life of the provider.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actions, company.id, emp.id, location.pathname, location.search, navigate]);
+
   // Reset staged attachments when the active conversation changes — leaving
   // them around would attach to the wrong thread on the next send.
   React.useEffect(() => {

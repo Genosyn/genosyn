@@ -292,3 +292,68 @@ describe("cancel_decision", () => {
     assert.equal(row.status, "pending");
   });
 });
+
+/**
+ * Provenance capture. The token the runner (or a chat surface) minted is the
+ * only thing that knows where a tool call came from, so these tests pin the
+ * hand-off: what is on the token has to end up on the row, or the stack has
+ * nothing to link to.
+ */
+describe("request_decision records where the employee was working", () => {
+  async function withToken(
+    origin: Parameters<typeof issueMcpToken>[2],
+    title: string,
+  ): Promise<Decision> {
+    revokeMcpToken(token);
+    token = issueMcpToken(employee.id, company.id, { authority: "employee", ...origin });
+    const response = await tool<{ decisionId: string }>("request_decision", {
+      title,
+      options: [{ label: "Yes" }],
+    });
+    assert.equal(response.status, 200);
+    return (await AppDataSource.getRepository(Decision).findOneByOrFail({
+      id: response.body.decisionId,
+    }))!;
+  }
+
+  test("a routine run stamps the routine and the run", async () => {
+    const row = await withToken(
+      { routineId: "routine-1", runId: "run-1" },
+      "Stop mid-routine?",
+    );
+    assert.equal(row.routineId, "routine-1");
+    assert.equal(row.runId, "run-1");
+    assert.equal(row.conversationId, null);
+    assert.equal(row.mailThreadId, null);
+  });
+
+  test("a chat turn stamps the conversation", async () => {
+    const row = await withToken({ conversationId: "conv-1" }, "Ask mid-chat?");
+    assert.equal(row.conversationId, "conv-1");
+    assert.equal(row.routineId, null);
+  });
+
+  test("a per-email turn stamps the mail thread", async () => {
+    const row = await withToken({ mailThreadId: "thread-1" }, "Reply to this?");
+    assert.equal(row.mailThreadId, "thread-1");
+    assert.equal(row.routineId, null);
+  });
+
+  test("a surface with no context leaves every provenance column null", async () => {
+    const row = await withToken({}, "Just asking");
+    assert.equal(row.routineId, null);
+    assert.equal(row.runId, null);
+    assert.equal(row.conversationId, null);
+    assert.equal(row.mailThreadId, null);
+  });
+
+  test("the model is told it will be restarted with the answer", async () => {
+    revokeMcpToken(token);
+    token = issueMcpToken(employee.id, company.id, { authority: "employee" });
+    const response = await tool<{ note: string }>("request_decision", {
+      title: "Send it?",
+      options: [{ label: "Yes" }],
+    });
+    assert.match(response.body.note, /started again in a fresh session/);
+  });
+});

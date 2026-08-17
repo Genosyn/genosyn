@@ -35,7 +35,7 @@ import {
   TodoPriority,
 } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
-import { DecisionCard } from "../components/DecisionCard";
+import { DecisionCard } from "../components/decisions/DecisionCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
@@ -415,7 +415,7 @@ function DecisionStack({
           {data.pendingDecisionCount}
         </span>
         <span className="hidden truncate text-xs text-slate-500 sm:inline dark:text-slate-400">
-          Your AI employees are waiting on these
+          Answer one and they carry on straight away
         </span>
         <Link
           to={`/c/${company.slug}/decisions`}

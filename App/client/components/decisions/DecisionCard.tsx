@@ -1,15 +1,18 @@
 import React from "react";
 import { ChevronDown, ChevronUp, GitBranch, X } from "lucide-react";
-import { api, Company, Decision, DecisionOption, DecisionUrgency } from "../lib/api";
-import { Avatar, employeeAvatarUrl } from "./ui/Avatar";
-import { Button } from "./ui/Button";
-import { Spinner } from "./ui/Spinner";
-import { useToast } from "./ui/Toast";
-import { clsx } from "./ui/clsx";
+import { api, Company, Decision, DecisionOption, DecisionUrgency } from "../../lib/api";
+import { Avatar, employeeAvatarUrl } from "../ui/Avatar";
+import { Button } from "../ui/Button";
+import { ChatMarkdown } from "../ChatMarkdown";
+import { Spinner } from "../ui/Spinner";
+import { useToast } from "../ui/Toast";
+import { clsx } from "../ui/clsx";
+import { DecisionSourceLine } from "./DecisionSource";
+import { formatRelative } from "./relative";
 
 /**
- * One row of the Decision Stack: the question an AI employee asked, its
- * context, and a button per option.
+ * One row of the Decision Stack: the question an AI employee asked, where it
+ * asked it from, its context, and a button per option.
  *
  * Shared by Home (where the stack is the first thing on the page) and the
  * Decisions page, because the interaction is identical in both and a second
@@ -18,7 +21,9 @@ import { clsx } from "./ui/clsx";
  * The context body is collapsed by default. An employee is told to paste the
  * whole draft in there, so an expanded stack of five would push everything else
  * off the screen — but the draft is also exactly what you need to decide, so it
- * is one click away and never a navigation.
+ * is one click away and never a navigation. It renders as markdown: the model
+ * writes headings, quoted drafts and links, and showing the raw `**` and `>`
+ * markers made a drafted email read like a diff of one.
  */
 
 const URGENCY_BADGE: Record<DecisionUrgency, { label: string; cls: string } | null> = {
@@ -55,6 +60,9 @@ export function DecisionCard({
   const [note, setNote] = React.useState("");
   const base = `/api/companies/${company.id}/decisions/${decision.id}`;
   const badge = URGENCY_BADGE[decision.urgency];
+  // Worth surfacing up front rather than in a tooltip: a one-liner explaining
+  // what an option actually costs is the reason the employee wrote it.
+  const hasDetails = decision.options.some((o) => o.detail);
 
   async function choose(option: DecisionOption) {
     setBusy(option.id);
@@ -65,8 +73,14 @@ export function DecisionCard({
       });
       // Never fold the label into a sentence — an option reads "Plausible" or
       // "Don't send" as often as it reads "Send it", and both break the grammar.
-      toast(`${decision.employee?.name ?? "Your AI employee"} has your answer: ${option.label}`,
-        "success");
+      //
+      // And never promise the work started: the session is kicked off after
+      // this responds, and on an install with no AI Model connected it never
+      // starts at all. The row itself reports what actually happened.
+      toast(
+        `${decision.employee?.name ?? "Your AI employee"} has your answer: ${option.label}`,
+        "success",
+      );
       onResolved();
     } catch (err) {
       toast((err as Error).message, "error");
@@ -123,6 +137,7 @@ export function DecisionCard({
             {decision.assignee ? ` · for ${decision.assignee.name}` : ""}
             {decision.expiresAt ? ` · moot ${formatRelative(decision.expiresAt)}` : ""}
           </div>
+          <DecisionSourceLine company={company} decision={decision} className="mt-1" />
 
           {/* The toggle renders even with no context body, because it is also
               what reveals the note field — a question with nothing to read is
@@ -136,9 +151,9 @@ export function DecisionCard({
             {open ? "Hide details" : decision.body ? "Show context" : "Add a note"}
           </button>
           {open && decision.body && (
-            <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 font-sans text-xs leading-relaxed text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
-              {decision.body}
-            </pre>
+            <div className="mt-2 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
+              <ChatMarkdown content={decision.body} />
+            </div>
           )}
 
           {open && (
@@ -175,27 +190,23 @@ export function DecisionCard({
               {busy === "__dismiss" ? <Spinner size={13} /> : <X size={15} />}
             </button>
           </div>
+
+          {hasDetails && (
+            <dl className="mt-2 space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+              {decision.options
+                .filter((o) => o.detail)
+                .map((option) => (
+                  <div key={option.id} className="flex gap-1.5">
+                    <dt className="shrink-0 font-medium text-slate-600 dark:text-slate-300">
+                      {option.label}
+                    </dt>
+                    <dd className="min-w-0">— {option.detail}</dd>
+                  </div>
+                ))}
+            </dl>
+          )}
         </div>
       </div>
     </li>
   );
-}
-
-export function formatRelative(iso: string): string {
-  const date = new Date(iso);
-  const sec = Math.round((Date.now() - date.getTime()) / 1000);
-  if (sec < 0) {
-    const ahead = Math.abs(sec);
-    if (ahead < 3600) return `in ${Math.round(ahead / 60)}m`;
-    if (ahead < 86400) return `in ${Math.round(ahead / 3600)}h`;
-    return `in ${Math.round(ahead / 86400)}d`;
-  }
-  if (sec < 60) return "just now";
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.round(hr / 24);
-  if (day < 7) return `${day}d ago`;
-  return date.toLocaleDateString();
 }

@@ -1300,7 +1300,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "request_decision",
     description:
-      "Stack a decision for a human when you have worked up to a fork you should not take alone — a reply you could send, a post you could publish, two options you could pick. Write the question, put the context (the draft itself) in `body`, and give the exact choices you will act on. It appears at the top of the company's Home page with one button per option. Then STOP this line of work: the answer reaches you through your journal, and `list_decisions` reads it back. Use this only when a human's judgement genuinely changes what you do next — not to ask permission for ordinary work you were hired to do, and not for something you could look up.",
+      "Stack a decision for a human when you reach a fork you should not take alone — a reply you could send, a post you could publish, two options you could pick. Write the question, put the context (the draft itself) in `body`, and give the exact choices you will act on. It lands at the top of the company's Home page, one button per option. Then STOP and end your turn: when someone answers you are restarted in a fresh session briefed with their choice, holding none of this context — so `body` must carry everything the follow-up needs. Ask only when a human's judgement changes what you do next, never for permission to do ordinary work.",
     inputSchema: {
       type: "object",
       properties: {
