@@ -72,8 +72,16 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * has — "find the current form", "open what they sent" — so a lexical miss
  * that hid them would be the exact failure this footer exists to prevent.
  * 4,400 still leaves 45% of the 8,000-char result envelope for schemas.
+ *
+ * Raised to 4,440 for `get_routine`. `list_routines` used to carry every
+ * routine's full brief, which pushed a long listing past the result cap and cut
+ * the ids off the end — so the listing now previews briefs and `get_routine`
+ * serves the full one. That makes its exact name load-bearing: an employee that
+ * cannot discover it can read a routine's schedule and never its brief, which
+ * is the recall failure this footer exists to prevent. Thirteen characters buys
+ * the tool that keeps the listing itself inside the same envelope.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 4_400;
+const DOMAIN_FOOTER_CHARS_MAX = 4_440;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

@@ -21,6 +21,7 @@ const MEMBER_TOOLS = [
   "list_employees",
   "list_skills",
   "list_routines",
+  "get_routine",
   "create_project",
   "list_bases",
   "get_base",

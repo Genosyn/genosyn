@@ -111,7 +111,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     path: "/routines",
     description: "Scheduled recurring AI work",
     keywords: ["routine", "schedule", "recurring", "cron", "run"],
-    toolHints: ["list_routines", "create_routine", "update_routine"],
+    toolHints: ["list_routines", "get_routine", "create_routine", "update_routine"],
   },
   {
     key: "customers",

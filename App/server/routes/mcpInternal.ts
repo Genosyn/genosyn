@@ -703,6 +703,37 @@ function serializeRoutine(r: Routine, tags: string[] = []) {
   };
 }
 
+/**
+ * How much of a Routine's brief `list_routines` shows per row.
+ *
+ * A brief can be 20k chars, and `services/agent/loop.ts` hard-clips a whole
+ * tool result at `toolResultCap()` — as little as 8k on a small-window model.
+ * Returning full briefs from a *list* therefore truncated the JSON mid-array,
+ * and every routine past the cut lost its `id` — the one field `update_routine`
+ * needs. The employee could see the routine existed and still had no way to
+ * edit it. A listing stays identity-first and bounded; `get_routine` serves the
+ * full brief for the one routine the model actually cares about.
+ */
+const ROUTINE_BRIEF_PREVIEW_CHARS = 280;
+
+function serializeRoutineSummary(r: Routine, tags: string[] = []) {
+  const brief = r.body ?? "";
+  const truncated = brief.length > ROUTINE_BRIEF_PREVIEW_CHARS;
+  return {
+    id: r.id,
+    employeeId: r.employeeId,
+    slug: r.slug,
+    name: r.name,
+    cronExpr: r.cronExpr,
+    enabled: r.enabled,
+    lastRunAt: r.lastRunAt,
+    briefPreview: truncated ? brief.slice(0, ROUTINE_BRIEF_PREVIEW_CHARS) + "…" : brief,
+    briefChars: brief.length,
+    briefTruncated: truncated,
+    tags,
+  };
+}
+
 function serializeSkill(s: Skill) {
   return {
     id: s.id,
@@ -7246,6 +7277,96 @@ mcpInternalRouter.post(
 
 // ----- Routines -----
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type RoutineLookup =
+  | { ok: true; routine: Routine; owner: AIEmployee }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Find one Routine from whatever handle the model is holding.
+ *
+ * Accepts the `id` UUID, the `slug`, or the human `name` (case-insensitive).
+ * Requiring the UUID assumed the model could always read one out of
+ * `list_routines`, which stopped being true the moment a listing was long
+ * enough to be clipped — and left no way back, because a slug was rejected as
+ * an invalid UUID before the lookup even ran. Every path here is still scoped
+ * to the caller's company, so this widens the *handle*, never the authority.
+ */
+async function resolveRoutine(
+  co: Company,
+  self: AIEmployee,
+  ref: string,
+  employeeSlug?: string,
+): Promise<RoutineLookup> {
+  const repo = AppDataSource.getRepository(Routine);
+  const employees = AppDataSource.getRepository(AIEmployee);
+  const handle = ref.trim();
+  if (!handle) return { ok: false, status: 400, error: "routineId is required" };
+
+  const ownerOf = async (routine: Routine) =>
+    employees.findOneBy({ id: routine.employeeId, companyId: co.id });
+
+  if (UUID_RE.test(handle)) {
+    const routine = await repo.findOneBy({ id: handle });
+    const owner = routine ? await ownerOf(routine) : null;
+    if (!routine || !owner) return { ok: false, status: 404, error: "Routine not found" };
+    return { ok: true, routine, owner };
+  }
+
+  // Slug is unique per employee, and a name can repeat across employees, so
+  // narrow to one employee when we were given one and search the whole company
+  // otherwise. Ambiguity is reported rather than guessed at — picking the wrong
+  // routine is exactly the failure the caller was trying to avoid.
+  const scope = employeeSlug ? await resolveEmployee(co, self, employeeSlug) : null;
+  if (employeeSlug && !scope) return { ok: false, status: 404, error: "Employee not found" };
+
+  const owners = scope ? [scope] : await employees.findBy({ companyId: co.id });
+  if (owners.length === 0) return { ok: false, status: 404, error: "Routine not found" };
+
+  const candidates = await repo
+    .createQueryBuilder("r")
+    .where("r.employeeId IN (:...eids)", { eids: owners.map((e) => e.id) })
+    .andWhere("(LOWER(r.slug) = LOWER(:handle) OR LOWER(r.name) = LOWER(:handle))", { handle })
+    .orderBy("r.createdAt", "ASC")
+    .getMany();
+
+  if (candidates.length === 0) {
+    const known = await repo
+      .createQueryBuilder("r")
+      .where("r.employeeId IN (:...eids)", { eids: owners.map((e) => e.id) })
+      .orderBy("r.createdAt", "ASC")
+      .limit(25)
+      .getMany();
+    const hint = known.length
+      ? ` Routines here: ${known.map((r) => `${r.slug} (${r.id})`).join(", ")}.`
+      : "";
+    return {
+      ok: false,
+      status: 404,
+      error: `No routine matches "${handle}".${hint}`,
+    };
+  }
+  if (candidates.length > 1) {
+    const byId = new Map(owners.map((e) => [e.id, e]));
+    const list = candidates
+      .map((r) => `${r.id} (${byId.get(r.employeeId)?.slug ?? "?"})`)
+      .join(", ");
+    return {
+      ok: false,
+      status: 409,
+      error:
+        `"${handle}" matches ${candidates.length} routines: ${list}. ` +
+        `Pass the id, or narrow with employeeSlug.`,
+    };
+  }
+
+  const routine = candidates[0];
+  const owner = await ownerOf(routine);
+  if (!owner) return { ok: false, status: 404, error: "Routine not found" };
+  return { ok: true, routine, owner };
+}
+
 mcpInternalRouter.post(
   "/tools/list_routines",
   validateBody(employeeRefSchema),
@@ -7266,10 +7387,39 @@ mcpInternalRouter.post(
     res.json({
       employee: serializeEmployee(target),
       routines: routines.map((r) =>
-        serializeRoutine(
+        serializeRoutineSummary(
           r,
           (tagsById.get(r.id) ?? []).map((tag) => tag.name),
         ),
+      ),
+      note:
+        "Briefs are previews here so every routine's id survives. " +
+        "Call get_routine for the full brief of one routine.",
+    });
+  },
+);
+
+const getRoutineSchema = z
+  .object({
+    routineId: z.string().min(1).max(200),
+    employeeSlug: z.string().min(1).max(120).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_routine",
+  validateBody(getRoutineSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof getRoutineSchema>;
+    const co = req.mcpCompany!;
+    const found = await resolveRoutine(co, req.mcpEmployee!, body.routineId, body.employeeSlug);
+    if (!found.ok) return res.status(found.status).json({ error: found.error });
+    const tags = await tagsForResource(co.id, "routine", found.routine.id);
+    res.json({
+      employee: serializeEmployee(found.owner),
+      routine: serializeRoutine(
+        found.routine,
+        tags.map((tag) => tag.name),
       ),
     });
   },
@@ -7352,7 +7502,8 @@ mcpInternalRouter.post(
 
 const updateRoutineSchema = z
   .object({
-    routineId: z.string().uuid(),
+    routineId: z.string().min(1).max(200),
+    employeeSlug: z.string().min(1).max(120).optional(),
     name: z.string().min(1).max(80).optional(),
     cronExpr: z
       .string()
@@ -7373,13 +7524,9 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
 
     const repo = AppDataSource.getRepository(Routine);
-    const routine = await repo.findOneBy({ id: body.routineId });
-    if (!routine) return res.status(404).json({ error: "Routine not found" });
-    const owner = await AppDataSource.getRepository(AIEmployee).findOneBy({
-      id: routine.employeeId,
-      companyId: co.id,
-    });
-    if (!owner) return res.status(404).json({ error: "Routine not found" });
+    const found = await resolveRoutine(co, self, body.routineId, body.employeeSlug);
+    if (!found.ok) return res.status(found.status).json({ error: found.error });
+    const { routine, owner } = found;
 
     if (body.name !== undefined && body.name.trim() !== routine.name) {
       const dup = await repo
@@ -7426,7 +7573,12 @@ mcpInternalRouter.post(
   },
 );
 
-const deleteRoutineSchema = z.object({ routineId: z.string().uuid() }).strict();
+const deleteRoutineSchema = z
+  .object({
+    routineId: z.string().min(1).max(200),
+    employeeSlug: z.string().min(1).max(120).optional(),
+  })
+  .strict();
 
 mcpInternalRouter.post(
   "/tools/delete_routine",
@@ -7437,13 +7589,9 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
 
     const repo = AppDataSource.getRepository(Routine);
-    const routine = await repo.findOneBy({ id: body.routineId });
-    if (!routine) return res.status(404).json({ error: "Routine not found" });
-    const owner = await AppDataSource.getRepository(AIEmployee).findOneBy({
-      id: routine.employeeId,
-      companyId: co.id,
-    });
-    if (!owner) return res.status(404).json({ error: "Routine not found" });
+    const found = await resolveRoutine(co, self, body.routineId, body.employeeSlug);
+    if (!found.ok) return res.status(found.status).json({ error: found.error });
+    const { routine, owner } = found;
 
     await AppDataSource.getRepository(Approval).delete({ routineId: routine.id });
     await AppDataSource.getRepository(Run).delete({ routineId: routine.id });

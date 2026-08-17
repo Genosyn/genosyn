@@ -505,7 +505,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_routines",
     description:
-      "List Routines (scheduled recurring AI work) for an employee. Pass `employeeSlug` to inspect a teammate; omit it to list your own.",
+      "List Routines (scheduled recurring AI work) for an employee. Pass `employeeSlug` to inspect a teammate; omit it to list your own. Each row carries the routine's `id`, `slug`, schedule and a short `briefPreview` — call `get_routine` when you need a routine's full brief.",
     inputSchema: {
       type: "object",
       properties: {
@@ -514,6 +514,27 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description: "Slug of the target employee. Defaults to yourself.",
         },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_routine",
+    description:
+      "Read one Routine in full, including its complete markdown brief. Use this after `list_routines` when you need the brief itself — the listing only shows a preview. Identify the routine by its `id`, its `slug`, or its exact name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        routineId: {
+          type: "string",
+          description: "The routine's `id` UUID, its `slug`, or its exact name.",
+        },
+        employeeSlug: {
+          type: "string",
+          description:
+            "Owning employee's slug. Only needed to disambiguate when a slug or name matches routines on more than one employee.",
+        },
+      },
+      required: ["routineId"],
       additionalProperties: false,
     },
   },
@@ -555,11 +576,20 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_routine",
     description:
-      "Update an existing Routine's name, cron schedule, brief, tags, or enabled state. Use this to edit or pause a routine in place — never create a duplicate routine to work around an outdated one. Pass the `routineId` UUID from `list_routines`; only the fields you pass change.",
+      "Update an existing Routine's name, cron schedule, brief, tags, or enabled state. Use this to edit or pause a routine in place — never create a duplicate routine to work around an outdated one. Identify the routine by its `id`, `slug`, or exact name; only the fields you pass change.",
     inputSchema: {
       type: "object",
       properties: {
-        routineId: { type: "string", description: "UUID from `list_routines`." },
+        routineId: {
+          type: "string",
+          description:
+            "The routine's `id` UUID from `list_routines`, its `slug`, or its exact name.",
+        },
+        employeeSlug: {
+          type: "string",
+          description:
+            "Owning employee's slug. Only needed to disambiguate when a slug or name matches routines on more than one employee.",
+        },
         name: { type: "string" },
         cronExpr: {
           type: "string",
@@ -588,11 +618,20 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "delete_routine",
     description:
-      "Delete a Routine and its run history. Use sparingly — prefer `update_routine` with `enabled: false` to pause work that might come back. Pass the `routineId` UUID from `list_routines`.",
+      "Delete a Routine and its run history. Use sparingly — prefer `update_routine` with `enabled: false` to pause work that might come back. Identify the routine by its `id`, `slug`, or exact name.",
     inputSchema: {
       type: "object",
       properties: {
-        routineId: { type: "string", description: "UUID from `list_routines`." },
+        routineId: {
+          type: "string",
+          description:
+            "The routine's `id` UUID from `list_routines`, its `slug`, or its exact name.",
+        },
+        employeeSlug: {
+          type: "string",
+          description:
+            "Owning employee's slug. Only needed to disambiguate when a slug or name matches routines on more than one employee.",
+        },
       },
       required: ["routineId"],
       additionalProperties: false,

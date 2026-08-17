@@ -45,7 +45,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   routines: {
     label: "routines",
     blurb: "Scheduled recurring AI work. Never call these tasks.",
-    tools: ["list_routines", "create_routine", "update_routine", "delete_routine"],
+    tools: ["list_routines", "get_routine", "create_routine", "update_routine", "delete_routine"],
   },
   projects: {
     label: "projects & todos",
@@ -1043,6 +1043,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   update_routine: ["schedule", "reschedule", "pause", "resume", "edit schedule"],
   delete_routine: ["schedule", "stop recurring"],
   list_routines: ["schedule", "recurring", "cron"],
+  get_routine: ["schedule", "recurring", "cron", "read routine", "routine brief"],
   create_project: ["board", "workstream"],
   create_todo: ["task", "ticket", "action item", "to-do"],
   update_todo: ["task", "ticket", "complete", "close", "done"],
