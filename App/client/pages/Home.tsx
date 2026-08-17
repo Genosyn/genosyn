@@ -14,6 +14,7 @@ import {
   ListChecks,
   Mail,
   MessageSquare,
+  RotateCw,
   ShieldCheck,
   X,
 } from "lucide-react";
@@ -39,6 +40,7 @@ import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Ava
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
 import { useCompanySocketSubscription, useLiveRefetch } from "../components/CompanySocket";
 import { SetupBanner } from "../components/SetupBanner";
 import { enablePush, pushSupported } from "../lib/push";
@@ -109,7 +111,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
         ) : hasAnythingToShow(data) ? (
           <>
             <DecisionStack company={company} data={data} onResolved={reload} />
-            <FailedRoutinesAlert company={company} data={data} onDismissed={reload} />
+            <FailedRoutinesAlert company={company} data={data} onChanged={reload} />
             <StatStrip company={company} data={data} />
             {/* `empty:hidden` so the grid's own top margin goes away too on a
                 day when every card inside it has hidden itself. */}
@@ -464,25 +466,65 @@ function failedRunBadge(r: HomeFailedRun): string {
 function FailedRoutinesAlert({
   company,
   data,
-  onDismissed,
+  onChanged,
 }: {
   company: Company;
   data: HomeData;
-  /** Refetch Home data after a run is dismissed so the panel updates. */
-  onDismissed: () => Promise<void> | void;
+  /** Refetch Home data after a run is rerun or dismissed so the panel updates. */
+  onChanged: () => Promise<void> | void;
 }) {
   const { toast } = useToast();
-  const [dismissing, setDismissing] = React.useState<string | null>(null);
+  const dialog = useDialog();
+  // Which row is mid-request, and which of its two buttons owns the spinner.
+  const [busy, setBusy] = React.useState<{ runId: string; action: "rerun" | "dismiss" } | null>(
+    null,
+  );
 
   async function dismiss(runId: string) {
-    setDismissing(runId);
+    setBusy({ runId, action: "dismiss" });
     try {
       await api.post(`/api/companies/${company.id}/runs/${runId}/dismiss`);
-      await onDismissed();
+      await onChanged();
     } catch (err) {
       toast((err as Error).message, "error");
     } finally {
-      setDismissing(null);
+      setBusy(null);
+    }
+  }
+
+  /**
+   * Start the routine again from here. Offered on interrupted runs only: the
+   * server died mid-run, so nothing about the routine is known to be broken and
+   * the work simply didn't happen. A `failed` or `timeout` run is a real
+   * failure whose cause a human should read the log for first, and anything
+   * with an automatic retry pending never reaches this panel.
+   *
+   * The run stopped somewhere unknown, so it may already have sent the email or
+   * moved the money — the same caution the run history prints before its "Run
+   * now" button, asked here as a confirm because this panel is one click from a
+   * page nobody opened to think about side effects.
+   *
+   * Starting the rerun acknowledges the interrupted run, so the row drops off
+   * instead of sitting there inviting a second, duplicate run.
+   */
+  async function rerun(r: HomeFailedRun) {
+    const ok = await dialog.confirm({
+      title: `Run ${r.routineName} again?`,
+      message:
+        "The server stopped part-way through, so nothing is known about work done after the log's last line. Run it again only if repeating that work is safe.",
+      confirmLabel: "Rerun",
+    });
+    if (!ok) return;
+    setBusy({ runId: r.runId, action: "rerun" });
+    try {
+      await api.post(`/api/companies/${company.id}/routines/${r.routineId}/run`);
+      await api.post(`/api/companies/${company.id}/runs/${r.runId}/dismiss`);
+      toast(`${r.routineName} is running again`, "success");
+      await onChanged();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -531,15 +573,38 @@ function FailedRoutinesAlert({
                 {failedRunBadge(r)}
               </span>
             </Link>
+            {/* An interrupted run is work that never happened, not a routine
+                that misbehaved — offer the redo right where the failure is. */}
+            {r.status === "interrupted" && (
+              <button
+                type="button"
+                onClick={() => rerun(r)}
+                disabled={busy?.runId === r.runId}
+                title="Rerun"
+                aria-label={`Rerun ${r.routineName}`}
+                className="flex shrink-0 items-center gap-1 px-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+              >
+                {busy?.runId === r.runId && busy.action === "rerun" ? (
+                  <Spinner size={14} />
+                ) : (
+                  <RotateCw size={14} />
+                )}
+                <span className="hidden sm:inline">Rerun</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => dismiss(r.runId)}
-              disabled={dismissing === r.runId}
+              disabled={busy?.runId === r.runId}
               title="Dismiss"
               aria-label={`Dismiss ${r.routineName} failure`}
               className="flex shrink-0 items-center px-3 text-rose-400 transition hover:bg-rose-100/50 hover:text-rose-700 disabled:opacity-50 dark:text-rose-500/70 dark:hover:bg-rose-500/10 dark:hover:text-rose-200"
             >
-              {dismissing === r.runId ? <Spinner size={14} /> : <X size={15} />}
+              {busy?.runId === r.runId && busy.action === "dismiss" ? (
+                <Spinner size={14} />
+              ) : (
+                <X size={15} />
+              )}
             </button>
           </li>
         ))}

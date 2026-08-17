@@ -357,6 +357,16 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         the panel (and out of the System Health failed-runs count) so it stops nagging the whole
         team.
       </P>
+      <P>
+        Rows marked <Code>interrupted</Code> also carry a <Strong>Rerun</Strong> button. Nothing is
+        wrong with the routine in that case — the server stopped part-way through and the work
+        simply didn&apos;t happen — so the button runs it again immediately and dismisses the
+        interrupted Run, which keeps the panel from inviting a second, duplicate Run. It confirms
+        first, because an interrupted Run may already have sent the email or moved the money before
+        the process died; read the log if you&apos;re not sure repeating the work is safe. Runs that{" "}
+        <Code>failed</Code> or <Code>timed out</Code> get no button here — those broke for a reason
+        worth reading before you fire them off again.
+      </P>
 
       <H2 id="recovery">Downtime and recovery</H2>
       <P>
