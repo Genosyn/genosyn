@@ -2188,7 +2188,6 @@ export type HomeData = {
   approvals: HomeApproval[];
   pendingApprovalCount: number;
   unreadChannels: HomeChannel[];
-  journalToday: { entries: number; employees: number };
   failedRuns: HomeFailedRun[];
   failedRunCount: number;
   systemHealth: SystemHealthSummary;

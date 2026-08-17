@@ -1,8 +1,7 @@
-import { Between, In, IsNull, MoreThanOrEqual } from "typeorm";
+import { In, IsNull, MoreThanOrEqual } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
-import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { Role } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
 import { Routine } from "../db/entities/Routine.js";
@@ -74,7 +73,6 @@ export type HomeData = {
   approvals: HomeApproval[];
   pendingApprovalCount: number;
   unreadChannels: HomeChannel[];
-  journalToday: { entries: number; employees: number };
   /** Routine runs that failed (or timed out) in the last 24h — surfaced so a
    *  human notices a broken routine without digging through the Journal. */
   failedRuns: HomeFailedRun[];
@@ -220,19 +218,6 @@ export async function getHomeData(params: {
   });
   const empIds = employees.map((e) => e.id);
   const empById = new Map(employees.map((e) => [e.id, e]));
-  const dayStart = new Date();
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
-  const todayEntries = empIds.length
-    ? await AppDataSource.getRepository(JournalEntry).find({
-        where: {
-          employeeId: In(empIds),
-          createdAt: Between(dayStart, dayEnd),
-        },
-        select: ["id", "employeeId"],
-      })
-    : [];
 
   // Recent failed routine runs, newest first. We join through the routine to
   // its owning employee so each card can deep-link into that employee's
@@ -321,10 +306,6 @@ export async function getHomeData(params: {
     }),
     pendingApprovalCount,
     unreadChannels,
-    journalToday: {
-      entries: todayEntries.length,
-      employees: new Set(todayEntries.map((e) => e.employeeId)).size,
-    },
     failedRuns,
     failedRunCount,
     systemHealth,

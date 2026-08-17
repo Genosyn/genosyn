@@ -13,9 +13,7 @@ import {
   ListChecks,
   Mail,
   MessageSquare,
-  NotebookPen,
   ShieldCheck,
-  Sparkles,
   X,
 } from "lucide-react";
 // The API's Notification row is aliased so the DOM global `Notification`
@@ -35,7 +33,6 @@ import {
   TodoPriority,
 } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
-import { SECTION_GROUPS, SectionItem } from "../lib/sections";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
@@ -49,8 +46,7 @@ import { clsx } from "../components/ui/clsx";
  * Home — the landing page after sign-in. One aggregation call
  * (`GET /api/companies/:cid/home`) fills the cards: unread notifications,
  * todos assigned to me, reviews waiting on my sign-off, pending approvals,
- * unread channels, and today's AI activity. Every card deep-links into the
- * full section; the bottom grid is a section directory for navigation.
+ * and unread channels. Every card deep-links into the full section.
  */
 
 const PUSH_PROMPT_DISMISSED_KEY = "genosyn.pushPromptDismissed";
@@ -109,9 +105,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
               <MessagesCard company={company} data={data} />
               <ReviewsCard company={company} data={data} />
               <ApprovalsCard company={company} data={data} />
-              <ActivityCard company={company} data={data} />
             </div>
-            <JumpTo company={company} />
           </>
         )}
       </div>
@@ -725,53 +719,6 @@ function ApprovalsCard({ company, data }: { company: Company; data: HomeData }) 
   );
 }
 
-// ───────────────────────── activity card ─────────────────────────────────────
-
-function ActivityCard({ company, data }: { company: Company; data: HomeData }) {
-  const { entries, employees } = data.journalToday;
-  return (
-    <HomeCard
-      title="Today's AI activity"
-      icon={<NotebookPen size={15} />}
-      linkTo={`/c/${company.slug}/inbox`}
-      linkLabel="Journal"
-    >
-      {data.counts.employees === 0 ? (
-        <div className="flex h-full min-h-[8rem] flex-col items-center justify-center gap-2 px-6 py-6 text-center">
-          <Sparkles size={18} className="text-violet-500 dark:text-violet-400" />
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            No AI employees yet — hire your first to put the company on autopilot.
-          </span>
-          <Link
-            to={`/c/${company.slug}/employees/new`}
-            className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-          >
-            Create an AI employee
-          </Link>
-        </div>
-      ) : entries === 0 ? (
-        <CardEmpty label="No journal entries yet today — runs and notes will show up here." />
-      ) : (
-        <div className="flex h-full min-h-[8rem] items-center gap-4 px-5">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-300">
-            <NotebookPen size={18} />
-          </span>
-          <div>
-            <div className="text-sm text-slate-900 dark:text-slate-100">
-              <b className="tabular-nums">{entries}</b> journal{" "}
-              {entries === 1 ? "entry" : "entries"} from <b className="tabular-nums">{employees}</b>{" "}
-              {employees === 1 ? "employee" : "employees"} today
-            </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              The Journal rolls up everything your AI team did, day by day.
-            </div>
-          </div>
-        </div>
-      )}
-    </HomeCard>
-  );
-}
-
 // ───────────────────────── system health card ────────────────────────────────
 
 const HEALTH_DOT: Record<HealthSeverity, string> = {
@@ -860,6 +807,10 @@ function SystemHealthCard({ company, data }: { company: Company; data: HomeData 
   const visible = failing.filter((c) => !(c.id in dismissed) || c.count > dismissed[c.id]);
   const dismissedCount = failing.length - visible.length;
 
+  // Nothing failing means nothing to say — the card disappears rather than
+  // taking up a grid slot to report that all is well.
+  if (failing.length === 0) return null;
+
   return (
     <HomeCard
       title="System health"
@@ -868,9 +819,7 @@ function SystemHealthCard({ company, data }: { company: Company; data: HomeData 
       linkTo={`/c/${company.slug}/settings/system-health`}
       linkLabel="Details"
     >
-      {failing.length === 0 ? (
-        <CardEmpty label="All systems healthy — routines, models, and integrations are running clean." />
-      ) : visible.length === 0 ? (
+      {visible.length === 0 ? (
         <div className="flex h-full min-h-[8rem] flex-col items-center justify-center gap-1.5 px-6 py-6 text-center">
           <CheckCircle2 size={18} className="text-slate-400 dark:text-slate-500" />
           <span className="text-xs text-slate-500 dark:text-slate-400">
@@ -924,50 +873,6 @@ function SystemHealthCard({ company, data }: { company: Company; data: HomeData 
         </ul>
       )}
     </HomeCard>
-  );
-}
-
-// ───────────────────────── jump-to directory ─────────────────────────────────
-
-function JumpTo({ company }: { company: Company }) {
-  const items: SectionItem[] = SECTION_GROUPS.flatMap((g) => g.items).filter(
-    (i) => i.key !== "home",
-  );
-  return (
-    <div className="mt-8">
-      <h2 className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-        Jump to
-      </h2>
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-        {items.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.key}
-              to={`/c/${company.slug}${item.path}`}
-              className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
-            >
-              <span
-                className={clsx(
-                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-                  item.iconBg,
-                )}
-              >
-                <Icon size={15} />
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-                  {item.label}
-                </span>
-                <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
-                  {item.description}
-                </span>
-              </span>
-            </Link>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
