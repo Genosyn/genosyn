@@ -184,7 +184,7 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "compare ad creative variants", expect: "create_marketing_experiment" },
   { query: "record yesterday's ad spend", expect: "record_marketing_performance" },
   { query: "write a playbook", expect: "create_skill" },
-  { query: "what git repos do i have", expect: "list_code_repositories" },
+  { query: "what git repos do i have", expect: "list_repositories" },
   // Deliberately a deferred orientation tool: `list_employees` is resident, so
   // it is never a find_tools hit — asserting on it would test nothing.
   { query: "what departments are there", expect: "list_teams" },

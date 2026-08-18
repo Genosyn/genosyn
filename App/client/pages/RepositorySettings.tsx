@@ -5,12 +5,12 @@ import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { useToast } from "../components/ui/Toast";
-import { api, CodeRepository } from "../lib/api";
-import { RepoFormFields, RepoFormState, repoFormToPayload, repoToForm } from "./CodeRepoForm";
-import { useCodeReposContext } from "./CodeReposLayout";
+import { api, Repository } from "../lib/api";
+import { RepoFormFields, RepoFormState, repoFormToPayload, repoToForm } from "./RepositoryForm";
+import { useRepositoriesContext } from "./RepositoriesLayout";
 
-export default function CodeRepoSettings() {
-  const { company, repo, reload } = useCodeReposContext();
+export default function RepositorySettings() {
+  const { company, repo, reload } = useRepositoriesContext();
   const navigate = useNavigate();
   const { toast } = useToast();
   const dialog = useDialog();
@@ -35,8 +35,8 @@ export default function CodeRepoSettings() {
   async function save() {
     setSaving(true);
     try {
-      const row = await api.patch<CodeRepository>(
-        `/api/companies/${company.id}/code-repositories/${currentRepo.slug}`,
+      const row = await api.patch<Repository>(
+        `/api/companies/${company.id}/repositories/${currentRepo.slug}`,
         repoFormToPayload(currentForm),
       );
       setForm(repoToForm(row));
@@ -59,12 +59,10 @@ export default function CodeRepoSettings() {
     });
     if (!ok) return;
     try {
-      await api.del(
-        `/api/companies/${company.id}/code-repositories/${currentRepo.slug}`,
-      );
+      await api.del(`/api/companies/${company.id}/repositories/${currentRepo.slug}`);
       toast("Repository deleted", "success");
       await reload();
-      navigate(`/c/${company.slug}/code`);
+      navigate(`/c/${company.slug}/repositories`);
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), "error");
     }

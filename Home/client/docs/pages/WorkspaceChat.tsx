@@ -99,7 +99,7 @@ export function WorkspaceChat() {
         picker includes product areas such as <Strong>Estimates</Strong>, <Strong>Invoices</Strong>,
         <Strong>Workspace</Strong>, <Strong>Contacts</Strong>, and <Strong>Deals</Strong>, alongside
         the company content you can see: Skills, Routines, channels, Projects, Todos, Bases,
-        notebooks, Notes, Resources, Charts, Dashboards, code repositories, Pipelines, and
+        notebooks, Notes, Resources, Charts, Dashboards, repositories, Pipelines, and
         Customers. Choose a result to insert a clickable tag.
       </P>
       <P>

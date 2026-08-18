@@ -43,6 +43,7 @@ export async function cloneWorkspaceGitRemote(
   options: WorkspaceRemoteCloneOptions,
 ): Promise<WorkspaceRemoteResult> {
   assertSafeGitRemoteUrl(options.remoteUrl);
+  const serverOwned = options.serverOwned;
   const workspaceRoot = fs.realpathSync(options.workspaceRoot);
   const requestedDestination = path.resolve(options.destinationPath);
   const destinationName = path.basename(requestedDestination);
@@ -62,7 +63,7 @@ export async function cloneWorkspaceGitRemote(
     const privateCheckout = path.join(privateRoot, "checkout");
     try {
       const prepared = preparePrivateNetwork(options, privateRoot);
-      await runWorkspaceGit({
+      await runRemoteGit(serverOwned, {
         workspaceRoot: privateRoot,
         cwd: privateRoot,
         args: ["clone", "--quiet", options.remoteUrl, "checkout"],
@@ -104,6 +105,7 @@ export async function fetchWorkspaceGitRemote(
   options: WorkspaceRemoteFetchOptions,
 ): Promise<WorkspaceRemoteResult> {
   assertSafeGitRemoteUrl(options.remoteUrl);
+  const serverOwned = options.serverOwned;
   const checkout = resolveCheckout(options.workspaceRoot, options.cwd);
   const commonDirectory = openPinnedDirectory(
     checkout.commonDir,
@@ -115,7 +117,7 @@ export async function fetchWorkspaceGitRemote(
     targetObjectDirectory = openPinnedChildDirectory(commonDirectory, "objects", {
       label: "Git object directory",
     });
-    const { stdout: formatOutput } = await runWorkspaceGit({
+    const { stdout: formatOutput } = await runRemoteGit(serverOwned, {
       workspaceRoot: options.workspaceRoot,
       cwd: options.cwd,
       args: ["rev-parse", "--show-object-format"],
@@ -124,7 +126,7 @@ export async function fetchWorkspaceGitRemote(
     if (objectFormat !== "sha1" && objectFormat !== "sha256") {
       throw new Error(`Unsupported Git object format: ${objectFormat || "(empty)"}`);
     }
-    const currentBeforeFetch = await readCurrentRefs(options.workspaceRoot, options.cwd);
+    const currentBeforeFetch = await readCurrentRefs(options.workspaceRoot, options.cwd, serverOwned);
     assertCheckoutDirectoriesCurrent(options, commonDirectory, targetObjectDirectory);
 
     const privateRoot = createPrivateGitRoot(checkout.workspaceRoot);
@@ -135,7 +137,7 @@ export async function fetchWorkspaceGitRemote(
       const initArgs = ["init", "--bare", "--quiet"];
       if (objectFormat === "sha256") initArgs.push("--object-format=sha256");
       initArgs.push("remote.git");
-      await runWorkspaceGit({
+      await runRemoteGit(serverOwned, {
         workspaceRoot: privateRoot,
         cwd: privateRoot,
         args: initArgs,
@@ -157,7 +159,7 @@ export async function fetchWorkspaceGitRemote(
         seedTransaction.push(`update ${tagRef} ${objectId}`);
       }
       if (seedTransaction.length > 0) {
-        await runWorkspaceGit({
+        await runRemoteGit(serverOwned, {
           workspaceRoot: privateRoot,
           cwd: fetchedRepo,
           args: ["update-ref", "--stdin"],
@@ -168,7 +170,7 @@ export async function fetchWorkspaceGitRemote(
       // This private root is mounted as the whole bubblewrap workspace, so an AI
       // process cannot race checkout-local URL, proxy or TLS config into the only
       // networked Git child.
-      await runWorkspaceGit({
+      await runRemoteGit(serverOwned, {
         workspaceRoot: privateRoot,
         cwd: fetchedRepo,
         args: [
@@ -184,7 +186,7 @@ export async function fetchWorkspaceGitRemote(
         credentialHelper: options.credentialHelper,
       });
 
-      const { stdout: fetchedOutput } = await runWorkspaceGit({
+      const { stdout: fetchedOutput } = await runRemoteGit(serverOwned, {
         workspaceRoot: privateRoot,
         cwd: fetchedRepo,
         args: ["for-each-ref", "--format=%(refname)%00%(objectname)", "refs/heads/", "refs/tags/"],
@@ -193,7 +195,7 @@ export async function fetchWorkspaceGitRemote(
       assertCheckoutDirectoriesCurrent(options, commonDirectory, targetObjectDirectory);
       copyObjectStore(privateObjectDirectory, targetObjectDirectory);
       assertCheckoutDirectoriesCurrent(options, commonDirectory, targetObjectDirectory);
-      const current = await readCurrentRefs(options.workspaceRoot, options.cwd);
+      const current = await readCurrentRefs(options.workspaceRoot, options.cwd, serverOwned);
       const transaction: string[] = [];
       for (const [sourceRef, objectId] of fetched.branches) {
         const branch = sourceRef.slice("refs/heads/".length);
@@ -212,7 +214,7 @@ export async function fetchWorkspaceGitRemote(
       }
       assertCheckoutDirectoriesCurrent(options, commonDirectory, targetObjectDirectory);
       if (transaction.length > 0) {
-        await runWorkspaceGit({
+        await runRemoteGit(serverOwned, {
           workspaceRoot: options.workspaceRoot,
           cwd: options.cwd,
           args: ["update-ref", "--stdin"],
@@ -228,6 +230,19 @@ export async function fetchWorkspaceGitRemote(
     if (targetObjectDirectory) closePinnedDirectory(targetObjectDirectory);
     closePinnedDirectory(commonDirectory);
   }
+}
+
+/**
+ * Every Git child this module spawns inherits the caller's server-owned flag.
+ * A server-owned clone/fetch is App-owned on both ends — the private network
+ * workspace and the destination checkout — so it must not be gated on the
+ * model coding runtime.
+ */
+function runRemoteGit(
+  serverOwned: boolean | undefined,
+  options: WorkspaceGitOptions,
+): Promise<{ stdout: string }> {
+  return runWorkspaceGit({ ...options, serverOwned });
 }
 
 type PrivateNetwork = {
@@ -307,8 +322,9 @@ function shellQuote(value: string): string {
 async function readCurrentRefs(
   workspaceRoot: string,
   cwd: string,
+  serverOwned: boolean | undefined,
 ): Promise<ReturnType<typeof parseCurrentRefs>> {
-  const { stdout } = await runWorkspaceGit({
+  const { stdout } = await runRemoteGit(serverOwned, {
     workspaceRoot,
     cwd,
     args: [

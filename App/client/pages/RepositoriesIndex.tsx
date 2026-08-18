@@ -5,9 +5,9 @@ import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
-import { api, Company, CodeRepository } from "../lib/api";
-import { RepoFormModal } from "./CodeRepoForm";
-import { useCodeReposContext } from "./CodeReposLayout";
+import { api, Company, Repository } from "../lib/api";
+import { RepoFormModal } from "./RepositoryForm";
+import { useRepositoriesContext } from "./RepositoriesLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
@@ -16,19 +16,17 @@ import { useLiveRefetch } from "../components/CompanySocket";
  * the runner clones every granted repo into the employee's workspace, so the
  * agent uses ordinary `git` to read, commit, and push.
  */
-export default function CodeReposIndex({ company }: { company: Company }) {
+export default function RepositoriesIndex({ company }: { company: Company }) {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { reload: reloadSidebar } = useCodeReposContext();
-  const [items, setItems] = React.useState<CodeRepository[] | null>(null);
+  const { reload: reloadSidebar } = useRepositoriesContext();
+  const [items, setItems] = React.useState<Repository[] | null>(null);
   const [showNew, setShowNew] = React.useState(false);
   const [query, setQuery] = React.useState("");
 
   const reload = React.useCallback(async () => {
     try {
-      const rows = await api.get<CodeRepository[]>(
-        `/api/companies/${company.id}/code-repositories`,
-      );
+      const rows = await api.get<Repository[]>(`/api/companies/${company.id}/repositories`);
       setItems(rows);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Could not load repositories", "error");
@@ -40,7 +38,7 @@ export default function CodeReposIndex({ company }: { company: Company }) {
     reload();
   }, [reload]);
 
-  useLiveRefetch("coderepo", reload);
+  useLiveRefetch("repository", reload);
 
   const filtered = React.useMemo(() => {
     if (!items) return null;
@@ -55,7 +53,7 @@ export default function CodeReposIndex({ company }: { company: Company }) {
     <div className="flex h-full min-w-0 flex-1 flex-col bg-slate-50 dark:bg-slate-900">
       <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 px-6 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
         <Breadcrumbs
-          items={[{ label: company.name, to: `/c/${company.slug}` }, { label: "Code" }]}
+          items={[{ label: company.name, to: `/c/${company.slug}` }, { label: "Repositories" }]}
         />
       </div>
 
@@ -64,15 +62,15 @@ export default function CodeReposIndex({ company }: { company: Company }) {
           <div className="mb-8 flex items-start justify-between gap-4">
             <div>
               <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                Code Repositories
+                Repositories
               </div>
               <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
                 {company.name}
               </h1>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Add any git repository — GitHub, GitLab, Bitbucket, or a self-hosted server — and
-                grant access to the AI employees you want working on it. They get a real checkout to
-                read, commit, and push.
+                Version-controlled workspaces for anything the company keeps — a service&apos;s
+                source, a quarter&apos;s strategy, a set of policies. Edit them here, or hand one to
+                an AI employee and review what it changed.
               </p>
             </div>
             <Button onClick={() => setShowNew(true)} className="shrink-0">
@@ -119,14 +117,14 @@ export default function CodeReposIndex({ company }: { company: Company }) {
           setShowNew(false);
           reload();
           reloadSidebar();
-          navigate(`/c/${company.slug}/code/${row.slug}`);
+          navigate(`/c/${company.slug}/repositories/${row.slug}`);
         }}
       />
     </div>
   );
 }
 
-function RepoList({ company, items }: { company: Company; items: CodeRepository[] }) {
+function RepoList({ company, items }: { company: Company; items: Repository[] }) {
   const navigate = useNavigate();
   return (
     <div className="mt-2">
@@ -138,7 +136,7 @@ function RepoList({ company, items }: { company: Company; items: CodeRepository[
         {items.map((r, i) => (
           <button
             key={r.id}
-            onClick={() => navigate(`/c/${company.slug}/code/${r.slug}`)}
+            onClick={() => navigate(`/c/${company.slug}/repositories/${r.slug}`)}
             className={
               "group flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/60 " +
               (i > 0 ? "border-t border-slate-100 dark:border-slate-800" : "")
@@ -152,17 +150,17 @@ function RepoList({ company, items }: { company: Company; items: CodeRepository[
                 <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
                   {r.name}
                 </span>
-                <SyncBadge status={r.lastSyncStatus} />
+                {r.origin === "remote" && <SyncBadge status={r.lastSyncStatus} />}
               </span>
               <span className="mt-0.5 block truncate font-mono text-xs text-slate-500 dark:text-slate-400">
-                {r.gitUrl}
+                {r.origin === "local" ? "Kept in Genosyn — no remote" : r.gitUrl}
               </span>
               <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400 dark:text-slate-500">
                 <span className="inline-flex items-center gap-1">
                   <GitBranch size={11} /> {r.defaultBranch}
                 </span>
                 <span aria-hidden>·</span>
-                <span className="uppercase">{r.authMode}</span>
+                <span className="uppercase">{r.origin === "local" ? "local" : r.authMode}</span>
                 <span aria-hidden>·</span>
                 <span className="inline-flex items-center gap-1">
                   <Users size={11} /> {r.grantCount} {r.grantCount === 1 ? "employee" : "employees"}
@@ -187,12 +185,12 @@ function EmptyHero({ onAdd }: { onAdd: () => void }) {
         <FolderGit2 size={22} />
       </div>
       <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-        Give your AI employees a codebase
+        Keep something under version control
       </h3>
       <p className="mx-auto mt-1 max-w-md text-sm text-slate-500 dark:text-slate-400">
-        Point Genosyn at any git repository and pick which employees can work on it. They get a real
-        checkout to read, branch, edit, test, and commit with ordinary git, while credentials stay
-        server-side.
+        Connect any git repository — GitHub, GitLab, Bitbucket, self-hosted — or start an empty one
+        for documents that deserve a history. Edit files here, commit, and let the AI employees you
+        choose work on it too.
       </p>
       <div className="mt-5">
         <Button onClick={onAdd}>
@@ -203,7 +201,7 @@ function EmptyHero({ onAdd }: { onAdd: () => void }) {
   );
 }
 
-export function SyncBadge({ status }: { status: CodeRepository["lastSyncStatus"] }) {
+export function SyncBadge({ status }: { status: Repository["lastSyncStatus"] }) {
   if (status === "ok") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">

@@ -16,31 +16,31 @@ import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import {
   api,
-  CodeRepoAccessLevel,
-  CodeRepoGrant,
-  CodeRepoGrantCandidate,
-  CodeRepoGrantsResponse,
+  RepositoryAccessLevel,
+  RepositoryGrant,
+  RepositoryGrantCandidate,
+  RepositoryGrantsResponse,
 } from "../lib/api";
-import { useCodeReposContext } from "./CodeReposLayout";
+import { useRepositoriesContext } from "./RepositoriesLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
 
-export default function CodeRepoAccess() {
-  const { company, repo, reload: reloadRepos } = useCodeReposContext();
+export default function RepositoryAccess() {
+  const { company, repo, reload: reloadRepos } = useRepositoriesContext();
   const { toast, background } = useToast();
-  const [grants, setGrants] = React.useState<CodeRepoGrant[] | null>(null);
-  const [candidates, setCandidates] = React.useState<CodeRepoGrantCandidate[]>([]);
+  const [grants, setGrants] = React.useState<RepositoryGrant[] | null>(null);
+  const [candidates, setCandidates] = React.useState<RepositoryGrantCandidate[]>([]);
   const [adding, setAdding] = React.useState(false);
   const [pickEmployee, setPickEmployee] = React.useState("");
-  const [pickLevel, setPickLevel] = React.useState<CodeRepoAccessLevel>("write");
+  const [pickLevel, setPickLevel] = React.useState<RepositoryAccessLevel>("write");
 
-  const base = repo ? `/api/companies/${company.id}/code-repositories/${repo.slug}` : "";
+  const base = repo ? `/api/companies/${company.id}/repositories/${repo.slug}` : "";
 
   const reload = React.useCallback(async () => {
     if (!base) return;
     try {
       const [grantRows, candidateRows] = await Promise.all([
-        api.get<CodeRepoGrantsResponse>(`${base}/grants`),
-        api.get<CodeRepoGrantCandidate[]>(`${base}/grant-candidates`),
+        api.get<RepositoryGrantsResponse>(`${base}/grants`),
+        api.get<RepositoryGrantCandidate[]>(`${base}/grant-candidates`),
       ]);
       setGrants(grantRows.direct);
       setCandidates(candidateRows);
@@ -85,7 +85,7 @@ export default function CodeRepoAccess() {
     }
   }
 
-  function changeLevel(grant: CodeRepoGrant, level: CodeRepoAccessLevel) {
+  function changeLevel(grant: RepositoryGrant, level: RepositoryAccessLevel) {
     setGrants(
       (current) =>
         current?.map((item) => (item.id === grant.id ? { ...item, accessLevel: level } : item)) ??
@@ -106,7 +106,7 @@ export default function CodeRepoAccess() {
     });
   }
 
-  function revoke(grant: CodeRepoGrant) {
+  function revoke(grant: RepositoryGrant) {
     const originalIndex = grants?.findIndex((item) => item.id === grant.id) ?? -1;
     setGrants((current) => current?.filter((item) => item.id !== grant.id) ?? current);
     background(() => api.del(`${base}/grants/${grant.id}`), {
@@ -155,7 +155,7 @@ export default function CodeRepoAccess() {
           icon={<GitPullRequest size={17} />}
           title="PRs use a GitHub Connection"
           detail="After a Member or governed delivery flow publishes the branch, a GitHub Connection can expose the create_pull_request tool."
-          to={`/c/${company.slug}/code/integrations`}
+          to={`/c/${company.slug}/repositories/integrations`}
           linkLabel="Manage integrations"
         />
       </div>
@@ -185,7 +185,7 @@ export default function CodeRepoAccess() {
             <Select
               label="Repository access"
               value={pickLevel}
-              onChange={(event) => setPickLevel(event.target.value as CodeRepoAccessLevel)}
+              onChange={(event) => setPickLevel(event.target.value as RepositoryAccessLevel)}
               disabled={ungranted.length === 0}
             >
               <option value="write">Work locally</option>
@@ -248,7 +248,7 @@ export default function CodeRepoAccess() {
                   <Select
                     value={grant.accessLevel}
                     onChange={(event) =>
-                      changeLevel(grant, event.target.value as CodeRepoAccessLevel)
+                      changeLevel(grant, event.target.value as RepositoryAccessLevel)
                     }
                     className="h-9 w-36"
                     aria-label="Repository access level"
@@ -328,7 +328,7 @@ function ReadinessCard({
   );
 }
 
-function DeliveryBadge({ grant }: { grant: CodeRepoGrant }) {
+function DeliveryBadge({ grant }: { grant: RepositoryGrant }) {
   if (grant.accessLevel === "read") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">

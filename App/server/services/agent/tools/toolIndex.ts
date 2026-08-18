@@ -391,10 +391,19 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     blurb: "Search the web, read a page, download a file to work on.",
     tools: ["search_web", "fetch_web_page", "download_web_file"],
   },
-  code: {
-    label: "code",
-    blurb: "The git repositories granted to you.",
-    tools: ["list_code_repositories"],
+  repositories: {
+    label: "repositories",
+    blurb:
+      "The Repositories granted to you — code, documents, anything version-controlled. The repository_* tools work only inside a repository work session.",
+    tools: [
+      "list_repositories",
+      "repository_list_files",
+      "repository_read_file",
+      "repository_write_file",
+      "repository_delete_file",
+      "repository_search",
+      "repository_commit",
+    ],
   },
 };
 
@@ -1109,7 +1118,13 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   cancel_decision: ["retract", "never mind", "withdraw question"],
   decline_handoff: ["reject", "refuse"],
   cancel_handoff: ["withdraw"],
-  list_code_repositories: ["git", "repo", "codebase", "source"],
+  list_repositories: ["git", "repo", "codebase", "source"],
+  repository_list_files: ["repo", "files", "tree", "browse", "directory"],
+  repository_read_file: ["repo", "file", "read", "open", "source"],
+  repository_write_file: ["repo", "file", "write", "edit", "save"],
+  repository_delete_file: ["repo", "file", "delete", "remove"],
+  repository_search: ["repo", "search", "grep", "find", "mentions"],
+  repository_commit: ["repo", "commit", "git", "save", "record"],
   list_employees: ["team", "colleague", "who else", "roster"],
   list_teams: ["team", "department", "group"],
   get_self: ["who am i", "my role", "myself"],

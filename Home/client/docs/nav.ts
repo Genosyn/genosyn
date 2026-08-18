@@ -109,9 +109,10 @@ export const DOCS_NAV: DocsSection[] = [
     label: "Engineering",
     pages: [
       {
-        path: "/docs/code",
-        title: "Code Repositories",
-        blurb: "Add any git repo; let granted AI employees edit, test, and commit safely.",
+        path: "/docs/repositories",
+        title: "Repositories",
+        blurb:
+          "Version-controlled workspaces — code, strategy, policies. Edit in the browser, or hand one to an AI Employee.",
       },
     ],
   },

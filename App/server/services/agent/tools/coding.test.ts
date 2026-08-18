@@ -279,9 +279,9 @@ describe("path confinement", () => {
     const { root } = await makeWorkspace(t);
     const tools = toolset(root);
     await fs.mkdir(path.join(root, ".git"));
-    await fs.mkdir(path.join(root, "code-repos", ".ssh"), { recursive: true });
+    await fs.mkdir(path.join(root, "repositories", ".ssh"), { recursive: true });
     await fs.writeFile(path.join(root, ".git", "config"), "SAFE_GIT_CONFIG");
-    await fs.writeFile(path.join(root, "code-repos", ".ssh", "deploy-key"), "PRIVATE_KEY");
+    await fs.writeFile(path.join(root, "repositories", ".ssh", "deploy-key"), "PRIVATE_KEY");
     await fs.writeFile(path.join(root, ".browser-state.json"), "BROWSER_COOKIE");
     await fs.symlink(".browser-state.json", path.join(root, "state-link"));
     await fs.symlink(".git", path.join(root, "git-link"));
@@ -291,7 +291,7 @@ describe("path confinement", () => {
       tools.read_file.run({ path: ".GIT/config" }),
       tools.write_file.run({ path: ".git/commondir", content: "../../outside" }),
       tools.edit_file.run({
-        path: "code-repos/.ssh/deploy-key",
+        path: "repositories/.ssh/deploy-key",
         old_string: "PRIVATE_KEY",
         new_string: "changed",
       }),
@@ -319,7 +319,7 @@ describe("path confinement", () => {
     assert.doesNotMatch(listed.content, /browser-state|state-link|git-link|\.git|\.ssh/);
     assert.equal(await fs.readFile(path.join(root, ".git", "config"), "utf8"), "SAFE_GIT_CONFIG");
     assert.equal(
-      await fs.readFile(path.join(root, "code-repos", ".ssh", "deploy-key"), "utf8"),
+      await fs.readFile(path.join(root, "repositories", ".ssh", "deploy-key"), "utf8"),
       "PRIVATE_KEY",
     );
     await assert.rejects(fs.stat(path.join(root, ".git", "commondir")), /ENOENT/);

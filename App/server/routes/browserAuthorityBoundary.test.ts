@@ -17,7 +17,7 @@ import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.
 import { apiKeysRouter } from "./apiKeys.js";
 import { basesRouter } from "./bases.js";
 import { browserSessionsRouter } from "./browserSessions.js";
-import { codeRepositoriesRouter } from "./codeRepositories.js";
+import { repositoriesRouter } from "./repositories.js";
 import { emailProvidersRouter } from "./emailProviders.js";
 import { employeeSurfaceRouter } from "./employeeSurface.js";
 import { integrationsRouter } from "./integrations.js";
@@ -57,7 +57,7 @@ before(async () => {
   app.use("/api/companies/:cid", basesRouter);
   app.use("/api/companies/:cid", projectsRouter);
   app.use("/api/companies/:cid", mailRouter);
-  app.use("/api/companies/:cid", codeRepositoriesRouter);
+  app.use("/api/companies/:cid", repositoriesRouter);
   app.use("/api/companies/:cid", secretsRouter);
   app.use("/api/companies/:cid", apiKeysRouter);
   app.use(errorHandler);
@@ -141,7 +141,7 @@ describe("browser-only company control plane", () => {
     const paths = [
       "/api-keys",
       "/secrets",
-      "/code-repositories",
+      "/repositories",
       "/integrations/connections",
       "/email/providers",
       `/employees/${employee.id}/models`,

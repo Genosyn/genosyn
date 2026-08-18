@@ -16,7 +16,7 @@ import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
 import { ChannelMessage } from "../db/entities/ChannelMessage.js";
 import { Chart } from "../db/entities/Chart.js";
-import { CodeRepository } from "../db/entities/CodeRepository.js";
+import { Repository } from "../db/entities/Repository.js";
 import { Company } from "../db/entities/Company.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Contact } from "../db/entities/Contact.js";
@@ -177,7 +177,7 @@ export async function deleteUserCascade(args: { userId: string }): Promise<Delet
     await m.update(Bill, { createdById: userId }, { createdById: null });
     await m.update(BillPayment, { createdById: userId }, { createdById: null });
     await m.update(Chart, { createdById: userId }, { createdById: null });
-    await m.update(CodeRepository, { createdById: userId }, { createdById: null });
+    await m.update(Repository, { createdById: userId }, { createdById: null });
     await m.update(Customer, { createdById: userId }, { createdById: null });
     await m.update(Customer, { ownerId: userId }, { ownerId: null });
     await m.update(Contact, { createdById: userId }, { createdById: null });

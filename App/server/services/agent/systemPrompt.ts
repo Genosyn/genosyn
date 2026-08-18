@@ -33,7 +33,7 @@ export function composeEmployeeSystemPrompt(args: {
   emp: AIEmployee;
   skills: Skill[];
   memoryContext: string;
-  codeReposContext: string;
+  repositoriesContext: string;
   financeContext: string;
   signingContext: string;
   revenueContext: string;
@@ -55,7 +55,7 @@ export function composeEmployeeSystemPrompt(args: {
     emp,
     skills,
     memoryContext,
-    codeReposContext,
+    repositoriesContext,
     financeContext,
     signingContext,
     revenueContext,
@@ -76,7 +76,7 @@ export function composeEmployeeSystemPrompt(args: {
   parts.push("\n## Soul\n");
   parts.push(emp.soulBody);
   if (memoryContext) parts.push(memoryContext);
-  if (codeReposContext) parts.push(codeReposContext);
+  if (repositoriesContext) parts.push(repositoriesContext);
   if (financeContext) parts.push(financeContext);
   if (signingContext) parts.push(signingContext);
   if (revenueContext) parts.push(revenueContext);
@@ -151,7 +151,7 @@ export function toolsBriefing(
     lines.push(
       "- Coding: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, and `grep`, " +
         "confined to your working directory (which holds any granted git repos under `repos/` " +
-        "and `code-repos/`). Host execution never exposes an unrestricted shell.",
+        "and `repositories/`). Host execution never exposes an unrestricted shell.",
     );
   }
 

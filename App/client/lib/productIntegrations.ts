@@ -19,7 +19,7 @@ export type ProductIntegrationKey =
   | "notes"
   | "resources"
   | "explore"
-  | "code"
+  | "repositories"
   | "pipelines"
   | "marketing"
   | "revenue"
@@ -89,8 +89,8 @@ export const PRODUCT_INTEGRATION_SCOPES: Record<ProductIntegrationKey, ProductIn
       "Explore runs saved SQL Charts and Dashboards against Postgres, MySQL, and ClickHouse Connections.",
     providers: ["postgres", "mysql", "clickhouse"],
   },
-  code: {
-    label: "Code",
+  repositories: {
+    label: "Repositories",
     description:
       "Connect GitHub to import allowlisted repositories and let granted AI Employees collaborate on code.",
     providers: ["github"],

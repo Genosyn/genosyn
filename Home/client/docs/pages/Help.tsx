@@ -66,7 +66,7 @@ export function Help() {
       <Callout kind="info" title="Help is a separate, read-only support surface.">
         Help conversations never appear in ordinary employee Chat, so their Genosyn-specific context
         cannot bleed into day-to-day work. Source access cannot edit the running application. To ask
-        the employee to perform company work or change one of your granted Code Repositories, open
+        the employee to perform company work or change one of your granted Repositories, open
         that <DocLink to="/docs/employees">AI Employee</DocLink>&apos;s regular{" "}
         <Strong>Chat</Strong>.
       </Callout>

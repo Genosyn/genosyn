@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
-import { browserPrivateCompanyDir, codeRepoPrivateCompanyDir, companyDir } from "./paths.js";
+import {
+  browserPrivateCompanyDir,
+  repositoryPrivateCompanyDir,
+  repositoryWorkspaceCompanyDir,
+  companyDir,
+} from "./paths.js";
 import { emitMembershipAuthorizationChange } from "./resourceEvents.js";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -35,7 +40,8 @@ import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
 import { ChannelMessage } from "../db/entities/ChannelMessage.js";
 import { Chart } from "../db/entities/Chart.js";
-import { CodeRepository } from "../db/entities/CodeRepository.js";
+import { Repository } from "../db/entities/Repository.js";
+import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { Company } from "../db/entities/Company.js";
 import { CompanyFinanceSettings } from "../db/entities/CompanyFinanceSettings.js";
 import { Conversation } from "../db/entities/Conversation.js";
@@ -100,7 +106,7 @@ import { MailThread } from "../db/entities/MailThread.js";
 import { EmailProvider } from "../db/entities/EmailProvider.js";
 import { EmployeeBaseGrant } from "../db/entities/EmployeeBaseGrant.js";
 import { EmployeeChartGrant } from "../db/entities/EmployeeChartGrant.js";
-import { EmployeeCodeRepositoryGrant } from "../db/entities/EmployeeCodeRepositoryGrant.js";
+import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
 import { EmployeeDashboardGrant } from "../db/entities/EmployeeDashboardGrant.js";
 import { EmployeeFinanceGrant } from "../db/entities/EmployeeFinanceGrant.js";
@@ -347,7 +353,7 @@ export async function deleteCompanyCascade(args: {
       await m.delete(EmployeeNoteGrant, { employeeId: In(employeeIds) });
       await m.delete(EmployeeResourceGrant, { employeeId: In(employeeIds) });
       await m.delete(EmployeeChartGrant, { employeeId: In(employeeIds) });
-      await m.delete(EmployeeCodeRepositoryGrant, { employeeId: In(employeeIds) });
+      await m.delete(EmployeeRepositoryGrant, { employeeId: In(employeeIds) });
       await m.delete(EmployeeDashboardGrant, { employeeId: In(employeeIds) });
       await m.delete(McpServer, { employeeId: In(employeeIds) });
       await m.delete(JournalEntry, { employeeId: In(employeeIds) });
@@ -423,7 +429,7 @@ export async function deleteCompanyCascade(args: {
     // Newer company-scoped surfaces: sales docs (Estimate / RecurringInvoice +
     // their line items and CustomerContact / CustomerContract), Explore
     // (Chart / Dashboard, with DashboardCard + employee grants cleared above),
-    // Code repositories, and browser sessions. Line items, dashboard cards,
+    // Repositories, and browser sessions. Line items, dashboard cards,
     // and the three employee grants were removed in the leaf/employee sweeps.
     await m.delete(Estimate, { companyId });
     await m.delete(RecurringInvoice, { companyId });
@@ -476,7 +482,10 @@ export async function deleteCompanyCascade(args: {
     await m.delete(EmployeeMarketingGrant, { companyId });
     await m.delete(Chart, { companyId });
     await m.delete(Dashboard, { companyId });
-    await m.delete(CodeRepository, { companyId });
+    // Sessions before the repositories they belong to, so a failure halfway
+    // cannot leave a session row pointing at a repository that is gone.
+    await m.delete(RepositoryWorkSession, { companyId });
+    await m.delete(Repository, { companyId });
     await m.delete(BrowserSession, { companyId });
     // Grants first: the row that authorizes an employee to drive a Member's
     // computer must never outlive the browser it points at.
@@ -510,10 +519,20 @@ export async function deleteCompanyCascade(args: {
     );
   }
   try {
-    fs.rmSync(codeRepoPrivateCompanyDir(companyId), { recursive: true, force: true });
+    fs.rmSync(repositoryPrivateCompanyDir(companyId), { recursive: true, force: true });
   } catch (err) {
     console.warn(
-      `[companyDelete] failed to remove private Code Repository state for ${companyId}: ${(err as Error).message}`,
+      `[companyDelete] failed to remove private Repository state for ${companyId}: ${(err as Error).message}`,
+    );
+  }
+  // The App-owned repository checkouts. These hold the company's actual source
+  // and documents, so leaving them behind after a deletion would be the worst
+  // kind of orphan.
+  try {
+    fs.rmSync(repositoryWorkspaceCompanyDir(companyId), { recursive: true, force: true });
+  } catch (err) {
+    console.warn(
+      `[companyDelete] failed to remove Repository checkouts for ${companyId}: ${(err as Error).message}`,
     );
   }
 }

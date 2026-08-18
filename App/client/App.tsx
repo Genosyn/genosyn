@@ -100,11 +100,14 @@ import NoteDetail from "./pages/NoteDetail";
 import ResourcesIndex from "./pages/ResourcesIndex";
 import ResourceDetail from "./pages/ResourceDetail";
 import ResourcesLayout from "./pages/ResourcesLayout";
-import CodeReposLayout from "./pages/CodeReposLayout";
-import CodeReposIndex from "./pages/CodeReposIndex";
-import CodeRepoOverview from "./pages/CodeRepoOverview";
-import CodeRepoAccess from "./pages/CodeRepoAccess";
-import CodeRepoSettings from "./pages/CodeRepoSettings";
+import RepositoriesLayout from "./pages/RepositoriesLayout";
+import RepositoriesIndex from "./pages/RepositoriesIndex";
+import RepositoryOverview from "./pages/RepositoryOverview";
+import RepositoryFiles from "./pages/RepositoryFiles";
+import RepositoryHistory from "./pages/RepositoryHistory";
+import RepositoryAi from "./pages/RepositoryAi";
+import RepositoryAccess from "./pages/RepositoryAccess";
+import RepositorySettings from "./pages/RepositorySettings";
 import CustomersLayout from "./pages/CustomersLayout";
 import RevenueLayout from "./pages/RevenueLayout";
 import RevenueIndex from "./pages/RevenueIndex";
@@ -475,11 +478,14 @@ function CompanyRoutes({
 
           {/* Code — provider-agnostic git repositories the company adds so
             granted AI employees can read, commit, and push real code. */}
-          <Route path="code" element={<CodeReposLayout company={company} />}>
-            <Route index element={<CodeReposIndex company={company} />} />
-            <Route path=":slug" element={<CodeRepoOverview />} />
-            <Route path=":slug/access" element={<CodeRepoAccess />} />
-            <Route path=":slug/settings" element={<CodeRepoSettings />} />
+          <Route path="repositories" element={<RepositoriesLayout company={company} />}>
+            <Route index element={<RepositoriesIndex company={company} />} />
+            <Route path=":slug" element={<RepositoryOverview />} />
+            <Route path=":slug/files" element={<RepositoryFiles />} />
+            <Route path=":slug/history" element={<RepositoryHistory />} />
+            <Route path=":slug/ai" element={<RepositoryAi />} />
+            <Route path=":slug/access" element={<RepositoryAccess />} />
+            <Route path=":slug/settings" element={<RepositorySettings />} />
           </Route>
 
           {/* Customers — standalone section (moved out of Finance). Customer

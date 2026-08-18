@@ -46,7 +46,7 @@ import {
   revokeDisabledBrowserSessionsForEmployee,
 } from "../services/browserAccess.js";
 import { removeBrowserStorageForEmployee } from "../services/browserStorage.js";
-import { removeCodeRepoPrivateStateForEmployee } from "../services/codeRepoSshFiles.js";
+import { removeRepositoryPrivateStateForEmployee } from "../services/repositorySshFiles.js";
 import {
   applyRoutineRecommendations,
   findRoutineRecommendationDefinition,
@@ -530,7 +530,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await empRepo.delete({ id: emp.id });
 
   await removeBrowserStorageForEmployee(emp.companyId, emp.id);
-  removeCodeRepoPrivateStateForEmployee(emp.companyId, emp.id);
+  removeRepositoryPrivateStateForEmployee(emp.companyId, emp.id);
   if (co) removeDir(employeeDir(co.slug, emp.slug));
   await recordAudit({
     companyId: emp.companyId,

@@ -50,7 +50,7 @@ export type SectionKey =
   | "notes"
   | "resources"
   | "explore"
-  | "code"
+  | "repositories"
   | "revenue"
   | "marketing"
   | "customers"
@@ -237,14 +237,14 @@ export const SECTION_GROUPS: SectionGroup[] = [
     label: "Engineering",
     items: [
       {
-        key: "code",
-        label: "Code",
-        description: "Git repositories your AI employees can work on.",
+        key: "repositories",
+        label: "Repositories",
+        description: "Version-controlled repositories — code, strategy, plans, anything.",
         icon: FolderGit2,
         shortcut: "C",
-        path: "/code",
+        path: "/repositories",
         iconBg: "bg-slate-100 text-slate-700 dark:bg-slate-700/40 dark:text-slate-200",
-        keywords: ["git", "repos", "repositories", "branches", "engineering"],
+        keywords: ["git", "repos", "repositories", "branches", "engineering", "docs", "versions"],
       },
       {
         key: "pipelines",
@@ -490,7 +490,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/notes(\/|$)/.test(pathname)) return "notes";
   if (/\/c\/[^/]+\/resources(\/|$)/.test(pathname)) return "resources";
   if (/\/c\/[^/]+\/explore(\/|$)/.test(pathname)) return "explore";
-  if (/\/c\/[^/]+\/code(\/|$)/.test(pathname)) return "code";
+  if (/\/c\/[^/]+\/repositories(\/|$)/.test(pathname)) return "repositories";
   if (/\/c\/[^/]+\/marketing(\/|$)/.test(pathname)) return "marketing";
   if (/\/c\/[^/]+\/revenue(\/|$)/.test(pathname)) return "revenue";
   if (/\/c\/[^/]+\/customers(\/|$)/.test(pathname)) return "customers";

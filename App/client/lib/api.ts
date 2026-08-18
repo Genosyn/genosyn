@@ -271,7 +271,7 @@ export type TaggableResourceType =
   | "notebook"
   | "note"
   | "pipeline"
-  | "code_repository"
+  | "repository"
   | "chart"
   | "dashboard";
 
@@ -1830,28 +1830,43 @@ export type ResourceGrantCandidate = ResourceGrantEmployee & {
   alreadyGranted: boolean;
 };
 
-// ───────────────────────── Code Repositories ────────────────────────────
+// ───────────────────────── Repositories ────────────────────────────
 
-export type CodeRepoAuthMode = "none" | "https" | "ssh";
-export type CodeRepoSyncStatus = "unknown" | "ok" | "error";
-export type CodeRepoAccessLevel = "read" | "write";
+export type RepositoryAuthMode = "none" | "https" | "ssh";
+export type RepositorySyncStatus = "unknown" | "ok" | "error";
+export type RepositoryAccessLevel = "read" | "write";
 
-export type CodeRepoAuthor = {
+/**
+ * `local` is a repository created empty inside Genosyn: no clone URL, no
+ * credentials, nothing to push to. Giving it a URL in settings promotes it.
+ */
+export type RepositoryOrigin = "remote" | "local";
+
+/**
+ * What the repository mostly holds. It changes nothing about git — only how
+ * the editor opens a file and how an AI Employee is briefed about the tree.
+ */
+export type RepositoryKind = "code" | "documents";
+
+export type RepositoryAuthor = {
   kind: "human";
   id: string;
   name: string;
   email: string | null;
 };
 
-export type CodeRepository = {
+export type Repository = {
   id: string;
   companyId: string;
   name: string;
   slug: string;
   description: string;
+  /** Empty exactly when {@link origin} is `local`. */
   gitUrl: string;
+  origin: RepositoryOrigin;
+  kind: RepositoryKind;
   defaultBranch: string;
-  authMode: CodeRepoAuthMode;
+  authMode: RepositoryAuthMode;
   httpsUsername: string | null;
   committerName: string | null;
   committerEmail: string | null;
@@ -1860,15 +1875,15 @@ export type CodeRepository = {
   hasSshKey: boolean;
   grantCount: number;
   lastSyncedAt: string | null;
-  lastSyncStatus: CodeRepoSyncStatus;
+  lastSyncStatus: RepositorySyncStatus;
   lastSyncError: string;
   createdById: string | null;
-  createdBy: CodeRepoAuthor | null;
+  createdBy: RepositoryAuthor | null;
   createdAt: string;
   updatedAt: string;
 };
 
-export type CodeRepoGrantEmployee = {
+export type RepositoryGrantEmployee = {
   id: string;
   name: string;
   slug: string;
@@ -1878,26 +1893,170 @@ export type CodeRepoGrantEmployee = {
   pullRequestReady: boolean;
 };
 
-export type CodeRepoGrant = {
+export type RepositoryGrant = {
   id: string;
   employeeId: string;
-  codeRepositoryId: string;
-  accessLevel: CodeRepoAccessLevel;
+  repositoryId: string;
+  accessLevel: RepositoryAccessLevel;
   createdAt: string;
-  employee: CodeRepoGrantEmployee | null;
+  employee: RepositoryGrantEmployee | null;
 };
 
-export type CodeRepoGrantsResponse = { direct: CodeRepoGrant[] };
+export type RepositoryGrantsResponse = { direct: RepositoryGrant[] };
 
-export type CodeRepoGrantCandidate = Omit<CodeRepoGrantEmployee, "pullRequestReady"> & {
+export type RepositoryGrantCandidate = Omit<RepositoryGrantEmployee, "pullRequestReady"> & {
   alreadyGranted: boolean;
 };
 
-export type CodeRepoTestResult = {
+export type RepositoryTestResult = {
   ok: boolean;
   message: string;
   defaultBranch?: string;
 };
+
+// ─────────────────────── Repository workspace ───────────────────────────
+
+/**
+ * The App-owned checkout behind the repository UI, mirrored by hand from
+ * `server/services/repositoryWorkspace.ts`. The client never imports server
+ * code, so these shapes are duplicated on purpose; keep them in step.
+ */
+
+export type RepositoryTreeEntry = {
+  name: string;
+  /** Repository-root-relative POSIX path. */
+  path: string;
+  type: "file" | "directory";
+  size: number;
+};
+
+export type RepositoryFileContent = {
+  path: string;
+  /** Null when the file is binary or too large to hand to the editor. */
+  content: string | null;
+  size: number;
+  binary: boolean;
+  tooLarge: boolean;
+  /** Set when the content came from history rather than the working tree. */
+  ref: string | null;
+};
+
+export type RepositoryChangeStatus =
+  | "added"
+  | "modified"
+  | "deleted"
+  | "renamed"
+  | "untracked"
+  | "conflicted";
+
+export type RepositoryChange = {
+  path: string;
+  /** Renames carry where the file came from. */
+  fromPath: string | null;
+  status: RepositoryChangeStatus;
+  staged: boolean;
+};
+
+export type RepositoryStatus = {
+  branch: string | null;
+  /** True before the first commit, when HEAD points at a branch that has none. */
+  unborn: boolean;
+  detached: boolean;
+  ahead: number;
+  behind: number;
+  upstream: string | null;
+  changes: RepositoryChange[];
+};
+
+export type RepositoryCommit = {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  body: string;
+  authorName: string;
+  authorEmail: string;
+  authoredAt: string;
+  parents: string[];
+};
+
+export type RepositoryBranch = {
+  name: string;
+  remote: boolean;
+  current: boolean;
+  sha: string;
+  subject: string;
+  committedAt: string;
+};
+
+export type RepositoryDiff = {
+  /** Raw unified diff — the client parses and renders it itself. */
+  patch: string;
+  truncated: boolean;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+};
+
+export type RepositoryTreeResponse = { entries: RepositoryTreeEntry[] };
+export type RepositoryHistoryResponse = { commits: RepositoryCommit[] };
+export type RepositoryBranchesResponse = { branches: RepositoryBranch[] };
+export type RepositoryCommitDiff = RepositoryDiff & { commit: RepositoryCommit | null };
+export type RepositoryCommitResult = { committed: true; sha: string };
+
+// ───────────────────── Repository AI work sessions ──────────────────────
+
+/**
+ * `empty` is not a failure — "I read it and there is nothing to change" is a
+ * legitimate outcome, and it needs its own state so the UI never offers to
+ * publish a branch with no commits on it.
+ */
+export type RepositoryWorkSessionStatus =
+  | "running"
+  | "ready"
+  | "empty"
+  | "published"
+  | "discarded"
+  | "failed";
+
+export type RepositoryWorkSessionEmployee = {
+  id: string;
+  name: string;
+  slug: string;
+  avatarKey: string | null;
+};
+
+export type RepositoryWorkSession = {
+  id: string;
+  companyId: string;
+  repositoryId: string;
+  employeeId: string;
+  requestedByUserId: string | null;
+  /** What the Member asked for, verbatim. */
+  instruction: string;
+  status: RepositoryWorkSessionStatus;
+  /** Branch the employee committed on, once its turn has ended. */
+  branch: string | null;
+  baseCommit: string | null;
+  headCommit: string | null;
+  /** The employee's own report of what it did. */
+  reply: string;
+  error: string;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  /** Set when the branch reached the remote, so the UI can say so. */
+  publishedBranch: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  employee: RepositoryWorkSessionEmployee | null;
+};
+
+export type RepositoryWorkSessionsResponse = { sessions: RepositoryWorkSession[] };
+export type RepositoryWorkSessionCandidatesResponse = {
+  employees: Array<RepositoryWorkSessionEmployee & { role: string }>;
+};
+export type RepositoryWorkSessionDiff = RepositoryDiff & { commits: RepositoryCommit[] };
 
 // ───────────────────────── Finance AI access ────────────────────────────
 
@@ -3466,7 +3625,7 @@ export type SearchResultKind =
   | "resource"
   | "chart"
   | "dashboard"
-  | "repo"
+  | "repository"
   | "pipeline"
   | "customer";
 

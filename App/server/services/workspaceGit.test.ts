@@ -12,7 +12,7 @@ test("bubblewrapped Git receives private namespaces and an explicit environment"
   const invocation = buildWorkspaceGitInvocation(
     {
       workspaceRoot: "/srv/employee",
-      cwd: "/srv/employee/code-repos/app",
+      cwd: "/srv/employee/repositories/app",
       args: ["fetch", "https://github.com/example/app.git"],
       extraEnv: { GENOSYN_REPO_TOKEN_123: "repo-token" },
       credentialHelper: "!trusted-helper",

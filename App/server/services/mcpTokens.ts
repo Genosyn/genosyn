@@ -35,6 +35,14 @@ export type McpTokenInfo = {
   conversationId: string | null;
   mailThreadId: string | null;
   /**
+   * The Repository work session this turn is executing, when the surface is
+   * one. Unlike the ids above this is not provenance — it is authority. The
+   * `repository_*` tools act on exactly the worktree named here and have no
+   * parameter for choosing another, so a turn cannot reach a repository it was
+   * not sent to work on.
+   */
+  repositoryWorkSessionId: string | null;
+  /**
    * Authority carried by this turn. Routine Runs and other trusted internal
    * automation deliberately act as the AI Employee. Browser-originated chat
    * carries the requesting Member so tool handlers can intersect both
@@ -114,6 +122,7 @@ export function issueMcpToken(
     routineId?: string;
     conversationId?: string | null;
     mailThreadId?: string | null;
+    repositoryWorkSessionId?: string | null;
     authority?: "employee" | "member" | "untrusted";
     requesterUserId?: string;
     requesterSessionVersion?: number;
@@ -147,6 +156,7 @@ export function issueMcpToken(
     routineId: origin.routineId ?? null,
     conversationId: origin.conversationId ?? null,
     mailThreadId: origin.mailThreadId ?? null,
+    repositoryWorkSessionId: origin.repositoryWorkSessionId ?? null,
     authority,
     requesterUserId,
     requesterSessionVersion: origin.requesterSessionVersion ?? null,

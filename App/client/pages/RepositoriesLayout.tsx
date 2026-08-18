@@ -1,20 +1,33 @@
 import React from "react";
 import { Outlet, useLocation, useOutletContext, useParams } from "react-router-dom";
-import { ArrowLeft, FolderGit2, KeyRound, LayoutDashboard, Settings, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  Bot,
+  FileCode,
+  FolderGit2,
+  History,
+  KeyRound,
+  LayoutDashboard,
+  Settings,
+  Users,
+} from "lucide-react";
 import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
-import { api, CodeRepository, Company } from "../lib/api";
+import { api, Repository, Company } from "../lib/api";
 import { useLiveRefetch } from "../components/CompanySocket";
 
-export type CodeReposOutletCtx = {
+export type RepositoriesOutletCtx = {
   company: Company;
-  repo: CodeRepository | null;
-  repositories: CodeRepository[];
+  repo: Repository | null;
+  repositories: Repository[];
   reload: () => Promise<void>;
 };
 
 const PAGE_LABELS: Record<string, string> = {
+  files: "Files",
+  history: "History",
+  ai: "AI work",
   access: "AI access",
   settings: "Settings",
 };
@@ -24,17 +37,15 @@ const PAGE_LABELS: Record<string, string> = {
  * selecting one replaces it with a focused management menu so the repository
  * is split into Overview, AI access, and Settings instead of one long page.
  */
-export default function CodeReposLayout({ company }: { company: Company }) {
+export default function RepositoriesLayout({ company }: { company: Company }) {
   const { slug } = useParams<{ slug: string }>();
   const location = useLocation();
   const { toast } = useToast();
-  const [repositories, setRepositories] = React.useState<CodeRepository[] | null>(null);
+  const [repositories, setRepositories] = React.useState<Repository[] | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
-      setRepositories(
-        await api.get<CodeRepository[]>(`/api/companies/${company.id}/code-repositories`),
-      );
+      setRepositories(await api.get<Repository[]>(`/api/companies/${company.id}/repositories`));
     } catch (err) {
       toast(err instanceof Error ? err.message : "Could not load repositories", "error");
       setRepositories([]);
@@ -45,18 +56,18 @@ export default function CodeReposLayout({ company }: { company: Company }) {
     reload();
   }, [reload]);
 
-  useLiveRefetch("coderepo", reload);
+  useLiveRefetch("repository", reload);
 
   const rows = repositories ?? [];
   const repo = slug ? (rows.find((item) => item.slug === slug) ?? null) : null;
-  const base = `/c/${company.slug}/code`;
+  const base = `/c/${company.slug}/repositories`;
   const repoBase = repo ? `${base}/${repo.slug}` : null;
 
   const sidebar = (
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-100 px-3 py-3 dark:border-slate-800">
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-          <FolderGit2 size={14} /> Code repositories
+          <FolderGit2 size={14} /> Repositories
         </div>
       </div>
 
@@ -77,6 +88,9 @@ export default function CodeReposLayout({ company }: { company: Company }) {
             </div>
           </div>
           <SidebarLink to={repoBase} end icon={<LayoutDashboard size={14} />} label="Overview" />
+          <SidebarLink to={`${repoBase}/files`} icon={<FileCode size={14} />} label="Files" />
+          <SidebarLink to={`${repoBase}/history`} icon={<History size={14} />} label="History" />
+          <SidebarLink to={`${repoBase}/ai`} icon={<Bot size={14} />} label="AI work" />
           <SidebarLink to={`${repoBase}/access`} icon={<Users size={14} />} label="AI access" />
           <SidebarLink to={`${repoBase}/settings`} icon={<Settings size={14} />} label="Settings" />
           <div className="mt-4 px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -137,7 +151,7 @@ export default function CodeReposLayout({ company }: { company: Company }) {
           <div className="mb-5">
             <Breadcrumbs
               items={[
-                { label: "Code", to: base },
+                { label: "Repositories", to: base },
                 {
                   label: repo?.name ?? slug,
                   to: pageLabel && repoBase ? repoBase : undefined,
@@ -158,7 +172,7 @@ export default function CodeReposLayout({ company }: { company: Company }) {
                   repo,
                   repositories: rows,
                   reload,
-                } satisfies CodeReposOutletCtx
+                } satisfies RepositoriesOutletCtx
               }
             />
           )}
@@ -171,7 +185,7 @@ export default function CodeReposLayout({ company }: { company: Company }) {
               repo: null,
               repositories: rows,
               reload,
-            } satisfies CodeReposOutletCtx
+            } satisfies RepositoriesOutletCtx
           }
         />
       )}
@@ -179,6 +193,6 @@ export default function CodeReposLayout({ company }: { company: Company }) {
   );
 }
 
-export function useCodeReposContext(): CodeReposOutletCtx {
-  return useOutletContext<CodeReposOutletCtx>();
+export function useRepositoriesContext(): RepositoriesOutletCtx {
+  return useOutletContext<RepositoriesOutletCtx>();
 }

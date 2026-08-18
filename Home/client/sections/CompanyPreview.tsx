@@ -237,7 +237,7 @@ function PreviewMain({ compact }: { compact: boolean }) {
             <AttentionRow
               icon={CheckCircle2}
               title="Review checkout patch"
-              detail="Sam · Code Repositories"
+              detail="Sam · Repositories"
               tone="graphite"
             />
             <AttentionRow

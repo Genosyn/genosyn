@@ -6,20 +6,29 @@ import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
-import { api, Company, CodeRepository, CodeRepoAuthMode } from "../lib/api";
+import {
+  api,
+  Company,
+  Repository,
+  RepositoryAuthMode,
+  RepositoryKind,
+  RepositoryOrigin,
+} from "../lib/api";
 
 /**
- * Shared form fields + create modal for a Code Repository. The detail page
+ * Shared form fields + create modal for a Repository. The detail page
  * reuses {@link RepoFormFields} for in-place editing; the index page uses
  * {@link RepoFormModal} to add a new repo.
  */
 
 export type RepoFormState = {
   name: string;
+  origin: RepositoryOrigin;
+  kind: RepositoryKind;
   gitUrl: string;
   defaultBranch: string;
   description: string;
-  authMode: CodeRepoAuthMode;
+  authMode: RepositoryAuthMode;
   httpsUsername: string;
   token: string;
   sshKey: string;
@@ -30,6 +39,8 @@ export type RepoFormState = {
 export function emptyRepoForm(): RepoFormState {
   return {
     name: "",
+    origin: "remote",
+    kind: "code",
     gitUrl: "",
     defaultBranch: "main",
     description: "",
@@ -42,9 +53,11 @@ export function emptyRepoForm(): RepoFormState {
   };
 }
 
-export function repoToForm(repo: CodeRepository): RepoFormState {
+export function repoToForm(repo: Repository): RepoFormState {
   return {
     name: repo.name,
+    origin: repo.origin,
+    kind: repo.kind,
     gitUrl: repo.gitUrl,
     defaultBranch: repo.defaultBranch,
     description: repo.description,
@@ -63,19 +76,30 @@ export function repoToForm(repo: CodeRepository): RepoFormState {
  * place on edit (and is rejected by the server's schema on create).
  */
 export function repoFormToPayload(form: RepoFormState): Record<string, unknown> {
+  const local = form.origin === "local";
   const body: Record<string, unknown> = {
     name: form.name.trim(),
-    gitUrl: form.gitUrl.trim(),
+    kind: form.kind,
+    // A local repository has no remote, so it can carry neither a URL nor a
+    // credential. The server enforces this too; sending them would just earn a
+    // validation error the person cannot act on.
+    gitUrl: local ? "" : form.gitUrl.trim(),
     defaultBranch: form.defaultBranch.trim() || "main",
     description: form.description.trim(),
-    authMode: form.authMode,
+    authMode: local ? "none" : form.authMode,
     committerName: form.committerName.trim(),
     committerEmail: form.committerEmail.trim(),
   };
-  if (form.authMode === "https") body.httpsUsername = form.httpsUsername.trim();
-  if (form.token.trim()) body.token = form.token;
-  if (form.sshKey.trim()) body.sshKey = form.sshKey;
+  if (!local) {
+    if (form.authMode === "https") body.httpsUsername = form.httpsUsername.trim();
+    if (form.token.trim()) body.token = form.token;
+    if (form.sshKey.trim()) body.sshKey = form.sshKey;
+  }
   return body;
+}
+
+export function repoCreatePayload(form: RepoFormState): Record<string, unknown> {
+  return { ...repoFormToPayload(form), origin: form.origin };
 }
 
 export function RepoFormFields({
@@ -102,31 +126,59 @@ export function RepoFormFields({
         placeholder="acme-web"
         autoFocus={mode === "create"}
       />
-      <Input
-        label="Clone URL"
-        value={form.gitUrl}
-        onChange={(e) => patch({ gitUrl: e.target.value })}
-        placeholder="https://github.com/acme/web.git  or  git@github.com:acme/web.git"
-      />
+      {mode === "create" && (
+        <OriginChoice value={form.origin} onChange={(origin) => patch({ origin })} />
+      )}
+
+      <Select
+        label="Mostly holds"
+        value={form.kind}
+        onChange={(e) => patch({ kind: e.target.value as RepositoryKind })}
+      >
+        <option value="code">Code</option>
+        <option value="documents">Documents</option>
+      </Select>
+      <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
+        A hint, not a restriction — any file can live in either. It decides whether the editor opens
+        rendered or raw, and how an AI employee is briefed when it works here.
+      </p>
+
+      {form.origin === "remote" && (
+        <Input
+          label="Clone URL"
+          value={form.gitUrl}
+          onChange={(e) => patch({ gitUrl: e.target.value })}
+          placeholder="https://github.com/acme/web.git  or  git@github.com:acme/web.git"
+        />
+      )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input
-          label="Default branch"
+          label={form.origin === "local" ? "Starting branch" : "Default branch"}
           value={form.defaultBranch}
           onChange={(e) => patch({ defaultBranch: e.target.value })}
           placeholder="main"
         />
-        <Select
-          label="Authentication"
-          value={form.authMode}
-          onChange={(e) => patch({ authMode: e.target.value as CodeRepoAuthMode })}
-        >
-          <option value="none">None / GitHub Connection</option>
-          <option value="https">HTTPS token / password</option>
-          <option value="ssh">SSH private key</option>
-        </Select>
+        {form.origin === "remote" && (
+          <Select
+            label="Authentication"
+            value={form.authMode}
+            onChange={(e) => patch({ authMode: e.target.value as RepositoryAuthMode })}
+          >
+            <option value="none">None / GitHub Connection</option>
+            <option value="https">HTTPS token / password</option>
+            <option value="ssh">SSH private key</option>
+          </Select>
+        )}
       </div>
 
-      {form.authMode === "none" && (
+      {form.origin === "local" && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Genosyn creates an empty git repository and keeps the history itself. There is nothing to
+          authenticate to. You can add a clone URL later in settings to start publishing it.
+        </p>
+      )}
+
+      {form.origin === "remote" && form.authMode === "none" && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
           Public repositories clone anonymously. For an HTTPS GitHub URL, Genosyn automatically
           reuses a matching GitHub Connection granted to the same AI employee for server-owned clone
@@ -134,7 +186,7 @@ export function RepoFormFields({
         </p>
       )}
 
-      {form.authMode === "https" && (
+      {form.origin === "remote" && form.authMode === "https" && (
         <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-800/30">
           <Input
             label="Username"
@@ -161,7 +213,7 @@ export function RepoFormFields({
         </div>
       )}
 
-      {form.authMode === "ssh" && (
+      {form.origin === "remote" && form.authMode === "ssh" && (
         <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-800/30">
           <Textarea
             label={
@@ -209,6 +261,63 @@ export function RepoFormFields({
   );
 }
 
+/**
+ * Connect an existing repository, or start an empty one.
+ *
+ * Offered only at create time. Afterwards the choice is expressed by whether
+ * the repository has a clone URL, which the settings page edits directly —
+ * two controls that could disagree about the same fact would be worse than
+ * one.
+ */
+function OriginChoice({
+  value,
+  onChange,
+}: {
+  value: RepositoryOrigin;
+  onChange: (next: RepositoryOrigin) => void;
+}) {
+  const options: { value: RepositoryOrigin; title: string; blurb: string }[] = [
+    {
+      value: "remote",
+      title: "Connect a repository",
+      blurb: "Clone an existing repo from GitHub, GitLab, Bitbucket, or your own server.",
+    },
+    {
+      value: "local",
+      title: "Start an empty one",
+      blurb: "Genosyn keeps the history. No git host, no credentials — good for documents.",
+    },
+  ];
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {options.map((option) => {
+        const selected = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            aria-pressed={selected}
+            className={
+              "rounded-xl border px-4 py-3 text-left transition " +
+              (selected
+                ? "border-indigo-300 bg-indigo-50/60 dark:border-indigo-700 dark:bg-indigo-500/10"
+                : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600")
+            }
+          >
+            <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
+              {option.title}
+            </span>
+            <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+              {option.blurb}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function RepoFormModal({
   open,
   company,
@@ -218,7 +327,7 @@ export function RepoFormModal({
   open: boolean;
   company: Company;
   onClose: () => void;
-  onSaved: (row: CodeRepository) => void;
+  onSaved: (row: Repository) => void;
 }) {
   const { toast } = useToast();
   const [form, setForm] = React.useState<RepoFormState>(emptyRepoForm());
@@ -236,23 +345,25 @@ export function RepoFormModal({
       toast("Give the repository a name.", "error");
       return;
     }
-    if (!form.gitUrl.trim()) {
+    // A local repository has nothing to clone from and nothing to authenticate
+    // to, so none of the remote checks apply to it.
+    if (form.origin === "remote" && !form.gitUrl.trim()) {
       toast("Add a clone URL.", "error");
       return;
     }
-    if (form.authMode === "https" && !form.token.trim()) {
+    if (form.origin === "remote" && form.authMode === "https" && !form.token.trim()) {
       toast("HTTPS auth needs a token or password.", "error");
       return;
     }
-    if (form.authMode === "ssh" && !form.sshKey.trim()) {
+    if (form.origin === "remote" && form.authMode === "ssh" && !form.sshKey.trim()) {
       toast("SSH auth needs a private key.", "error");
       return;
     }
     setBusy(true);
     try {
-      const row = await api.post<CodeRepository>(
-        `/api/companies/${company.id}/code-repositories`,
-        repoFormToPayload(form),
+      const row = await api.post<Repository>(
+        `/api/companies/${company.id}/repositories`,
+        repoCreatePayload(form),
       );
       toast("Repository added", "success");
       onSaved(row);

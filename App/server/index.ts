@@ -58,7 +58,8 @@ import { emailLogsRouter } from "./routes/emailLogs.js";
 import { notebooksRouter } from "./routes/notebooks.js";
 import { notesRouter } from "./routes/notes.js";
 import { resourcesRouter } from "./routes/resources.js";
-import { codeRepositoriesRouter } from "./routes/codeRepositories.js";
+import { repositoriesRouter } from "./routes/repositories.js";
+import { repositoryContentRouter } from "./routes/repositoryContent.js";
 import { financeRouter } from "./routes/finance.js";
 import { cardExpensesRouter } from "./routes/cardExpenses.js";
 import { contractsRouter } from "./routes/contracts.js";
@@ -358,10 +359,11 @@ async function main() {
   // upload PDFs / EPUBs; AI employees query the result via MCP tools.
   app.use("/api/companies/:cid", resourcesRouter);
 
-  // Code Repositories — provider-agnostic git repos the company adds so
+  // Repositories — provider-agnostic git repos the company adds so
   // granted AI employees can read, commit, and push real code. Checkouts are
   // materialized into the employee cwd before each spawn (services/codeRepos).
-  app.use("/api/companies/:cid", codeRepositoriesRouter);
+  app.use("/api/companies/:cid", repositoriesRouter);
+  app.use("/api/companies/:cid", repositoryContentRouter);
 
   // Finance (M19 Phase A) — Customers, Products, Tax rates, Invoices.
   // Native invoicing with HTML render + email send via the company's

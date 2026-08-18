@@ -59,8 +59,9 @@ import { Handoff } from "./entities/Handoff.js";
 import { ApiKey } from "./entities/ApiKey.js";
 import { Resource } from "./entities/Resource.js";
 import { EmployeeResourceGrant } from "./entities/EmployeeResourceGrant.js";
-import { CodeRepository } from "./entities/CodeRepository.js";
-import { EmployeeCodeRepositoryGrant } from "./entities/EmployeeCodeRepositoryGrant.js";
+import { Repository } from "./entities/Repository.js";
+import { RepositoryWorkSession } from "./entities/RepositoryWorkSession.js";
+import { EmployeeRepositoryGrant } from "./entities/EmployeeRepositoryGrant.js";
 import { EmployeeFinanceGrant } from "./entities/EmployeeFinanceGrant.js";
 import { Customer } from "./entities/Customer.js";
 import { CustomerContact } from "./entities/CustomerContact.js";
@@ -239,8 +240,9 @@ const entities = [
   ApiKey,
   Resource,
   EmployeeResourceGrant,
-  CodeRepository,
-  EmployeeCodeRepositoryGrant,
+  Repository,
+  RepositoryWorkSession,
+  EmployeeRepositoryGrant,
   EmployeeFinanceGrant,
   Customer,
   CustomerContact,

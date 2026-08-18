@@ -29,9 +29,9 @@ describe("bubblewrap cwd confinement", () => {
     assert.equal(valueAfter(root, "--chdir"), "/workspace");
 
     const nested = buildBubblewrapCommandArgs(
-      options({ cwd: "/srv/genosyn/employee/code-repos/acme/app" }),
+      options({ cwd: "/srv/genosyn/employee/repositories/acme/app" }),
     );
-    assert.equal(valueAfter(nested, "--chdir"), "/workspace/code-repos/acme/app");
+    assert.equal(valueAfter(nested, "--chdir"), "/workspace/repositories/acme/app");
   });
 
   test("rejects parent escapes, absolute siblings, and prefix collisions", () => {

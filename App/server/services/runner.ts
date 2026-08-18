@@ -15,7 +15,7 @@ import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { materializeReposForEmployee } from "./repoSync.js";
-import { composeCodeReposContext, materializeCodeReposForEmployee } from "./codeRepos.js";
+import { composeRepositoriesContext, materializeRepositoriesForEmployee } from "./repositories.js";
 import { composeFinanceContext } from "./financeGrants.js";
 import { composeSigningContext } from "./signing.js";
 import { composeRevenueContext } from "./revenue/grants.js";
@@ -304,8 +304,8 @@ export async function startRoutineRun(
       ];
       const repositoryMaterializationAllowed = shouldMaterializeRepositoriesForTurn(model.authMode);
       const memoryContext = await composeMemoryContext(emp.id);
-      const codeReposContext = repositoryMaterializationAllowed
-        ? await composeCodeReposContext(emp.id)
+      const repositoriesContext = repositoryMaterializationAllowed
+        ? await composeRepositoriesContext(emp.id)
         : "";
       const financeContext = await composeFinanceContext(emp.id);
       const [signingContext, revenueContext, marketingContext] = await Promise.all([
@@ -322,7 +322,7 @@ export async function startRoutineRun(
         emp,
         skills,
         memoryContext,
-        codeReposContext,
+        repositoriesContext,
         financeContext,
         signingContext,
         revenueContext,
@@ -362,15 +362,15 @@ export async function startRoutineRun(
         }
         for (const e of repoSync.errors) log.line(`[repos] ${e.scope}: ${e.message}`);
 
-        const codeRepoSync = await materializeCodeReposForEmployee({
+        const repositorySync = await materializeRepositoriesForEmployee({
           employeeId: emp.id,
           cwd,
           githubRepoCredentials: repoSync.githubRepoCredentials,
         });
-        for (const r of codeRepoSync.repos) {
-          log.line(`[code-repos] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`);
+        for (const r of repositorySync.repos) {
+          log.line(`[repositories] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`);
         }
-        for (const e of codeRepoSync.errors) log.line(`[code-repos] ${e.scope}: ${e.message}`);
+        for (const e of repositorySync.errors) log.line(`[repositories] ${e.scope}: ${e.message}`);
       } else {
         log.line("[repos] automatic repository sync is disabled for this Run");
       }

@@ -43,7 +43,7 @@ const sectionRepresentatives: Record<string, string[]> = {
   dataAndKnowledge: [
     "client/pages/BaseRecordPage.tsx",
     "client/pages/ResourcesIndex.tsx",
-    "client/pages/CodeReposIndex.tsx",
+    "client/pages/RepositoriesIndex.tsx",
     "client/pages/ExploreIndex.tsx",
   ],
   customersAndGrowth: [

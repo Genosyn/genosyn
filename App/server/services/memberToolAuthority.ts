@@ -56,6 +56,19 @@ const MEMBER_TOOLS = [
   "request_decision",
   "list_decisions",
   "cancel_decision",
+  // The repository work-session tools are bounded by the session on the turn's
+  // MCP token, not by their arguments: they act on one worktree, they have no
+  // parameter for reaching another repository, and outside a session they
+  // refuse to run at all. The authority decision was already made when a
+  // Member started the session from the Repository page, so intersecting it a
+  // second time here would only mean the tools fail mid-turn. Repository
+  // *configuration* stays admin-only, and nothing here can reach the remote.
+  "repository_list_files",
+  "repository_read_file",
+  "repository_write_file",
+  "repository_delete_file",
+  "repository_search",
+  "repository_commit",
   "list_notebooks",
   "list_notes",
   "search_notes",
@@ -238,7 +251,7 @@ const ADMIN_TOOLS = [
   "update_vault_login",
   // Code workspaces, raw data-source access, and generated files have no
   // Member-level Grant model. Their human management surfaces are privileged.
-  "list_code_repositories",
+  "list_repositories",
   "send_chat_attachment",
   "list_explore_connections",
   "get_explore_schema",

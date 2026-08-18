@@ -5,13 +5,13 @@ import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { config } from "../../config.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { CodeRepository } from "../db/entities/CodeRepository.js";
-import type { CodeRepoAuthMode } from "../db/entities/CodeRepository.js";
+import { Repository } from "../db/entities/Repository.js";
+import type { RepositoryAuthMode } from "../db/entities/Repository.js";
 import {
-  EmployeeCodeRepositoryGrant,
-  CODE_REPO_ACCESS_RANK,
-} from "../db/entities/EmployeeCodeRepositoryGrant.js";
-import type { CodeRepoAccessLevel } from "../db/entities/EmployeeCodeRepositoryGrant.js";
+  EmployeeRepositoryGrant,
+  REPOSITORY_ACCESS_RANK,
+} from "../db/entities/EmployeeRepositoryGrant.js";
+import type { RepositoryAccessLevel } from "../db/entities/EmployeeRepositoryGrant.js";
 import { encryptSecret, decryptSecret } from "../lib/secret.js";
 import { toSlug } from "../lib/slug.js";
 import {
@@ -24,23 +24,23 @@ import type { GithubRepoCredential } from "./repoSync.js";
 import { runWorkspaceGit } from "./workspaceGit.js";
 import { cloneWorkspaceGitRemote, fetchWorkspaceGitRemote } from "./workspaceGitRemote.js";
 import {
-  persistCodeRepoKnownHosts,
-  purgeLegacyCodeRepoSshFiles,
-  readCodeRepoKnownHosts,
-} from "./codeRepoSshFiles.js";
+  persistRepositoryKnownHosts,
+  purgeLegacyRepositorySshFiles,
+  readRepositoryKnownHosts,
+} from "./repositorySshFiles.js";
 
 /**
- * Code Repository seam — the provider-agnostic cousin of `repoSync.ts`.
+ * Repository seam — the provider-agnostic cousin of `repoSync.ts`.
  *
  * Where `repoSync` materializes repos that ride on a GitHub *Connection*
  * (OAuth / App / PAT) and an allowlist, this module materializes
- * first-class **Code Repository** rows the company added directly: any
+ * first-class **Repository** rows the company added directly: any
  * HTTPS or SSH git URL, with credentials stored encrypted on the row and
- * access handed out per-employee via {@link EmployeeCodeRepositoryGrant}.
+ * access handed out per-employee via {@link EmployeeRepositoryGrant}.
  *
  * Before each chat / routine spawn the runner calls
- * {@link materializeCodeReposForEmployee}, which drops a real `git clone`
- * of every granted repo into `<employeeDir>/code-repos/<slug>/`. As in
+ * {@link materializeRepositoriesForEmployee}, which drops a real `git clone`
+ * of every granted repo into `<employeeDir>/repositories/<slug>/`. As in
  * `repoSync`, we only ever `fetch` on an existing
  * checkout (never `reset --hard`) so the employee's WIP between spawns is
  * never trampled.
@@ -52,8 +52,8 @@ import {
 
 // ───────────────────────────── slugs ────────────────────────────────────
 
-export async function uniqueCodeRepoSlug(companyId: string, base: string): Promise<string> {
-  const repo = AppDataSource.getRepository(CodeRepository);
+export async function uniqueRepositorySlug(companyId: string, base: string): Promise<string> {
+  const repo = AppDataSource.getRepository(Repository);
   const root = toSlug(base) || "repo";
   let slug = root;
   let n = 1;
@@ -70,7 +70,12 @@ export function encryptRepoSecret(plaintext: string, companyId: string): string 
   return encryptSecret(plaintext, `company:${companyId}`);
 }
 
-function tryDecrypt(blob: string | null): string | null {
+/**
+ * Decrypt a stored repository credential, or null when there is none and when
+ * the blob no longer decrypts — a lost or rotated instance encryption key
+ * should surface as "re-enter the credential", not as a crash.
+ */
+export function decryptRepositorySecret(blob: string | null): string | null {
   if (!blob) return null;
   try {
     return decryptSecret(blob);
@@ -81,7 +86,7 @@ function tryDecrypt(blob: string | null): string | null {
 
 /** What the client is allowed to know about a repo's stored credentials —
  *  never the secret itself, only whether one is present. */
-export function credentialSummary(repo: CodeRepository): {
+export function credentialSummary(repo: Repository): {
   hasToken: boolean;
   hasSshKey: boolean;
 } {
@@ -93,13 +98,13 @@ export function credentialSummary(repo: CodeRepository): {
 
 // ───────────────────────────── grants ───────────────────────────────────
 
-export async function upsertCodeRepoGrant(
+export async function upsertRepositoryGrant(
   employeeId: string,
-  codeRepositoryId: string,
-  accessLevel: CodeRepoAccessLevel,
-): Promise<EmployeeCodeRepositoryGrant> {
-  const repo = AppDataSource.getRepository(EmployeeCodeRepositoryGrant);
-  const existing = await repo.findOneBy({ employeeId, codeRepositoryId });
+  repositoryId: string,
+  accessLevel: RepositoryAccessLevel,
+): Promise<EmployeeRepositoryGrant> {
+  const repo = AppDataSource.getRepository(EmployeeRepositoryGrant);
+  const existing = await repo.findOneBy({ employeeId, repositoryId });
   if (existing) {
     if (existing.accessLevel !== accessLevel) {
       existing.accessLevel = accessLevel;
@@ -107,37 +112,37 @@ export async function upsertCodeRepoGrant(
     }
     return existing;
   }
-  const row = repo.create({ employeeId, codeRepositoryId, accessLevel });
+  const row = repo.create({ employeeId, repositoryId, accessLevel });
   await repo.save(row);
   return row;
 }
 
-export async function listDirectCodeRepoGrants(
-  codeRepositoryId: string,
-): Promise<EmployeeCodeRepositoryGrant[]> {
-  return AppDataSource.getRepository(EmployeeCodeRepositoryGrant).find({
-    where: { codeRepositoryId },
+export async function listDirectRepositoryGrants(
+  repositoryId: string,
+): Promise<EmployeeRepositoryGrant[]> {
+  return AppDataSource.getRepository(EmployeeRepositoryGrant).find({
+    where: { repositoryId },
     order: { createdAt: "ASC" },
   });
 }
 
-export async function deleteGrantsForCodeRepo(codeRepositoryId: string): Promise<void> {
-  await AppDataSource.getRepository(EmployeeCodeRepositoryGrant).delete({
-    codeRepositoryId,
+export async function deleteGrantsForRepository(repositoryId: string): Promise<void> {
+  await AppDataSource.getRepository(EmployeeRepositoryGrant).delete({
+    repositoryId,
   });
 }
 
-export async function hasCodeRepoAccess(
+export async function hasRepositoryAccess(
   employeeId: string,
-  codeRepositoryId: string,
-  required: CodeRepoAccessLevel,
+  repositoryId: string,
+  required: RepositoryAccessLevel,
 ): Promise<boolean> {
-  const grant = await AppDataSource.getRepository(EmployeeCodeRepositoryGrant).findOneBy({
+  const grant = await AppDataSource.getRepository(EmployeeRepositoryGrant).findOneBy({
     employeeId,
-    codeRepositoryId,
+    repositoryId,
   });
   if (!grant) return false;
-  return CODE_REPO_ACCESS_RANK[grant.accessLevel] >= CODE_REPO_ACCESS_RANK[required];
+  return REPOSITORY_ACCESS_RANK[grant.accessLevel] >= REPOSITORY_ACCESS_RANK[required];
 }
 
 // ─────────────────────────── git plumbing ───────────────────────────────
@@ -163,7 +168,7 @@ async function runGit(
   });
 }
 
-function httpsUsernameOf(repo: CodeRepository): string {
+function httpsUsernameOf(repo: Repository): string {
   const u = (repo.httpsUsername ?? "").trim();
   // Most hosts accept any non-empty username with a token-as-password
   // (GitHub, Gitea). GitLab wants "oauth2", Bitbucket wants the real
@@ -210,56 +215,56 @@ function withMutex<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
 const NO_PUSH_URL = "DISABLED-read-only-grant.invalid";
 
-export type SyncedCodeRepo = {
-  codeRepositoryId: string;
+export type SyncedRepository = {
+  repositoryId: string;
   name: string;
   slug: string;
   defaultBranch: string;
-  accessLevel: CodeRepoAccessLevel;
+  accessLevel: RepositoryAccessLevel;
   /** Absolute path to the materialized checkout. */
   path: string;
 };
 
-export type CodeRepoSyncError = { scope: string; message: string };
+export type RepositorySyncError = { scope: string; message: string };
 
-export type CodeRepoSyncResult = {
+export type RepositorySyncResult = {
   /** Reserved compatibility field. Repository credentials are never exported
    * to the model tool environment, so this is always empty. */
   extraEnv: Record<string, string>;
-  repos: SyncedCodeRepo[];
-  errors: CodeRepoSyncError[];
+  repos: SyncedRepository[];
+  errors: RepositorySyncError[];
 };
 
 /**
- * Materialize every Code Repository the employee has been granted into
- * `<cwd>/code-repos/<slug>/`. Returns env vars for HTTPS tokens, the list of
+ * Materialize every Repository the employee has been granted into
+ * `<cwd>/repositories/<slug>/`. Returns env vars for HTTPS tokens, the list of
  * synced repos (so callers can log / inject context), and non-fatal errors.
  */
-export async function materializeCodeReposForEmployee(args: {
+export async function materializeRepositoriesForEmployee(args: {
   employeeId: string;
   cwd: string;
   /** Credentials resolved from this employee's granted GitHub Connections
    * earlier in the same turn. */
   githubRepoCredentials?: GithubRepoCredential[];
-}): Promise<CodeRepoSyncResult> {
-  const result: CodeRepoSyncResult = { extraEnv: {}, repos: [], errors: [] };
+}): Promise<RepositorySyncResult> {
+  const result: RepositorySyncResult = { extraEnv: {}, repos: [], errors: [] };
   if (config.security.multiTenant) return result;
 
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
     id: args.employeeId,
   });
   if (!employee) return result;
-  purgeLegacyCodeRepoSshFiles(args.cwd);
+  purgeLegacyRepositorySshFiles(args.cwd);
 
-  const grants = await AppDataSource.getRepository(EmployeeCodeRepositoryGrant).find({
+  const grants = await AppDataSource.getRepository(EmployeeRepositoryGrant).find({
     where: { employeeId: args.employeeId },
   });
   if (grants.length === 0) return result;
 
-  const repoRepo = AppDataSource.getRepository(CodeRepository);
+  const repoRepo = AppDataSource.getRepository(Repository);
   for (const grant of grants) {
     const repoRow = await repoRepo.findOneBy({
-      id: grant.codeRepositoryId,
+      id: grant.repositoryId,
       companyId: employee.companyId,
     });
     if (!repoRow) continue;
@@ -292,14 +297,14 @@ export async function materializeCodeReposForEmployee(args: {
 }
 
 async function syncOneRepo(
-  repo: CodeRepository,
-  accessLevel: CodeRepoAccessLevel,
+  repo: Repository,
+  accessLevel: RepositoryAccessLevel,
   employee: AIEmployee,
   cwd: string,
-  result: CodeRepoSyncResult,
+  result: RepositorySyncResult,
   githubRepoCredentials: GithubRepoCredential[],
 ): Promise<void> {
-  const repoPath = path.join(cwd, "code-repos", repo.slug);
+  const repoPath = path.join(cwd, "repositories", repo.slug);
   const isCheckout = fs.existsSync(path.join(repoPath, ".git"));
 
   // Resolve auth material up front so we can build the right clone command
@@ -308,9 +313,9 @@ async function syncOneRepo(
     repo.authMode === "none" ? findGithubRepoCredential(repo.gitUrl, githubRepoCredentials) : null;
   const token =
     repo.authMode === "https"
-      ? tryDecrypt(repo.encryptedToken)
+      ? decryptRepositorySecret(repo.encryptedToken)
       : (linkedGithubCredential?.token ?? null);
-  const sshKey = repo.authMode === "ssh" ? tryDecrypt(repo.encryptedSshKey) : null;
+  const sshKey = repo.authMode === "ssh" ? decryptRepositorySecret(repo.encryptedSshKey) : null;
   if (repo.authMode === "https" && !token) {
     throw new Error(
       "HTTPS token is missing or could not be decrypted. Re-enter it in the repository settings.",
@@ -333,7 +338,7 @@ async function syncOneRepo(
     repo.authMode === "ssh" && sshKey
       ? {
           privateKey: sshKey,
-          knownHosts: readCodeRepoKnownHosts(employee.companyId, employee.id),
+          knownHosts: readRepositoryKnownHosts(employee.companyId, employee.id),
         }
       : undefined;
   let syncedKnownHosts: string | undefined;
@@ -369,7 +374,7 @@ async function syncOneRepo(
   }
 
   if (syncedKnownHosts !== undefined) {
-    persistCodeRepoKnownHosts(employee.companyId, employee.id, syncedKnownHosts);
+    persistRepositoryKnownHosts(employee.companyId, employee.id, syncedKnownHosts);
   }
 
   // The checkout is model-writable. Remove reusable helpers and key paths left
@@ -393,7 +398,7 @@ async function syncOneRepo(
   await runGit(cwd, repoPath, ["config", "--local", "user.email", committerEmail]);
 
   result.repos.push({
-    codeRepositoryId: repo.id,
+    repositoryId: repo.id,
     name: repo.name,
     slug: repo.slug,
     defaultBranch: repo.defaultBranch,
@@ -405,7 +410,7 @@ async function syncOneRepo(
 /**
  * Match an HTTPS GitHub remote to the credential for the same allowlisted
  * owner/repository. When the employee has exactly one granted GitHub
- * Connection, the Code Repository grant itself is the repo boundary and that
+ * Connection, the Repository grant itself is the repo boundary and that
  * sole Connection is the safe fallback even when it has no M12 allowlist.
  * GitHub paths are case-insensitive; non-GitHub and SSH remotes deliberately
  * do not match because PATs authenticate HTTPS only.
@@ -459,7 +464,7 @@ export type TestConnectionResult = {
  * authenticate, and the remote's default branch, before the operator grants
  * an employee access.
  */
-export async function testCodeRepoConnection(repo: CodeRepository): Promise<TestConnectionResult> {
+export async function testRepositoryConnection(repo: Repository): Promise<TestConnectionResult> {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-repo-"));
   try {
     assertSafeGitRemoteUrl(repo.gitUrl);
@@ -467,7 +472,7 @@ export async function testCodeRepoConnection(repo: CodeRepository): Promise<Test
     let credentialHelper: string | undefined;
 
     if (repo.authMode === "https") {
-      const token = tryDecrypt(repo.encryptedToken);
+      const token = decryptRepositorySecret(repo.encryptedToken);
       if (!token) {
         return {
           ok: false,
@@ -484,7 +489,7 @@ export async function testCodeRepoConnection(repo: CodeRepository): Promise<Test
       env[envKey] = token;
       credentialHelper = inlineEnvCredentialHelper(httpsUsernameOf(repo), envKey, repo.gitUrl);
     } else if (repo.authMode === "ssh") {
-      const key = tryDecrypt(repo.encryptedSshKey);
+      const key = decryptRepositorySecret(repo.encryptedSshKey);
       if (!key) {
         return { ok: false, message: "No SSH key is set. Add one and try again." };
       }
@@ -518,20 +523,20 @@ export async function testCodeRepoConnection(repo: CodeRepository): Promise<Test
   }
 }
 
-export const CODE_REPO_AUTH_MODES: CodeRepoAuthMode[] = ["none", "https", "ssh"];
+export const REPOSITORY_AUTH_MODES: RepositoryAuthMode[] = ["none", "https", "ssh"];
 
 // ──────────────────────── prompt context ────────────────────────────────
 
 /**
- * A ready-made markdown section listing the Code Repositories this employee
+ * A ready-made markdown section listing the Repositories this employee
  * can work on and where each is checked out. Injected
  * into the chat / routine prompt so the agent knows the working trees exist
  * without exposing repository credentials. Returns "" when the
  * employee has no repo grants.
  */
-export async function composeCodeReposContext(employeeId: string): Promise<string> {
+export async function composeRepositoriesContext(employeeId: string): Promise<string> {
   if (config.security.multiTenant) return "";
-  const grants = await AppDataSource.getRepository(EmployeeCodeRepositoryGrant).find({
+  const grants = await AppDataSource.getRepository(EmployeeRepositoryGrant).find({
     where: { employeeId },
   });
   if (grants.length === 0) return "";
@@ -541,20 +546,20 @@ export async function composeCodeReposContext(employeeId: string): Promise<strin
   });
   if (!employee) return "";
 
-  const repos = await AppDataSource.getRepository(CodeRepository).find({
+  const repos = await AppDataSource.getRepository(Repository).find({
     where: {
-      id: In(grants.map((g) => g.codeRepositoryId)),
+      id: In(grants.map((g) => g.repositoryId)),
       companyId: employee.companyId,
     },
   });
-  const accessById = new Map(grants.map((g) => [g.codeRepositoryId, g.accessLevel]));
+  const accessById = new Map(grants.map((g) => [g.repositoryId, g.accessLevel]));
 
   const lines: string[] = [];
   for (const r of repos) {
     const level = accessById.get(r.id);
     const canPushWithoutCredential = level === "write" && r.authMode === "none";
     lines.push(
-      `- **${r.name}** — checked out at \`code-repos/${r.slug}/\` (default branch \`${r.defaultBranch}\`). ${
+      `- **${r.name}** — checked out at \`repositories/${r.slug}/\` (default branch \`${r.defaultBranch}\`). ${
         canPushWithoutCredential
           ? "You may commit and push if the remote accepts unauthenticated writes."
           : level === "write"
@@ -567,7 +572,7 @@ export async function composeCodeReposContext(employeeId: string): Promise<strin
 
   return [
     "",
-    "## Code Repositories",
+    "## Repositories",
     "You have real git checkouts of these repositories in your working directory. Use ordinary `git` to read, branch, edit, test, and commit. Repository credentials stay server-side and are never available to your shell or files; do not look for, print, or request tokens or private keys.",
     "When a teammate asks you to deliver a code change, create a focused branch, edit the files with your coding tools, run the relevant checks, and commit. For an authenticated remote, report the local branch and commit so a governed server-side or Member workflow can publish it; never claim a push or pull request exists unless the corresponding operation actually succeeded.",
     "",

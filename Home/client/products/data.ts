@@ -1436,109 +1436,117 @@ export const PRODUCTS: ProductDef[] = [
     ],
   },
 
-  // ─────────────────────────────────── Code ──────────────────────────────────
+  // ─────────────────────────────── Repositories ──────────────────────────────
   {
-    slug: "code",
-    name: "Code Repositories",
+    slug: "repositories",
+    name: "Repositories",
     category: "Engineering",
     icon: "gitBranch",
     accent: "bg-slate-100 text-slate-700 ring-slate-200",
-    tagline: "Enable real git checkouts for AI.",
-    taglineAccent: "Any git repo, per-employee grants, ordinary git.",
+    tagline: "Version control your team can actually use.",
+    taglineAccent: "Code or documents, edited in the browser, reviewed before it ships.",
     summary:
-      "With coding enabled, point at any git URL — GitHub, GitLab, Bitbucket, self-hosted — and grant chosen AI employees a live checkout for reference or local engineering work.",
-    seoTitle: "Code Repositories — Git access for AI · Genosyn",
+      "A Repository is any version-controlled workspace — a service's source, a quarter's strategy, a set of policies. Browse and edit it in the browser, commit, branch, and hand work to an AI Employee whose diff you review before it merges.",
+    seoTitle: "Repositories — Git workspaces for humans & AI · Genosyn",
     description:
-      "With coding enabled, give AI employees real git checkouts of any repo — GitHub, GitLab, Bitbucket, or self-hosted — with per-employee access and server-held encrypted credentials.",
+      "Version-controlled workspaces for code and documents. Edit files in the browser, commit and branch, and hand work to an AI Employee that commits to its own branch for you to review.",
     intro:
-      "Code Repositories make any git repo a first-class resource your AI employees can work on when coding execution is enabled — not read through an API. Granted employees get a live checkout and committer identity, while reusable repository credentials stay outside model-controlled tools. The standard Docker default does not materialize repos; Linux bubblewrap adds isolated repository work for eligible subscription models. AI prepares branches and commits for a governed publish step.",
+      "Not every repository is a codebase. A Repository is a real git repository your company owns — clone one from GitHub, GitLab, Bitbucket, or a self-hosted server, or create one empty inside Genosyn with no git host at all. Members browse and edit files in the browser, read the diff, and commit under their own name. AI Employees get their own isolated worktree, edit through Genosyn-executed tools rather than a shell, and commit to their own branch — which a human reviews and merges. It runs on the standard Docker install, with no coding tools and no sandbox required.",
     checks: [
-      "Any HTTPS or SSH clone URL",
-      "Reference-only or local work, per employee",
+      "Clone any git URL, or start one locally",
+      "Browser editor with diffs and history",
+      "AI work sessions you review before merging",
       "Credentials AES-256-GCM encrypted",
-      "Work survives between Runs",
     ],
     features: [
       {
-        icon: "gitBranch",
-        title: "Provider-agnostic",
-        body: "GitHub, GitLab, Bitbucket, Gitea, or any self-hosted server — register a clone URL over HTTPS or SSH. Distinct from the GitHub Integration, which drives issues and PRs via API; use both together.",
+        icon: "folderGit2",
+        title: "Code or documents",
+        body: "Mark a Repository as code or documents and the copy, editor defaults, and AI briefing follow. Underneath it is a plain git repository either way, so a quarter's strategy gets the same branches, diffs, and history as a service.",
       },
       {
-        icon: "keyRound",
-        title: "Grants with teeth",
-        body: "Access is opt-in per employee at two levels. Work locally lets an employee prepare branches and commits; reference-only keeps publishing disabled. Neither level exposes a reusable credential to model tools.",
+        icon: "gitFork",
+        title: "Remote or local",
+        body: "Clone any HTTPS or SSH URL — GitHub, GitLab, Bitbucket, self-hosted Gitea. Or create one empty with git init and no remote at all, for teams who want version control without a git host. Add a URL later to promote it.",
+      },
+      {
+        icon: "fileText",
+        title: "A real editor in the browser",
+        body: "Tree, editor, create, rename, move, delete. Per-file and whole-tree diffs, untracked files rendered as additions, and scoped discard. Commits are attributed to the Member who made them, not to the server.",
+      },
+      {
+        icon: "history",
+        title: "Branches and history",
+        body: "Create a branch from any revision, switch between them, and read the log for the repository or one file, each commit with its own diff. Open a file as it was at an older commit. Fast-forward pull and push for owners and admins.",
+      },
+      {
+        icon: "bot",
+        title: "AI work sessions",
+        body: "Describe the work, pick a granted AI Employee, and it runs in its own git worktree on its own branch — editing through six Genosyn-executed tools, never a shell. It commits and reports. You read the diff and merge, or discard it.",
       },
       {
         icon: "shieldCheck",
-        title: "Credentials handled right",
-        body: "Tokens and SSH keys encrypt at rest with AES-256-GCM, then exist only inside short-lived server-owned clone and refresh operations. They never enter the employee checkout, shell environment, or Git config.",
-      },
-      {
-        icon: "folderGit2",
-        title: "Checkouts that persist",
-        body: "With host or bubblewrap coding enabled, repos materialize into the employee's workspace before every chat and Routine Run, then only fetch between runs — never hard-reset. The branch an employee prepared yesterday is still there today.",
-      },
-      {
-        icon: "terminal",
-        title: "Ordinary git",
-        body: "No special editing API. Employees use built-in coding tools to checkout a branch, edit files, test, and commit. Committer identity stamps AI commits; a Member or governed action publishes them.",
-      },
-      {
-        icon: "activity",
-        title: "Tested before trusted",
-        body: "Test connection probes credentials with git ls-remote, auto-detects the default branch, and surfaces a health badge per repo — before you grant anyone access.",
+        title: "Nothing ships unreviewed",
+        body: "The checkout that holds credentials is unreachable by any model process. Tokens and SSH keys are AES-256-GCM encrypted, never returned to the client, and used only in the push path — which only an owner or admin can trigger.",
       },
     ],
     employees: {
-      heading: "AI engineers on your pipeline",
-      body: "Granted employees see a prompt-injected list of their repos, checkout paths, default branches, and handoff policy, plus a tool to enumerate them anytime. From there it's just engineering.",
+      heading: "An AI Employee that works like a colleague",
+      body: "Grant an employee a Repository and you can hand it a piece of work the way you would hand it to a person: describe the outcome, let it work in isolation, then read what it did before any of it lands.",
       bullets: [
         {
-          title: "Branch, test, commit",
-          body: "Work lands as local branches and commits your review pipeline already understands, ready for a Member or governed delivery flow to publish.",
+          title: "Isolated by construction",
+          body: "Each session gets its own git worktree and branch. Two sessions never collide, and an employee cannot reach the shared checkout, write into .git, or point a symlink out of the tree.",
         },
         {
-          title: "No racing checkouts",
-          body: "A per-employee, per-repo mutex stops concurrent runs from racing on the same working tree, and fetch-only refreshes preserve work in progress.",
+          title: "No shell required",
+          body: "List, read, write, delete, search, commit — six tools Genosyn runs on the employee's behalf. Repository work no longer waits on coding tools, bubblewrap, or host execution being switched on.",
         },
         {
-          title: "Identity you choose",
-          body: "Optional per-repo committer identity stamps the employee's commits — or it falls back to the employee's name and a derived noreply address.",
+          title: "A diff and a report",
+          body: "The session ends with commits on a branch and a short written report of what changed, what was left alone, and what could not be verified. Publish merges it; discard deletes the branch.",
         },
       ],
     },
     faqs: [
       {
-        q: "Does this only work with GitHub?",
-        a: "No. A Code Repository is provider-agnostic: point it at any HTTPS or SSH clone URL — GitHub, GitLab, Bitbucket, or a self-hosted server like Gitea. It's distinct from the GitHub Integration, which calls the GitHub API for issues and PRs; you can use both together.",
+        q: "Is this only for source code?",
+        a: "No. A Repository is any version-controlled workspace — a service's source, a quarter's strategy, a set of operating policies. The kind field (code or documents) changes the copy, the editor defaults, and how an AI Employee is briefed; underneath, every Repository is a plain git repository.",
       },
       {
-        q: "Can I control which AI employees can touch a repo?",
-        a: "Yes — access is opt-in per employee. Adding a repository exposes it to no AI employee until you grant access. Work locally authorizes a local deliverable; reference-only keeps publication disabled, and neither exposes repository credentials to model tools.",
+        q: "Do I need a GitHub account, or any git host?",
+        a: "No. A local Repository is created empty inside Genosyn with git init and never leaves your server. A remote Repository clones any HTTPS or SSH URL — GitHub, GitLab, Bitbucket, or a self-hosted server. A local one can be given a clone URL later, which promotes it to remote.",
+      },
+      {
+        q: "Do I need coding tools or a sandbox enabled?",
+        a: "Not for this. The browser editor and AI work sessions run against a server-owned checkout with no shell involved, so they work on the standard Docker install. The separate per-employee checkout — the one an employee uses with ordinary git during open-ended chat and Routine work — still needs coding execution enabled.",
+      },
+      {
+        q: "Can an AI Employee push straight to my remote?",
+        a: "No. It commits to its own branch in its own worktree. A Member reviews the diff and merges, and only an owner or admin can push. Credentials are used exclusively in that push path and never enter a tree a model can reach.",
+      },
+      {
+        q: "Who is allowed to do what?",
+        a: "Browsing, editing, committing, branching, and starting AI work sessions are open to any company Member. Pushing, pulling, and repository configuration — clone URL, credentials, and AI grants — require an owner or admin, because a local commit can be undone and a push cannot be recalled.",
       },
       {
         q: "How are my tokens and SSH keys stored?",
-        a: "Encrypted at rest with AES-256-GCM — the same protection as model API keys — and never shown back in plaintext. They are decrypted only inside short-lived server-owned clone and refresh operations, never into model tools or employee workspaces.",
-      },
-      {
-        q: "Will an employee's in-progress work get wiped between runs?",
-        a: "No. Existing checkouts are only fetched between runs, never hard-reset, and a per-employee, per-repo mutex stops concurrent runs racing on the same checkout. A local branch prepared in one Run is still there the next time the employee starts.",
+        a: "Encrypted at rest with AES-256-GCM, the same protection as model API keys, and never shown back in plaintext — the UI reports only whether a credential is set. An SSH key is written to an App-private temporary directory for exactly one operation and removed afterwards.",
       },
       {
         q: "What happens if I delete a repository in Genosyn?",
-        a: "Deleting revokes every employee grant; the remote repository itself is never touched.",
+        a: "It removes the grants, the work sessions, and the server-side checkout. A remote repository is never touched on its host. A local repository has no remote, so deleting it deletes the only copy of its history.",
       },
     ],
-    docsPath: "/docs/code",
+    docsPath: "/docs/repositories",
     keywords: [
-      "AI coding agent git access",
-      "give AI agent access to git repo",
+      "version control for documents",
+      "git repository web editor self-hosted",
       "AI employee edit and commit code",
+      "review AI code changes before merge",
       "self-hosted AI software engineer",
       "per-agent repository permissions",
-      "read-only git access for AI agents",
-      "autonomous coding agent git workflow",
+      "git without GitHub self-hosted",
     ],
   },
 ];

@@ -20,20 +20,20 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 
  * Humans (members) bypass this table entirely; it only governs the AI
  * surface.
  */
-export type CodeRepoAccessLevel = "read" | "write";
+export type RepositoryAccessLevel = "read" | "write";
 
-export const CODE_REPO_ACCESS_LEVELS: CodeRepoAccessLevel[] = ["read", "write"];
+export const REPOSITORY_ACCESS_LEVELS: RepositoryAccessLevel[] = ["read", "write"];
 
-export const CODE_REPO_ACCESS_RANK: Record<CodeRepoAccessLevel, number> = {
+export const REPOSITORY_ACCESS_RANK: Record<RepositoryAccessLevel, number> = {
   read: 0,
   write: 1,
 };
 
 @Entity("employee_code_repository_grants")
 @Index(["employeeId"])
-@Index(["codeRepositoryId"])
-@Index(["employeeId", "codeRepositoryId"], { unique: true })
-export class EmployeeCodeRepositoryGrant {
+@Index(["repositoryId"])
+@Index(["employeeId", "repositoryId"], { unique: true })
+export class EmployeeRepositoryGrant {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
@@ -41,10 +41,10 @@ export class EmployeeCodeRepositoryGrant {
   employeeId!: string;
 
   @Column({ type: "varchar" })
-  codeRepositoryId!: string;
+  repositoryId!: string;
 
   @Column({ type: "varchar", default: "write" })
-  accessLevel!: CodeRepoAccessLevel;
+  accessLevel!: RepositoryAccessLevel;
 
   @CreateDateColumn()
   createdAt!: Date;

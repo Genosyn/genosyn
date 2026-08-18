@@ -29,7 +29,7 @@ const KIND_LABELS: Record<SearchResultKind, string> = {
   resource: "Resource",
   chart: "Chart",
   dashboard: "Dashboard",
-  repo: "Code repository",
+  repository: "Repository",
   pipeline: "Pipeline",
   customer: "Customer",
 };

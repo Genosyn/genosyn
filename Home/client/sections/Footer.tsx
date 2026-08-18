@@ -9,7 +9,7 @@ const PRODUCT_LINKS = [
   ["Tasks", "/products/tasks"],
   ["Revenue", "/products/revenue"],
   ["Finance", "/products/finance"],
-  ["Code Repositories", "/products/code"],
+  ["Repositories", "/products/repositories"],
 ] as const;
 
 const RESOURCE_LINKS = [

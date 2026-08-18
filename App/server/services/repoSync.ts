@@ -182,10 +182,10 @@ async function syncConnection(
   const repos = readGithubRepos(cfg, connection.authMode);
   const envKey = envKeyFor(connection.id);
   if (repos.length === 0) {
-    // A first-class Code Repository grant is already a repository boundary.
+    // A first-class Repository grant is already a repository boundary.
     // Preserve this credential as a fallback when it is the employee's only
     // GitHub Connection, without exporting it into the bash env unless a
-    // matching Code Repository actually needs it.
+    // matching Repository actually needs it.
     result.githubRepoCredentials.push({
       connectionId: connection.id,
       owner: null,

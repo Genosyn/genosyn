@@ -9,7 +9,7 @@ export type TaggableResourceType =
   | "notebook"
   | "note"
   | "pipeline"
-  | "code_repository"
+  | "repository"
   | "chart"
   | "dashboard";
 

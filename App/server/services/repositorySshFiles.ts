@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { codeRepoPrivateCompanyDir, dataRoot, employeeCodeRepoKnownHostsFile } from "./paths.js";
+import { repositoryPrivateCompanyDir, dataRoot, employeeRepositoryKnownHostsFile } from "./paths.js";
 
 const MAX_KNOWN_HOSTS_BYTES = 1024 * 1024;
 
@@ -9,13 +9,17 @@ const MAX_KNOWN_HOSTS_BYTES = 1024 * 1024;
  * Read the host-key cache used by short-lived, server-owned SSH git commands.
  * No private key is ever persisted: the encrypted DB value is materialized
  * only inside workspaceGitRemote's App-private temporary directory.
+ *
+ * `scopeId` is whatever owns the cache — an AI Employee id for a materialized
+ * employee checkout, or a repository id for the App-owned workspace checkout.
+ * Both are UUIDs in one per-company directory, so they cannot collide.
  */
-export function readCodeRepoKnownHosts(companyId: string, employeeId: string): string | undefined {
-  const file = employeeCodeRepoKnownHostsFile(companyId, employeeId);
+export function readRepositoryKnownHosts(companyId: string, scopeId: string): string | undefined {
+  const file = employeeRepositoryKnownHostsFile(companyId, scopeId);
   try {
     const stat = fs.lstatSync(file);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
-      throw new Error("Code Repository known-host state is not a private regular file");
+      throw new Error("Repository known-host state is not a private regular file");
     }
     if (stat.size > MAX_KNOWN_HOSTS_BYTES) {
       throw new Error("SSH known-host data is too large.");
@@ -28,26 +32,26 @@ export function readCodeRepoKnownHosts(companyId: string, employeeId: string): s
   }
 }
 
-export function persistCodeRepoKnownHosts(
+export function persistRepositoryKnownHosts(
   companyId: string,
-  employeeId: string,
+  scopeId: string,
   value: string,
 ): void {
   if (Buffer.byteLength(value) > MAX_KNOWN_HOSTS_BYTES) {
     throw new Error("SSH known-host data is too large.");
   }
-  const directory = codeRepoPrivateCompanyDir(companyId);
+  const directory = repositoryPrivateCompanyDir(companyId);
   ensurePrivateDirectory(directory);
-  const file = employeeCodeRepoKnownHostsFile(companyId, employeeId);
+  const file = employeeRepositoryKnownHostsFile(companyId, scopeId);
   assertReplaceablePrivateFile(file);
-  const temporary = path.join(directory, `.${employeeId}.${randomUUID()}.tmp`);
+  const temporary = path.join(directory, `.${scopeId}.${randomUUID()}.tmp`);
   try {
     fs.writeFileSync(temporary, value, { encoding: "utf8", mode: 0o600, flag: "wx" });
     fs.renameSync(temporary, file);
     fs.chmodSync(file, 0o600);
     const stat = fs.lstatSync(file);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
-      throw new Error("Code Repository known-host state is not a private regular file");
+      throw new Error("Repository known-host state is not a private regular file");
     }
   } finally {
     fs.rmSync(temporary, { force: true });
@@ -55,8 +59,8 @@ export function persistCodeRepoKnownHosts(
 }
 
 /** Remove App-private repository state when an AI Employee is deleted. */
-export function removeCodeRepoPrivateStateForEmployee(companyId: string, employeeId: string): void {
-  fs.rmSync(employeeCodeRepoKnownHostsFile(companyId, employeeId), { force: true });
+export function removeRepositoryPrivateStateForEmployee(companyId: string, employeeId: string): void {
+  fs.rmSync(employeeRepositoryKnownHostsFile(companyId, employeeId), { force: true });
 }
 
 /**
@@ -64,8 +68,8 @@ export function removeCodeRepoPrivateStateForEmployee(companyId: string, employe
  * Hard-linked files fail closed: renaming or deleting the legacy name would
  * leave an arbitrary alias with the same private-key bytes.
  */
-export function purgeLegacyCodeRepoSshFiles(workspaceRoot: string): void {
-  const codeRepos = path.join(path.resolve(workspaceRoot), "code-repos");
+export function purgeLegacyRepositorySshFiles(workspaceRoot: string): void {
+  const codeRepos = path.join(path.resolve(workspaceRoot), "repositories");
   let codeReposStat: fs.Stats;
   try {
     codeReposStat = fs.lstatSync(codeRepos);
@@ -74,7 +78,7 @@ export function purgeLegacyCodeRepoSshFiles(workspaceRoot: string): void {
     throw error;
   }
   if (!codeReposStat.isDirectory() || codeReposStat.isSymbolicLink()) {
-    throw new Error("Legacy Code Repository directory is not a private directory");
+    throw new Error("Legacy Repository directory is not a private directory");
   }
 
   const legacy = path.join(codeRepos, ".ssh");
@@ -91,7 +95,7 @@ export function purgeLegacyCodeRepoSshFiles(workspaceRoot: string): void {
   }
   if (!legacyStat.isDirectory()) {
     if (legacyStat.isFile() && legacyStat.nlink !== 1) {
-      throw new Error("Legacy Code Repository SSH state has an unsafe hard link");
+      throw new Error("Legacy Repository SSH state has an unsafe hard link");
     }
     fs.rmSync(legacy, { force: true });
     return;
@@ -111,7 +115,7 @@ function assertNoHardLinkedFiles(directory: string): void {
       continue;
     }
     if (stat.isFile() && stat.nlink !== 1) {
-      throw new Error("Legacy Code Repository SSH state has an unsafe hard link");
+      throw new Error("Legacy Repository SSH state has an unsafe hard link");
     }
   }
 }
@@ -121,7 +125,7 @@ function ensurePrivateDirectory(directory: string): void {
   fs.mkdirSync(root, { recursive: true });
   const relative = path.relative(root, directory);
   if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`)) {
-    throw new Error("Code Repository private state must stay inside the App data directory");
+    throw new Error("Repository private state must stay inside the App data directory");
   }
   let current = root;
   for (const component of relative.split(path.sep)) {
@@ -129,14 +133,14 @@ function ensurePrivateDirectory(directory: string): void {
     try {
       const stat = fs.lstatSync(current);
       if (!stat.isDirectory() || stat.isSymbolicLink()) {
-        throw new Error("Code Repository private state is not a private directory");
+        throw new Error("Repository private state is not a private directory");
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       fs.mkdirSync(current, { mode: 0o700 });
       const stat = fs.lstatSync(current);
       if (!stat.isDirectory() || stat.isSymbolicLink()) {
-        throw new Error("Code Repository private state is not a private directory");
+        throw new Error("Repository private state is not a private directory");
       }
     }
     fs.chmodSync(current, 0o700);
@@ -147,7 +151,7 @@ function assertReplaceablePrivateFile(file: string): void {
   try {
     const stat = fs.lstatSync(file);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
-      throw new Error("Code Repository known-host state is not a private regular file");
+      throw new Error("Repository known-host state is not a private regular file");
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

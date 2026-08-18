@@ -82,12 +82,12 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     toolHints: ["list_dashboards", "get_dashboard", "create_dashboard"],
   },
   {
-    key: "code",
+    key: "repositories",
     label: "Code",
-    path: "/code",
-    description: "Granted code repositories",
+    path: "/repositories",
+    description: "Granted repositories",
     keywords: ["repository", "repo", "git", "engineering", "source"],
-    toolHints: ["list_code_repositories"],
+    toolHints: ["list_repositories"],
   },
   {
     key: "pipelines",

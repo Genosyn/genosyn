@@ -47,13 +47,47 @@ export function browserPrivateCompanyDir(companyId: string): string {
   return path.join(dataRoot(), ".private", "browser-state", companyId);
 }
 
-/** App-private SSH host-key cache for server-owned repository operations. */
-export function codeRepoPrivateCompanyDir(companyId: string): string {
+/**
+ * App-private SSH host-key cache for server-owned repository operations.
+ *
+ * The directory name still says `code-repository-ssh` after the Code →
+ * Repository rename. It is an on-disk path in every existing install and
+ * renaming it would strand those caches for no user-visible gain.
+ */
+export function repositoryPrivateCompanyDir(companyId: string): string {
   return path.join(dataRoot(), ".private", "code-repository-ssh", companyId);
 }
 
-export function employeeCodeRepoKnownHostsFile(companyId: string, employeeId: string): string {
-  return path.join(codeRepoPrivateCompanyDir(companyId), `${employeeId}.known_hosts`);
+/**
+ * Root of the App-owned checkout for one Repository — the working copy the
+ * web UI reads, edits, commits, and pushes from.
+ *
+ * It lives under `.private/` for the same reason browser state does: nothing
+ * a model can reach may ever write here. That is the whole basis on which
+ * this tree is allowed to hold a credentialed `origin` and to run Git without
+ * the coding-runtime gate (see `runWorkspaceGit`'s `serverOwned` option).
+ * Employee checkouts stay where they were, under the employee's own working
+ * directory, and are still materialized credential-free.
+ *
+ * Keyed by repository id rather than slug so a rename never orphans a
+ * checkout. The checkout itself is the `checkout/` child, leaving the parent
+ * free as the workspace root that clone/fetch pin their containment checks
+ * against.
+ */
+export function repositoryWorkspaceRoot(companyId: string, repositoryId: string): string {
+  return path.join(dataRoot(), ".private", "repositories", companyId, repositoryId);
+}
+
+export function repositoryWorkspaceCheckout(companyId: string, repositoryId: string): string {
+  return path.join(repositoryWorkspaceRoot(companyId, repositoryId), "checkout");
+}
+
+export function repositoryWorkspaceCompanyDir(companyId: string): string {
+  return path.join(dataRoot(), ".private", "repositories", companyId);
+}
+
+export function employeeRepositoryKnownHostsFile(companyId: string, employeeId: string): string {
+  return path.join(repositoryPrivateCompanyDir(companyId), `${employeeId}.known_hosts`);
 }
 
 /** Pre-1.94 location, used only for one-way secure migration and cleanup. */

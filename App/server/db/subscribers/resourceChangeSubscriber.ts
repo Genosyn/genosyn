@@ -131,8 +131,9 @@ const REGISTRY: Record<string, Mapping> = {
     scopeFk: "dashboardId",
   },
 
-  // ── Code repositories ────────────────────────────────────────────────────
-  CodeRepository: { kind: "coderepo", company: "direct" },
+  // ── Repositories ────────────────────────────────────────────────────
+  Repository: { kind: "repository", company: "direct" },
+  RepositoryWorkSession: { kind: "repository", company: "direct", scopeFk: "repositoryId" },
 
   // ── Pipelines ────────────────────────────────────────────────────────────
   Pipeline: { kind: "pipeline", company: "direct" },
@@ -246,7 +247,7 @@ const REGISTRY: Record<string, Mapping> = {
     company: { fk: "employeeId", parent: "AIEmployee" },
     scopeFk: "employeeId",
   },
-  EmployeeCodeRepositoryGrant: {
+  EmployeeRepositoryGrant: {
     kind: "grant",
     company: { fk: "employeeId", parent: "AIEmployee" },
     scopeFk: "employeeId",

@@ -6,6 +6,7 @@ import {
   Check,
   CheckCircle2,
   CircleDot,
+  FileCode,
   Code2,
   FolderGit2,
   GitBranch,
@@ -16,22 +17,22 @@ import {
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useLiveRefetch } from "../components/CompanySocket";
-import { api, CodeRepoGrant, CodeRepoGrantsResponse, CodeRepoTestResult } from "../lib/api";
-import { SyncBadge } from "./CodeReposIndex";
-import { useCodeReposContext } from "./CodeReposLayout";
+import { api, RepositoryGrant, RepositoryGrantsResponse, RepositoryTestResult } from "../lib/api";
+import { SyncBadge } from "./RepositoriesIndex";
+import { useRepositoriesContext } from "./RepositoriesLayout";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
 
-export default function CodeRepoOverview() {
-  const { company, repo, reload } = useCodeReposContext();
+export default function RepositoryOverview() {
+  const { company, repo, reload } = useRepositoriesContext();
   const [testing, setTesting] = React.useState(false);
-  const [testResult, setTestResult] = React.useState<CodeRepoTestResult | null>(null);
-  const [grants, setGrants] = React.useState<CodeRepoGrant[] | null>(null);
+  const [testResult, setTestResult] = React.useState<RepositoryTestResult | null>(null);
+  const [grants, setGrants] = React.useState<RepositoryGrant[] | null>(null);
 
   const reloadGrants = React.useCallback(() => {
     if (!repo) return;
     api
-      .get<CodeRepoGrantsResponse>(
-        `/api/companies/${company.id}/code-repositories/${repo.slug}/grants`,
+      .get<RepositoryGrantsResponse>(
+        `/api/companies/${company.id}/repositories/${repo.slug}/grants`,
       )
       .then((response) => setGrants(response.direct))
       .catch(() => setGrants([]));
@@ -52,7 +53,7 @@ export default function CodeRepoOverview() {
   }
 
   const currentRepo = repo;
-  const base = `/c/${company.slug}/code/${repo.slug}`;
+  const base = `/c/${company.slug}/repositories/${repo.slug}`;
   const writeGrants = grants?.filter((grant) => grant.accessLevel === "write") ?? [];
   const prReady =
     grants?.filter((grant) => grant.accessLevel === "write" && grant.employee?.pullRequestReady) ??
@@ -62,8 +63,8 @@ export default function CodeRepoOverview() {
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await api.post<CodeRepoTestResult>(
-        `/api/companies/${company.id}/code-repositories/${currentRepo.slug}/test`,
+      const result = await api.post<RepositoryTestResult>(
+        `/api/companies/${company.id}/repositories/${currentRepo.slug}/test`,
       );
       setTestResult(result);
       await reload();
@@ -89,10 +90,18 @@ export default function CodeRepoOverview() {
               <h1 className="truncate text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
                 {repo.name}
               </h1>
-              <SyncBadge status={repo.lastSyncStatus} />
+              {repo.origin === "remote" ? (
+                <SyncBadge status={repo.lastSyncStatus} />
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  Local
+                </span>
+              )}
             </div>
             <p className="mt-1 break-all font-mono text-xs text-slate-500 dark:text-slate-400">
-              {repo.gitUrl}
+              {repo.origin === "local"
+                ? "Kept in Genosyn — no remote to publish to yet."
+                : repo.gitUrl}
             </p>
             {repo.description && (
               <p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-slate-300">
@@ -101,17 +110,24 @@ export default function CodeRepoOverview() {
             )}
           </div>
         </div>
-        <Link to={`${base}/access`} className="shrink-0">
-          <Button>
-            <Users size={15} /> Manage AI access
-          </Button>
-        </Link>
+        <div className="flex shrink-0 gap-2">
+          <Link to={`${base}/files`}>
+            <Button>
+              <FileCode size={15} /> Open files
+            </Button>
+          </Link>
+          <Link to={`${base}/access`}>
+            <Button variant="secondary">
+              <Users size={15} /> Manage AI access
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="mt-5 max-w-2xl">
         <AsyncResourceTagPicker
           companyId={company.id}
-          resourceType="code_repository"
+          resourceType="repository"
           resourceId={currentRepo.id}
         />
       </div>
@@ -130,7 +146,13 @@ export default function CodeRepoOverview() {
         <SummaryCard
           icon={<CircleDot size={16} />}
           label="Authentication"
-          value={repo.authMode === "none" ? "Public" : repo.authMode.toUpperCase()}
+          value={
+            repo.origin === "local"
+              ? "None needed"
+              : repo.authMode === "none"
+                ? "Public"
+                : repo.authMode.toUpperCase()
+          }
         />
       </div>
 
@@ -197,43 +219,45 @@ export default function CodeRepoOverview() {
         </div>
       </section>
 
-      <section className="mt-8">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              Connection health
-            </h2>
-            <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-              Verify the clone URL and stored credentials before assigning work.
-            </p>
+      {repo.origin === "remote" && (
+        <section className="mt-8">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                Connection health
+              </h2>
+              <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+                Verify the clone URL and stored credentials before assigning work.
+              </p>
+            </div>
+            <Button variant="secondary" onClick={test} disabled={testing}>
+              {testing ? <Spinner size={14} /> : <Plug size={14} />}
+              {testing ? "Testing…" : "Test connection"}
+            </Button>
           </div>
-          <Button variant="secondary" onClick={test} disabled={testing}>
-            {testing ? <Spinner size={14} /> : <Plug size={14} />}
-            {testing ? "Testing…" : "Test connection"}
-          </Button>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-          {testResult ? (
-            <Result result={testResult} />
-          ) : repo.lastSyncStatus === "error" && repo.lastSyncError ? (
-            <div className="flex items-start gap-2 text-sm text-rose-700 dark:text-rose-300">
-              <AlertCircle size={16} className="mt-0.5 shrink-0" />
-              <span className="break-words">{repo.lastSyncError}</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-              {repo.lastSyncStatus === "ok" ? (
-                <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400" />
-              ) : (
-                <Plug size={16} className="text-slate-400" />
-              )}
-              {repo.lastSyncStatus === "ok"
-                ? "The most recent connection check succeeded."
-                : "This repository has not been tested yet."}
-            </div>
-          )}
-        </div>
-      </section>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+            {testResult ? (
+              <Result result={testResult} />
+            ) : repo.lastSyncStatus === "error" && repo.lastSyncError ? (
+              <div className="flex items-start gap-2 text-sm text-rose-700 dark:text-rose-300">
+                <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                <span className="break-words">{repo.lastSyncError}</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                {repo.lastSyncStatus === "ok" ? (
+                  <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400" />
+                ) : (
+                  <Plug size={16} className="text-slate-400" />
+                )}
+                {repo.lastSyncStatus === "ok"
+                  ? "The most recent connection check succeeded."
+                  : "This repository has not been tested yet."}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -309,7 +333,7 @@ function WorkflowStep({
   );
 }
 
-function Result({ result }: { result: CodeRepoTestResult }) {
+function Result({ result }: { result: RepositoryTestResult }) {
   return (
     <div
       className={

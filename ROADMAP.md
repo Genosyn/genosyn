@@ -128,10 +128,16 @@ don't re-litigate them.
   (`IntegrationConnection`), per-company.
 - **Grant** — an AI employee's access to a Connection
   (`EmployeeConnectionGrant`).
-- **Code Repository** — any git repo the company adds so granted AI
-  employees can read, commit, and push real code (`CodeRepository` +
-  `EmployeeCodeRepositoryGrant`). Provider-agnostic (HTTPS / SSH), distinct
-  from the GitHub-Connection-bound repos in M12.
+- **Repository** — a version-controlled workspace the company keeps
+  (`Repository` + `EmployeeRepositoryGrant`): a service's source, a quarter's
+  strategy, a set of policies. Either a clone of any git URL
+  (provider-agnostic, HTTPS / SSH, distinct from the
+  GitHub-Connection-bound repos in M12) or created empty inside Genosyn with
+  no remote at all. Members work on it in the browser; granted AI employees
+  work on it in isolation and their branches reach the remote only through a
+  reviewed publish.
+- **Work session** — one request to an AI Employee to do work in a Repository,
+  and the reviewable diff it produced (`RepositoryWorkSession`).
 - **Pipeline** — DAG of typed nodes for deterministic glue (separate
   primitive from Routines). Triggered manually, by webhook, or on cron.
 - **Note / Notebook** — Notion-style company-wide markdown knowledge base.
@@ -196,7 +202,8 @@ genosyn/
 - **Pipelines (M10):** `Pipeline`, `PipelineRun`
 - **Integrations:** `IntegrationConnection`, `EmployeeConnectionGrant`,
   `McpServer` (external MCP server registry)
-- **Code (M21):** `CodeRepository`, `EmployeeCodeRepositoryGrant`
+- **Repositories (M21):** `Repository`, `EmployeeRepositoryGrant`,
+  `RepositoryWorkSession`
 - **Approvals + audit:** `Approval` (kind: routine | lightning_payment | …),
   `AuditEvent`, `Notification`
 - **Email (transactional sends):** `EmailProvider`, `EmailLog`
@@ -482,7 +489,7 @@ can be attached to the same resource.
 
 - [x] `Tag` catalog plus polymorphic `TagAssignment` rows, with company
       ownership checks for Routines, Skills, Resources, Projects, Bases,
-      Notebooks, Notes, Pipelines, Code Repositories, Charts, and Dashboards
+      Notebooks, Notes, Pipelines, Repositories, Charts, and Dashboards
 - [x] Member-facing tag CRUD at **Settings → Tags**, including usage counts;
       renames update attached Resources and deletes detach without deleting
       the underlying resource
@@ -926,24 +933,24 @@ the reply.
 - [ ] Worktree-per-routine isolation (deferred — single-mutex is fine for now)
 - [ ] Signed commits via the GitHub App identity (deferred)
 
-### M21 — Code Repositories ✅
+### M21 — Repositories ✅
 
 Provider-agnostic cousin of M12. Where M12's repos ride on a GitHub
-**Connection** + allowlist, a **Code Repository** is a first-class
+**Connection** + allowlist, a **Repository** is a first-class
 company row pointed at _any_ git URL (GitHub, GitLab, Bitbucket,
 self-hosted) over HTTPS or SSH, with access handed out per-employee.
 "Add any repo; let the employees you choose work in a real checkout."
 
-- [x] `CodeRepository` entity — companyId, name, slug, gitUrl,
+- [x] `Repository` entity — companyId, name, slug, gitUrl,
       defaultBranch, authMode (`none` | `https` | `ssh`), httpsUsername,
       encrypted token + encrypted SSH key (AES-256-GCM via `lib/secret`),
       committer identity, last-sync health. Credentials never returned to
       the client in plaintext.
-- [x] `EmployeeCodeRepositoryGrant` — employee → repo with `read` < `write`
+- [x] `EmployeeRepositoryGrant` — employee → repo with `read` < `write`
       (write records delivery authority; both levels keep credentials out of
       the model shell). Default `write`; sharing is fully opt-in.
-- [x] `services/codeRepos.ts` — `materializeCodeReposForEmployee` clones
-      each granted repo into `<employeeDir>/code-repos/<slug>/` before every
+- [x] `services/repositories.ts` — `materializeRepositoriesForEmployee` clones
+      each granted repo into `<employeeDir>/repositories/<slug>/` before every
       chat / routine spawn; per-(employee × repo) mutex; fetch-only on
       existing checkouts. HTTPS tokens and SSH keys exist only in a
       short-lived server-owned Git workspace; no reusable credential, private
@@ -952,23 +959,74 @@ self-hosted) over HTTPS or SSH, with access handed out per-employee.
       employee's granted GitHub Connection: exact owner/repo allowlist match
       first, or the employee's sole GitHub Connection when unambiguous. The
       PAT is available only to the server materializer.
-      `testCodeRepoConnection` probes creds via `git ls-remote --symref`.
-- [x] HTTP routes under `/api/companies/:cid/code-repositories`: CRUD,
+      `testRepositoryConnection` probes creds via `git ls-remote --symref`.
+- [x] HTTP routes under `/api/companies/:cid/repositories`: CRUD,
       `/test`, grant CRUD + candidates. zod-validated.
 - [x] Prompt context — granted repos + their checkout paths and local delivery
-      policy injected into the chat / routine prompt; `list_code_repositories` MCP
+      policy injected into the chat / routine prompt; `list_repositories` MCP
       tool on the built-in `genosyn` server.
-- [x] React UI under `/c/<co>/code`: index (list + add modal), detail
+- [x] React UI under `/c/<co>/repositories`: index (list + add modal), detail
       split into sidebar-addressable Overview, AI access, and Settings pages
       (connection health, per-employee PR readiness, credentials, delete).
-      New "Code" section under an Engineering group in the app shell.
+      New "Repositories" section under an Engineering group in the app shell.
 - [x] Code-delivery guidance — repository context tells employees to branch,
       edit, test, and commit locally, then report the branch and commit for a
       governed server-side or Member publish step. Connection credentials are
       never made available to model-controlled Git.
 - [ ] Worktree-per-routine isolation (shared with M12; deferred)
-- [ ] Browse the checkout in a web file tree (deferred — agents use it on
-      disk today)
+
+### M21.5 — Repositories become a workspace ✅
+
+M21 gave AI employees a checkout and gave humans a settings page. This turns
+the section into something a person actually works in, and widens it past
+code: a **Repository** is any version-controlled workspace, including one
+created empty inside Genosyn for a quarter's strategy or a set of policies.
+"Code" as a section name told everyone who was not an engineer to look away.
+
+- [x] Renamed **Code → Repository** across product copy, URLs
+      (`/c/<co>/repositories`), REST (`/api/companies/:cid/repositories`),
+      entity and service names, the section registry, search, and docs. The
+      physical tables keep their names — see AGENTS.md §7 on generated
+      migrations. Tag assignments are repointed by a data migration.
+- [x] `Repository.origin` (`remote` | `local`) — a **local** repository is
+      created with `git init` and has no clone URL, so version-controlled
+      documents need no git host at all. Adding a URL later promotes it.
+- [x] `Repository.kind` (`code` | `documents`) — changes copy, editor
+      defaults, and how an AI Employee is briefed. Every repository is a
+      plain git repository either way.
+- [x] **Server-owned checkout** at `.private/repositories/<companyId>/<id>/` —
+      the working copy the web UI reads and writes, unreachable by any model
+      process, which is what lets it hold a real `origin` and push.
+      `services/repositoryWorkspace.ts`.
+- [x] `runWorkspaceGit({ serverOwned })` — Git over an App-owned tree skips
+      the coding-runtime gate. The gate exists because Git reads executable
+      config out of the tree it runs in, which is a model-controlled-tree
+      problem; without the exemption the whole section would be unavailable on
+      the standard install, whose execution mode is `disabled`. Hardening is
+      unchanged, and bubblewrap still applies where configured.
+- [x] **Web file editor** — tree, editor with line numbers and markdown
+      preview, create / rename / delete, per-file and whole-tree diffs
+      (untracked files rendered as additions), status, discard.
+- [x] **Version control in the browser** — branch create / switch / list,
+      commit (attributed to the Member), history with per-commit diff,
+      admin-only push and fast-forward pull.
+- [x] **AI work sessions** (`RepositoryWorkSession`) — ask a granted employee
+      to do work; it runs in its own git **worktree** beside the Member
+      checkout, edits only through the new `repository_*` tools (no shell, so
+      this works with command execution off), commits to its own branch, and
+      reports back. The Member reviews the diff and merges, optionally
+      pushing. This is the "governed publish step" M21's prompt context
+      already promised employees would exist.
+- [x] Six deferred MCP tools: `repository_list_files`, `repository_read_file`,
+      `repository_write_file`, `repository_delete_file`, `repository_search`,
+      `repository_commit`. Bounded by the session on the turn's MCP token —
+      no repository parameter, and inert outside a session.
+- [x] Authority split: browsing, editing, committing, and starting sessions
+      are Member-level; pushing, pulling, and repository configuration stay
+      owner/admin.
+- [ ] Conflict resolution in the browser (a conflicting merge is refused, not
+      surfaced for editing)
+- [ ] Streaming a work session's progress instead of polling it
 
 ### M13 — Lightning ✅
 

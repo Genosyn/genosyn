@@ -21,6 +21,25 @@ export type WorkspaceGitOptions = {
   credentialHelper?: string;
   /** Optional standard input for plumbing commands such as update-ref. */
   stdin?: string;
+  /**
+   * The checkout is App-owned: it lives under `.private/`, no model process
+   * can write to it, and every change goes through an authenticated Member
+   * request. Such a tree skips {@link requireCodingRuntime}.
+   *
+   * The coding-runtime gate exists because Git reads executable configuration
+   * out of the tree it runs in, so running it over a *model-writable*
+   * checkout is a command-execution surface and has to be an operator
+   * decision. That reasoning does not reach a tree the model cannot touch —
+   * and gating it there would leave the Repository UI (browse, edit, history,
+   * commit) dead on the standard install, whose default execution mode is
+   * `disabled`.
+   *
+   * The hardening is unchanged either way: no App environment inheritance,
+   * hooks off, no system or global config, `ext`/`file` protocols denied, no
+   * interactive credentials, and containment checks on every `.git` pointer.
+   * An operator who configured bubblewrap still gets bubblewrap here.
+   */
+  serverOwned?: boolean;
 };
 
 export type GitInvocation = {
@@ -41,11 +60,13 @@ export function buildWorkspaceGitInvocation(
   bubblewrapPath: string = config.agent.codingTools.bubblewrapPath,
   allowUnsafeHostExecution: boolean = config.agent.codingTools.allowUnsafeHostExecution,
 ): GitInvocation {
-  requireCodingRuntime({
-    enabled: config.agent.codingTools.enabled,
-    executionMode,
-    allowUnsafeHostExecution,
-  });
+  if (!options.serverOwned) {
+    requireCodingRuntime({
+      enabled: config.agent.codingTools.enabled,
+      executionMode,
+      allowUnsafeHostExecution,
+    });
+  }
 
   const extraEnv = validateExtraEnv(options.extraEnv ?? {});
   const gitConfig: Array<[string, string]> = [

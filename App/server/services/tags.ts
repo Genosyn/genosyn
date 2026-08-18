@@ -3,7 +3,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Base } from "../db/entities/Base.js";
 import { Chart } from "../db/entities/Chart.js";
-import { CodeRepository } from "../db/entities/CodeRepository.js";
+import { Repository } from "../db/entities/Repository.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { Note } from "../db/entities/Note.js";
 import { Notebook } from "../db/entities/Notebook.js";
@@ -25,7 +25,7 @@ export const TAGGABLE_RESOURCE_TYPES = [
   "notebook",
   "note",
   "pipeline",
-  "code_repository",
+  "repository",
   "chart",
   "dashboard",
 ] as const satisfies readonly TaggableResourceType[];
@@ -192,8 +192,8 @@ async function directResourceBelongsToCompany(
         id: resourceId,
         companyId,
       }));
-    case "code_repository":
-      return !!(await AppDataSource.getRepository(CodeRepository).findOneBy({
+    case "repository":
+      return !!(await AppDataSource.getRepository(Repository).findOneBy({
         id: resourceId,
         companyId,
       }));

@@ -413,7 +413,7 @@ export function Integrations() {
         <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code> before each run. The
         git token exists only inside a short-lived server-owned clone or refresh operation. It is
         never copied into the checkout, an environment variable visible to the AI employee, or a
-        reusable credential helper. A matching HTTPS Code Repository can reuse the same server-held
+        reusable credential helper. A matching HTTPS Repository can reuse the same server-held
         credential when the Connection is granted to that employee. Genosyn prefers an exact
         owner/repository allowlist match and can use the employee&apos;s sole GitHub Connection when
         no disambiguation is needed.

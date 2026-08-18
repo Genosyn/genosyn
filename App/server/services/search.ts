@@ -5,7 +5,7 @@ import { Base } from "../db/entities/Base.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
 import { Chart } from "../db/entities/Chart.js";
-import { CodeRepository } from "../db/entities/CodeRepository.js";
+import { Repository } from "../db/entities/Repository.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Dashboard } from "../db/entities/Dashboard.js";
 import { Role } from "../db/entities/Membership.js";
@@ -49,7 +49,7 @@ export type SearchResultKind =
   | "resource"
   | "chart"
   | "dashboard"
-  | "repo"
+  | "repository"
   | "pipeline"
   | "customer";
 
@@ -269,11 +269,11 @@ const SIMPLE_SPECS: SimpleSpec[] = [
     sublabel: (r) => r.email || null,
   },
   {
-    kind: "repo",
-    entity: CodeRepository,
+    kind: "repository",
+    entity: Repository,
     nameCol: "name",
     hasUpdatedAt: true,
-    path: (r) => `/code/${r.slug}`,
+    path: (r) => `/repositories/${r.slug}`,
     sublabel: (r) => r.gitUrl || null,
   },
   {

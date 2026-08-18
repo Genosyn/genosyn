@@ -9,7 +9,7 @@ import { config } from "../../../../config.js";
 import { createBrowserSession } from "../../browserSessions.js";
 import { pushCurrentPolicyToAgent, resolveMemberBrowserForSpawn } from "../../memberBrowsers.js";
 import { migrateLegacyBrowserStorage } from "../../browserStorage.js";
-import { purgeLegacyCodeRepoSshFiles } from "../../codeRepoSshFiles.js";
+import { purgeLegacyRepositorySshFiles } from "../../repositorySshFiles.js";
 import { employeeDir } from "../../paths.js";
 import { assertSafeOutboundUrl } from "../../../lib/outboundUrl.js";
 import type { McpServerSpec, McpToolGuard } from "./mcpBridge.js";
@@ -79,7 +79,7 @@ export async function loadBrowserConfig(
   // bubblewrapped bash can observe the employee workspace.
   await migrateLegacyBrowserStorage(employee.companyId, employee.id);
   const company = await AppDataSource.getRepository(Company).findOneBy({ id: employee.companyId });
-  if (company) purgeLegacyCodeRepoSshFiles(employeeDir(company.slug, employee.slug));
+  if (company) purgeLegacyRepositorySshFiles(employeeDir(company.slug, employee.slug));
   if (config.security.multiTenant && !config.agent.browserEnabledInMultiTenant) {
     return BROWSER_DISABLED;
   }

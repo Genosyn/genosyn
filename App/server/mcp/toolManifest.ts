@@ -1615,10 +1615,91 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
-    name: "list_code_repositories",
+    name: "list_repositories",
     description:
-      "List the Code Repositories you have been granted access to in this company. Each row carries the repo name, slug, localPath, defaultBranch, your accessLevel (`read` / `write`), the clone URL, and the last sync status. When coding tools are enabled, Genosyn prepares the checkout and credentials before work starts; bubblewrap deployments isolate that Git process too. There is no MCP tool for committing or pushing — do that with `git` inside the checkout.",
+      "List the Repositories you have been granted access to in this company. Each row carries the repo name, slug, localPath, defaultBranch, your accessLevel (`read` / `write`), the clone URL, and the last sync status. When coding tools are enabled, Genosyn prepares the checkout and credentials before work starts; bubblewrap deployments isolate that Git process too. There is no MCP tool for committing or pushing — do that with `git` inside the checkout.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "repository_list_files",
+    description:
+      "List the files and folders in your Repository work session's working copy. Pass `path` to look inside a folder; omit it for the top level. Only available while you are working a repository session started from the Repository page — it always acts on that session's own working copy.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Folder to list, relative to the repository root. Omit for the root.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "repository_read_file",
+    description:
+      "Read one text file from your Repository work session's working copy. Read a file before you rewrite it — `repository_write_file` replaces the whole file, so you need to know what is already in it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path relative to the repository root." },
+      },
+      required: ["path"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "repository_write_file",
+    description:
+      "Write one text file in your Repository work session's working copy, creating it and any missing folders if needed. This replaces the entire file: include everything you want to keep, not just your changes. Writing does not commit — call `repository_commit` when a piece of work is finished, or the human sees nothing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path relative to the repository root." },
+        content: { type: "string", description: "The complete new contents of the file." },
+      },
+      required: ["path", "content"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "repository_delete_file",
+    description:
+      "Delete a file or folder from your Repository work session's working copy. Like a write, this is not recorded until you call `repository_commit`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Path relative to the repository root." },
+      },
+      required: ["path"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "repository_search",
+    description:
+      "Find which files in your Repository work session mention some text. Returns the path, line number, and the matching line. Case-insensitive substring match, capped at 100 matches — use it to locate what to read rather than as a substitute for reading.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Text to look for." },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "repository_commit",
+    description:
+      "Record everything you have written or deleted in this Repository work session as a git commit. Write the message in the imperative mood and say why the change exists, not what the diff already shows. Commit whenever you finish a coherent piece of work; anything left uncommitted when the session ends is discarded. The commit stays on your session's own branch — a human reviews the diff and decides whether it is merged or pushed, so you never need to (and cannot) push.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message: { type: "string", description: "Commit message." },
+      },
+      required: ["message"],
+      additionalProperties: false,
+    },
   },
   {
     name: "create_resource",

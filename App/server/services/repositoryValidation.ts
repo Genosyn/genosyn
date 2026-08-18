@@ -7,10 +7,10 @@ import {
 
 export const HIDDEN_UNSAFE_GIT_REMOTE_URL = "[unsafe clone URL hidden]";
 
-type CodeRepositoryAuthMode = "none" | "https" | "ssh";
+type RepositoryAuthMode = "none" | "https" | "ssh";
 
-export function codeRepositoryCredentialError(input: {
-  authMode: CodeRepositoryAuthMode;
+export function repositoryCredentialError(input: {
+  authMode: RepositoryAuthMode;
   hasStoredToken: boolean;
   hasStoredSshKey: boolean;
   token?: string;
@@ -35,7 +35,7 @@ const tokenSchema = z
   .max(20000)
   .refine((value) => !/[\0\r\n]/.test(value), "Token / password must stay on one line.");
 
-export const codeRepositoryGitUrlSchema = z
+export const repositoryGitUrlSchema = z
   .string()
   .trim()
   .min(1)
@@ -58,6 +58,10 @@ export function isPlainHttpsCredentialUrl(value: string): boolean {
 }
 
 export function gitRemoteUrlForResponse(value: string): string {
+  // A local repository has no remote, and "no URL" is not an unsafe URL —
+  // reporting it as one would put a security warning on the ordinary state of
+  // every repository created inside Genosyn.
+  if (value === "") return "";
   try {
     assertSafeGitRemoteUrl(value);
     return value;
@@ -66,11 +70,35 @@ export function gitRemoteUrlForResponse(value: string): string {
   }
 }
 
-export const codeRepositoryCreateSchema = z
+/**
+ * A branch name Git will accept, used for the trunk of a new repository.
+ * Same rules the workspace applies to every other branch name.
+ */
+const branchNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(120)
+  .regex(
+    /^[A-Za-z0-9._][A-Za-z0-9._\-/]*$/,
+    "Branch names may use letters, numbers, dot, dash, underscore, and slash.",
+  )
+  .refine((value) => !value.includes("..") && !value.endsWith("/") && !value.endsWith(".lock"), {
+    message: "That branch name is not valid.",
+  });
+
+export const repositoryCreateSchema = z
   .object({
     name: z.string().min(1).max(120),
-    gitUrl: codeRepositoryGitUrlSchema,
-    defaultBranch: z.string().min(1).max(120).optional(),
+    /**
+     * A local repository has no remote, so it has no clone URL. Everything
+     * else on the row still applies — it is an ordinary git repository, just
+     * one that lives only inside Genosyn until someone gives it a URL.
+     */
+    origin: z.enum(["remote", "local"]).optional(),
+    kind: z.enum(["code", "documents"]).optional(),
+    gitUrl: repositoryGitUrlSchema.optional(),
+    defaultBranch: branchNameSchema.optional(),
     description: z.string().max(2000).optional(),
     authMode: z.enum(["none", "https", "ssh"]),
     httpsUsername: httpsUsernameSchema.optional(),
@@ -79,11 +107,19 @@ export const codeRepositoryCreateSchema = z
     committerName: z.string().max(200).optional(),
     committerEmail: z.string().email().max(320).optional().or(z.literal("")),
   })
+  .refine((body) => (body.origin ?? "remote") === "local" || !!body.gitUrl, {
+    message: "Enter the repository's clone URL, or create a local repository instead.",
+    path: ["gitUrl"],
+  })
+  .refine((body) => (body.origin ?? "remote") !== "local" || body.authMode === "none", {
+    message: "A local repository has no remote to authenticate to.",
+    path: ["authMode"],
+  })
   .refine((body) => body.authMode !== "https" || !!body.token, {
     message: "HTTPS auth needs a token / password.",
     path: ["token"],
   })
-  .refine((body) => body.authMode !== "https" || isPlainHttpsCredentialUrl(body.gitUrl), {
+  .refine((body) => body.authMode !== "https" || isPlainHttpsCredentialUrl(body.gitUrl ?? ""), {
     message: "HTTPS auth needs a plain https:// clone URL without embedded credentials or options.",
     path: ["gitUrl"],
   })
@@ -92,10 +128,16 @@ export const codeRepositoryCreateSchema = z
     path: ["sshKey"],
   });
 
-export const codeRepositoryPatchSchema = z.object({
+export const repositoryPatchSchema = z.object({
   name: z.string().min(1).max(120).optional(),
-  gitUrl: codeRepositoryGitUrlSchema.optional(),
-  defaultBranch: z.string().min(1).max(120).optional(),
+  kind: z.enum(["code", "documents"]).optional(),
+  /**
+   * Giving a local repository a clone URL promotes it to `remote`; the route
+   * does that rather than accepting `origin` directly, so the two fields
+   * cannot be set to contradict each other.
+   */
+  gitUrl: repositoryGitUrlSchema.optional(),
+  defaultBranch: branchNameSchema.optional(),
   description: z.string().max(2000).optional(),
   authMode: z.enum(["none", "https", "ssh"]).optional(),
   httpsUsername: httpsUsernameSchema.optional(),

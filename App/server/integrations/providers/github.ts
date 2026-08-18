@@ -494,7 +494,7 @@ export const githubProvider: IntegrationProvider = {
     {
       name: "create_pull_request",
       description:
-        "Open a pull request from `head` (a branch you already pushed) into `base`. First use the built-in coding tools and plain `git` to edit, test, commit, and push from the matching `repos/<owner>/<name>/` or `code-repos/<slug>/` checkout, then call this tool to finish the requested delivery. Set `draft: true` to open a draft PR. Never claim a PR exists unless this call succeeds.",
+        "Open a pull request from `head` (a branch you already pushed) into `base`. First use the built-in coding tools and plain `git` to edit, test, commit, and push from the matching `repos/<owner>/<name>/` or `repositories/<slug>/` checkout, then call this tool to finish the requested delivery. Set `draft: true` to open a draft PR. Never claim a PR exists unless this call succeeds.",
       inputSchema: {
         type: "object",
         properties: {

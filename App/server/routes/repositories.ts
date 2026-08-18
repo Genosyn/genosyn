@@ -2,9 +2,10 @@ import { Router } from "express";
 import { z } from "zod";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
-import { CodeRepository } from "../db/entities/CodeRepository.js";
-import { EmployeeCodeRepositoryGrant } from "../db/entities/EmployeeCodeRepositoryGrant.js";
-import type { CodeRepoAccessLevel } from "../db/entities/EmployeeCodeRepositoryGrant.js";
+import { Repository } from "../db/entities/Repository.js";
+import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
+import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
+import type { RepositoryAccessLevel } from "../db/entities/EmployeeRepositoryGrant.js";
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -20,44 +21,45 @@ import {
 import { recordAudit } from "../services/audit.js";
 import {
   credentialSummary,
-  deleteGrantsForCodeRepo,
+  deleteGrantsForRepository,
   encryptRepoSecret,
-  listDirectCodeRepoGrants,
-  testCodeRepoConnection,
-  uniqueCodeRepoSlug,
-  upsertCodeRepoGrant,
-} from "../services/codeRepos.js";
+  listDirectRepositoryGrants,
+  testRepositoryConnection,
+  uniqueRepositorySlug,
+  upsertRepositoryGrant,
+} from "../services/repositories.js";
 import {
-  codeRepositoryCredentialError,
-  codeRepositoryCreateSchema,
-  codeRepositoryPatchSchema,
+  repositoryCredentialError,
+  repositoryCreateSchema,
+  repositoryPatchSchema,
   gitRemoteUrlForResponse,
   isPlainHttpsCredentialUrl,
-} from "../services/codeRepositoryValidation.js";
+} from "../services/repositoryValidation.js";
 import {
   assertSafeGitRemoteUrl,
   SAFE_GIT_REMOTE_URL_MESSAGE,
 } from "../services/gitCredentialHelper.js";
 import { deleteTagAssignments } from "../services/tags.js";
+import { removeRepositoryWorkspace } from "../services/repositoryWorkspace.js";
 import { config } from "../../config.js";
 
 /**
- * Code Repositories — provider-agnostic git repos the company adds so its AI
+ * Repositories — provider-agnostic git repos the company adds so its AI
  * employees can read, edit, commit, and push real code. Humans manage the
  * repo (clone URL, credentials, committer identity) and decide which
  * employees may access it and at what level (`read` / `write`) via the
  * grant sub-routes. Credentials are encrypted at rest and never returned to
  * the client in plaintext.
  */
-export const codeRepositoriesRouter = Router({ mergeParams: true });
-codeRepositoriesRouter.use(requireAuth);
-codeRepositoriesRouter.use(requireCompanyMember);
-codeRepositoriesRouter.use(onRoutePaths(["/code-repositories"], requireBrowserSession));
-codeRepositoriesRouter.use(
-  onRoutePaths(["/code-repositories"], requireCompanyRoleForMutations("admin")),
+export const repositoriesRouter = Router({ mergeParams: true });
+repositoriesRouter.use(requireAuth);
+repositoriesRouter.use(requireCompanyMember);
+repositoriesRouter.use(onRoutePaths(["/repositories"], requireBrowserSession));
+repositoriesRouter.use(
+  onRoutePaths(["/repositories"], requireCompanyRoleForMutations("admin")),
 );
-codeRepositoriesRouter.use(
-  onRoutePaths(["/code-repositories"], (req, res, next) => {
+repositoriesRouter.use(
+  onRoutePaths(["/repositories"], (req, res, next) => {
     if (
       config.security.multiTenant &&
       req.method !== "GET" &&
@@ -66,39 +68,39 @@ codeRepositoriesRouter.use(
     ) {
       return res.status(403).json({
         error:
-          "Code Repositories are read-only in shared SaaS mode until git runs in a dedicated egress worker",
+          "Repositories are read-only in shared SaaS mode until git runs in a dedicated egress worker",
       });
     }
     next();
   }),
 );
 
-const ACCESS_LEVELS: [CodeRepoAccessLevel, ...CodeRepoAccessLevel[]] = ["read", "write"];
+const ACCESS_LEVELS: [RepositoryAccessLevel, ...RepositoryAccessLevel[]] = ["read", "write"];
 
 type CreatedBy = { kind: "human"; id: string; name: string; email: string | null } | null;
 
-type HydratedRepo = Omit<CodeRepository, "encryptedToken" | "encryptedSshKey"> & {
+type HydratedRepo = Omit<Repository, "encryptedToken" | "encryptedSshKey"> & {
   hasToken: boolean;
   hasSshKey: boolean;
   grantCount: number;
   createdBy: CreatedBy;
 };
 
-async function hydrate(companyId: string, rows: CodeRepository[]): Promise<HydratedRepo[]> {
+async function hydrate(companyId: string, rows: Repository[]): Promise<HydratedRepo[]> {
   if (rows.length === 0) return [];
   const userIds = [...new Set(rows.map((r) => r.createdById).filter((x): x is string => !!x))];
   const [users, grants] = await Promise.all([
     userIds.length
       ? AppDataSource.getRepository(User).find({ where: { id: In(userIds) } })
       : Promise.resolve([]),
-    AppDataSource.getRepository(EmployeeCodeRepositoryGrant).find({
-      where: { codeRepositoryId: In(rows.map((r) => r.id)) },
+    AppDataSource.getRepository(EmployeeRepositoryGrant).find({
+      where: { repositoryId: In(rows.map((r) => r.id)) },
     }),
   ]);
   const userById = new Map(users.map((u) => [u.id, u]));
   const grantCountByRepo = new Map<string, number>();
   for (const g of grants) {
-    grantCountByRepo.set(g.codeRepositoryId, (grantCountByRepo.get(g.codeRepositoryId) ?? 0) + 1);
+    grantCountByRepo.set(g.repositoryId, (grantCountByRepo.get(g.repositoryId) ?? 0) + 1);
   }
   return rows.map((r) => {
     const { encryptedToken, encryptedSshKey, ...rest } = r;
@@ -117,8 +119,8 @@ async function hydrate(companyId: string, rows: CodeRepository[]): Promise<Hydra
   });
 }
 
-async function loadRepo(companyId: string, slug: string): Promise<CodeRepository | null> {
-  return AppDataSource.getRepository(CodeRepository).findOneBy({
+async function loadRepo(companyId: string, slug: string): Promise<Repository | null> {
+  return AppDataSource.getRepository(Repository).findOneBy({
     companyId,
     slug,
   });
@@ -126,9 +128,9 @@ async function loadRepo(companyId: string, slug: string): Promise<CodeRepository
 
 // ───────────────────────────── LIST ─────────────────────────────────────
 
-codeRepositoriesRouter.get("/code-repositories", async (req, res) => {
+repositoriesRouter.get("/repositories", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
-  const rows = await AppDataSource.getRepository(CodeRepository).find({
+  const rows = await AppDataSource.getRepository(Repository).find({
     where: { companyId: cid },
     order: { updatedAt: "DESC" },
   });
@@ -137,21 +139,24 @@ codeRepositoriesRouter.get("/code-repositories", async (req, res) => {
 
 // ──────────────────────────── CREATE ────────────────────────────────────
 
-codeRepositoriesRouter.post(
-  "/code-repositories",
-  validateBody(codeRepositoryCreateSchema),
+repositoriesRouter.post(
+  "/repositories",
+  validateBody(repositoryCreateSchema),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
-    const body = req.body as z.infer<typeof codeRepositoryCreateSchema>;
-    const repo = AppDataSource.getRepository(CodeRepository);
+    const body = req.body as z.infer<typeof repositoryCreateSchema>;
+    const repo = AppDataSource.getRepository(Repository);
 
-    const slug = await uniqueCodeRepoSlug(cid, body.name);
+    const slug = await uniqueRepositorySlug(cid, body.name);
+    const origin = body.origin ?? "remote";
     const row = repo.create({
       companyId: cid,
       name: body.name.trim(),
       slug,
       description: (body.description ?? "").trim(),
-      gitUrl: body.gitUrl.trim(),
+      origin,
+      kind: body.kind ?? "code",
+      gitUrl: origin === "local" ? "" : (body.gitUrl ?? "").trim(),
       defaultBranch: (body.defaultBranch ?? "main").trim() || "main",
       authMode: body.authMode,
       httpsUsername: body.authMode === "https" ? (body.httpsUsername ?? "").trim() || null : null,
@@ -170,11 +175,11 @@ codeRepositoriesRouter.post(
     await recordAudit({
       companyId: cid,
       actorUserId: req.userId ?? null,
-      action: "code_repository.create",
-      targetType: "code_repository",
+      action: "repository.create",
+      targetType: "repository",
       targetId: row.id,
       targetLabel: row.name,
-      metadata: { gitUrl: row.gitUrl, authMode: row.authMode },
+      metadata: { gitUrl: row.gitUrl, authMode: row.authMode, origin: row.origin },
     });
 
     const [hydrated] = await hydrate(cid, [row]);
@@ -184,7 +189,7 @@ codeRepositoriesRouter.post(
 
 // ──────────────────────────── DETAIL ────────────────────────────────────
 
-codeRepositoriesRouter.get("/code-repositories/:slug", async (req, res) => {
+repositoriesRouter.get("/repositories/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const row = await loadRepo(cid, req.params.slug);
   if (!row) return res.status(404).json({ error: "Repository not found" });
@@ -194,21 +199,31 @@ codeRepositoriesRouter.get("/code-repositories/:slug", async (req, res) => {
 
 // ───────────────────────────── PATCH ────────────────────────────────────
 
-codeRepositoriesRouter.patch(
-  "/code-repositories/:slug",
-  validateBody(codeRepositoryPatchSchema),
+repositoriesRouter.patch(
+  "/repositories/:slug",
+  validateBody(repositoryPatchSchema),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const row = await loadRepo(cid, req.params.slug);
     if (!row) return res.status(404).json({ error: "Repository not found" });
-    const body = req.body as z.infer<typeof codeRepositoryPatchSchema>;
+    const body = req.body as z.infer<typeof repositoryPatchSchema>;
 
     const nextAuthMode = body.authMode ?? row.authMode;
     const nextGitUrl = (body.gitUrl ?? row.gitUrl).trim();
-    try {
-      assertSafeGitRemoteUrl(nextGitUrl);
-    } catch {
-      return res.status(400).json({ error: SAFE_GIT_REMOTE_URL_MESSAGE });
+    // A local repository stays local until someone actually gives it a URL;
+    // adding one promotes it, and that is the only way `origin` ever changes.
+    const nextOrigin = nextGitUrl ? "remote" : "local";
+    if (nextOrigin === "local" && nextAuthMode !== "none") {
+      return res.status(400).json({
+        error: "A local repository has no remote to authenticate to.",
+      });
+    }
+    if (nextOrigin === "remote") {
+      try {
+        assertSafeGitRemoteUrl(nextGitUrl);
+      } catch {
+        return res.status(400).json({ error: SAFE_GIT_REMOTE_URL_MESSAGE });
+      }
     }
     if (nextAuthMode === "https" && !isPlainHttpsCredentialUrl(nextGitUrl)) {
       return res.status(400).json({
@@ -216,7 +231,7 @@ codeRepositoriesRouter.patch(
           "HTTPS auth needs a plain https:// clone URL without embedded credentials or options.",
       });
     }
-    const credentialError = codeRepositoryCredentialError({
+    const credentialError = repositoryCredentialError({
       authMode: nextAuthMode,
       hasStoredToken: !!row.encryptedToken,
       hasStoredSshKey: !!row.encryptedSshKey,
@@ -228,7 +243,9 @@ codeRepositoriesRouter.patch(
     }
 
     if (body.name !== undefined) row.name = body.name.trim();
+    if (body.kind !== undefined) row.kind = body.kind;
     if (body.gitUrl !== undefined) row.gitUrl = body.gitUrl.trim();
+    row.origin = nextOrigin;
     if (body.defaultBranch !== undefined) row.defaultBranch = body.defaultBranch.trim() || "main";
     if (body.description !== undefined) row.description = body.description.trim();
     if (body.committerName !== undefined) row.committerName = body.committerName.trim() || null;
@@ -250,7 +267,7 @@ codeRepositoriesRouter.patch(
     if (body.token) row.encryptedToken = encryptRepoSecret(body.token, cid);
     if (body.sshKey) row.encryptedSshKey = encryptRepoSecret(body.sshKey, cid);
 
-    await AppDataSource.getRepository(CodeRepository).save(row);
+    await AppDataSource.getRepository(Repository).save(row);
     const [hydrated] = await hydrate(cid, [row]);
     res.json(hydrated);
   },
@@ -258,19 +275,22 @@ codeRepositoriesRouter.patch(
 
 // ──────────────────────────── DELETE ────────────────────────────────────
 
-codeRepositoriesRouter.delete("/code-repositories/:slug", async (req, res) => {
+repositoriesRouter.delete("/repositories/:slug", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const row = await loadRepo(cid, req.params.slug);
   if (!row) return res.status(404).json({ error: "Repository not found" });
 
-  await deleteGrantsForCodeRepo(row.id);
-  await deleteTagAssignments("code_repository", row.id);
-  await AppDataSource.getRepository(CodeRepository).delete({ id: row.id });
+  await deleteGrantsForRepository(row.id);
+  await deleteTagAssignments("repository", row.id);
+  await AppDataSource.getRepository(RepositoryWorkSession).delete({ repositoryId: row.id });
+  // The App-owned checkout is derived state; it goes with the row it mirrors.
+  removeRepositoryWorkspace(row.companyId, row.id);
+  await AppDataSource.getRepository(Repository).delete({ id: row.id });
   await recordAudit({
     companyId: cid,
     actorUserId: req.userId ?? null,
-    action: "code_repository.delete",
-    targetType: "code_repository",
+    action: "repository.delete",
+    targetType: "repository",
     targetId: row.id,
     targetLabel: row.name,
   });
@@ -279,21 +299,21 @@ codeRepositoriesRouter.delete("/code-repositories/:slug", async (req, res) => {
 
 // ────────────────────────── TEST CONNECTION ─────────────────────────────
 
-codeRepositoriesRouter.post("/code-repositories/:slug/test", async (req, res) => {
+repositoriesRouter.post("/repositories/:slug/test", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const row = await loadRepo(cid, req.params.slug);
   if (!row) return res.status(404).json({ error: "Repository not found" });
-  const result = await testCodeRepoConnection(row);
+  const result = await testRepositoryConnection(row);
   row.lastSyncedAt = new Date();
   row.lastSyncStatus = result.ok ? "ok" : "error";
   row.lastSyncError = result.ok ? "" : result.message;
-  await AppDataSource.getRepository(CodeRepository).save(row);
+  await AppDataSource.getRepository(Repository).save(row);
   res.json(result);
 });
 
 // ───────────────────────────── GRANTS ───────────────────────────────────
 
-type GrantWithEmployee = EmployeeCodeRepositoryGrant & {
+type GrantWithEmployee = EmployeeRepositoryGrant & {
   employee: {
     id: string;
     name: string;
@@ -307,7 +327,7 @@ type GrantWithEmployee = EmployeeCodeRepositoryGrant & {
 
 async function hydrateGrants(
   companyId: string,
-  grants: EmployeeCodeRepositoryGrant[],
+  grants: EmployeeRepositoryGrant[],
 ): Promise<GrantWithEmployee[]> {
   if (grants.length === 0) return [];
   const empIds = [...new Set(grants.map((g) => g.employeeId))];
@@ -354,11 +374,11 @@ async function hydrateGrants(
   });
 }
 
-codeRepositoriesRouter.get("/code-repositories/:slug/grants", async (req, res) => {
+repositoriesRouter.get("/repositories/:slug/grants", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const row = await loadRepo(cid, req.params.slug);
   if (!row) return res.status(404).json({ error: "Repository not found" });
-  const direct = await listDirectCodeRepoGrants(row.id);
+  const direct = await listDirectRepositoryGrants(row.id);
   res.json({ direct: await hydrateGrants(cid, direct) });
 });
 
@@ -367,8 +387,8 @@ const createGrantSchema = z.object({
   accessLevel: z.enum(ACCESS_LEVELS).optional(),
 });
 
-codeRepositoriesRouter.post(
-  "/code-repositories/:slug/grants",
+repositoriesRouter.post(
+  "/repositories/:slug/grants",
   validateBody(createGrantSchema),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
@@ -380,12 +400,12 @@ codeRepositoriesRouter.post(
       companyId: cid,
     });
     if (!emp) return res.status(400).json({ error: "Unknown employee" });
-    const grant = await upsertCodeRepoGrant(emp.id, row.id, body.accessLevel ?? "write");
+    const grant = await upsertRepositoryGrant(emp.id, row.id, body.accessLevel ?? "write");
     await recordAudit({
       companyId: cid,
       actorUserId: req.userId ?? null,
-      action: "code_repository.grant",
-      targetType: "code_repository",
+      action: "repository.grant",
+      targetType: "repository",
       targetId: row.id,
       targetLabel: row.name,
       metadata: { employeeId: emp.id, accessLevel: grant.accessLevel },
@@ -397,17 +417,17 @@ codeRepositoriesRouter.post(
 
 const patchGrantSchema = z.object({ accessLevel: z.enum(ACCESS_LEVELS) });
 
-codeRepositoriesRouter.patch(
-  "/code-repositories/:slug/grants/:grantId",
+repositoriesRouter.patch(
+  "/repositories/:slug/grants/:grantId",
   validateBody(patchGrantSchema),
   async (req, res) => {
     const cid = (req.params as Record<string, string>).cid;
     const row = await loadRepo(cid, req.params.slug);
     if (!row) return res.status(404).json({ error: "Repository not found" });
-    const repo = AppDataSource.getRepository(EmployeeCodeRepositoryGrant);
+    const repo = AppDataSource.getRepository(EmployeeRepositoryGrant);
     const grant = await repo.findOneBy({
       id: req.params.grantId,
-      codeRepositoryId: row.id,
+      repositoryId: row.id,
     });
     if (!grant) return res.status(404).json({ error: "Grant not found" });
     grant.accessLevel = (req.body as z.infer<typeof patchGrantSchema>).accessLevel;
@@ -417,21 +437,21 @@ codeRepositoriesRouter.patch(
   },
 );
 
-codeRepositoriesRouter.delete("/code-repositories/:slug/grants/:grantId", async (req, res) => {
+repositoriesRouter.delete("/repositories/:slug/grants/:grantId", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const row = await loadRepo(cid, req.params.slug);
   if (!row) return res.status(404).json({ error: "Repository not found" });
-  const repo = AppDataSource.getRepository(EmployeeCodeRepositoryGrant);
+  const repo = AppDataSource.getRepository(EmployeeRepositoryGrant);
   const grant = await repo.findOneBy({
     id: req.params.grantId,
-    codeRepositoryId: row.id,
+    repositoryId: row.id,
   });
   if (!grant) return res.status(404).json({ error: "Grant not found" });
   await repo.delete({ id: grant.id });
   res.json({ ok: true });
 });
 
-codeRepositoriesRouter.get("/code-repositories/:slug/grant-candidates", async (req, res) => {
+repositoriesRouter.get("/repositories/:slug/grant-candidates", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const row = await loadRepo(cid, req.params.slug);
   if (!row) return res.status(404).json({ error: "Repository not found" });
@@ -440,7 +460,7 @@ codeRepositoriesRouter.get("/code-repositories/:slug/grant-candidates", async (r
       where: { companyId: cid },
       order: { createdAt: "ASC" },
     }),
-    listDirectCodeRepoGrants(row.id),
+    listDirectRepositoryGrants(row.id),
   ]);
   const grantedSet = new Set(direct.map((g) => g.employeeId));
   res.json(

@@ -90,6 +90,8 @@ code, UI copy, commits, and docs.
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
 | **Member browser** (a Chrome a human connected from their own computer — `MemberBrowser`) | Connection, Browser Connection, Device |
 | **Decision** (a question an AI Employee stacked for a human to answer — `Decision`) | Approval, Question, Ask, Escalation |
+| **Repository** (a version-controlled workspace — code, strategy docs, policies; `Repository`) | Code Repository, Repo, Codebase |
+| **Work session** (one request to an AI Employee to do work in a Repository — `RepositoryWorkSession`) | Job, Task, Agent run |
 | **Grant** (an AI employee's access to a resource — a Connection, Note, Chart, Repo, …) | Permission, Attachment, Binding |
 | **Project member** (a human Member *or* an AI Employee authorized on a Project — `ProjectMember`) | Grant, Permission, Collaborator |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
@@ -122,6 +124,17 @@ it writes the question and the options itself, answering one performs no side
 effect, and an ordinary Member can answer it. Never label a Decision "approve /
 reject", and never route a gated action through the Decision Stack — anything
 privileged the employee does afterwards still meets its own Approval.
+
+**"Repository" is not a synonym for "codebase."** A Repository is any
+version-controlled workspace the company keeps: a service's source, a
+quarter's strategy, a set of operating policies. The section used to be called
+"Code", which told people it was for engineers and nothing else. `kind` on the
+row (`code` / `documents`) only changes copy, editor defaults, and how an AI
+Employee is briefed — every Repository is a plain git repository underneath.
+Note that the physical tables are still `code_repositories` and
+`employee_code_repository_grants`: renaming a table means either a generated
+migration that drops and recreates it or a hand-written one, and §7 forbids
+the second. The product noun is what matters.
 
 **"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
 pipeline is a flat, ordered list of **Deal Stages** — there is no container

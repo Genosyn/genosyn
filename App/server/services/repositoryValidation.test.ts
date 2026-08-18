@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  codeRepositoryCredentialError,
-  codeRepositoryCreateSchema,
-  codeRepositoryGitUrlSchema,
-  codeRepositoryPatchSchema,
+  repositoryCredentialError,
+  repositoryCreateSchema,
+  repositoryGitUrlSchema,
+  repositoryPatchSchema,
   gitRemoteUrlForResponse,
   HIDDEN_UNSAFE_GIT_REMOTE_URL,
-} from "./codeRepositoryValidation.js";
+} from "./repositoryValidation.js";
 
 const AUTH_FIELDS = {
   none: {},
@@ -22,7 +22,7 @@ test("create rejects credential-bearing clone URLs for every authentication mode
       "ssh://git:plain-text-secret@git.example/acme/repo.git",
       "https://git.example/acme/repo.git?token=plain-text-secret",
     ]) {
-      const result = codeRepositoryCreateSchema.safeParse({
+      const result = repositoryCreateSchema.safeParse({
         name: "Repository",
         gitUrl,
         authMode,
@@ -43,7 +43,7 @@ test("patch rejects credential-bearing clone URLs for every authentication mode"
       "ssh://git:plain-text-secret@git.example/acme/repo.git",
       "https://git.example/acme/repo.git#plain-text-secret",
     ]) {
-      const result = codeRepositoryPatchSchema.safeParse({ authMode, gitUrl });
+      const result = repositoryPatchSchema.safeParse({ authMode, gitUrl });
       assert.equal(result.success, false, `${authMode} accepted ${gitUrl}`);
     }
   }
@@ -69,7 +69,7 @@ test("create accepts each supported URL and authentication combination", () => {
       sshKey: "stored-separately",
     },
   ]) {
-    assert.equal(codeRepositoryCreateSchema.safeParse(body).success, true, body.gitUrl);
+    assert.equal(repositoryCreateSchema.safeParse(body).success, true, body.gitUrl);
   }
 });
 
@@ -80,12 +80,12 @@ test("clone URL schema accepts supported plain forms and trims API input", () =>
     "ssh://git@git.example/acme/repo.git",
     "git@git.example:acme/repo.git",
   ]) {
-    assert.equal(codeRepositoryGitUrlSchema.parse(`  ${gitUrl}  `), gitUrl);
+    assert.equal(repositoryGitUrlSchema.parse(`  ${gitUrl}  `), gitUrl);
   }
 });
 
 test("HTTPS credentials still require a plain HTTPS remote", () => {
-  const result = codeRepositoryCreateSchema.safeParse({
+  const result = repositoryCreateSchema.safeParse({
     name: "Repository",
     gitUrl: "ssh://git@git.example/acme/repo.git",
     authMode: "https",
@@ -99,7 +99,7 @@ test("HTTPS credentials still require a plain HTTPS remote", () => {
 
 test("patch final state rejects switching from public to HTTPS without a token", () => {
   assert.equal(
-    codeRepositoryCredentialError({
+    repositoryCredentialError({
       authMode: "https",
       hasStoredToken: false,
       hasStoredSshKey: false,
@@ -110,7 +110,7 @@ test("patch final state rejects switching from public to HTTPS without a token",
 
 test("patch final state rejects switching from HTTPS to SSH without a private key", () => {
   assert.equal(
-    codeRepositoryCredentialError({
+    repositoryCredentialError({
       authMode: "ssh",
       hasStoredToken: true,
       hasStoredSshKey: false,
@@ -121,7 +121,7 @@ test("patch final state rejects switching from HTTPS to SSH without a private ke
 
 test("patch final state accepts stored credentials or a replacement credential", () => {
   assert.equal(
-    codeRepositoryCredentialError({
+    repositoryCredentialError({
       authMode: "https",
       hasStoredToken: true,
       hasStoredSshKey: false,
@@ -129,7 +129,7 @@ test("patch final state accepts stored credentials or a replacement credential",
     null,
   );
   assert.equal(
-    codeRepositoryCredentialError({
+    repositoryCredentialError({
       authMode: "ssh",
       hasStoredToken: false,
       hasStoredSshKey: false,
@@ -147,4 +147,8 @@ test("legacy unsafe clone URLs are replaced before API hydration", () => {
 
   const safe = "ssh://git@git.example/acme/repo.git";
   assert.equal(gitRemoteUrlForResponse(safe), safe);
+});
+
+test("an empty clone URL is a local repository, not an unsafe one", () => {
+  assert.equal(gitRemoteUrlForResponse(""), "");
 });

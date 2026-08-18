@@ -81,7 +81,15 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * is the recall failure this footer exists to prevent. Thirteen characters buys
  * the tool that keeps the listing itself inside the same envelope.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 4_440;
+/*
+ * Raised from 4,440 for the `repository_*` family (M21.5). Six new deferred
+ * names cost about sixty characters after brace-compaction, and there is no
+ * way to buy that back without dropping a name a model would then be unable to
+ * discover — the exact failure this footer exists to prevent. 4,600 still
+ * leaves over 3,400 characters for the six schemas inside the 8,000-char cap,
+ * which is what the ceiling is protecting.
+ */
+const DOMAIN_FOOTER_CHARS_MAX = 4_600;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

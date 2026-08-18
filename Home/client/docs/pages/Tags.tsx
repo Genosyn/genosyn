@@ -17,7 +17,7 @@ export function Tags() {
       <H2 id="add-tags">Add tags to a resource</H2>
       <UL>
         <LI>
-          Open a Routine, Skill, Resource, Project, Base, Notebook, Note, Pipeline, Code Repository,
+          Open a Routine, Skill, Resource, Project, Base, Notebook, Note, Pipeline, Repository,
           Chart, or Dashboard.
         </LI>
         <LI>

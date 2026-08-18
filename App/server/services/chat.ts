@@ -13,7 +13,7 @@ import {
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { materializeReposForEmployee } from "./repoSync.js";
-import { composeCodeReposContext, materializeCodeReposForEmployee } from "./codeRepos.js";
+import { composeRepositoriesContext, materializeRepositoriesForEmployee } from "./repositories.js";
 import { composeFinanceContext } from "./financeGrants.js";
 import { composeSigningContext } from "./signing.js";
 import { composeRevenueContext } from "./revenue/grants.js";
@@ -119,6 +119,12 @@ type ChatBaseOptions = {
    * so a tool that records provenance can point a human back at the email.
    */
   mailThreadId?: string | null;
+  /**
+   * The Repository work session this turn is doing, for the surface that runs
+   * an employee against a repository. Carried on the turn's MCP token so the
+   * `repository_*` tools know which worktree they may touch.
+   */
+  repositoryWorkSessionId?: string | null;
   /**
    * Employee-owned AI Model selected for this turn. Omit/null to inherit the
    * employee's active model, which remains the default for every other chat
@@ -393,9 +399,9 @@ export async function streamChatWithEmployee(
     // chat may receive it. The Member tool registry applies the same rule to
     // list/add/update/delete_memory.
     const memoryContext = contextAccess.memory ? await composeMemoryContext(emp.id) : "";
-    const codeReposContext =
+    const repositoriesContext =
       contextAccess.repositories && repositoryMaterializationAllowed
-        ? await composeCodeReposContext(emp.id)
+        ? await composeRepositoriesContext(emp.id)
         : "";
     const financeContext = contextAccess.finance ? await composeFinanceContext(emp.id) : "";
     const [signingContext, revenueContext, marketingContext] = await Promise.all([
@@ -414,7 +420,7 @@ export async function streamChatWithEmployee(
           emp,
           skills: effectiveSkills,
           memoryContext,
-          codeReposContext,
+          repositoriesContext,
           financeContext,
           signingContext,
           revenueContext,
@@ -475,7 +481,7 @@ export async function streamChatWithEmployee(
       // Materialize granted repos into the employee's cwd so the coding tools
       // find a working tree. Non-fatal — chat still proceeds if a repo fails.
       const repoSync = await materializeReposForEmployee({ employeeId: emp.id, cwd });
-      await materializeCodeReposForEmployee({
+      await materializeRepositoriesForEmployee({
         employeeId: emp.id,
         cwd,
         githubRepoCredentials: repoSync.githubRepoCredentials,
@@ -485,6 +491,7 @@ export async function streamChatWithEmployee(
     const tokenOrigin = {
       conversationId: options.conversationId ?? null,
       mailThreadId: options.mailThreadId ?? null,
+      repositoryWorkSessionId: options.repositoryWorkSessionId ?? null,
     };
     mcpToken = issueMcpToken(
       emp.id,

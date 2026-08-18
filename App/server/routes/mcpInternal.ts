@@ -21,6 +21,17 @@ import { Project } from "../db/entities/Project.js";
 import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/Todo.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { validateBody } from "../middleware/validate.js";
+import {
+  MAX_SESSION_WRITE_BYTES,
+  resolveSessionCheckout,
+  sessionCommit,
+  sessionDeleteFile,
+  sessionListFiles,
+  sessionReadFile,
+  sessionSearch,
+  sessionWriteFile,
+  type SessionCheckout,
+} from "../services/repositoryWorkSessions.js";
 import { toSlug } from "../lib/slug.js";
 import { formatMoney } from "../lib/money.js";
 import { routineTemplate, skillTemplate } from "../services/files.js";
@@ -173,8 +184,8 @@ import {
   SIGNING_ACCESS_RANK,
   type SigningAccessLevel,
 } from "../db/entities/EmployeeSigningGrant.js";
-import { CodeRepository } from "../db/entities/CodeRepository.js";
-import { EmployeeCodeRepositoryGrant } from "../db/entities/EmployeeCodeRepositoryGrant.js";
+import { Repository } from "../db/entities/Repository.js";
+import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { hasNoteAccess, listAccessibleNoteIds, upsertNoteGrant } from "../services/notes.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
 import {
@@ -548,6 +559,8 @@ type McpRequest = Request & {
   /** The chat thread / email thread behind this call, when the surface has one. */
   mcpConversationId?: string | null;
   mcpMailThreadId?: string | null;
+  /** The Repository work session this turn may act on, if any. */
+  mcpRepositoryWorkSessionId?: string | null;
   mcpAuthority?: "employee" | "member" | "untrusted";
   mcpRequesterUserId?: string | null;
   /** Re-read for every tool call so removal/demotion takes effect immediately. */
@@ -584,6 +597,7 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   req.mcpRoutineId = info.routineId;
   req.mcpConversationId = info.conversationId;
   req.mcpMailThreadId = info.mailThreadId;
+  req.mcpRepositoryWorkSessionId = info.repositoryWorkSessionId;
   req.mcpAuthority = info.authority;
   req.mcpRequesterUserId = info.requesterUserId;
   if (info.authority === "member") {
@@ -11028,20 +11042,20 @@ mcpInternalRouter.post(
   },
 );
 
-const listCodeRepositoriesSchema = z.object({}).strict();
+const listRepositoriesSchema = z.object({}).strict();
 
 mcpInternalRouter.post(
-  "/tools/list_code_repositories",
-  validateBody(listCodeRepositoriesSchema),
+  "/tools/list_repositories",
+  validateBody(listRepositoriesSchema),
   async (req: McpRequest, res) => {
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
-    const grants = await AppDataSource.getRepository(EmployeeCodeRepositoryGrant).find({
+    const grants = await AppDataSource.getRepository(EmployeeRepositoryGrant).find({
       where: { employeeId: self.id },
     });
     if (grants.length === 0) return res.json({ repositories: [] });
-    const accessById = new Map(grants.map((g) => [g.codeRepositoryId, g.accessLevel]));
-    const rows = await AppDataSource.getRepository(CodeRepository).find({
+    const accessById = new Map(grants.map((g) => [g.repositoryId, g.accessLevel]));
+    const rows = await AppDataSource.getRepository(Repository).find({
       where: { companyId: co.id, id: In([...accessById.keys()]) },
       order: { updatedAt: "DESC" },
     });
@@ -11050,13 +11064,153 @@ mcpInternalRouter.post(
         name: r.name,
         slug: r.slug,
         description: r.description,
-        localPath: `code-repos/${r.slug}`,
+        localPath: `repositories/${r.slug}`,
         defaultBranch: r.defaultBranch,
         gitUrl: r.gitUrl,
         accessLevel: accessById.get(r.id) ?? "read",
         lastSyncStatus: r.lastSyncStatus,
       })),
     });
+  },
+);
+
+/**
+ * Repository work-session tools.
+ *
+ * Every one of these acts on the worktree named by the turn's MCP token and
+ * nowhere else — there is deliberately no repository or path-root parameter,
+ * so an employee cannot steer a session at a repository it was not sent to.
+ * `resolveSessionCheckout` re-reads the session on each call, so a session
+ * that has finished or been discarded stops answering immediately.
+ *
+ * They exist as tools rather than as filesystem access because that is what
+ * lets repository work run on an install with command execution switched off,
+ * which is the default. See `services/repositoryWorkSessions.ts`.
+ */
+async function sessionCheckoutFor(req: McpRequest): Promise<SessionCheckout> {
+  const sessionId = req.mcpRepositoryWorkSessionId;
+  if (!sessionId) {
+    throw new Error(
+      "Repository tools are only available inside a repository work session started from the Repository page.",
+    );
+  }
+  return resolveSessionCheckout(req.mcpCompany!.id, sessionId);
+}
+
+function respondWithSessionError(res: Response, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  res.status(400).json({ error: message });
+}
+
+const repositoryListFilesSchema = z
+  .object({ path: z.string().max(1000).optional() })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/repository_list_files",
+  validateBody(repositoryListFilesSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const { directory } = await sessionCheckoutFor(req);
+      const body = req.body as z.infer<typeof repositoryListFilesSchema>;
+      res.json({ entries: sessionListFiles(directory, body.path ?? "") });
+    } catch (error) {
+      respondWithSessionError(res, error);
+    }
+  },
+);
+
+const repositoryReadFileSchema = z.object({ path: z.string().min(1).max(1000) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/repository_read_file",
+  validateBody(repositoryReadFileSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const { directory } = await sessionCheckoutFor(req);
+      const body = req.body as z.infer<typeof repositoryReadFileSchema>;
+      res.json({ path: body.path, content: sessionReadFile(directory, body.path) });
+    } catch (error) {
+      respondWithSessionError(res, error);
+    }
+  },
+);
+
+const repositoryWriteFileSchema = z
+  .object({
+    path: z.string().min(1).max(1000),
+    content: z.string().max(MAX_SESSION_WRITE_BYTES),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/repository_write_file",
+  validateBody(repositoryWriteFileSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const { directory } = await sessionCheckoutFor(req);
+      const body = req.body as z.infer<typeof repositoryWriteFileSchema>;
+      sessionWriteFile(directory, body.path, body.content);
+      res.json({ ok: true, path: body.path, bytes: Buffer.byteLength(body.content) });
+    } catch (error) {
+      respondWithSessionError(res, error);
+    }
+  },
+);
+
+const repositoryDeleteFileSchema = z.object({ path: z.string().min(1).max(1000) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/repository_delete_file",
+  validateBody(repositoryDeleteFileSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const { directory } = await sessionCheckoutFor(req);
+      const body = req.body as z.infer<typeof repositoryDeleteFileSchema>;
+      sessionDeleteFile(directory, body.path);
+      res.json({ ok: true, path: body.path });
+    } catch (error) {
+      respondWithSessionError(res, error);
+    }
+  },
+);
+
+const repositorySearchSchema = z.object({ query: z.string().min(1).max(500) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/repository_search",
+  validateBody(repositorySearchSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const { directory } = await sessionCheckoutFor(req);
+      const body = req.body as z.infer<typeof repositorySearchSchema>;
+      res.json({ matches: sessionSearch(directory, body.query) });
+    } catch (error) {
+      respondWithSessionError(res, error);
+    }
+  },
+);
+
+const repositoryCommitSchema = z.object({ message: z.string().min(1).max(2000) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/repository_commit",
+  validateBody(repositoryCommitSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const { repo, directory } = await sessionCheckoutFor(req);
+      const body = req.body as z.infer<typeof repositoryCommitSchema>;
+      const result = await sessionCommit(repo, directory, body.message);
+      if (!result) {
+        return res.json({
+          committed: false,
+          message: "Nothing had changed since your last commit, so no commit was made.",
+        });
+      }
+      res.json({ committed: true, commit: result.sha });
+    } catch (error) {
+      respondWithSessionError(res, error);
+    }
   },
 );
 

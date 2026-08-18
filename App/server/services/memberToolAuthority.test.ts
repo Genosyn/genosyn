@@ -24,7 +24,7 @@ describe("interactive Member tool policy", () => {
       "create_skill",
       "create_routine",
       "list_memory",
-      "list_code_repositories",
+      "list_repositories",
       "send_chat_attachment",
       "run_explore_query",
       "create_chart",

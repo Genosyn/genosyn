@@ -568,7 +568,7 @@ describe("section routing and command search", () => {
       "notes",
       "resources",
       "explore",
-      "code",
+      "repositories",
       "marketing",
       "revenue",
       "customers",

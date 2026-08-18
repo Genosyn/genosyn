@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { findGithubRepoCredential, testCodeRepoConnection } from "./codeRepos.js";
-import type { CodeRepository } from "../db/entities/CodeRepository.js";
+import { findGithubRepoCredential, testRepositoryConnection } from "./repositories.js";
+import type { Repository } from "../db/entities/Repository.js";
 import type { GithubRepoCredential } from "./repoSync.js";
 
 const credential: GithubRepoCredential = {
@@ -12,7 +12,7 @@ const credential: GithubRepoCredential = {
   token: "turn-only-token",
 };
 
-test("matches an allowlisted GitHub credential to an HTTPS Code Repository", () => {
+test("matches an allowlisted GitHub credential to an HTTPS Repository", () => {
   assert.equal(
     findGithubRepoCredential("https://github.com/acme/web.git", [credential]),
     credential,
@@ -25,7 +25,7 @@ test("does not reuse GitHub credentials for another host or an SSH remote", () =
   assert.equal(findGithubRepoCredential("git@github.com:acme/web.git", [credential]), null);
 });
 
-test("uses the sole granted GitHub Connection as the Code Repository credential", () => {
+test("uses the sole granted GitHub Connection as the Repository credential", () => {
   const soleConnection = { ...credential, owner: null, name: null };
   assert.equal(
     findGithubRepoCredential("https://github.com/acme/other.git", [soleConnection]),
@@ -52,10 +52,10 @@ test("requires an allowlist match to disambiguate multiple GitHub Connections", 
 });
 
 test("connection testing rejects a credential-bearing legacy URL before network access", async () => {
-  const result = await testCodeRepoConnection({
+  const result = await testRepositoryConnection({
     authMode: "none",
     gitUrl: "https://legacy-user:legacy-secret@example.invalid/acme/repo.git",
-  } as CodeRepository);
+  } as Repository);
 
   assert.equal(result.ok, false);
   assert.match(result.message, /plain http\(s\)/);

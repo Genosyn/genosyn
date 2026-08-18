@@ -163,7 +163,7 @@ const FINANCE_LEVEL_BLURB: Record<FinanceAccessLevel, string> = {
 /**
  * A ready-made markdown section telling the employee it has finance access,
  * at what level, and what that permits. Injected into the chat / routine
- * prompt next to the Code Repositories context. Returns "" when the employee
+ * prompt next to the Repositories context. Returns "" when the employee
  * has no finance grant, so nothing is injected for employees without access.
  */
 export async function composeFinanceContext(employeeId: string): Promise<string> {

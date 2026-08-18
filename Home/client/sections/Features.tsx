@@ -4,7 +4,7 @@ import { PRODUCTS } from "@/products/data";
 import { productIcon } from "@/products/productIcons";
 import { SectionEyebrow } from "@/sections/Primitives";
 
-const FEATURED_SLUGS = ["workspace", "tasks", "revenue", "email", "finance", "code"];
+const FEATURED_SLUGS = ["workspace", "tasks", "revenue", "email", "finance", "repositories"];
 const FEATURED = FEATURED_SLUGS.map((slug) => PRODUCTS.find((product) => product.slug === slug)).filter(
   (product): product is NonNullable<typeof product> => Boolean(product),
 );
