@@ -296,6 +296,30 @@ export async function materializeRepositoriesForEmployee(args: {
   return result;
 }
 
+
+/**
+ * Move a checkout left at the pre-rename `code-repos/<slug>` path to
+ * `repositories/<slug>`.
+ *
+ * Without this the materializer would simply not find the old checkout and
+ * would clone a fresh one beside it — throwing away whatever the employee had
+ * not yet committed, which is exactly the WIP the fetch-only sync exists to
+ * protect. One-way and best-effort: if anything about the old path looks
+ * wrong, leave it alone and let the clone happen.
+ */
+export function adoptLegacyCheckout(cwd: string, slug: string, repoPath: string): void {
+  if (fs.existsSync(repoPath)) return;
+  const legacy = path.join(cwd, "code-repos", slug);
+  try {
+    if (!fs.existsSync(path.join(legacy, ".git"))) return;
+    if (fs.lstatSync(legacy).isSymbolicLink()) return;
+    fs.mkdirSync(path.dirname(repoPath), { recursive: true });
+    fs.renameSync(legacy, repoPath);
+  } catch {
+    // A failed adoption is recoverable — the clone below replaces it.
+  }
+}
+
 async function syncOneRepo(
   repo: Repository,
   accessLevel: RepositoryAccessLevel,
@@ -305,6 +329,7 @@ async function syncOneRepo(
   githubRepoCredentials: GithubRepoCredential[],
 ): Promise<void> {
   const repoPath = path.join(cwd, "repositories", repo.slug);
+  adoptLegacyCheckout(cwd, repo.slug, repoPath);
   const isCheckout = fs.existsSync(path.join(repoPath, ".git"));
 
   // Resolve auth material up front so we can build the right clone command

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
-import test from "node:test";
-import { findGithubRepoCredential, testRepositoryConnection } from "./repositories.js";
+import { describe, test } from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+  adoptLegacyCheckout,
+  findGithubRepoCredential,
+  testRepositoryConnection,
+} from "./repositories.js";
 import type { Repository } from "../db/entities/Repository.js";
 import type { GithubRepoCredential } from "./repoSync.js";
 
@@ -60,4 +67,78 @@ test("connection testing rejects a credential-bearing legacy URL before network 
   assert.equal(result.ok, false);
   assert.match(result.message, /plain http\(s\)/);
   assert.doesNotMatch(result.message, /legacy-user|legacy-secret/);
+});
+
+/**
+ * Employee checkouts moved from `code-repos/<slug>` to `repositories/<slug>`
+ * with the Code → Repository rename. An install that upgraded mid-flight must
+ * keep whatever the employee had not committed; re-cloning beside the old
+ * directory would silently throw that away.
+ */
+describe("adopting a pre-rename checkout", () => {
+  function workspace(): string {
+    return fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-legacy-checkout-"));
+  }
+
+  test("moves an old checkout to the new path", () => {
+    const cwd = workspace();
+    const legacy = path.join(cwd, "code-repos", "web");
+    fs.mkdirSync(path.join(legacy, ".git"), { recursive: true });
+    fs.writeFileSync(path.join(legacy, "uncommitted.txt"), "work in progress");
+
+    const target = path.join(cwd, "repositories", "web");
+    adoptLegacyCheckout(cwd, "web", target);
+
+    assert.equal(fs.existsSync(path.join(target, ".git")), true);
+    assert.equal(fs.readFileSync(path.join(target, "uncommitted.txt"), "utf8"), "work in progress");
+    assert.equal(fs.existsSync(legacy), false);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("leaves an existing new checkout alone", () => {
+    const cwd = workspace();
+    const legacy = path.join(cwd, "code-repos", "web");
+    fs.mkdirSync(path.join(legacy, ".git"), { recursive: true });
+    const target = path.join(cwd, "repositories", "web");
+    fs.mkdirSync(path.join(target, ".git"), { recursive: true });
+    fs.writeFileSync(path.join(target, "current.txt"), "keep me");
+
+    adoptLegacyCheckout(cwd, "web", target);
+
+    assert.equal(fs.readFileSync(path.join(target, "current.txt"), "utf8"), "keep me");
+    assert.equal(fs.existsSync(legacy), true, "the old directory is left for the operator");
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("ignores a legacy path that is not a checkout", () => {
+    const cwd = workspace();
+    fs.mkdirSync(path.join(cwd, "code-repos", "web"), { recursive: true });
+    const target = path.join(cwd, "repositories", "web");
+    adoptLegacyCheckout(cwd, "web", target);
+    assert.equal(fs.existsSync(target), false);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("refuses to follow a symlinked legacy checkout", () => {
+    const cwd = workspace();
+    const outside = path.join(cwd, "elsewhere");
+    fs.mkdirSync(path.join(outside, ".git"), { recursive: true });
+    fs.mkdirSync(path.join(cwd, "code-repos"), { recursive: true });
+    fs.symlinkSync(outside, path.join(cwd, "code-repos", "web"));
+
+    const target = path.join(cwd, "repositories", "web");
+    adoptLegacyCheckout(cwd, "web", target);
+
+    assert.equal(fs.existsSync(target), false);
+    assert.equal(fs.existsSync(path.join(outside, ".git")), true);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+
+  test("does nothing when there is no legacy checkout at all", () => {
+    const cwd = workspace();
+    const target = path.join(cwd, "repositories", "web");
+    assert.doesNotThrow(() => adoptLegacyCheckout(cwd, "web", target));
+    assert.equal(fs.existsSync(target), false);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
 });
