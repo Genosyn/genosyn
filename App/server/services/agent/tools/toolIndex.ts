@@ -377,13 +377,16 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   },
   files: {
     label: "files",
-    blurb: "Send a file to a teammate, and read, fill, or write onto PDF forms.",
+    blurb: "Send a file, work on PDF forms, and read, edit or write Word documents.",
     tools: [
       "send_chat_attachment",
       "read_pdf_fields",
       "fill_pdf_form",
       "read_pdf_layout",
       "overlay_pdf_text",
+      "read_docx",
+      "edit_docx",
+      "create_docx",
     ],
   },
   web: {
@@ -1065,6 +1068,41 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "tick box",
     "checkbox",
     "stamp text",
+  ],
+  // Nobody calls it "a WordprocessingML package". They call it the Word file,
+  // the doc, the questionnaire someone sent — and they ask about the thing
+  // they want done to it, not about the format.
+  read_docx: [
+    "docx",
+    "word",
+    "word document",
+    "doc",
+    "read a document",
+    "questionnaire",
+    "open the attachment",
+  ],
+  edit_docx: [
+    "docx",
+    "word",
+    "word document",
+    "edit a document",
+    "fill in",
+    "complete form",
+    "questionnaire",
+    "answer the questions",
+    "find and replace",
+    "redline",
+  ],
+  create_docx: [
+    "docx",
+    "word",
+    "word document",
+    "write a document",
+    "write a report",
+    "memo",
+    "proposal",
+    "letter",
+    "export to word",
   ],
 
   // Web — people ask to "look something up", not to "search the web".

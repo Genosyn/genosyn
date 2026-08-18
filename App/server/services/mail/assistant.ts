@@ -387,9 +387,13 @@ const MAIL_ASSISTANT_TOOLS = [
   "suggest_mail_actions",
   // Paperwork is the panel's other hot path: half of what arrives by email is
   // a form somebody wants back. Discovering these mid-turn would put a
-  // round-trip between "here is the form" and reading its fields.
+  // round-trip between "here is the form" and reading its fields. Word
+  // documents belong here for the same reason and arrive just as often —
+  // a questionnaire, an order form, a contract to redline.
   "read_pdf_fields",
   "fill_pdf_form",
+  "read_docx",
+  "edit_docx",
 ];
 
 function assistantBriefing(account: MailAccount, accessLevel: MailAccessLevel | null): string {

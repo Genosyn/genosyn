@@ -35,6 +35,7 @@ import { Pipelines } from "@/docs/pages/Pipelines";
 import { Bases } from "@/docs/pages/Bases";
 import { Customers } from "@/docs/pages/Customers";
 import { PdfForms } from "@/docs/pages/PdfForms";
+import { WordDocuments } from "@/docs/pages/WordDocuments";
 import { Signatures } from "@/docs/pages/Signatures";
 import { Finance } from "@/docs/pages/Finance";
 import { SelfHosting } from "@/docs/pages/SelfHosting";
@@ -80,6 +81,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/bases": Bases,
   "/docs/customers": Customers,
   "/docs/pdf-forms": PdfForms,
+  "/docs/word-documents": WordDocuments,
   "/docs/signatures": Signatures,
   "/docs/finance": Finance,
   "/docs/self-hosting": SelfHosting,

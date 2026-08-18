@@ -98,6 +98,12 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "message the team on slack", expect: "send_workspace_message" },
   { query: "hand this over to a colleague", expect: "create_handoff" },
   { query: "fill in a pdf form", expect: "fill_pdf_form" },
+  { query: "read the word document they sent", expect: "read_docx" },
+  { query: "open the docx", expect: "read_docx" },
+  { query: "answer the questionnaire they emailed", expect: "edit_docx" },
+  { query: "fill in the word document", expect: "edit_docx" },
+  { query: "write a report as a word document", expect: "create_docx" },
+  { query: "export this to word", expect: "create_docx" },
   { query: "build a kpi dashboard", expect: "create_dashboard" },
   {
     query: "configure typed CRM fields before migration",

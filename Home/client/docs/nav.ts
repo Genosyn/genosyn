@@ -232,6 +232,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Fill interactive PDF forms, and complete printed or scanned ones by drawing answers onto the original.",
       },
       {
+        path: "/docs/word-documents",
+        title: "Word documents",
+        blurb:
+          "Read, answer and edit .docx files keeping the original formatting, or write a new one from scratch.",
+      },
+      {
         path: "/docs/signatures",
         title: "Document signing",
         blurb:

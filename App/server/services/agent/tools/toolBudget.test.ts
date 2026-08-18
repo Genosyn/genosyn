@@ -80,16 +80,25 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * cannot discover it can read a routine's schedule and never its brief, which
  * is the recall failure this footer exists to prevent. Thirteen characters buys
  * the tool that keeps the listing itself inside the same envelope.
- */
-/*
+ *
  * Raised from 4,440 for the `repository_*` family (M21.5). Six new deferred
  * names cost about sixty characters after brace-compaction, and there is no
  * way to buy that back without dropping a name a model would then be unable to
  * discover — the exact failure this footer exists to prevent. 4,600 still
  * leaves over 3,400 characters for the six schemas inside the 8,000-char cap,
  * which is what the ceiling is protecting.
+ *
+ * Raised to 4,640 for `read_docx`, `edit_docx` and `create_docx` (M41), which
+ * cost the same twenty-odd characters between them by extending the existing
+ * `files` domain rather than opening a `documents` one — a new domain key
+ * would have cost roughly twenty more for its label line alone, to say
+ * something `files` already says. The three names have to appear in full
+ * because a Word document is the case where an employee least knows what it
+ * has: a `.docx` used to reach it as "binary or unsupported type", so the
+ * employee asked for a PDF instead of the file already in front of it. A
+ * lexical miss that hid these would restore precisely that dead end.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 4_600;
+const DOMAIN_FOOTER_CHARS_MAX = 4_640;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

@@ -5,6 +5,8 @@ import { Attachment } from "../db/entities/Attachment.js";
 import { Company } from "../db/entities/Company.js";
 import { companyDir } from "./paths.js";
 import { pdfBufferToText } from "./resources.js";
+import { docxBufferToText } from "./docxRead.js";
+import { looksLikeWordDocument } from "./docxPackage.js";
 
 /**
  * Shared attachment → prompt-context layer used by every chat surface
@@ -26,6 +28,11 @@ export function formatAttachmentBytes(n: number): string {
 
 function isExtractableAttachment(mime: string, filename: string): boolean {
   if (mime.startsWith("text/")) return true;
+  // A Word document arrives labelled anything from the official
+  // wordprocessingml type to `application/zip` to `application/octet-stream`,
+  // depending on which mail server or browser handled it last, so the name is
+  // as much of a signal as the type.
+  if (looksLikeWordDocument(mime, filename)) return true;
   if (
     mime === "application/json" ||
     mime === "application/xml" ||
@@ -71,6 +78,9 @@ export async function extractAttachmentTextFromBuffer(
     const ext = path.extname(filename).toLowerCase();
     if (mime === "application/pdf" || ext === ".pdf") {
       return await pdfBufferToText(buf);
+    }
+    if (looksLikeWordDocument(mime, filename)) {
+      return await docxBufferToText(buf);
     }
     return buf.toString("utf8");
   } catch {

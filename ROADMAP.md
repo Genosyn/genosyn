@@ -2113,6 +2113,84 @@ the counterparty receives is their own document, completed.
   but a bare grid of boxes with a heading above it still needs a human to say
   where column three starts.
 
+### M41 — Word documents ✅
+
+A `.docx` handed to an AI Employee came back as "Binary or unsupported type".
+Not a partial reading, not a warning — nothing at all, because the attachment
+layer knew how to decode text, JSON and PDF and treated everything else as
+opaque bytes. The employee did the only sensible thing with what it could see:
+it reported that the document parser returned no readable text, that it had no
+DOCX-editing tool, and asked for the same file as a PDF instead. The file was
+already there. It was a questionnaire, and answering questionnaires is the job.
+
+Word is where the paperwork of a company actually lives — questionnaires,
+order forms, contracts under redline, the report someone wants by Friday. So
+the format gets the same treatment PDF got in M40: read what is there, change
+it in place, and write a new one when the deliverable is a document rather
+than a message.
+
+- [x] **A Word document is text now, everywhere, before any tool is called.**
+      `attachmentText.ts` extracts `.docx` the way it extracts PDF, so a
+      questionnaire uploaded into chat or opened off an email is simply in
+      front of the employee. `fetch_web_page` reads one served over HTTP, and a
+      `.docx` ingested as a Resource stores its prose instead of the mojibake
+      a UTF-8 decode of a zip produces — which search was happily matching
+      against.
+- [x] **`read_docx` returns structure, not just prose.** Every paragraph and
+      table cell carries an id (`p7`, `t1r2c3`), because an edit has to name
+      where it goes and "the third blank line after question one" is not an
+      address. Headers, footers, footnotes and comments are read alongside the
+      body: a questionnaire's answer boxes live in a header often enough that
+      a body-only reader would call the document empty, which is the exact
+      failure this milestone exists to end.
+- [x] **`edit_docx` changes a document without rewriting it.** Every operation
+      becomes a splice into the original XML, so the bytes nobody touched are
+      the same bytes — the fonts, the numbering, the styles, the revision ids
+      Word hangs off every element. Round-tripping through a general-purpose
+      XML library instead would reorder attributes, normalize away
+      `xml:space="preserve"` and drop vendor extensions: damage that is
+      invisible in a diff and obvious in Word. New text inherits the
+      formatting around it, so an answer arrives in the document's own face
+      rather than announcing that a machine typed it.
+- [x] **Matching happens on the paragraph, not on the element.** Word splits a
+      sentence across runs wherever a spell-check boundary or a saved revision
+      falls, so `Full name:` routinely lives in four `w:t` elements and a
+      search that looked at one at a time would report no match on a phrase
+      plainly visible on the page. Text is stitched first and written back
+      into the runs the match actually covered.
+- [x] **The batch is all or nothing.** Every id is resolved against one
+      reading of the file before a byte is written, and if any of them fails
+      nothing changes and every problem comes back together. A run of eight
+      answers that quietly skipped the two with wrong ids hands a human a
+      questionnaire that looks finished and is not — which is the same reason
+      `overlay_pdf_text` refuses before it draws.
+- [x] **Real fields are set as fields.** Modern content controls and Word 97
+      form fields both, including checkboxes and dropdowns, addressed by id or
+      by the name a human sees in Word. A dropdown only accepts one of its own
+      options, a checkbox takes `checked` rather than a string, and an
+      ambiguous name is refused rather than guessed at.
+- [x] **`create_docx` writes one from Markdown**, because Markdown is the only
+      document format a model reliably produces and base64 of a zip is not.
+      Headings, lists, tables, quotes, code, emphasis and links map onto real
+      Word constructs — a heading is `Heading1`, a list carries a numbering
+      definition — so the recipient gets a document they can restyle and keep
+      working in. Each ordered list gets its own numbering id so a second list
+      restarts at 1 rather than continuing the first.
+- [x] **The refusal says what the file actually is.** A legacy `.doc`, a
+      spreadsheet, a Pages export, a PDF opened by mistake — each gets its own
+      sentence and, where there is one, the fix. "No readable text" was the
+      message that started this milestone; it is not a message any of these
+      tools will send.
+- [x] **No new dependency.** `jszip` was already in the tree and does the
+      packaging; the OOXML reader is 300 lines of this repo's own, written for
+      exact offsets rather than for generality. The three tools extend the
+      existing `files` domain rather than opening a `documents` one, and the
+      `find_tools` footer ceiling moves 40 characters with the reason recorded
+      beside it.
+- Next: images and comments. An employee can read a document's comments today
+  only as text with no thread structure, and cannot answer one; and a report
+  that would be clearer with the chart in it still ships the chart separately.
+
 ## V1 backlog (post-MVP)
 
 Items here are not on the active milestone path but worth picking up. Most

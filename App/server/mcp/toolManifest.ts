@@ -42,20 +42,21 @@ export type McpToolSpec = {
  * (`resourceSlug`, optionally reformatted), an invoice (`invoiceSlug`, rendered
  * to a PDF on the fly, gated on the caller's finance access), or a chat
  * attachment (`attachmentId` — a file this turn produced or opened, e.g. a
- * filled PDF form, or one the teammate uploaded into this chat).
+ * filled PDF form or a completed Word document, or one the teammate uploaded
+ * into this chat).
  */
 const MAIL_ATTACHMENTS_PROPERTY = {
   type: "array",
   maxItems: 10,
   description:
-    "Optional files to attach. Give each item exactly one of `attachmentId` (a chat attachment — a file you produced this turn with fill_pdf_form / send_chat_attachment, opened out of an email with read_mail_attachment, or that the teammate uploaded into this chat), `resourceSlug` (a Resource, from list_resources), or `invoiceSlug` (an invoice rendered as a PDF, from the finance tool's list_invoices — needs finance access). The server reads the bytes; do not paste base64. Total attachment size is capped around 3 MB.",
+    "Optional files to attach. Give each item exactly one of `attachmentId` (a chat attachment — a file you produced this turn with fill_pdf_form / edit_docx / create_docx / send_chat_attachment, opened out of an email with read_mail_attachment, or that the teammate uploaded into this chat), `resourceSlug` (a Resource, from list_resources), or `invoiceSlug` (an invoice rendered as a PDF, from the finance tool's list_invoices — needs finance access). The server reads the bytes; do not paste base64. Total attachment size is capped around 3 MB.",
   items: {
     type: "object",
     properties: {
       attachmentId: {
         type: "string",
         description:
-          "Attach a chat attachment by id — the id returned by fill_pdf_form, send_chat_attachment, or read_mail_attachment, or one shown in an `[Attachment id=… ]` header on a teammate's message.",
+          "Attach a chat attachment by id — the id returned by fill_pdf_form, edit_docx, create_docx, send_chat_attachment, or read_mail_attachment, or one shown in an `[Attachment id=… ]` header on a teammate's message.",
       },
       resourceSlug: {
         type: "string",
@@ -2353,6 +2354,185 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
       },
       required: ["attachmentId", "items"],
+      additionalProperties: false,
+    },
+  },
+  // ---------- Word documents ----------
+  {
+    name: "read_docx",
+    description:
+      "Read a Word document (.docx) — its text and its structure. Returns every paragraph and table cell with an id you can write back to, plus any form fields the document declares. Use it on anything a teammate uploaded, an email carried, or you downloaded: a questionnaire to answer, a contract to check, a template to complete. Blocks are grouped by the part they live in — the body first, then any header, footer, footnote or comment — because a questionnaire's answer boxes are often in a header and a reader that skipped those would call the document empty. Paragraph ids are `p1`, `p2`, … in document order (`header1:p2` outside the body) and table cells are `t1r2c3`. Ids describe *this* reading of the file, so read immediately before you edit and send every change in one `edit_docx` call. If `hasFormFields` is true the document declares real fields and `set_field` fills them; if it is false the answers go into ordinary paragraphs and cells.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        attachmentId: {
+          type: "string",
+          description:
+            "Id of a chat attachment — uploaded by the human, opened from an email with read_mail_attachment, saved with download_web_file, or produced by an earlier tool call. Word documents only (.docx / .docm / .dotx / .dotm).",
+        },
+        scope: {
+          type: "string",
+          enum: ["body", "all"],
+          description:
+            "'all' (default) reads headers, footers, footnotes and comments alongside the body. 'body' reads only the main document, which is shorter on a long file.",
+        },
+        maxChars: {
+          type: "integer",
+          minimum: 1000,
+          maximum: 50000,
+          description:
+            "Size budget for the result, ids and structure included. Defaults to 40000, which is what fits in one tool result. If `truncated` comes back true the outline stops short of the end of the document: narrow it with `scope: \"body\"`, and note that `edit_docx`'s `replace_text` needs no id, so it still reaches text past the cut.",
+        },
+      },
+      required: ["attachmentId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "edit_docx",
+    description:
+      "Change a Word document and hand the result back as a chat attachment, keeping the original's fonts, styles, numbering and every byte you did not touch. This is how you answer a questionnaire, complete a template, or correct a contract: run `read_docx` first, then send every change in one call using the ids it gave you. Operations are resolved against the document as you read it, so inserting after `p4` twice puts two paragraphs after that same p4 and you never have to work out how an earlier operation renumbered anything. The whole batch is checked before a byte is written — if one id is wrong nothing changes and every problem comes back together, because a half-answered form is harder to recover from than a refused one. To build a document that does not exist yet, use `create_docx`. The returned `attachmentId` goes straight onto a reply via `create_mail_draft` / `send_mail`, or to a teammate with `send_chat_attachment`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        attachmentId: {
+          type: "string",
+          description: "Id of the source Word document.",
+        },
+        operations: {
+          type: "array",
+          minItems: 1,
+          maxItems: 400,
+          description: "The changes to make.",
+          items: {
+            type: "object",
+            properties: {
+              op: {
+                type: "string",
+                enum: [
+                  "set_paragraph",
+                  "insert_paragraph",
+                  "append_paragraph",
+                  "delete_paragraph",
+                  "set_table_cell",
+                  "set_field",
+                  "replace_text",
+                ],
+                description:
+                  "`set_paragraph` replaces a paragraph's text — the usual way to write an answer onto a blank line. `insert_paragraph` adds paragraphs beside an existing one, inheriting its formatting, which is how you add bullets under an answer. `append_paragraph` adds at the end of the document. `delete_paragraph` removes one. `set_table_cell` rewrites a cell. `set_field` fills a declared form field or content control. `replace_text` swaps text wherever it appears, including a tick-box glyph — ☐ for ☒.",
+              },
+              id: {
+                type: "string",
+                description:
+                  "The paragraph id for set_paragraph and delete_paragraph, the cell id for set_table_cell, or the field id for set_field.",
+              },
+              after: {
+                type: "string",
+                description: "insert_paragraph: the id of the paragraph to insert after.",
+              },
+              before: {
+                type: "string",
+                description: "insert_paragraph: the id of the paragraph to insert before.",
+              },
+              text: {
+                oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
+                description:
+                  "The new text. A newline is a line break inside the paragraph, and a new paragraph inside a table cell. Give an array to insert or append several paragraphs at once, one per item, in order.",
+              },
+              style: {
+                type: "string",
+                description:
+                  "insert_paragraph / append_paragraph: a named Word style such as Heading2 or ListParagraph. Omit it to copy the formatting of the paragraph you are inserting beside, which is what keeps a new bullet looking like the bullets around it.",
+              },
+              name: {
+                type: "string",
+                description:
+                  "set_field: address a field by its name or tag instead of its id. Refused when the name matches more than one field.",
+              },
+              value: {
+                type: "string",
+                description:
+                  "set_field: the value for a text, date or dropdown field. A dropdown value must be one of the options read_docx listed.",
+              },
+              checked: {
+                type: "boolean",
+                description:
+                  "set_field: tick or untick a checkbox field. Checkboxes take this rather than a value.",
+              },
+              find: {
+                type: "string",
+                description:
+                  "replace_text: the text to look for. Matching runs across the whole paragraph, so it still finds a phrase Word split across several runs internally.",
+              },
+              replace: {
+                type: "string",
+                description: "replace_text: what to put in its place. May be empty, to delete.",
+              },
+              within: {
+                type: "string",
+                description:
+                  "replace_text: confine the change to one paragraph, table cell, table or part id. Use it to tick the box on one line without touching identical boxes elsewhere.",
+              },
+              all: {
+                type: "boolean",
+                description:
+                  "replace_text: replace every occurrence (the default), or only the first when false.",
+              },
+              matchCase: {
+                type: "boolean",
+                description: "replace_text: match capitalisation exactly. Defaults to false.",
+              },
+            },
+            required: ["op"],
+            additionalProperties: false,
+          },
+        },
+        outputFilename: {
+          type: "string",
+          description:
+            "Filename for the produced document. Defaults to the source's name with an '-edited' suffix.",
+        },
+      },
+      required: ["attachmentId", "operations"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_docx",
+    description:
+      "Write a new Word document from Markdown and hand it back as a chat attachment. Use it when what was asked for is a document rather than a message — a report, a memo, a proposal, a policy, a letter someone will edit and sign. Headings, bullet and numbered lists, tables, quotes, code blocks, bold, italic and links all become real Word constructs, so the recipient gets something they can restyle and keep working in rather than a text file with hashes in it. To change a document that already exists use `edit_docx`, which keeps its formatting; rewriting it from Markdown would not. The returned `attachmentId` goes straight onto `create_mail_draft` / `send_mail`, or to a teammate with `send_chat_attachment`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        filename: {
+          type: "string",
+          description: "Filename for the document, e.g. 'q3-security-review.docx'.",
+        },
+        markdown: {
+          type: "string",
+          description:
+            "The document body as Markdown. Supports # headings, - and 1. lists (indent two spaces to nest), pipe tables with a |---| divider row, > quotes, fenced code blocks, --- rules, **bold**, *italic*, ~~strike~~, `code` and [links](https://example.com). A line containing only \\pagebreak starts a new page.",
+        },
+        title: {
+          type: "string",
+          description:
+            "Title recorded in the file's properties. Defaults to the filename without its extension.",
+        },
+        author: {
+          type: "string",
+          description: "Author recorded in the file's properties. Defaults to your own name.",
+        },
+        pageSize: {
+          type: "string",
+          enum: ["a4", "letter"],
+          description: "Paper size. Defaults to a4.",
+        },
+        landscape: {
+          type: "boolean",
+          description: "Lay the page out landscape. Defaults to portrait.",
+        },
+      },
+      required: ["filename", "markdown"],
       additionalProperties: false,
     },
   },

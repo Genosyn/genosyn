@@ -2,6 +2,8 @@ import path from "node:path";
 import { config } from "../../config.js";
 import { safeFetchBuffer } from "../lib/outboundUrl.js";
 import { htmlToText, pdfBufferToText } from "./resources.js";
+import { looksLikeWordDocument } from "./docxPackage.js";
+import { docxBufferToText } from "./docxRead.js";
 
 /**
  * The open web, for AI Employees.
@@ -228,6 +230,8 @@ export async function fetchWebPage(rawUrl: string): Promise<WebPage> {
     text = extracted.text;
   } else if (doc.contentType.includes("application/pdf")) {
     text = await pdfBufferToText(doc.body);
+  } else if (looksLikeWordDocument(doc.contentType, doc.url)) {
+    text = await docxBufferToText(doc.body);
   } else if (doc.contentType.startsWith("text/") || doc.contentType.includes("json")) {
     text = doc.body.toString("utf8");
   } else {

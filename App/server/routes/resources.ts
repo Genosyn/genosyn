@@ -1,6 +1,8 @@
 import path from "node:path";
 import { Router } from "express";
 import { z } from "zod";
+import { looksLikeWordDocument } from "../services/docxPackage.js";
+import { docxBufferToText } from "../services/docxRead.js";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Resource } from "../db/entities/Resource.js";
@@ -332,6 +334,11 @@ resourcesRouter.post(
         status = "failed";
         errorMessage =
           "Video transcripts aren't supported yet. Upload a transcript as text or paste the URL of one.";
+      } else if (looksLikeWordDocument("", file.originalname)) {
+        // A Word document infers as `text`, and decoding a zip as UTF-8 filled
+        // `bodyText` with mojibake that search then happily matched against.
+        const buf = await fs.promises.readFile(file.path);
+        bodyText = trimBodyText(await docxBufferToText(buf));
       } else {
         // text / .txt / .md / .html — read as utf8.
         const buf = await fs.promises.readFile(file.path);
