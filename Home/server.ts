@@ -23,8 +23,26 @@ app.use(express.static(clientDir, { index: false, redirect: false, maxAge: "1h" 
 // every mistyped URL duplicate home content with a 200.
 const notFoundHtml = path.join(clientDir, "404.html");
 
+/**
+ * Routes that used to exist and now live somewhere else.
+ *
+ * The Code section became Repositories, which moved two public URLs. Both were
+ * linked from the docs index and are the kind of thing people bookmark, so
+ * they redirect permanently rather than 404 — a renamed page that returns
+ * "gone" reads as a removed feature.
+ */
+const MOVED: Record<string, string> = {
+  "/docs/code": "/docs/repositories",
+  "/products/code": "/products/repositories",
+};
+
 app.get("*", (req, res) => {
   const urlPath = req.path.replace(/\/+$/, "") || "/";
+  const moved = MOVED[urlPath];
+  if (moved) {
+    res.redirect(301, moved);
+    return;
+  }
   if (urlPath === "/") {
     res.sendFile(indexHtml);
     return;
