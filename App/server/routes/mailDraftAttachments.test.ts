@@ -157,7 +157,6 @@ beforeEach(async () => {
     gmailMessageId: DRAFT_MESSAGE_ID,
     gmailThreadId: GMAIL_THREAD_ID,
     gmailDraftId: GMAIL_DRAFT_ID,
-    isDraft: true,
     toEmails: "accountspayable@syniti.com",
     subject: "Re: Syniti New Supplier Form US",
     bodyText: "HackerBay, Inc. is a U.S. entity.",
