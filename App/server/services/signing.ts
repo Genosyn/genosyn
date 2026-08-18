@@ -9,6 +9,16 @@ import multer from "multer";
 import { degrees, PDFDocument, PDFFont, PDFImage, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { EntityManager, FindOptionsWhere, In, LessThanOrEqual } from "typeorm";
 
+import {
+  PdfGeometryError,
+  displayRectToUserBox,
+  displaySize,
+  normalizePageRotation,
+  pointInBox,
+  type PageBox,
+  type PageRotation,
+  type StampBox,
+} from "./pdfGeometry.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -2914,85 +2924,55 @@ async function embedFieldImage(
     : pdf.embedJpg(Uint8Array.from(image.bytes));
 }
 
-type PdfStampBox = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: 0 | 90 | 180 | 270;
-};
+type PdfStampBox = StampBox;
 
-function normalizedPageRotation(page: PDFPage): PdfStampBox["rotation"] {
-  const rotation = ((page.getRotation().angle % 360) + 360) % 360;
-  if (rotation === 0 || rotation === 90 || rotation === 180 || rotation === 270) {
-    return rotation;
+function normalizedPageRotation(page: PDFPage): PageRotation {
+  try {
+    return normalizePageRotation(page.getRotation().angle);
+  } catch (err) {
+    // Callers here answer to the signing API's error contract, not the
+    // geometry module's.
+    if (err instanceof PdfGeometryError) {
+      throw new SigningValidationError("PDF page rotation must be a multiple of 90 degrees");
+    }
+    throw err;
   }
-  throw new SigningValidationError("PDF page rotation must be a multiple of 90 degrees");
 }
 
 /**
- * Convert the top-left, normalized rectangle used by PDF.js into the PDF
- * page's native coordinate system. PDF.js displays the CropBox and applies
- * the page's /Rotate value, while pdf-lib drawing coordinates are expressed
- * in unrotated page space. Keeping this conversion in one place makes the
- * editor overlay and the completed document agree for every page geometry.
+ * Convert the top-left, normalized rectangle the signature editor stores into
+ * the PDF page's native coordinate system.
+ *
+ * PDF.js displays the CropBox with `/Rotate` applied while pdf-lib draws in
+ * unrotated page space; `services/pdfGeometry.ts` owns that conversion for
+ * every subsystem that needs it, so the editor overlay, the completed
+ * document, and the PDF overlay tools cannot drift apart on where a
+ * coordinate lands. All this adds is the normalized → absolute step, which is
+ * particular to how signature fields are stored.
  */
 export function normalizedFieldBoxForPage(
   page: PDFPage,
   field: Pick<SignatureField, "x" | "y" | "width" | "height">,
 ): PdfStampBox {
   const crop = page.getCropBox();
-  const rotation = normalizedPageRotation(page);
-  const displayWidth = rotation === 90 || rotation === 270 ? crop.height : crop.width;
-  const displayHeight = rotation === 90 || rotation === 270 ? crop.width : crop.height;
-  const left = field.x * displayWidth;
-  const top = field.y * displayHeight;
-  const width = field.width * displayWidth;
-  const height = field.height * displayHeight;
-  const bottom = top + height;
-
-  switch (rotation) {
-    case 0:
-      return {
-        x: crop.x + left,
-        y: crop.y + crop.height - bottom,
-        width,
-        height,
-        rotation,
-      };
-    case 90:
-      return {
-        x: crop.x + bottom,
-        y: crop.y + left,
-        width,
-        height,
-        rotation,
-      };
-    case 180:
-      return {
-        x: crop.x + crop.width - left,
-        y: crop.y + bottom,
-        width,
-        height,
-        rotation,
-      };
-    case 270:
-      return {
-        x: crop.x + crop.width - bottom,
-        y: crop.y + crop.height - left,
-        width,
-        height,
-        rotation,
-      };
-  }
+  const box: PageBox = {
+    x: crop.x,
+    y: crop.y,
+    width: crop.width,
+    height: crop.height,
+    rotation: normalizedPageRotation(page),
+  };
+  const display = displaySize(box);
+  return displayRectToUserBox(box, {
+    x: field.x * display.width,
+    y: field.y * display.height,
+    width: field.width * display.width,
+    height: field.height * display.height,
+  });
 }
 
 function pointInStampBox(box: PdfStampBox, x: number, y: number): { x: number; y: number } {
-  const angle = (box.rotation * Math.PI) / 180;
-  return {
-    x: box.x + x * Math.cos(angle) - y * Math.sin(angle),
-    y: box.y + x * Math.sin(angle) + y * Math.cos(angle),
-  };
+  return pointInBox(box, x, y);
 }
 
 async function stampField(

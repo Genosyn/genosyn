@@ -377,8 +377,14 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   },
   files: {
     label: "files",
-    blurb: "Send a file to a teammate, and read or fill PDF forms.",
-    tools: ["send_chat_attachment", "read_pdf_fields", "fill_pdf_form"],
+    blurb: "Send a file to a teammate, and read, fill, or write onto PDF forms.",
+    tools: [
+      "send_chat_attachment",
+      "read_pdf_fields",
+      "fill_pdf_form",
+      "read_pdf_layout",
+      "overlay_pdf_text",
+    ],
   },
   web: {
     label: "web",
@@ -1026,6 +1032,31 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   send_chat_attachment: ["file", "download", "attach", "send file", "deliver"],
   read_pdf_fields: ["pdf", "form", "fields"],
   fill_pdf_form: ["pdf", "form", "complete form", "fill in"],
+  // A form with no fields is the case people describe, not the cause — so the
+  // words they reach for are about the paper, not the AcroForm.
+  read_pdf_layout: [
+    "pdf",
+    "form",
+    "layout",
+    "where on the page",
+    "coordinates",
+    "scanned form",
+    "non-fillable",
+    "read the page",
+  ],
+  overlay_pdf_text: [
+    "pdf",
+    "form",
+    "write on pdf",
+    "complete form",
+    "fill in",
+    "annotate pdf",
+    "scanned form",
+    "non-fillable",
+    "tick box",
+    "checkbox",
+    "stamp text",
+  ],
 
   // Web — people ask to "look something up", not to "search the web".
   search_web: ["google", "look up", "search online", "find online", "internet"],

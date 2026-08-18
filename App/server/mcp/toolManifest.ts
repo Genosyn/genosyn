@@ -2160,6 +2160,121 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "read_pdf_layout",
+    description:
+      "Read where the printed text sits on a PDF's pages, and how big each page is. This is the companion to `read_pdf_fields` for forms with NO interactive fields — the ordinary case for anything scanned, printed, or exported from a word processor, where `read_pdf_fields` comes back empty. Returns each page's displayed `width`/`height` in points and its `rotation`, plus every run of text with `x`/`y` (top-left of the run, in points from the top-left of the page as displayed), `width`, `height`, `baselineY` and `fontSize`. Find the label you need to answer — \"Full name:\" — then write into the gap after it with `overlay_pdf_text`, reusing that label's `baselineY` and `fontSize` so your answer sits on the same line at the same size. If `hasFormFields` is true the document does declare fields after all, and `fill_pdf_form` is the better tool.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        attachmentId: {
+          type: "string",
+          description:
+            "Id of a chat attachment — uploaded by the human, opened from an email with read_mail_attachment, or produced by an earlier tool call. PDFs only.",
+        },
+        pages: {
+          type: "array",
+          items: { type: "integer", minimum: 1 },
+          description:
+            "Optional 1-based page numbers to read. Defaults to every page; narrow it on a long document to keep the result readable.",
+        },
+      },
+      required: ["attachmentId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "overlay_pdf_text",
+    description:
+      "Draw text and tick marks onto a PDF at exact page coordinates, keeping the original pages as the background, and hand back the result as a chat attachment. This is how you complete a form that has no interactive fields: `fill_pdf_form` can only set fields a document already declares, and most printed or scanned forms declare none. Run `read_pdf_layout` first to find the labels and the blanks after them — coordinates here are exactly the ones it reports, measured in points from the top-left of the page as displayed, so a rotated scan needs no adjustment. Each item is text (the default) or a `check` / `cross` mark sized to sit in a tick box. Anything unrenderable — a page that does not exist, a character no shipped font covers — is refused before a single mark is made; a placement that runs off the page is still drawn but reported in `warnings`, so read them. The returned `attachmentId` can go straight onto a reply via `create_mail_draft` / `send_mail`, or to a teammate with `send_chat_attachment`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        attachmentId: {
+          type: "string",
+          description:
+            "Id of the source PDF — a chat upload, or an email attachment opened with read_mail_attachment.",
+        },
+        items: {
+          type: "array",
+          minItems: 1,
+          maxItems: 500,
+          description: "What to draw, in order.",
+          items: {
+            type: "object",
+            properties: {
+              page: { type: "integer", minimum: 1, description: "1-based page number." },
+              x: {
+                type: "number",
+                description: "Points from the page's left edge, as displayed.",
+              },
+              y: {
+                type: "number",
+                description:
+                  "Points from the page's top edge, as displayed. By default this is the top of the line box; pass `anchor: \"baseline\"` to give a baseline from read_pdf_layout instead.",
+              },
+              type: {
+                type: "string",
+                enum: ["text", "check", "cross"],
+                description:
+                  "`text` (default) writes `text`. `check` draws a tick and `cross` an X, both sized to `size` — use them for tick boxes.",
+              },
+              text: {
+                type: "string",
+                description:
+                  "The text to write. Required for `text` items. Newlines start a new line.",
+              },
+              size: {
+                type: "number",
+                description:
+                  "Point size for text, or the side length of a check/cross. Defaults to 11 for text and 12 for a mark. Match the form by reusing the nearby label's fontSize.",
+              },
+              color: {
+                type: "string",
+                description:
+                  "`#rrggbb`, or one of black, white, red, green, blue, navy, grey. Defaults to black.",
+              },
+              maxWidth: {
+                type: "number",
+                description:
+                  "Wrap the text into a column this many points wide. Omit for a single line.",
+              },
+              lineHeight: {
+                type: "number",
+                description:
+                  "Baseline-to-baseline spacing. Defaults to the font's natural leading.",
+              },
+              align: {
+                type: "string",
+                enum: ["left", "center", "right"],
+                description:
+                  "Horizontal placement relative to `x`, or within the `maxWidth` column. Defaults to left.",
+              },
+              anchor: {
+                type: "string",
+                enum: ["top", "baseline"],
+                description:
+                  "What `y` measures: the top of the line box (default), or the baseline the glyphs sit on. Use `baseline` with a `baselineY` from read_pdf_layout to land exactly on a printed line.",
+              },
+              thickness: {
+                type: "number",
+                description: "Stroke width for a check/cross. Defaults to a tenth of `size`.",
+              },
+            },
+            required: ["page", "x", "y"],
+            additionalProperties: false,
+          },
+        },
+        outputFilename: {
+          type: "string",
+          description:
+            "Filename for the produced PDF. Defaults to the source's name with a '-completed' suffix.",
+        },
+      },
+      required: ["attachmentId", "items"],
+      additionalProperties: false,
+    },
+  },
   // ---------- Web ----------
   {
     name: "search_web",

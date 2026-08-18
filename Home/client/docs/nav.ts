@@ -225,6 +225,12 @@ export const DOCS_NAV: DocsSection[] = [
         blurb: "Accounts, contacts, annual contract value, statements, and signed contracts.",
       },
       {
+        path: "/docs/pdf-forms",
+        title: "PDF forms",
+        blurb:
+          "Fill interactive PDF forms, and complete printed or scanned ones by drawing answers onto the original.",
+      },
+      {
         path: "/docs/signatures",
         title: "Document signing",
         blurb:

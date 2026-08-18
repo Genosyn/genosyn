@@ -296,7 +296,12 @@ const PROJECT_TOOLS = ["list_projects", "list_todos", "create_todo", "update_tod
  * result, both of which apply to Routine Runs identically.
  */
 const WEB_TOOLS = ["search_web", "fetch_web_page", "download_web_file"] as const;
-const ATTACHMENT_TOOLS = ["read_pdf_fields", "fill_pdf_form"] as const;
+const ATTACHMENT_TOOLS = [
+  "read_pdf_fields",
+  "fill_pdf_form",
+  "read_pdf_layout",
+  "overlay_pdf_text",
+] as const;
 /**
  * Workspace chat has its own per-channel participant model. Each handler must
  * intersect the requesting Member's visibility with the acting AI Employee's

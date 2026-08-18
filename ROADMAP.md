@@ -2005,6 +2005,56 @@ is already injected into every prompt it runs.
   waiting for its next scheduled turn. The journal delivery is durable and
   needs no scheduler, which is why it shipped first.
 
+### M40 — PDF forms with no fields ✅
+
+`fill_pdf_form` can only set fields a document already declares, and most
+forms in the world declare none. A supplier onboarding form, a tax form, a
+bank mandate — printed, scanned, or exported from a word processor — is ink,
+not an AcroForm. An employee handed one could read its text and nothing else,
+so the best it could do was retype the answers into an email and ask a human
+to fill the real thing. That is the task it was given, handed back.
+
+So the pair that works on fields gets a pair that works on coordinates: find
+where the printed labels sit, then draw the answers over the original. What
+the counterparty receives is their own document, completed.
+
+- [x] **`read_pdf_layout` reports where the text is, not just what it says.**
+      Each page's displayed size and rotation, and every run of printed text
+      with its position, width, baseline and point size. Runs a content stream
+      split for kerning are stitched back together, because a model looking for
+      the label `Full name:` will not find `Full`, ` name`, `:` — while a gap
+      wide enough to write in is deliberately left as a gap, since that gap is
+      the thing the caller came for.
+- [x] **`overlay_pdf_text` draws text and tick marks at those coordinates**,
+      keeping the source pages as the background so nothing about the original
+      is re-rendered. Marks are stroked as geometry rather than set as a
+      character: a tick is not in WinAnsi, and the faces that carry one
+      disagree about where it sits in its em box, which is the wrong thing to
+      discover inside a pre-printed checkbox.
+- [x] **One coordinate system, and it is the reader's.** Points from the
+      top-left of the page as displayed, `/Rotate` already applied. Both tools
+      speak it, so a position read from one can be handed straight to the
+      other, and either anchor — the top of the line box or the baseline —
+      round-trips exactly. `services/pdfGeometry.ts` owns the conversion into
+      the unrotated, bottom-left space PDFs actually draw in, and the signature
+      editor now shares it rather than keeping a second copy of the same four
+      rotation cases.
+- [x] **Refuse before drawing, warn after.** A page that does not exist, a
+      size that is not a size, a character no shipped face can render — all
+      refused before a single mark is made, because a half-answered form is
+      harder to recover from than a refused one. A placement that is merely
+      suspicious, like an answer running off the edge, is drawn and returned in
+      `warnings`: only the caller knows whether it meant it, and nobody
+      re-reads a form they asked an employee to fill.
+- [x] **The font stack came out of signing, not out of nowhere.** Noto Latin,
+      Arabic and SC, picked per character with coverage checked before
+      anything is drawn, now shared by both subsystems instead of duplicated —
+      one implementation, so a bug in glyph fallback is one bug rather than the
+      kind that only shows up on the one form answered in Arabic.
+- Next: detect ruled lines and boxes, not just text. Labels carry most forms,
+  but a bare grid of boxes with a heading above it still needs a human to say
+  where column three starts.
+
 ## V1 backlog (post-MVP)
 
 Items here are not on the active milestone path but worth picking up. Most

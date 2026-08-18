@@ -47,6 +47,13 @@ import { Attachment } from "../db/entities/Attachment.js";
 import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup } from "pdf-lib";
+import { PdfLayoutError, readPdfLayout } from "../services/pdfLayout.js";
+import {
+  PdfOverlayError,
+  overlayPdfText,
+  type OverlayItem,
+} from "../services/pdfOverlay.js";
+import { PdfTextError } from "../services/pdfText.js";
 import { Approval } from "../db/entities/Approval.js";
 import {
   browserApprovalWasExecuted,
@@ -12196,10 +12203,10 @@ mcpInternalRouter.post(
 
 const pdfFieldsSchema = z.object({ attachmentId: z.string().uuid() }).strict();
 
-async function loadAttachmentPdf(
+async function loadAttachmentPdfBytes(
   attachmentId: string,
   companyId: string,
-): Promise<{ row: Attachment; doc: PDFDocument } | { error: string; status: number }> {
+): Promise<{ row: Attachment; bytes: Buffer } | { error: string; status: number }> {
   const resolved = await resolveAttachmentFile(attachmentId, companyId);
   if (!resolved) return { error: "Attachment not found", status: 404 };
   const ext = resolved.row.filename.toLowerCase().endsWith(".pdf");
@@ -12207,16 +12214,36 @@ async function loadAttachmentPdf(
   if (!ext && !isPdfMime) {
     return { error: "Attachment is not a PDF", status: 400 };
   }
-  const buf = await fs.promises.readFile(resolved.absPath);
+  return { row: resolved.row, bytes: await fs.promises.readFile(resolved.absPath) };
+}
+
+async function loadAttachmentPdf(
+  attachmentId: string,
+  companyId: string,
+): Promise<{ row: Attachment; doc: PDFDocument } | { error: string; status: number }> {
+  const loaded = await loadAttachmentPdfBytes(attachmentId, companyId);
+  if ("error" in loaded) return loaded;
   try {
-    const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
-    return { row: resolved.row, doc };
+    const doc = await PDFDocument.load(loaded.bytes, { ignoreEncryption: true });
+    return { row: loaded.row, doc };
   } catch (err) {
     return {
       error: `Could not parse PDF: ${err instanceof Error ? err.message : String(err)}`,
       status: 400,
     };
   }
+}
+
+/**
+ * The PDF services report caller-fixable problems — a page that does not
+ * exist, a glyph no shipped face carries — as errors carrying a 4xx. Anything
+ * else is ours and keeps its stack.
+ */
+function pdfToolFailure(err: unknown): { status: number; error: string } | null {
+  if (err instanceof PdfOverlayError || err instanceof PdfLayoutError || err instanceof PdfTextError) {
+    return { status: err.status, error: err.message };
+  }
+  return null;
 }
 
 function describePdfFieldType(field: unknown): string {
@@ -12411,6 +12438,140 @@ mcpInternalRouter.post(
         mimeType: row.mimeType,
         sizeBytes: Number(row.sizeBytes),
       },
+    });
+  },
+);
+
+const pdfLayoutSchema = z
+  .object({
+    attachmentId: z.string().uuid(),
+    pages: z.array(z.number().int().min(1)).min(1).max(50).optional(),
+  })
+  .strict();
+
+/**
+ * Report where the printed text sits on each page, for the forms
+ * `read_pdf_fields` has nothing to say about.
+ */
+mcpInternalRouter.post(
+  "/tools/read_pdf_layout",
+  validateBody(pdfLayoutSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof pdfLayoutSchema>;
+    if (!(await delegatedMemberCanUseAttachment(req, body.attachmentId))) {
+      return res.status(404).json({ error: "Attachment not found" });
+    }
+    const co = req.mcpCompany!;
+    const loaded = await loadAttachmentPdfBytes(body.attachmentId, co.id);
+    if ("error" in loaded) {
+      return res.status(loaded.status).json({ error: loaded.error });
+    }
+    try {
+      const layout = await readPdfLayout(loaded.bytes, { pages: body.pages });
+      return res.json({ filename: loaded.row.filename, ...layout });
+    } catch (err) {
+      const failure = pdfToolFailure(err);
+      if (!failure) throw err;
+      return res.status(failure.status).json({ error: failure.error });
+    }
+  },
+);
+
+const overlayPdfSchema = z
+  .object({
+    attachmentId: z.string().uuid(),
+    items: z
+      .array(
+        z
+          .object({
+            page: z.number().int().min(1),
+            x: z.number(),
+            y: z.number(),
+            type: z.enum(["text", "check", "cross"]).optional(),
+            text: z.string().optional(),
+            size: z.number().optional(),
+            color: z.string().max(40).optional(),
+            maxWidth: z.number().optional(),
+            lineHeight: z.number().optional(),
+            align: z.enum(["left", "center", "right"]).optional(),
+            anchor: z.enum(["top", "baseline"]).optional(),
+            thickness: z.number().optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(500),
+    outputFilename: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+
+/**
+ * Draw onto a PDF that has no fields to fill, and stage the result as a chat
+ * attachment the way `fill_pdf_form` does — the two are the same motion for
+ * the caller, and differ only in whether the document declared any fields.
+ */
+mcpInternalRouter.post(
+  "/tools/overlay_pdf_text",
+  validateBody(overlayPdfSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof overlayPdfSchema>;
+    if (!(await delegatedMemberCanUseAttachment(req, body.attachmentId))) {
+      return res.status(404).json({ error: "Attachment not found" });
+    }
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const token = req.mcpToken!;
+    const loaded = await loadAttachmentPdfBytes(body.attachmentId, co.id);
+    if ("error" in loaded) {
+      return res.status(loaded.status).json({ error: loaded.error });
+    }
+
+    let drawn;
+    try {
+      drawn = await overlayPdfText(loaded.bytes, body.items as OverlayItem[]);
+    } catch (err) {
+      const failure = pdfToolFailure(err);
+      if (!failure) throw err;
+      return res.status(failure.status).json({ error: failure.error });
+    }
+
+    const outputName =
+      body.outputFilename || loaded.row.filename.replace(/\.pdf$/i, "") + "-completed.pdf";
+    const row = await recordAttachmentBytes({
+      companyId: co.id,
+      companySlug: co.slug,
+      filename: outputName,
+      mimeType: "application/pdf",
+      bytes: Buffer.from(drawn.bytes),
+      uploadedByUserId: null,
+    });
+    stageAttachmentForToken(token, row.id);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "pdf.overlay",
+      targetType: "attachment",
+      targetId: row.id,
+      targetLabel: outputName,
+      metadata: {
+        via: "mcp",
+        sourceAttachmentId: body.attachmentId,
+        drawnItems: body.items.length,
+      },
+    });
+    await journal(
+      self.id,
+      `${self.name} wrote onto PDF "${loaded.row.filename}" → "${outputName}"`,
+      `Placed ${body.items.length} item(s) on ${drawn.pageCount} page(s).`,
+    );
+    return res.json({
+      attachment: {
+        id: row.id,
+        filename: row.filename,
+        mimeType: row.mimeType,
+        sizeBytes: Number(row.sizeBytes),
+      },
+      warnings: drawn.warnings,
     });
   },
 );
