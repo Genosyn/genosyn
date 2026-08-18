@@ -1151,7 +1151,7 @@ function UnreadableFile({ file }: { file: RepositoryFileContent }) {
       <p className="max-w-sm text-xs text-slate-500 dark:text-slate-400">
         {file.binary
           ? "Genosyn only opens text in the browser editor. The file is still in the repository and AI employees can work with it through their checkout."
-          : `It is ${(file.size / 1024 / 1024).toFixed(1)} MB. Editing it in a browser textarea would be slower than useful, so the editor stays out of the way.`}
+          : `It is ${Math.round(file.size / 1024)} KB. Editing a file that size in a browser textarea would be slower than useful, so the editor stays out of the way. It is still in the repository, and an AI employee can work on it.`}
       </p>
     </div>
   );

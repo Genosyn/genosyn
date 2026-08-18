@@ -44,24 +44,21 @@ import { readRepositoryKnownHosts, persistRepositoryKnownHosts } from "./reposit
  */
 
 /**
- * The largest file the browser will render at all. Above this the API returns
- * the size and nothing else, and the UI says so rather than hanging on a
- * megabyte of text in a textarea.
- */
-export const MAX_VIEWABLE_FILE_BYTES = 1024 * 1024;
-
-/**
- * The largest file a save request may carry.
+ * The largest file the browser editor will open, and the largest a save
+ * request may carry. Deliberately one number rather than two.
  *
- * Deliberately well under {@link MAX_VIEWABLE_FILE_BYTES}, because a save
- * travels as a JSON string: escaping newlines and quotes can nearly double the
- * byte count, and the App's global body limit is 1 MB (`express.json` in
- * `server/index.ts`). A cap at or above that limit would mean the editor let
- * you type a change it could never submit — the request would die in the body
- * parser with a bare 413 and no explanation. If you raise this, raise the body
- * limit first.
+ * The ceiling comes from the save path: a save travels as a JSON string, where
+ * escaping newlines and quotes can nearly double the byte count, and the App's
+ * global body limit is 1 MB (`express.json` in `server/index.ts`). Reading
+ * could afford to be more generous — but a file you can open and then cannot
+ * save is a worse experience than one that says plainly it is too big, and it
+ * would need its own state in the editor to express. If you raise this, raise
+ * the body limit first.
  */
 export const MAX_EDITABLE_FILE_BYTES = 256 * 1024;
+
+/** Reads and writes share one ceiling; see above. */
+export const MAX_VIEWABLE_FILE_BYTES = MAX_EDITABLE_FILE_BYTES;
 
 /** Cap on a single diff response so one enormous commit can't wedge the UI. */
 export const MAX_DIFF_BYTES = 1024 * 1024;
