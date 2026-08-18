@@ -6,6 +6,7 @@ import { MailThread } from "../../db/entities/MailThread.js";
 import { parseAddressList } from "../../lib/emailAddress.js";
 import { broadcastToCompany } from "../realtime.js";
 import { accessTokenForAccount } from "./accounts.js";
+import { fetchMailAttachmentsBytes } from "./attachments.js";
 import {
   buildMime,
   createDraft as apiCreateDraft,
@@ -352,6 +353,20 @@ export async function createMailDraft(
   return row;
 }
 
+/** Update-only knobs. See {@link UpdateDraftOptions.keepAttachmentIndexes} —
+ *  an edit rebuilds the whole MIME, so surviving files are opt-in. */
+export type UpdateDraftOptions = {
+  /**
+   * Positional indexes of the draft's existing attachments to carry over,
+   * numbered the same way the download route numbers them. Gmail replaces a
+   * draft with whatever raw MIME we hand it, so anything left out of this
+   * list is dropped from the draft. Omit it (or pass `[]`) to keep none —
+   * callers that supply the full file set themselves, like the employee's
+   * `edit_mail_draft` tool, want exactly that.
+   */
+  keepAttachmentIndexes?: number[];
+};
+
 /**
  * Replace a draft's content. Gmail assigns the updated draft a NEW message
  * id, so the old mirror row is dropped and the fresh one ingested.
@@ -360,13 +375,24 @@ export async function updateMailDraft(
   account: MailAccount,
   draftRow: MailMessage,
   fields: ComposeFields,
+  opts: UpdateDraftOptions = {},
 ): Promise<MailMessage> {
   if (!draftRow.gmailDraftId) throw new Error("Not a draft");
+  // Pull the kept files down before touching Gmail: if a download fails the
+  // draft is still whole, whereas a half-written replacement would have lost
+  // them for good.
+  const carried = (
+    await fetchMailAttachmentsBytes(account, draftRow, opts.keepAttachmentIndexes ?? [])
+  ).map(({ meta, bytes }) => ({
+    filename: meta.filename || "attachment",
+    mimeType: meta.mimeType || "application/octet-stream",
+    content: bytes,
+  }));
   const token = await accessTokenForAccount(account);
   const thread = await AppDataSource.getRepository(MailThread).findOneBy({
     id: draftRow.threadId,
   });
-  const mime = await composeMime(account, fields, thread);
+  const mime = await composeMime(account, fields, thread, carried);
   const draft = await apiUpdateDraft(
     token,
     draftRow.gmailDraftId,
@@ -446,10 +472,18 @@ export async function discardMailDraft(
   if (!opts.silent) notifyMailChanged(account);
 }
 
+/**
+ * Build the raw MIME for a send/draft call.
+ *
+ * `carried` is bytes already on the message being replaced (draft edits) and
+ * always leads the attachment list, so an edit that adds a file appends to
+ * what was there rather than reordering it.
+ */
 async function composeMime(
   account: MailAccount,
   fields: ComposeFields,
   thread: MailThread | null,
+  carried: MimeAttachment[] = [],
 ): Promise<{ raw: string }> {
   let subject = fields.subject ?? "";
   let inReplyTo: string | undefined;
@@ -463,12 +497,14 @@ async function composeMime(
     if (!to) to = ctx.defaultTo;
   }
   if (!to) throw new Error("Recipient (to) is required");
-  const attachments =
+  const added =
     fields.attachments && fields.attachments.length > 0
       ? fields.attachments
       : fields.attachmentIds && fields.attachmentIds.length > 0
         ? drainAttachments(account.id, fields.attachmentIds)
-        : undefined;
+        : [];
+  const all = [...carried, ...added];
+  const attachments = all.length > 0 ? all : undefined;
   return {
     raw: buildMime({
       to,

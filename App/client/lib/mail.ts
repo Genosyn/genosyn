@@ -215,6 +215,16 @@ export type ComposeInput = {
   attachmentIds?: string[];
 };
 
+export type UpdateDraftInput = Omit<ComposeInput, "threadId"> & {
+  /**
+   * Which files already on the draft survive the edit, by their position in
+   * {@link MailMessage.attachments}. Gmail rebuilds a draft from scratch, so
+   * this is how the editor keeps them: omit the field to keep them all, pass
+   * the indexes still shown to drop the rest.
+   */
+  keepAttachmentIndexes?: number[];
+};
+
 // ───────────────────────────── assistant ─────────────────────────────
 
 /** One structured action button an employee proposed via `suggest_mail_actions`. */
@@ -485,7 +495,8 @@ export const mailApi = {
     api.post<{ message: MailMessage }>(`${base(cid)}/accounts/${aid}/send`, input),
   createDraft: (cid: string, aid: string, input: ComposeInput) =>
     api.post<{ message: MailMessage }>(`${base(cid)}/accounts/${aid}/drafts`, input),
-  updateDraft: (cid: string, mid: string, input: Omit<ComposeInput, "threadId">) =>
+  /** `keepAttachmentIndexes` — see {@link UpdateDraftInput}. */
+  updateDraft: (cid: string, mid: string, input: UpdateDraftInput) =>
     api.patch<{ message: MailMessage }>(`${base(cid)}/drafts/${mid}`, input),
   sendDraft: (cid: string, mid: string) =>
     api.post<{ message: MailMessage }>(`${base(cid)}/drafts/${mid}/send`, {}),

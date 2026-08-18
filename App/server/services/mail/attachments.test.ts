@@ -15,6 +15,7 @@ import {
   MailAttachmentError,
   type MailAttachmentTransport,
   fetchMailAttachmentBytes,
+  fetchMailAttachmentsBytes,
   importMailAttachment,
   parseMailAttachments,
   summarizeMailAttachments,
@@ -203,6 +204,72 @@ describe("fetching an attachment's bytes", () => {
         assert.equal(error.status, 404);
         return true;
       },
+    );
+  });
+});
+
+describe("fetching several attachments in one pass", () => {
+  test("shares a single message fetch across every index", async () => {
+    const { account, message } = await fixture();
+    let fetches = 0;
+    const seam = transport({ onFetchMessage: () => (fetches += 1) });
+
+    const files = await fetchMailAttachmentsBytes(account, message, [0, 1], seam);
+
+    assert.equal(fetches, 1, "one id-drift re-fetch serves the whole list");
+    assert.deepEqual(
+      files.map((f) => [f.meta.filename, f.bytes.toString()]),
+      [
+        ["FIF_2026.pdf", "%PDF-1.7 fake form"],
+        ["notes.txt", "hello"],
+      ],
+    );
+  });
+
+  test("returns the files in the order asked for", async () => {
+    const { account, message } = await fixture();
+
+    const files = await fetchMailAttachmentsBytes(account, message, [1, 0], transport());
+
+    assert.deepEqual(
+      files.map((f) => f.meta.filename),
+      ["notes.txt", "FIF_2026.pdf"],
+    );
+  });
+
+  test("an empty list never calls Gmail at all", async () => {
+    const { account, message } = await fixture();
+    let fetches = 0;
+    const seam = transport({ onFetchMessage: () => (fetches += 1) });
+
+    assert.deepEqual(await fetchMailAttachmentsBytes(account, message, [], seam), []);
+    assert.equal(fetches, 0);
+  });
+
+  test("one bad index fails the call before anything is downloaded", async () => {
+    const { account, message } = await fixture();
+    let fetches = 0;
+    const seam = transport({ onFetchMessage: () => (fetches += 1) });
+
+    await assert.rejects(
+      () => fetchMailAttachmentsBytes(account, message, [0, 9], seam),
+      (error: unknown) => {
+        assert.ok(error instanceof MailAttachmentError);
+        assert.equal(error.status, 404);
+        return true;
+      },
+    );
+    assert.equal(fetches, 0, "a partial result would silently drop a file from a draft");
+  });
+
+  test("the same index twice yields the file twice, not a deduped surprise", async () => {
+    const { account, message } = await fixture();
+
+    const files = await fetchMailAttachmentsBytes(account, message, [0, 0], transport());
+
+    assert.deepEqual(
+      files.map((f) => f.bytes.toString()),
+      ["%PDF-1.7 fake form", "%PDF-1.7 fake form"],
     );
   });
 });

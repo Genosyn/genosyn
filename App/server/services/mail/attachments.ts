@@ -103,27 +103,54 @@ export async function fetchMailAttachmentBytes(
   index: number,
   transport: MailAttachmentTransport = defaultTransport,
 ): Promise<{ meta: MailAttachmentMeta; bytes: Buffer }> {
+  const [only] = await fetchMailAttachmentsBytes(account, message, [index], transport);
+  // The plural form throws on an unresolvable index, so one in means one out.
+  return only!;
+}
+
+/**
+ * Download several of a message's attachments in one pass.
+ *
+ * The id-drift re-fetch above costs one `messages.get` per call, so keeping a
+ * draft's three files across an edit would otherwise fetch the same message
+ * three times. Indexes are read in the order given; an empty list never
+ * touches Gmail at all.
+ */
+export async function fetchMailAttachmentsBytes(
+  account: MailAccount,
+  message: MailMessage,
+  indexes: number[],
+  transport: MailAttachmentTransport = defaultTransport,
+): Promise<Array<{ meta: MailAttachmentMeta; bytes: Buffer }>> {
+  if (indexes.length === 0) return [];
   const metas = parseMailAttachments(message.attachmentsJson);
-  const meta = Number.isInteger(index) ? metas[index] : undefined;
-  if (!meta) {
-    throw new MailAttachmentError(
-      metas.length === 0
-        ? "This email has no attachments."
-        : `No attachment at index ${index} — this email has ${metas.length}.`,
-      404,
-    );
-  }
+  const picked = indexes.map((index) => {
+    const meta = Number.isInteger(index) ? metas[index] : undefined;
+    if (!meta) {
+      throw new MailAttachmentError(
+        metas.length === 0
+          ? "This email has no attachments."
+          : `No attachment at index ${index} — this email has ${metas.length}.`,
+        404,
+      );
+    }
+    return { index, meta };
+  });
   const token = await transport.accessToken(account);
   const fresh = await transport.fetchMessage(token, message.gmailMessageId, "full");
   const current = extractBodies(fresh.payload).attachments;
-  const attachmentId =
-    current[index]?.attachmentId ||
-    current.find((a) => a.partId && a.partId === meta.partId)?.attachmentId ||
-    meta.attachmentId;
-  if (!attachmentId) throw new MailAttachmentError("Attachment not found", 404);
-  const data = await transport.fetchAttachment(token, message.gmailMessageId, attachmentId);
-  if (!data.data) throw new MailAttachmentError("Attachment is empty", 404);
-  return { meta, bytes: Buffer.from(data.data, "base64url") };
+  const out: Array<{ meta: MailAttachmentMeta; bytes: Buffer }> = [];
+  for (const { index, meta } of picked) {
+    const attachmentId =
+      current[index]?.attachmentId ||
+      current.find((a) => a.partId && a.partId === meta.partId)?.attachmentId ||
+      meta.attachmentId;
+    if (!attachmentId) throw new MailAttachmentError("Attachment not found", 404);
+    const data = await transport.fetchAttachment(token, message.gmailMessageId, attachmentId);
+    if (!data.data) throw new MailAttachmentError("Attachment is empty", 404);
+    out.push({ meta, bytes: Buffer.from(data.data, "base64url") });
+  }
+  return out;
 }
 
 /**

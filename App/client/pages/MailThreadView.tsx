@@ -16,6 +16,7 @@ import {
   Star,
   Tag,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   MailAccessLevel,
@@ -41,6 +42,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { useToast } from "../components/ui/Toast";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
+import { allAttachmentIndexes, draftEditorIsDirty, withoutAttachment } from "../lib/draftEditor";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { clsx } from "../components/ui/clsx";
 
@@ -368,7 +370,13 @@ export default function MailThreadView() {
           <div className="space-y-2">
             {messages.map((m) =>
               m.isDraft ? (
-                <DraftCard key={m.id} draft={m} companyId={company.id} onChanged={load} />
+                <DraftCard
+                  key={m.id}
+                  draft={m}
+                  companyId={company.id}
+                  accountId={account.id}
+                  onChanged={load}
+                />
               ) : (
                 <MessageCard
                   key={m.id}
@@ -575,10 +583,12 @@ function formatBytes(n: number): string {
 function DraftCard({
   draft,
   companyId,
+  accountId,
   onChanged,
 }: {
   draft: MailMessage;
   companyId: string;
+  accountId: string;
   onChanged: () => Promise<void>;
 }) {
   const { toast, background } = useToast();
@@ -590,12 +600,27 @@ function DraftCard({
   const [busy, setBusy] = React.useState<"save" | "send" | "discard" | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [hidden, setHidden] = React.useState(false);
+  // Files already on the draft that the editor is still keeping, by their
+  // index in `draft.attachments`. Removing a chip drops it from this list,
+  // and the save call tells the server which ones survived.
+  const [kept, setKept] = React.useState<number[]>(() =>
+    allAttachmentIndexes(draft.attachments.length),
+  );
+  const attach = useMailAttachments(companyId, accountId);
+  const clearAttach = attach.clear;
+  const keptAttachments = draft.attachments.filter((a) => kept.includes(a.index));
+  // Attachment indexes are positional, so the count is the whole identity of
+  // the list — and unlike `draft.attachments` it doesn't change on every
+  // reload, which would otherwise reset an edit in progress.
+  const attachmentCount = draft.attachments.length;
 
   React.useEffect(() => {
     setTo(draft.toEmails);
     setSubject(draft.subject);
     setBody(draft.bodyText);
-  }, [draft.id, draft.toEmails, draft.subject, draft.bodyText]);
+    setKept(allAttachmentIndexes(attachmentCount));
+    clearAttach();
+  }, [draft.id, draft.toEmails, draft.subject, draft.bodyText, attachmentCount, clearAttach]);
 
   const save = async (): Promise<string | null> => {
     // Returns the (possibly new) draft id — Gmail reissues ids on update.
@@ -605,11 +630,22 @@ function DraftCard({
       bodyText: body,
       cc: draft.ccEmails || undefined,
       bcc: draft.bccEmails || undefined,
+      attachmentIds: attach.ids.length ? attach.ids : undefined,
+      keepAttachmentIndexes: kept,
     });
+    // The tokens are spent — a retry would attach nothing, and the reload
+    // below brings the files back as part of the draft.
+    clearAttach();
     return res.message.id;
   };
 
-  const dirty = to !== draft.toEmails || subject !== draft.subject || body !== draft.bodyText;
+  const dirty = draftEditorIsDirty(draft, {
+    to,
+    subject,
+    bodyText: body,
+    keptIndexes: kept,
+    stagedIds: attach.ids,
+  });
 
   const onSend = () => {
     setError(null);
@@ -691,6 +727,21 @@ function DraftCard({
           <pre className="whitespace-pre-wrap break-words font-sans text-sm text-slate-700 dark:text-slate-300">
             {draft.bodyText || draft.snippet}
           </pre>
+          {draft.attachments.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-amber-100 pt-3 dark:border-amber-500/20">
+              {draft.attachments.map((a) => (
+                <a
+                  key={a.index}
+                  href={mailApi.attachmentUrl(companyId, draft.id, a.index)}
+                  className="flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  <Paperclip size={12} />
+                  <span className="max-w-48 truncate">{a.filename}</span>
+                  <span className="text-slate-400">{formatBytes(a.size)}</span>
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-3 border-t border-amber-100 px-4 py-3 dark:border-amber-500/20">
@@ -702,20 +753,50 @@ function DraftCard({
             value={body}
             onChange={(e) => setBody(e.target.value)}
           />
+          <div className="flex flex-wrap items-center gap-2">
+            {keptAttachments.map((a) => (
+              <span
+                key={a.index}
+                className="flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+              >
+                <Paperclip size={12} className="text-slate-400" />
+                <span className="max-w-40 truncate">{a.filename}</span>
+                <span className="text-slate-400">{formatBytes(a.size)}</span>
+                <button
+                  type="button"
+                  onClick={() => setKept((prev) => withoutAttachment(prev, a.index))}
+                  className="text-slate-400 hover:text-red-500"
+                  title="Remove"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+            <AttachmentBar
+              items={attach.items}
+              uploading={attach.uploading}
+              onAdd={attach.addFiles}
+              onRemove={attach.remove}
+            />
+          </div>
           <FormError message={error} />
           <div className="flex items-center justify-end gap-2">
             <Button
               size="sm"
               variant="ghost"
               disabled={busy !== null}
-              onClick={() => setEditing(false)}
+              onClick={() => {
+                clearAttach();
+                setKept(allAttachmentIndexes(attachmentCount));
+                setEditing(false);
+              }}
             >
               Cancel
             </Button>
             <Button
               size="sm"
               variant="secondary"
-              disabled={busy !== null || !dirty}
+              disabled={busy !== null || attach.uploading || !dirty}
               onClick={async () => {
                 setBusy("save");
                 setError(null);
@@ -733,7 +814,7 @@ function DraftCard({
             >
               {busy === "save" ? <Spinner size={13} /> : "Save"}
             </Button>
-            <Button size="sm" disabled={busy !== null} onClick={onSend}>
+            <Button size="sm" disabled={busy !== null || attach.uploading} onClick={onSend}>
               Send
             </Button>
           </div>

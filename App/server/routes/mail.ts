@@ -869,7 +869,16 @@ async function loadDraft(
   return { draft, account };
 }
 
-const patchDraftSchema = composeSchema.omit({ threadId: true });
+const patchDraftSchema = composeSchema.omit({ threadId: true }).extend({
+  /**
+   * Which of the draft's existing attachments to keep, by the same positional
+   * index the download route uses. Editing a draft rebuilds it from raw MIME,
+   * so files not listed here are dropped: `[]` clears them, and omitting the
+   * field keeps every one — a client that only edited the wording never loses
+   * the attachments it didn't mention.
+   */
+  keepAttachmentIndexes: z.array(z.number().int().min(0)).max(20).optional(),
+});
 
 mailRouter.patch("/mail/drafts/:mid", validateBody(patchDraftSchema), async (req, res) => {
   const found = await loadDraft(
@@ -878,8 +887,13 @@ mailRouter.patch("/mail/drafts/:mid", validateBody(patchDraftSchema), async (req
   );
   if (!found) return res.status(404).json({ error: "Draft not found" });
   const body = req.body as z.infer<typeof patchDraftSchema>;
+  const keepAttachmentIndexes =
+    body.keepAttachmentIndexes ??
+    summarizeMailAttachments(found.draft.attachmentsJson).map((a) => a.index);
   try {
-    const message = await updateMailDraft(found.account, found.draft, body);
+    const message = await updateMailDraft(found.account, found.draft, body, {
+      keepAttachmentIndexes,
+    });
     res.json({ message: serializeMessage(message) });
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : "Update failed" });
