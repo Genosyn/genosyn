@@ -246,6 +246,31 @@ export function resolveInteractiveChatContextAccess(
   };
 }
 
+/**
+ * Which workload slot a turn takes.
+ *
+ * `chat` is serialized per employee so two turns a human is waiting on cannot
+ * race their replies. A Repository work session runs through this same seam
+ * but is not one of those turns: nobody is watching its text arrive, and the
+ * Member who asked for it must stay able to keep talking while it works.
+ *
+ * Leasing it as `chat` would also make a session started *from* chat
+ * impossible rather than merely unlucky — the turn that called
+ * `start_repository_work_session` still holds the employee's chat lease while
+ * the tool runs, so the session would be refused every single time and land as
+ * a `failed` row explaining that the employee was busy with the conversation
+ * that started it.
+ *
+ * So it leases the way `mail/aiRuleEvaluator` leases its autonomous turns. The
+ * company-wide concurrency ceiling still counts it, so this buys overlap, not
+ * an exemption.
+ */
+export function workloadKindForTurn(
+  options: Pick<ChatOptions, "repositoryWorkSessionId">,
+): "chat" | "routine" {
+  return options.repositoryWorkSessionId ? "routine" : "chat";
+}
+
 /** A deliberately company-agnostic briefing for unauthenticated surfaces. */
 export function composeUntrustedChatSystemPrompt(): string {
   return [
@@ -343,19 +368,22 @@ export async function streamChatWithEmployee(
     };
   }
 
+  const workloadKind = workloadKindForTurn(options);
+
   let workloadLease = null;
   try {
     workloadLease = await acquireWorkloadLease(
       co.id,
       emp.id,
-      "chat",
+      workloadKind,
       (options.timeoutMs ?? CHAT_HARD_TIMEOUT_MS) + 60_000,
       { ownerKey: options.workloadKey },
     );
   } catch (error) {
     if (options.throwOnWorkloadUnavailable) throw error;
-    // A second chat turn to the same employee waits. Routine runs never take
-    // this branch: they are allowed to overlap with chat and one another.
+    // A second chat turn to the same employee waits. Routine runs and
+    // Repository work sessions never take this branch: they are allowed to
+    // overlap with chat and one another.
     if (error instanceof EmployeeWorkloadBusyError) {
       return {
         status: "busy",

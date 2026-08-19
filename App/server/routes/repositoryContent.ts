@@ -52,10 +52,11 @@ import {
 } from "../services/repositoryValidation.js";
 import { encryptRepoSecret } from "../services/repositories.js";
 import {
+  createRepositoryWorkSession,
   discardRepositoryWorkSession,
   publishRepositoryWorkSession,
   repositoryWorkSessionDiff,
-  startRepositoryWorkSession,
+  runRepositoryWorkSession,
 } from "../services/repositoryWorkSessions.js";
 
 /**
@@ -651,7 +652,10 @@ repositoryContentRouter.post(
       metadata: { employeeId: employee.id },
     });
 
-    const running = startRepositoryWorkSession({
+    // Validation and the row write happen before the model turn starts, so
+    // awaiting this half is quick and gives us the exact session we created —
+    // no guessing later about which row was ours.
+    const prepared = await createRepositoryWorkSession({
       companyId: repo.companyId,
       repositoryId: repo.id,
       employeeId: employee.id,
@@ -659,27 +663,22 @@ repositoryContentRouter.post(
       requesterUserId: req.userId,
       requesterSessionVersion: req.session.sessionVersion,
     });
+
+    const running = runRepositoryWorkSession(prepared);
     running.catch((error) => {
       console.error("[repository-session] failed:", error);
     });
 
-    // The row is written before the model turn starts, so a short wait is
-    // enough to return it — and if the whole session finishes inside the wait,
-    // even better, the client gets the finished row straight away.
+    // If the whole session finishes inside a short wait, the client gets the
+    // finished row straight away; otherwise it renders the `running` row and
+    // learns the outcome from the resource-change event.
     const finished = await Promise.race([
       running.catch(() => null),
       new Promise<null>((resolve) => {
         setTimeout(() => resolve(null), 1500);
       }),
     ]);
-    const row =
-      finished ??
-      (await AppDataSource.getRepository(RepositoryWorkSession).findOne({
-        where: { repositoryId: repo.id, employeeId: employee.id },
-        order: { createdAt: "DESC" },
-      }));
-    if (!row) throw new Error("The work session could not be started.");
-    const [hydrated] = await hydrateSessions(repo.companyId, [row]);
+    const [hydrated] = await hydrateSessions(repo.companyId, [finished ?? prepared.session]);
     res.json(hydrated);
   }),
 );

@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import { MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Repository } from "../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
-import { chatWithEmployee } from "./chat.js";
+import { CHAT_HARD_TIMEOUT_MS, chatWithEmployee } from "./chat.js";
 import { getActiveModel } from "./models.js";
 import { hasRepositoryAccess } from "./repositories.js";
 import {
@@ -25,6 +26,7 @@ import {
   type RepositoryTreeEntry,
 } from "./repositoryWorkspace.js";
 import { toSlug } from "../lib/slug.js";
+import { config } from "../../config.js";
 
 /**
  * AI work sessions — "ask an employee to do something in this repository, then
@@ -276,16 +278,48 @@ export type StartWorkSessionArgs = {
 };
 
 /**
- * Create the session row and its worktree, run the employee's turn, then
- * record what it left behind.
+ * Everything {@link runRepositoryWorkSession} needs, already validated.
  *
- * Resolves only when the turn is over. Callers that are HTTP handlers start it
- * and return the row immediately; the client polls or listens for the
- * resource-change event.
+ * The repository and employee rows are carried across rather than re-read
+ * because {@link createRepositoryWorkSession} has just loaded them to check
+ * them, and re-reading would only introduce a window where the two halves
+ * disagree about what they are working on.
  */
-export async function startRepositoryWorkSession(
+export type PreparedWorkSession = {
+  session: RepositoryWorkSession;
+  repo: Repository;
+  employee: AIEmployee;
+  args: StartWorkSessionArgs;
+};
+
+/**
+ * Validate the request and write the session row — the fast half.
+ *
+ * Split from the run so a caller can hold a real session id before the model
+ * turn starts. Both callers need that. The HTTP route needs it to answer
+ * without guessing which row it just created; the `start_repository_work_session`
+ * tool needs it because a chat turn cannot sit and wait for work that is
+ * allowed to take hours, and telling the Member "I started session X" is only
+ * honest if X is known.
+ *
+ * Every reason a session cannot *be* started is raised here, before any row
+ * exists, so a caller gets one clean error instead of a `failed` row to
+ * explain. Capacity is the exception and cannot be otherwise: the workload
+ * lease is taken when the turn begins, so a company already at its ceiling
+ * produces a row that starts and then fails, saying so.
+ */
+export async function createRepositoryWorkSession(
   args: StartWorkSessionArgs,
-): Promise<RepositoryWorkSession> {
+): Promise<PreparedWorkSession> {
+  // Shared SaaS keeps repositories read-only until git runs in a dedicated
+  // egress worker. The browser route enforces that on every mutation; a
+  // session is a mutation reached by a second door, so the rule lives with the
+  // operation rather than only at the doors.
+  if (config.security.multiTenant) {
+    throw new Error(
+      "Repositories are read-only in shared SaaS mode until git runs in a dedicated egress worker",
+    );
+  }
   const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
   const repo = await AppDataSource.getRepository(Repository).findOneBy({
     id: args.repositoryId,
@@ -314,6 +348,37 @@ export async function startRepositoryWorkSession(
       status: "running",
     }),
   );
+  return { session, repo, employee, args };
+}
+
+/**
+ * Create the session row and its worktree, run the employee's turn, then
+ * record what it left behind.
+ *
+ * Resolves only when the turn is over. Callers that are HTTP handlers start it
+ * and return the row immediately; the client polls or listens for the
+ * resource-change event.
+ */
+export async function startRepositoryWorkSession(
+  args: StartWorkSessionArgs,
+): Promise<RepositoryWorkSession> {
+  return runRepositoryWorkSession(await createRepositoryWorkSession(args));
+}
+
+/**
+ * Cut the worktree, run the employee's turn in it, and record what it left
+ * behind — the slow half, which may take as long as any other chat turn.
+ *
+ * Never rejects for a reason the session itself caused: a failure is written
+ * onto the row as `failed` so the Member who asked sees why. That matters more
+ * now than it did when only an awaiting HTTP handler called this, because a
+ * tool-started session has nobody holding its promise.
+ */
+export async function runRepositoryWorkSession(
+  prepared: PreparedWorkSession,
+): Promise<RepositoryWorkSession> {
+  const { session, repo, employee, args } = prepared;
+  const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
 
   try {
     await ensureRepositoryWorkspace(repo);
@@ -538,6 +603,32 @@ export function composeWorkSystemPrompt(repo: Repository, sessionId: string): st
 
 function composeWorkBrief(repo: Repository, instruction: string): string {
   return [`Work on the repository "${repo.name}".`, "", instruction.trim()].join("\n");
+}
+
+/**
+ * A session this employee still has in flight on this repository, if any.
+ *
+ * "Still in flight" is deliberately not just `status: "running"`. Nothing
+ * reconciles that column at boot, so a process killed mid-session leaves a row
+ * that says `running` for good. A caller that refused on the strength of it
+ * would refuse for good too.
+ *
+ * A turn cannot outlive {@link CHAT_HARD_TIMEOUT_MS}, so a `running` row older
+ * than that is not a session anybody is waiting on — it is a crash nobody
+ * cleaned up, and it should stop standing in the way.
+ */
+export async function liveRepositoryWorkSession(args: {
+  companyId: string;
+  repositoryId: string;
+  employeeId: string;
+}): Promise<RepositoryWorkSession | null> {
+  return AppDataSource.getRepository(RepositoryWorkSession).findOneBy({
+    companyId: args.companyId,
+    repositoryId: args.repositoryId,
+    employeeId: args.employeeId,
+    status: "running",
+    createdAt: MoreThan(new Date(Date.now() - CHAT_HARD_TIMEOUT_MS)),
+  });
 }
 
 /** Resolve the worktree a tool call belongs to, refusing anything else. */

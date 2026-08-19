@@ -56,13 +56,22 @@ const MEMBER_TOOLS = [
   "request_decision",
   "list_decisions",
   "cancel_decision",
+  // Starting a session is member-level because its human route is: any company
+  // Member may send an employee at a repository from the Repository page, for
+  // the reason `routes/repositoryContent.ts` gives — editing a document and
+  // committing it is the same class of act as writing a Note. The tool is
+  // strictly narrower than that route. It can only send the employee whose
+  // turn this is, only at a repository that employee already holds a Grant
+  // for, and only onto a branch the same Member-only review step governs.
+  "start_repository_work_session",
   // The repository work-session tools are bounded by the session on the turn's
   // MCP token, not by their arguments: they act on one worktree, they have no
   // parameter for reaching another repository, and outside a session they
-  // refuse to run at all. The authority decision was already made when a
-  // Member started the session from the Repository page, so intersecting it a
-  // second time here would only mean the tools fail mid-turn. Repository
-  // *configuration* stays admin-only, and nothing here can reach the remote.
+  // refuse to run at all. The authority decision was already made when the
+  // session was started — from the Repository page, or by the line above,
+  // which applies this same policy — so intersecting it a second time here
+  // would only mean the tools fail mid-turn. Repository *configuration* stays
+  // admin-only, and nothing here can reach the remote.
   "repository_list_files",
   "repository_read_file",
   "repository_write_file",

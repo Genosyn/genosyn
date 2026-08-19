@@ -293,6 +293,27 @@ export function Repositories() {
         through validated tool calls rather than a shell.
       </Callout>
 
+      <H3 id="sessions-from-chat">Asking for one in chat</H3>
+      <P>
+        You do not have to open the Repository page first. Ask an employee in ordinary chat to fix a
+        bug, update a document, or make a change, and it starts its own work session with the{" "}
+        <Code>start_repository_work_session</Code> tool. It can only send itself, and only at a
+        repository it has already been granted.
+      </P>
+      <P>
+        The session runs beside the conversation rather than inside it, so the employee replies
+        straight away with a link to the repository&apos;s <Strong>AI work</Strong> page instead
+        of making you wait — a session may take minutes, and you stay free to keep talking to the
+        same employee meanwhile. It appears there exactly like one you started yourself, and you
+        review, publish, or discard it the same way.
+      </P>
+      <Callout kind="warn" title="Starting work is not the same as shipping it.">
+        Nothing changes about who decides. A session started from chat lands on its own branch and
+        waits for a human, so an employee can begin work on its own and still cannot merge it, push
+        it, or open a pull request. If one tells you a change is live, check the session — the
+        branch reaching the remote is a step only a Member can take.
+      </Callout>
+
       <H2 id="authority">Who can do what</H2>
       <P>
         Editing a file and committing it is the same class of act as writing a{" "}

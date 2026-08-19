@@ -1021,6 +1021,24 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       `repository_write_file`, `repository_delete_file`, `repository_search`,
       `repository_commit`. Bounded by the session on the turn's MCP token —
       no repository parameter, and inert outside a session.
+- [x] **Start a session from chat** (`start_repository_work_session`) — until
+      this existed, only the Repository page could open the door those six
+      tools work behind, so an employee asked in chat to fix something could
+      read the repository, explain that it could not begin, and stop. It sends
+      only itself, only at a repository it already holds a Grant for, and it
+      cannot be reached from inside a session, so sessions cannot nest. The
+      session runs detached and the employee answers with a link to the diff:
+      a chat turn cannot wait hours, and the outcome has no route back to a
+      conversation. A session turn also takes a `routine` workload slot rather
+      than the employee's single `chat` slot — otherwise it would collide with
+      the very conversation that started it, every time. What a session *is*
+      does not change: its branch still waits for a Member to merge or push.
+- [x] A session turn is held to the `repository_*` tools at the MCP seam.
+      Loading six tools up front never stopped a turn discovering the rest, so
+      the session briefing — "nothing you do here affects anyone until a human
+      reviews your diff" — was not true of anything outside them. That matters
+      more once the instruction can be composed by a model rather than typed by
+      a human, and it is also what stops a session starting a session.
 - [x] Authority split: browsing, editing, committing, and starting sessions
       are Member-level; pushing, pulling, and repository configuration stay
       owner/admin.

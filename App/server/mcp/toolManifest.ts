@@ -1688,13 +1688,35 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_repositories",
     description:
-      "List the Repositories you have been granted access to in this company. Each row carries the repo name, slug, localPath, defaultBranch, your accessLevel (`read` / `write`), the clone URL, and the last sync status. When coding tools are enabled, Genosyn prepares the checkout and credentials before work starts; bubblewrap deployments isolate that Git process too. There is no MCP tool for committing or pushing — do that with `git` inside the checkout.",
+      "List the Repositories you have been granted access to in this company. Each row carries the repo name, slug, localPath, defaultBranch, your accessLevel (`read` / `write`), the clone URL, and the last sync status. To change one, call `start_repository_work_session` with its slug. When coding tools are enabled, Genosyn also prepares a checkout and credentials before work starts; bubblewrap deployments isolate that Git process too. There is no MCP tool for pushing — a Member publishes a session's branch, and inside a checkout you use ordinary `git` to commit.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "start_repository_work_session",
+    description:
+      "Start a Repository work session so you can actually change a repository. This is what you call when someone asks you to fix, write, or edit code or documents in a repository and you are not already inside a session — the `repository_*` tools do nothing until one exists. Pass the repository (its slug, or the name the person used) and an `instruction` describing the whole job; you are the one who will do it, so put everything needed in one session rather than starting several. The session runs on its own branch in its own working copy, separately from this conversation: it does not block you, and you will not see its result on this turn. Answer with the fact that you started it and where the human reviews it — they merge or push it, you cannot, so never report work as done, merged, pushed, or opened as a pull request on the strength of having started a session. Only available on a turn a signed-in Member is driving: a Routine Run cannot start a session, because a session works with the access of the person who asked for it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        repository: {
+          type: "string",
+          description:
+            "Which repository — its `slug`, or its name as the person said it. If you get it wrong, the error lists the ones you have.",
+        },
+        instruction: {
+          type: "string",
+          description:
+            "What the work is, written for a capable colleague who has this conversation's context but not the conversation: what to change, in which files if you know them, and what done looks like.",
+        },
+      },
+      required: ["repository", "instruction"],
+      additionalProperties: false,
+    },
   },
   {
     name: "repository_list_files",
     description:
-      "List the files and folders in your Repository work session's working copy. Pass `path` to look inside a folder; omit it for the top level. Only available while you are working a repository session started from the Repository page — it always acts on that session's own working copy.",
+      "List the files and folders in your Repository work session's working copy. Pass `path` to look inside a folder; omit it for the top level. Only available inside a repository work session — one a Member started from the Repository page, or one you started with `start_repository_work_session`. It always acts on that session's own working copy.",
     inputSchema: {
       type: "object",
       properties: {

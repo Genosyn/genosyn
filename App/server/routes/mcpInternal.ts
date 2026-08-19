@@ -23,7 +23,11 @@ import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { validateBody } from "../middleware/validate.js";
 import {
   MAX_SESSION_WRITE_BYTES,
+  REPOSITORY_SESSION_TOOLS,
+  createRepositoryWorkSession,
+  liveRepositoryWorkSession,
   resolveSessionCheckout,
+  runRepositoryWorkSession,
   sessionCommit,
   sessionDeleteFile,
   sessionListFiles,
@@ -579,6 +583,13 @@ type McpRequest = Request & {
   mcpRepositoryWorkSessionId?: string | null;
   mcpAuthority?: "employee" | "member" | "untrusted";
   mcpRequesterUserId?: string | null;
+  /**
+   * The auth epoch the turn was accepted at. `requireMcpToken` has already
+   * checked it against the Member's current `sessionVersion`, so a handler
+   * that starts further work on the Member's behalf can hand it straight on
+   * rather than re-deriving it.
+   */
+  mcpRequesterSessionVersion?: number | null;
   /** Re-read for every tool call so removal/demotion takes effect immediately. */
   mcpRequesterMembership?: Membership;
 };
@@ -616,6 +627,7 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
   req.mcpRepositoryWorkSessionId = info.repositoryWorkSessionId;
   req.mcpAuthority = info.authority;
   req.mcpRequesterUserId = info.requesterUserId;
+  req.mcpRequesterSessionVersion = info.requesterSessionVersion;
   if (info.authority === "member") {
     if (!requesterUser || requesterUser.sessionVersion !== info.requesterSessionVersion) {
       revokeMcpToken(token);
@@ -691,6 +703,48 @@ function requireDelegatedToolAuthority(
 }
 
 mcpInternalRouter.use(requireDelegatedToolAuthority);
+
+/**
+ * A Repository work session may only do repository work.
+ *
+ * `extraToolset` decides which tools a turn is *shown* up front, not which it
+ * may call — everything else stays one `find_tools` away. So a session turn
+ * could reach the whole Member toolset: send mail, write to Revenue, enrol a
+ * contact in a Sequence. Its own briefing tells it the opposite, in as many
+ * words: "nothing you do here affects anyone until a human reviews your diff
+ * and merges it" (see `composeWorkSystemPrompt`). That promise is the reason a
+ * session is safe to hand an employee, and until this it was not true.
+ *
+ * It matters more now that `start_repository_work_session` exists, because the
+ * instruction a session runs on is no longer only a sentence a human typed on
+ * the Repository page — it can be composed by a model from something it read.
+ * A session's blast radius should be its own worktree, whoever asked for it.
+ *
+ * This is also what stops sessions nesting: `start_repository_work_session` is
+ * not one of the six, so a session cannot start another one, and there is no
+ * separate recursion check anywhere for that to drift out of step with.
+ *
+ * `/integrations/*` is refused along with everything else, which is intended —
+ * a session has no business calling Stripe. The employee sees it as having no
+ * Connections rather than as an error, because `agent/tools/genosyn.ts` reads
+ * a failed listing as an empty one.
+ */
+function restrictRepositoryWorkSessionTools(
+  req: McpRequest,
+  res: Response,
+  next: NextFunction,
+): void | Response {
+  if (!req.mcpRepositoryWorkSessionId) return next();
+  if (req.path === "/manifest") return next();
+  const toolName = /^\/tools\/([^/]+)/.exec(req.path)?.[1];
+  if (toolName && REPOSITORY_SESSION_TOOLS.includes(toolName)) return next();
+  return res.status(403).json({
+    error:
+      "Inside a repository work session you may only use the repository_* tools. Do the work in your working copy, commit it, and say in your reply what else needs doing.",
+  });
+}
+
+mcpInternalRouter.use(restrictRepositoryWorkSessionTools);
 
 // ----- Tool manifest -----
 
@@ -11090,6 +11144,192 @@ mcpInternalRouter.post(
   },
 );
 
+const startRepositoryWorkSessionSchema = z
+  .object({
+    repository: z.string().min(1).max(200),
+    instruction: z.string().min(1).max(20000),
+  })
+  .strict();
+
+/**
+ * Start a Repository work session on yourself, from wherever you are.
+ *
+ * Until this existed, the `repository_*` tools could only ever be reached by a
+ * session a Member had started from the Repository page. An employee asked in
+ * chat to change some code could read the repository and then had to say so —
+ * it could see the work and could not begin it. That is a dead end a human had
+ * to walk around, not a boundary anything was safer for.
+ *
+ * What it deliberately does *not* do is widen what a session may then do. The
+ * session it starts is the same one the Repository page starts: its own
+ * worktree, the same path-validated tools, the same branch nobody but a Member
+ * can merge or push. The Member's review step is untouched, which is why
+ * starting one is safe to hand to the employee while publishing one is not.
+ *
+ * It runs detached. A session may take as long as any other turn, and a chat
+ * turn cannot sit and wait for it, so the tool answers with the session id and
+ * the employee tells the Member where to look. `createRepositoryWorkSession`
+ * raises every refusal it can before a row exists, so a bad request is an
+ * error here rather than a `failed` session to go and read. The one thing it
+ * cannot promise is capacity — the workload lease is taken when the turn
+ * begins — so a company at its ceiling gets a session that starts and then
+ * fails saying so, on the page the employee just linked them to.
+ */
+mcpInternalRouter.post(
+  "/tools/start_repository_work_session",
+  validateBody(startRepositoryWorkSessionSchema),
+  async (req: McpRequest, res) => {
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const body = req.body as z.infer<typeof startRepositoryWorkSessionSchema>;
+
+    // Note there is no recursion check here: a turn inside a session cannot
+    // reach this handler at all, because `restrictRepositoryWorkSessionTools`
+    // has already refused every tool but the `repository_*` six. A second check
+    // would read as the guard and quietly rot.
+
+    // A session runs on the delegated access of the Member who asked for it —
+    // that is what `RepositoryWorkSession.requestedByUserId` means and what the
+    // nested turn's authority is built from. A turn with no Member behind it
+    // has nothing to delegate, so it is refused here rather than quietly run
+    // with the employee's own broader authority.
+    if (
+      req.mcpAuthority !== "member" ||
+      !req.mcpRequesterUserId ||
+      req.mcpRequesterSessionVersion === null ||
+      req.mcpRequesterSessionVersion === undefined
+    ) {
+      return res.status(403).json({
+        error:
+          "A repository work session runs on the access of the Member who asked for it, so it can only be started from a turn a signed-in Member is driving. Ask them to start one from the Repository page instead.",
+      });
+    }
+
+    // Express 4 does not await a handler, so every await below stays inside
+    // this try — a rejection that escaped would take the process down.
+    try {
+      /**
+       * Resolve the repository from within this employee's own Grants.
+       *
+       * Deliberately not a plain slug lookup. `list_repositories` is
+       * owner/admin-only, and the `## Repositories` prompt section only
+       * appears on an install with coding tools materializing checkouts —
+       * which the standard Docker install does not. So on the surface this
+       * tool exists for, the employee frequently has no way to have learned a
+       * slug, and a lookup that only accepted one would dead-end it in the
+       * exact way this whole change exists to fix.
+       *
+       * Hence: match the name a human would have said as well as the slug, and
+       * when nothing matches, say what there is. Searching only granted
+       * repositories also means a slug the employee holds no Grant for reads as
+       * "not one of yours" rather than confirming it exists.
+       */
+      const grants = await AppDataSource.getRepository(EmployeeRepositoryGrant).find({
+        where: { employeeId: self.id },
+      });
+      const granted = grants.length
+        ? await AppDataSource.getRepository(Repository).find({
+            where: { companyId: co.id, id: In(grants.map((g) => g.repositoryId)) },
+            order: { updatedAt: "DESC" },
+          })
+        : [];
+      const wanted = body.repository.trim().toLowerCase();
+      // Only the slug is unique — `Repository` uniques `[companyId, slug]` and
+      // nothing stops two repositories sharing a name. So a name that matches
+      // more than one is a question, not a choice to make silently: sending the
+      // work to whichever sorted first would be wrong half the time and look
+      // right every time.
+      const byName = granted.filter((r) => r.name.toLowerCase() === wanted);
+      if (byName.length > 1) {
+        return res.status(400).json({
+          error: `More than one of your repositories is called "${body.repository}". Say which by its slug: ${byName
+            .map((r) => r.slug)
+            .join(", ")}.`,
+        });
+      }
+      const repo =
+        granted.find((r) => r.slug === body.repository.trim()) ??
+        granted.find((r) => r.slug.toLowerCase() === wanted) ??
+        byName[0];
+      if (!repo) {
+        return res.status(400).json({
+          error: granted.length
+            ? `"${body.repository}" is not a repository you have been granted. Yours: ${granted
+                .map((r) => `${r.name} (${r.slug})`)
+                .join(", ")}.`
+            : "You have not been granted any repositories, so there is nothing to work in. Ask an owner or admin to grant you one on the repository's AI access page.",
+        });
+      }
+
+      // One session per employee per repository at a time. A turn may call a
+      // tool a hundred times, and every session takes a workload slot from a
+      // company-wide ceiling of a handful — so a model starting one per bug it
+      // noticed could crowd out every other employee's chat. It is also just
+      // duplicated work. A human clicking Start on the Repository page is not
+      // bounded this way and does not need to be.
+      const alreadyRunning = await liveRepositoryWorkSession({
+        companyId: co.id,
+        repositoryId: repo.id,
+        employeeId: self.id,
+      });
+      if (alreadyRunning) {
+        return res.status(400).json({
+          error: `You already have a work session running on ${repo.name} (${alreadyRunning.id}). Wait for it to finish rather than starting another — everything you asked for can go in one session.`,
+        });
+      }
+
+      const prepared = await createRepositoryWorkSession({
+        companyId: co.id,
+        repositoryId: repo.id,
+        employeeId: self.id,
+        instruction: body.instruction,
+        requesterUserId: req.mcpRequesterUserId,
+        requesterSessionVersion: req.mcpRequesterSessionVersion,
+      });
+
+      // Both principals, deliberately. `actorEmployeeId` is what resolves
+      // `actorKind` to "ai", and without it this row would be indistinguishable
+      // from a human clicking Start on the Repository page — so an admin
+      // filtering the log for what the AI did on its own initiative would not
+      // find it, and would find the Member's name on work they never asked for.
+      await recordAudit({
+        companyId: co.id,
+        actorUserId: req.mcpRequesterUserId,
+        actorEmployeeId: self.id,
+        action: "repository.work_session",
+        targetType: "repository",
+        targetId: repo.id,
+        targetLabel: repo.name,
+        metadata: { employeeId: self.id, startedBy: "tool" },
+      });
+
+      runRepositoryWorkSession(prepared).catch((error) => {
+        console.error("[repository-session] failed:", error);
+      });
+
+      // A chat reply is rendered as markdown, so handing the model a real link
+      // is the difference between "check the Repository page" and one click to
+      // the diff. It is the only outbound channel this surface has: the
+      // resource-change event that carries the outcome is scoped to the
+      // repository, and nothing forwards it to a conversation.
+      const reviewUrl = `/c/${co.slug}/repositories/${repo.slug}/ai`;
+      res.json({
+        sessionId: prepared.session.id,
+        repository: repo.slug,
+        status: prepared.session.status,
+        reviewUrl,
+        note: [
+          "Started. It runs in its own working copy, separately from this conversation.",
+          `Say you have started it and link them to the diff with this exact markdown: [${repo.name} → AI work](${reviewUrl}) — that is the tab where they review it and decide whether it is merged or pushed.`,
+          "You will not see the result on this turn, so do not wait for it and do not report the work as done, committed, merged, pushed, or opened as a pull request.",
+        ].join(" "),
+      });
+    } catch (error) {
+      res.status(400).json({ error: (error as Error).message });
+    }
+  },
+);
+
 /**
  * Repository work-session tools.
  *
@@ -11107,7 +11347,10 @@ async function sessionCheckoutFor(req: McpRequest): Promise<SessionCheckout> {
   const sessionId = req.mcpRepositoryWorkSessionId;
   if (!sessionId) {
     throw new Error(
-      "Repository tools are only available inside a repository work session started from the Repository page.",
+      // The dead end this message used to describe is the whole reason
+      // `start_repository_work_session` exists, so it names the way out rather
+      // than leaving the employee to conclude it cannot help.
+      "Repository tools only work inside a repository work session, and you are not in one. Call start_repository_work_session with the repository's slug and what needs doing, and do the work there.",
     );
   }
   return resolveSessionCheckout(req.mcpCompany!.id, sessionId);

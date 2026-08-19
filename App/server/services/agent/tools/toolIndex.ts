@@ -402,9 +402,10 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   repositories: {
     label: "repositories",
     blurb:
-      "The Repositories granted to you — code, documents, anything version-controlled. The repository_* tools work only inside a repository work session.",
+      "The Repositories granted to you — code, documents, anything version-controlled. Changing one means starting a work session first; the repository_* tools work only inside one.",
     tools: [
       "list_repositories",
+      "start_repository_work_session",
       "repository_list_files",
       "repository_read_file",
       "repository_write_file",
@@ -1176,6 +1177,24 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   decline_handoff: ["reject", "refuse"],
   cancel_handoff: ["withdraw"],
   list_repositories: ["git", "repo", "codebase", "source"],
+  // What somebody types here is the job ("fix the bug", "send me a PR"), never
+  // "work session" — they do not know that is the thing standing between the
+  // employee and the code.
+  start_repository_work_session: [
+    "repo",
+    "code",
+    "fix",
+    "edit code",
+    "change code",
+    "write code",
+    "pull request",
+    "pr",
+    "patch",
+    "branch",
+    "implement",
+    "refactor",
+    "work session",
+  ],
   repository_list_files: ["repo", "files", "tree", "browse", "directory"],
   repository_read_file: ["repo", "file", "read", "open", "source"],
   repository_write_file: ["repo", "file", "write", "edit", "save"],

@@ -25,10 +25,12 @@ import {
 } from "./repositoryWorkspace.js";
 import {
   composeWorkSystemPrompt,
+  createRepositoryWorkSession,
   discardRepositoryWorkSession,
   publishRepositoryWorkSession,
   repositoryWorkSessionDiff,
   resolveSessionCheckout,
+  runRepositoryWorkSession,
   sessionBranchName,
   sessionCommit,
   sessionDeleteFile,
@@ -204,6 +206,100 @@ describe("starting a session", () => {
     await grantAccess();
     await AppDataSource.getRepository(AIModel).delete({ employeeId: employee.id });
     await assert.rejects(() => start(stubChat(() => {})), /no AI Model/);
+  });
+
+  test("refuses on shared SaaS, where repositories are read-only", async () => {
+    await grantAccess();
+    const security = config.security as { multiTenant: boolean };
+    const wasMultiTenant = security.multiTenant;
+    security.multiTenant = true;
+    try {
+      await assert.rejects(() => start(stubChat(() => {})), /read-only in shared SaaS mode/);
+      assert.equal(
+        await AppDataSource.getRepository(RepositoryWorkSession).count(),
+        0,
+        "a refused session must not leave a row behind",
+      );
+    } finally {
+      security.multiTenant = wasMultiTenant;
+    }
+  });
+});
+
+// ───────────────────── starting without waiting for it ──────────────────
+
+/**
+ * The split that lets a chat turn start a session.
+ *
+ * A chat turn cannot sit and wait for work allowed to take hours, so
+ * `start_repository_work_session` awaits only the first half and hands the
+ * Member a session id. Two properties make that honest: the id is real before
+ * the model turn begins, and everything that could refuse the request has
+ * already refused it.
+ */
+describe("creating a session without running it", () => {
+  test("hands back a running row before the employee's turn starts", async () => {
+    await grantAccess();
+    const prepared = await createRepositoryWorkSession({
+      companyId: company.id,
+      repositoryId: repository.id,
+      employeeId: employee.id,
+      instruction: "Update the plan",
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+    });
+
+    assert.ok(prepared.session.id);
+    assert.equal(prepared.session.status, "running");
+    assert.equal(prepared.session.instruction, "Update the plan");
+    assert.equal(prepared.session.requestedByUserId, requester.id);
+    assert.equal(prepared.repo.id, repository.id);
+    assert.equal(prepared.employee.id, employee.id);
+    // Nothing has run yet, so there is no branch to point at.
+    assert.equal(prepared.session.branch, null);
+  });
+
+  test("every refusal happens before a row exists, so there is none to explain", async () => {
+    await assert.rejects(
+      () =>
+        createRepositoryWorkSession({
+          companyId: company.id,
+          repositoryId: repository.id,
+          employeeId: employee.id,
+          instruction: "Update the plan",
+          requesterUserId: requester.id,
+          requesterSessionVersion: 1,
+        }),
+      /not been granted access/,
+    );
+    assert.equal(await AppDataSource.getRepository(RepositoryWorkSession).count(), 0);
+  });
+
+  test("running the prepared session finishes the same row it handed back", async () => {
+    await grantAccess();
+    const prepared = await createRepositoryWorkSession({
+      companyId: company.id,
+      repositoryId: repository.id,
+      employeeId: employee.id,
+      instruction: "Update the plan",
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+      runChat: stubChat(async (directory) => {
+        sessionWriteFile(directory, "note.md", "hello\n");
+        await sessionCommit(repository, directory, "Add a note");
+      }),
+    });
+
+    const finished = await runRepositoryWorkSession(prepared);
+
+    assert.equal(finished.id, prepared.session.id);
+    assert.equal(finished.status, "ready");
+    assert.equal(finished.branch, sessionBranchName("ada", prepared.session.id));
+    assert.equal(
+      await AppDataSource.getRepository(RepositoryWorkSession).count(),
+      1,
+      "the two halves must share one row, not create a second",
+    );
   });
 });
 

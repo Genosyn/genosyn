@@ -194,6 +194,12 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "record yesterday's ad spend", expect: "record_marketing_performance" },
   { query: "write a playbook", expect: "create_skill" },
   { query: "what git repos do i have", expect: "list_repositories" },
+  // Nobody asks for a "work session" — they ask for the outcome. These are the
+  // phrasings that stranded an employee before the tool existed: it could read
+  // the repository, and had no way to start changing it.
+  { query: "fix this bug in the code", expect: "start_repository_work_session" },
+  { query: "send me a pull request", expect: "start_repository_work_session" },
+  { query: "make a change to the repo", expect: "start_repository_work_session" },
   // Deliberately a deferred orientation tool: `list_employees` is resident, so
   // it is never a find_tools hit — asserting on it would test nothing.
   { query: "what departments are there", expect: "list_teams" },
