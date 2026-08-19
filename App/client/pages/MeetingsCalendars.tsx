@@ -50,11 +50,11 @@ export default function MeetingsCalendars() {
     setError(null);
     Promise.all([
       meetingsApi.calendars(company.id),
-      api.get<{ employees: Employee[] }>(`/api/companies/${company.id}/employees`),
+      api.get<Employee[]>(`/api/companies/${company.id}/employees`),
     ])
-      .then(([calendarResult, employeeResult]) => {
+      .then(([calendarResult, employeeList]) => {
         setCalendars(calendarResult.calendars);
-        setEmployees(employeeResult.employees ?? []);
+        setEmployees(employeeList);
       })
       .catch((err) => setError((err as Error).message));
   }, [company.id]);

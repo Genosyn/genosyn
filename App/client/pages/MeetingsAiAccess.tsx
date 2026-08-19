@@ -45,12 +45,12 @@ export default function MeetingsAiAccess() {
     Promise.all([
       meetingsApi.grants(company.id),
       meetingsApi.calendars(company.id),
-      api.get<{ employees: Employee[] }>(`/api/companies/${company.id}/employees`),
+      api.get<Employee[]>(`/api/companies/${company.id}/employees`),
     ])
-      .then(([grantResult, calendarResult, employeeResult]) => {
+      .then(([grantResult, calendarResult, employeeList]) => {
         setGrants(grantResult.grants);
         setCalendars(calendarResult.calendars);
-        setEmployees(employeeResult.employees ?? []);
+        setEmployees(employeeList);
       })
       .catch((err) => setError((err as Error).message));
   }, [company.id]);
@@ -148,8 +148,14 @@ export default function MeetingsAiAccess() {
                 Grant access
               </h2>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                <Select value={pickEmployee} onChange={(e) => setPickEmployee(e.target.value)}>
-                  <option value="">AI Employee…</option>
+                <Select
+                  value={pickEmployee}
+                  onChange={(e) => setPickEmployee(e.target.value)}
+                  disabled={employees.length === 0}
+                >
+                  <option value="">
+                    {employees.length === 0 ? "No AI Employee hired yet" : "AI Employee…"}
+                  </option>
                   {employees.map((employee) => (
                     <option key={employee.id} value={employee.id}>
                       {employee.name}
