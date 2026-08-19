@@ -104,6 +104,55 @@ export function Integrations() {
         MySQL, and Redis Connections stay disabled until an isolated egress worker is configured.
       </Callout>
 
+      <H2 id="instance-oauth-apps">Register an OAuth app once, connect with one click</H2>
+      <P>
+        An OAuth Connection needs a client registered with the provider — a Google Cloud OAuth
+        client, a GitHub OAuth App, and so on. By default each Connection brings its own, which
+        means whoever connects a mailbox first has to create a Google Cloud project, enable the
+        Gmail API, configure a consent screen, register a Web client, and paste an ID and secret
+        into the connect form. Then do it again for the next mailbox, and again in the next
+        company. That setup, not the consent screen, is what made connecting email hard.
+      </P>
+      <P>
+        An instance admin can do it <Strong>once for the whole install</Strong> instead. Open{" "}
+        <Strong>Admin → Integrations</Strong>, pick a provider, copy the redirect URI it shows into
+        the provider&apos;s console, and paste back the Client ID and Client Secret. From then on,
+        every company on the instance connects that provider by clicking it and approving on the
+        provider&apos;s own screen — there is no ID to create and nothing to paste. Connecting a
+        Gmail mailbox becomes: click <Strong>Google Workspace</Strong>, tick the products it may
+        touch, approve.
+      </P>
+      <P>
+        One registration covers every integration that shares the app: registering{" "}
+        <Strong>Google</Strong> unlocks Google Workspace, Google Analytics, Search Console, and
+        Google Ads together. You can register <Strong>Google, GitHub, Microsoft, LinkedIn, Reddit</Strong>, and{" "}
+        <Strong>X</Strong>.
+      </P>
+      <P>
+        Nothing about this is mandatory, and it does not take anything away. A company that needs
+        its own client — a Workspace tenant with its own consent policy, a separate quota, an
+        account the instance admin should not see — clicks{" "}
+        <Strong>Use my own OAuth client instead</Strong> on the connect form, which brings back the
+        Client ID and Secret fields; those credentials then win for that Connection. An install can
+        mix the two freely.
+      </P>
+      <Callout kind="info" title="Client secrets stay on the server.">
+        A registered secret is encrypted at rest with the same key that protects every other stored
+        credential, and the admin page never reads it back — it shows the Client ID (which is not a
+        secret) and whether a secret is on file. Leaving the secret field blank when you save keeps
+        the one already stored, so you can correct a mistyped Client ID without fetching the secret
+        again.
+      </Callout>
+      <Callout kind="info" title="Rotating a secret is safe; swapping the whole client is not.">
+        Each Connection stores the credentials it was created with, so removing the registration
+        never breaks one that already exists. If you rotate the <em>secret</em> and keep the same
+        Client ID, <Strong>Reconnect</Strong> on a Connection picks up the new secret, because
+        Genosyn recognises it as the instance app. Replacing the Client ID entirely is a different
+        client as far as the provider is concerned: existing Connections stay on the old one and
+        keep working until its credentials are revoked, at which point they have to be disconnected
+        and created again.
+      </Callout>
+
       <H2 id="product-pages">Connect from the product you are using</H2>
       <P>
         Every product has an <Code>Integrations</Code> link in its sidebar. That page is a focused

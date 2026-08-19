@@ -15,6 +15,7 @@ import {
   listCatalog,
   providerSupportsApiKey,
 } from "../integrations/index.js";
+import { registeredOauthApps } from "../services/oauthApps.js";
 import {
   createApiKeyConnection,
   createBrowserLoginConnection,
@@ -73,8 +74,14 @@ integrationsRouter.use(requireCompanyMember);
 integrationsRouter.use(requireBrowserSession);
 integrationsRouter.use(requireCompanyRoleForMutations("admin"));
 
-integrationsRouter.get("/catalog", async (_req, res) => {
-  res.json(listCatalog());
+integrationsRouter.get("/catalog", async (_req, res, next) => {
+  try {
+    // Fold in the install-wide OAuth apps so the connect form can hide the
+    // client id / secret fields for providers that already have one.
+    res.json(listCatalog({ registeredOauthApps: await registeredOauthApps() }));
+  } catch (err) {
+    next(err);
+  }
 });
 
 integrationsRouter.get("/connections", async (req, res) => {
@@ -178,8 +185,10 @@ integrationsRouter.delete("/connections/:connId", async (req, res) => {
 const oauthStartSchema = z.object({
   provider: z.string().min(1).max(64),
   label: z.string().min(1).max(80),
-  clientId: z.string().min(1).max(512),
-  clientSecret: z.string().min(1).max(512),
+  /** Optional: omitted when the install has a registered OAuth app for this
+   *  provider, in which case `startOauth` resolves the credentials itself. */
+  clientId: z.string().max(512).optional(),
+  clientSecret: z.string().max(512).optional(),
   scopeGroups: z.array(z.string().min(1).max(64)).max(64).default([]),
   /** Values for the catalog's `oauth.extraFields` (developer tokens,
    *  account ids, safety caps). Validated against the catalog server-side. */
@@ -195,8 +204,8 @@ integrationsRouter.post("/oauth/start", validateBody(oauthStartSchema), async (r
       userId: req.userId!,
       provider: body.provider,
       label: body.label,
-      clientId: body.clientId.trim(),
-      clientSecret: body.clientSecret.trim(),
+      clientId: body.clientId?.trim(),
+      clientSecret: body.clientSecret?.trim(),
       scopeGroups: body.scopeGroups,
       extraFields: body.extraFields,
     });

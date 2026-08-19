@@ -100,11 +100,19 @@ export type IntegrationCatalogEntry = {
   authMode: IntegrationAuthMode;
   /** API-key providers declare their input form here. */
   fields?: IntegrationCatalogField[];
-  /** OAuth providers declare scopes + underlying oauth app. Each Connection
-   * supplies its own `clientId` + `clientSecret` at create-time, so this
-   * block is purely metadata for the connect form. */
+  /** OAuth providers declare scopes + underlying oauth app. A Connection may
+   * supply its own `clientId` + `clientSecret` at create-time, so this block
+   * is mostly metadata for the connect form — `instanceApp` is the one
+   * runtime-resolved field. */
   oauth?: {
     app: "google" | "x" | "github" | "reddit" | "linkedin" | "microsoft";
+    /** True when a master admin has registered this OAuth app install-wide
+     * (Admin → Integrations), so a Connection needs no credentials of its
+     * own. Resolved per request in `listCatalog`, not declared by providers:
+     * it tells the connect form whether to ask for a client id and secret at
+     * all. Several integrations can share one app — registering `google`
+     * covers Workspace, Analytics, and Search Console together. */
+    instanceApp?: boolean;
     /** Always-included baseline scopes (e.g. `userinfo.email` + `openid`
      * for OpenID Connect identity). Cannot be unchecked. */
     scopes: string[];

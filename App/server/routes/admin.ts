@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requireMasterAdmin } from "../middleware/auth.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
 import { User } from "../db/entities/User.js";
@@ -24,6 +24,12 @@ import {
   updateGlobalSmtpOverride,
 } from "../services/globalEmailTransport.js";
 import { getPublicUrlSettings, setPublicUrl } from "../services/publicUrl.js";
+import {
+  clearOauthApp,
+  describeOauthApps,
+  isRegisterableOauthApp,
+  saveOauthApp,
+} from "../services/oauthApps.js";
 
 /**
  * Instance-wide admin endpoints. Not company-scoped — these describe and manage
@@ -217,6 +223,73 @@ adminRouter.post("/email-transport/test", validateBody(testSchema), async (req, 
     });
   }
 });
+
+// ─────────────────────── install-wide OAuth apps ───────────────────────────
+//
+// Register each provider's OAuth client once for the whole deployment so that
+// connecting a mailbox (or any other OAuth integration) needs no Google Cloud
+// project per Connection. Secrets are write-only across this boundary: the GET
+// returns client ids and a `hasClientSecret` flag, never a secret value.
+
+adminRouter.get("/oauth-apps", async (_req, res, next) => {
+  try {
+    res.json(await describeOauthApps());
+  } catch (err) {
+    next(err);
+  }
+});
+
+const oauthAppParamsSchema = z.object({ app: z.string().min(1).max(32) });
+const oauthAppSaveSchema = z.object({
+  clientId: z.string().min(1).max(512),
+  // Blank means "keep the secret currently stored", so an admin can fix a
+  // client id without going back to the provider's console for the secret.
+  clientSecret: z.string().max(1024),
+});
+
+adminRouter.put(
+  "/oauth-apps/:app",
+  validateParams(oauthAppParamsSchema),
+  validateBody(oauthAppSaveSchema),
+  async (req, res, next) => {
+    const { app } = req.params as z.infer<typeof oauthAppParamsSchema>;
+    if (!isRegisterableOauthApp(app)) {
+      return res.status(400).json({ error: `"${app}" is not a registerable OAuth app.` });
+    }
+    const body = req.body as z.infer<typeof oauthAppSaveSchema>;
+    try {
+      await saveOauthApp(app, body);
+    } catch (err) {
+      return res.status(400).json({
+        error: err instanceof Error ? err.message : "Failed to save the OAuth app",
+      });
+    }
+    // The save landed; a failure re-reading state is a server error, not a
+    // "save failed" 400.
+    try {
+      res.json(await describeOauthApps());
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+adminRouter.delete(
+  "/oauth-apps/:app",
+  validateParams(oauthAppParamsSchema),
+  async (req, res, next) => {
+    const { app } = req.params as z.infer<typeof oauthAppParamsSchema>;
+    if (!isRegisterableOauthApp(app)) {
+      return res.status(400).json({ error: `"${app}" is not a registerable OAuth app.` });
+    }
+    try {
+      await clearOauthApp(app);
+      res.json(await describeOauthApps());
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ──────────────────────────── browser profile ──────────────────────────────
 //

@@ -37,6 +37,15 @@ export function Email() {
         Email rides on the existing <DocLink to="/docs/integrations">Google integration</DocLink>,
         so a mailbox is one Google connection that granted the Gmail product at consent time.
       </P>
+      <Callout kind="info" title="Connect once, with nothing to set up.">
+        If an instance admin has registered this install&apos;s Google app at{" "}
+        <Strong>Admin → Integrations</Strong> — a one-time job, described under{" "}
+        <DocLink to="/docs/integrations">Integrations</DocLink> — connecting a mailbox is just:
+        click <Strong>Google Workspace</Strong>, tick <Strong>Gmail</Strong>, approve on
+        Google&apos;s screen. There is no Google Cloud project to create and no Client ID to paste.
+        Without that registration, the connect form asks for a Client ID and Secret of your own,
+        which means registering a Web OAuth client in Google Cloud Console first.
+      </Callout>
       <OL>
         <LI>
           Open <Strong>Email → Integrations</Strong> and add (or reconnect) a{" "}
@@ -61,9 +70,8 @@ export function Email() {
       </OL>
 
       <Callout kind="info" title="No Google Cloud Pub/Sub required.">
-        Sync is poll-based on a short interval, so there is nothing to set up beyond the OAuth
-        client you already registered for Google. Self-hosted installs get a working inbox with zero
-        extra ceremony. (On a very large account you can cap the first import to recent mail with{" "}
+        Sync is poll-based on a short interval, so there is nothing to set up beyond the Google
+        connection itself. Self-hosted installs get a working inbox with zero extra ceremony. (On a very large account you can cap the first import to recent mail with{" "}
         <Code>config.mail.backfillDays</Code>; the default imports everything.)
       </Callout>
 

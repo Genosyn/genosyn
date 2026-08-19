@@ -2264,6 +2264,73 @@ The workspace had every fact and produced no judgement.
       scoring, so the autonomous loop reads its evidence already judged instead
       of recomputing it per run. `MarketingPages.tsx` split into one file per
       screen plus shared primitives.
+### M43 — Instance-wide OAuth apps ✅
+
+Connecting an email account was the hardest thing in the product, and the hard
+part was never the consent screen. Every Connection carried its own OAuth
+credentials, so the first person who wanted their inbox in Genosyn had to open
+Google Cloud Console, create a project, enable the Gmail API, configure a
+consent screen, register a Web OAuth client, copy a redirect URI back and
+forth, and paste an ID and a secret into a form — before seeing a single email.
+Then the next mailbox did it again, and so did the next company. A self-hosted
+install made one person do it once; a shared SaaS made every customer do it.
+
+The client belongs to the deployment, not to each Connection.
+
+- [x] **A master admin registers each OAuth app once**, at
+      **Admin → Integrations**. Google leads the list because email is why
+      most installs arrive. Each card carries the provider's console link, the
+      ordered setup steps, and the exact redirect URI to allow-list — resolved
+      from the instance public URL, with a copy button, so the value that has
+      to match on both sides is never retyped.
+- [x] **After that, connecting is one click.** The connect modal drops the
+      Client ID and Secret fields entirely and says so; the user picks which
+      products the connection may touch and approves on the provider's own
+      screen. The catalog card reads `OAuth · 1-click`. The onboarding Gmail
+      step shares the modal, so first-run setup gets it without a second
+      implementation.
+- [x] **One registration covers every integration sharing the app.**
+      Registering `google` unlocks Workspace, Analytics, Search Console, and
+      Ads together, and the admin card derives that list from the provider
+      registry so the copy cannot drift as integrations are added. Six apps are
+      registerable: Google, GitHub, Microsoft, LinkedIn, Reddit, X.
+- [x] **Per-Connection credentials still win, and still work.** A company that
+      needs its own client — a Workspace tenant with its own consent policy, a
+      separate quota — picks **Use my own OAuth client instead** on the connect
+      form and the credential fields come back. A pair is taken whole or not at
+      all: a client id with no secret falls back to the registered app rather
+      than being completed from it, because a mixed pair passes consent and
+      only fails at the token exchange, after the human has already approved.
+- [x] **No schema change.** The registry is a single JSON `AppSetting` row, the
+      same mechanism the global SMTP override and the VAPID keypair use.
+      Secrets are encrypted at rest with the instance key and are write-only
+      across the API boundary — the admin view returns the client id and
+      whether a secret is on file, never the secret. Saving with a blank secret
+      keeps the stored one, so a mistyped client id is fixable alone. A corrupt
+      or hostile settings row degrades to "nothing registered" rather than
+      breaking every connect flow on the install.
+- [x] **Removing a registration cannot break a live Connection.** Each
+      Connection persists the credentials it was created with, so token refresh
+      is untouched by anything that happens here afterwards. Rotating the
+      secret is recoverable in place: reconnect recognises a Connection whose
+      client id matches the registration as *being* the instance app and takes
+      the current secret, while a Connection that brought its own client keeps
+      it. Without that, rotating would break every mailbox on the instance with
+      no fix short of delete-and-recreate, which revokes the whole team's
+      grants.
+- [x] **The settings row is written with a compare-and-swap**, the same
+      conditional write `persistConnectionConfigIfCurrent` uses for Connection
+      credentials, and is deliberately uncached. One row holds every app, so a
+      save is a read-modify-write of the whole map: a cached snapshot would let
+      one replica erase registrations it never saw, or keep minting authorize
+      URLs from a client an admin had already revoked.
+- Next: the zero-Google path. IMAP/SMTP with an app password would remove the
+  cloud console from the picture entirely and reach Fastmail, Zoho, and
+  self-hosted mail — but the `Mail*` subsystem is Gmail-shaped rather than
+  merely Gmail-transported (a monotonic `historyId` cursor, opaque thread and
+  draft ids, labels as the only folder mechanism), so it needs a real backend
+  seam under `sync.ts` / `actions.ts` / `store.ts` first.
+
 
 ## V1 backlog (post-MVP)
 

@@ -630,7 +630,9 @@ function IntegrationsPage({
                               {entry.authMode === "oauth2"
                                 ? entry.browserLogin
                                   ? "OAuth · Browser"
-                                  : "OAuth"
+                                  : entry.oauth?.instanceApp
+                                    ? "OAuth · 1-click"
+                                    : "OAuth"
                                 : entry.authMode === "browser"
                                   ? "Browser"
                                   : "API key"}
@@ -1166,6 +1168,15 @@ export function OauthOrServiceAccountModal({
   const supportsGithubApp = !!entry?.githubApp;
   const supportsBrowser = !!entry?.browserLogin;
   const isReconnect = reconnect !== null;
+  // This instance registered the underlying OAuth app (Admin → Integrations),
+  // so a new Connection needs no credentials of its own — the whole Client
+  // ID / Secret half of the form disappears. Reconnect is unaffected: it
+  // reuses whatever credentials the existing Connection already stores.
+  const instanceAppAvailable = !!entry?.oauth?.instanceApp;
+  // …but a company that needs its own client (a Workspace tenant with its own
+  // consent policy, a separate API quota) can still opt out and supply one.
+  const [ownClient, setOwnClient] = React.useState(false);
+  const usesInstanceApp = instanceAppAvailable && !ownClient;
   // Reconnect locks the auth mode to whatever the existing connection
   // already uses; we never silently change auth modes mid-flight (that
   // would orphan the client credentials).
@@ -1273,8 +1284,12 @@ export function OauthOrServiceAccountModal({
             {
               provider: entry.provider,
               label: label.trim() || entry.name,
-              clientId: clientId.trim(),
-              clientSecret: clientSecret.trim(),
+              // Omitted entirely when the instance has a registered app, so
+              // the server resolves the credentials rather than receiving
+              // blanks it would have to reject.
+              ...(usesInstanceApp
+                ? {}
+                : { clientId: clientId.trim(), clientSecret: clientSecret.trim() }),
               scopeGroups: selectedScopeGroups,
               ...(entry.oauth?.extraFields?.length ? { extraFields: oauthExtraFields } : {}),
             },
@@ -1585,19 +1600,51 @@ export function OauthOrServiceAccountModal({
           <form className="flex flex-col gap-3" onSubmit={submitOauth}>
             {!isReconnect && (
               <>
-                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-                  <p className="font-medium">Set up an OAuth Client ID first</p>
-                  <ol className="mt-1 list-decimal space-y-0.5 pl-4">
-                    <li>{oauthSetup.consoleStep}</li>
-                    <li>
-                      Add this redirect URI under <em>Authorized redirect URIs</em>:
-                      <code className="ml-1 break-all rounded bg-amber-100 px-1 py-0.5 font-mono dark:bg-amber-900/40">
-                        {redirectUri}
-                      </code>
-                    </li>
-                    <li>Paste the resulting Client ID and Client Secret below.</li>
-                  </ol>
-                </div>
+                {usesInstanceApp ? (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+                    <p className="font-medium">Nothing to set up</p>
+                    <p className="mt-1">
+                      This Genosyn instance already has a registered {entry.name} app, so there
+                      is no Client ID to create or paste. Pick what it may access below, then
+                      approve on {entry.name}&apos;s screen.
+                    </p>
+                    <button
+                      type="button"
+                      className="mt-1.5 font-medium underline underline-offset-2"
+                      onClick={() => setOwnClient(true)}
+                    >
+                      Use my own OAuth client instead
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                    <p className="font-medium">Set up an OAuth Client ID first</p>
+                    <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+                      <li>{oauthSetup.consoleStep}</li>
+                      <li>
+                        Add this redirect URI under <em>Authorized redirect URIs</em>:
+                        <code className="ml-1 break-all rounded bg-amber-100 px-1 py-0.5 font-mono dark:bg-amber-900/40">
+                          {redirectUri}
+                        </code>
+                      </li>
+                      <li>Paste the resulting Client ID and Client Secret below.</li>
+                    </ol>
+                    {instanceAppAvailable ? (
+                      <button
+                        type="button"
+                        className="mt-1.5 font-medium underline underline-offset-2"
+                        onClick={() => setOwnClient(false)}
+                      >
+                        Use this instance&apos;s registered app instead
+                      </button>
+                    ) : (
+                      <p className="mt-1.5">
+                        An instance admin can register {entry.name} once at Admin &rarr;
+                        Integrations so nobody has to do this again.
+                      </p>
+                    )}
+                  </div>
+                )}
                 <Input
                   label="Label"
                   value={label}
@@ -1605,30 +1652,34 @@ export function OauthOrServiceAccountModal({
                   placeholder={entry.name}
                   required
                 />
-                <Input
-                  label="OAuth Client ID"
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  placeholder={oauthSetup.clientIdPlaceholder}
-                  required
-                />
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                    OAuth Client Secret <span className="ml-1 text-red-500">*</span>
-                  </label>
-                  <input
-                    type="password"
-                    required
-                    value={clientSecret}
-                    onChange={(e) => setClientSecret(e.target.value)}
-                    placeholder={oauthSetup.clientSecretPlaceholder}
-                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
-                  />
-                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                    Encrypted at rest with the app&apos;s session secret. Used to refresh access
-                    tokens.
-                  </p>
-                </div>
+                {!usesInstanceApp && (
+                  <>
+                    <Input
+                      label="OAuth Client ID"
+                      value={clientId}
+                      onChange={(e) => setClientId(e.target.value)}
+                      placeholder={oauthSetup.clientIdPlaceholder}
+                      required
+                    />
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                        OAuth Client Secret <span className="ml-1 text-red-500">*</span>
+                      </label>
+                      <input
+                        type="password"
+                        required
+                        value={clientSecret}
+                        onChange={(e) => setClientSecret(e.target.value)}
+                        placeholder={oauthSetup.clientSecretPlaceholder}
+                        className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-mono shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
+                      />
+                      <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        Encrypted at rest with the app&apos;s session secret. Used to refresh
+                        access tokens.
+                      </p>
+                    </div>
+                  </>
+                )}
                 {(entry.oauth?.extraFields ?? []).map((f) => (
                   <div key={f.key}>
                     <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -1671,7 +1722,9 @@ export function OauthOrServiceAccountModal({
                 disabled={
                   busy ||
                   selectedScopeGroups.length === 0 ||
-                  (!isReconnect && (!clientId.trim() || !clientSecret.trim()))
+                  (!isReconnect &&
+                    !usesInstanceApp &&
+                    (!clientId.trim() || !clientSecret.trim()))
                 }
               >
                 {busy ? "Starting…" : isReconnect ? "Reconnect" : `Connect with ${entry.name}`}

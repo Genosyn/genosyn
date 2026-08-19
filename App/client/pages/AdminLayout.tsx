@@ -9,6 +9,7 @@ import {
   Layers,
   LayoutDashboard,
   Mail,
+  Plug2,
   Settings,
   ServerCog,
   UserPlus,
@@ -41,6 +42,7 @@ const ADMIN_TAB_LABEL: Record<string, string> = {
   db: "Database",
   migrations: "Migrations",
   email: "Email transport",
+  integrations: "Integrations",
   signups: "Sign-ups",
   sso: "SSO",
   backup: "Backups",
@@ -100,6 +102,11 @@ export default function AdminLayout({
           to={`${base}/email`}
           icon={<Mail size={14} />}
           label="Email transport"
+        />
+        <SidebarLink
+          to={`${base}/integrations`}
+          icon={<Plug2 size={14} />}
+          label="Integrations"
         />
         <SidebarLink
           to={`${base}/signups`}

@@ -237,6 +237,31 @@ export function SelfHosting() {
         redacted from the stored preview.
       </P>
 
+      <H2 id="oauth-apps">OAuth apps for the whole install</H2>
+      <P>
+        Integrations that sign in with OAuth — Google, GitHub, Microsoft, LinkedIn, Reddit, X —
+        need a client registered with the provider. Left alone, every Connection has to bring its
+        own, so the first person to connect a Gmail mailbox has to stand up a Google Cloud project
+        before they can start.
+      </P>
+      <P>
+        Do it once instead, at <Code>Admin → Integrations</Code>. Each provider card shows the exact
+        redirect URI to allow-list (derived from the <Code>Public URL</Code> above, so set that
+        first) and the ordered steps for that provider&apos;s console.
+        Paste back the Client ID and Client Secret, and every company on the instance can connect
+        that provider with a single click. Registering <Strong>Google</Strong> covers Google
+        Workspace, Google Analytics, Search Console, and Google Ads at once.
+      </P>
+      <P>
+        Secrets are encrypted at rest with the instance key and never returned to the browser; the
+        page shows the Client ID and whether a secret is stored. Removing a registration only
+        affects <em>new</em> Connections — existing ones keep the credentials they were created
+        with and go on refreshing their tokens. Rotate the secret while keeping the same Client ID
+        and a <Strong>Reconnect</Strong> moves an existing Connection onto it. Companies that need
+        their own client pick <Strong>Use my own OAuth client instead</Strong> on the connect form,
+        which takes precedence for that Connection.
+      </P>
+
       <H2 id="secrets">Secrets and the Password Vault</H2>
       <P>
         Genosyn stores several kinds of sensitive value, each with a different lifecycle. In

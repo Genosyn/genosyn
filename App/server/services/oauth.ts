@@ -44,6 +44,7 @@ import {
   type MicrosoftOauthConfig,
 } from "../integrations/providers/microsoft-ads.js";
 import { decryptConnectionConfig, getConnection } from "./integrations.js";
+import { getRegisteredOauthApp } from "./oauthApps.js";
 import { createAuthFlowState, consumeAuthFlowState } from "./authFlowState.js";
 import { AppDataSource } from "../db/datasource.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
@@ -51,14 +52,23 @@ import { MailAccount } from "../db/entities/MailAccount.js";
 /**
  * OAuth state store + provider dispatch.
  *
- * Each Connection carries its own `clientId` + `clientSecret`, so the start
+ * A Connection carries its own `clientId` + `clientSecret`, so the start
  * handshake takes them as parameters, stores an encrypted single-use state
  * row, and the callback uses it to (a) exchange the auth code and
  * (b) embed them in the persisted Connection so future refreshes work
  * without reaching back to config.ts.
  *
- *   1. UI posts `startOauth({ companyId, userId, provider, label,
- *      clientId, clientSecret })` and receives `{ authorizeUrl }`.
+ * When the caller omits them, they are resolved from the install-wide app a
+ * master admin registered at Admin → Integrations (`services/oauthApps.ts`) —
+ * that is what lets someone connect Gmail without first standing up their own
+ * Google Cloud OAuth client. The resolved values are then persisted onto the
+ * Connection exactly as a user-supplied pair would be, so token refresh and
+ * reconnect stay a single code path that never reaches back to instance
+ * settings.
+ *
+ *   1. UI posts `startOauth({ companyId, userId, provider, label })`, with
+ *      `clientId` / `clientSecret` only when the Connection brings its own,
+ *      and receives `{ authorizeUrl }`.
  *   2. Google bounces the browser back to our shared callback:
  *      `${publicUrl}/api/integrations/oauth/callback/google?code=…&state=…`.
  *   3. The callback resolves `state` → the original company/provider/
@@ -102,8 +112,9 @@ export async function startOauth(args: {
   userId: string;
   provider: string;
   label: string;
-  clientId: string;
-  clientSecret: string;
+  /** Omit both to use the install-wide app registered at Admin → Integrations. */
+  clientId?: string;
+  clientSecret?: string;
   scopeGroups: string[];
   extraFields?: Record<string, string>;
   existingConnectionId?: string;
@@ -112,8 +123,27 @@ export async function startOauth(args: {
   if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
   const oauth = provider.catalog.oauth;
   if (!oauth) throw new Error(`${provider.catalog.name} has no OAuth metadata`);
-  if (!args.clientId || !args.clientSecret) {
-    throw new Error("clientId and clientSecret are required");
+
+  // Per-Connection credentials win when supplied; otherwise fall back to the
+  // install-wide registration. Resolving here (rather than at the route) keeps
+  // every caller — connect, reconnect, onboarding — on one rule.
+  //
+  // A pair is taken whole or not at all. Mixing a caller's client id with the
+  // instance's secret would sail through consent and only fail at the token
+  // exchange, after the user has already approved — so a half-filled pair
+  // falls back to the registered app rather than being completed from it.
+  const suppliedId = (args.clientId ?? "").trim();
+  const suppliedSecret = (args.clientSecret ?? "").trim();
+  const credentials =
+    suppliedId && suppliedSecret
+      ? { clientId: suppliedId, clientSecret: suppliedSecret }
+      : await getRegisteredOauthApp(oauth.app);
+  const clientId = credentials?.clientId ?? "";
+  const clientSecret = credentials?.clientSecret ?? "";
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      `No ${provider.catalog.name} OAuth client is available. Ask an instance admin to register one at Admin → Integrations, or supply a Client ID and Client Secret for this connection.`,
+    );
   }
 
   // PKCE code_verifier — only emitted for providers that need it (X). For
@@ -138,8 +168,8 @@ export async function startOauth(args: {
     companyId: args.companyId,
     provider: args.provider,
     label: args.label,
-    clientId: args.clientId,
-    clientSecret: args.clientSecret,
+    clientId,
+    clientSecret,
     scopeGroups: args.scopeGroups,
     extraFields,
     expiresAt,
@@ -163,7 +193,7 @@ export async function startOauth(args: {
       authorizeUrl = buildGoogleAuthorizeUrl({
         state,
         scopes,
-        clientId: args.clientId,
+        clientId,
         redirectUri: googleRedirectUri(),
       });
       break;
@@ -176,7 +206,7 @@ export async function startOauth(args: {
       authorizeUrl = buildXAuthorizeUrl({
         state,
         scopes,
-        clientId: args.clientId,
+        clientId,
         redirectUri: xRedirectUri(),
         codeChallenge: pkceChallenge(codeVerifier!),
       });
@@ -190,7 +220,7 @@ export async function startOauth(args: {
       authorizeUrl = buildGithubAuthorizeUrl({
         state,
         scopes,
-        clientId: args.clientId,
+        clientId,
         redirectUri: githubRedirectUri(),
       });
       break;
@@ -206,7 +236,7 @@ export async function startOauth(args: {
       authorizeUrl = buildRedditAuthorizeUrl({
         state,
         scopes,
-        clientId: args.clientId,
+        clientId,
         redirectUri: redditRedirectUri(),
       });
       break;
@@ -219,7 +249,7 @@ export async function startOauth(args: {
       authorizeUrl = buildLinkedinAuthorizeUrl({
         state,
         scopes,
-        clientId: args.clientId,
+        clientId,
         redirectUri: linkedinRedirectUri(),
       });
       break;
@@ -232,7 +262,7 @@ export async function startOauth(args: {
       authorizeUrl = buildMicrosoftAuthorizeUrl({
         state,
         scopes,
-        clientId: args.clientId,
+        clientId,
         redirectUri: microsoftRedirectUri(),
       });
       break;
@@ -311,13 +341,23 @@ export async function startOauthReconnect(args: {
     // mailbox capability instead of silently starting an identity-only flow.
     if (!scopeGroups.includes("mail")) scopeGroups = [...scopeGroups, "mail"];
   }
+  // A Connection created from the install-wide app should follow that app when
+  // its secret is rotated — otherwise rotating would quietly break every
+  // mailbox on the instance with no in-place fix, since reconnect is the only
+  // path that preserves grants. Identity is the client id: same id means this
+  // Connection *is* the instance app, so take the current secret. A different
+  // id means the company deliberately brought its own client, and that keeps
+  // winning untouched.
+  const registered = await getRegisteredOauthApp(provider.catalog.oauth.app);
+  const followsInstanceApp = !!registered && registered.clientId === cfg.clientId;
+
   return startOauth({
     companyId: args.companyId,
     userId: args.userId,
     provider: conn.provider,
     label: conn.label,
-    clientId: cfg.clientId,
-    clientSecret: cfg.clientSecret,
+    clientId: followsInstanceApp ? undefined : cfg.clientId,
+    clientSecret: followsInstanceApp ? undefined : cfg.clientSecret,
     scopeGroups,
     extraFields,
     existingConnectionId: conn.id,

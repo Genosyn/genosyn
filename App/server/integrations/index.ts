@@ -100,21 +100,35 @@ export function listProviderIds(): string[] {
 }
 
 /**
- * Return the static catalog entries verbatim. With per-Connection
- * credentials there is no global "is this integration configured?" check —
- * each Connection brings its own clientId/secret (OAuth) or service-account
- * key, so Google is always available to add.
+ * Return the catalog entries. There is no global "is this integration
+ * configured?" check — a Connection may always bring its own clientId/secret
+ * (OAuth) or service-account key, so Google is always available to add.
+ *
+ * `registeredOauthApps` is the one piece of instance state folded in: the set
+ * of OAuth apps a master admin registered install-wide. Entries whose OAuth
+ * app is in that set are marked `oauth.instanceApp`, which is how the connect
+ * form knows it can skip asking for credentials entirely. Callers that don't
+ * care (onboarding recommendations) omit it and get the static shape.
  */
-export function listCatalog(): IntegrationCatalogEntry[] {
-  return Object.values(PROVIDERS).map((p) =>
-    config.security.multiTenant && SHARED_SAAS_BLOCKED_PROVIDERS.has(p.catalog.provider)
-      ? {
-          ...p.catalog,
-          enabled: false,
-          disabledReason: "Unavailable in shared SaaS until isolated raw-TCP egress is configured.",
-        }
-      : { ...p.catalog },
-  );
+export function listCatalog(
+  opts: { registeredOauthApps?: ReadonlySet<string> } = {},
+): IntegrationCatalogEntry[] {
+  const registered = opts.registeredOauthApps;
+  return Object.values(PROVIDERS).map((p) => {
+    const entry: IntegrationCatalogEntry =
+      config.security.multiTenant && SHARED_SAAS_BLOCKED_PROVIDERS.has(p.catalog.provider)
+        ? {
+            ...p.catalog,
+            enabled: false,
+            disabledReason:
+              "Unavailable in shared SaaS until isolated raw-TCP egress is configured.",
+          }
+        : { ...p.catalog };
+    if (entry.oauth && registered?.has(entry.oauth.app)) {
+      entry.oauth = { ...entry.oauth, instanceApp: true };
+    }
+    return entry;
+  });
 }
 
 export type { IntegrationProvider, IntegrationCatalogEntry } from "./types.js";

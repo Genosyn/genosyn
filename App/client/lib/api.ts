@@ -919,6 +919,10 @@ export type IntegrationCatalogEntry = {
   fields?: IntegrationCatalogField[];
   oauth?: {
     app: "google" | "x" | "github" | "reddit" | "linkedin" | "microsoft";
+    /** True when this instance has a registered OAuth app for this provider
+     *  (Admin → Integrations). The connect form then asks for no credentials
+     *  at all — the handshake uses the instance's client. */
+    instanceApp?: boolean;
     scopes: string[];
     scopeGroups?: IntegrationScopeGroup[];
     /** Extra create-time inputs (developer tokens, account ids, safety
@@ -2356,6 +2360,24 @@ export type GlobalEmailTransport = {
     fromName: string;
     from: string;
   };
+};
+
+// ────────────────────── Admin install-wide OAuth apps ──────────────────────
+// One registration per OAuth provider, served by /api/admin/oauth-apps. The
+// client secret is write-only across this boundary: `hasClientSecret` says
+// whether one is on file, never what it is.
+export type OauthAppDescriptor = {
+  app: "google" | "x" | "github" | "reddit" | "linkedin" | "microsoft";
+  label: string;
+  /** Names of the integrations this one registration unlocks. */
+  unlocks: string[];
+  consoleUrl: string;
+  steps: string[];
+  configured: boolean;
+  clientId: string;
+  hasClientSecret: boolean;
+  redirectUri: string;
+  updatedAt: string | null;
 };
 
 // ───────────────────────── Admin instance settings ─────────────────────────
