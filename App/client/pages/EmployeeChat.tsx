@@ -5,6 +5,7 @@ import {
   AlertCircle,
   Archive,
   ArchiveRestore,
+  ArrowDown,
   Brain,
   Check,
   ChevronDown,
@@ -98,6 +99,13 @@ export default function EmployeeChat() {
   const [modelOverride, setModelOverride] = React.useState<ComposerModelOverride | null>(null);
   const [claimingLegacy, setClaimingLegacy] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  /**
+   * Whether the reader is parked at the bottom of the thread. A long reply
+   * arrives as dozens of chunks, so following the tail unconditionally yanks
+   * the viewport away from anyone who scrolled up to re-read something.
+   */
+  const stickToBottomRef = React.useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = React.useState(false);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const seededPrompt = React.useRef<string | null>(null);
   const visibleQueuedMessages = queuedMessages.filter(
@@ -155,6 +163,13 @@ export default function EmployeeChat() {
   // them around would attach to the wrong thread on the next send.
   React.useEffect(() => {
     setPendingAttachments([]);
+  }, [activeConvId]);
+
+  // A newly opened thread starts pinned to its newest message, whatever the
+  // reader was doing in the thread they just left.
+  React.useEffect(() => {
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
   }, [activeConvId]);
 
   // Fetch the conversation list for this employee the first time we mount.
@@ -217,11 +232,34 @@ export default function EmployeeChat() {
     };
   }, [actions, activeConvId, company.id, connectionState, emp.id, isActiveResponse]);
 
-  // Auto-scroll to bottom on new messages or while the reply streams in.
-  React.useEffect(() => {
-    if (!scrollRef.current) return;
-    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  // Follow the tail on new messages and while the reply streams in — but only
+  // while the reader is still at the bottom. Scrolling up is how someone reads
+  // the earlier part of a long answer, and dragging them back down on every
+  // streamed chunk makes that impossible. `useLayoutEffect` scrolls before
+  // paint so the follow never shows as a visible jump.
+  React.useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !stickToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
   }, [messages, isActiveResponse, streamingReply, progress, visibleQueuedMessages.length]);
+
+  /** Re-attach to the tail: used by the jump button and by sending a message. */
+  function followTail() {
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+
+  // A scroll that leaves the bottom detaches the view; coming back re-attaches
+  // it. The threshold absorbs sub-pixel rounding and the last chunk of a reply
+  // landing between the event and the render.
+  function handleScroll(event: React.UIEvent<HTMLDivElement>) {
+    const el = event.currentTarget;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    stickToBottomRef.current = atBottom;
+    setShowJumpToLatest(!atBottom);
+  }
 
   // Auto-grow the textarea as the user types, capped so it doesn't swallow
   // the conversation.
@@ -310,6 +348,8 @@ export default function EmployeeChat() {
     }
     if (!msg && atts.length === 0) return;
     if (!messageOverride) setPendingAttachments([]);
+    // Sending is an explicit "show me what happens next".
+    followTail();
     const err = await actions.send(company.id, emp.id, msg, {
       clearInput: !messageOverride,
       attachments: atts,
@@ -426,53 +466,65 @@ export default function EmployeeChat() {
           </div>
         )}
 
-        <div
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto bg-slate-50/50 px-4 py-6 dark:bg-slate-900/40 sm:px-8"
-        >
-          {isLoadingMessages ? (
-            <MessageSkeleton />
-          ) : visibleMessages.length === 0 &&
-            !isActiveResponse &&
-            visibleQueuedMessages.length === 0 ? (
-            <EmptyState empName={emp.name} empRole={emp.role} onPick={(t) => send(t)} />
-          ) : (
-            <div className="mx-auto flex max-w-3xl flex-col gap-5">
-              {visibleMessages.map((m, i) => (
-                <TurnBubble
-                  key={m.id}
-                  message={m}
-                  authorName={emp.name}
-                  companyId={company.id}
-                  companySlug={company.slug}
-                  employeeId={emp.id}
-                  employeeSlug={emp.slug}
-                  showAvatar={i === 0 || visibleMessages[i - 1].role !== m.role}
-                  onInspectAction={setInspectAction}
-                />
-              ))}
-              {isActiveResponse && hasStreamingReply && (
-                <StreamingBubble authorName={emp.name} content={streamingReply} />
-              )}
-              {isActiveResponse && progress && !hasStreamingReply && (
-                <ProgressIndicator
-                  authorName={emp.name}
-                  percent={progress.percent}
-                  label={progress.label}
-                  connectionState={connectionState}
-                />
-              )}
-              {isActiveResponse && !progress && !hasStreamingReply && (
-                <TypingIndicator authorName={emp.name} />
-              )}
-              {visibleQueuedMessages.length > 0 && (
-                <QueuedMessageStack
-                  messages={visibleQueuedMessages}
-                  empName={emp.name}
-                  onRemove={(id) => actions.removeQueuedMessage(emp.id, id)}
-                />
-              )}
-            </div>
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto bg-slate-50/50 px-4 py-6 dark:bg-slate-900/40 sm:px-8"
+          >
+            {isLoadingMessages ? (
+              <MessageSkeleton />
+            ) : visibleMessages.length === 0 &&
+              !isActiveResponse &&
+              visibleQueuedMessages.length === 0 ? (
+              <EmptyState empName={emp.name} empRole={emp.role} onPick={(t) => send(t)} />
+            ) : (
+              <div className="mx-auto flex max-w-3xl flex-col gap-5">
+                {visibleMessages.map((m, i) => (
+                  <TurnBubble
+                    key={m.id}
+                    message={m}
+                    authorName={emp.name}
+                    companyId={company.id}
+                    companySlug={company.slug}
+                    employeeId={emp.id}
+                    employeeSlug={emp.slug}
+                    showAvatar={i === 0 || visibleMessages[i - 1].role !== m.role}
+                    onInspectAction={setInspectAction}
+                  />
+                ))}
+                {isActiveResponse && hasStreamingReply && (
+                  <StreamingBubble authorName={emp.name} content={streamingReply} />
+                )}
+                {isActiveResponse && progress && !hasStreamingReply && (
+                  <ProgressIndicator
+                    authorName={emp.name}
+                    percent={progress.percent}
+                    label={progress.label}
+                    connectionState={connectionState}
+                  />
+                )}
+                {isActiveResponse && !progress && !hasStreamingReply && (
+                  <TypingIndicator authorName={emp.name} />
+                )}
+                {visibleQueuedMessages.length > 0 && (
+                  <QueuedMessageStack
+                    messages={visibleQueuedMessages}
+                    empName={emp.name}
+                    onRemove={(id) => actions.removeQueuedMessage(emp.id, id)}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+          {showJumpToLatest && (
+            <button
+              type="button"
+              onClick={followTail}
+              className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            >
+              <ArrowDown size={12} /> Jump to latest
+            </button>
           )}
         </div>
 
