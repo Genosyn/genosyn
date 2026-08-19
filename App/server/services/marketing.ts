@@ -117,6 +117,23 @@ function dateOrNull(value: string | null | undefined): Date | null | undefined {
   return value === null || value === "" ? null : new Date(value);
 }
 
+/**
+ * Stamp "now" for a closing transition, but never at or before the start.
+ *
+ * An Experiment that starts and finishes inside the same millisecond is a real
+ * sequence, not a zero-length window — the clock simply ran out of resolution.
+ * The same is true of a start date someone set in the future and then stopped
+ * early. Nudging past the start keeps `end > start` true for the stamps this
+ * module writes itself, so the guard stays strict for the dates humans supply.
+ */
+function stampAfter(start: Date | null): Date {
+  const now = new Date();
+  if (start && !Number.isNaN(start.getTime()) && now <= start) {
+    return new Date(start.getTime() + 1);
+  }
+  return now;
+}
+
 function normalizeCurrency(value: string | undefined): string | undefined {
   return value?.trim().toUpperCase();
 }
@@ -738,7 +755,7 @@ export async function updateMarketingExperiment(
   // The clock belongs to the transition, not to whoever remembered to send it.
   if (from !== "running" && row.status === "running" && !row.startsAt) row.startsAt = new Date();
   if (from !== row.status && (row.status === "decided" || row.status === "stopped") && !row.endsAt) {
-    row.endsAt = new Date();
+    row.endsAt = stampAfter(row.startsAt);
   }
   await assertExperimentState(row);
   const saved = await repo.save(row);

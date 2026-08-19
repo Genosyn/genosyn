@@ -401,6 +401,62 @@ describe("Marketing Experiment decisions", () => {
       /is final/,
     );
   });
+
+  test("closing an Experiment no later than it started still leaves a valid window", async () => {
+    const companyId = testCompanyId();
+    const campaign = await createMarketingCampaign(
+      companyId,
+      {
+        name: "Same-tick test",
+        objective: "leads",
+        channel: "meta-ads",
+        brief: "Brief.",
+        audience: "Audience.",
+        successMetric: "cpa",
+        dailyBudgetMinor: 5_000,
+        externalCampaignId: "ext-3",
+        status: "ready",
+      },
+      { userId: "member-1" },
+    );
+    const first = await createMarketingCreative(
+      companyId,
+      { campaignId: campaign.id, name: "First", status: "review" },
+      { userId: "member-1" },
+    );
+    const second = await createMarketingCreative(
+      companyId,
+      { campaignId: campaign.id, name: "Second", status: "review" },
+      { userId: "member-1" },
+    );
+
+    // A start the wall clock cannot yet have passed stands in for the race a
+    // real caller hits when it starts and decides inside one millisecond.
+    const startsAt = new Date(Date.now() + 60_000);
+    const experiment = await createMarketingExperiment(
+      companyId,
+      {
+        campaignId: campaign.id,
+        name: "Decided on arrival",
+        creativeIds: [first.id, second.id],
+        status: "running",
+        startsAt: startsAt.toISOString(),
+      },
+      { userId: "member-1" },
+    );
+
+    const decided = await updateMarketingExperiment(companyId, experiment.id, {
+      status: "decided",
+      winnerCreativeId: second.id,
+      decisionRationale: "Second won.",
+    });
+
+    assert.ok(decided.endsAt, "deciding stamps the end");
+    assert.ok(
+      decided.endsAt.getTime() > startsAt.getTime(),
+      "the stamped end outlasts the start instead of tripping the guard",
+    );
+  });
 });
 
 describe("Marketing scoring", () => {
