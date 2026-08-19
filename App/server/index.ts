@@ -14,6 +14,7 @@ import { bootPipelineCron } from "./services/pipelines/index.js";
 import { bootContextWindowRefresh } from "./services/agent/contextWindowRefresh.js";
 import { bootRecurringInvoices } from "./services/recurringInvoices.js";
 import { bootRevenue } from "./services/revenue/boot.js";
+import { bootMeetings } from "./services/meetings/boot.js";
 import { bootTelegramListeners } from "./services/telegramListener.js";
 import { bootMailSync } from "./services/mail/sync.js";
 import { bootMailHandovers } from "./services/mail/handovers.js";
@@ -72,6 +73,7 @@ import { handoffsRouter } from "./routes/handoffs.js";
 import { inboxRouter } from "./routes/inbox.js";
 import { mailRouter } from "./routes/mail.js";
 import { revenueRouter } from "./routes/revenue.js";
+import { meetingsRouter } from "./routes/meetings.js";
 import { revenueOperationsRouter } from "./routes/revenueOperations.js";
 import { marketingRouter } from "./routes/marketing.js";
 import { unsubscribeRouter } from "./routes/unsubscribe.js";
@@ -136,6 +138,9 @@ async function main() {
   // that let them reach the agent runtime. Synchronous — it only installs
   // timers; the first pass of each runs on its own interval.
   bootRevenue();
+  // Calendar + Meetings (M44): the calendar sync heartbeat, and the callback
+  // that lets a meeting transcript reach an AI Employee for its write-up.
+  bootMeetings();
   bootBrowserSessionSweeper();
   // Long-polling Telegram listener — one outbound HTTP loop per Telegram
   // Connection. Fires asynchronously so a slow Telegram API doesn't gate
@@ -400,6 +405,11 @@ async function main() {
   // suppressions and the revenue reports.
   app.use("/api/companies/:cid", revenueRouter);
   app.use("/api/companies/:cid", revenueOperationsRouter);
+
+  // Meetings section (M44) — connected calendars, the mirrored agenda,
+  // recorded calls and their transcripts, and the per-employee grants that
+  // decide which AI Employee may read or record which calendar.
+  app.use("/api/companies/:cid", meetingsRouter);
 
   // Marketing agency (M35) — Campaign strategy, Creative, Experiments,
   // performance snapshots and per-employee access.

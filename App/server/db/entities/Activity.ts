@@ -87,6 +87,7 @@ export const ACTIVITY_PRIORITIES: ActivityPriority[] = ["low", "normal", "high",
 @Index(["customerId", "occurredAt"])
 @Index(["partnershipId", "occurredAt"])
 @Index(["companyId", "mailMessageId"])
+@Index(["companyId", "meetingId"])
 @Index(["companyId", "taskStatus", "dueAt"])
 export class Activity {
   @PrimaryGeneratedColumn("uuid")
@@ -132,6 +133,14 @@ export class Activity {
    */
   @Column({ type: "varchar", nullable: true })
   mailMessageId!: string | null;
+
+  /**
+   * Set on meeting-derived rows (M44). Also the idempotency key for the
+   * meeting linker, exactly as `mailMessageId` is for mail: re-running the
+   * link pass must not put the same call on a timeline twice.
+   */
+  @Column({ type: "varchar", nullable: true })
+  meetingId!: string | null;
 
   @Column({ type: "varchar", nullable: true })
   actorUserId!: string | null;

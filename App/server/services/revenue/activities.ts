@@ -1,4 +1,4 @@
-import { Brackets, In } from "typeorm";
+import { Brackets, In, IsNull } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
 import {
@@ -45,6 +45,7 @@ export type ActivityInput = {
   partnershipId?: string | null;
   mailThreadId?: string | null;
   mailMessageId?: string | null;
+  meetingId?: string | null;
   meta?: Record<string, unknown> | null;
   taskStatus?: ActivityTaskStatus | null;
   dueAt?: Date | null;
@@ -122,6 +123,7 @@ export async function recordActivity(
       partnershipId: input.partnershipId ?? null,
       mailThreadId: input.mailThreadId ?? null,
       mailMessageId: input.mailMessageId ?? null,
+      meetingId: input.meetingId ?? null,
       actorUserId: actor.userId ?? null,
       actorEmployeeId: actor.employeeId ?? null,
       metaJson: serializeMeta(input.meta),
@@ -173,6 +175,38 @@ export async function recordMailActivity(
 }
 
 /**
+ * Record a meeting-derived activity exactly once per (meeting, subject-row).
+ *
+ * The same call legitimately produces several rows — one per Contact whose
+ * timeline it belongs on — so the key is the pair, not the meeting alone.
+ * Without that, linking a call attended by three known Contacts would write
+ * one row and drop two, which is the opposite of the bug this guards against.
+ *
+ * Idempotency matters here for the same reason it does for mail: the linker is
+ * re-runnable by design (a Contact created after the call should be able to
+ * pick it up), and re-running must never double a timeline.
+ */
+export async function recordMeetingActivity(
+  companyId: string,
+  input: ActivityInput & { meetingId: string },
+  actor: ActivityActor = {},
+): Promise<Activity | null> {
+  // `IsNull()` rather than a bare null: TypeORM's object form treats a null
+  // property as "no condition", so passing it would match the first row for
+  // this meeting regardless of subject and silently collapse the three rows a
+  // three-Contact call is supposed to produce.
+  const existing = await AppDataSource.getRepository(Activity).findOneBy({
+    companyId,
+    meetingId: input.meetingId,
+    contactId: input.contactId ? input.contactId : IsNull(),
+    dealId: input.dealId ? input.dealId : IsNull(),
+    customerId: input.customerId ? input.customerId : IsNull(),
+  });
+  if (existing) return existing;
+  return recordActivity(companyId, input, actor);
+}
+
+/**
  * Bulk-record mail activities, skipping any message already on the timeline.
  *
  * One query to find what exists, then one save — an initial mailbox import can
@@ -207,6 +241,7 @@ export async function recordMailActivities(
       partnershipId: input.partnershipId ?? null,
       mailThreadId: input.mailThreadId ?? null,
       mailMessageId: input.mailMessageId,
+      meetingId: null,
       metaJson: serializeMeta(input.meta),
       taskStatus: null,
       dueAt: null,

@@ -171,6 +171,12 @@ import { MarketingCreative } from "./entities/MarketingCreative.js";
 import { MarketingExperiment } from "./entities/MarketingExperiment.js";
 import { MarketingPerformanceSnapshot } from "./entities/MarketingPerformanceSnapshot.js";
 import { EmployeeMarketingGrant } from "./entities/EmployeeMarketingGrant.js";
+import { CalendarAccount } from "./entities/CalendarAccount.js";
+import { CalendarEvent } from "./entities/CalendarEvent.js";
+import { Meeting } from "./entities/Meeting.js";
+import { MeetingParticipant } from "./entities/MeetingParticipant.js";
+import { MeetingTranscriptSegment } from "./entities/MeetingTranscriptSegment.js";
+import { EmployeeCalendarGrant } from "./entities/EmployeeCalendarGrant.js";
 import { VaultItem } from "./entities/VaultItem.js";
 import { VaultItemMemberAccess } from "./entities/VaultItemMemberAccess.js";
 import { EmployeeVaultGrant } from "./entities/EmployeeVaultGrant.js";
@@ -347,6 +353,14 @@ const entities = [
   VaultItem,
   VaultItemMemberAccess,
   EmployeeVaultGrant,
+  // Calendar + Meetings (M44) — the mirrored agenda, recorded calls, and the
+  // transcripts the revenue timeline and the follow-up pass both read.
+  CalendarAccount,
+  CalendarEvent,
+  Meeting,
+  MeetingParticipant,
+  MeetingTranscriptSegment,
+  EmployeeCalendarGrant,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

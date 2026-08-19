@@ -76,6 +76,10 @@ import { XmlParseError } from "../services/docxXml.js";
 import { readDocx } from "../services/docxRead.js";
 import { DocxEditError, editDocx, type DocxOperation } from "../services/docxEdit.js";
 import { createDocx, MAX_MARKDOWN_CHARS } from "../services/docxCreate.js";
+import { Meeting } from "../db/entities/Meeting.js";
+import { grantedCalendarIds, hasCalendarAccess } from "../services/meetings/grants.js";
+import { serializeMeeting, serializeParticipant } from "../services/meetings/serialize.js";
+import { getMeeting, listMeetings, listParticipants } from "../services/meetings/store.js";
 import { Approval } from "../db/entities/Approval.js";
 import {
   browserApprovalWasExecuted,
@@ -15143,4 +15147,117 @@ mcpInternalRouter.post(
     );
     res.json(row);
   }),
+);
+
+// ───────────────────────────── Meetings (M44) ─────────────────────────────
+
+/**
+ * A meeting the calling employee is allowed to see.
+ *
+ * Access is per **calendar**, not per meeting, because that is the resource a
+ * human granted. A meeting with no calendar behind it — one somebody created
+ * by hand and dropped a recording on — has no grant to check, so it is
+ * readable by any employee in the company: the alternative is a row nobody can
+ * ever reach, and the human who created it did so deliberately.
+ */
+async function meetingForEmployee(
+  req: McpRequest,
+  res: Response,
+  meetingId: string,
+): Promise<Meeting | null> {
+  const cid = req.mcpCompany!.id;
+  const meeting = await getMeeting(cid, meetingId);
+  if (!meeting) {
+    res.status(404).json({ error: "Meeting not found" });
+    return null;
+  }
+  if (meeting.accountId && !(await hasCalendarAccess(req.mcpEmployee!.id, meeting.accountId, "read"))) {
+    res.status(403).json({
+      error:
+        "No grant: you do not have access to the calendar this meeting came from. Ask an owner or admin to grant it under Meetings → AI access.",
+    });
+    return null;
+  }
+  return meeting;
+}
+
+const listMeetingsSchema = z
+  .object({
+    status: z
+      .enum(["scheduled", "joining", "recording", "processing", "ready", "failed", "skipped"])
+      .optional(),
+    customerId: z.string().uuid().optional(),
+    contactId: z.string().uuid().optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_meetings",
+  validateBody(listMeetingsSchema),
+  async (req: McpRequest, res) => {
+    const cid = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof listMeetingsSchema>;
+    const rows = await listMeetings(cid, body);
+    const granted = new Set(await grantedCalendarIds(req.mcpEmployee!.id));
+    // Filtered rather than refused: an employee granted one calendar asking for
+    // "our meetings with this customer" should get the ones it may see, not a
+    // 403 because the company also has a calendar it may not.
+    const visible = rows.filter((row) => !row.accountId || granted.has(row.accountId));
+    res.json({
+      meetings: visible.map(serializeMeeting),
+      note:
+        visible.length < rows.length
+          ? "Some meetings were hidden because you have no Grant to their calendar."
+          : undefined,
+    });
+  },
+);
+
+const meetingIdSchema = z.object({ meetingId: z.string().uuid() }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_meeting",
+  validateBody(meetingIdSchema),
+  async (req: McpRequest, res) => {
+    const { meetingId } = req.body as z.infer<typeof meetingIdSchema>;
+    const meeting = await meetingForEmployee(req, res, meetingId);
+    if (!meeting) return;
+    const cid = req.mcpCompany!.id;
+    const participants = await listParticipants(cid, meeting.id);
+    res.json({
+      meeting: serializeMeeting(meeting),
+      participants: participants.map(serializeParticipant),
+      note: meeting.transcriptText
+        ? "Call get_meeting_transcript for what was actually said."
+        : "This meeting has no transcript yet.",
+    });
+  },
+);
+
+const meetingTranscriptSchema = z
+  .object({
+    meetingId: z.string().uuid(),
+    maxChars: z.number().int().min(500).max(100_000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_meeting_transcript",
+  validateBody(meetingTranscriptSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof meetingTranscriptSchema>;
+    const meeting = await meetingForEmployee(req, res, body.meetingId);
+    if (!meeting) return;
+    const cap = body.maxChars ?? 20_000;
+    const full = meeting.transcriptText;
+    res.json({
+      meetingId: meeting.id,
+      title: meeting.title,
+      transcriptState: meeting.transcriptState,
+      truncated: full.length > cap,
+      transcript: full.slice(0, cap),
+      totalChars: full.length,
+    });
+  },
 );

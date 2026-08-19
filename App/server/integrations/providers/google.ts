@@ -16,6 +16,7 @@ import {
 } from "./google/auth.js";
 import { gmailTools, invokeGmailTool } from "./google/gmail-tools.js";
 import { driveTools, invokeDriveTool } from "./google/drive-tools.js";
+import { calendarTools, calendarToolNames, invokeCalendarTool } from "./google/calendar-tools.js";
 
 /**
  * Google Workspace — umbrella OAuth + Service Account integration.
@@ -26,7 +27,7 @@ import { driveTools, invokeDriveTool } from "./google/drive-tools.js";
  * time: the catalog lists scope groups (`GOOGLE_SCOPE_GROUPS`) like
  * "Mail" or "Calendar", the UI renders them as checkboxes, and the
  * server resolves the chosen keys to the underlying URL scopes. Tools
- * currently ship for Gmail and Drive; the rest are pre-wired so users
+ * ship for Gmail, Drive and Calendar; the rest are pre-wired so users
  * can grant them now and use them once tool families land.
  *
  * The OAuth + Service-Account credential shapes and token lifecycle are
@@ -150,7 +151,7 @@ export function resolveGoogleScopes(args: {
 /** All known group keys — the default selection for fresh connections. */
 export const ALL_GOOGLE_SCOPE_GROUP_KEYS = GOOGLE_SCOPE_GROUPS.map((g) => g.key);
 
-const ALL_TOOLS = [...gmailTools, ...driveTools];
+const ALL_TOOLS = [...gmailTools, ...driveTools, ...calendarTools];
 const GMAIL_TOOL_NAMES = new Set(gmailTools.map((t) => t.name));
 const DRIVE_TOOL_NAMES = new Set(driveTools.map((t) => t.name));
 
@@ -262,6 +263,10 @@ export const googleProvider: IntegrationProvider = {
       assertScope(grantedScope, "drive", name);
       return invokeDriveTool(name, args, accessToken);
     }
+    if (calendarToolNames.has(name)) {
+      assertScope(grantedScope, "calendar", name);
+      return invokeCalendarTool(name, args, accessToken);
+    }
     throw new Error(`Unknown Google tool: ${name}`);
   },
 };
@@ -294,7 +299,7 @@ function hasProductScope(grantedScope: string, product: string): boolean {
 
 function assertScope(
   grantedScope: string,
-  product: "gmail" | "drive",
+  product: "gmail" | "drive" | "calendar",
   toolName: string,
 ): void {
   if (!hasProductScope(grantedScope, product)) {

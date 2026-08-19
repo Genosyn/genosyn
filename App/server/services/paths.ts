@@ -48,6 +48,19 @@ export function browserPrivateCompanyDir(companyId: string): string {
 }
 
 /**
+ * Where meeting recordings live.
+ *
+ * App-private, under `.private/`, rather than in the company tree an AI
+ * Employee's coding tools can reach. A recording is the rawest customer data
+ * this app holds — voices, names, prices, whatever got said before somebody
+ * realised they were being recorded — and an employee should reach it through
+ * the meeting tools that check a grant, never by listing a directory.
+ */
+export function meetingRecordingsCompanyDir(companyId: string): string {
+  return path.join(dataRoot(), ".private", "meeting-recordings", companyId);
+}
+
+/**
  * App-private SSH host-key cache for server-owned repository operations.
  *
  * The directory name still says `code-repository-ssh` after the Code →

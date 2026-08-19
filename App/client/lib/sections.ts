@@ -18,6 +18,7 @@ import {
   NotebookPen,
   NotebookText,
   ServerCog,
+  Video,
   Settings as SettingsIcon,
   ShieldCheck,
   Table2,
@@ -40,6 +41,7 @@ export type SectionKey =
   | "home"
   | "inbox"
   | "mail"
+  | "meetings"
   | "workspace"
   | "employees"
   | "skills"
@@ -118,6 +120,33 @@ export const SECTION_GROUPS: SectionGroup[] = [
         path: "/mail",
         iconBg: "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
         keywords: ["gmail", "inbox", "mail", "threads", "triage"],
+      },
+      {
+        key: "meetings",
+        label: "Meetings",
+        description: "Your calendar, recorded calls, and their transcripts.",
+        icon: Video,
+        // Not "M" or "C": Email and Repositories hold those, and the chord map
+        // is keyed by letter, so a third claim would shadow one of them.
+        shortcut: "Y",
+        path: "/meetings",
+        iconBg: "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300",
+        keywords: [
+          "calendar",
+          "meeting",
+          "meetings",
+          "call",
+          "calls",
+          "zoom",
+          "google meet",
+          "teams",
+          "recording",
+          "notetaker",
+          "transcript",
+          "minutes",
+          "agenda",
+          "schedule",
+        ],
       },
       {
         key: "tasks",
@@ -480,6 +509,7 @@ export const SECTION_BY_KEY: Record<SectionKey, SectionItem> = Object.fromEntrie
 export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/inbox(\/|$)/.test(pathname)) return "inbox";
   if (/\/c\/[^/]+\/mail(\/|$)/.test(pathname)) return "mail";
+  if (/\/c\/[^/]+\/meetings(\/|$)/.test(pathname)) return "meetings";
   if (/\/c\/[^/]+\/workspace(\/|$)/.test(pathname)) return "workspace";
   if (/\/c\/[^/]+\/employees(\/|$)/.test(pathname)) return "employees";
   if (/\/c\/[^/]+\/skills(\/|$)/.test(pathname)) return "skills";

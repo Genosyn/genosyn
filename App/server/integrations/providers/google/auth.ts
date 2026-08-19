@@ -57,6 +57,29 @@ export function hasGoogleGmailMailboxScope(scopes: string | string[] | null | un
   return tokens.some((scope) => GMAIL_MAILBOX_SCOPES.has(scope.trim()));
 }
 
+/**
+ * Calendar mirroring needs read access to events; the umbrella only ever asks
+ * for the bare `auth/calendar`, but a Workspace admin may have narrowed the
+ * app to `calendar.readonly` or `calendar.events.readonly`, and every one of
+ * those is enough to *sync*. Writes are the `calendar_*` tools' problem and
+ * surface Google's own 403.
+ *
+ * Matched per whitespace-delimited token, anchored on the full prefix, for the
+ * reason `hasProductScope` documents in `google.ts`: `auth/calendar` is a bare
+ * grant with no suffix, so a substring test for `auth/calendar.` silently
+ * rejects the exact scope this integration requests.
+ */
+export function hasGoogleCalendarScope(scopes: string | string[] | null | undefined): boolean {
+  const prefix = "https://www.googleapis.com/auth/calendar";
+  const tokens = (Array.isArray(scopes) ? scopes : [scopes ?? ""]).flatMap((scope) =>
+    scope.split(/\s+/),
+  );
+  return tokens.some((raw) => {
+    const scope = raw.trim();
+    return scope === prefix || scope.startsWith(`${prefix}.`);
+  });
+}
+
 // ---------- Config shapes (what's stored encrypted on each Connection) ----------
 
 export type GoogleOauthConfig = {

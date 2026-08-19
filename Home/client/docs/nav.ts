@@ -198,6 +198,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Connect Gmail, review AI-written drafts, and act on new mail with static filters or AI-judged rules.",
       },
       {
+        path: "/docs/meetings",
+        title: "Meetings",
+        blurb:
+          "Mirror a Google calendar, turn recordings and transcripts into customer timeline entries, and let an AI Employee file the follow-ups.",
+      },
+      {
         path: "/docs/tasks",
         title: "Tasks",
         blurb:

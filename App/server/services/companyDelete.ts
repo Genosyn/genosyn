@@ -3,9 +3,10 @@ import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import {
   browserPrivateCompanyDir,
+  companyDir,
+  meetingRecordingsCompanyDir,
   repositoryPrivateCompanyDir,
   repositoryWorkspaceCompanyDir,
-  companyDir,
 } from "./paths.js";
 import { emitMembershipAuthorizationChange } from "./resourceEvents.js";
 
@@ -94,6 +95,12 @@ import { DashboardCard } from "../db/entities/DashboardCard.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
 import { EmployeeMailAccountGrant } from "../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../db/entities/MailAccount.js";
+import { CalendarAccount } from "../db/entities/CalendarAccount.js";
+import { CalendarEvent } from "../db/entities/CalendarEvent.js";
+import { EmployeeCalendarGrant } from "../db/entities/EmployeeCalendarGrant.js";
+import { Meeting } from "../db/entities/Meeting.js";
+import { MeetingParticipant } from "../db/entities/MeetingParticipant.js";
+import { MeetingTranscriptSegment } from "../db/entities/MeetingTranscriptSegment.js";
 import { MailChatMessage } from "../db/entities/MailChatMessage.js";
 import { MailDraftSendBatch } from "../db/entities/MailDraftSendBatch.js";
 import { MailHandover } from "../db/entities/MailHandover.js";
@@ -416,6 +423,19 @@ export async function deleteCompanyCascade(args: {
     await m.delete(MailHandover, { companyId });
     await m.delete(MailChatMessage, { companyId });
     await m.delete(MailAccount, { companyId });
+    // Calendar + Meetings (M44). Same shape as mail: the grant carries no
+    // companyId so it goes by this company's employees, then leaf-first
+    // (segments → participants → meetings → events → calendars). Recordings on
+    // disk are swept after the transaction commits, because a transaction
+    // cannot roll back an unlinked file.
+    if (employeeIds.length) {
+      await m.delete(EmployeeCalendarGrant, { employeeId: In(employeeIds) });
+    }
+    await m.delete(MeetingTranscriptSegment, { companyId });
+    await m.delete(MeetingParticipant, { companyId });
+    await m.delete(Meeting, { companyId });
+    await m.delete(CalendarEvent, { companyId });
+    await m.delete(CalendarAccount, { companyId });
     await m.delete(IntegrationConnection, { companyId });
     await m.delete(EmailLog, { companyId });
     await m.delete(EmailProvider, { companyId });
@@ -533,6 +553,16 @@ export async function deleteCompanyCascade(args: {
   } catch (err) {
     console.warn(
       `[companyDelete] failed to remove Repository checkouts for ${companyId}: ${(err as Error).message}`,
+    );
+  }
+  // Meeting recordings (M44). The rawest customer data the app holds — voices
+  // saying names, prices, and whatever got said before anyone remembered they
+  // were being recorded. A deleted company must not leave those on disk.
+  try {
+    fs.rmSync(meetingRecordingsCompanyDir(companyId), { recursive: true, force: true });
+  } catch (err) {
+    console.warn(
+      `[companyDelete] failed to remove meeting recordings for ${companyId}: ${(err as Error).message}`,
     );
   }
 }

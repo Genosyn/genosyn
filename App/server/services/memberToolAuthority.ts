@@ -98,6 +98,12 @@ const MEMBER_TOOLS = [
   "update_mail_thread",
   "send_mail",
   "suggest_mail_actions",
+  // Meetings (M44): read-only, and a Member already sees every meeting in the
+  // Meetings section — calendar Grants govern the AI surface, not humans. So a
+  // delegated turn reading one shows the Member nothing they could not open.
+  "list_meetings",
+  "get_meeting",
+  "get_meeting_transcript",
   "list_contacts",
   "search_contacts",
   "get_contact",

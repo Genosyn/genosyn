@@ -110,6 +110,12 @@ import RepositoryAi from "./pages/RepositoryAi";
 import RepositoryAccess from "./pages/RepositoryAccess";
 import RepositorySettings from "./pages/RepositorySettings";
 import CustomersLayout from "./pages/CustomersLayout";
+import MeetingsLayout from "./pages/MeetingsLayout";
+import MeetingsAgenda from "./pages/MeetingsAgenda";
+import MeetingsRecorded from "./pages/MeetingsRecorded";
+import MeetingsCalendars from "./pages/MeetingsCalendars";
+import MeetingsAiAccess from "./pages/MeetingsAiAccess";
+import MeetingDetail from "./pages/MeetingDetail";
 import RevenueLayout from "./pages/RevenueLayout";
 import RevenueIndex from "./pages/RevenueIndex";
 import RevenueDeals from "./pages/RevenueDeals";
@@ -506,6 +512,17 @@ function CompanyRoutes({
             <Route path="new" element={<SignatureNew />} />
             <Route path="ai-access" element={<SignatureAiAccess />} />
             <Route path=":envelopeId" element={<SignatureDetail />} />
+          </Route>
+
+          {/* Calendar + Meetings (M44) — the mirrored agenda, recorded calls
+            and their transcripts, and the per-calendar Grants that decide
+            which AI Employee may read or record them. */}
+          <Route path="meetings" element={<MeetingsLayout company={company} />}>
+            <Route index element={<MeetingsAgenda />} />
+            <Route path="recorded" element={<MeetingsRecorded />} />
+            <Route path="calendars" element={<MeetingsCalendars />} />
+            <Route path="ai-access" element={<MeetingsAiAccess />} />
+            <Route path=":meetingId" element={<MeetingDetail />} />
           </Route>
 
           {/* Revenue (M32) — follow-ups, accounts, contacts, deals,

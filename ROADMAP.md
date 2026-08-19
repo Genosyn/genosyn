@@ -1782,8 +1782,10 @@ or enrichment trusts the resulting records:
       same-Account Deal-title duplicate report. Duplicate scans run at boot and
       every six hours, feed the merge workflow, and never merge automatically.
 - [ ] Real ad-platform spend for CAC (replacing the `AdSpendEvent` proxy)
-- [ ] Meeting booking and calendar-based activities — deferred; Google Calendar
-      is already connected and a native scheduler earns its complexity later
+- [x] Calendar-based activities — shipped as **M44**, which mirrors the
+      calendar and writes `meeting` activities onto the Contact/Deal/Account
+      timelines. Booking a meeting is still the `calendar_create_event` tool
+      rather than a native scheduler; that earns its complexity later
 - [x] **Bring-your-own-key firmographics.** People Data Labs connects through
       the Integration framework and proposes reviewable Account domain, website,
       industry, employee-count, headquarters and parent-company evidence.
@@ -2331,6 +2333,74 @@ The client belongs to the deployment, not to each Connection.
   draft ids, labels as the only folder mechanism), so it needs a real backend
   seam under `sync.ts` / `actions.ts` / `store.ts` first.
 
+### M44 — Calendar & Meetings ✅
+
+A company's calendar was the one system of record Genosyn could see and could
+not use. The Google Connection has carried the Calendar scope since M25, and
+`calendar-tools.ts` — six working tools, list through delete — sat in the tree
+imported by nothing at all. Meanwhile the most valuable half-hour a revenue
+team has is the call itself, and nothing about it reached the CRM: the meeting
+happened, somebody meant to write it up, and three days later the Deal's
+timeline said the last thing that touched this customer was an email.
+
+Mail already solved this exact problem. Sync mirrors the mailbox, `mailLink.ts`
+matches participants against known Contacts, and the timeline fills itself
+without anybody doing data entry. This milestone does the same thing for the
+calendar, and then carries it one step further: a call that has a transcript
+gets read by the AI Employee that owns it, and the follow-ups it promises land
+as real, dated, assigned rows in the queue a human already works from.
+
+- [x] **The Calendar tools are connected.** `calendar_list_calendars`,
+      `calendar_list_events`, `calendar_get_event`, `calendar_create_event`,
+      `calendar_update_event` and `calendar_delete_event` now dispatch from the
+      umbrella `google` provider behind a `calendar` scope check. They were
+      written, tested against the API shape, and orphaned; wiring them in was
+      four lines and is why an AI Employee can move a meeting today.
+- [x] **A Meetings section, backed by a real mirror.** `CalendarAccount` binds
+      a calendar to a `google` Connection and borrows its token lifecycle the
+      way `MailAccount` does — no second credential path. `CalendarEvent` is a
+      queryable local copy, so "which meetings in the next hour have a
+      conference link and an outside attendee" is one indexed scan rather than
+      an API call per pass per account.
+- [x] **Incremental sync, and the 410 that is not an error.** Google hands back
+      a `syncToken` and returns only what changed. It also expires that token
+      whenever it decides the window is too old, which arrives as a 410 GONE
+      and means "re-list from scratch", not "something broke" — the sync clears
+      the cursor and retries once rather than parking the account in `error`.
+      A moving `windowDays` bound keeps 2009's standups from being mirrored at
+      all.
+- [x] **Transcripts link themselves to customers.** Attendee addresses are
+      matched against existing Contacts and written onto the Contact, Deal and
+      Account timelines as `meeting` activities, keyed on a new
+      `Activity.meetingId` so a re-run writes nothing twice. It follows
+      `mailLink.ts` rule 1 exactly — **we link to Contacts that already exist,
+      we never create one.** A calendar is mostly colleagues, vendors,
+      recruiters and one-off strangers, and auto-creating a Contact per
+      attendee is the same trap there as it is in a mailbox.
+- [x] **The AI Employee writes the follow-ups.** When a transcript lands, the
+      notetaker employee is handed the call and its Revenue context under
+      `toolAuthority: "employee"` — the seam sequences and signals already use
+      — and files a summary plus dated, owned action items through
+      `createFollowUpTask`. They are `task` activities, which means they arrive
+      in the Follow-ups queue humans already work from rather than in a second
+      inbox nobody opens.
+- [x] **Recording is a seam, not a hard-coded bot.** `MeetingRecorder` has one
+      implementation today: a recording or a transcript handed to a meeting,
+      which every deployment can use. Transcription runs through any
+      OpenAI-compatible `/v1/audio/transcriptions` endpoint using credentials
+      already encrypted on the `AIModel` row, so a self-hoster points it at a
+      local whisper server and no third party sees the audio. No new
+      dependency, no new credential store.
+- [x] **Auto-record is off, and stays off.** A recorder that turns itself on is
+      the one behaviour here that can embarrass a company, because the people
+      on the other end agreed to nothing. Joining is opt-in per calendar, and
+      even then only for meetings with an attendee outside the company's own
+      domains unless somebody deliberately widens it.
+- [ ] Next: a notetaker that joins the call itself. The seam is the easy part;
+      the honest blocker is that the App image ships Xvfb but no audio stack,
+      and `browserChromium.ts` blocks service workers as a documented security
+      boundary that Meet's web client needs. Both are deliberate, so both are a
+      decision before they are a patch.
 
 ## V1 backlog (post-MVP)
 
@@ -2652,8 +2722,10 @@ of the original V1 backlog has shipped — what remains is mostly
 
 - **Marketplace** of Soul personas + skill packs (M17 above is the seed)
 - **Voice** — TTS summaries; "call" an employee
-- **Meeting presence** — employee joins a Google Meet, takes notes, files a
-  routine-driven summary
+- **Meeting presence** — an employee that joins the Google Meet itself. M44
+  shipped everything downstream of the audio (transcripts, linking, AI
+  follow-ups) behind a recorder seam; what is left is the join, which needs an
+  audio stack in the image and a decision about the service-worker boundary
 - **Soul versioning + contracts** — Soul edits go through approval
 - **Performance dashboards** — heatmaps of routine reliability
 - **Federation** — two self-hosted Genosyn orgs cooperate on a shared

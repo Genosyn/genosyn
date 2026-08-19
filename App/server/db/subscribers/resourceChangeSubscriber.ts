@@ -169,6 +169,18 @@ const REGISTRY: Record<string, Mapping> = {
   // frequency writer here (mail sync emits them per ingested message) — the
   // per-(company, kind) debounce in resourceEvents.ts is what keeps a large
   // mailbox import from fanning out one frame per email.
+  // ── Calendar + Meetings (M44) ────────────────────────────────────────────
+  CalendarAccount: { kind: "calendar", company: "direct" },
+  CalendarEvent: { kind: "calendar", company: "direct", scopeFk: "accountId" },
+  Meeting: { kind: "meeting", company: "direct" },
+  MeetingParticipant: { kind: "meeting", company: "direct", scopeFk: "meetingId" },
+  MeetingTranscriptSegment: { kind: "meeting", company: "direct", scopeFk: "meetingId" },
+  EmployeeCalendarGrant: {
+    kind: "grant",
+    company: { fk: "employeeId", parent: "AIEmployee" },
+    scopeFk: "employeeId",
+  },
+
   Contact: { kind: "contact", company: "direct" },
   DealStage: { kind: "dealstage", company: "direct" },
   Deal: { kind: "deal", company: "direct" },

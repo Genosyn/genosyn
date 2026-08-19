@@ -431,6 +431,57 @@ const LINKED_REVENUE_IMPORT_MAPPING_PROPERTY = {
 
 export const STATIC_TOOLS: McpToolSpec[] = [
   {
+    name: "list_meetings",
+    description:
+      "List recorded and upcoming meetings from the Meetings section (M44) — title, when it happened, status, and whether a transcript is ready. Filter by `customerId` or `contactId` to answer 'when did we last speak to them'. Needs a Grant to the calendar the meeting came from.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["scheduled", "joining", "recording", "processing", "ready", "failed", "skipped"],
+          description: "Only meetings in this state. `ready` means the transcript and write-up are done.",
+        },
+        customerId: { type: "string", description: "Only meetings linked to this account." },
+        contactId: { type: "string", description: "Only meetings this Contact attended." },
+        limit: { type: "integer", minimum: 1, maximum: 200, description: "Default 50." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_meeting",
+    description:
+      "Fetch one meeting: who attended (and which of them are known Contacts), the AI summary, the action items already filed, and the linked account and Deal. Use `get_meeting_transcript` when you need what was actually said. Needs a Grant to the calendar the meeting came from.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        meetingId: { type: "string", description: "The meeting's id." },
+      },
+      required: ["meetingId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_meeting_transcript",
+    description:
+      "Read a meeting's transcript, with speakers and timings where the recording carried them. Long — prefer `get_meeting` for the summary and only read the transcript when you need an exact quote or something the summary left out. Needs a Grant to the calendar the meeting came from.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        meetingId: { type: "string", description: "The meeting's id." },
+        maxChars: {
+          type: "integer",
+          minimum: 500,
+          maximum: 100000,
+          description: "Truncate after this many characters. Default 20000.",
+        },
+      },
+      required: ["meetingId"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_self",
     description:
       "Return your own employee profile (id, name, slug, role) and the company you belong to. Call this first when you need to orient yourself.",

@@ -3,6 +3,7 @@ import { AppDataSource } from "../../../db/datasource.js";
 import { STATIC_TOOLS } from "../../../mcp/toolManifest.js";
 import { EmployeeBaseGrant } from "../../../db/entities/EmployeeBaseGrant.js";
 import { EmployeeMailAccountGrant } from "../../../db/entities/EmployeeMailAccountGrant.js";
+import { EmployeeCalendarGrant } from "../../../db/entities/EmployeeCalendarGrant.js";
 import { EmployeeFinanceGrant } from "../../../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeRevenueGrant } from "../../../db/entities/EmployeeRevenueGrant.js";
 import {
@@ -97,6 +98,18 @@ const MAIL_GATED_TOOLS = new Set([
   "scan_revenue_mail_documents",
   "list_revenue_document_candidates",
   "review_revenue_document_candidate",
+]);
+
+/**
+ * The meetings surface (M44): every tool answers to an
+ * `EmployeeCalendarGrant`. An employee with no calendar granted can still be
+ * handed an ad-hoc meeting by a human, so these are a ranking hint like every
+ * other set here — the route gate is what actually refuses.
+ */
+const MEETING_GATED_TOOLS = new Set([
+  "list_meetings",
+  "get_meeting",
+  "get_meeting_transcript",
 ]);
 
 /**
@@ -252,6 +265,7 @@ export function assertGrantSetsResolve(): void {
   const unknown = [
     ...BASE_GATED_TOOLS,
     ...MAIL_GATED_TOOLS,
+    ...MEETING_GATED_TOOLS,
     ...FINANCE_GATED_TOOLS,
     ...SIGNING_GATED_TOOLS,
     ...VAULT_GATED_TOOLS,
@@ -287,6 +301,10 @@ export async function deadToolNames(employeeId: string): Promise<Set<string>> {
       where: { employeeId },
     });
     if (mailboxes === 0) for (const t of MAIL_GATED_TOOLS) dead.add(t);
+    const calendars = await AppDataSource.getRepository(EmployeeCalendarGrant).count({
+      where: { employeeId },
+    });
+    if (calendars === 0) for (const t of MEETING_GATED_TOOLS) dead.add(t);
     const finance = await AppDataSource.getRepository(EmployeeFinanceGrant).count({
       where: { employeeId },
     });

@@ -52,6 +52,11 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     blurb: "One-off work items for humans and AI employees.",
     tools: ["list_projects", "create_project", "list_todos", "create_todo", "update_todo"],
   },
+  meetings: {
+    label: "meetings",
+    blurb: "Recorded calls, who was on them, and what was said.",
+    tools: ["list_meetings", "get_meeting", "get_meeting_transcript"],
+  },
   decisions: {
     label: "decisions",
     blurb: "Ask a human to choose, and read back what they chose.",
@@ -417,6 +422,20 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
  * vocabulary an operator would type, not the vocabulary the code uses.
  */
 export const TOOL_KEYWORDS: Record<string, string[]> = {
+  // Nothing in the meeting tools' prose says "call", "zoom" or "notes", which
+  // is what somebody actually types when they want them.
+  list_meetings: ["call", "calls", "zoom", "google meet", "teams", "recording", "notetaker", "calendar"],
+  get_meeting: ["call", "notes", "minutes", "recap", "attendees", "who was on the call"],
+  get_meeting_transcript: [
+    "transcript",
+    "what was said",
+    "what did we discuss",
+    "discussed",
+    "quote",
+    "recording",
+    "minutes",
+    "verbatim",
+  ],
   // Bases are the worst offender: nothing in their prose says "spreadsheet".
   list_bases: ["spreadsheet", "table", "grid", "database", "dataset"],
   get_base: ["spreadsheet", "table", "grid", "schema"],

@@ -241,4 +241,32 @@ export const config = {
     // Characters of extracted page text handed to the model per fetch.
     maxTextChars: 20_000,
   },
+
+  // Meetings (M42) — the calendar mirror and meeting transcription.
+  //
+  // Transcription deliberately has **no credential of its own**. It borrows the
+  // notetaker employee's own AI Model row: an `openai` API key talks to
+  // OpenAI's audio endpoint, and a `custom` endpoint talks to whatever
+  // OpenAI-compatible server it points at — a local whisper.cpp or
+  // faster-whisper, which is how a self-hoster keeps the audio in the building.
+  // Anthropic models have no audio endpoint and say so rather than failing
+  // obscurely. Nothing here is a secret, so nothing here needs the DB.
+  meetings: {
+    // Master switch. false leaves connected calendars in place and stops the
+    // sync heartbeat, rather than hiding the section.
+    enabled: true,
+    // How often connected calendars are re-synced, in seconds. Google's
+    // incremental syncToken makes a pass cheap, so this is deliberately brisk:
+    // arming a notetaker for a meeting somebody moved 10 minutes ago is the
+    // whole point.
+    syncIntervalSeconds: 300,
+    // The model name sent to `/v1/audio/transcriptions`. `whisper-1` is the
+    // one name both OpenAI and every local OpenAI-compatible whisper server
+    // answer to, which is what makes it the only sane default.
+    transcriptionModel: "whisper-1",
+    // Bytes of audio a single meeting recording may carry. Chosen to match the
+    // 25 MB attachment ceiling used everywhere else in the app, and because
+    // OpenAI's audio endpoint refuses larger uploads outright.
+    maxRecordingBytes: 25 * 1024 * 1024,
+  },
 } as const;
