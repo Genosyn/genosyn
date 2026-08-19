@@ -73,11 +73,19 @@ export async function createCompanyTag(
   return repo.save(repo.create({ companyId, name, normalizedName, color }));
 }
 
+/**
+ * Rename or recolor a tag.
+ *
+ * Returns a hydrated {@link CompanyTag}, not the bare row. The settings list
+ * writes this response straight back over the row it just edited, so a missing
+ * `usageCount` would render "0 resources" — and offer "this tag is not attached
+ * to any resources" at the delete confirmation — for a tag that is still in use.
+ */
 export async function updateCompanyTag(
   companyId: string,
   tagId: string,
   updates: { name?: string; color?: TagColor },
-): Promise<Tag | null> {
+): Promise<CompanyTag | null> {
   const repo = AppDataSource.getRepository(Tag);
   const tag = await repo.findOneBy({ id: tagId, companyId });
   if (!tag) return null;
@@ -94,7 +102,10 @@ export async function updateCompanyTag(
   if (updates.color !== undefined) tag.color = updates.color;
   await repo.save(tag);
   if (updates.name !== undefined) await syncLegacyResourceTagsForTag(tag.id);
-  return tag;
+  const usageCount = await AppDataSource.getRepository(TagAssignment).count({
+    where: { tagId: tag.id },
+  });
+  return Object.assign(tag, { usageCount });
 }
 
 export async function deleteCompanyTag(companyId: string, tagId: string): Promise<Tag | null> {
