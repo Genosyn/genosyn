@@ -2,12 +2,18 @@ import { AppDataSource } from "../db/datasource.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { closeBrowserSession } from "./browserSessions.js";
 import { markAiBrowserSessionRequestHeaders } from "./browserRequestBoundary.js";
-import { loadStorageState, saveStorageState } from "./browserStorage.js";
+import {
+  browserProfileIsNew,
+  ensureBrowserProfileDir,
+  loadStorageState,
+  saveStorageState,
+} from "./browserStorage.js";
 import {
   chromeContextOptions,
   chromeMaskInitScript,
   chromiumLaunchOptions,
   loadChromiumLauncher,
+  persistentContextOptions,
 } from "./browserProfile.js";
 
 /**
@@ -54,6 +60,103 @@ const REMOTE_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
  */
 const PERSIST_DEBOUNCE_MS = 20_000;
 
+/**
+ * How long an employee's Chrome stays up after its last session lets go.
+ *
+ * Closing the moment the last tab goes would make a Chrome shutdown+relaunch
+ * the *normal* path rather than an edge: the model's `/close` at the end of a
+ * turn is immediately followed by the next turn's first tool call, so every
+ * turn boundary of every chat would cycle the browser — and every cycle is
+ * another chance to race the profile lock. Deliberately well under
+ * `IDLE_TIMEOUT_MS`, so an idle employee still frees the ~150 MB promptly.
+ */
+let profileLingerMs = 45 * 1000;
+
+/**
+ * Shorten the linger for tests. A suite that had to wait out the real 45s to
+ * observe a teardown would either be slow or would fake timers around code that
+ * is full of awaits; this is the smaller seam. Pass `null` to restore.
+ */
+export function setProfileLingerForTests(ms: number | null): void {
+  profileLingerMs = ms ?? 45 * 1000;
+}
+
+/** Live profiles, for assertions. Zero means every employee Chrome is closed. */
+export function liveProfileCountForTests(): number {
+  return profiles.size;
+}
+
+/** How long to wait for a window we asked Chrome to open to surface. */
+const WINDOW_OPEN_TIMEOUT_MS = 15 * 1000;
+
+/**
+ * One Chrome per employee, shared by every session that employee has open.
+ *
+ * This exists because a Chrome `user-data-dir` is **single-writer**. Two
+ * processes against one profile either fail to start, hand off through
+ * ProcessSingleton, or — the bad case — both write the Cookies SQLite and
+ * corrupt it. So persistence and sharing are not two features: sharing is what
+ * makes persistence safe. It also removes a bug the ephemeral path had, where
+ * two concurrent sessions for one employee each snapshotted their own cookie
+ * jar and the last writer silently discarded the other's fresh logins.
+ *
+ * Each session still gets its **own OS window** inside this context (see
+ * {@link openSessionWindow}), not a tab. That is not cosmetic: Chrome only
+ * emits `Page.screencastFrame` for a page it is actually compositing, so
+ * sessions sharing one window would leave every live viewer but one showing a
+ * frozen picture while still reporting healthy.
+ */
+type SharedProfile = {
+  key: string;
+  companyId: string;
+  employeeId: string;
+  userDataDir: string;
+  /** The persistent BrowserContext. Owned here, never by a session. */
+  context: unknown;
+  /** Browser-level CDP session, used to open a window per session. */
+  browserCdp: unknown;
+  /** Sessions currently holding this profile. Liveness is `size > 0`. */
+  sessionIds: Set<string>;
+  /** Trailing-debounce for the cookie export, at profile level not session. */
+  persistTimer: NodeJS.Timeout | null;
+  /** Set while no session holds the profile but we have not closed it yet. */
+  lingerTimer: NodeJS.Timeout | null;
+  /** Non-null once teardown has begun; awaited by a racing re-acquire. */
+  closing: Promise<void> | null;
+  /**
+   * Resolver for the window we are currently asking Chrome to open. The
+   * context-level `page` listener hands the new page here rather than treating
+   * an openerless page as a popup to adopt.
+   */
+  pendingWindow: ((page: unknown) => void) | null;
+  /**
+   * Windows that existed before any session asked for one — the window Chrome
+   * always opens at launch, plus anything a previous run left in the profile's
+   * session-restore. Handed out before opening new ones, so an employee's
+   * browser does not accumulate a stray blank window per launch.
+   */
+  unclaimedPages: unknown[];
+  /** Serialises window creation so `pendingWindow` is never ambiguous. */
+  windowChain: Promise<unknown>;
+  /**
+   * True when we could not use a real profile (a Playwright build without
+   * `launchPersistentContext`, or a profile dir we could not open) and fell
+   * back to the old ephemeral Browser + Context. Everything else behaves the
+   * same; the employee just does not accumulate history.
+   */
+  ephemeral: boolean;
+  /** Only set on the ephemeral fallback, which owns a Browser to close. */
+  browser: unknown | null;
+};
+
+const profiles = new Map<string, SharedProfile>();
+/** In-flight launches, so concurrent acquirers share one Chrome. */
+const profileLaunches = new Map<string, Promise<SharedProfile>>();
+
+function profileKeyFor(companyId: string, employeeId: string): string {
+  return `${companyId}:${employeeId}`;
+}
+
 // Which binary to launch, and how, lives in `browserProfile.ts` — shared with
 // the browser-login Integration drivers, which face the same login pages. The
 // image ships real Google Chrome running headed against a virtual display, so
@@ -64,8 +167,22 @@ type SessionRuntime = {
   /** Cached so the teardown path can persist storageState without a re-lookup. */
   companyId: string;
   employeeId: string;
-  browser: unknown; // Playwright Browser
+  /**
+   * The context this session's page lives in.
+   *
+   * For a local session this is the employee's **shared** persistent context,
+   * owned by {@link SharedProfile} and never closed from here. For a member
+   * browser it is the human's own context, reached over CDP.
+   */
   context: unknown; // Playwright BrowserContext
+  /**
+   * Only set on the member-browser path: the CDP-connected Browser whose
+   * socket we must close to let go of someone else's machine. Null for a local
+   * session, whose Chrome is shared and outlives it.
+   */
+  remoteBrowser: unknown | null;
+  /** Key into {@link profiles} for a local session; null for a member browser. */
+  profileKey: string | null;
   page: unknown; // Playwright Page
   cdp: unknown; // Playwright CDPSession
   idleTimer: NodeJS.Timeout | null;
@@ -77,9 +194,6 @@ type SessionRuntime = {
    * `takeSessionNotices`.
    */
   notices: string[];
-  /** True while acquirePage itself opens a page, so the context-level
-   *  `page` listener doesn't mistake it for a popup to adopt. */
-  selfCreating: boolean;
   /**
    * In-flight popup adoption, if any. An action that opens a new tab needs
    * to wait for the adoption to finish before it snapshots, or it would
@@ -88,22 +202,24 @@ type SessionRuntime = {
   pendingAdoption: Promise<void> | null;
   /** Trailing-debounce timer for the nav mirror (DB write + viewer fanout). */
   navTimer: NodeJS.Timeout | null;
-  /** Trailing-debounce timer for the opportunistic storage-state snapshot. */
-  persistTimer: NodeJS.Timeout | null;
   /** Last URL/title actually mirrored, to skip redundant writes. */
   lastNavUrl: string;
   lastNavTitle: string;
   /**
    * The {@link MemberBrowser} this runtime drives, when it is not the
    * container's own Chromium. Everything that differs — no storage state, no
-   * masquerade, opener-scoped tab adoption, a disconnect instead of a
-   * teardown — keys off this being non-null.
+   * masquerade, a disconnect instead of a teardown — keys off this being
+   * non-null. Tab adoption is opener-scoped on *both* paths now: the local
+   * context is shared between an employee's sessions, so it faces the same
+   * "whose tab is this?" question the member path always did.
    */
   memberBrowserId: string | null;
   /**
-   * Pages this runtime opened itself. On a CDP-attached browser Playwright
-   * auto-attaches to every target, so "is this page ours?" cannot be inferred
-   * from the context — it has to be remembered.
+   * Pages this runtime opened itself.
+   *
+   * Ownership cannot be inferred from the context on either path: a CDP-attached
+   * browser auto-attaches to every target, and a shared persistent context
+   * carries every sibling session's windows. It has to be remembered.
    */
   ownedPages: WeakSet<object>;
 };
@@ -127,15 +243,14 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
     resetIdleTimer(existing);
     const p = existing.page as { isClosed: () => boolean } | null;
     if (p && !p.isClosed()) return existing.page;
-    // Page was closed (e.g. agent called browser_close mid-turn). Reopen
-    // on the same context so cookies / storage state survive.
-    const ctx = existing.context as { newPage: () => Promise<unknown> };
-    existing.selfCreating = true;
-    try {
-      existing.page = await ctx.newPage();
-    } finally {
-      existing.selfCreating = false;
-    }
+    // Page was closed (e.g. agent called browser_close mid-turn). Reopen on
+    // the same context so cookies / storage state survive — and on the local
+    // path in a fresh *window*, not a tab, because a page Chrome is not
+    // compositing produces no screencast frames.
+    const profile = existing.profileKey ? profiles.get(existing.profileKey) : null;
+    existing.page = profile
+      ? await openSessionWindow(profile)
+      : await (existing.context as { newPage: () => Promise<unknown> }).newPage();
     existing.ownedPages.add(existing.page as object);
     const oldCdp = existing.cdp;
     existing.cdp = await attachCdp(existing.page);
@@ -158,66 +273,24 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
   if (sessionRow.memberBrowserId) {
     return acquireRemotePage(sessionRow);
   }
-  const storageState = await loadStorageState(sessionRow.companyId, sessionRow.employeeId);
-
-  const chromium = await loadChromiumLauncher(
-    "Browser tools require the App container to bundle Chromium and playwright-core.",
-  );
-  const browser = await chromium.launch(await chromiumLaunchOptions());
-  const context = await (
-    browser as {
-      newContext: (opts: unknown) => Promise<unknown>;
-    }
-  ).newContext({
-    ...(await chromeContextOptions()),
-    // Context routing is the security boundary that marks a Member session
-    // used inside App-owned Chromium. Service workers can bypass Playwright
-    // routes, so they are disabled in this governed Browser context.
-    serviceWorkers: "block",
-    storageState,
-  });
-  await (
-    context as {
-      route: (
-        url: string,
-        handler: (route: {
-          request: () => { allHeaders: () => Promise<Record<string, string>> };
-          continue: (options: { headers: Record<string, string> }) => Promise<void>;
-        }) => Promise<void>,
-      ) => Promise<void>;
-    }
-  ).route("**/*", async (route) => {
-    const headers = await route.request().allHeaders();
-    await route.continue({ headers: markAiBrowserSessionRequestHeaders(headers) });
-  });
-  // Empty on the shipped configuration — real headed Chrome has nothing to
-  // fake — so don't install a no-op script into every page.
-  const maskScript = await chromeMaskInitScript();
-  if (maskScript) {
-    await (
-      context as {
-        addInitScript: (script: { content: string }) => Promise<void>;
-      }
-    ).addInitScript({ content: maskScript });
-  }
-  const page = await (context as { newPage: () => Promise<unknown> }).newPage();
+  const profile = await acquireSharedProfile(sessionRow.companyId, sessionRow.employeeId);
+  const page = await openSessionWindow(profile);
   const cdp = await attachCdp(page);
 
   const runtime: SessionRuntime = {
     id: sessionId,
     companyId: sessionRow.companyId,
     employeeId: sessionRow.employeeId,
-    browser,
-    context,
+    context: profile.context,
+    remoteBrowser: null,
+    profileKey: profile.key,
     page,
     cdp,
     idleTimer: null,
     activeHolders: 0,
     notices: [],
-    selfCreating: false,
     pendingAdoption: null,
     navTimer: null,
-    persistTimer: null,
     lastNavUrl: "",
     lastNavTitle: "",
     memberBrowserId: null,
@@ -225,27 +298,13 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
   };
   runtime.ownedPages.add(page as object);
   runtimes.set(sessionId, runtime);
+  // Join the profile *after* the runtime is registered: the context-level page
+  // listener resolves owners through `runtimes`, and a session that is a member
+  // of the profile but absent from `runtimes` would be skipped.
+  profile.sessionIds.add(sessionId);
+  clearLinger(profile);
   resetIdleTimer(runtime);
   wirePage(runtime, page);
-
-  // Adopt popups: a click on a target=_blank link opens a page the agent's
-  // tools would otherwise never see — it would keep driving the old tab
-  // forever. Follow the newest page instead, like a human would. The action
-  // that triggered the popup waits on `pendingAdoption` before snapshotting.
-  (context as { on: (ev: string, cb: (p: unknown) => void) => void }).on("page", (newPage) => {
-    const r = runtimes.get(sessionId);
-    if (!r) return;
-    const prev = r.pendingAdoption ?? Promise.resolve();
-    r.pendingAdoption = prev
-      .then(() => adoptPage(sessionId, newPage))
-      .catch(() => {
-        // best-effort — worst case the agent stays on the old tab
-      })
-      .finally(() => {
-        const cur = runtimes.get(sessionId);
-        if (cur && cur.pendingAdoption === r.pendingAdoption) cur.pendingAdoption = null;
-      });
-  });
 
   // Headed Chrome paints into a real window, so the page is shorter than the
   // window by however much browser chrome the build draws. Ask the page rather
@@ -256,6 +315,446 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
   });
 
   return page;
+}
+
+/**
+ * Get the employee's Chrome, launching it if this is the first session.
+ *
+ * The loop exists because two things can be in flight when a caller arrives: a
+ * launch (share it) or a teardown (wait for it, then launch fresh). Both are
+ * the common case rather than the exotic one — `createBrowserSession` only
+ * reuses a row for a matching conversation, so a Routine Run always mints a new
+ * session and routinely cold-starts alongside a chat.
+ */
+async function acquireSharedProfile(
+  companyId: string,
+  employeeId: string,
+): Promise<SharedProfile> {
+  const key = profileKeyFor(companyId, employeeId);
+  for (;;) {
+    const existing = profiles.get(key);
+    if (existing && !existing.closing) {
+      clearLinger(existing);
+      return existing;
+    }
+    if (existing?.closing) {
+      // A teardown committed before we got here. Let it finish rather than
+      // launching a second Chrome onto a profile the first is still unlocking.
+      await existing.closing.catch(() => {});
+      continue;
+    }
+    const inflight = profileLaunches.get(key);
+    if (inflight) return inflight;
+    // Registered in the same synchronous turn as the check above, so a racing
+    // caller cannot slip between them and start a second launch.
+    const launch = launchProfile(key, companyId, employeeId);
+    profileLaunches.set(key, launch);
+    void launch.catch(() => {}).finally(() => {
+      if (profileLaunches.get(key) === launch) profileLaunches.delete(key);
+    });
+    return launch;
+  }
+}
+
+/**
+ * Start one Chrome for this employee against their on-disk profile.
+ *
+ * Falls back to the old ephemeral Browser + Context if a real profile is not
+ * available — a Playwright build without `launchPersistentContext`, or a
+ * profile directory we could not open. A degraded browser that works beats a
+ * failed Run, and the only thing lost is the accumulated history.
+ */
+async function launchProfile(
+  key: string,
+  companyId: string,
+  employeeId: string,
+): Promise<SharedProfile> {
+  const chromium = await loadChromiumLauncher(
+    "Browser tools require the App container to bundle Chromium and playwright-core.",
+  );
+
+  let context: unknown;
+  let browser: unknown = null;
+  let ephemeral = false;
+  let userDataDir = "";
+  let seedSnapshot = false;
+
+  if (chromium.launchPersistentContext) {
+    try {
+      userDataDir = await ensureBrowserProfileDir(companyId, employeeId);
+      seedSnapshot = await browserProfileIsNew(companyId, employeeId);
+      context = await chromium.launchPersistentContext(
+        userDataDir,
+        await persistentContextOptions(),
+      );
+    } catch (error) {
+      // Disk permissions, a corrupt profile, a Chrome that refuses the dir.
+      // Losing history is survivable; losing the browser tool is not.
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[browser] persistent profile unavailable for employee ${employeeId}, ` +
+          `falling back to an ephemeral browser: ${(error as Error).message}`,
+      );
+      ephemeral = true;
+      userDataDir = "";
+      seedSnapshot = false;
+    }
+  } else {
+    ephemeral = true;
+  }
+
+  if (ephemeral) {
+    browser = await chromium.launch(await chromiumLaunchOptions());
+    context = await (
+      browser as { newContext: (opts: unknown) => Promise<unknown> }
+    ).newContext({
+      ...(await chromeContextOptions()),
+      serviceWorkers: "block",
+      storageState: await loadStorageState(companyId, employeeId),
+    });
+  }
+
+  const profile: SharedProfile = {
+    key,
+    companyId,
+    employeeId,
+    userDataDir,
+    context: context!,
+    browserCdp: null,
+    sessionIds: new Set<string>(),
+    persistTimer: null,
+    lingerTimer: null,
+    closing: null,
+    pendingWindow: null,
+    unclaimedPages: [],
+    windowChain: Promise.resolve(),
+    ephemeral,
+    browser,
+  };
+  // Registered before any of the wiring below, so a throw part-way through
+  // still leaves a closable handle. An orphaned persistent context would hold
+  // the profile lock for the life of the process with nothing able to reach it.
+  profiles.set(key, profile);
+
+  try {
+    await wireProfile(profile);
+    if (seedSnapshot) await hydrateProfileFromSnapshot(profile);
+  } catch (error) {
+    profiles.delete(key);
+    await closeProfileHandles(profile);
+    throw error;
+  }
+  return profile;
+}
+
+/**
+ * Install everything that belongs to the context rather than to a session: the
+ * request marker, the compatibility mask, popup attribution, and crash
+ * recovery. Exactly once per profile — these used to be registered per session,
+ * which was harmless only while each session had a context to itself.
+ */
+async function wireProfile(profile: SharedProfile): Promise<void> {
+  const context = profile.context as {
+    route: (url: string, handler: (route: unknown) => Promise<void>) => Promise<void>;
+    addInitScript: (script: { content: string }) => Promise<void>;
+    on: (ev: string, cb: (arg: unknown) => void) => void;
+    browser?: () => unknown;
+    newCDPSession?: (page: unknown) => Promise<unknown>;
+  };
+
+  await context.route("**/*", async (route) => {
+    const r = route as {
+      request: () => { allHeaders: () => Promise<Record<string, string>> };
+      continue: (options?: { headers: Record<string, string> }) => Promise<void>;
+    };
+    const headers = await r.request().allHeaders();
+    const marked = markAiBrowserSessionRequestHeaders(headers);
+    // Reference-identical when the marker is a no-op, which is every request
+    // that is not headed back to Genosyn's own origin. Handing `continue()` no
+    // options there lets Chrome compose and order its own headers.
+    if (marked === headers) {
+      await r.continue();
+      return;
+    }
+    await r.continue({ headers: marked });
+  });
+
+  const maskScript = await chromeMaskInitScript();
+  if (maskScript) await context.addInitScript({ content: maskScript });
+
+  // A browser-level CDP session is how we open a *window* rather than a tab.
+  if (!profile.ephemeral) {
+    const browser = context.browser?.();
+    const nb = browser as { newBrowserCDPSession?: () => Promise<unknown> } | null;
+    if (nb?.newBrowserCDPSession) {
+      profile.browserCdp = await nb.newBrowserCDPSession();
+    }
+  }
+
+  // Whatever Chrome opened for itself is ours to hand out, not a popup and not
+  // litter. Read it before the listener is installed so there is no window in
+  // which a launch-time page could be mistaken for a claim.
+  const existingPages = (profile.context as { pages?: () => unknown[] }).pages?.() ?? [];
+  profile.unclaimedPages.push(...existingPages);
+
+  // One listener for the whole profile. It answers two questions: "is this the
+  // window we just asked for?" and, failing that, "which session's page opened
+  // this popup?" A page with neither answer — a restored tab, an extension
+  // page — is left alone rather than adopted by whoever happens to be first.
+  context.on("page", (newPage) => {
+    void attributeNewPage(profile, newPage);
+  });
+
+  // A Chrome crash, an OOM kill, or an operator closing the window takes every
+  // session for this employee with it. Without this the record would still say
+  // "alive" and every later acquire would be handed a dead context.
+  context.on("close", () => {
+    if (profiles.get(profile.key) === profile) profiles.delete(profile.key);
+    if (profile.lingerTimer) clearTimeout(profile.lingerTimer);
+    if (profile.persistTimer) clearTimeout(profile.persistTimer);
+    for (const sessionId of [...profile.sessionIds]) {
+      // "error" deliberately: it skips the cookie snapshot, and a context that
+      // died under us is exactly the case where the snapshot cannot be trusted.
+      void releasePage(sessionId, "error").catch(() => {});
+    }
+  });
+}
+
+/**
+ * Decide what a newly appeared page is, and give it to whoever it belongs to.
+ */
+async function attributeNewPage(profile: SharedProfile, newPage: unknown): Promise<void> {
+  const opener = await (newPage as { opener: () => Promise<unknown> })
+    .opener()
+    .catch(() => null);
+
+  if (!opener) {
+    // No opener: either the window we just asked Chrome for, or a page nobody
+    // asked for. Claiming is single-flight (see `openSessionWindow`), so there
+    // is no ambiguity about which acquire this belongs to.
+    const claim = profile.pendingWindow;
+    if (claim) {
+      profile.pendingWindow = null;
+      claim(newPage);
+    }
+    return;
+  }
+
+  const owner = [...profile.sessionIds]
+    .map((id) => runtimes.get(id))
+    .find((r) => r && r.ownedPages.has(opener as object));
+  if (!owner) return;
+
+  owner.ownedPages.add(newPage as object);
+  const prev = owner.pendingAdoption ?? Promise.resolve();
+  const mine: Promise<void> = prev
+    .then(() => adoptPage(owner.id, newPage))
+    .catch(() => {
+      // best-effort — worst case the agent stays on the old tab
+    })
+    .finally(() => {
+      const cur = runtimes.get(owner.id);
+      // Compare against this chain, not against `owner.pendingAdoption` as it
+      // stands now — that was always true, so a second popup's adoption ran
+      // with the field already nulled and `awaitAdoption` waited on nothing.
+      if (cur && cur.pendingAdoption === mine) cur.pendingAdoption = null;
+    });
+  owner.pendingAdoption = mine;
+  await mine;
+}
+
+/**
+ * Open this session's own OS window inside the shared profile.
+ *
+ * Playwright has no "new window" API — `newPage()` is always a tab — so this
+ * goes through CDP. It matters because Chrome only emits screencast frames for
+ * a page it is compositing: sessions sharing one window would leave every live
+ * viewer but the foreground one frozen on its last frame, with nothing
+ * reporting a problem. Serialised per profile so the claim in
+ * {@link attributeNewPage} is never ambiguous.
+ */
+function openSessionWindow(profile: SharedProfile): Promise<unknown> {
+  const run = async (): Promise<unknown> => {
+    while (profile.unclaimedPages.length) {
+      const candidate = profile.unclaimedPages.shift();
+      const pg = candidate as { isClosed?: () => boolean } | null;
+      if (pg && !pg.isClosed?.()) return candidate;
+    }
+    const cdp = profile.browserCdp as
+      | { send: (m: string, p?: unknown) => Promise<unknown> }
+      | null;
+    if (!cdp) {
+      // Ephemeral fallback, or a Playwright without a browser-level session.
+      // A tab is worse but it is not broken; there is only one session's window
+      // in play on that path anyway.
+      return (profile.context as { newPage: () => Promise<unknown> }).newPage();
+    }
+    let settle: ((page: unknown) => void) | null = null;
+    const claimed = new Promise<unknown>((resolve) => {
+      settle = resolve;
+    });
+    profile.pendingWindow = settle;
+    try {
+      await cdp.send("Target.createTarget", { url: "about:blank", newWindow: true });
+      let timer: NodeJS.Timeout | null = null;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Chrome did not open a window for this session")),
+          WINDOW_OPEN_TIMEOUT_MS,
+        );
+      });
+      try {
+        return await Promise.race([claimed, timeout]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    } finally {
+      if (profile.pendingWindow === settle) profile.pendingWindow = null;
+    }
+  };
+  // Chain on both settlements so one failed window does not wedge the queue.
+  const next = profile.windowChain.then(run, run);
+  profile.windowChain = next.catch(() => undefined);
+  return next;
+}
+
+/**
+ * Seed a brand-new profile from the cookie snapshot the ephemeral path left
+ * behind, so upgrading does not sign every employee out of every site.
+ *
+ * Once only. After this the profile on disk is the source of truth and the
+ * snapshot is a one-way export (see {@link schedulePersistForProfile}).
+ */
+async function hydrateProfileFromSnapshot(profile: SharedProfile): Promise<void> {
+  const state = await loadStorageState(profile.companyId, profile.employeeId);
+  if (!state) return;
+  const snapshot = state as {
+    cookies?: unknown[];
+    origins?: Array<{ origin: string; localStorage?: Array<{ name: string; value: string }> }>;
+  };
+  const context = profile.context as {
+    addCookies: (cookies: unknown[]) => Promise<void>;
+    newPage: () => Promise<unknown>;
+  };
+  if (snapshot.cookies?.length) {
+    await context.addCookies(snapshot.cookies).catch(() => {
+      // A cookie the current Chrome rejects must not cost us the whole seed.
+    });
+  }
+  const origins = (snapshot.origins ?? []).filter((o) => o.localStorage?.length);
+  if (!origins.length) return;
+  // localStorage is origin-scoped and can only be written from a document on
+  // that origin, so each one needs a visit. Best-effort: a site that is down
+  // costs that origin's localStorage, not the sign-in cookies above.
+  const page = (await context.newPage()) as {
+    goto: (url: string, opts?: unknown) => Promise<unknown>;
+    evaluate: (fn: string, arg?: unknown) => Promise<unknown>;
+    close: () => Promise<void>;
+  };
+  try {
+    for (const origin of origins) {
+      try {
+        await page.goto(origin.origin, { waitUntil: "domcontentloaded", timeout: 10_000 });
+        await page.evaluate(
+          `(items) => { for (const i of items) { try { localStorage.setItem(i.name, i.value); } catch {} } }`,
+          origin.localStorage,
+        );
+      } catch {
+        // skip this origin
+      }
+    }
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+function clearLinger(profile: SharedProfile): void {
+  if (profile.lingerTimer) {
+    clearTimeout(profile.lingerTimer);
+    profile.lingerTimer = null;
+  }
+}
+
+/**
+ * Drop one session's claim on the profile, closing Chrome once nobody holds it.
+ *
+ * The membership drop and the emptiness test are one synchronous pair with no
+ * await between them, so two sessions releasing concurrently cannot both see a
+ * non-empty set and leave the browser up forever, nor both see an empty one and
+ * close it twice.
+ */
+async function releaseSharedProfile(
+  profile: SharedProfile,
+  sessionId: string,
+  reason: "idle" | "shutdown" | "error" | "manual",
+): Promise<void> {
+  profile.sessionIds.delete(sessionId);
+  if (profile.sessionIds.size > 0) return;
+  if (reason === "shutdown") {
+    await closeProfile(profile);
+    return;
+  }
+  clearLinger(profile);
+  profile.lingerTimer = setTimeout(() => {
+    profile.lingerTimer = null;
+    if (profile.sessionIds.size === 0) void closeProfile(profile).catch(() => {});
+  }, profileLingerMs);
+}
+
+/** Close the employee's Chrome, exporting its cookies on the way out. */
+function closeProfile(profile: SharedProfile): Promise<void> {
+  if (profile.closing) return profile.closing;
+  clearLinger(profile);
+  if (profile.persistTimer) {
+    clearTimeout(profile.persistTimer);
+    profile.persistTimer = null;
+  }
+  const done = (async () => {
+    try {
+      await saveStorageState(profile.companyId, profile.employeeId, profile.context);
+    } catch {
+      // A jar we could not export is not a reason to leak a browser.
+    }
+    await closeProfileHandles(profile);
+  })().finally(() => {
+    if (profiles.get(profile.key) === profile) profiles.delete(profile.key);
+  });
+  profile.closing = done;
+  return done;
+}
+
+async function closeProfileHandles(profile: SharedProfile): Promise<void> {
+  try {
+    const cx = profile.context as { close: () => Promise<void> } | null;
+    if (cx) await cx.close();
+  } catch {
+    // ignore
+  }
+  try {
+    // Only the ephemeral fallback owns a Browser. `launchPersistentContext`
+    // returns a context whose `close()` already stops the process.
+    const br = profile.browser as { close: () => Promise<void> } | null;
+    if (br) await br.close();
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Debounced cookie export, at profile level.
+ *
+ * One timer per employee rather than one per session: N sessions sharing a
+ * context each exporting the same jar is N times the work for one result, and
+ * on the old per-session timers it was also N racing whole-file writes.
+ */
+function schedulePersistForProfile(profile: SharedProfile): void {
+  if (profile.persistTimer) clearTimeout(profile.persistTimer);
+  profile.persistTimer = setTimeout(() => {
+    profile.persistTimer = null;
+    void saveStorageState(profile.companyId, profile.employeeId, profile.context).catch(() => {
+      // Opportunistic — the teardown save is the authoritative one.
+    });
+  }, PERSIST_DEBOUNCE_MS);
 }
 
 /**
@@ -341,17 +840,16 @@ async function acquireRemotePage(sessionRow: BrowserSession): Promise<unknown> {
     id: sessionId,
     companyId: sessionRow.companyId,
     employeeId: sessionRow.employeeId,
-    browser,
     context,
+    remoteBrowser: browser,
+    profileKey: null,
     page,
     cdp,
     idleTimer: null,
     activeHolders: 0,
     notices: [],
-    selfCreating: false,
     pendingAdoption: null,
     navTimer: null,
-    persistTimer: null,
     lastNavUrl: "",
     lastNavTitle: "",
     memberBrowserId,
@@ -490,7 +988,7 @@ function wirePage(runtime: SessionRuntime, page: unknown): void {
  */
 async function adoptPage(sessionId: string, newPage: unknown): Promise<void> {
   const r = runtimes.get(sessionId);
-  if (!r || r.selfCreating || r.page === newPage) return;
+  if (!r || r.page === newPage) return;
   const np = newPage as {
     isClosed: () => boolean;
     url: () => string;
@@ -501,7 +999,9 @@ async function adoptPage(sessionId: string, newPage: unknown): Promise<void> {
   } catch {
     // adopt anyway — the URL is still useful
   }
-  if (!runtimes.has(sessionId) || np.isClosed()) return;
+  // Identity, not presence: the session may have been torn down and a new
+  // runtime registered under the same id while we awaited the load state.
+  if (runtimes.get(sessionId) !== r || np.isClosed()) return;
   const previousUrl = (r.page as { url?: () => string } | null)?.url?.() ?? "";
   const oldCdp = r.cdp;
   r.page = newPage;
@@ -567,28 +1067,10 @@ function scheduleNavMirror(r: SessionRuntime): void {
       // best-effort
     });
   }, 300);
-  schedulePersist(r);
+  const profile = r.profileKey ? profiles.get(r.profileKey) : null;
+  if (profile) schedulePersistForProfile(profile);
 }
 
-/**
- * Trailing-debounce a storage snapshot behind page activity, so an ungraceful
- * death loses at most the last page load rather than the whole session. Never
- * for a member browser — the same rule as `releasePage`: their cookie jar stays
- * on their machine.
- */
-function schedulePersist(r: SessionRuntime): void {
-  if (r.memberBrowserId) return;
-  if (r.persistTimer) clearTimeout(r.persistTimer);
-  r.persistTimer = setTimeout(() => {
-    r.persistTimer = null;
-    // The runtime may have been released while the debounce was pending; its
-    // teardown already saved, and writing a closed context would throw.
-    if (runtimes.get(r.id) !== r) return;
-    void saveStorageState(r.companyId, r.employeeId, r.context).catch(() => {
-      // best-effort — `releasePage` remains the authoritative save
-    });
-  }, PERSIST_DEBOUNCE_MS);
-}
 
 async function mirrorNav(r: SessionRuntime): Promise<void> {
   // The runtime may have been torn down while the debounce was pending —
@@ -699,50 +1181,65 @@ export async function releasePage(
   runtimes.delete(sessionId);
   if (r.idleTimer) clearTimeout(r.idleTimer);
   if (r.navTimer) clearTimeout(r.navTimer);
-  if (r.persistTimer) clearTimeout(r.persistTimer);
-  // Snapshot cookies + localStorage before the context is torn down so the
-  // next session for this employee picks up where we left off. Skip on
-  // `error` — a context that crashed mid-flight may have a corrupted
-  // storage state we don't want to overwrite the last good snapshot with.
-  //
-  // Never for a member browser. `context.storageState()` succeeds there, which
-  // is precisely why the guard is a branch and not a comment: it would write
-  // the human's own cookie jar into the App's data directory.
-  if (reason !== "error" && !r.memberBrowserId) {
-    await saveStorageState(r.companyId, r.employeeId, r.context);
-  }
-  try {
-    const pg = r.page as { close: () => Promise<void> } | null;
-    if (pg) await pg.close();
-  } catch {
-    // ignore
-  }
-  if (!r.memberBrowserId) {
-    // Only for a context we created. On a CDP-attached persistent context
-    // `context.close()` has no browserContextId to close, so Playwright closes
-    // the whole transport instead — which would sever any other session
-    // attached to the same machine.
+
+  // Close only the windows this session opened. On the local path the context
+  // is the employee's shared Chrome and closing it here would take every
+  // sibling session's window with it, mid-turn; on the member path it is a
+  // human's own browser and was never ours to close. `ownedPages` is the only
+  // trustworthy answer to "is this ours" on either path.
+  const pages = [r.page, ...collectOwned(r)].filter(Boolean);
+  for (const candidate of new Set(pages)) {
+    if (!r.ownedPages.has(candidate as object)) continue;
     try {
-      const cx = r.context as { close: () => Promise<void> } | null;
-      if (cx) await cx.close();
+      await (candidate as { close: () => Promise<void> }).close();
+    } catch {
+      // ignore — a page that is already gone is the outcome we wanted
+    }
+  }
+
+  if (r.memberBrowserId) {
+    try {
+      // Closes our CDP socket and nothing else: the human's Chrome keeps
+      // running, because Playwright's teardown for a connected browser is
+      // `transport.closeAndWait()`. Never a `context.close()` — on a
+      // CDP-attached persistent context that severs the whole transport.
+      const br = r.remoteBrowser as { close: () => Promise<void> } | null;
+      if (br) await br.close();
     } catch {
       // ignore
     }
-  }
-  try {
-    // For a member browser this closes our CDP socket and nothing else: the
-    // human's Chrome keeps running, because Playwright's teardown for a
-    // connected browser is `transport.closeAndWait()`.
-    const br = r.browser as { close: () => Promise<void> } | null;
-    if (br) await br.close();
-  } catch {
-    // ignore
-  }
-  if (r.memberBrowserId) {
     const { releaseMemberBrowserLease } = await import("./memberBrowserHub.js");
     releaseMemberBrowserLease(r.memberBrowserId, sessionId);
+  } else if (r.profileKey) {
+    const profile = profiles.get(r.profileKey);
+    // No save here. The jar belongs to the profile, not to this session, and
+    // siblings may still be writing to it — `closeProfile` does the
+    // authoritative export once nobody is left, and `schedulePersistForProfile`
+    // covers the long-running case. A crashed context never reaches either,
+    // which is what we want: a partial export must not overwrite a good one.
+    if (profile) await releaseSharedProfile(profile, sessionId, reason);
   }
+
   await closeBrowserSession(sessionId, reason);
+}
+
+/**
+ * The pages this runtime owns that we can still enumerate.
+ *
+ * `ownedPages` is a WeakSet — deliberately, so a closed page can be collected —
+ * which means it can be asked but not listed. The context can list, so
+ * intersect the two: every page currently in the context that this session
+ * remembers opening. On a shared profile that is precisely this session's
+ * windows and none of its siblings'.
+ */
+function collectOwned(r: SessionRuntime): unknown[] {
+  const cx = r.context as { pages?: () => unknown[] } | null;
+  if (!cx?.pages) return [];
+  try {
+    return cx.pages().filter((p) => r.ownedPages.has(p as object));
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -768,6 +1265,17 @@ export async function releaseAllPages(
     ids.map((id) =>
       releasePage(id, reason).catch(() => {
         // best-effort, per session
+      }),
+    ),
+  );
+  // Second pass: a profile whose last session just left is sitting in its
+  // linger window, and on shutdown there is no later acquire to justify the
+  // wait. Without this, `docker stop` leaves a Chrome per employee to be killed
+  // by the runtime — which is exactly how a profile lock gets left behind.
+  await Promise.all(
+    [...profiles.values()].map((profile) =>
+      closeProfile(profile).catch(() => {
+        // best-effort, per profile
       }),
     ),
   );

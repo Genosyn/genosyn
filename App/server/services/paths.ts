@@ -48,6 +48,23 @@ export function browserPrivateCompanyDir(companyId: string): string {
 }
 
 /**
+ * The employee's own Chrome profile directory — cookies, cache, IndexedDB,
+ * service workers, the lot.
+ *
+ * Deliberately a sibling of {@link employeeBrowserStateFile} under
+ * `.private/browser-state/<companyId>/`, for two reasons. It inherits the
+ * company-delete sweep that already removes that tree, and it stays out of
+ * `employeeDir()` — the workspace an employee's own coding tools and
+ * bubblewrapped bash can read. A raw Chrome profile is the most sensitive
+ * artifact this app writes: the Cookies SQLite holds a live session for every
+ * site the employee has ever signed into, and an employee that can read its own
+ * profile can exfiltrate all of them.
+ */
+export function employeeBrowserProfileDir(companyId: string, employeeId: string): string {
+  return path.join(browserPrivateCompanyDir(companyId), `${employeeId}.profile`);
+}
+
+/**
  * Where meeting recordings live.
  *
  * App-private, under `.private/`, rather than in the company tree an AI

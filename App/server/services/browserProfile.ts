@@ -253,6 +253,19 @@ export type ChromiumLauncher = {
    * the only caller.
    */
   connectOverCDP?(endpointURL: string, options?: Record<string, unknown>): Promise<unknown>;
+  /**
+   * Launch against a real on-disk Chrome profile, returning a *context* rather
+   * than a Browser. This is how an employee's browser gets a history: cache,
+   * IndexedDB, service workers and TLS resumption state all live in
+   * `userDataDir` and outlive the process.
+   *
+   * Optional for the same reason as `connectOverCDP` — and because a Playwright
+   * build without it must still work, falling back to the ephemeral path.
+   */
+  launchPersistentContext?(
+    userDataDir: string,
+    options: Record<string, unknown>,
+  ): Promise<unknown>;
 };
 
 let chromiumLauncherForTests: ChromiumLauncher | null = null;
@@ -362,6 +375,33 @@ export async function chromeContextOptions(): Promise<Record<string, unknown>> {
   }
   return options;
 }
+/**
+ * Options for `launchPersistentContext`, which takes launch flags and context
+ * options in one object.
+ *
+ * The two halves are the same ones the ephemeral path uses, with one deliberate
+ * omission: **no `storageState`**. A persistent context restores its own
+ * cookies from the profile on disk, and passing a snapshot as well would let a
+ * stale JSON file overwrite a jar the browser had already loaded. Seeding the
+ * profile from that snapshot happens exactly once, on first launch, and is the
+ * caller's job — see `hydrateProfileFromSnapshot` in `browserChromium.ts`.
+ */
+export async function persistentContextOptions(): Promise<Record<string, unknown>> {
+  const launch = await chromiumLaunchOptions();
+  const context = await chromeContextOptions();
+  return {
+    ...launch,
+    ...context,
+    // Kept from the ephemeral path deliberately. A service worker can serve a
+    // response without a network request Playwright can see, which would route
+    // around the request marker `browserRequestBoundary` relies on. Removing
+    // this is worth doing — Playwright's block is itself a loud automation
+    // tell — but it has to land with a CDP-level replacement, not as a
+    // side-effect of moving to a persistent profile.
+    serviceWorkers: "block",
+  };
+}
+
 
 /**
  * The user agent to claim, or `null` to send the browser's own.

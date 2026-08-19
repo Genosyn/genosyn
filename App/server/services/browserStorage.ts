@@ -3,7 +3,12 @@ import fs from "node:fs/promises";
 import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
-import { dataRoot, employeeBrowserStateFile, legacyEmployeeBrowserStateFile } from "./paths.js";
+import {
+  dataRoot,
+  employeeBrowserProfileDir,
+  employeeBrowserStateFile,
+  legacyEmployeeBrowserStateFile,
+} from "./paths.js";
 
 /**
  * Per-employee Playwright `storageState()` persistence.
@@ -226,6 +231,50 @@ export async function removeBrowserStorageForEmployee(
   employeeId: string,
 ): Promise<void> {
   await fs.rm(employeeBrowserStateFile(companyId, employeeId), { force: true });
+  // The Chrome profile holds the same logins in a richer form — cookies,
+  // IndexedDB, service worker registrations, cache. Deleting the employee has
+  // to take it too, or the row is gone while a live session for every site
+  // they ever signed into stays on disk with nothing left to reference it.
+  await fs.rm(employeeBrowserProfileDir(companyId, employeeId), {
+    recursive: true,
+    force: true,
+  });
+}
+
+/**
+ * Create (and harden) the employee's Chrome profile directory, returning the
+ * path to hand to `launchPersistentContext`.
+ *
+ * Goes through the same {@link ensurePrivateDirectory} walk the cookie
+ * snapshot uses, so every component is asserted to be a real 0700 directory
+ * inside the data root and not a symlink, *before* Chrome is pointed at it. A
+ * symlinked profile dir would let anything that can write the data tree
+ * redirect a browser that holds every one of the employee's sessions.
+ */
+export async function ensureBrowserProfileDir(
+  companyId: string,
+  employeeId: string,
+): Promise<string> {
+  const dir = employeeBrowserProfileDir(companyId, employeeId);
+  await ensurePrivateDirectory(dir);
+  return dir;
+}
+
+/** True when this employee has no Chrome profile yet, so it needs seeding. */
+export async function browserProfileIsNew(
+  companyId: string,
+  employeeId: string,
+): Promise<boolean> {
+  const dir = employeeBrowserProfileDir(companyId, employeeId);
+  try {
+    const entries = await fs.readdir(dir);
+    // `ensureBrowserProfileDir` creates the directory before Chrome runs, so
+    // "exists" is not the question — "has Chrome ever written to it" is.
+    return entries.length === 0;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+    throw error;
+  }
 }
 
 /**
