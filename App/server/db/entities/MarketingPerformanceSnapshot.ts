@@ -8,9 +8,16 @@ import { dateTimeColumnType } from "./columnTypes.js";
  * Metrics are stored as integer counters/minor units plus decimal text for
  * provider-reported conversion value. That makes trends queryable without
  * pretending every platform defines a conversion identically.
+ *
+ * Rows are append-only. Recording the same campaign and period again marks the
+ * previous row superseded rather than editing or deleting it, so the history of
+ * what the platform said stays intact while exactly one live readout per window
+ * feeds the numbers anyone acts on. Live windows for one campaign never
+ * overlap, which is what makes summing them safe.
  */
 @Entity("marketing_performance_snapshots")
 @Index(["companyId", "campaignId", "periodEnd"])
+@Index(["companyId", "campaignId", "periodStart", "periodEnd"])
 export class MarketingPerformanceSnapshot {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -53,6 +60,15 @@ export class MarketingPerformanceSnapshot {
 
   @Column({ type: "varchar", nullable: true })
   recordedByEmployeeId!: string | null;
+
+  /**
+   * Set when a later readout restated the same campaign and period.
+   * The superseded row stays for the audit trail and drops out of every
+   * aggregate, so a Routine that retries after a crash cannot count the same
+   * spend twice and a platform that settles its numbers late can correct them.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  supersededAt!: Date | null;
 
   @CreateDateColumn()
   createdAt!: Date;

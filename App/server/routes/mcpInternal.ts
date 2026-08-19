@@ -299,6 +299,7 @@ import {
   MARKETING_AUTONOMY_MODES,
   MARKETING_CAMPAIGN_OBJECTIVES,
   MARKETING_CAMPAIGN_STATUSES,
+  MARKETING_TARGET_DIRECTIONS,
 } from "../db/entities/MarketingCampaign.js";
 import {
   MARKETING_CREATIVE_FORMATS,
@@ -313,7 +314,7 @@ import {
   createMarketingExperiment,
   getMarketingCampaign,
   getMarketingOverview,
-  listMarketingCampaigns,
+  listMarketingCampaignsWithMetrics,
   listMarketingCreatives,
   listMarketingExperiments,
   recordMarketingPerformance,
@@ -14835,6 +14836,7 @@ const marketingCampaignFields = {
   landingPageUrl: z.string().trim().url().or(z.literal("")).optional(),
   successMetric: z.string().trim().max(80).optional(),
   targetValue: z.string().trim().max(80).optional(),
+  targetDirection: z.enum(MARKETING_TARGET_DIRECTIONS as [string, ...string[]]).optional(),
   dailyBudgetMinor: z.number().int().min(0).max(2_147_483_647).optional(),
   currency: z
     .string()
@@ -14885,6 +14887,7 @@ const marketingExperimentFields = {
   creativeIds: z.array(z.string().uuid()).min(2).max(20),
   winnerCreativeId: z.string().uuid().nullable().optional(),
   decisionRationale: z.string().trim().max(10_000).optional(),
+  promoteWinner: z.boolean().optional(),
   startsAt: z.string().datetime().nullable().optional(),
   endsAt: z.string().datetime().nullable().optional(),
 };
@@ -14923,11 +14926,14 @@ const recordMarketingPerformanceToolSchema = z
   })
   .strict();
 
+const marketingWindowSchema = z.number().int().min(1).max(365).optional();
+
 mcpInternalRouter.post(
   "/tools/get_marketing_overview",
+  validateBody(z.object({ windowDays: marketingWindowSchema }).strict()),
   marketingTool(async (req, res) => {
     if (!(await requireMarketing(req, res, "read"))) return;
-    res.json(await getMarketingOverview(req.mcpCompany!.id));
+    res.json(await getMarketingOverview(req.mcpCompany!.id, { windowDays: req.body.windowDays }));
   }),
 );
 
@@ -14940,26 +14946,36 @@ mcpInternalRouter.post(
         channel: z.string().trim().max(80).optional(),
         ownedByMe: z.boolean().optional(),
         includeArchived: z.boolean().optional(),
+        windowDays: marketingWindowSchema,
       })
       .strict(),
   ),
   marketingTool(async (req, res) => {
     if (!(await requireMarketing(req, res, "read"))) return;
+    const { windowDays, ...filters } = req.body;
     res.json({
-      rows: await listMarketingCampaigns(req.mcpCompany!.id, {
-        ...req.body,
-        ownerEmployeeId: req.body.ownedByMe ? req.mcpEmployee!.id : undefined,
-      }),
+      rows: await listMarketingCampaignsWithMetrics(
+        req.mcpCompany!.id,
+        {
+          ...filters,
+          ownerEmployeeId: filters.ownedByMe ? req.mcpEmployee!.id : undefined,
+        },
+        windowDays,
+      ),
     });
   }),
 );
 
 mcpInternalRouter.post(
   "/tools/get_marketing_campaign",
-  validateBody(z.object({ campaignId: z.string().uuid() }).strict()),
+  validateBody(
+    z.object({ campaignId: z.string().uuid(), windowDays: marketingWindowSchema }).strict(),
+  ),
   marketingTool(async (req, res) => {
     if (!(await requireMarketing(req, res, "read"))) return;
-    res.json(await getMarketingCampaign(req.mcpCompany!.id, req.body.campaignId));
+    res.json(
+      await getMarketingCampaign(req.mcpCompany!.id, req.body.campaignId, req.body.windowDays),
+    );
   }),
 );
 

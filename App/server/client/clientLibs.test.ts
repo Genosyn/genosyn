@@ -11,10 +11,15 @@ import {
   pastedUploadFiles,
 } from "../../client/lib/fileDrop.js";
 import {
+  MARKETING_SUCCESS_METRIC_OPTIONS,
+  marketingSuccessMetric,
+} from "../../client/lib/marketing.js";
+import {
   PRODUCT_INTEGRATION_KEYS,
   PRODUCT_INTEGRATION_SCOPES,
   productIntegrationScope,
 } from "../../client/lib/productIntegrations.js";
+import { MARKETING_SUCCESS_METRICS } from "../services/marketingMetrics.js";
 import {
   clampIntervalCount,
   cronToParts,
@@ -512,6 +517,34 @@ describe("Routine cron helpers", () => {
     assert.equal(new Set(CRON_PRESETS.map((preset) => preset.expr)).size, CRON_PRESETS.length);
     assert.ok(CRON_PRESETS.some((preset) => preset.expr === DEFAULT_CRON));
     assert.ok(CRON_PRESETS.every((preset) => cronIsReadable(preset.expr)));
+  });
+});
+
+describe("Marketing success metric catalogue", () => {
+  test("offers exactly the metrics the server can score", () => {
+    // A Campaign whose metric the server cannot measure is never judged, so the
+    // picker must not be able to offer one.
+    assert.deepEqual(
+      MARKETING_SUCCESS_METRIC_OPTIONS.map((option) => option.key),
+      MARKETING_SUCCESS_METRICS.map((metric) => metric.key),
+    );
+    for (const metric of MARKETING_SUCCESS_METRICS) {
+      const option = marketingSuccessMetric(metric.key);
+      assert.ok(option, `${metric.key} is missing from the client catalogue`);
+      assert.equal(option.unit, metric.unit, `${metric.key} unit drifted`);
+      assert.equal(
+        option.betterDirection,
+        metric.betterDirection,
+        `${metric.key} direction drifted`,
+      );
+      assert.equal(option.label, metric.label, `${metric.key} label drifted`);
+    }
+  });
+
+  test("normalizes the spellings a picker round-trips", () => {
+    assert.equal(marketingSuccessMetric("Cost Per Acquisition"), null);
+    assert.equal(marketingSuccessMetric("conversion-rate")?.key, "conversion_rate");
+    assert.equal(marketingSuccessMetric("  CPA  ")?.key, "cpa");
   });
 });
 

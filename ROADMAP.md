@@ -2191,6 +2191,60 @@ than a message.
   only as text with no thread structure, and cannot answer one; and a report
   that would be clearer with the chart in it still ships the chart separately.
 
+### M42 — Marketing that decides ✅
+
+M35 built the agency's filing cabinet and stopped there. A Campaign recorded a
+target as free text nobody compared anything to, the performance snapshots an
+AI Employee dutifully recorded were visible to no human anywhere in the
+product, and the brief could be written once and never edited again — so the
+strategy on screen drifted from the campaign actually running, and the only way
+to learn whether the money was working was to ask the employee that spent it.
+The workspace had every fact and produced no judgement.
+
+- [x] **Targets are scored, not stored.** A success metric now resolves against
+      a measurable catalogue — conversions, CPA, ROAS, conversion value,
+      conversion rate, CTR, CPC, CPM, clicks, impressions, spend — with the
+      target read in the metric's own unit and `targetDirection` deciding which
+      side wins, defaulted from the metric because costs are met by going low
+      and returns by going high. A company can still name its own metric; the
+      workspace then says plainly that it cannot judge it rather than showing a
+      goal nobody checks. `marketingMetrics.ts` is pure and feeds the UI and the
+      AI tools from one function, so a Routine and a human never disagree about
+      arithmetic.
+- [x] **The command center leads with what is wrong.** Off target, spending
+      ahead of plan, underdelivering, active with nothing recorded, running on a
+      readout three days stale, active with no live Creative, Creative waiting
+      on review, an Experiment two weeks past its start with no decision — each
+      with the numbers in the sentence and a link to the Campaign. Four counters
+      told you the agency existed; this tells you what it needs.
+- [x] **The Campaign page that was missing.** Full brief editing after
+      creation, the Connection and platform ids that were unreachable from the
+      UI entirely, scored metrics over a 7/30/90-day window, the attention list,
+      every recorded readout, and a form to record one by hand. Money in minor
+      units end to end, converted once at the edge.
+- [x] **Readouts that cannot be counted twice.** Recording a period that already
+      has a readout restates it — the old row is kept, marked superseded, and
+      drops out of every aggregate — which is what a crash-retried Routine and a
+      late-settling platform both need. A partially overlapping window is
+      refused outright, because a daily readout plus the weekly one containing
+      it is the same money twice and nothing downstream can separate them again.
+      Live windows for one Campaign therefore never overlap, which is what makes
+      summing them safe.
+- [x] **States that mean something.** Campaign, Creative and Experiment
+      transitions are enforced, so `operate` cannot walk a half-written draft
+      past the ready state that exists to force a review. Creative goes live
+      only under a live Campaign — the platform enforces that physically, and
+      the one screen a human checks should not claim otherwise.
+- [x] **A decision that is carried out.** Deciding an Experiment can apply its
+      own verdict: the winner goes live, or waits at approved when the Campaign
+      is not running, and the variants that were serving against it retire.
+      Rejected and retired variants are left alone, because a test result is not
+      a reason to quietly undo a human's no.
+- [x] **No new tools.** The same twelve deferred Marketing tools now return the
+      scoring, so the autonomous loop reads its evidence already judged instead
+      of recomputing it per run. `MarketingPages.tsx` split into one file per
+      screen plus shared primitives.
+
 ## V1 backlog (post-MVP)
 
 Items here are not on the active milestone path but worth picking up. Most

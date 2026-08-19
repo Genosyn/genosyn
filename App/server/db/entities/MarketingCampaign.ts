@@ -23,6 +23,8 @@ export type MarketingCampaignObjective =
   | "sales"
   | "retention";
 export type MarketingAutonomyMode = "observe" | "optimize" | "autonomous";
+/** How to read `targetValue` against the measured `successMetric`. */
+export type MarketingTargetDirection = "at_most" | "at_least";
 
 export const MARKETING_CAMPAIGN_STATUSES: MarketingCampaignStatus[] = [
   "draft",
@@ -44,6 +46,7 @@ export const MARKETING_AUTONOMY_MODES: MarketingAutonomyMode[] = [
   "optimize",
   "autonomous",
 ];
+export const MARKETING_TARGET_DIRECTIONS: MarketingTargetDirection[] = ["at_most", "at_least"];
 
 /**
  * The durable brief and operating policy for one paid-media campaign.
@@ -111,6 +114,15 @@ export class MarketingCampaign {
   /** Decimal target encoded as text so CPA/ROAS values retain exact input. */
   @Column({ type: "varchar", default: "" })
   targetValue!: string;
+
+  /**
+   * Which side of `targetValue` counts as winning. A cost target is met at or
+   * below its number; a return target is met at or above it. Without this the
+   * measured result and the goal cannot be compared at all, which is why the
+   * target used to be prose nobody could act on.
+   */
+  @Column({ type: "varchar", default: "at_most" })
+  targetDirection!: MarketingTargetDirection;
 
   /** Planned daily budget in minor currency units; live spend stays external. */
   @Column({ type: "integer", default: 0 })

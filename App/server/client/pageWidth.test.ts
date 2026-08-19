@@ -51,7 +51,8 @@ const sectionRepresentatives: Record<string, string[]> = {
     "client/pages/RevenueIndex.tsx",
     "client/pages/RevenueDeals.tsx",
     "client/pages/RevenueDataQuality.tsx",
-    "client/pages/MarketingPages.tsx",
+    "client/pages/MarketingCampaigns.tsx",
+    "client/pages/MarketingCampaignDetail.tsx",
   ],
   finance: [
     "client/pages/FinanceIndex.tsx",

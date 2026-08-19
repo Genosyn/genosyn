@@ -6,6 +6,7 @@ import {
   MARKETING_AUTONOMY_MODES,
   MARKETING_CAMPAIGN_OBJECTIVES,
   MARKETING_CAMPAIGN_STATUSES,
+  MARKETING_TARGET_DIRECTIONS,
   type MarketingCampaignStatus,
 } from "../db/entities/MarketingCampaign.js";
 import {
@@ -30,7 +31,7 @@ import {
   deleteMarketingGrant,
   getMarketingCampaign,
   getMarketingOverview,
-  listMarketingCampaigns,
+  listMarketingCampaignsWithMetrics,
   listMarketingCreatives,
   listMarketingExperiments,
   listMarketingGrants,
@@ -105,6 +106,7 @@ export const marketingCampaignInputSchema = z
     landingPageUrl: z.string().trim().url().or(z.literal("")).optional(),
     successMetric: z.string().trim().max(80).optional(),
     targetValue: z.string().trim().max(80).optional(),
+    targetDirection: z.enum(MARKETING_TARGET_DIRECTIONS as [string, ...string[]]).optional(),
     dailyBudgetMinor: z.number().int().min(0).max(2_147_483_647).optional(),
     currency: z.string().trim().regex(/^[A-Za-z]{3}$/).optional(),
     startsAt: optionalDate,
@@ -151,6 +153,7 @@ export const marketingExperimentInputSchema = z
     creativeIds: z.array(z.string().uuid()).min(2).max(20).optional(),
     winnerCreativeId: nullableId.optional(),
     decisionRationale: z.string().trim().max(10_000).optional(),
+    promoteWinner: z.boolean().optional(),
     startsAt: optionalDate,
     endsAt: optionalDate,
   })
@@ -177,10 +180,18 @@ export const marketingPerformanceInputSchema = z
   })
   .strict();
 
+/** How many days of readouts the numbers are built from. */
+const windowDaysSchema = z.coerce.number().int().min(1).max(365).optional();
+
 marketingRouter.get(
   "/marketing/overview",
   h(async (req, res) => {
-    res.json(await getMarketingOverview(cid(req)));
+    const parsed = z.object({ windowDays: windowDaysSchema }).safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid performance window" });
+      return;
+    }
+    res.json(await getMarketingOverview(cid(req), { windowDays: parsed.data.windowDays }));
   }),
 );
 
@@ -193,18 +204,24 @@ marketingRouter.get(
         ownerEmployeeId: z.string().uuid().optional(),
         channel: z.string().trim().max(80).optional(),
         includeArchived: z.enum(["true", "false"]).optional(),
+        windowDays: windowDaysSchema,
       })
       .safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ error: "Invalid Campaign filters" });
       return;
     }
+    const { windowDays, ...filters } = parsed.data;
     res.json({
-      rows: await listMarketingCampaigns(cid(req), {
-        ...parsed.data,
-        status: parsed.data.status as MarketingCampaignStatus | undefined,
-        includeArchived: parsed.data.includeArchived === "true",
-      }),
+      rows: await listMarketingCampaignsWithMetrics(
+        cid(req),
+        {
+          ...filters,
+          status: filters.status as MarketingCampaignStatus | undefined,
+          includeArchived: filters.includeArchived === "true",
+        },
+        windowDays,
+      ),
     });
   }),
 );
@@ -224,7 +241,14 @@ marketingRouter.post(
 marketingRouter.get(
   "/marketing/campaigns/:campaignId",
   h(async (req, res) => {
-    res.json(await getMarketingCampaign(cid(req), req.params.campaignId));
+    const parsed = z.object({ windowDays: windowDaysSchema }).safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid performance window" });
+      return;
+    }
+    res.json(
+      await getMarketingCampaign(cid(req), req.params.campaignId, parsed.data.windowDays),
+    );
   }),
 );
 

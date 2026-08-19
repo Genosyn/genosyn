@@ -1,4 +1,4 @@
-import { In, type FindOptionsWhere } from "typeorm";
+import { In, IsNull, LessThan, MoreThan, type FindOptionsWhere } from "typeorm";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -13,6 +13,7 @@ import {
   type MarketingAutonomyMode,
   type MarketingCampaignObjective,
   type MarketingCampaignStatus,
+  type MarketingTargetDirection,
 } from "../db/entities/MarketingCampaign.js";
 import {
   MarketingCreative,
@@ -24,6 +25,16 @@ import {
   type MarketingExperimentStatus,
 } from "../db/entities/MarketingExperiment.js";
 import { MarketingPerformanceSnapshot } from "../db/entities/MarketingPerformanceSnapshot.js";
+import {
+  MARKETING_DEFAULT_WINDOW_DAYS,
+  campaignMetrics,
+  deriveMetrics,
+  liveReadouts,
+  resolveSuccessMetric,
+  totalReadouts,
+  type MarketingAttention,
+  type MarketingCampaignMetrics,
+} from "./marketingMetrics.js";
 
 export type MarketingActor =
   | { userId: string | null; employeeId?: never }
@@ -48,6 +59,7 @@ export type CampaignInput = {
   landingPageUrl?: string;
   successMetric?: string;
   targetValue?: string;
+  targetDirection?: MarketingTargetDirection;
   dailyBudgetMinor?: number;
   currency?: string;
   startsAt?: string | null;
@@ -80,6 +92,8 @@ export type ExperimentInput = {
   creativeIds?: string[];
   winnerCreativeId?: string | null;
   decisionRationale?: string;
+  /** Apply the decision to the tested Creative as well as recording it. */
+  promoteWinner?: boolean;
   startsAt?: string | null;
   endsAt?: string | null;
 };
@@ -184,6 +198,70 @@ function assertCampaignDates(row: MarketingCampaign): void {
   }
 }
 
+/**
+ * Which state may follow which.
+ *
+ * The content checks below say a Campaign is *fit* to run; these say the
+ * workspace agreed to run it. Without them an `operate` grant could take a
+ * half-written draft straight to active and skip the review the ready state
+ * exists to force — the brief would still be validated, but nobody would ever
+ * have looked at it.
+ */
+const CAMPAIGN_TRANSITIONS: Record<MarketingCampaignStatus, MarketingCampaignStatus[]> = {
+  draft: ["ready", "archived"],
+  ready: ["draft", "active", "archived"],
+  active: ["paused", "completed", "archived"],
+  paused: ["active", "completed", "archived"],
+  completed: ["active", "archived"],
+  archived: ["draft"],
+};
+
+const CREATIVE_TRANSITIONS: Record<MarketingCreativeStatus, MarketingCreativeStatus[]> = {
+  draft: ["review", "retired"],
+  review: ["approved", "rejected", "draft"],
+  approved: ["active", "retired", "draft"],
+  active: ["approved", "retired"],
+  rejected: ["draft"],
+  retired: ["draft"],
+};
+
+const EXPERIMENT_TRANSITIONS: Record<MarketingExperimentStatus, MarketingExperimentStatus[]> = {
+  draft: ["running", "stopped"],
+  running: ["decided", "stopped"],
+  decided: [],
+  stopped: [],
+};
+
+/** Statuses a record may be created in — the rest are transitions, not origins. */
+const CAMPAIGN_INITIAL_STATUSES: MarketingCampaignStatus[] = ["draft", "ready"];
+const CREATIVE_INITIAL_STATUSES: MarketingCreativeStatus[] = ["draft", "review"];
+const EXPERIMENT_INITIAL_STATUSES: MarketingExperimentStatus[] = ["draft", "running"];
+
+function assertTransition<T extends string>(
+  noun: string,
+  transitions: Record<T, T[]>,
+  from: T,
+  to: T,
+): void {
+  if (from === to) return;
+  if (!transitions[from].includes(to)) {
+    const allowed = transitions[from];
+    throw new MarketingValidationError(
+      allowed.length
+        ? `A ${noun} cannot go from ${from} to ${to}. From ${from} it can only become ${allowed.join(" or ")}.`
+        : `A ${noun} that is ${from} is final and cannot become ${to}.`,
+    );
+  }
+}
+
+function assertInitialStatus<T extends string>(noun: string, allowed: T[], status: T): void {
+  if (!allowed.includes(status)) {
+    throw new MarketingValidationError(
+      `A new ${noun} starts as ${allowed.join(" or ")}, not ${status}.`,
+    );
+  }
+}
+
 async function assertCampaignState(row: MarketingCampaign): Promise<void> {
   assertCampaignDates(row);
   await Promise.all([
@@ -227,7 +305,12 @@ export async function listMarketingCampaigns(
   });
 }
 
-export async function getMarketingCampaign(companyId: string, id: string) {
+/** Creative a Campaign is currently relying on, as opposed to merely holding. */
+function liveCreativeCount(creatives: MarketingCreative[]): number {
+  return creatives.filter((row) => row.status === "approved" || row.status === "active").length;
+}
+
+export async function getMarketingCampaign(companyId: string, id: string, windowDays?: number) {
   const campaign = await campaignForCompany(companyId, id);
   const [creatives, experiments, snapshots] = await Promise.all([
     AppDataSource.getRepository(MarketingCreative).find({
@@ -241,15 +324,77 @@ export async function getMarketingCampaign(companyId: string, id: string) {
     AppDataSource.getRepository(MarketingPerformanceSnapshot).find({
       where: { companyId, campaignId: id },
       order: { periodEnd: "DESC" },
-      take: 90,
     }),
   ]);
+  const live = liveReadouts(snapshots);
+  const lifetimeTotals = totalReadouts(live);
   return {
     campaign,
     creatives,
     experiments: experiments.map((row) => ({ ...row, creativeIds: parseIds(row.creativeIdsJson) })),
-    snapshots,
+    // Superseded rows are returned too: seeing that a number was restated is
+    // part of trusting the number that replaced it.
+    snapshots: snapshots.slice(0, 90),
+    snapshotCount: snapshots.length,
+    metrics: campaignMetrics(campaign, live, {
+      windowDays,
+      liveCreativeCount: liveCreativeCount(creatives),
+    }),
+    lifetime: { totals: lifetimeTotals, derived: deriveMetrics(lifetimeTotals) },
   };
+}
+
+export type MarketingCampaignWithMetrics = MarketingCampaign & {
+  metrics: MarketingCampaignMetrics;
+};
+
+/**
+ * Campaigns with the numbers attached.
+ *
+ * The list is where someone decides which campaign to open, and "which one is
+ * off plan" is the only question that makes that decision. Loading the window's
+ * readouts once and grouping in memory keeps that from costing a query per row.
+ */
+export async function listMarketingCampaignsWithMetrics(
+  companyId: string,
+  filters: Parameters<typeof listMarketingCampaigns>[1] = {},
+  windowDays: number = MARKETING_DEFAULT_WINDOW_DAYS,
+): Promise<MarketingCampaignWithMetrics[]> {
+  const campaigns = await listMarketingCampaigns(companyId, filters);
+  if (campaigns.length === 0) return [];
+  const ids = campaigns.map((row) => row.id);
+  const floor = new Date(Date.now() - windowDays * 86_400_000);
+  const [snapshots, creatives] = await Promise.all([
+    AppDataSource.getRepository(MarketingPerformanceSnapshot).find({
+      where: {
+        companyId,
+        campaignId: In(ids),
+        supersededAt: IsNull(),
+        periodEnd: MoreThan(floor),
+      },
+    }),
+    AppDataSource.getRepository(MarketingCreative).find({
+      where: { companyId, campaignId: In(ids), status: In(["approved", "active"]) },
+    }),
+  ]);
+  const byCampaign = new Map<string, MarketingPerformanceSnapshot[]>();
+  for (const row of snapshots) {
+    const bucket = byCampaign.get(row.campaignId);
+    if (bucket) bucket.push(row);
+    else byCampaign.set(row.campaignId, [row]);
+  }
+  const creativeCounts = new Map<string, number>();
+  for (const row of creatives) {
+    creativeCounts.set(row.campaignId, (creativeCounts.get(row.campaignId) ?? 0) + 1);
+  }
+  return campaigns.map((campaign) =>
+    Object.assign(campaign, {
+      metrics: campaignMetrics(campaign, byCampaign.get(campaign.id) ?? [], {
+        windowDays,
+        liveCreativeCount: creativeCounts.get(campaign.id) ?? 0,
+      }),
+    }),
+  );
 }
 
 export async function createMarketingCampaign(
@@ -258,12 +403,15 @@ export async function createMarketingCampaign(
   actor: MarketingActor,
 ): Promise<MarketingCampaign> {
   await assertEmployee(companyId, input.ownerEmployeeId);
+  const status = input.status ?? "draft";
+  assertInitialStatus("Campaign", CAMPAIGN_INITIAL_STATUSES, status);
+  const successMetric = input.successMetric?.trim() || "conversions";
   const repo = AppDataSource.getRepository(MarketingCampaign);
   const row = repo.create({
     companyId,
     name: input.name.trim(),
     objective: input.objective,
-    status: input.status ?? "draft",
+    status,
     autonomyMode: input.autonomyMode ?? "observe",
     channel: input.channel?.trim() ?? "",
     connectionId: input.connectionId ?? null,
@@ -274,8 +422,13 @@ export async function createMarketingCampaign(
     audience: input.audience?.trim() ?? "",
     offer: input.offer?.trim() ?? "",
     landingPageUrl: input.landingPageUrl?.trim() ?? "",
-    successMetric: input.successMetric?.trim() || "conversions",
+    successMetric,
     targetValue: input.targetValue?.trim() ?? "",
+    // A cost goal is met by going low and a return goal by going high, so the
+    // sensible direction is a property of the metric. Only an explicit choice
+    // overrides it.
+    targetDirection:
+      input.targetDirection ?? resolveSuccessMetric(successMetric)?.betterDirection ?? "at_most",
     dailyBudgetMinor: input.dailyBudgetMinor ?? 0,
     currency: normalizeCurrency(input.currency) || "USD",
     startsAt: dateOrNull(input.startsAt) ?? null,
@@ -293,6 +446,9 @@ export async function updateMarketingCampaign(
 ): Promise<MarketingCampaign> {
   const repo = AppDataSource.getRepository(MarketingCampaign);
   const row = await campaignForCompany(companyId, id);
+  if (patch.status !== undefined) {
+    assertTransition("Campaign", CAMPAIGN_TRANSITIONS, row.status, patch.status);
+  }
   if (patch.name !== undefined) row.name = patch.name.trim();
   if (patch.objective !== undefined) row.objective = patch.objective;
   if (patch.status !== undefined) row.status = patch.status;
@@ -310,6 +466,7 @@ export async function updateMarketingCampaign(
   if (patch.landingPageUrl !== undefined) row.landingPageUrl = patch.landingPageUrl.trim();
   if (patch.successMetric !== undefined) row.successMetric = patch.successMetric.trim();
   if (patch.targetValue !== undefined) row.targetValue = patch.targetValue.trim();
+  if (patch.targetDirection !== undefined) row.targetDirection = patch.targetDirection;
   if (patch.dailyBudgetMinor !== undefined) row.dailyBudgetMinor = patch.dailyBudgetMinor;
   if (patch.currency !== undefined) row.currency = normalizeCurrency(patch.currency) ?? row.currency;
   const startsAt = dateOrNull(patch.startsAt);
@@ -334,12 +491,50 @@ async function assertCreativeCampaign(companyId: string, campaignId: string): Pr
   await campaignForCompany(companyId, campaignId);
 }
 
+/**
+ * Creative only goes live under a Campaign that is itself live. The platform
+ * enforces the same thing physically — an ad cannot serve inside a paused
+ * campaign — so letting the workspace claim otherwise would make the one place
+ * a human checks disagree with reality.
+ */
+async function assertCreativeCanGoLive(
+  companyId: string,
+  campaignId: string,
+  status: MarketingCreativeStatus,
+): Promise<void> {
+  if (status !== "active") return;
+  const campaign = await campaignForCompany(companyId, campaignId);
+  if (campaign.status !== "active") {
+    throw new MarketingValidationError(
+      `Creative can only go live under an active Campaign; "${campaign.name}" is ${campaign.status}.`,
+    );
+  }
+}
+
+/** Experiments name their variants by id, so a variant cannot change Campaign. */
+async function assertCreativeNotUnderTest(
+  companyId: string,
+  creativeId: string,
+  campaignId: string,
+): Promise<void> {
+  const experiments = await AppDataSource.getRepository(MarketingExperiment).find({
+    where: { companyId, campaignId },
+  });
+  const tested = experiments.find((row) => parseIds(row.creativeIdsJson).includes(creativeId));
+  if (tested) {
+    throw new MarketingValidationError(
+      `This Creative is a variant in the Experiment "${tested.name}". Move it out of the Experiment before moving it to another Campaign.`,
+    );
+  }
+}
+
 export async function createMarketingCreative(
   companyId: string,
   input: CreativeInput,
   actor: MarketingActor,
 ): Promise<MarketingCreative> {
   await assertCreativeCampaign(companyId, input.campaignId);
+  assertInitialStatus("Creative", CREATIVE_INITIAL_STATUSES, input.status ?? "draft");
   const repo = AppDataSource.getRepository(MarketingCreative);
   return repo.save(
     repo.create({
@@ -370,8 +565,12 @@ export async function updateMarketingCreative(
   const repo = AppDataSource.getRepository(MarketingCreative);
   const row = await repo.findOneBy({ id, companyId });
   if (!row) throw new MarketingNotFoundError("Marketing Creative not found");
-  if (patch.campaignId !== undefined) {
+  if (patch.status !== undefined) {
+    assertTransition("Creative", CREATIVE_TRANSITIONS, row.status, patch.status);
+  }
+  if (patch.campaignId !== undefined && patch.campaignId !== row.campaignId) {
     await assertCreativeCampaign(companyId, patch.campaignId);
+    await assertCreativeNotUnderTest(companyId, row.id, row.campaignId);
     row.campaignId = patch.campaignId;
   }
   if (patch.name !== undefined) row.name = patch.name.trim();
@@ -386,6 +585,7 @@ export async function updateMarketingCreative(
   if (patch.destinationUrl !== undefined) row.destinationUrl = patch.destinationUrl.trim();
   if (patch.externalCreativeId !== undefined) row.externalCreativeId = patch.externalCreativeId.trim();
   if (patch.reviewNote !== undefined) row.reviewNote = patch.reviewNote.trim();
+  await assertCreativeCanGoLive(companyId, row.campaignId, row.status);
   return repo.save(row);
 }
 
@@ -456,24 +656,58 @@ export async function createMarketingExperiment(
   actor: MarketingActor,
 ): Promise<MarketingExperiment & { creativeIds: string[] }> {
   const repo = AppDataSource.getRepository(MarketingExperiment);
+  const status = input.status ?? "draft";
+  assertInitialStatus("Experiment", EXPERIMENT_INITIAL_STATUSES, status);
   const row = repo.create({
     companyId,
     campaignId: input.campaignId,
     name: input.name.trim(),
     hypothesis: input.hypothesis?.trim() ?? "",
-    status: input.status ?? "draft",
+    status,
     primaryMetric: input.primaryMetric?.trim() || "conversions",
     minimumSampleSize: input.minimumSampleSize?.trim() ?? "",
     creativeIdsJson: JSON.stringify(input.creativeIds ?? []),
     winnerCreativeId: input.winnerCreativeId ?? null,
     decisionRationale: input.decisionRationale?.trim() ?? "",
-    startsAt: dateOrNull(input.startsAt) ?? null,
+    startsAt: dateOrNull(input.startsAt) ?? (status === "running" ? new Date() : null),
     endsAt: dateOrNull(input.endsAt) ?? null,
     ...creator(actor),
   });
   await assertExperimentState(row);
   const saved = await repo.save(row);
   return Object.assign(saved, { creativeIds: parseIds(saved.creativeIdsJson) });
+}
+
+/**
+ * Apply an Experiment's verdict to the Creative it tested.
+ *
+ * A decision nobody acts on is a note. The winner goes live — or waits at
+ * approved when its Campaign is not running — and the variants that were
+ * serving against it retire. Rejected and already-retired variants are left
+ * exactly as they are: a human said no to those, and a test result is not a
+ * reason to quietly undo that.
+ */
+async function promoteExperimentWinner(
+  row: MarketingExperiment,
+  winnerCreativeId: string,
+): Promise<void> {
+  const creativeRepo = AppDataSource.getRepository(MarketingCreative);
+  const campaign = await campaignForCompany(row.companyId, row.campaignId);
+  const tested = await creativeRepo.find({
+    where: { companyId: row.companyId, id: In(parseIds(row.creativeIdsJson)) },
+  });
+  const movable: MarketingCreativeStatus[] = ["draft", "review", "approved", "active"];
+  for (const creative of tested) {
+    if (!movable.includes(creative.status)) continue;
+    if (creative.id === winnerCreativeId) {
+      creative.status = campaign.status === "active" ? "active" : "approved";
+    } else if (creative.status === "active") {
+      creative.status = "retired";
+    } else {
+      continue;
+    }
+    await creativeRepo.save(creative);
+  }
 }
 
 export async function updateMarketingExperiment(
@@ -484,6 +718,10 @@ export async function updateMarketingExperiment(
   const repo = AppDataSource.getRepository(MarketingExperiment);
   const row = await repo.findOneBy({ id, companyId });
   if (!row) throw new MarketingNotFoundError("Marketing Experiment not found");
+  const from = row.status;
+  if (patch.status !== undefined) {
+    assertTransition("Experiment", EXPERIMENT_TRANSITIONS, from, patch.status);
+  }
   if (patch.campaignId !== undefined) row.campaignId = patch.campaignId;
   if (patch.name !== undefined) row.name = patch.name.trim();
   if (patch.hypothesis !== undefined) row.hypothesis = patch.hypothesis.trim();
@@ -497,11 +735,30 @@ export async function updateMarketingExperiment(
   if (startsAt !== undefined) row.startsAt = startsAt;
   const endsAt = dateOrNull(patch.endsAt);
   if (endsAt !== undefined) row.endsAt = endsAt;
+  // The clock belongs to the transition, not to whoever remembered to send it.
+  if (from !== "running" && row.status === "running" && !row.startsAt) row.startsAt = new Date();
+  if (from !== row.status && (row.status === "decided" || row.status === "stopped") && !row.endsAt) {
+    row.endsAt = new Date();
+  }
   await assertExperimentState(row);
   const saved = await repo.save(row);
+  if (patch.promoteWinner && saved.status === "decided" && saved.winnerCreativeId) {
+    await promoteExperimentWinner(saved, saved.winnerCreativeId);
+  }
   return Object.assign(saved, { creativeIds: parseIds(saved.creativeIdsJson) });
 }
 
+/**
+ * Record what the platform said about one campaign and one window.
+ *
+ * Two rules make the resulting ledger safe to add up. Recording the same window
+ * twice supersedes the earlier row instead of adding to it, so a Routine that
+ * retries after a crash cannot double the month's spend and a platform that
+ * settles its numbers late can correct them without anyone editing history.
+ * A window that partially overlaps a live one is refused outright, because
+ * summing a daily readout and the weekly one containing it counts the same
+ * money twice and no amount of later arithmetic can separate them again.
+ */
 export async function recordMarketingPerformance(
   companyId: string,
   input: PerformanceInput,
@@ -525,61 +782,173 @@ export async function recordMarketingPerformance(
     );
   }
   const repo = AppDataSource.getRepository(MarketingPerformanceSnapshot);
-  return repo.save(
-    repo.create({
+  const clashes = await repo.find({
+    where: {
       companyId,
       campaignId: input.campaignId,
-      periodStart,
-      periodEnd,
-      spendMinor: input.spendMinor,
-      impressions: input.impressions ?? 0,
-      clicks: input.clicks ?? 0,
-      conversions: input.conversions ?? "0",
-      conversionValue: input.conversionValue ?? "0",
-      currency: input.currency.toUpperCase(),
-      source: input.source.trim(),
-      rawJson: JSON.stringify(input.raw ?? {}),
-      recordedByEmployeeId: "employeeId" in actor ? actor.employeeId : null,
-    }),
+      supersededAt: IsNull(),
+      periodStart: LessThan(periodEnd),
+      periodEnd: MoreThan(periodStart),
+    },
+  });
+  const sameWindow = clashes.filter(
+    (row) =>
+      new Date(row.periodStart).getTime() === periodStart.getTime() &&
+      new Date(row.periodEnd).getTime() === periodEnd.getTime(),
   );
+  const partial = clashes.filter((row) => !sameWindow.includes(row));
+  if (partial.length) {
+    const existing = partial[0];
+    throw new MarketingValidationError(
+      `This period overlaps an existing readout for ${new Date(existing.periodStart).toISOString()} — ${new Date(existing.periodEnd).toISOString()}. Record the same window as the readouts already on this Campaign, or restate that exact window instead.`,
+    );
+  }
+  const supersededAt = new Date();
+  return AppDataSource.transaction(async (manager) => {
+    if (sameWindow.length) {
+      await manager.update(
+        MarketingPerformanceSnapshot,
+        { id: In(sameWindow.map((row) => row.id)) },
+        { supersededAt },
+      );
+    }
+    return manager.save(
+      manager.create(MarketingPerformanceSnapshot, {
+        companyId,
+        campaignId: input.campaignId,
+        periodStart,
+        periodEnd,
+        spendMinor: input.spendMinor,
+        impressions: input.impressions ?? 0,
+        clicks: input.clicks ?? 0,
+        conversions: input.conversions ?? "0",
+        conversionValue: input.conversionValue ?? "0",
+        currency: input.currency.toUpperCase(),
+        source: input.source.trim(),
+        rawJson: JSON.stringify(input.raw ?? {}),
+        recordedByEmployeeId: "employeeId" in actor ? actor.employeeId : null,
+      }),
+    );
+  });
 }
 
-export async function getMarketingOverview(companyId: string) {
-  const [campaigns, creatives, experiments, latestSnapshots] = await Promise.all([
-    listMarketingCampaigns(companyId),
+/** How long a test may run undecided before it is worth chasing. */
+export const MARKETING_EXPERIMENT_STALE_DAYS = 14;
+
+export type MarketingOverviewAttention = MarketingAttention & {
+  campaignId: string | null;
+  campaignName: string | null;
+};
+
+/**
+ * The command center.
+ *
+ * Everything here answers "what needs me today". The window totals are built
+ * from live readouts only, and money is reported as null rather than as a
+ * meaningless sum when campaigns are running in more than one currency —
+ * adding dollars to euros to make a bigger number is the kind of dashboard
+ * that gets believed once.
+ */
+export async function getMarketingOverview(
+  companyId: string,
+  options: { windowDays?: number } = {},
+) {
+  const windowDays = options.windowDays ?? MARKETING_DEFAULT_WINDOW_DAYS;
+  const [campaigns, creatives, experiments] = await Promise.all([
+    listMarketingCampaignsWithMetrics(companyId, {}, windowDays),
     listMarketingCreatives(companyId),
     listMarketingExperiments(companyId),
-    AppDataSource.getRepository(MarketingPerformanceSnapshot).find({
-      where: { companyId },
-      order: { periodEnd: "DESC" },
-      take: 500,
-    }),
   ]);
-  const latestByCampaign = new Map<string, MarketingPerformanceSnapshot>();
-  for (const row of latestSnapshots) {
-    if (!latestByCampaign.has(row.campaignId)) latestByCampaign.set(row.campaignId, row);
-  }
   const active = campaigns.filter((row) => row.status === "active");
-  const latest = [...latestByCampaign.values()];
-  const latestCurrencies = new Set(latest.map((row) => row.currency));
+  const withSpend = campaigns.filter((row) => row.metrics.totals.snapshots > 0);
+  const currencies = new Set(withSpend.map((row) => row.currency));
+  const mixedCurrency = currencies.size > 1;
+  const totals = withSpend.reduce(
+    (sum, row) => ({
+      spendMinor: sum.spendMinor + row.metrics.totals.spendMinor,
+      impressions: sum.impressions + row.metrics.totals.impressions,
+      clicks: sum.clicks + row.metrics.totals.clicks,
+      conversions: sum.conversions + row.metrics.totals.conversions,
+      conversionValueMinor: sum.conversionValueMinor + row.metrics.totals.conversionValueMinor,
+    }),
+    { spendMinor: 0, impressions: 0, clicks: 0, conversions: 0, conversionValueMinor: 0 },
+  );
+  const comparable = !mixedCurrency && withSpend.length > 0;
+  // Rates and cost-per numbers over the whole portfolio. `coveredDays` is left
+  // at zero deliberately: campaigns run over different stretches, so a single
+  // "average daily spend" across all of them would not describe anything.
+  const portfolio = deriveMetrics({
+    ...totals,
+    snapshots: withSpend.length,
+    coveredDays: 0,
+    periodStart: null,
+    periodEnd: null,
+  });
+  const now = Date.now();
+  const attention: MarketingOverviewAttention[] = campaigns.flatMap((row) =>
+    row.metrics.attention.map((item) => ({
+      ...item,
+      campaignId: row.id,
+      campaignName: row.name,
+    })),
+  );
+  const waitingReview = creatives.filter((row) => row.status === "review").length;
+  if (waitingReview > 0) {
+    attention.push({
+      code: "creative_waiting_review",
+      severity: "info",
+      message: `${waitingReview} Creative ${waitingReview === 1 ? "variant is" : "variants are"} waiting for review.`,
+      campaignId: null,
+      campaignName: null,
+    });
+  }
+  for (const experiment of experiments) {
+    if (experiment.status !== "running" || !experiment.startsAt) continue;
+    const days = (now - new Date(experiment.startsAt).getTime()) / 86_400_000;
+    if (days < MARKETING_EXPERIMENT_STALE_DAYS) continue;
+    const campaign = campaigns.find((row) => row.id === experiment.campaignId);
+    attention.push({
+      code: "experiment_undecided",
+      severity: "warn",
+      message: `"${experiment.name}" has been running ${Math.floor(days)} days without a decision.`,
+      campaignId: experiment.campaignId,
+      campaignName: campaign?.name ?? null,
+    });
+  }
+  attention.sort((left, right) =>
+    left.severity === right.severity ? 0 : left.severity === "warn" ? -1 : 1,
+  );
+
   return {
+    windowDays,
     counts: {
       campaigns: campaigns.length,
       activeCampaigns: active.length,
-      creativeInReview: creatives.filter((row) => row.status === "review").length,
+      creativeInReview: waitingReview,
       runningExperiments: experiments.filter((row) => row.status === "running").length,
+      needsAttention: attention.filter((row) => row.severity === "warn").length,
     },
     plannedDailyBudgetMinor: active.reduce((sum, row) => sum + row.dailyBudgetMinor, 0),
     currency:
       new Set(active.map((row) => row.currency)).size === 1 ? (active[0]?.currency ?? "USD") : null,
-    latestPerformance: {
-      currency:
-        latestCurrencies.size === 1 ? (latest[0]?.currency ?? "USD") : null,
-      spendMinor: latest.reduce((sum, row) => sum + row.spendMinor, 0),
-      impressions: latest.reduce((sum, row) => sum + row.impressions, 0),
-      clicks: latest.reduce((sum, row) => sum + row.clicks, 0),
-      conversions: latest.reduce((sum, row) => sum + Number(row.conversions || 0), 0),
+    performance: {
+      currency: comparable ? (withSpend[0]?.currency ?? null) : null,
+      mixedCurrency,
+      spendMinor: comparable ? totals.spendMinor : null,
+      conversionValueMinor: comparable ? totals.conversionValueMinor : null,
+      impressions: totals.impressions,
+      clicks: totals.clicks,
+      conversions: totals.conversions,
+      // Impression and click rates hold across currencies; anything with money
+      // in it does not, so those go null rather than mixing units.
+      ctr: portfolio.ctr,
+      conversionRate: portfolio.conversionRate,
+      cpcMinor: comparable ? portfolio.cpcMinor : null,
+      cpmMinor: comparable ? portfolio.cpmMinor : null,
+      cpaMinor: comparable ? portfolio.cpaMinor : null,
+      roas: comparable ? portfolio.roas : null,
     },
+    attention,
     campaigns,
   };
 }
@@ -667,7 +1036,9 @@ export async function composeMarketingContext(employeeId: string): Promise<strin
     "## Marketing",
     `You have **${grant.accessLevel}** access to the company's Marketing workspace. Find its tools with \`find_tools\` (search "campaign", "creative", "experiment", or "ads").`,
     ACCESS_COPY[grant.accessLevel],
-    "The Marketing Campaign is the durable strategy and measurement record. The ad platform is still the source of truth for delivery and settled spend. Read the live platform before changing a linked Campaign, then record an immutable performance snapshot so the next Routine inherits evidence rather than guesses.",
+    "The Marketing Campaign is the durable strategy and measurement record. The ad platform is still the source of truth for delivery and settled spend. Read the live platform before changing a linked Campaign, then record a performance snapshot so the next Routine inherits evidence rather than guesses.",
+    "Every Campaign readout is scored for you: `get_marketing_overview` and `get_marketing_campaign` return spend, CTR, CPC, CPA, ROAS, pacing against the planned daily budget, and whether the Campaign is meeting its target — plus an `attention` list naming what is wrong. Decide against those numbers instead of recomputing them, and cite them when you report.",
+    "Record one snapshot per campaign per window, always the same window. Recording a window again restates it and supersedes the old row, which is the right way to correct a late-settling platform; a window that partly overlaps an existing one is refused, because the two would double-count the same spend.",
     "Never imply a Campaign is live until it has an external Campaign id. Never upload customer lists or other PII. An autonomous Campaign is allowed to act inside its policy; it is not allowed to bypass a Connection's caps, kill switch, Approval threshold, or a browser/MCP submit Approval.",
   ].join("\n");
 }

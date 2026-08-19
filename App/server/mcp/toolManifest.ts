@@ -116,8 +116,22 @@ const MARKETING_CAMPAIGN_PROPERTIES = {
   },
   offer: { type: "string" },
   landingPageUrl: { type: "string" },
-  successMetric: { type: "string", description: "Primary KPI, e.g. qualified_leads or roas." },
-  targetValue: { type: "string", description: "Exact decimal target as text." },
+  successMetric: {
+    type: "string",
+    description:
+      "Primary KPI. Use a measurable key — conversions, cpa, roas, conversion_value, conversion_rate, ctr, cpc, cpm, clicks, impressions, spend — so the target is scored automatically. Anything else is stored but never judged.",
+  },
+  targetValue: {
+    type: "string",
+    description:
+      "Exact decimal target as text, in the metric's own unit: whole currency for money metrics (a CPA target of 75 means 75.00), a percentage for rate metrics, a plain multiple for roas.",
+  },
+  targetDirection: {
+    type: "string",
+    enum: ["at_most", "at_least"],
+    description:
+      "Which side of the target wins. Defaults to the sensible direction for the metric — at_most for costs, at_least for returns.",
+  },
   dailyBudgetMinor: {
     type: "number",
     description: "Planned daily budget in minor currency units (e.g. cents).",
@@ -167,6 +181,11 @@ const MARKETING_EXPERIMENT_PROPERTIES = {
   },
   winnerCreativeId: { type: ["string", "null"] },
   decisionRationale: { type: "string" },
+  promoteWinner: {
+    type: "boolean",
+    description:
+      "When deciding, also apply the result: the winner goes live (or waits at approved when the Campaign is not active) and the variants running against it retire. Rejected and retired variants are left untouched.",
+  },
   startsAt: { type: ["string", "null"] },
   endsAt: { type: ["string", "null"] },
 } as const;
@@ -6077,13 +6096,22 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_marketing_overview",
     description:
-      "Read the autonomous ad-agency dashboard: Campaign counts and policies, Creative waiting for review, running Experiments, planned daily budget, and the latest recorded spend/impressions/clicks/conversions. The performance figures are immutable snapshots recorded from ad-platform reads; they are not the authorized-budget-change ledger. Needs `read` Marketing access.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      "Read the autonomous ad-agency dashboard: Campaign counts and policies, Creative waiting for review, running Experiments, planned daily budget, and window performance — spend, impressions, clicks, conversions, CTR, CPC, CPA and ROAS — plus an `attention` list naming every Campaign that is off target, off pace, stale or unmeasured. Each Campaign carries its own scored metrics. Money is null when Campaigns run in mixed currencies rather than summed across them. Figures come from recorded platform snapshots; they are not the authorized-budget-change ledger. Needs `read` Marketing access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        windowDays: {
+          type: "number",
+          description: "Days of readouts to measure over. Defaults to 30.",
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "list_marketing_campaigns",
     description:
-      "List Marketing Campaigns — the durable briefs and operating policies that connect ad-platform objects to audience, offer, success metric, owner, budget and autonomy mode. Filter to your Campaigns with `ownedByMe`. Read the live platform separately before changing a linked Campaign. Needs `read` Marketing access.",
+      "List Marketing Campaigns — the durable briefs and operating policies that connect ad-platform objects to audience, offer, success metric, owner, budget and autonomy mode. Every row carries scored `metrics` for the window: totals, CTR/CPC/CPA/ROAS, pacing against the planned daily budget, target attainment and an `attention` list. Filter to your Campaigns with `ownedByMe`. Read the live platform separately before changing a linked Campaign. Needs `read` Marketing access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6091,6 +6119,10 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         channel: MARKETING_CAMPAIGN_PROPERTIES.channel,
         ownedByMe: { type: "boolean" },
         includeArchived: { type: "boolean" },
+        windowDays: {
+          type: "number",
+          description: "Days of readouts to measure over. Defaults to 30.",
+        },
       },
       additionalProperties: false,
     },
@@ -6098,10 +6130,16 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_marketing_campaign",
     description:
-      "Fetch one Marketing Campaign with its full brief, Creative variants, Experiments and recent performance snapshots. Use this before proposing or performing an optimization so you inherit the strategy and the evidence from prior Routines. Needs `read` Marketing access.",
+      "Fetch one Marketing Campaign with its full brief, Creative variants, Experiments, recent performance snapshots, window `metrics` (totals, CTR/CPC/CPA/ROAS, pacing, target attainment, attention) and `lifetime` totals. Use this before proposing or performing an optimization so you inherit the strategy, the evidence and the scoring from prior Routines instead of recomputing them. Needs `read` Marketing access.",
     inputSchema: {
       type: "object",
-      properties: { campaignId: { type: "string" } },
+      properties: {
+        campaignId: { type: "string" },
+        windowDays: {
+          type: "number",
+          description: "Days of readouts to measure over. Defaults to 30.",
+        },
+      },
       required: ["campaignId"],
       additionalProperties: false,
     },
@@ -6190,7 +6228,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_marketing_experiment",
     description:
-      "Edit, start, stop or decide a Marketing Experiment. A decision must name one of its Creative variants as winner and record the evidence-based rationale. Non-draft states need `operate` Marketing access.",
+      "Edit, start, stop or decide a Marketing Experiment. A decision must name one of its Creative variants as winner and record the evidence-based rationale; pass `promoteWinner` to apply that decision to the Creative rather than only recording it. States move draft → running → decided or stopped, and decided and stopped are final. Non-draft states need `operate` Marketing access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6204,7 +6242,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "record_marketing_performance",
     description:
-      "Append an immutable Campaign performance snapshot after reading the live ad platform: period, settled spend, impressions, clicks, conversions and conversion value. Currency must match the Campaign. Put the provider/report name in `source`; optional `raw` preserves bounded provider detail. Needs `operate` Marketing access.",
+      "Append a Campaign performance snapshot after reading the live ad platform: period, settled spend, impressions, clicks, conversions and conversion value. `spendMinor` is in minor units; `conversionValue` is a decimal in whole currency. Currency must match the Campaign. Recording a period that already has a readout restates it and supersedes the old row, so a retried Routine cannot double-count; a period that partly overlaps an existing readout is refused — always use the same window. Put the provider/report name in `source`; optional `raw` preserves bounded provider detail. Needs `operate` Marketing access.",
     inputSchema: {
       type: "object",
       properties: {

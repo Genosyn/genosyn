@@ -32,8 +32,11 @@ export function Marketing() {
       <OL>
         <LI>
           Open <Strong>Marketing → Campaigns → New Campaign</Strong>. Write the audience, offer,
-          operating brief, success metric and target; choose the channel, daily budget, autonomy
-          mode, and owning AI Employee.
+          operating brief and target; choose the channel, daily budget, autonomy mode, owning AI
+          Employee and — once it exists — the ad Connection and platform ids. Pick a{" "}
+          <Strong>success metric Genosyn can measure</Strong> (see below) so the Campaign is scored
+          against its target rather than merely labelled with one. Everything stays editable
+          afterwards from the Campaign page.
         </LI>
         <LI>
           Build testable variants under <Strong>Marketing → Creative</Strong>. Creative moves
@@ -43,7 +46,10 @@ export function Marketing() {
         <LI>
           Under <Strong>Marketing → Experiments</Strong>, compare at least two Creative variants.
           State the hypothesis, primary metric, and minimum sample before starting. A test cannot
-          be decided without a winner from its tested set and a written rationale.
+          be decided without a winner from its tested set and a written rationale. Leave{" "}
+          <Strong>Apply it</Strong> ticked and the decision is carried out rather than just filed:
+          the winner goes live — or waits at approved when the Campaign is not running — and the
+          variants that were serving against it retire.
         </LI>
         <LI>
           Under <Strong>Marketing → AI access</Strong>, grant the Performance Marketer{" "}
@@ -83,14 +89,71 @@ export function Marketing() {
         ]}
       />
 
+      <H2 id="scoring">Targets that are actually checked</H2>
+      <P>
+        A Campaign&apos;s target is only useful if something compares it to the result. Pick a
+        success metric from the measurable set — <Code>conversions</Code>, <Code>cpa</Code>,{" "}
+        <Code>roas</Code>, <Code>conversion_value</Code>, <Code>conversion_rate</Code>,{" "}
+        <Code>ctr</Code>, <Code>cpc</Code>, <Code>cpm</Code>, <Code>clicks</Code>,{" "}
+        <Code>impressions</Code>, <Code>spend</Code> — and Genosyn scores every recorded readout
+        against it. Write the target in the metric&apos;s own unit: whole currency for money
+        metrics (a CPA target of <Code>75</Code> means 75.00), a percentage for rate metrics, a
+        plain multiple for ROAS. The direction defaults to the sensible one — costs are met at or
+        below, returns at or above — and you can override it.
+      </P>
+      <P>
+        You can still name any metric you like; Genosyn stores it and says plainly that it cannot
+        judge it, rather than showing a target nobody checks. The command center, the Campaign
+        list, the Campaign page, and the AI Employee tools all read the same computed numbers:
+        spend, CTR, CPC, CPA, ROAS, pace against the planned daily budget, and target attainment.
+      </P>
+      <Callout kind="info" title="What lands on the command center">
+        Marketing leads with <Strong>Needs attention</Strong>: Campaigns off target, spending ahead
+        of plan, underdelivering, running with no recorded performance, running on a stale readout,
+        active with no live Creative, Creative waiting for review, and Experiments running past two
+        weeks with no decision. An empty list is the real signal that nothing needs you.
+      </Callout>
+
       <H2 id="performance">Performance that survives the next run</H2>
       <P>
-        Every platform read can append an immutable Campaign performance snapshot: exact period,
-        settled spend, impressions, clicks, conversions, conversion value, currency, and source.
-        The next Routine inherits the evidence instead of reconstructing it from a previous chat.
-        This is separate from <Code>AdSpendEvent</Code>, which records authorized budget changes
-        rather than settled spend.
+        Every platform read appends a Campaign performance snapshot: exact period, settled spend,
+        impressions, clicks, conversions, conversion value, currency, and source.{" "}
+        <Code>spendMinor</Code> is in minor units; <Code>conversionValue</Code> is a decimal in
+        whole currency. The next Routine inherits the evidence instead of reconstructing it from a
+        previous chat. This is separate from <Code>AdSpendEvent</Code>, which records authorized
+        budget changes rather than settled spend.
       </P>
+      <P>
+        Readouts are append-only, and two rules keep the totals honest. Recording a period that
+        already has a readout <Strong>restates</Strong> it: the old row is kept as history, marked
+        superseded, and stops counting — so a Routine that retries after a crash cannot double the
+        month&apos;s spend, and a platform that settles its numbers late can correct them. A period
+        that <em>partly</em> overlaps an existing readout is <Strong>refused</Strong>, because
+        adding a daily readout to the weekly one containing it counts the same money twice. Record
+        the same window every time; the Campaign page shows restated rows struck through.
+      </P>
+
+      <H2 id="lifecycle">Lifecycle</H2>
+      <P>
+        States move in one direction and the workspace enforces it, so an <Code>operate</Code> grant
+        cannot take a half-written draft straight to live:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Campaign</Strong> — draft → ready → active ⇄ paused → completed, archived from
+          anywhere. Ready validates the brief; active additionally refuses an unlinked platform
+          Campaign, and autonomous refuses an unowned one.
+        </LI>
+        <LI>
+          <Strong>Creative</Strong> — draft → review → approved or rejected; approved → active;
+          active → retired; rejected and retired reopen as drafts. Creative can only go live under
+          a Campaign that is itself active.
+        </LI>
+        <LI>
+          <Strong>Experiment</Strong> — draft → running → decided or stopped. Decided and stopped
+          are final, and starting or ending one stamps its own clock.
+        </LI>
+      </UL>
 
       <H2 id="model">The safety model, first</H2>
       <P>

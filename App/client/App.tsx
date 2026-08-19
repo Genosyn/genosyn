@@ -131,13 +131,12 @@ import RevenuePartnerships from "./pages/RevenuePartnerships";
 import RevenueSetup from "./pages/RevenueSetup";
 import RevenueDataQuality from "./pages/RevenueDataQuality";
 import MarketingLayout from "./pages/MarketingLayout";
-import {
-  MarketingAiAccessPage,
-  MarketingCampaignsPage,
-  MarketingCreativePage,
-  MarketingExperimentsPage,
-  MarketingOverviewPage,
-} from "./pages/MarketingPages";
+import { MarketingAiAccessPage } from "./pages/MarketingAiAccess";
+import { MarketingCampaignDetailPage } from "./pages/MarketingCampaignDetail";
+import { MarketingCampaignsPage } from "./pages/MarketingCampaigns";
+import { MarketingCreativePage } from "./pages/MarketingCreative";
+import { MarketingExperimentsPage } from "./pages/MarketingExperiments";
+import { MarketingOverviewPage } from "./pages/MarketingOverview";
 import CustomersIndex from "./pages/CustomersIndex";
 import CustomerNew from "./pages/CustomerNew";
 import CustomerDetail from "./pages/CustomerDetail";
@@ -537,6 +536,7 @@ function CompanyRoutes({
           <Route path="marketing" element={<MarketingLayout company={company} />}>
             <Route index element={<MarketingOverviewPage />} />
             <Route path="campaigns" element={<MarketingCampaignsPage />} />
+            <Route path="campaigns/:campaignId" element={<MarketingCampaignDetailPage />} />
             <Route path="creative" element={<MarketingCreativePage />} />
             <Route path="experiments" element={<MarketingExperimentsPage />} />
             <Route path="ai-access" element={<MarketingAiAccessPage />} />
