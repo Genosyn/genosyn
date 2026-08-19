@@ -40,12 +40,12 @@ const exec = promisify(execFile);
 /**
  * End-to-end exercise of the App-owned repository checkout against real Git.
  *
- * These deliberately run with the *default* coding-tools configuration — which
- * is `enabled: true, executionMode: "disabled"` — because the single most
- * important property of this feature is that it works on a standard install
- * where the model sandbox is switched off. If someone reinstates the coding
- * gate on server-owned Git, every test in this file fails, which is exactly
- * what should happen.
+ * These deliberately run with command execution switched off — the mode boot
+ * resolves the shipped `bubblewrap` default to on a host whose sandbox cannot
+ * start — because the single most important property of this feature is that
+ * it works on an install where the model sandbox never comes up. If someone
+ * reinstates the coding gate on server-owned Git, every test in this file
+ * fails, which is exactly what should happen.
  */
 
 let dataDir: string;
@@ -60,7 +60,7 @@ const originalCodingTools = { ...codingTools };
 before(() => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-repo-workspace-"));
   (config as { dataDir: string }).dataDir = dataDir;
-  // The standard Docker default: command execution off entirely.
+  // What a host without a usable sandbox resolves to: execution off entirely.
   codingTools.enabled = true;
   codingTools.executionMode = "disabled";
   codingTools.allowUnsafeHostExecution = false;

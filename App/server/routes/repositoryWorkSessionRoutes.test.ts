@@ -41,11 +41,26 @@ let baseUrl = "";
 let dataDir: string;
 const originalDataDir = config.dataDir;
 let actingUserId: string | null = null;
+const codingTools = config.agent.codingTools as {
+  enabled: boolean;
+  executionMode: "host" | "bubblewrap" | "disabled";
+  allowUnsafeHostExecution: boolean;
+};
+const originalCodingTools = { ...codingTools };
 
 before(async () => {
   await initTestDb();
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-session-routes-"));
   (config as { dataDir: string }).dataDir = dataDir;
+  // The App-owned checkout runs Git through whatever execution mode boot
+  // settled on, and no server boots here — so the shipped `bubblewrap` default
+  // would send every Git child through a sandbox this host may not have. Pin
+  // the mode `resolveCodingExecutionMode` resolves to wherever bubblewrap
+  // cannot run (services/runtimeSecurity.ts), so these tests pin the route
+  // contract rather than the host's user-namespace policy.
+  codingTools.enabled = true;
+  codingTools.executionMode = "disabled";
+  codingTools.allowUnsafeHostExecution = false;
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -68,6 +83,7 @@ after(async () => {
   });
   await closeTestDb();
   (config as { dataDir: string }).dataDir = originalDataDir;
+  Object.assign(codingTools, originalCodingTools);
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
