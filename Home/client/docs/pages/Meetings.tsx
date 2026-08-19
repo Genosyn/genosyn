@@ -43,6 +43,8 @@ export function Meetings() {
       <P>
         Meetings rides on the existing <DocLink to="/docs/integrations">Google integration</DocLink>
         , so a calendar is one Google connection that granted the Calendar product at consent time.
+        Connecting, disconnecting and configuring a calendar are owner and admin actions; any member
+        can sync one and work with the meetings it produces.
       </P>
       <OL>
         <LI>
@@ -110,9 +112,9 @@ export function Meetings() {
       <H2 id="auto">Recording automatically</H2>
       <P>
         Each calendar has an <Strong>auto-record</Strong> setting on{" "}
-        <Strong>Meetings → Calendars</Strong>. It is <Strong>off</Strong> by default and stays off
-        until you change it, because the people on the other end of a call did not agree to
-        anything.
+        <Strong>Meetings → Calendars</Strong>, which only owners and admins can change. It is{" "}
+        <Strong>off</Strong> by default and stays off until you change it, because the people on the
+        other end of a call did not agree to anything.
       </P>
       <UL>
         <LI>
@@ -173,9 +175,10 @@ export function Meetings() {
 
       <H2 id="ai">Giving an AI employee access</H2>
       <P>
-        Meetings access is granted per calendar under <Strong>Meetings → AI access</Strong>. Members
-        are not listed there: a human with company access already sees every meeting, and this table
-        governs only what the AI surface can reach.
+        Owners and admins grant Meetings access per calendar under{" "}
+        <Strong>Meetings → AI access</Strong>. Members are not listed there: a human with company
+        access already sees every meeting, and this table governs only what the AI surface can
+        reach.
       </P>
       <UL>
         <LI>

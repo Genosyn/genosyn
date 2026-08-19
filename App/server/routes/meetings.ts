@@ -8,7 +8,12 @@ import { CalendarEvent } from "../db/entities/CalendarEvent.js";
 import { CALENDAR_ACCESS_LEVELS } from "../db/entities/EmployeeCalendarGrant.js";
 import { CALENDAR_AUTO_RECORD_MODES } from "../db/entities/CalendarAccount.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
-import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
+import {
+  onRoutePaths,
+  requireAuth,
+  requireCompanyMember,
+  requireCompanyRoleForMutations,
+} from "../middleware/auth.js";
 import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import {
@@ -59,6 +64,47 @@ export const meetingsRouter = Router({ mergeParams: true });
 
 meetingsRouter.use(requireAuth);
 meetingsRouter.use(requireCompanyMember);
+
+/**
+ * Who may change the recording *policy*, as opposed to working with meetings.
+ *
+ * Two decisions are admin-only, and they are the two that can put a bot in a
+ * room nobody invited it to:
+ *
+ *   - `/meetings/ai-access` (grant + revoke) — a `record` grant lets an AI
+ *     Employee read every transcript on a calendar and start the notetaker on
+ *     a live call. Granting that is the same class of act as
+ *     `/revenue/ai-access` or `/signatures/ai-access`, and is gated the same.
+ *   - `/meetings/calendars` and `/meetings/calendars/:id` — connecting a
+ *     calendar spends a Google Connection's credentials, and the PATCH body
+ *     carries `autoRecord` and `notetakerEmployeeId`, which together decide
+ *     whether a recorder joins uninvited (see `CalendarAccount`).
+ *
+ * Everything else stays collaborative, which is why the matchers are shaped
+ * the way they are rather than a bare `/meetings` prefix:
+ *
+ *   - `/meetings/calendars/:id/sync` is deliberately *outside* the gate. It
+ *     refreshes the mirror under whatever policy an admin already set — it
+ *     cannot arm a meeting a policy would not have armed — and the Sync button
+ *     in `client/pages/MeetingsCalendars.tsx` is shown to every member, unlike
+ *     the connect/disconnect/auto-record controls beside it.
+ *   - Meeting-level work (create, upload a recording or transcript, add
+ *     attendees, process, link, start the notetaker on one call) is ordinary
+ *     use of the section by a human who can already see the meeting, so it
+ *     stays open to members — the same line revenue draws by gating
+ *     `/revenue/ai-access` while leaving contact writes alone.
+ *
+ * `onRoutePaths` is load-bearing: this router is mounted at
+ * `/api/companies/:cid` alongside its siblings, so an unscoped `.use()` guard
+ * would also intercept requests bound for routers mounted after it. The regexes
+ * are anchored so `/meetings/calendars/:id/sync` does not fall in.
+ */
+meetingsRouter.use(
+  onRoutePaths(
+    ["/meetings/ai-access", /^\/meetings\/calendars$/, /^\/meetings\/calendars\/[^/]+$/],
+    requireCompanyRoleForMutations("admin"),
+  ),
+);
 
 /**
  * Express 4 does not await a handler, so a rejected promise escapes as an
