@@ -72,6 +72,7 @@ you want as a contributor. `:latest` tracks the newest *release*, not main tip.
 ```bash
 # Product app — API + UI on one port
 docker run -d --name genosyn -p 8471:8471 \
+  --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
   -v genosyn-data:/app/data \
   ghcr.io/genosyn/app:main
 # → http://localhost:8471
@@ -94,9 +95,17 @@ an image from the repository root:
 ```bash
 docker build -f App/Dockerfile -t genosyn-app:local .
 docker run -d --name genosyn -p 8471:8471 \
+  --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
   -v genosyn-data:/app/data \
   genosyn-app:local
 ```
+
+Those two security options are what let bubblewrap start: it creates a user
+namespace and mounts its own `/proc` for every command an AI Employee runs, and
+Docker's stock profile denies both. Leave them out and the container boots with
+command execution disabled — no `bash` tool, no repository materialization, no
+connection test — which is a confusing way to review a coding change. The
+`genosyn` CLI passes them for you.
 
 ---
 

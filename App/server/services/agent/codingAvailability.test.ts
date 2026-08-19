@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   codingRuntimeAvailability,
+  codingSandboxRemediation,
   noteCodingSandboxFallback,
   requireCodingRuntime,
 } from "./codingAvailability.js";
@@ -79,7 +80,37 @@ test("a host that could not start the sandbox says so instead of stating policy"
     if (fallen.available) assert.fail("expected the fallback to stay unavailable");
     assert.match(fallen.reason, /no bubblewrap executable at \/usr\/bin\/bwrap/);
     assert.match(fallen.reason, /unprivileged user namespaces/);
+    assert.match(fallen.reason, /apt-get install bubblewrap/);
   } finally {
     noteCodingSandboxFallback(null);
   }
+});
+
+test("the stock-container cause names the options that fix it", () => {
+  // The reason a Member actually reads on the Repository page. Docker's
+  // default profile is the most common cause and the least guessable one, so
+  // the message carries the exact options rather than a policy statement.
+  const denied =
+    "bwrap: No permissions to create new namespace, likely because the kernel does not allow non-privileged user namespaces.";
+  noteCodingSandboxFallback(denied);
+  try {
+    const fallen = codingRuntimeAvailability({
+      enabled: true,
+      executionMode: "disabled",
+      allowUnsafeHostExecution: false,
+    });
+    assert.equal(fallen.available, false);
+    if (fallen.available) assert.fail("expected the fallback to stay unavailable");
+    assert.match(fallen.reason, /seccomp=unconfined/);
+    assert.match(fallen.reason, /systempaths=unconfined/);
+    assert.match(fallen.reason, /genosyn upgrade/);
+  } finally {
+    noteCodingSandboxFallback(null);
+  }
+
+  // A missing executable is a different problem with a different fix, so it
+  // does not get the container advice.
+  const missing = codingSandboxRemediation("no bubblewrap executable at /usr/bin/bwrap");
+  assert.match(missing, /apt-get install bubblewrap/);
+  assert.doesNotMatch(missing, /seccomp/);
 });

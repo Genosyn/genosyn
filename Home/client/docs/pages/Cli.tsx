@@ -205,6 +205,17 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             ),
           },
           {
+            term: "GENOSYN_SANDBOX",
+            def: (
+              <>
+                Create the container with the two Docker options bubblewrap needs to isolate what an
+                AI Employee runs (<Code>seccomp=unconfined</Code>,{" "}
+                <Code>systempaths=unconfined</Code>). Default <Code>1</Code>; set <Code>0</Code> to
+                keep the stock profile, which leaves Genosyn booting with command execution off.
+              </>
+            ),
+          },
+          {
             term: "GENOSYN_AUTO_UPDATE",
             def: (
               <>

@@ -442,7 +442,10 @@ export function Repositories() {
         The per-employee checkout is materialized only when coding tools are enabled and the
         execution mode is not <Code>disabled</Code>. The standard Docker install ships{" "}
         <Code>bubblewrap</Code>, so it is — unless boot found no usable Linux user namespaces and
-        fell back. A subscription-authenticated model needs that working bubblewrap either way.
+        fell back, which is what a container created without{" "}
+        <Code>--security-opt seccomp=unconfined --security-opt systempaths=unconfined</Code> does.{" "}
+        <Code>genosyn upgrade</Code> recreates such a container with them. A
+        subscription-authenticated model needs that working bubblewrap either way.
         See{" "}
         <DocLink to="/docs/models">AI Models</DocLink> for the modes and{" "}
         <DocLink to="/docs/self-hosting">Configuration</DocLink> for the setting. The browser editor

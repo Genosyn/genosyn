@@ -10,6 +10,7 @@ import {
 } from "./repositories.js";
 import type { Repository } from "../db/entities/Repository.js";
 import type { GithubRepoCredential } from "./repoSync.js";
+import { config } from "../../config.js";
 
 const credential: GithubRepoCredential = {
   connectionId: "connection-1",
@@ -56,6 +57,34 @@ test("requires an allowlist match to disambiguate multiple GitHub Connections", 
     findGithubRepoCredential("https://github.com/acme/web.git", [otherConnection, credential]),
     credential,
   );
+});
+
+/**
+ * The panel a Member reads when a repository will not sync. It runs one
+ * `ls-remote` in a directory the server just created, so it is not the
+ * command-execution surface the coding-runtime gate guards — and an install
+ * whose sandbox could not start still clones, fetches and pushes the
+ * server-owned checkout. Leaving the diagnostic gated meant the heavier
+ * credentialed operation ran while the question "is this URL and token right?"
+ * answered with a paragraph about bubblewrap.
+ */
+test("connection testing survives an install with no usable sandbox", async () => {
+  const codingTools = config.agent.codingTools as { executionMode: string };
+  const original = codingTools.executionMode;
+  codingTools.executionMode = "disabled";
+  try {
+    const result = await testRepositoryConnection({
+      authMode: "none",
+      // RFC 6761 reserves .invalid, so this fails in DNS rather than reaching
+      // anything — the point is which error comes back.
+      gitUrl: "https://genosyn.invalid/acme/repo.git",
+    } as Repository);
+
+    assert.equal(result.ok, false);
+    assert.doesNotMatch(result.message, /Command execution is disabled/);
+  } finally {
+    codingTools.executionMode = original;
+  }
 });
 
 test("connection testing rejects a credential-bearing legacy URL before network access", async () => {

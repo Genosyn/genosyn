@@ -24,8 +24,12 @@ autonomously with AI employees**.
   through the official pinned `@openai/codex` app-server; this is a narrow
   official runtime path, not a return to generic provider CLI harnesses. The
   standard Docker default runs it beside bubblewrap-isolated coding and
-  repository work; where Linux user namespaces are unavailable, boot falls back
-  to disabled and this path still works without coding tools.
+  repository work — the CLI creates the container with the two options the
+  sandbox needs (`--security-opt seccomp=unconfined`,
+  `--security-opt systempaths=unconfined`), since a stock container can neither
+  create a user namespace nor mount its own `/proc`; where user namespaces are
+  unavailable anyway, boot falls back to disabled and this path still works
+  without coding tools.
 
 Read `ROADMAP.md` for the full vocabulary, milestones, and backlog. **Do not
 duplicate content from ROADMAP.md here** — link to it.
@@ -290,9 +294,10 @@ working tree or injected into model coding tools.
   process-local. The supported topology for this auth mode is one trusted,
   single-tenant App process. The standard Docker installer supports it in the
   default bubblewrap execution mode, alongside isolated `bash` and repository
-  work; on a host whose namespaces bubblewrap cannot use, boot falls back to
-  disabled and the path still works without coding tools, repository
-  materialization, or user-configured stdio MCP. Horizontally
+  work, and creates the container with the security options the sandbox needs
+  (`CLI/genosyn`, `sandbox_requested`); on a host whose namespaces bubblewrap
+  cannot use, boot falls back to disabled and the path still works without
+  coding tools, repository materialization, or user-configured stdio MCP. Horizontally
   scaled installs must use API-key models until the coordination primitives are
   ready. Subscription turns serialize on the per-model lock and do not expose
   `delegate_parallel_work`; a delegated copy would otherwise wait on the lock

@@ -113,11 +113,30 @@ export function SelfHosting() {
         Bubblewrap needs Linux unprivileged user namespaces, so Genosyn probes the sandbox at boot
         and falls back to <Code>disabled</Code> when it cannot start, logging the reason. In that
         mode there are no coding tools, no repository materialization, and no user-configured stdio
-        MCP, and subscription Runs still work. The fallback never reaches for host execution. Do
-        not make the App container privileged or disable its security profile to force bubblewrap
-        through Docker&apos;s namespace policy — check the model card&apos;s isolation status
-        instead. Separately acknowledged host mode exposes path-confined file and search tools and
-        permits host child processes, so it rejects subscription auth.
+        MCP, and subscription Runs still work. The fallback never reaches for host execution.
+        Separately acknowledged host mode exposes path-confined file and search tools and permits
+        host child processes, so it rejects subscription auth.
+      </Callout>
+      <Callout kind="info" title="A container has to be created able to start that sandbox.">
+        Bubblewrap creates a user namespace and mounts its own <Code>/proc</Code> for every command.
+        Docker&apos;s stock profile denies both — the default seccomp filter rejects{" "}
+        <Code>clone</Code> and <Code>unshare</Code> carrying the namespace flags, and its masked{" "}
+        <Code>/proc</Code> entries are locked mounts a nested namespace may not mount over. So the
+        container is created with{" "}
+        <Code>--security-opt seccomp=unconfined --security-opt systempaths=unconfined</Code>, which
+        the <DocLink to="/docs/cli">CLI</DocLink> passes for you; <Code>genosyn upgrade</Code> also
+        recreates an older container that predates them. What that loosens is the App container,
+        Genosyn&apos;s own process. What it buys is the stronger boundary around the untrusted part:
+        each AI-authored command gets its own user, PID, IPC and UTS namespaces, a fresh{" "}
+        <Code>/proc</Code>, no <Code>/sys</Code>, no network, and a filesystem view holding nothing
+        but its workspace — and the container still runs unprivileged as <Code>node</Code> with no
+        added capabilities. Never add <Code>--privileged</Code> or{" "}
+        <Code>--cap-add SYS_ADMIN</Code> instead; those hand the container the host, and neither is
+        needed. To keep the stock profile, install with <Code>GENOSYN_SANDBOX=0</Code> and run
+        without command execution. If the sandbox still cannot start, the host itself is refusing
+        unprivileged user namespaces: on Ubuntu 24.04 and later check{" "}
+        <Code>kernel.apparmor_restrict_unprivileged_userns</Code> and keep Docker current, and on
+        Debian check <Code>kernel.unprivileged_userns_clone</Code>.
       </Callout>
       <Callout kind="warn" title="Host execution is an explicit unsafe compatibility mode.">
         A trusted, single-company operator can select <Code>host</Code> and separately set{" "}

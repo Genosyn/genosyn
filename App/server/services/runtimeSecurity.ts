@@ -8,6 +8,7 @@ import { getPublicUrl, isPublicUrlConfigured } from "./publicUrl.js";
 import { buildBubblewrapCommandArgs } from "./agent/bubblewrap.js";
 import { getEffectiveInstanceSecrets, isStrongInstanceSecret } from "../lib/instanceSecrets.js";
 import {
+  codingSandboxRemediation,
   noteCodingSandboxFallback,
   type CodingExecutionMode,
 } from "./agent/codingAvailability.js";
@@ -115,7 +116,7 @@ export function resolveCodingExecutionMode(): void {
   noteCodingSandboxFallback(unusable);
   // eslint-disable-next-line no-console
   console.warn(
-    `[security] command execution is disabled: the coding sandbox cannot start (${unusable}). Genosyn only runs commands behind bubblewrap, so install it on a Linux host with unprivileged user namespaces to turn command execution back on.`,
+    `[security] command execution is disabled: the coding sandbox cannot start (${unusable}). Genosyn only runs commands behind bubblewrap. ${codingSandboxRemediation(unusable)}`,
   );
 }
 
@@ -182,7 +183,7 @@ export function validateRuntimeSecurity(): void {
     const probeError = bubblewrapProbeError();
     if (probeError) {
       problems.push(
-        `bubblewrap cannot create the required namespaces (${probeError}); enable unprivileged user namespaces in the container runtime`,
+        `bubblewrap cannot create the required namespaces (${probeError}); ${codingSandboxRemediation(probeError)}`,
       );
     }
   }

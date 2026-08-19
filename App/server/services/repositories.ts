@@ -158,6 +158,7 @@ async function runGit(
   args: string[],
   extraEnv: Record<string, string> = {},
   credentialHelper?: string,
+  serverOwned = false,
 ): Promise<{ stdout: string }> {
   return runWorkspaceGit({
     workspaceRoot,
@@ -165,6 +166,7 @@ async function runGit(
     args,
     extraEnv,
     credentialHelper,
+    serverOwned,
   });
 }
 
@@ -525,12 +527,20 @@ export async function testRepositoryConnection(repo: Repository): Promise<TestCo
       env.GIT_SSH_COMMAND = sshCommandFor(workspaceVisiblePath(tmp, keyPath));
     }
 
+    // Server-owned: `tmp` is an empty directory this function just created,
+    // no model process can reach it, and `ls-remote` writes nothing into it.
+    // The coding-runtime gate exists for Git reading executable configuration
+    // out of a model-controlled tree, which this is not — and gating it here
+    // left the one diagnostic that explains a bad URL or an expired token
+    // dead on installs that clone, fetch and push the server-owned checkout
+    // over the very same exemption.
     const { stdout } = await runGit(
       tmp,
       tmp,
       ["ls-remote", "--symref", repo.gitUrl, "HEAD"],
       env,
       credentialHelper,
+      true,
     );
     const m = stdout.match(/ref:\s+refs\/heads\/(\S+)\s+HEAD/);
     return {

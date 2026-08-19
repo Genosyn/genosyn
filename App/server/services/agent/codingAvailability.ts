@@ -27,6 +27,22 @@ export function noteCodingSandboxFallback(reason: string | null): void {
 }
 
 /**
+ * The one thing the person reading this can do about it.
+ *
+ * A cause with no remedy attached is where this message used to stop, and the
+ * most common cause by far is one an operator would never guess: a container
+ * gets no user namespaces and no private `/proc` under a stock Docker profile,
+ * so the sandbox cannot start no matter how the host kernel is configured.
+ * Name the two options and the command that applies them.
+ */
+export function codingSandboxRemediation(reason: string): string {
+  if (reason.startsWith("no bubblewrap executable")) {
+    return "Install bubblewrap on the host (Debian/Ubuntu: `apt-get install bubblewrap`), or run the standard Docker image, which ships it.";
+  }
+  return "Under Docker, the container has to be created with `--security-opt seccomp=unconfined --security-opt systempaths=unconfined` — `genosyn upgrade` recreates it that way. On a bare Linux host, allow unprivileged user namespaces.";
+}
+
+/**
  * One fail-closed availability decision for every coding execution seam.
  *
  * Host mode is deliberately a two-part opt-in: selecting `host` alone does
@@ -41,7 +57,7 @@ export function codingRuntimeAvailability(
     return {
       available: false,
       reason: sandboxFallbackReason
-        ? `Command execution is disabled: the coding sandbox could not start (${sandboxFallbackReason}). Genosyn runs commands only behind bubblewrap, which needs Linux unprivileged user namespaces.`
+        ? `Command execution is disabled: the coding sandbox could not start (${sandboxFallbackReason}). Genosyn runs commands only behind bubblewrap, which needs Linux unprivileged user namespaces. ${codingSandboxRemediation(sandboxFallbackReason)}`
         : "Command execution is disabled on this Genosyn installation.",
     };
   }

@@ -69,8 +69,12 @@ don't re-litigate them.
     does coding-tools `host` mode because it permits same-UID child processes.
     Working `bubblewrap` — the shipped default, and what the standard Docker
     image runs — supports subscription sign-in and Runs alongside isolated
-    `bash` and repository work. Where the sandbox cannot start, boot falls back
-    to the safe `disabled` mode, which supports the same sign-in and Runs
+    `bash` and repository work. It only works if the container was created able
+    to start it: Docker's stock profile denies both the namespace `clone` and
+    the private `/proc` mount, so the CLI passes `seccomp=unconfined` and
+    `systempaths=unconfined`, and `genosyn upgrade` recreates a container that
+    predates them. Where the sandbox cannot start, boot falls back to the safe
+    `disabled` mode, which supports the same sign-in and Runs
     without coding tools, repository materialization, or user-configured stdio
     MCP. This mode
     supports one App replica. Anthropic subscription credentials remain

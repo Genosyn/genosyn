@@ -194,6 +194,10 @@ spec:
           image: ghcr.io/genosyn/app:latest
           ports:
             - containerPort: 8471
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+            procMount: Unmasked
           envFrom:
             - secretRef:
                 name: genosyn-secrets
@@ -250,6 +254,22 @@ spec:
         <Strong>Recreate</Strong> over <Strong>RollingUpdate</Strong> because an RWO volume can only
         attach to one pod at a time. The old pod must terminate before the new one schedules.
       </P>
+      <Callout kind="info" title="The securityContext is what command execution runs on.">
+        Genosyn runs every command an AI Employee asks for inside <Code>bubblewrap</Code>, which
+        creates a user namespace and mounts its own <Code>/proc</Code>. A stock pod may do neither:
+        the default seccomp profile rejects the namespace flags, and the runtime&apos;s masked{" "}
+        <Code>/proc</Code> entries are locked mounts a nested namespace may not mount over. The two
+        fields above are the cluster equivalents of the Docker options the{" "}
+        <DocLink to="/docs/cli">CLI</DocLink> passes. Both are gated:{" "}
+        <Code>procMount: Unmasked</Code> needs the <Code>ProcMountType</Code> feature gate and,
+        depending on your Kubernetes version, either user namespaces (<Code>hostUsers: false</Code>{" "}
+        on the pod) or a privileged container, and Pod Security admission permits neither field
+        below the <Code>privileged</Code> level — <Code>baseline</Code> and <Code>restricted</Code>{" "}
+        reject both. Genosyn itself never needs a privileged container. If your cluster will not
+        take these fields, delete them: Genosyn then boots with command execution disabled and logs
+        the reason — chat, Routines, Integrations, browser work, and the repository editor all still
+        work; builds, test suites, and the per-employee checkout do not.
+      </Callout>
 
       <H2 id="upgrading">Upgrading</H2>
       <P>

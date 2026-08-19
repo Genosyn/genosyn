@@ -22,8 +22,9 @@ export type WorkspaceGitOptions = {
   /** Optional standard input for plumbing commands such as update-ref. */
   stdin?: string;
   /**
-   * The checkout is App-owned: it lives under `.private/`, no model process
-   * can write to it, and every change goes through an authenticated Member
+   * The tree is App-owned: it lives under `.private/` (or is a temporary
+   * directory the server just created for one command), no model process can
+   * write to it, and every change goes through an authenticated Member
    * request. Such a tree skips {@link requireCodingRuntime}.
    *
    * The coding-runtime gate exists because Git reads executable configuration

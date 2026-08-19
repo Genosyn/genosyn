@@ -75,6 +75,8 @@ export function Install() {
       <Pre lang="bash">{`docker run -d \\
   --name genosyn \\
   --restart unless-stopped \\
+  --security-opt seccomp=unconfined \\
+  --security-opt systempaths=unconfined \\
   -p 8471:8471 \\
   -v genosyn-data:/app/data \\
   ghcr.io/genosyn/app:latest`}</Pre>
@@ -82,6 +84,18 @@ export function Install() {
         Everything user-generated lives under <Code>/app/data</Code> inside the container. The named
         volume above keeps it across container restarts and upgrades.
       </P>
+      <Callout kind="info" title="The two security options are what make command execution work.">
+        Genosyn runs every command an AI Employee asks for inside{" "}
+        <Code>bubblewrap</Code>, which has to create a user namespace and mount its own{" "}
+        <Code>/proc</Code>. Docker&apos;s stock profile denies both, so without these options the
+        sandbox cannot start, and Genosyn boots with command execution — builds, test suites,
+        repository connection tests — switched off. They loosen the App container, not the sandbox:
+        AI-authored commands still get their own namespaces, a private <Code>/proc</Code>, no
+        network, and a filesystem view containing only their workspace, and the container itself
+        still runs unprivileged with no added capabilities. Leave them out if you would rather run
+        without command execution. A container cannot be granted them later, so changing your mind
+        means recreating it. See <DocLink to="/docs/self-hosting">Configuration</DocLink>.
+      </Callout>
 
       <H2 id="next-steps">Next steps</H2>
       <P>
