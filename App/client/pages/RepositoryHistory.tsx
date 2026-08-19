@@ -1,12 +1,22 @@
 import React from "react";
-import { GitBranch, GitCommitHorizontal, History, RefreshCw, User } from "lucide-react";
+import { Link } from "react-router-dom";
+import { FileCode, GitBranch, GitCommitHorizontal, History, RefreshCw, User } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { formatRelative } from "../components/decisions/relative";
+import { BranchPicker, branchLabelFor } from "../components/repositories/BranchPicker";
 import { DiffStats, DiffView } from "../components/repositories/DiffView";
-import { api, RepositoryCommit, RepositoryCommitDiff, RepositoryHistoryResponse } from "../lib/api";
+import {
+  api,
+  RepositoryBranch,
+  RepositoryBranchesResponse,
+  RepositoryCommit,
+  RepositoryCommitDiff,
+  RepositoryHistoryResponse,
+  RepositoryStatus,
+} from "../lib/api";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 
 /**
@@ -28,20 +38,30 @@ export default function RepositoryHistory() {
   const repoId = repo?.id ?? null;
 
   const [commits, setCommits] = React.useState<RepositoryCommit[] | null>(null);
+  const [status, setStatus] = React.useState<RepositoryStatus | null>(null);
+  const [branches, setBranches] = React.useState<RepositoryBranch[]>([]);
   const [selectedSha, setSelectedSha] = React.useState<string | null>(null);
   const [detail, setDetail] = React.useState<RepositoryCommitDiff | null>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
   const [reloading, setReloading] = React.useState(false);
+  const [switching, setSwitching] = React.useState(false);
   // Clicking down a long list must not let an earlier, slower diff win.
   const selectTokenRef = React.useRef(0);
 
   const reload = React.useCallback(async () => {
     if (!base) return;
     try {
-      const response = await api.get<RepositoryHistoryResponse>(
-        `${base}/workspace/history?limit=${HISTORY_LIMIT}`,
-      );
-      setCommits(response.commits);
+      // The list is "commits on whatever branch is checked out", so the branch
+      // is part of the answer rather than a detail — this page named neither
+      // it nor the branches you could read instead.
+      const [history, nextStatus, branchRows] = await Promise.all([
+        api.get<RepositoryHistoryResponse>(`${base}/workspace/history?limit=${HISTORY_LIMIT}`),
+        api.get<RepositoryStatus>(`${base}/workspace/status`),
+        api.get<RepositoryBranchesResponse>(`${base}/workspace/branches`),
+      ]);
+      setCommits(history.commits);
+      setStatus(nextStatus);
+      setBranches(branchRows.branches);
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), "error");
       setCommits([]);
@@ -50,6 +70,8 @@ export default function RepositoryHistory() {
 
   React.useEffect(() => {
     setCommits(null);
+    setStatus(null);
+    setBranches([]);
     setSelectedSha(null);
     setDetail(null);
     reload();
@@ -90,6 +112,21 @@ export default function RepositoryHistory() {
     }
   }
 
+  async function checkout(name: string) {
+    setSwitching(true);
+    setSelectedSha(null);
+    setDetail(null);
+    try {
+      await api.post(`${base}/workspace/checkout`, { name });
+      await reload();
+      toast(`Reading ${name}`, "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setSwitching(false);
+    }
+  }
+
   if (!repo) {
     return (
       <div className="flex h-32 items-center justify-center">
@@ -97,6 +134,8 @@ export default function RepositoryHistory() {
       </div>
     );
   }
+
+  const { label: branchName } = branchLabelFor(status, repo.defaultBranch);
 
   return (
     <div className="pb-12">
@@ -110,14 +149,29 @@ export default function RepositoryHistory() {
               History
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-              Commits on the branch currently checked out in {repo.name}. Pick one to read its diff.
+              Everything saved into <span className="font-mono">{branchName}</span> so far. Pick one
+              to see exactly what changed.
             </p>
           </div>
         </div>
-        <Button variant="secondary" onClick={refresh} disabled={reloading} className="shrink-0">
-          {reloading ? <Spinner size={14} /> : <RefreshCw size={14} />}
-          Refresh
-        </Button>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <BranchPicker
+            status={status}
+            branches={branches}
+            defaultBranch={repo.defaultBranch}
+            disabled={reloading || switching}
+            onCheckout={(name) => void checkout(name)}
+          />
+          <Button
+            variant="secondary"
+            onClick={refresh}
+            disabled={reloading || switching}
+            className="shrink-0"
+          >
+            {reloading ? <Spinner size={14} /> : <RefreshCw size={14} />}
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="mt-6 flex flex-col gap-4 lg:flex-row">
@@ -127,8 +181,14 @@ export default function RepositoryHistory() {
               <Spinner size={20} />
             </div>
           ) : commits.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-              No commits yet. The first commit from the Files page starts the history.
+            <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-10 text-center dark:border-slate-700 dark:bg-slate-900">
+              <p className="text-sm text-slate-500 dark:text-slate-400">Nothing committed yet.</p>
+              <Link
+                to={`/c/${company.slug}/repositories/${repo.slug}/files`}
+                className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-300 dark:hover:text-indigo-200"
+              >
+                <FileCode size={14} /> Edit a file to start the history
+              </Link>
             </div>
           ) : (
             <div className="max-h-[70vh] overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">

@@ -1,10 +1,11 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { Settings, Trash2 } from "lucide-react";
+import { Github, Settings, Trash2 } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { useToast } from "../components/ui/Toast";
+import { ConnectGithubModal } from "../components/repositories/ConnectGithubModal";
 import { api, Repository } from "../lib/api";
 import { RepoFormFields, RepoFormState, repoFormToPayload, repoToForm } from "./RepositoryForm";
 import { useRepositoriesContext } from "./RepositoriesLayout";
@@ -15,11 +16,31 @@ export default function RepositorySettings() {
   const { toast } = useToast();
   const dialog = useDialog();
   const [form, setForm] = React.useState<RepoFormState | null>(repo ? repoToForm(repo) : null);
+  // What the form looked like when it was last in step with the server. Save is
+  // pointless without a difference, and leaving with one is a mistake.
+  const [baseline, setBaseline] = React.useState<RepoFormState | null>(
+    repo ? repoToForm(repo) : null,
+  );
   const [saving, setSaving] = React.useState(false);
+  const [connectOpen, setConnectOpen] = React.useState(false);
 
   React.useEffect(() => {
     setForm(repo ? repoToForm(repo) : null);
+    setBaseline(repo ? repoToForm(repo) : null);
   }, [repo]);
+
+  const changed =
+    form !== null && baseline !== null && JSON.stringify(form) !== JSON.stringify(baseline);
+
+  React.useEffect(() => {
+    if (!changed && !saving) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [changed, saving]);
 
   if (!repo || !form) {
     return (
@@ -31,6 +52,8 @@ export default function RepositorySettings() {
 
   const currentRepo = repo;
   const currentForm = form;
+  const isLocal = repo.origin === "local";
+  const canConnect = company.role === "owner" || company.role === "admin";
 
   async function save() {
     setSaving(true);
@@ -40,6 +63,7 @@ export default function RepositorySettings() {
         repoFormToPayload(currentForm),
       );
       setForm(repoToForm(row));
+      setBaseline(repoToForm(row));
       await reload();
       toast("Repository settings saved", "success");
     } catch (err) {
@@ -79,10 +103,42 @@ export default function RepositorySettings() {
             Settings
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Update the clone URL, credentials, branch, and commit identity for {repo.name}.
+            {isLocal
+              ? `Rename ${repo.name}, change what it holds, and choose the name its edits are signed with.`
+              : `Change where ${repo.name} syncs from, its sign-in details, and the name its edits are signed with.`}
           </p>
         </div>
       </div>
+
+      {isLocal && (
+        <div className="mt-7 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <Github size={17} />
+              </span>
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                  Not connected to a git host
+                </div>
+                <p className="mt-0.5 max-w-xl text-sm text-slate-500 dark:text-slate-400">
+                  Genosyn keeps the whole history itself. Connecting to GitHub pushes every commit
+                  made here and turns on Push, Pull, and pull requests.
+                </p>
+              </div>
+            </div>
+            {canConnect ? (
+              <Button variant="secondary" className="shrink-0" onClick={() => setConnectOpen(true)}>
+                <Github size={15} /> Connect to GitHub
+              </Button>
+            ) : (
+              <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
+                An owner or admin can connect it.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="mt-7 rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
         <RepoFormFields
@@ -92,8 +148,11 @@ export default function RepositorySettings() {
           hasToken={repo.hasToken}
           hasSshKey={repo.hasSshKey}
         />
-        <div className="mt-5 flex justify-end">
-          <Button onClick={save} disabled={saving}>
+        <div className="mt-5 flex items-center justify-end gap-3">
+          {changed && !saving && (
+            <span className="text-xs text-amber-600 dark:text-amber-400">Unsaved changes</span>
+          )}
+          <Button onClick={save} disabled={saving || !changed}>
             {saving && <Spinner size={14} />}
             {saving ? "Saving…" : "Save changes"}
           </Button>
@@ -115,6 +174,14 @@ export default function RepositorySettings() {
           </Button>
         </div>
       </div>
+
+      <ConnectGithubModal
+        open={connectOpen}
+        company={company}
+        repo={currentRepo}
+        onClose={() => setConnectOpen(false)}
+        onConnected={() => void reload()}
+      />
     </div>
   );
 }

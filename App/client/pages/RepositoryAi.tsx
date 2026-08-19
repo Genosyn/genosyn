@@ -23,6 +23,7 @@ import { formatRelative } from "../components/decisions/relative";
 import { DiffStats, DiffView } from "../components/repositories/DiffView";
 import {
   api,
+  RepositoryStatus,
   RepositoryWorkSession,
   RepositoryWorkSessionCandidatesResponse,
   RepositoryWorkSessionDiff,
@@ -57,11 +58,11 @@ const STATUS_META: Record<RepositoryWorkSessionStatus, { label: string; classNam
     className: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
   },
   published: {
-    label: "Merged",
+    label: "Accepted",
     className: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300",
   },
   discarded: {
-    label: "Discarded",
+    label: "Thrown away",
     className: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
   },
   failed: {
@@ -89,16 +90,23 @@ export default function RepositoryAi() {
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
   const [diffs, setDiffs] = React.useState<Record<string, RepositoryWorkSessionDiff | null>>({});
   const [actingId, setActingId] = React.useState<string | null>(null);
+  /** Where accepted work lands. Null until the first status read comes back. */
+  const [checkoutBranch, setCheckoutBranch] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     if (!base) return;
     try {
-      const [sessionRows, candidateRows] = await Promise.all([
+      const [sessionRows, candidateRows, status] = await Promise.all([
         api.get<RepositoryWorkSessionsResponse>(`${base}/sessions`),
         api.get<RepositoryWorkSessionCandidatesResponse>(`${base}/session-candidates`),
+        // Accepting work merges it into whatever branch this checkout is on,
+        // and the page used to ask people to approve that without ever naming
+        // it. One extra read buys the sentence its missing fact.
+        api.get<RepositoryStatus>(`${base}/workspace/status`).catch(() => null),
       ]);
       setSessions(sessionRows.sessions);
       setCandidates(candidateRows.employees);
+      setCheckoutBranch(status?.branch ?? null);
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), "error");
       setSessions([]);
@@ -109,6 +117,7 @@ export default function RepositoryAi() {
     setSessions(null);
     setExpandedId(null);
     setDiffs({});
+    setCheckoutBranch(null);
     reload();
   }, [reload]);
 
@@ -164,6 +173,7 @@ export default function RepositoryAi() {
     );
   }
 
+  const currentRepo = repo;
   const accessHref = `/c/${company.slug}/repositories/${repo.slug}/access`;
 
   async function start() {
@@ -183,6 +193,15 @@ export default function RepositoryAi() {
         session,
         ...(current ?? []).filter((row) => row.id !== session.id),
       ]);
+      // Pressing the section's flagship button used to empty the box and add a
+      // collapsed row below the fold — indistinguishable from nothing having
+      // happened. Open it, and say so.
+      setExpandedId(session.id);
+      const who = candidates.find((candidate) => candidate.id === employeeId)?.name;
+      toast(
+        `${who ?? "The employee"} is on it. The changes appear here when the work is done.`,
+        "success",
+      );
       await reload();
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), "error");
@@ -203,19 +222,22 @@ export default function RepositoryAi() {
   }
 
   async function publish(session: RepositoryWorkSession, push: boolean) {
+    const target = checkoutBranch ?? currentRepo.defaultBranch;
     const ok = await dialog.confirm({
-      title: push ? "Merge and push?" : "Merge into the current branch?",
+      title: push
+        ? `Accept these changes and send them on?`
+        : `Accept these changes into ${target}?`,
       message: push
-        ? `${session.branch ?? "The branch"} is merged into this repository's checkout and pushed to the remote. A push cannot be recalled.`
-        : `${session.branch ?? "The branch"} is merged into this repository's checkout. Nothing reaches the remote until someone pushes.`,
-      confirmLabel: push ? "Merge and push" : "Merge",
+        ? `The work goes into ${target} and is sent to ${currentRepo.name}'s remote copy straight away. Sending cannot be undone.`
+        : `The work goes into ${target}, here in Genosyn. Nothing is sent anywhere else until you choose to.`,
+      confirmLabel: push ? "Accept and send" : "Accept changes",
     });
     if (!ok) return;
     setActingId(session.id);
     try {
       await api.post<RepositoryWorkSession>(`${base}/sessions/${session.id}/publish`, { push });
       await reload();
-      toast(push ? "Merged and pushed" : "Merged into the checkout", "success");
+      toast(push ? "Accepted and sent" : `Accepted into ${target}`, "success");
     } catch (err) {
       // The push half is owner/admin only; the server's 403 explains that far
       // better than any wording this page could invent.
@@ -227,10 +249,9 @@ export default function RepositoryAi() {
 
   async function discard(session: RepositoryWorkSession) {
     const ok = await dialog.confirm({
-      title: "Discard this work?",
-      message:
-        "The branch is dropped and the employee's changes are not merged. The request itself stays in this list.",
-      confirmLabel: "Discard",
+      title: "Throw this work away?",
+      message: `Nothing ${session.employee?.name ?? "the employee"} changed is kept, and ${currentRepo.name} stays exactly as it is. The request stays in this list so you can see what was asked for.`,
+      confirmLabel: "Throw it away",
       variant: "danger",
     });
     if (!ok) return;
@@ -238,7 +259,7 @@ export default function RepositoryAi() {
     try {
       await api.post<RepositoryWorkSession>(`${base}/sessions/${session.id}/discard`);
       await reload();
-      toast("Work discarded", "success");
+      toast("Work thrown away", "success");
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), "error");
     } finally {
@@ -257,8 +278,8 @@ export default function RepositoryAi() {
             AI work
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Send an AI employee at {repo.name}. It works in its own checkout, commits to a branch,
-            and reports back — then you review the diff and decide whether it lands.
+            Ask an AI employee to change something in {repo.name}. It works on its own copy and
+            reports back — you see exactly what it changed before any of it is kept.
           </p>
         </div>
       </div>
@@ -309,7 +330,8 @@ export default function RepositoryAi() {
             />
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs text-slate-400 dark:text-slate-500">
-                The employee commits to its own branch. Nothing merges without your say-so.
+                The employee works on its own copy. Nothing reaches {currentRepo.name} until you
+                accept it.
               </span>
               <Button onClick={start} disabled={starting || !employeeId}>
                 {starting ? <Spinner size={14} /> : <Sparkles size={14} />}
@@ -320,37 +342,43 @@ export default function RepositoryAi() {
         )}
       </section>
 
-      <section className="mt-8">
-        <h2 className="mb-3 text-base font-semibold text-slate-900 dark:text-slate-100">
-          Requests
-        </h2>
-        {sessions === null ? (
-          <div className="flex h-32 items-center justify-center">
-            <Spinner size={20} />
-          </div>
-        ) : sessions.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-            Nothing has been asked for yet. The first request shows up here with its diff.
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {sessions.map((session) => (
-              <SessionCard
-                key={session.id}
-                companyId={company.id}
-                session={session}
-                expanded={expandedId === session.id}
-                diff={diffs[session.id]}
-                acting={actingId === session.id}
-                allowPush={isRemote}
-                onToggle={() => void toggle(session)}
-                onPublish={(push) => void publish(session, push)}
-                onDiscard={() => void discard(session)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+      {/* With no employee granted access the card above is already an empty
+        state; showing a second one underneath it says the same nothing twice. */}
+      {(candidates.length > 0 || sessions === null || sessions.length > 0) && (
+        <section className="mt-8">
+          <h2 className="mb-3 text-base font-semibold text-slate-900 dark:text-slate-100">
+            Recent work
+          </h2>
+          {sessions === null ? (
+            <div className="flex h-32 items-center justify-center">
+              <Spinner size={20} />
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+              Nothing asked yet. Describe a change above and an employee will make it — you&apos;ll
+              see exactly what it changed before anything is kept.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {sessions.map((session) => (
+                <SessionCard
+                  key={session.id}
+                  companyId={company.id}
+                  session={session}
+                  expanded={expandedId === session.id}
+                  diff={diffs[session.id]}
+                  acting={actingId === session.id}
+                  allowPush={isRemote}
+                  checkoutBranch={checkoutBranch}
+                  onToggle={() => void toggle(session)}
+                  onPublish={(push) => void publish(session, push)}
+                  onDiscard={() => void discard(session)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
@@ -362,6 +390,7 @@ function SessionCard({
   diff,
   acting,
   allowPush,
+  checkoutBranch,
   onToggle,
   onPublish,
   onDiscard,
@@ -373,6 +402,8 @@ function SessionCard({
   diff: RepositoryWorkSessionDiff | null | undefined;
   acting: boolean;
   allowPush: boolean;
+  /** Named on the button, because that is where the work actually lands. */
+  checkoutBranch: string | null;
   onToggle: () => void;
   onPublish: (push: boolean) => void;
   onDiscard: () => void;
@@ -501,7 +532,7 @@ function SessionCard({
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                   <Button size="sm" onClick={() => onPublish(false)} disabled={acting}>
                     {acting ? <Spinner size={13} /> : <GitMerge size={13} />}
-                    Merge into current branch
+                    {checkoutBranch ? `Accept into ${checkoutBranch}` : "Accept changes"}
                   </Button>
                   {allowPush && (
                     <Button
@@ -510,15 +541,15 @@ function SessionCard({
                       onClick={() => onPublish(true)}
                       disabled={acting}
                     >
-                      <Upload size={13} /> Merge and push
+                      <Upload size={13} /> Accept and send
                     </Button>
                   )}
                   <Button size="sm" variant="ghost" onClick={onDiscard} disabled={acting}>
-                    <Trash2 size={13} /> Discard
+                    <Trash2 size={13} /> Throw away
                   </Button>
                   {!allowPush && (
                     <span className="text-xs text-slate-400 dark:text-slate-500">
-                      This repository is local — there is no remote to push to.
+                      This repository lives only in Genosyn — there is nowhere else to send it.
                     </span>
                   )}
                 </div>

@@ -83,9 +83,19 @@ export default function RepositoriesLayout({ company }: { company: Company }) {
             <div className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
               {repo.name}
             </div>
-            <div className="mt-0.5 truncate font-mono text-[10px] text-slate-400 dark:text-slate-500">
-              {repo.defaultBranch}
-            </div>
+            {/* This used to print `defaultBranch`, which is a stored setting
+              rather than the live checkout — so it went on saying `main` while
+              Files was sitting on a feature branch. A wrong fact is worse than
+              no fact, and the description is one the sidebar can actually be
+              sure of. */}
+            {repo.description && (
+              <div
+                title={repo.description}
+                className="mt-0.5 truncate text-[10px] text-slate-400 dark:text-slate-500"
+              >
+                {repo.description}
+              </div>
+            )}
           </div>
           <SidebarLink to={repoBase} end icon={<LayoutDashboard size={14} />} label="Overview" />
           <SidebarLink to={`${repoBase}/files`} icon={<FileCode size={14} />} label="Files" />

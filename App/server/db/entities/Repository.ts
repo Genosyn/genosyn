@@ -115,6 +115,19 @@ export class Repository {
   @Column({ type: "varchar", default: "code" })
   kind!: RepositoryKind;
 
+  /**
+   * The GitHub Connection this repository publishes through, when it was
+   * connected to GitHub from inside Genosyn rather than by pasting a URL.
+   *
+   * Only an id: the credential itself stays on the Connection and is resolved
+   * per push. Pinning it matters once a company has more than one GitHub
+   * account connected — without it the server would have to guess which one
+   * should be pushing to the company's code, and guessing there is not
+   * acceptable.
+   */
+  @Column({ type: "varchar", nullable: true })
+  githubConnectionId!: string | null;
+
   /** Branch the agent should treat as the trunk. */
   @Column({ type: "varchar", default: "main" })
   defaultBranch!: string;

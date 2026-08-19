@@ -149,7 +149,10 @@ index aaa..bbb 100644
 `,
     );
     assert.equal(files.length, 2);
-    assert.deepEqual(files.map((file) => file.path), ["src/app.ts", "README.md"]);
+    assert.deepEqual(
+      files.map((file) => file.path),
+      ["src/app.ts", "README.md"],
+    );
     assert.deepEqual(diffTotals(files), { additions: 3, deletions: 2 });
   });
 

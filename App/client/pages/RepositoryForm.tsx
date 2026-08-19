@@ -131,7 +131,7 @@ export function RepoFormFields({
       )}
 
       <Select
-        label="Mostly holds"
+        label="What's in it"
         value={form.kind}
         onChange={(e) => patch({ kind: e.target.value as RepositoryKind })}
       >
@@ -139,8 +139,8 @@ export function RepoFormFields({
         <option value="documents">Documents</option>
       </Select>
       <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
-        A hint, not a restriction — any file can live in either. It decides whether the editor opens
-        rendered or raw, and how an AI employee is briefed when it works here.
+        Just a hint — any file can live in either. It decides whether documents open formatted or as
+        raw text.
       </p>
 
       {form.origin === "remote" && (
@@ -159,13 +159,18 @@ export function RepoFormFields({
           placeholder="main"
         />
         {form.origin === "remote" && (
+          /* The same field is called "Sign-in" in the Connect-to-GitHub modal
+            and on the Overview card; three names for one thing is two too many,
+            and "None / GitHub Connection" was an implementation note. */
           <Select
-            label="Authentication"
+            label="Sign-in"
             value={form.authMode}
             onChange={(e) => patch({ authMode: e.target.value as RepositoryAuthMode })}
           >
-            <option value="none">None / GitHub Connection</option>
-            <option value="https">HTTPS token / password</option>
+            <option value="none">
+              None needed — it&apos;s public, or GitHub is already connected
+            </option>
+            <option value="https">Token or password</option>
             <option value="ssh">SSH private key</option>
           </Select>
         )}
@@ -173,8 +178,11 @@ export function RepoFormFields({
 
       {form.origin === "local" && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Genosyn creates an empty git repository and keeps the history itself. There is nothing to
-          authenticate to. You can add a clone URL later in settings to start publishing it.
+          {/* Settings has no clone-URL field for a local repository — it has a
+            Connect to GitHub card. Pointing at a field that is not there sends
+            people hunting. */}
+          Genosyn creates the repository and keeps its whole history here. Nothing to sign in to.
+          You can publish it to GitHub any time from the repository&apos;s Settings.
         </p>
       )}
 

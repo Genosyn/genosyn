@@ -1,11 +1,11 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowUpRight, Clock, FolderGit2, GitBranch, Plus, Search, Users } from "lucide-react";
+import { ArrowUpRight, FolderGit2, GitBranch, Plus, Search, Users } from "lucide-react";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useToast } from "../components/ui/Toast";
-import { api, Company, Repository } from "../lib/api";
+import { api, Company, Repository, RepositoryTestResult } from "../lib/api";
 import { RepoFormModal } from "./RepositoryForm";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -39,6 +39,28 @@ export default function RepositoriesIndex({ company }: { company: Company }) {
   }, [reload]);
 
   useLiveRefetch("repository", reload);
+
+  const checkConnection = React.useCallback(
+    async (row: Repository) => {
+      try {
+        const result = await api.post<RepositoryTestResult>(
+          `/api/companies/${company.id}/repositories/${row.slug}/test`,
+        );
+        toast(
+          result.ok ? `${row.name} is reachable` : `${row.name}: ${result.message}`,
+          result.ok ? "success" : "error",
+        );
+      } catch (err) {
+        toast(err instanceof Error ? err.message : String(err), "error");
+      } finally {
+        // The badge on the row it just landed on is driven by the stored
+        // result, so the list has to be re-read either way.
+        void reload();
+        void reloadSidebar();
+      }
+    },
+    [company.id, reload, reloadSidebar, toast],
+  );
 
   const filtered = React.useMemo(() => {
     if (!items) return null;
@@ -115,6 +137,11 @@ export default function RepositoriesIndex({ company }: { company: Company }) {
         onClose={() => setShowNew(false)}
         onSaved={(row) => {
           setShowNew(false);
+          // A remote repository whose URL or token is wrong looks exactly like
+          // one that works until an AI employee fails on it hours later. The
+          // check the Overview offers is run here, once, while the person who
+          // typed the credentials is still standing in front of it.
+          if (row.origin === "remote") void checkConnection(row);
           reload();
           reloadSidebar();
           navigate(`/c/${company.slug}/repositories/${row.slug}`);
@@ -124,12 +151,22 @@ export default function RepositoriesIndex({ company }: { company: Company }) {
   );
 }
 
+/**
+ * How a repository is reached, in words rather than the stored enum. "Public"
+ * and "Private · SSH key" are facts someone can act on; `NONE` is not.
+ */
+export function signInLabel(repo: Repository): string {
+  if (repo.origin === "local") return "Only in Genosyn";
+  if (repo.authMode === "none") return "Public";
+  return `Private · ${repo.authMode === "ssh" ? "SSH key" : "Token"}`;
+}
+
 function RepoList({ company, items }: { company: Company; items: Repository[] }) {
   const navigate = useNavigate();
   return (
     <div className="mt-2">
       <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        <Clock size={12} />
+        <FolderGit2 size={12} />
         {items.length} {items.length === 1 ? "repository" : "repositories"}
       </div>
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
@@ -160,7 +197,9 @@ function RepoList({ company, items }: { company: Company; items: Repository[] })
                   <GitBranch size={11} /> {r.defaultBranch}
                 </span>
                 <span aria-hidden>·</span>
-                <span className="uppercase">{r.origin === "local" ? "local" : r.authMode}</span>
+                {/* `authMode` is an internal enum; rendering it raw put the word
+                  NONE on the row of every public repository. */}
+                <span>{signInLabel(r)}</span>
                 <span aria-hidden>·</span>
                 <span className="inline-flex items-center gap-1">
                   <Users size={11} /> {r.grantCount} {r.grantCount === 1 ? "employee" : "employees"}
@@ -185,12 +224,12 @@ function EmptyHero({ onAdd }: { onAdd: () => void }) {
         <FolderGit2 size={22} />
       </div>
       <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-        Keep something under version control
+        Add your first repository
       </h3>
       <p className="mx-auto mt-1 max-w-md text-sm text-slate-500 dark:text-slate-400">
-        Connect any git repository — GitHub, GitLab, Bitbucket, self-hosted — or start an empty one
-        for documents that deserve a history. Edit files here, commit, and let the AI employees you
-        choose work on it too.
+        Connect one you already have on GitHub, GitLab, or anywhere else — or start a fresh one here
+        for documents you want a history of. Then hand it to an AI employee and review what it
+        changed.
       </p>
       <div className="mt-5">
         <Button onClick={onAdd}>
@@ -217,8 +256,10 @@ export function SyncBadge({ status }: { status: Repository["lastSyncStatus"] }) 
     );
   }
   return (
+    // "Untested" reads like a verdict. Nothing has gone wrong yet — nobody has
+    // looked.
     <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-      Untested
+      Not checked yet
     </span>
   );
 }

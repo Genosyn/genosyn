@@ -1446,15 +1446,16 @@ export const PRODUCTS: ProductDef[] = [
     tagline: "Version control your team can actually use.",
     taglineAccent: "Code or documents, edited in the browser, reviewed before it ships.",
     summary:
-      "A Repository is any version-controlled workspace — a service's source, a quarter's strategy, a set of policies. Browse and edit it in the browser, commit, branch, and hand work to an AI Employee whose diff you review before it merges.",
+      "A Repository is any version-controlled workspace — a service's source, a quarter's strategy, a set of policies. Start one empty inside Genosyn or clone one, edit it in the browser, and publish it to GitHub when it outgrows living here.",
     seoTitle: "Repositories — Git workspaces for humans & AI · Genosyn",
     description:
-      "Version-controlled workspaces for code and documents. Edit files in the browser, commit and branch, and hand work to an AI Employee that commits to its own branch for you to review.",
+      "Version-controlled workspaces for code and documents. Edit files in the browser, commit and branch, connect a local repository to GitHub later, and hand work to an AI Employee that commits to its own branch for you to review.",
     intro:
-      "Not every repository is a codebase. A Repository is a real git repository your company owns — clone one from GitHub, GitLab, Bitbucket, or a self-hosted server, or create one empty inside Genosyn with no git host at all. Members browse and edit files in the browser, read the diff, and commit under their own name. AI Employees get their own isolated worktree, edit through Genosyn-executed tools rather than a shell, and commit to their own branch — which a human reviews and merges. It runs on the standard Docker install, with no coding tools and no sandbox required.",
+      "Not every repository is a codebase. A Repository is a real git repository your company owns — clone one from GitHub, GitLab, Bitbucket, or a self-hosted server, or create one empty inside Genosyn with no git host at all. Starting empty is not a dead end: connect that repository to GitHub later and Genosyn creates it there through your existing GitHub Connection and pushes the history across, with no personal access token minted or pasted. Members browse, search, and edit files in the browser, read the diff, and commit under their own name. AI Employees get their own isolated worktree, edit through Genosyn-executed tools rather than a shell, and commit to their own branch — which a human reviews and merges. It runs on the standard Docker install, with no coding tools and no sandbox required.",
     checks: [
-      "Clone any git URL, or start one locally",
-      "Browser editor with diffs and history",
+      "Start empty inside Genosyn, or clone any git URL",
+      "Publish a local repository to GitHub later",
+      "Browser editor with search, diffs, and history",
       "AI work sessions you review before merging",
       "Credentials AES-256-GCM encrypted",
     ],
@@ -1466,13 +1467,13 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         icon: "gitFork",
-        title: "Remote or local",
-        body: "Clone any HTTPS or SSH URL — GitHub, GitLab, Bitbucket, self-hosted Gitea. Or create one empty with git init and no remote at all, for teams who want version control without a git host. Add a URL later to promote it.",
+        title: "Start local, publish to GitHub later",
+        body: "Clone any HTTPS or SSH URL, or create one empty with git init and no remote at all. When it outgrows that, pick a connected GitHub Connection: Genosyn creates the repository on GitHub — private by default — and pushes the history. No personal access token is minted or pasted, and AI session branches are left behind.",
       },
       {
         icon: "fileText",
         title: "A real editor in the browser",
-        body: "Tree, editor, create, rename, move, delete. Per-file and whole-tree diffs, untracked files rendered as additions, and scoped discard. Commits are attributed to the Member who made them, not to the server.",
+        body: "Tree, editor with syntax highlighting, create, rename, move, delete. The tree respects .gitignore, search is literal and includes uncommitted files, and the README renders on the Overview. Diffs per file or whole-tree, and commits attributed to the Member who made them.",
       },
       {
         icon: "history",
@@ -1515,7 +1516,11 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Do I need a GitHub account, or any git host?",
-        a: "No. A local Repository is created empty inside Genosyn with git init and never leaves your server. A remote Repository clones any HTTPS or SSH URL — GitHub, GitLab, Bitbucket, or a self-hosted server. A local one can be given a clone URL later, which promotes it to remote.",
+        a: "No. A local Repository is created empty inside Genosyn with git init and never leaves your server. A remote Repository clones any HTTPS or SSH URL — GitHub, GitLab, Bitbucket, or a self-hosted server. And a local one can be connected to GitHub whenever you want, which creates it there and pushes the history it already has.",
+      },
+      {
+        q: "What does connecting a repository to GitHub actually do?",
+        a: "It creates the repository on GitHub through the Connection your company already authorised under Settings → Integrations, then pushes the history the repository already has. Nobody creates or pastes a personal access token: the Connection's token is resolved per operation and never stored on the repository, and later pushes to that remote use the same Connection. Branches from AI work sessions are deliberately left out of that first push. If you would rather create the repository yourself, paste the clone URL of an empty one instead — a remote that already has commits is refused, not force-pushed. Owner or admin only.",
       },
       {
         q: "Do I need coding tools or a sandbox enabled?",
@@ -1527,7 +1532,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Who is allowed to do what?",
-        a: "Browsing, editing, committing, branching, and starting AI work sessions are open to any company Member. Pushing, pulling, and repository configuration — clone URL, credentials, and AI grants — require an owner or admin, because a local commit can be undone and a push cannot be recalled.",
+        a: "Browsing, searching, editing, committing, branching, and starting AI work sessions are open to any company Member. Pushing, pulling, connecting a repository to a remote, and repository configuration — clone URL, credentials, and AI grants — require an owner or admin, because a local commit can be undone and a push cannot be recalled.",
       },
       {
         q: "How are my tokens and SSH keys stored?",
@@ -1547,6 +1552,8 @@ export const PRODUCTS: ProductDef[] = [
       "self-hosted AI software engineer",
       "per-agent repository permissions",
       "git without GitHub self-hosted",
+      "publish a local git repository to GitHub",
+      "create a GitHub repository without a personal access token",
     ],
   },
 ];

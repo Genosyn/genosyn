@@ -14,6 +14,7 @@ import {
   fetchWorkspaceGitRemote,
 } from "./workspaceGitRemote.js";
 import { decryptRepositorySecret } from "./repositories.js";
+import { findConnectionForRemote, resolveConnectionToken } from "./repositoryGithub.js";
 import { readRepositoryKnownHosts, persistRepositoryKnownHosts } from "./repositorySshFiles.js";
 
 /**
@@ -72,6 +73,8 @@ export type RepositoryTreeEntry = {
   path: string;
   type: "file" | "directory";
   size: number;
+  /** Matched by a .gitignore rule. Hidden unless explicitly requested. */
+  ignored: boolean;
 };
 
 export type RepositoryFileContent = {
@@ -240,9 +243,9 @@ async function git(repo: Repository, args: string[], stdin?: string): Promise<st
 }
 
 /** Same, but a non-zero exit is an expected answer rather than a failure. */
-async function gitOrNull(repo: Repository, args: string[]): Promise<string | null> {
+async function gitOrNull(repo: Repository, args: string[], stdin?: string): Promise<string | null> {
   try {
-    return await git(repo, args);
+    return await git(repo, args, stdin);
   } catch {
     return null;
   }
@@ -292,7 +295,7 @@ type RemoteCredential = {
  * operation. The returned material is passed straight to the Git child and is
  * never written into the checkout, so there is nothing to clean up afterwards.
  */
-function remoteCredentialFor(repo: Repository): RemoteCredential {
+async function remoteCredentialFor(repo: Repository): Promise<RemoteCredential> {
   if (repo.authMode === "https") {
     const token = decryptRepositorySecret(repo.encryptedToken);
     if (!token) {
@@ -326,6 +329,20 @@ function remoteCredentialFor(repo: Repository): RemoteCredential {
       },
     };
   }
+  // No credential of its own. A github.com HTTPS remote can still authenticate
+  // through the company's GitHub Connection — that is what lets a repository
+  // created inside Genosyn be published without anyone minting a token by
+  // hand. Anything else clones and pushes anonymously, which is correct for a
+  // public repository and fails clearly for a private one.
+  const connection = await findConnectionForRemote(repo);
+  if (connection) {
+    const { token } = await resolveConnectionToken(connection);
+    const envKey = "GENOSYN_REPO_TOKEN_CONNECTION";
+    return {
+      extraEnv: { [envKey]: token },
+      credentialHelper: inlineEnvCredentialHelper("x-access-token", envKey, repo.gitUrl),
+    };
+  }
   return { extraEnv: {} };
 }
 
@@ -356,7 +373,7 @@ export async function ensureRepositoryWorkspace(repo: Repository): Promise<strin
         await initLocalCheckout(repo, checkout);
       } else {
         assertSafeGitRemoteUrl(repo.gitUrl);
-        const credential = remoteCredentialFor(repo);
+        const credential = await remoteCredentialFor(repo);
         const result = await cloneWorkspaceGitRemote({
           workspaceRoot: root,
           destinationPath: checkout,
@@ -375,7 +392,7 @@ export async function ensureRepositoryWorkspace(repo: Repository): Promise<strin
 
     if (repo.origin === "remote") {
       assertSafeGitRemoteUrl(repo.gitUrl);
-      const credential = remoteCredentialFor(repo);
+      const credential = await remoteCredentialFor(repo);
       const result = await fetchWorkspaceGitRemote({
         workspaceRoot: root,
         cwd: checkout,
@@ -403,7 +420,17 @@ async function initLocalCheckout(repo: Repository, checkout: string): Promise<vo
   const branch = (repo.defaultBranch || "main").trim() || "main";
   await git(repo, ["init", "--quiet", `--initial-branch=${branch}`]);
   await applyCommitterIdentity(repo);
-  await git(repo, ["commit", "--allow-empty", "--quiet", "-m", "Create repository"]);
+  // Seed a README rather than an empty commit. It gives the tree something to
+  // show, the Overview something to render, and the first push somewhere to
+  // land — and it is the one file a person would have created next anyway.
+  fs.writeFileSync(path.join(checkout, "README.md"), initialReadme(repo), "utf8");
+  await git(repo, ["add", "--all"]);
+  await git(repo, ["commit", "--quiet", "-m", "Create repository"]);
+}
+
+export function initialReadme(repo: Pick<Repository, "name" | "description">): string {
+  const description = (repo.description ?? "").trim();
+  return description ? `# ${repo.name}\n\n${description}\n` : `# ${repo.name}\n`;
 }
 
 async function applyCommitterIdentity(repo: Repository): Promise<void> {
@@ -433,6 +460,7 @@ export function removeRepositoryWorkspace(companyId: string, repositoryId: strin
 export async function listRepositoryTree(
   repo: Repository,
   directoryPath: string,
+  options: { showIgnored?: boolean } = {},
 ): Promise<RepositoryTreeEntry[]> {
   const checkout = checkoutPath(repo);
   const normalized = normalizeRepositoryPath(directoryPath, { allowRoot: true });
@@ -450,13 +478,19 @@ export async function listRepositoryTree(
     throw error;
   }
 
-  const entries: RepositoryTreeEntry[] = [];
+  const candidates: RepositoryTreeEntry[] = [];
   for (const dirent of dirents) {
     if (!normalized && dirent.name === ".git") continue;
     if (dirent.isSymbolicLink()) continue;
     const entryPath = normalized ? `${normalized}/${dirent.name}` : dirent.name;
     if (dirent.isDirectory()) {
-      entries.push({ name: dirent.name, path: entryPath, type: "directory", size: 0 });
+      candidates.push({
+        name: dirent.name,
+        path: entryPath,
+        type: "directory",
+        size: 0,
+        ignored: false,
+      });
     } else if (dirent.isFile()) {
       let size = 0;
       try {
@@ -464,14 +498,44 @@ export async function listRepositoryTree(
       } catch {
         continue;
       }
-      entries.push({ name: dirent.name, path: entryPath, type: "file", size });
+      candidates.push({
+        name: dirent.name,
+        path: entryPath,
+        type: "file",
+        size,
+        ignored: false,
+      });
     }
   }
-  entries.sort((a, b) => {
+
+  const ignored = await ignoredPaths(
+    repo,
+    candidates.map((entry) => entry.path),
+  );
+  for (const entry of candidates) entry.ignored = ignored.has(entry.path);
+
+  const visible = options.showIgnored ? candidates : candidates.filter((e) => !e.ignored);
+  visible.sort((a, b) => {
     if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
-  return entries.slice(0, MAX_TREE_ENTRIES);
+  return visible.slice(0, MAX_TREE_ENTRIES);
+}
+
+/**
+ * Which of these paths git is ignoring.
+ *
+ * Without this the tree is unusable on any real code repository: `node_modules`
+ * alone would fill the entry cap and bury the files someone actually came to
+ * edit. `check-ignore` is asked once for the whole directory rather than per
+ * entry, and a failure means "nothing is ignored" — losing the filter is a
+ * cosmetic problem, and failing the listing over it would not be.
+ */
+async function ignoredPaths(repo: Repository, paths: string[]): Promise<Set<string>> {
+  if (paths.length === 0) return new Set();
+  const output = await gitOrNull(repo, ["check-ignore", "--stdin", "-z"], paths.join("\0"));
+  if (output === null) return new Set();
+  return new Set(output.split("\0").filter(Boolean));
 }
 
 /** Read a file from the working tree, or from `ref` when one is given. */
@@ -947,10 +1011,7 @@ export async function commitRepositoryChanges(
  * "discard everything" button, because on a shared checkout that is a
  * destructive action nobody can undo.
  */
-export async function discardRepositoryChanges(
-  repo: Repository,
-  paths: string[],
-): Promise<void> {
+export async function discardRepositoryChanges(repo: Repository, paths: string[]): Promise<void> {
   if (paths.length === 0) throw new Error("Select what to discard.");
   const normalized = paths.map((p) => normalizeRepositoryPath(p));
   await withRepositoryLock(repo.id, async () => {
@@ -1022,11 +1083,7 @@ export async function checkoutRepositoryBranch(repo: Repository, name: string): 
       await git(repo, ["switch", name]);
       return;
     }
-    const remote = await gitOrNull(repo, [
-      "rev-parse",
-      "--verify",
-      `refs/remotes/origin/${name}`,
-    ]);
+    const remote = await gitOrNull(repo, ["rev-parse", "--verify", `refs/remotes/origin/${name}`]);
     if (!remote) throw new Error("That branch does not exist.");
     await git(repo, ["switch", "--create", name, "--track", `origin/${name}`]);
   });
@@ -1050,7 +1107,7 @@ export async function pushRepositoryBranch(
   assertSafeGitRemoteUrl(repo.gitUrl);
 
   return withRepositoryLock(repo.id, async () => {
-    const credential = remoteCredentialFor(repo);
+    const credential = await remoteCredentialFor(repo);
     await withPushSshMaterial(repo, credential, async (extraEnv) => {
       await runWorkspaceGit({
         workspaceRoot: workspaceRootFor(repo),
@@ -1062,11 +1119,9 @@ export async function pushRepositoryBranch(
       });
     });
     // Reflect the push locally so status stops reporting the branch as ahead.
-    await git(repo, [
-      "update-ref",
-      `refs/remotes/origin/${branch}`,
-      `refs/heads/${branch}`,
-    ]).catch(() => {});
+    await git(repo, ["update-ref", `refs/remotes/origin/${branch}`, `refs/heads/${branch}`]).catch(
+      () => {},
+    );
     return { branch };
   });
 }
@@ -1184,6 +1239,137 @@ export async function mergeBranchIntoCurrent(
     }
     const after = (await git(repo, ["rev-parse", "HEAD"])).trim();
     return { merged: before !== after, alreadyUpToDate: before === after };
+  });
+}
+
+export type RepositorySearchMatch = { path: string; line: number; text: string };
+
+/**
+ * Find which files mention some text.
+ *
+ * `git grep` over the working tree, which gets .gitignore handling and binary
+ * detection for free and does not walk `node_modules`. Untracked files are
+ * included because a file someone just created is exactly the one they are
+ * likely to be looking for.
+ */
+export async function searchRepository(
+  repo: Repository,
+  query: string,
+  limit = 100,
+): Promise<{ matches: RepositorySearchMatch[]; truncated: boolean }> {
+  const needle = query.trim();
+  if (!needle) throw new Error("Enter something to search for.");
+  const capped = Math.min(Math.max(limit, 1), 500);
+  const raw = await gitOrNull(repo, [
+    "grep",
+    "--fixed-strings",
+    "--ignore-case",
+    "--line-number",
+    "--no-color",
+    "--untracked",
+    "--max-count=20",
+    "-I",
+    "-e",
+    needle,
+  ]);
+  // `git grep` exits non-zero when nothing matched, which is an answer.
+  if (raw === null) return { matches: [], truncated: false };
+
+  const matches: RepositorySearchMatch[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line) continue;
+    // `path:line:text` — the path cannot contain a colon before the first two
+    // separators, so splitting on the first two is unambiguous.
+    const firstColon = line.indexOf(":");
+    if (firstColon === -1) continue;
+    const secondColon = line.indexOf(":", firstColon + 1);
+    if (secondColon === -1) continue;
+    const lineNumber = Number(line.slice(firstColon + 1, secondColon));
+    if (!Number.isFinite(lineNumber)) continue;
+    matches.push({
+      path: line.slice(0, firstColon),
+      line: lineNumber,
+      text: line.slice(secondColon + 1).slice(0, 400),
+    });
+    if (matches.length > capped) break;
+  }
+  const truncated = matches.length > capped;
+  return { matches: truncated ? matches.slice(0, capped) : matches, truncated };
+}
+
+/**
+ * Point a local repository at a remote for the first time and push everything
+ * it has.
+ *
+ * All branches and tags go, not just the current one: the whole point is that
+ * the history stops living only in Genosyn, and leaving half of it behind
+ * would be a worse outcome than not offering the button. The remote is
+ * expected to be empty — a non-fast-forward here means someone pointed this at
+ * a repository that already has work in it, and that needs a person, not a
+ * force push.
+ */
+export async function publishRepositoryToRemote(
+  repo: Repository,
+  gitUrl: string,
+): Promise<{ branch: string; pushed: boolean }> {
+  assertSafeGitRemoteUrl(gitUrl);
+  await ensureRepositoryWorkspace(repo);
+
+  return withRepositoryLock(repo.id, async () => {
+    const branch = (await git(repo, ["rev-parse", "--abbrev-ref", "HEAD"])).trim() || "main";
+    const published = { ...repo, gitUrl, origin: "remote" as const };
+    const credential = await remoteCredentialFor(published);
+
+    // Everything except in-flight AI work. A session branch exists only while
+    // a Member has not yet decided about it, and publishing it here would put
+    // unreviewed work on the remote through a button that says nothing about
+    // AI — the exact outcome the review step exists to prevent.
+    const listed =
+      (await gitOrNull(repo, ["for-each-ref", "--format=%(refname)", "refs/heads/"])) ?? "";
+    const refspecs = listed
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((refname) => refname.startsWith("refs/heads/"))
+      .filter((refname) => !refname.startsWith("refs/heads/genosyn/"))
+      .map((refname) => `${refname}:${refname}`);
+    if (refspecs.length === 0) {
+      throw new Error("This repository has no branches to publish yet.");
+    }
+
+    try {
+      await withPushSshMaterial(published, credential, async (extraEnv) => {
+        await runWorkspaceGit({
+          workspaceRoot: workspaceRootFor(repo),
+          cwd: checkoutPath(repo),
+          args: ["push", gitUrl, ...refspecs],
+          extraEnv,
+          credentialHelper: credential.credentialHelper,
+          serverOwned: true,
+        });
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/non-fast-forward|fetch first|rejected/i.test(message)) {
+        throw new Error(
+          "That repository already has commits in it. Connect an empty repository, or add the existing one as a new Repository instead.",
+        );
+      }
+      throw new Error(message);
+    }
+
+    await git(repo, ["remote", "remove", "origin"]).catch(() => {});
+    await git(repo, ["remote", "add", "origin", gitUrl]);
+    // Reflect what we just pushed locally instead of fetching it back: the
+    // fetch would need the credential again and would fail on a private
+    // repository, leaving the branch looking unpublished when it is not.
+    for (const refspec of refspecs) {
+      const name = refspec.split(":")[0].slice("refs/heads/".length);
+      await git(repo, ["update-ref", `refs/remotes/origin/${name}`, `refs/heads/${name}`]).catch(
+        () => {},
+      );
+    }
+    await git(repo, ["branch", `--set-upstream-to=origin/${branch}`, branch]).catch(() => {});
+    return { branch, pushed: true };
   });
 }
 

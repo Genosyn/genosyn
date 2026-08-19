@@ -36,8 +36,21 @@ import {
   repositoryLog,
   repositoryStatus,
   repositoryWorkingDiff,
+  publishRepositoryToRemote,
+  searchRepository,
   writeRepositoryFile,
 } from "../services/repositoryWorkspace.js";
+import {
+  createGithubRepository,
+  listGithubConnections,
+  resolveConnectionToken,
+} from "../services/repositoryGithub.js";
+import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
+import {
+  isPlainHttpsCredentialUrl,
+  repositoryGitUrlSchema,
+} from "../services/repositoryValidation.js";
+import { encryptRepoSecret } from "../services/repositories.js";
 import {
   discardRepositoryWorkSession,
   publishRepositoryWorkSession,
@@ -94,6 +107,11 @@ function isAdmin(req: Request): boolean {
  * editor reads local state constantly and nobody wants a network round trip
  * behind every keystroke; the Refresh button is the explicit way to ask.
  *
+ * `workspace: false` skips materialization entirely, for the handful of routes
+ * that answer questions *about* a repository rather than working inside one.
+ * Without it those routes would try to clone first and fail with a git error
+ * about an unreachable host, hiding the answer they were asked for.
+ *
  * Service errors become 400s with the service's own message. Those messages
  * are written for the person reading them ("This branch has diverged from the
  * remote…"), and flattening them into a generic failure would throw away the
@@ -101,7 +119,7 @@ function isAdmin(req: Request): boolean {
  */
 function withRepository(
   handler: (repo: Repository, req: Request, res: Response) => Promise<unknown>,
-  options: { refresh?: boolean } = {},
+  options: { refresh?: boolean; workspace?: boolean } = {},
 ): RequestHandler {
   return async (req, res) => {
     const repo = await AppDataSource.getRepository(Repository).findOneBy({
@@ -113,7 +131,7 @@ function withRepository(
       return;
     }
     try {
-      if (options.refresh || !repositoryCheckoutExists(repo)) {
+      if (options.workspace !== false && (options.refresh || !repositoryCheckoutExists(repo))) {
         await ensureRepositoryWorkspace(repo);
       }
       await handler(repo, req, res);
@@ -129,7 +147,9 @@ function withRepository(
 repositoryContentRouter.get(
   "/repositories/:slug/workspace/tree",
   withRepository(async (repo, req, res) => {
-    const entries = await listRepositoryTree(repo, String(req.query.path ?? ""));
+    const entries = await listRepositoryTree(repo, String(req.query.path ?? ""), {
+      showIgnored: req.query.showIgnored === "1" || req.query.showIgnored === "true",
+    });
     res.json({ entries });
   }),
 );
@@ -175,6 +195,15 @@ repositoryContentRouter.get(
   withRepository(async (repo, req, res) => {
     const filePath = typeof req.query.path === "string" && req.query.path ? req.query.path : null;
     res.json(await repositoryWorkingDiff(repo, filePath));
+  }),
+);
+
+repositoryContentRouter.get(
+  "/repositories/:slug/workspace/search",
+  withRepository(async (repo, req, res) => {
+    const query = typeof req.query.q === "string" ? req.query.q : "";
+    const limit = typeof req.query.limit === "string" ? Number(req.query.limit) : undefined;
+    res.json(await searchRepository(repo, query, limit));
   }),
 );
 
@@ -354,6 +383,169 @@ repositoryContentRouter.post(
   withRepository(async (repo, req, res) => {
     res.json(await pullRepositoryBranch(repo, (req.body as z.infer<typeof branchNameSchema>).name));
   }),
+);
+
+// ─────────────────────────── connecting a remote ────────────────────────
+
+/**
+ * Giving a repository that was created inside Genosyn somewhere to live.
+ *
+ * Both routes are owner/admin for the same reason push is: they put the
+ * company's work on a server outside it. Both refuse a repository that already
+ * has a remote, because "connect" is a one-way promotion — changing an
+ * existing remote is a settings edit, and conflating the two would let a
+ * misclick point a live repository somewhere new.
+ */
+repositoryContentRouter.get(
+  "/repositories/:slug/github-connections",
+  withRepository(
+    async (repo, _req, res) => {
+      res.json({ connections: await listGithubConnections(repo.companyId) });
+    },
+    { workspace: false },
+  ),
+);
+
+function assertConnectable(repo: Repository): void {
+  if (repo.origin !== "local" || repo.gitUrl) {
+    throw new Error("This repository already has a remote.");
+  }
+}
+
+const connectGithubSchema = z
+  .object({
+    connectionId: z.string().uuid(),
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .regex(/^[A-Za-z0-9._-]+$/, "GitHub names may use letters, numbers, dot, dash, underscore."),
+    owner: z.string().trim().max(100).optional(),
+    private: z.boolean().optional(),
+  })
+  .strict();
+
+repositoryContentRouter.post(
+  "/repositories/:slug/workspace/connect-github",
+  requireAdmin,
+  validateBody(connectGithubSchema),
+  withRepository(
+    async (repo, req, res) => {
+      assertConnectable(repo);
+      const body = req.body as z.infer<typeof connectGithubSchema>;
+      const connection = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
+        id: body.connectionId,
+        companyId: repo.companyId,
+        provider: "github",
+      });
+      if (!connection) throw new Error("That GitHub Connection is no longer available.");
+
+      const { token } = await resolveConnectionToken(connection);
+      const created = await createGithubRepository({
+        token,
+        name: body.name,
+        owner: body.owner || null,
+        private: body.private !== false,
+        description: repo.description,
+      });
+
+      const result = await publishRepositoryToRemote(repo, created.gitUrl);
+      repo.gitUrl = created.gitUrl;
+      repo.origin = "remote";
+      repo.githubConnectionId = connection.id;
+      repo.lastSyncStatus = "ok";
+      repo.lastSyncError = "";
+      repo.lastSyncedAt = new Date();
+      await AppDataSource.getRepository(Repository).save(repo);
+
+      await recordAudit({
+        companyId: repo.companyId,
+        actorUserId: req.userId ?? null,
+        action: "repository.connect_github",
+        targetType: "repository",
+        targetId: repo.id,
+        targetLabel: repo.name,
+        metadata: { gitUrl: created.gitUrl, connectionId: connection.id },
+      });
+      res.json({ ...result, gitUrl: created.gitUrl, htmlUrl: created.htmlUrl });
+    },
+    { workspace: false },
+  ),
+);
+
+/**
+ * Connecting to a host that is not GitHub, or to GitHub without a Connection.
+ *
+ * Credentials are optional and sent in the same request as the URL. Requiring
+ * a separate settings visit first would mean the button either failed on every
+ * private repository or quietly published nothing, and "add the URL, then find
+ * Settings, then come back and press Push" is not a flow anyone should have to
+ * discover.
+ */
+const connectRemoteSchema = z
+  .object({
+    gitUrl: repositoryGitUrlSchema,
+    authMode: z.enum(["none", "https", "ssh"]).optional(),
+    httpsUsername: z.string().max(200).optional(),
+    token: z.string().max(20000).optional(),
+    sshKey: z.string().max(50000).optional(),
+  })
+  .strict()
+  .refine((body) => body.authMode !== "https" || !!body.token, {
+    message: "HTTPS auth needs a token / password.",
+    path: ["token"],
+  })
+  .refine((body) => body.authMode !== "ssh" || !!body.sshKey, {
+    message: "SSH auth needs a private key.",
+    path: ["sshKey"],
+  });
+
+repositoryContentRouter.post(
+  "/repositories/:slug/workspace/connect-remote",
+  requireAdmin,
+  validateBody(connectRemoteSchema),
+  withRepository(
+    async (repo, req, res) => {
+      assertConnectable(repo);
+      const body = req.body as z.infer<typeof connectRemoteSchema>;
+      const authMode = body.authMode ?? "none";
+      if (authMode === "https" && !isPlainHttpsCredentialUrl(body.gitUrl)) {
+        throw new Error(
+          "HTTPS auth needs a plain https:// clone URL without embedded credentials or options.",
+        );
+      }
+      // Persist the credential before pushing: the push resolves it off the
+      // row, and a repository that published once but cannot push again would
+      // be a confusing half-connected state.
+      repo.authMode = authMode;
+      repo.httpsUsername = authMode === "https" ? (body.httpsUsername ?? "").trim() || null : null;
+      repo.encryptedToken =
+        authMode === "https" && body.token ? encryptRepoSecret(body.token, repo.companyId) : null;
+      repo.encryptedSshKey =
+        authMode === "ssh" && body.sshKey ? encryptRepoSecret(body.sshKey, repo.companyId) : null;
+
+      const result = await publishRepositoryToRemote(repo, body.gitUrl);
+      repo.gitUrl = body.gitUrl;
+      repo.origin = "remote";
+      repo.lastSyncStatus = "ok";
+      repo.lastSyncError = "";
+      repo.lastSyncedAt = new Date();
+      await AppDataSource.getRepository(Repository).save(repo);
+
+      await recordAudit({
+        companyId: repo.companyId,
+        actorUserId: req.userId ?? null,
+        action: "repository.connect_remote",
+        targetType: "repository",
+        targetId: repo.id,
+        targetLabel: repo.name,
+        metadata: { gitUrl: body.gitUrl },
+      });
+      res.json({ ...result, gitUrl: body.gitUrl });
+    },
+    { workspace: false },
+  ),
 );
 
 // ───────────────────────────── AI sessions ──────────────────────────────

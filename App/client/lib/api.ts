@@ -1914,6 +1914,36 @@ export type RepositoryTestResult = {
   defaultBranch?: string;
 };
 
+/**
+ * A GitHub Integration Connection the company has already authorised. Listing
+ * them is what turns "connect this repository to GitHub" into a choice rather
+ * than another credential form — the token is already stored and never leaves
+ * the server.
+ */
+export type RepositoryGithubConnection = {
+  id: string;
+  label: string;
+  accountLogin: string | null;
+};
+
+export type RepositoryGithubConnectionsResponse = {
+  connections: RepositoryGithubConnection[];
+};
+
+export type RepositoryConnectGithubResult = {
+  gitUrl: string;
+  /** The browsable page, when the host exposes one. */
+  htmlUrl: string | null;
+  branch: string;
+  pushed: boolean;
+};
+
+export type RepositoryConnectRemoteResult = {
+  gitUrl: string;
+  branch: string;
+  pushed: boolean;
+};
+
 // ─────────────────────── Repository workspace ───────────────────────────
 
 /**
@@ -1928,6 +1958,11 @@ export type RepositoryTreeEntry = {
   path: string;
   type: "file" | "directory";
   size: number;
+  /**
+   * Matched by a .gitignore rule. The tree omits these unless the request
+   * passes `showIgnored=1`, so a listing full of `node_modules` is opt-in.
+   */
+  ignored: boolean;
 };
 
 export type RepositoryFileContent = {
@@ -1995,6 +2030,19 @@ export type RepositoryDiff = {
   filesChanged: number;
   insertions: number;
   deletions: number;
+};
+
+/** One line of a checkout-wide text search, with its 1-based line number. */
+export type RepositorySearchMatch = {
+  path: string;
+  line: number;
+  text: string;
+};
+
+export type RepositorySearchResponse = {
+  matches: RepositorySearchMatch[];
+  /** The server stopped early — say so rather than implying this is all of it. */
+  truncated: boolean;
 };
 
 export type RepositoryTreeResponse = { entries: RepositoryTreeEntry[] };

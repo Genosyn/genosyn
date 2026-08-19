@@ -48,6 +48,17 @@ export const repositoryGitUrlSchema = z
     }
   });
 
+/**
+ * A clone URL, or the empty string meaning "no remote".
+ *
+ * A local repository genuinely has no URL, and the form posts the field as an
+ * empty string rather than omitting it. Accepting only `undefined` made
+ * creating a local repository fail validation with no usable message, which is
+ * the worst possible outcome for the one flow that is supposed to need no
+ * setup at all.
+ */
+export const repositoryGitUrlOrEmptySchema = z.union([z.literal(""), repositoryGitUrlSchema]);
+
 export function isPlainHttpsCredentialUrl(value: string): boolean {
   try {
     httpsCredentialScope(value);
@@ -97,7 +108,7 @@ export const repositoryCreateSchema = z
      */
     origin: z.enum(["remote", "local"]).optional(),
     kind: z.enum(["code", "documents"]).optional(),
-    gitUrl: repositoryGitUrlSchema.optional(),
+    gitUrl: repositoryGitUrlOrEmptySchema.optional(),
     defaultBranch: branchNameSchema.optional(),
     description: z.string().max(2000).optional(),
     authMode: z.enum(["none", "https", "ssh"]),
@@ -136,7 +147,7 @@ export const repositoryPatchSchema = z.object({
    * does that rather than accepting `origin` directly, so the two fields
    * cannot be set to contradict each other.
    */
-  gitUrl: repositoryGitUrlSchema.optional(),
+  gitUrl: repositoryGitUrlOrEmptySchema.optional(),
   defaultBranch: branchNameSchema.optional(),
   description: z.string().max(2000).optional(),
   authMode: z.enum(["none", "https", "ssh"]).optional(),

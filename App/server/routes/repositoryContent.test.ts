@@ -214,7 +214,7 @@ describe("authorization", () => {
 // ───────────────────────────── path safety ──────────────────────────────
 
 describe("path safety", () => {
-    // A leading slash means "from the repository root" and is normalized, not
+  // A leading slash means "from the repository root" and is normalized, not
   // rejected — these are the shapes that genuinely try to leave the checkout.
   const traversals = ["../escape.md", ".git/config", "docs/../../escape.md", "a/../../../etc/x"];
 
@@ -304,10 +304,13 @@ describe("request validation", () => {
 // ──────────────────────────── the happy path ────────────────────────────
 
 describe("editing a repository through the API", () => {
-  test("creates the checkout on first request", async () => {
-    const response = await call<{ entries: unknown[] }>("GET", `${base()}/tree`);
+  test("creates the checkout on first request, seeded with a README", async () => {
+    const response = await call<{ entries: { name: string }[] }>("GET", `${base()}/tree`);
     assert.equal(response.status, 200);
-    assert.deepEqual(response.body.entries, []);
+    assert.deepEqual(
+      response.body.entries.map((entry) => entry.name),
+      ["README.md"],
+    );
   });
 
   test("writes, reads back, sees the change, commits, and finds it in history", async () => {
@@ -366,10 +369,7 @@ describe("editing a repository through the API", () => {
       "archive/.gitkeep",
       "archive/note.md",
     ]);
-    assert.equal(
-      (await call("POST", `${base()}/delete`, { path: "archive/note.md" })).status,
-      200,
-    );
+    assert.equal((await call("POST", `${base()}/delete`, { path: "archive/note.md" })).status, 200);
     assert.equal((await call("GET", `${base()}/file?path=archive%2Fnote.md`)).status, 400);
   });
 
@@ -455,5 +455,162 @@ describe("AI work sessions", () => {
       `/repositories/${repository.slug}/sessions/00000000-0000-4000-8000-000000000000/diff`,
     );
     assert.equal(response.status, 400);
+  });
+});
+
+// ─────────────────────── search and ignored files ───────────────────────
+
+describe("search", () => {
+  test("finds text and reports where it is", async () => {
+    await call("PUT", `${base()}/file`, { path: "docs/plan.md", content: "Grow revenue.\n" });
+    const response = await call<{ matches: { path: string; line: number }[] }>(
+      "GET",
+      `${base()}/search?q=revenue`,
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(
+      response.body.matches.map((m) => m.path),
+      ["docs/plan.md"],
+    );
+  });
+
+  test("refuses an empty query", async () => {
+    assert.equal((await call("GET", `${base()}/search?q=`)).status, 400);
+  });
+});
+
+describe("the tree and ignored files", () => {
+  test("hides ignored entries unless asked", async () => {
+    await call("PUT", `${base()}/file`, { path: ".gitignore", content: "junk/\n" });
+    await call("PUT", `${base()}/file`, { path: "junk/thing.txt", content: "x" });
+    await call("PUT", `${base()}/file`, { path: "kept.md", content: "y" });
+
+    const hidden = await call<{ entries: { name: string; ignored: boolean }[] }>(
+      "GET",
+      `${base()}/tree`,
+    );
+    assert.ok(!hidden.body.entries.some((e) => e.name === "junk"));
+
+    const shown = await call<{ entries: { name: string; ignored: boolean }[] }>(
+      "GET",
+      `${base()}/tree?showIgnored=1`,
+    );
+    assert.equal(shown.body.entries.find((e) => e.name === "junk")?.ignored, true);
+    assert.equal(shown.body.entries.find((e) => e.name === "kept.md")?.ignored, false);
+  });
+});
+
+// ───────────────────────── connecting to a remote ───────────────────────
+
+describe("connecting a local repository to a remote", () => {
+  test("lists GitHub connections, empty when none are connected", async () => {
+    const response = await call<{ connections: unknown[] }>(
+      "GET",
+      `/repositories/${repository.slug}/github-connections`,
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.connections, []);
+  });
+
+  test("an ordinary member may not connect a remote", async () => {
+    actingUserId = member.id;
+    assert.equal(
+      (
+        await call("POST", `${base()}/connect-remote`, {
+          gitUrl: "https://example.invalid/a/b.git",
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await call("POST", `${base()}/connect-github`, {
+          connectionId: "00000000-0000-4000-8000-000000000000",
+          name: "web",
+        })
+      ).status,
+      403,
+    );
+  });
+
+  test("refuses a clone URL that carries credentials", async () => {
+    actingUserId = owner.id;
+    const response = await call("POST", `${base()}/connect-remote`, {
+      gitUrl: "https://user:secret@example.invalid/a/b.git",
+    });
+    assert.equal(response.status, 400);
+  });
+
+  test("refuses a repository name GitHub would not accept", async () => {
+    actingUserId = owner.id;
+    const response = await call("POST", `${base()}/connect-github`, {
+      connectionId: "00000000-0000-4000-8000-000000000000",
+      name: "not a valid name",
+    });
+    assert.equal(response.status, 400);
+  });
+
+  test("refuses to connect a repository that already has a remote", async () => {
+    actingUserId = owner.id;
+    const remote = await insert(Repository, {
+      companyId: company.id,
+      name: "Web",
+      slug: "web",
+      description: "",
+      origin: "remote",
+      kind: "code",
+      gitUrl: "https://example.invalid/acme/web.git",
+      defaultBranch: "main",
+      authMode: "none",
+      lastSyncStatus: "unknown",
+      lastSyncError: "",
+    });
+    const response = await call<{ error: string }>(
+      "POST",
+      `/repositories/${remote.slug}/workspace/connect-remote`,
+      { gitUrl: "https://example.invalid/acme/other.git" },
+    );
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /already has a remote/);
+  });
+
+  test("refuses HTTPS credentials without a token", async () => {
+    actingUserId = owner.id;
+    const response = await call("POST", `${base()}/connect-remote`, {
+      gitUrl: "https://gitlab.example/acme/web.git",
+      authMode: "https",
+      httpsUsername: "oauth2",
+    });
+    assert.equal(response.status, 400);
+  });
+
+  test("refuses SSH without a key", async () => {
+    actingUserId = owner.id;
+    const response = await call("POST", `${base()}/connect-remote`, {
+      gitUrl: "git@gitlab.example:acme/web.git",
+      authMode: "ssh",
+    });
+    assert.equal(response.status, 400);
+  });
+
+  test("refuses HTTPS credentials on a non-https clone URL", async () => {
+    actingUserId = owner.id;
+    const response = await call<{ error: string }>("POST", `${base()}/connect-remote`, {
+      gitUrl: "git@gitlab.example:acme/web.git",
+      authMode: "https",
+      token: "glpat-x",
+    });
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /plain https/);
+  });
+
+  test("reports an unknown GitHub connection rather than failing obscurely", async () => {
+    actingUserId = owner.id;
+    const response = await call<{ error: string }>("POST", `${base()}/connect-github`, {
+      connectionId: "00000000-0000-4000-8000-000000000000",
+      name: "web",
+    });
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /no longer available/);
   });
 });

@@ -833,7 +833,7 @@ export const githubProvider: IntegrationProvider = {
  * OAuth row whose access token was never saved). Callers should treat that as
  * a hard skip.
  */
-type GithubAuthMode =
+export type GithubAuthMode =
   | "apikey"
   | "oauth2"
   | "service_account"

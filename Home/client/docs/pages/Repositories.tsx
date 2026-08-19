@@ -43,7 +43,8 @@ export function Repositories() {
                 <Strong>Remote</Strong> — a clone of any HTTPS or SSH git URL: GitHub, GitLab,
                 Bitbucket, a self-hosted Gitea, anything git speaks to.{" "}
                 <Strong>Local</Strong> — created empty inside Genosyn with <Code>git init</Code> and
-                no clone URL at all, so a versioned set of documents needs no git host.
+                no clone URL at all, so a versioned set of documents needs no git host. A local one
+                can be connected to GitHub later without that having been the plan.
               </>
             ),
           },
@@ -93,9 +94,68 @@ export function Repositories() {
       <P>
         A local repository is created with <Code>git init</Code> on the default branch you chose,
         plus one empty commit, so there is a revision to branch from and diff against before you
-        write your first file. It has no remote and uses no authentication. Adding a clone URL to it
-        later in <Strong>Settings</Strong> promotes it to a remote repository.
+        write your first file. It has no remote and uses no authentication. It does not have to stay
+        that way — see <Strong>Connect a local repository to GitHub</Strong> below.
       </P>
+
+      <H2 id="connect">Connect a local repository to GitHub</H2>
+      <P>
+        A repository that started life inside Genosyn can be given a real remote later, and its
+        existing history is pushed into it rather than re-created. Nobody mints or pastes a personal
+        access token for this: the company authenticated GitHub once under{" "}
+        <Strong>Settings → Integrations</Strong>, and connecting reuses that{" "}
+        <DocLink to="/docs/integrations">Connection</DocLink>.
+      </P>
+      <OL>
+        <LI>
+          Pick one of the company&apos;s connected GitHub Connections. The account each one
+          authenticates as is shown, so a personal and an organisation Connection are told apart.
+        </LI>
+        <LI>
+          Give the repository a name on GitHub and, optionally, an organisation to own it. Left
+          blank, it is created under the account the Connection authenticates as.
+        </LI>
+        <LI>
+          Choose <Strong>private</Strong> or public. Private is the default.
+        </LI>
+        <LI>
+          Genosyn creates it through the GitHub API — empty, with no README, licence, or{" "}
+          <Code>.gitignore</Code>, so the first push is a clean fast-forward — and pushes the
+          history into it.
+        </LI>
+      </OL>
+      <P>
+        The other route is to paste the clone URL of an <Strong>empty</Strong> repository you made
+        yourself — on GitLab, Bitbucket, a self-hosted Gitea, anywhere — and let Genosyn push into
+        that. A github.com HTTPS URL authenticates through a Connection as above; for any other
+        host you can supply an HTTPS token or an SSH key in the same step, and it is stored
+        encrypted exactly as it would be on a repository you cloned. Leave the credentials blank
+        for a remote that accepts anonymous writes. A remote that already has commits is refused
+        with an explanation rather than force-pushed — the right move there is usually to add the
+        existing repository as a Repository of its own.
+      </P>
+      <UL>
+        <LI>
+          Every branch goes across <Strong>except</Strong> the AI work-session ones under{" "}
+          <Code>genosyn/</Code>. Unreviewed AI work must not reach a remote through a button that
+          says nothing about AI.
+        </LI>
+        <LI>
+          Afterwards the repository has an <Code>origin</Code>, the current branch tracks it, and
+          push, pull, and refresh behave exactly as they do for a repository that was cloned.
+        </LI>
+        <LI>
+          Pushes to that github.com HTTPS remote keep authenticating through the same Connection, so
+          the repository still stores no credential of its own. The token is resolved for each
+          operation and never written to the repository.
+        </LI>
+        <LI>
+          Connecting is <Strong>owner or admin</Strong> only, for the same reason pushing is, and it
+          is written to the audit log. It is offered only for a local repository that has no remote
+          yet — repointing one that already has an <Code>origin</Code> is a settings edit, not a
+          connect.
+        </LI>
+      </UL>
 
       <H2 id="files">Browse and edit files</H2>
       <P>
@@ -105,9 +165,16 @@ export function Repositories() {
         directory shows at most 2,000 entries.
       </P>
       <P>
-        Open a file to edit it in place. You can create, rename, move, and delete files and folders.
-        A new empty folder gets a <Code>.gitkeep</Code> so it survives a reload — git has no concept
-        of an empty directory.
+        The tree respects <Code>.gitignore</Code>. Ignored entries are hidden, with a toggle that
+        brings them back dimmed when you actually want one — without it a cloned code repository
+        buries its own source under <Code>node_modules</Code> and spends the entry cap getting
+        there.
+      </P>
+      <P>
+        Open a file to edit it in place, with syntax highlighting for the language it is written in.
+        You can create, rename, move, and delete files and folders. A new empty folder gets a{" "}
+        <Code>.gitkeep</Code> so it survives a reload — git has no concept of an empty directory. A{" "}
+        <Code>README</Code> at the root of the repository is rendered on its Overview page.
       </P>
       <UL>
         <LI>
@@ -117,6 +184,11 @@ export function Repositories() {
         <LI>
           Files above <Strong>256 KB</Strong> open read-only, as do binary files and any file you
           opened at an older revision.
+        </LI>
+        <LI>
+          <Strong>Search</Strong> finds text anywhere in the checkout: literal and
+          case-insensitive, including files nobody has committed yet, skipping ignored ones. AI
+          Employees have had the same search all along; Members have it now too.
         </LI>
         <LI>
           The changed-files list comes from <Code>git status</Code>. Review a per-file diff or the
@@ -154,8 +226,9 @@ export function Repositories() {
           yet, and conflict markers in a web editor with no way out would be worse than a refusal.
         </LI>
         <LI>
-          <Strong>Push.</Strong> Sends one branch to the remote using the stored credential. Local
-          repositories have nothing to push to until you give them a URL.
+          <Strong>Push.</Strong> Sends one branch to the remote using the stored credential, or the
+          GitHub Connection the repository was connected with. Local repositories have nothing to
+          push to until you connect them.
         </LI>
       </UL>
 
@@ -232,11 +305,11 @@ export function Repositories() {
         rows={[
           {
             term: "Any Member",
-            def: "Browse the tree, edit, create and delete files, commit, create and switch branches, read history and diffs, start AI work sessions, and merge a session's work into the checkout.",
+            def: "Browse the tree, search it, edit, create and delete files, commit, create and switch branches, read history and diffs, start AI work sessions, and merge a session's work into the checkout.",
           },
           {
             term: "Owner / admin",
-            def: "Push, pull, and repository configuration — the clone URL, credentials, default branch, committer identity, and which AI Employees are granted access. Pushing a session's work while publishing it is admin too; merging it is not.",
+            def: "Push, pull, connecting a local repository to a remote, and repository configuration — the clone URL, credentials, default branch, committer identity, and which AI Employees are granted access. Pushing a session's work while publishing it is admin too; merging it is not.",
           },
         ]}
       />
@@ -252,9 +325,12 @@ export function Repositories() {
       <UL>
         <LI>
           <Strong>None / GitHub Connection.</Strong> Public repositories clone anonymously. For an
-          HTTPS GitHub URL, Genosyn can reuse a GitHub{" "}
-          <DocLink to="/docs/integrations">Connection</DocLink> granted to the same employee. Local
-          repositories always use this mode — there is no remote to authenticate to.
+          HTTPS github.com URL, Genosyn authenticates through one of the company&apos;s GitHub{" "}
+          <DocLink to="/docs/integrations">Connections</DocLink> instead of a stored credential —
+          the one the repository was connected with, or the only one there is. With several and
+          nothing pinned it refuses rather than guessing which account should push the
+          company&apos;s work. Local repositories always use this mode; there is no remote to
+          authenticate to.
         </LI>
         <LI>
           <Strong>HTTPS token / password.</Strong> A username plus a token: <Code>x-access-token</Code>{" "}
@@ -325,8 +401,9 @@ export function Repositories() {
         employee should call the GitHub API — open an issue, raise a pull request, leave a review —
         against repositories on a connected GitHub account. A Repository is the workspace itself: a
         real working tree that people and AI Employees edit and commit in, on any git host or on
-        none. They compose. Prepare the change in the Repository, publish the branch, and let the
-        GitHub Connection open the pull request for it.
+        none. They compose, and the same Connection serves both: it can create the repository on
+        GitHub in the first place, and once the change is prepared in the Repository and the branch
+        is published, open the pull request for it.
       </P>
 
       <Callout kind="warn" title="Least privilege.">
@@ -334,8 +411,8 @@ export function Repositories() {
         only the repositories they work on — see{" "}
         <DocLink to="/docs/employees">AI Employees</DocLink>. Deleting a repository removes its
         grants, its work sessions, and its server-side checkout, and never touches the remote git
-        repository — but a <Strong>local</Strong> repository has no remote, so deleting it deletes
-        the only copy of its history.
+        repository — but a <Strong>local</Strong> repository has no remote, so unless you have
+        connected it to one, deleting it deletes the only copy of its history.
       </Callout>
     </>
   );

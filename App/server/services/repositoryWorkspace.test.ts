@@ -10,6 +10,8 @@ import { config } from "../../config.js";
 import type { Repository } from "../db/entities/Repository.js";
 import {
   checkoutRepositoryBranch,
+  publishRepositoryToRemote,
+  searchRepository,
   commitRepositoryChanges,
   createRepositoryBranch,
   createRepositoryDirectory,
@@ -126,6 +128,22 @@ describe("a local repository", () => {
     const commits = await repositoryLog(repo);
     assert.equal(commits.length, 1);
     assert.equal(commits[0].subject, "Create repository");
+  });
+
+  test("starts with a README rather than an empty commit", async () => {
+    const repo = await localRepository({
+      name: "Company Strategy",
+      description: "Where the plan lives.",
+    });
+    const readme = await readRepositoryFile(repo, "README.md");
+    assert.equal(readme.content, "# Company Strategy\n\nWhere the plan lives.\n");
+    // Seeded in the first commit, so there is nothing uncommitted to explain.
+    assert.deepEqual((await repositoryStatus(repo)).changes, []);
+  });
+
+  test("omits the description line when there is no description", async () => {
+    const repo = await localRepository({ name: "Runbooks", description: "" });
+    assert.equal((await readRepositoryFile(repo, "README.md")).content, "# Runbooks\n");
   });
 
   test("honours a custom default branch", async () => {
@@ -716,5 +734,153 @@ describe("safety", () => {
       /escapes the repository/,
     );
     assert.equal(fs.existsSync(path.join(outside, "planted.md")), false);
+  });
+});
+
+// ──────────────────── ignored files and searching ───────────────────────
+
+describe("the file tree and .gitignore", () => {
+  async function repositoryWithIgnores() {
+    const repo = await localRepository();
+    await writeRepositoryFile(repo, ".gitignore", "node_modules/\ndist/\n*.log\n");
+    await writeRepositoryFile(repo, "src/index.ts", "export const x = 1;\n");
+    await writeRepositoryFile(repo, "node_modules/left-pad/index.js", "module.exports = 1;\n");
+    await writeRepositoryFile(repo, "dist/bundle.js", "console.log(1);\n");
+    await writeRepositoryFile(repo, "debug.log", "noise\n");
+    return repo;
+  }
+
+  test("hides ignored entries by default, which is what makes a code repo usable", async () => {
+    const repo = await repositoryWithIgnores();
+    const entries = await listRepositoryTree(repo, "");
+    const names = entries.map((entry) => entry.name).sort();
+    assert.deepEqual(names, [".gitignore", "README.md", "src"]);
+    assert.ok(!names.includes("node_modules"), "node_modules would bury the real files");
+    assert.ok(!names.includes("dist"));
+    assert.ok(!names.includes("debug.log"));
+  });
+
+  test("shows them, marked, when explicitly asked", async () => {
+    const repo = await repositoryWithIgnores();
+    const entries = await listRepositoryTree(repo, "", { showIgnored: true });
+    const byName = new Map(entries.map((entry) => [entry.name, entry]));
+    assert.equal(byName.get("node_modules")?.ignored, true);
+    assert.equal(byName.get("dist")?.ignored, true);
+    assert.equal(byName.get("debug.log")?.ignored, true);
+    assert.equal(byName.get("src")?.ignored, false);
+    assert.equal(byName.get(".gitignore")?.ignored, false);
+  });
+
+  test("filters inside a subdirectory too", async () => {
+    const repo = await localRepository();
+    await writeRepositoryFile(repo, ".gitignore", "src/generated/\n");
+    await writeRepositoryFile(repo, "src/keep.ts", "export const a = 1;\n");
+    await writeRepositoryFile(repo, "src/generated/api.ts", "export const b = 2;\n");
+    const entries = await listRepositoryTree(repo, "src");
+    assert.deepEqual(
+      entries.map((entry) => entry.name),
+      ["keep.ts"],
+    );
+  });
+
+  test("a repository with no .gitignore hides nothing", async () => {
+    const repo = await localRepository();
+    await writeRepositoryFile(repo, "a.md", "a\n");
+    await writeRepositoryFile(repo, "b.md", "b\n");
+    const entries = await listRepositoryTree(repo, "");
+    // The two written here plus the README every local repository starts with.
+    assert.equal(entries.length, 3);
+    assert.ok(entries.every((entry) => entry.ignored === false));
+  });
+});
+
+describe("searching a repository", () => {
+  async function searchable() {
+    const repo = await localRepository();
+    await writeRepositoryFile(repo, "docs/plan.md", "# Plan\n\nGrow revenue in Q3.\n");
+    await writeRepositoryFile(repo, "docs/notes.md", "Revenue is the theme.\n");
+    await writeRepositoryFile(repo, ".gitignore", "vendor/\n");
+    await writeRepositoryFile(repo, "vendor/big.md", "revenue revenue revenue\n");
+    await commitRepositoryChanges(repo, { message: "Add the docs" });
+    return repo;
+  }
+
+  test("finds matches with their path and line number", async () => {
+    const repo = await searchable();
+    const { matches } = await searchRepository(repo, "revenue");
+    const paths = matches.map((match) => match.path).sort();
+    assert.deepEqual(paths, ["docs/notes.md", "docs/plan.md"]);
+    const plan = matches.find((match) => match.path === "docs/plan.md");
+    assert.equal(plan?.line, 3);
+    assert.match(plan?.text ?? "", /Grow revenue in Q3\./);
+  });
+
+  test("is case-insensitive", async () => {
+    const repo = await searchable();
+    const upper = await searchRepository(repo, "REVENUE");
+    assert.ok(upper.matches.length >= 2);
+  });
+
+  test("skips ignored files, so vendored code does not drown the results", async () => {
+    const repo = await searchable();
+    const { matches } = await searchRepository(repo, "revenue");
+    assert.ok(!matches.some((match) => match.path.startsWith("vendor/")));
+  });
+
+  test("finds a file that has never been committed", async () => {
+    const repo = await searchable();
+    await writeRepositoryFile(repo, "fresh.md", "revenue arrives here too\n");
+    const { matches } = await searchRepository(repo, "arrives here");
+    assert.deepEqual(
+      matches.map((match) => match.path),
+      ["fresh.md"],
+    );
+  });
+
+  test("returns nothing rather than failing when there are no matches", async () => {
+    const repo = await searchable();
+    const result = await searchRepository(repo, "nothing matches this string");
+    assert.deepEqual(result.matches, []);
+    assert.equal(result.truncated, false);
+  });
+
+  test("refuses an empty query instead of returning the whole repository", async () => {
+    const repo = await searchable();
+    await assert.rejects(() => searchRepository(repo, "   "), /search for/);
+  });
+
+  test("treats the query as literal text, not a pattern", async () => {
+    const repo = await localRepository();
+    await writeRepositoryFile(repo, "code.ts", "const re = /a.*b/;\nconst plain = 'a.*b';\n");
+    const { matches } = await searchRepository(repo, "a.*b");
+    assert.equal(matches.length, 2, "a regex search would have matched differently");
+  });
+
+  test("honours the limit", async () => {
+    const repo = await localRepository();
+    const lines = Array.from({ length: 40 }, (_, i) => `hit ${i}`).join("\n");
+    await writeRepositoryFile(repo, "many.md", `${lines}\n`);
+    const { matches, truncated } = await searchRepository(repo, "hit", 5);
+    assert.equal(matches.length, 5);
+    assert.equal(truncated, true);
+  });
+});
+
+describe("publishing a local repository to a remote", () => {
+  test("refuses a remote URL that carries credentials", async () => {
+    const repo = await localRepository();
+    await assert.rejects(
+      () => publishRepositoryToRemote(repo, "https://user:secret@example.invalid/acme/web.git"),
+      /plain http/,
+    );
+  });
+
+  test("refuses a repository that has no branches to publish", async () => {
+    const repo = makeRepository();
+    // Never materialized, so there is nothing to push.
+    await assert.rejects(
+      () => publishRepositoryToRemote(repo, "https://example.invalid/acme/web.git"),
+      /./,
+    );
   });
 });

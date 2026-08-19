@@ -85,8 +85,11 @@ export function DiffView({
         <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-300">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span>
-            This diff was too large to send in full and stops here. Open the repository in a git
-            client, or narrow the change, to see the rest.
+            {/* This surface is read by whoever owns the document, not only by
+              people with a terminal — telling them to install a git client is
+              telling them the product cannot help. */}
+            This change is too big to show all of it here. The rest is safely stored — open the
+            individual files to read them.
           </span>
         </div>
       )}

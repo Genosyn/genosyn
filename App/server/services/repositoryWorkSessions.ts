@@ -121,10 +121,9 @@ export async function removeSessionWorktree(repo: Repository, sessionId: string)
     // A worktree whose directory was already deleted leaves stale metadata;
     // clearing it is what `prune` is for and it must not fail the caller.
     fs.rmSync(directory, { recursive: true, force: true });
-    await runRepositoryGit(repo, repositoryCheckoutDirectory(repo), [
-      "worktree",
-      "prune",
-    ]).catch(() => {});
+    await runRepositoryGit(repo, repositoryCheckoutDirectory(repo), ["worktree", "prune"]).catch(
+      () => {},
+    );
   }
 }
 
@@ -149,13 +148,22 @@ export function sessionListFiles(directory: string, subPath: string): Repository
     if (dirent.isSymbolicLink()) continue;
     const entryPath = normalized ? `${normalized}/${dirent.name}` : dirent.name;
     if (dirent.isDirectory()) {
-      entries.push({ name: dirent.name, path: entryPath, type: "directory", size: 0 });
+      entries.push({
+        name: dirent.name,
+        path: entryPath,
+        type: "directory",
+        size: 0,
+        ignored: false,
+      });
     } else if (dirent.isFile()) {
       entries.push({
         name: dirent.name,
         path: entryPath,
         type: "file",
         size: fs.statSync(path.join(absolute, dirent.name)).size,
+        // A session listing is not filtered: an employee asked to change a
+        // generated file should still be able to see it.
+        ignored: false,
       });
     }
   }
@@ -399,7 +407,14 @@ export async function repositoryWorkSessionDiff(
   });
   if (!repo) throw new Error("Repository not found.");
   if (!session.baseCommit || !session.headCommit) {
-    return { patch: "", truncated: false, filesChanged: 0, insertions: 0, deletions: 0, commits: [] };
+    return {
+      patch: "",
+      truncated: false,
+      filesChanged: 0,
+      insertions: 0,
+      deletions: 0,
+      commits: [],
+    };
   }
   const checkout = repositoryCheckoutDirectory(repo);
   const patch = await runRepositoryGit(repo, checkout, [

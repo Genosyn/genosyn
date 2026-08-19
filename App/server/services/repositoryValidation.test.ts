@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { describe, test } from "node:test";
 import {
   repositoryCredentialError,
   repositoryCreateSchema,
@@ -151,4 +151,55 @@ test("legacy unsafe clone URLs are replaced before API hydration", () => {
 
 test("an empty clone URL is a local repository, not an unsafe one", () => {
   assert.equal(gitRemoteUrlForResponse(""), "");
+});
+
+/**
+ * Creating a local repository is the flow that is supposed to need no setup at
+ * all, so a schema that rejects it is worse than one that rejects anything
+ * else. The form posts every field it renders, which means `gitUrl: ""`.
+ */
+describe("creating a local repository", () => {
+  const localBody = {
+    name: "marketing",
+    origin: "local" as const,
+    kind: "documents" as const,
+    gitUrl: "",
+    defaultBranch: "main",
+    description: "",
+    authMode: "none" as const,
+    committerName: "",
+    committerEmail: "",
+  };
+
+  test("accepts the payload the Add repository form actually sends", () => {
+    const parsed = repositoryCreateSchema.safeParse(localBody);
+    assert.equal(parsed.success, true, JSON.stringify(parsed.success ? [] : parsed.error.issues));
+  });
+
+  test("accepts it with the clone URL omitted entirely", () => {
+    const { gitUrl: _gitUrl, ...withoutUrl } = localBody;
+    assert.equal(repositoryCreateSchema.safeParse(withoutUrl).success, true);
+  });
+
+  test("still requires a clone URL for a remote repository", () => {
+    const parsed = repositoryCreateSchema.safeParse({ ...localBody, origin: "remote", gitUrl: "" });
+    assert.equal(parsed.success, false);
+  });
+
+  test("refuses credentials on a repository with no remote", () => {
+    const parsed = repositoryCreateSchema.safeParse({
+      ...localBody,
+      authMode: "https",
+      token: "ghp_x",
+    });
+    assert.equal(parsed.success, false);
+  });
+
+  test("lets a patch clear the clone URL, demoting the repository to local", () => {
+    assert.equal(repositoryPatchSchema.safeParse({ gitUrl: "" }).success, true);
+  });
+
+  test("still rejects a malformed clone URL on patch", () => {
+    assert.equal(repositoryPatchSchema.safeParse({ gitUrl: "not a url" }).success, false);
+  });
 });

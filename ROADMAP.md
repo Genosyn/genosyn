@@ -1024,9 +1024,29 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
 - [x] Authority split: browsing, editing, committing, and starting sessions
       are Member-level; pushing, pulling, and repository configuration stay
       owner/admin.
+- [x] **Connect a local repository to GitHub later** — pick a connected GitHub
+      Connection, Genosyn creates the repository through the API and pushes the
+      history. No personal access token is minted or pasted: the company
+      authenticated GitHub once in Settings → Integrations and this reuses it.
+      `Repository.githubConnectionId` pins which account publishes, which
+      matters once a company has more than one connected. Pasting an existing
+      empty clone URL does the same thing without the API call.
+      An anonymous github.com HTTPS remote now authenticates pushes through
+      that Connection too, so the whole path needs no stored credential.
+      Session branches are deliberately excluded from the first push —
+      unreviewed AI work must not reach a remote through a button that says
+      nothing about AI.
+- [x] The file tree respects `.gitignore`, with a toggle to show ignored
+      entries. Without it a cloned code repository buries its own source under
+      `node_modules` and hits the entry cap.
+- [x] Repository search for Members (`git grep` over the checkout, literal and
+      case-insensitive, untracked files included) — AI Employees already had it.
+- [x] Syntax highlighting in the editor, README rendered on the Overview.
 - [ ] Conflict resolution in the browser (a conflicting merge is refused, not
       surfaced for editing)
 - [ ] Streaming a work session's progress instead of polling it
+- [ ] Connecting to GitLab / Bitbucket the same way (today only GitHub has a
+      Connection that can create a repository)
 
 ### M13 — Lightning ✅
 
