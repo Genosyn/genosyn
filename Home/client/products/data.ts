@@ -110,11 +110,11 @@ export const PRODUCTS: ProductDef[] = [
     ],
     employees: {
       heading: "How the pieces fit",
-      body: "Genosyn owns the model loop and tool registry. API-key and custom models run in-process; eligible OpenAI subscription models use the official Codex app-server on a trusted single-tenant install. Docker supports subscription Runs without coding by default, while Linux bubblewrap can add isolated coding. Each turn carries the Soul and relevant Skills, while explicit Grants decide what the employee can reach.",
+      body: "Genosyn owns the model loop and tool registry. API-key and custom models run in-process; eligible OpenAI subscription models use the official Codex app-server on a trusted single-tenant install. Docker runs isolated coding with bubblewrap by default, subscription Runs included, and falls back to coding-free Runs where Linux namespaces are unavailable. Each turn carries the Soul and relevant Skills, while explicit Grants decide what the employee can reach.",
       bullets: [
         {
           title: "Tools match the deployment",
-          body: "Coding tools are off by default. Separately acknowledged trusted host mode adds path-confined file helpers; Linux bubblewrap adds isolated bash and repository work. Opt-in browser tools drive a headless Chromium with a host allow-list and human take-over for captchas.",
+          body: "Coding tools are on by default, and only ever behind bubblewrap's Linux namespaces — a host that cannot isolate a shell gets none. Separately acknowledged trusted host mode adds path-confined file helpers instead. Opt-in browser tools drive a headless Chromium with a host allow-list and human take-over for captchas.",
         },
         {
           title: "Memory that persists",
@@ -133,7 +133,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Which models can an employee run on?",
-        a: "Anthropic (Claude), OpenAI (GPT), or Custom — any OpenAI-compatible endpoint such as Ollama, vLLM, llama.cpp, LM Studio, or a gateway. Trusted single-tenant deployments can also connect OpenAI through a ChatGPT subscription; the Docker default runs without coding tools, while Linux bubblewrap can add isolated coding. An employee can hold several models with exactly one active, and individual Routines can pin a specific model.",
+        a: "Anthropic (Claude), OpenAI (GPT), or Custom — any OpenAI-compatible endpoint such as Ollama, vLLM, llama.cpp, LM Studio, or a gateway. Trusted single-tenant deployments can also connect OpenAI through a ChatGPT subscription; the Docker default runs it with bubblewrap-isolated coding, or without coding tools where Linux namespaces are unavailable. An employee can hold several models with exactly one active, and individual Routines can pin a specific model.",
       },
       {
         q: "Where do model credentials live?",
@@ -1501,7 +1501,7 @@ export const PRODUCTS: ProductDef[] = [
         },
         {
           title: "No shell required",
-          body: "List, read, write, delete, search, commit — six tools Genosyn runs on the employee's behalf. Repository work no longer waits on coding tools, bubblewrap, or host execution being switched on.",
+          body: "List, read, write, delete, search, commit — six tools Genosyn runs on the employee's behalf. Repository work needs no coding tools, no bubblewrap, and no host execution, so it works even where the sandbox cannot start.",
         },
         {
           title: "A diff and a report",
@@ -1524,7 +1524,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Do I need coding tools or a sandbox enabled?",
-        a: "Not for this. The browser editor and AI work sessions run against a server-owned checkout with no shell involved, so they work on the standard Docker install. The separate per-employee checkout — the one an employee uses with ordinary git during open-ended chat and Routine work — still needs coding execution enabled.",
+        a: "Not for this. The browser editor and AI work sessions run against a server-owned checkout with no shell involved, so they work on the standard Docker install. The separate per-employee checkout — the one an employee uses with ordinary git during open-ended chat and Routine work — needs coding execution, which the standard Docker install has by default unless its host denies bubblewrap the Linux namespaces it needs.",
       },
       {
         q: "Can an AI Employee push straight to my remote?",

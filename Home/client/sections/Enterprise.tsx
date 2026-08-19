@@ -264,13 +264,13 @@ function EnterpriseDeployments() {
               icon={Boxes}
               label="Standard self-hosted"
               title="Docker with API keys, custom models, or ChatGPT sign-in"
-              body="The default path for one trusted host: persistent data, SQLite or Postgres, subscription Runs without coding tools, and the built-in Genosyn CLI for operations."
+              body="The default path for one trusted host: persistent data, SQLite or Postgres, subscription Runs beside bubblewrap-isolated coding, and the built-in Genosyn CLI for operations."
             />
             <DeploymentRow
               icon={Server}
               label="Source-managed Linux"
               title="Advanced isolation for coding and repository work"
-              body="Run the App process directly on Linux with bubblewrap when AI Models, including eligible ChatGPT subscriptions, need isolated bash and repository materialization."
+              body="Run the App process directly on Linux, where bubblewrap gives AI Models — eligible ChatGPT subscriptions included — the isolated bash and repository materialization the standard image also ships."
             />
             <DeploymentRow
               icon={Database}

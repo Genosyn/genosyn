@@ -31,8 +31,8 @@ export type WorkspaceGitOptions = {
    * checkout is a command-execution surface and has to be an operator
    * decision. That reasoning does not reach a tree the model cannot touch —
    * and gating it there would leave the Repository UI (browse, edit, history,
-   * commit) dead on the standard install, whose default execution mode is
-   * `disabled`.
+   * commit) dead on any install whose sandbox could not start, which boot
+   * resolves to `disabled`.
    *
    * The hardening is unchanged either way: no App environment inheritance,
    * hooks off, no system or global config, `ext`/`file` protocols denied, no

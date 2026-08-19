@@ -57,24 +57,30 @@ export const config = {
     bootstrapMasterAdminEmail: "",
   },
 
-  // AI Employee execution controls. Coding execution is disabled by default:
-  // Acknowledged `host` mode keeps path-confined file/search tools but never exposes bash: a
-  // same-UID host shell could read App data, Vault encryption roots, and sibling
-  // process tokens. The safe `disabled` mode supports ChatGPT subscription
-  // auth without coding tools, repository materialization, or user-configured
-  // stdio MCP children. Sandboxed bash and repository work are available only
-  // when an operator deliberately selects `bubblewrap` on a Linux deployment
-  // whose user-namespace policy passes Genosyn's probe. `host` mode permits
-  // user stdio MCP and therefore rejects subscription credentials.
-  // Bubblewrap runs every shell invocation and repository Git child in
-  // user/mount/PID namespaces with only the employee workspace writable. Shared
-  // SaaS requires bubblewrap and disables network access inside the coding
-  // sandbox; networked work goes through governed Integration, browser, and
-  // HTTP surfaces instead.
+  // AI Employee execution controls. Command execution is on by default, and
+  // `bubblewrap` is the only mode that default is allowed to mean: every shell
+  // invocation and repository Git child runs in user/mount/PID namespaces with
+  // only the employee workspace writable. The stock Docker image ships the
+  // executable, so an out-of-the-box install can run commands, materialize
+  // repositories, and test a Repository connection without an operator
+  // deciding anything — and a ChatGPT subscription still signs in beside it.
+  // Bubblewrap is Linux-only and needs unprivileged user namespaces, so boot
+  // probes it once and falls back to `disabled` when the sandbox cannot run
+  // (see services/runtimeSecurity.ts). That fallback only ever narrows: a host
+  // that cannot isolate a shell gets no shell, never an unsandboxed one.
+  // `disabled` exposes no coding tools, materializes no repositories, and
+  // permits no user-configured stdio MCP children; it still supports ChatGPT
+  // subscription auth. Acknowledged `host` mode keeps path-confined file/search
+  // tools but never exposes bash: a same-UID host shell could read App data,
+  // Vault encryption roots, and sibling process tokens. It permits user stdio
+  // MCP and therefore rejects subscription credentials. Shared SaaS requires
+  // bubblewrap and disables network access inside the coding sandbox;
+  // networked work goes through governed Integration, browser, and HTTP
+  // surfaces instead.
   agent: {
     codingTools: {
       enabled: true,
-      executionMode: "disabled" as "host" | "bubblewrap" | "disabled",
+      executionMode: "bubblewrap" as "host" | "bubblewrap" | "disabled",
       bubblewrapPath: "/usr/bin/bwrap",
       allowNetwork: false,
       // Emergency compatibility escape hatch for a trusted, single-company

@@ -75,10 +75,10 @@ export function SelfHosting() {
   agent: {
     codingTools: {
       enabled: true,
-      // Disabled is the safe cross-platform default and supports trusted
-      // single-tenant subscription Runs without coding or repository work.
-      // Select bubblewrap only after its Linux isolation probe succeeds.
-      executionMode: "disabled",
+      // Command execution is on by default, and only ever behind bubblewrap.
+      // Boot probes the sandbox and falls back to disabled where Linux user
+      // namespaces are unavailable; it never falls back to host execution.
+      executionMode: "bubblewrap",
       bubblewrapPath: "/usr/bin/bwrap", allowNetwork: false,
       allowUnsafeHostExecution: false,
     },
@@ -106,16 +106,18 @@ export function SelfHosting() {
         other independent Routines for the same employee. Increase it only when your AI Model quotas
         and host capacity can support the extra parallel requests.
       </P>
-      <Callout kind="info" title="The Docker default supports subscription auth without coding.">
-        Coding execution is disabled by default. In this mode a trusted single-tenant install,
-        including the standard Docker container, supports ChatGPT subscription sign-in and Runs
-        without coding tools, repository materialization, or user-configured stdio MCP. For
-        sandboxed <Code>bash</Code> and repository work, run Genosyn from source on Linux, set the
-        mode to <Code>bubblewrap</Code>, and confirm the model card reports that the isolation check
-        passed. Do not make the App container privileged or disable its security profile just to
-        force bubblewrap through Docker&apos;s namespace policy. Separately acknowledged host mode
-        exposes path-confined file and search tools and permits host child processes, so it rejects
-        subscription auth.
+      <Callout kind="info" title="Command execution is on by default, behind bubblewrap.">
+        The standard Docker image ships the <Code>bwrap</Code> executable, so an out-of-the-box
+        install runs sandboxed <Code>bash</Code> and repository work without you deciding anything
+        — and a ChatGPT subscription still signs in beside it on a trusted single-tenant install.
+        Bubblewrap needs Linux unprivileged user namespaces, so Genosyn probes the sandbox at boot
+        and falls back to <Code>disabled</Code> when it cannot start, logging the reason. In that
+        mode there are no coding tools, no repository materialization, and no user-configured stdio
+        MCP, and subscription Runs still work. The fallback never reaches for host execution. Do
+        not make the App container privileged or disable its security profile to force bubblewrap
+        through Docker&apos;s namespace policy — check the model card&apos;s isolation status
+        instead. Separately acknowledged host mode exposes path-confined file and search tools and
+        permits host child processes, so it rejects subscription auth.
       </Callout>
       <Callout kind="warn" title="Host execution is an explicit unsafe compatibility mode.">
         A trusted, single-company operator can select <Code>host</Code> and separately set{" "}

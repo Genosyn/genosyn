@@ -25,8 +25,9 @@ export function Models() {
             and keep exactly one <Strong>active</Strong> at a time. Connect Anthropic or OpenAI with
             an API key, point at your own OpenAI-compatible endpoint, or use eligible ChatGPT
             subscription access for OpenAI on a trusted single-tenant install. The standard Docker
-            default supports subscription work without coding tools; source-managed Linux can add
-            isolated coding with bubblewrap. Switch the active model any time without losing the
+            default runs subscription work beside bubblewrap-isolated coding, and without coding
+            tools where Linux namespaces are unavailable. Switch the active model any time without
+            losing the
             others&apos; credentials.
           </>
         }
@@ -111,8 +112,9 @@ export function Models() {
           <Strong>OpenAI subscription.</Strong> On a trusted single-tenant Genosyn deployment,
           complete ChatGPT device sign-in or paste a Codex access token from an eligible Business or
           Enterprise workspace. Genosyn runs this model through the pinned{" "}
-          <Code>@openai/codex</Code> app-server. The standard Docker default supports this without
-          coding tools; working Linux bubblewrap can add isolated coding and repository work.
+          <Code>@openai/codex</Code> app-server. The standard Docker default runs it beside
+          bubblewrap-isolated coding and repository work; a host without Linux user namespaces
+          falls back to subscription Runs with no coding tools.
         </LI>
         <LI>
           <Strong>Custom.</Strong> Paste a base URL and a model id, plus an optional API key if your
@@ -123,8 +125,7 @@ export function Models() {
       <H3 id="openai-subscription">Use an OpenAI subscription</H3>
       <P>
         Subscription access is available on a trusted single-tenant deployment when coding execution
-        is disabled or isolated with working Linux bubblewrap. The standard Docker install uses the
-        safe disabled mode by default. In the add-model form, choose <Strong>OpenAI (GPT)</Strong>,
+        is isolated with working Linux bubblewrap — the standard Docker default — or disabled. In the add-model form, choose <Strong>OpenAI (GPT)</Strong>,
         set <Strong>Authentication</Strong> to <Strong>ChatGPT subscription</Strong>, choose the
         model, then select <Strong>Add model</Strong>. The model card offers two official Codex
         authentication paths:
@@ -166,13 +167,14 @@ export function Models() {
         process-local, so Genosyn keeps this path inside the trust boundary of one self-hosted App
         process.
       </Callout>
-      <Callout kind="info" title="Choose no coding or an isolated Linux shell">
-        Keep <Code>config.agent.codingTools.executionMode</Code> set to <Code>disabled</Code> for
-        subscription sign-in and Runs with no coding tools, repository materialization, or
-        user-configured stdio MCP. This is the standard Docker default. On a source-managed Linux
-        install, select <Code>bubblewrap</Code> to add isolated <Code>bash</Code> and repository
-        work. <Code>host</Code> mode permits same-UID child processes and therefore rejects
-        subscription auth. API-key models are unchanged.
+      <Callout kind="info" title="An isolated Linux shell, or no coding at all">
+        <Code>config.agent.codingTools.executionMode</Code> ships as <Code>bubblewrap</Code>, which
+        gives subscription sign-in and Runs an isolated <Code>bash</Code> and repository work. Where
+        Linux user namespaces are unavailable, boot falls back to <Code>disabled</Code>: sign-in and
+        Runs still work, with no coding tools, repository materialization, or user-configured stdio
+        MCP. Set <Code>disabled</Code> yourself to make that the posture everywhere.{" "}
+        <Code>host</Code> mode permits same-UID child processes and therefore rejects subscription
+        auth. API-key models are unchanged.
       </Callout>
       <Callout kind="info" title="Coding and repository sync share one boundary">
         Disabled mode skips coding tools and repository materialization entirely. Every model turn

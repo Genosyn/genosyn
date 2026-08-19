@@ -92,6 +92,7 @@ import { tagsRouter } from "./routes/tags.js";
 import { backfillLegacyResourceTags, backfillTagColors } from "./services/tags.js";
 import { requireTrustedOrigin, securityHeaders } from "./middleware/httpSecurity.js";
 import {
+  resolveCodingExecutionMode,
   secureSessionCookies,
   validateRuntimeDependencies,
   validateRuntimeSecurity,
@@ -115,6 +116,9 @@ async function main() {
   await initDb();
   await bindInstanceSecretsToDatabase();
   await bootPublicUrl();
+  // Settle the shipped bubblewrap default against this host before validation
+  // reads it, and before any tool registry, Run, or repository clone does.
+  resolveCodingExecutionMode();
   validateRuntimeSecurity();
   await validateRuntimeDependencies();
   await bootRealtimeBridge();

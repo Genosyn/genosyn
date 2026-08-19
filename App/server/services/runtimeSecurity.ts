@@ -7,6 +7,10 @@ import { getEffectiveGlobalSmtp } from "./globalEmailTransport.js";
 import { getPublicUrl, isPublicUrlConfigured } from "./publicUrl.js";
 import { buildBubblewrapCommandArgs } from "./agent/bubblewrap.js";
 import { getEffectiveInstanceSecrets, isStrongInstanceSecret } from "../lib/instanceSecrets.js";
+import {
+  noteCodingSandboxFallback,
+  type CodingExecutionMode,
+} from "./agent/codingAvailability.js";
 
 const BUBBLEWRAP_PROBE_MARKER = ".genosyn-bubblewrap-probe";
 const BUBBLEWRAP_PROBE_VALUE = "genosyn-bubblewrap-probe-v1";
@@ -76,6 +80,43 @@ export function bubblewrapProbeError(): string | null {
 /** Test-only seam for deterministic fake-executable probe coverage. */
 export function resetBubblewrapProbeCacheForTests(): void {
   bubblewrapProbeCache = null;
+}
+
+/**
+ * Resolve the shipped `bubblewrap` default against the host that actually
+ * booted, once, before anything reads the execution mode.
+ *
+ * Command execution is on by default so a fresh install can run a build, a
+ * test suite, or a repository connection test without an operator decision.
+ * The boundary that makes that safe is Linux-only: bubblewrap needs
+ * unprivileged user namespaces, which a macOS source install does not have at
+ * all and a hardened container runtime may refuse. Handing the model a shell
+ * that fails per call — and, worse, blocking subscription sign-in behind a
+ * sandbox that will never work — is not a default, so fall back to `disabled`
+ * and say why.
+ *
+ * This can only ever narrow. There is no path from an unusable sandbox to
+ * host execution: that remains the operator's separate, acknowledged choice.
+ * Multi-tenant installs are left alone deliberately — {@link
+ * validateRuntimeSecurity} refuses to boot a shared SaaS whose sandbox does
+ * not work, and a silent downgrade would turn that refusal into a surprise.
+ */
+export function resolveCodingExecutionMode(): void {
+  const codingTools = config.agent.codingTools as { executionMode: CodingExecutionMode };
+  if (codingTools.executionMode !== "bubblewrap") return;
+  if (config.security.multiTenant) return;
+
+  const unusable = !fs.existsSync(config.agent.codingTools.bubblewrapPath)
+    ? `no bubblewrap executable at ${config.agent.codingTools.bubblewrapPath}`
+    : bubblewrapProbeError();
+  if (!unusable) return;
+
+  codingTools.executionMode = "disabled";
+  noteCodingSandboxFallback(unusable);
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[security] command execution is disabled: the coding sandbox cannot start (${unusable}). Genosyn only runs commands behind bubblewrap, so install it on a Linux host with unprivileged user namespaces to turn command execution back on.`,
+  );
 }
 
 export function secureSessionCookies(): boolean {

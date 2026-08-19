@@ -132,13 +132,14 @@ COPY --from=build /build/App/config.ts ./config.ts
 # Starts the virtual display, then execs CMD.
 COPY --chmod=0755 App/docker-entrypoint.sh /usr/local/bin/genosyn-entrypoint
 
-# Fail the image build if the standard runtime contract drifts: subscription
-# sign-in depends on disabled mode being the stock posture, while source-managed
-# installs that opt into isolated coding need the bubblewrap executable present.
-# Neither check enters a namespace, so the build needs no privileged flags.
+# Fail the image build if the standard runtime contract drifts: command
+# execution is on out of the box, and the only mode the stock image may ship it
+# in is bubblewrap, whose executable therefore has to be here. A host that
+# refuses user namespaces falls back to disabled at boot, which is why this
+# check does not enter a namespace and the build needs no privileged flags.
 RUN command -v bwrap >/dev/null \
     && bwrap --version >/dev/null \
-    && node --input-type=module -e 'const { config } = await import("./dist/config.js"); if (config.agent.codingTools.executionMode !== "disabled") throw new Error(`Expected stock executionMode=disabled, received ${config.agent.codingTools.executionMode}`);'
+    && node --input-type=module -e 'const { config } = await import("./dist/config.js"); if (config.agent.codingTools.executionMode !== "bubblewrap") throw new Error(`Expected stock executionMode=bubblewrap, received ${config.agent.codingTools.executionMode}`);'
 
 # Help conversations can inspect the exact code that produced this image.
 # Keep the snapshot read-only by placing it outside config.dataDir and exposing

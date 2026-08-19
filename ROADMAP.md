@@ -67,10 +67,12 @@ don't re-litigate them.
     in a locked temporary `CODEX_HOME`; access tokens enter only the child
     process environment. `config.security.multiTenant` rejects this mode, as
     does coding-tools `host` mode because it permits same-UID child processes.
-    The safe `disabled` mode supports subscription sign-in and Runs without
-    coding tools, repository materialization, or user-configured stdio MCP; it
-    is the standard Docker default. A source-managed Linux install can select
-    working `bubblewrap` to add isolated `bash` and repository work. This mode
+    Working `bubblewrap` — the shipped default, and what the standard Docker
+    image runs — supports subscription sign-in and Runs alongside isolated
+    `bash` and repository work. Where the sandbox cannot start, boot falls back
+    to the safe `disabled` mode, which supports the same sign-in and Runs
+    without coding tools, repository materialization, or user-configured stdio
+    MCP. This mode
     supports one App replica. Anthropic subscription credentials remain
     unsupported because Anthropic prohibits third-party products from routing
     traffic against subscription limits.
@@ -262,7 +264,7 @@ export const config = {
   },
   agent: {
     codingTools: {
-      executionMode: "disabled",
+      executionMode: "bubblewrap",
       allowNetwork: false,
       allowUnsafeHostExecution: false,
     },
@@ -768,11 +770,12 @@ the reply.
       afterward and never place credentials in the employee working tree or a
       persistent provider directory. Cleanup retries and startup removes stale
       Genosyn Codex temp directories.
-- [x] **Subscription tool isolation.** Safe disabled mode supports subscription
-      sign-in and Runs without coding tools, repository materialization, or
-      user-configured stdio MCP children; this is also the standard Docker
-      default. On source-managed Linux, working bubblewrap additionally permits
-      `bash` and repository work behind private PID and `/tmp` namespaces.
+- [x] **Subscription tool isolation.** Working bubblewrap is the shipped
+      default and permits subscription sign-in and Runs alongside `bash` and
+      repository work behind private PID and `/tmp` namespaces. Where the
+      sandbox cannot start, boot falls back to safe disabled mode, which
+      supports the same sign-in and Runs without coding tools, repository
+      materialization, or user-configured stdio MCP children.
       Host-process file tools are omitted install-wide in bubblewrap so a
       concurrent API-key or custom-model turn cannot win a symlink race into
       the subscription credential. Every server-managed Git command that
@@ -1003,8 +1006,9 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       the coding-runtime gate. The gate exists because Git reads executable
       config out of the tree it runs in, which is a model-controlled-tree
       problem; without the exemption the whole section would be unavailable on
-      the standard install, whose execution mode is `disabled`. Hardening is
-      unchanged, and bubblewrap still applies where configured.
+      any install whose sandbox could not start and whose execution mode boot
+      therefore resolved to `disabled`. Hardening is unchanged, and bubblewrap
+      still applies where configured.
 - [x] **Web file editor** — tree, editor with line numbers and markdown
       preview, create / rename / delete, per-file and whole-tree diffs
       (untracked files rendered as additions), status, discard.

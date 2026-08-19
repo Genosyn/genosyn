@@ -126,13 +126,14 @@ export function Vault() {
         work is finished. Grant checks happen again at the moment of use, so revocation fails
         closed.
       </Callout>
-      <Callout kind="info" title="Coding is disabled or isolated by mode">
+      <Callout kind="info" title="Coding is isolated or disabled by mode">
         A working directory alone cannot contain a same-user shell: it could read the Vault
-        database, installation encryption key, or another Browser session. The default disabled mode
-        exposes no coding tools. Genosyn gives AI Employees in separately acknowledged host mode
-        only path-confined file and search tools, while sandboxed <Code>bash</Code> is available
-        only in a working Linux bubblewrap deployment. This boundary applies even to an employee
-        with no Vault Grants.
+        database, installation encryption key, or another Browser session. So <Code>bash</Code> is
+        available only in a working Linux bubblewrap deployment — the default — and nowhere else:
+        where that sandbox cannot start, boot falls back to disabled mode, which exposes no coding
+        tools at all. Genosyn gives AI Employees in separately acknowledged host mode only
+        path-confined file and search tools. This boundary applies even to an employee with no
+        Vault Grants.
       </Callout>
       <P>
         With Manage, <Code>update_vault_login</Code> can change the title, username, or private

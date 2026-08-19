@@ -166,13 +166,15 @@ export function Employees() {
 └── ...   # files enabled coding tools read and write`}
       </pre>
       <P>
-        Coding access depends on the installation mode. The default disabled mode exposes no coding
-        tools and materializes no repositories. Separately acknowledged host mode provides
+        Coding access depends on the installation mode. The default bubblewrap mode provides
+        sandboxed <Code>bash</Code> and materializes repositories; where its Linux namespaces are
+        unavailable, boot falls back to disabled, which exposes no coding tools and materializes no
+        repositories. Separately acknowledged host mode provides
         path-confined file and search tools rooted in this directory (<Code>read_file</Code>,{" "}
         <Code>write_file</Code>, <Code>edit_file</Code>, <Code>list_dir</Code>, <Code>glob</Code>,
         and <Code>grep</Code>) but never exposes <Code>bash</Code>, because a working directory is
-        not a security boundary for an unrestricted same-user shell. Bubblewrap mode instead
-        provides sandboxed <Code>bash</Code>. The runner captures the agent transcript into a Run
+        not a security boundary for an unrestricted same-user shell. The runner captures the agent
+        transcript into a Run
         log. API-key and custom models use Genosyn&apos;s in-process loop; OpenAI subscription
         models use the official Codex app-server. A Routine does not make its AI employee
         unavailable: Members can keep chatting with that employee and start independent Routines in
@@ -183,9 +185,9 @@ export function Employees() {
         gives the official app-server a locked temporary <Code>CODEX_HOME</Code>. Managed ChatGPT
         sessions are materialized there; access tokens enter only the child process environment.
         Genosyn removes the directory afterward. Trusted single-tenant installs support subscription
-        auth in the disabled default, including standard Docker, with no coding tools or repository
-        materialization. A source-managed Linux install can use working bubblewrap to add isolated
-        coding and repository synchronization. Host mode rejects subscription auth.
+        auth in the bubblewrap default, including standard Docker, alongside isolated coding and
+        repository synchronization — and in the disabled fallback, with no coding tools or
+        repository materialization. Host mode rejects subscription auth.
       </P>
 
       <H3 id="org-chart">Org chart</H3>

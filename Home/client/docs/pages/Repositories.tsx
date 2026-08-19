@@ -440,8 +440,10 @@ export function Repositories() {
       </P>
       <Callout kind="info" title="That older path does need coding execution.">
         The per-employee checkout is materialized only when coding tools are enabled and the
-        execution mode is not <Code>disabled</Code> — which the standard Docker install is. A
-        subscription-authenticated model additionally needs working Linux bubblewrap. See{" "}
+        execution mode is not <Code>disabled</Code>. The standard Docker install ships{" "}
+        <Code>bubblewrap</Code>, so it is — unless boot found no usable Linux user namespaces and
+        fell back. A subscription-authenticated model needs that working bubblewrap either way.
+        See{" "}
         <DocLink to="/docs/models">AI Models</DocLink> for the modes and{" "}
         <DocLink to="/docs/self-hosting">Configuration</DocLink> for the setting. The browser editor
         and AI work sessions above need none of this.

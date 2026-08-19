@@ -69,11 +69,11 @@ Anthropic and OpenAI API keys, plus OpenAI-compatible custom endpoints, use
 the direct in-process agent loop. A trusted, single-tenant OpenAI subscription
 model uses the official pinned `@openai/codex` app-server with an isolated
 temporary `CODEX_HOME` and a separate empty scratch directory; generic provider
-CLI harnesses remain removed. The default disabled execution mode—including in
-the standard Docker installer—supports subscription sign-in and Runs without
-coding tools, repository materialization, or user-configured stdio MCP. A
-source-managed Linux operator can select working `bubblewrap` to add sandboxed
-`bash` and repository work. Every model turn in a bubblewrap deployment
+CLI harnesses remain removed. The default `bubblewrap` execution mode—including
+in the standard Docker installer—supports subscription sign-in and Runs
+alongside sandboxed `bash` and repository work. Where the sandbox cannot start,
+boot falls back to `disabled`, which supports the same sign-in and Runs without
+coding tools, repository materialization, or user-configured stdio MCP. Every model turn in a bubblewrap deployment
 receives only sandboxed `bash` from the coding family. Host-process file tools
 are omitted install-wide so a concurrent API-key or custom-model turn cannot
 race a workspace symlink into the subscription credential. Server-managed

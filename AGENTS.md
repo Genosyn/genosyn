@@ -23,9 +23,9 @@ autonomously with AI employees**.
   single-tenant OpenAI model may instead use ChatGPT subscription access
   through the official pinned `@openai/codex` app-server; this is a narrow
   official runtime path, not a return to generic provider CLI harnesses. The
-  standard Docker default supports this path without coding tools; a
-  source-managed Linux install may opt into bubblewrap for isolated coding and
-  repository work.
+  standard Docker default runs it beside bubblewrap-isolated coding and
+  repository work; where Linux user namespaces are unavailable, boot falls back
+  to disabled and this path still works without coding tools.
 
 Read `ROADMAP.md` for the full vocabulary, milestones, and backlog. **Do not
 duplicate content from ROADMAP.md here** — link to it.
@@ -246,9 +246,11 @@ working tree or injected into model coding tools.
   config files. API-key and custom models receive tools from Genosyn's
   in-process loop; OpenAI subscription models run through the official
   pinned `@openai/codex` app-server with the same Genosyn-owned tool registry:
-    * built-in **coding tools**. Disabled mode exposes no coding tools and
-      materializes no repositories, but supports subscription auth on a
-      trusted single-tenant install (including the standard Docker default).
+    * built-in **coding tools**. Bubblewrap is the shipped default, so command
+      execution is on out of the box wherever the sandbox can start; boot
+      falls back to disabled where it cannot, never to host. Disabled mode
+      exposes no coding tools and materializes no repositories, but supports
+      subscription auth on a trusted single-tenant install.
       Separately acknowledged host mode exposes only the path-confined
       `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, and `grep`
       tools; it never exposes an unrestricted same-UID shell, but its host
@@ -287,9 +289,10 @@ working tree or injected into model coding tools.
 - OpenAI subscription device sessions and managed refresh-token locks are
   process-local. The supported topology for this auth mode is one trusted,
   single-tenant App process. The standard Docker installer supports it in the
-  default disabled execution mode, without coding tools, repository
-  materialization, or user-configured stdio MCP. A source-managed Linux process
-  may use bubblewrap to add isolated `bash` and repository work. Horizontally
+  default bubblewrap execution mode, alongside isolated `bash` and repository
+  work; on a host whose namespaces bubblewrap cannot use, boot falls back to
+  disabled and the path still works without coding tools, repository
+  materialization, or user-configured stdio MCP. Horizontally
   scaled installs must use API-key models until the coordination primitives are
   ready. Subscription turns serialize on the per-model lock and do not expose
   `delegate_parallel_work`; a delegated copy would otherwise wait on the lock
@@ -460,9 +463,10 @@ Don't tag manually, don't edit version numbers in `package.json` files.
   is trusted single-tenant OpenAI through the official pinned `@openai/codex`
   app-server, with managed session files confined to a locked temporary
   `CODEX_HOME` and access tokens confined to the child process environment for
-  a Run. Disabled execution supports that path without coding or repository
-  work; bubblewrap adds those surfaces on source-managed Linux, while host mode
-  and multi-tenant installs reject subscription auth.
+  a Run. The default bubblewrap execution supports that path with isolated
+  coding and repository work; the disabled fallback supports it without those
+  surfaces, while host mode and multi-tenant installs reject subscription
+  auth.
 - Naming a user-configurable MCP server `genosyn` or `browser`. Both names are
   reserved for built-in tools — `genosyn` runs in-process (dispatched to
   `routes/mcpInternal.ts`); `browser` is a stdio binary at `server/mcp-browser/`.

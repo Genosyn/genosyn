@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { codingRuntimeAvailability, requireCodingRuntime } from "./codingAvailability.js";
+import {
+  codingRuntimeAvailability,
+  noteCodingSandboxFallback,
+  requireCodingRuntime,
+} from "./codingAvailability.js";
 
 test("coding runtime is unavailable when the install-level switch is off", () => {
   const availability = codingRuntimeAvailability({
@@ -53,4 +57,29 @@ test("bubblewrap mode does not require the unsafe-host acknowledgement", () => {
     }),
     { available: true, reason: null },
   );
+});
+
+test("a host that could not start the sandbox says so instead of stating policy", () => {
+  const settings = {
+    enabled: true,
+    executionMode: "disabled" as const,
+    allowUnsafeHostExecution: false,
+  };
+
+  // An operator who chose disabled themselves gets the plain statement.
+  const chosen = codingRuntimeAvailability(settings);
+  assert.equal(chosen.available, false);
+  if (chosen.available) assert.fail("expected disabled mode to be unavailable");
+  assert.equal(chosen.reason, "Command execution is disabled on this Genosyn installation.");
+
+  noteCodingSandboxFallback("no bubblewrap executable at /usr/bin/bwrap");
+  try {
+    const fallen = codingRuntimeAvailability(settings);
+    assert.equal(fallen.available, false);
+    if (fallen.available) assert.fail("expected the fallback to stay unavailable");
+    assert.match(fallen.reason, /no bubblewrap executable at \/usr\/bin\/bwrap/);
+    assert.match(fallen.reason, /unprivileged user namespaces/);
+  } finally {
+    noteCodingSandboxFallback(null);
+  }
 });

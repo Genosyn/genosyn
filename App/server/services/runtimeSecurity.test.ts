@@ -8,6 +8,7 @@ import { resetInstanceSecretsCacheForTests } from "../lib/instanceSecrets.js";
 import {
   bubblewrapProbeError,
   resetBubblewrapProbeCacheForTests,
+  resolveCodingExecutionMode,
   secureSessionCookies,
   validateRuntimeSecurity,
 } from "./runtimeSecurity.js";
@@ -84,6 +85,38 @@ function fakeBubblewrap(name: string, body: string): string {
   return executable;
 }
 
+/** A stand-in that satisfies the probe by writing its marker into the bind. */
+function workingFakeBubblewrap(name: string): string {
+  return fakeBubblewrap(
+    name,
+    `workspace=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '--bind' ]; then
+    workspace="$2"
+    shift 3
+  else
+    shift
+  fi
+done
+[ -n "$workspace" ]
+printf '%s' 'genosyn-bubblewrap-probe-v1' > "$workspace/.genosyn-bubblewrap-probe"`,
+  );
+}
+
+function captureWarnings(run: () => void): string[] {
+  const warnings: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
+  try {
+    run();
+  } finally {
+    console.warn = original;
+  }
+  return warnings;
+}
+
 test("explicit cookie settings override automatic detection", () => {
   mutable.security.secureCookies = true;
   assert.equal(secureSessionCookies(), true);
@@ -118,9 +151,68 @@ test("numeric runtime invariants fail before boot", () => {
 test("self-hosted defaults remain bootable", () => {
   mutable.security.multiTenant = false;
   assert.doesNotThrow(validateRuntimeSecurity);
-  assert.equal(config.agent.codingTools.executionMode, "disabled");
+  assert.equal(config.agent.codingTools.executionMode, "bubblewrap");
   assert.equal(config.agent.codingTools.allowUnsafeHostExecution, false);
   assert.equal(config.agent.codingTools.allowNetwork, false);
+});
+
+test("a self-hosted install with a working sandbox keeps command execution on", () => {
+  mutable.security.multiTenant = false;
+  mutable.agent.codingTools.executionMode = "bubblewrap";
+  mutable.agent.codingTools.bubblewrapPath = workingFakeBubblewrap("resolve-working-bwrap");
+  resetBubblewrapProbeCacheForTests();
+
+  resolveCodingExecutionMode();
+  assert.equal(config.agent.codingTools.executionMode, "bubblewrap");
+});
+
+test("a self-hosted install without a usable sandbox falls back to disabled", () => {
+  mutable.security.multiTenant = false;
+  mutable.agent.codingTools.executionMode = "bubblewrap";
+  mutable.agent.codingTools.bubblewrapPath = path.join(tempDir, "absent-bwrap");
+  resetBubblewrapProbeCacheForTests();
+
+  const warnings = captureWarnings(resolveCodingExecutionMode);
+  assert.equal(config.agent.codingTools.executionMode, "disabled");
+  assert.match(warnings.join("\n"), /no bubblewrap executable at .*absent-bwrap/);
+
+  // Present but unable to enter a namespace is the container-runtime case, and
+  // it has to reach the same place as a missing executable.
+  mutable.agent.codingTools.executionMode = "bubblewrap";
+  mutable.agent.codingTools.bubblewrapPath = fakeBubblewrap(
+    "denied-bwrap",
+    `printf "%s" "user namespaces denied" >&2
+exit 17`,
+  );
+  resetBubblewrapProbeCacheForTests();
+
+  const denied = captureWarnings(resolveCodingExecutionMode);
+  assert.equal(config.agent.codingTools.executionMode, "disabled");
+  assert.match(denied.join("\n"), /user namespaces denied/);
+});
+
+test("the sandbox fallback never reaches for host execution or overrides an operator", () => {
+  mutable.security.multiTenant = false;
+  mutable.agent.codingTools.bubblewrapPath = path.join(tempDir, "absent-bwrap");
+  resetBubblewrapProbeCacheForTests();
+
+  // An acknowledged host install is the operator's decision, not a default to
+  // resolve — and a broken sandbox must never be an argument for host mode.
+  mutable.agent.codingTools.executionMode = "host";
+  mutable.agent.codingTools.allowUnsafeHostExecution = true;
+  resolveCodingExecutionMode();
+  assert.equal(config.agent.codingTools.executionMode, "host");
+});
+
+test("multi-tenant boots keep failing closed instead of silently degrading", () => {
+  mutable.security.multiTenant = true;
+  mutable.agent.codingTools.executionMode = "bubblewrap";
+  mutable.agent.codingTools.bubblewrapPath = path.join(tempDir, "absent-bwrap");
+  resetBubblewrapProbeCacheForTests();
+
+  resolveCodingExecutionMode();
+  assert.equal(config.agent.codingTools.executionMode, "bubblewrap");
+  assert.throws(validateRuntimeSecurity, /bubblewrap executable does not exist/);
 });
 
 test("bubblewrap probe verifies execution, diagnostics, and missing binaries", () => {
