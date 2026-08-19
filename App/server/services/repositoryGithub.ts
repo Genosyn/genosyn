@@ -106,20 +106,41 @@ export async function resolveConnectionToken(
 export async function findConnectionForRemote(
   repo: Repository,
 ): Promise<IntegrationConnection | null> {
-  if (repo.authMode !== "none" || !isGithubHttpsUrl(repo.gitUrl)) return null;
+  const resolved = await resolveConnectionForRemote(repo);
+  return resolved.kind === "one" ? resolved.connection : null;
+}
+
+/**
+ * The same question as {@link findConnectionForRemote}, with the reason kept.
+ *
+ * "No connection" and "several connections and no way to choose" both used to
+ * come back as `null`, so both were reported as "connect GitHub in Settings →
+ * Integrations" — advice that is actively wrong for the second, where the
+ * person has already connected GitHub twice and doing it a third time changes
+ * nothing. The caller needs to tell them apart to say anything useful.
+ */
+export type RemoteConnectionResult =
+  | { kind: "one"; connection: IntegrationConnection }
+  | { kind: "ambiguous"; connections: IntegrationConnection[] }
+  | { kind: "none" };
+
+export async function resolveConnectionForRemote(
+  repo: Repository,
+): Promise<RemoteConnectionResult> {
+  if (repo.authMode !== "none" || !isGithubHttpsUrl(repo.gitUrl)) return { kind: "none" };
   const rows = await AppDataSource.getRepository(IntegrationConnection).find({
     where: { companyId: repo.companyId, provider: "github", status: "connected" },
     order: { createdAt: "ASC" },
   });
-  if (rows.length === 0) return null;
+  if (rows.length === 0) return { kind: "none" };
   if (repo.githubConnectionId) {
     const pinned = rows.find((row) => row.id === repo.githubConnectionId);
-    if (pinned) return pinned;
+    if (pinned) return { kind: "one", connection: pinned };
   }
   // With exactly one GitHub Connection there is nothing to disambiguate. With
   // several and no pin, refuse rather than guess which account should be
   // pushing to the company's code.
-  return rows.length === 1 ? rows[0] : null;
+  return rows.length === 1 ? { kind: "one", connection: rows[0] } : { kind: "ambiguous", connections: rows };
 }
 
 /**
@@ -140,6 +161,37 @@ export function parseGithubRemote(gitUrl: string): { owner: string; repo: string
     if (!owner || !repo) return null;
     return { owner, repo };
   } catch {
+    return null;
+  }
+}
+
+/**
+ * The branch GitHub itself considers this repository's trunk.
+ *
+ * Genosyn stores a `defaultBranch` on the Repository row, but nothing has ever
+ * checked it against the remote: the create form pre-fills `main`, a plain
+ * `git clone` never contradicts it, and a repository whose trunk is `master`
+ * carries the wrong value forever. That is invisible until something has to
+ * name the branch to GitHub — at which point a pull request is opened against
+ * a branch that does not exist and GitHub answers with a bare "Validation
+ * Failed". Asking the API is one request and it is never wrong.
+ */
+export async function githubDefaultBranch(
+  token: string,
+  owner: string,
+  repo: string,
+): Promise<string | null> {
+  try {
+    const payload = (await githubRequest(
+      token,
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+    )) as { default_branch?: unknown };
+    return typeof payload.default_branch === "string" && payload.default_branch
+      ? payload.default_branch
+      : null;
+  } catch {
+    // Not fatal: the caller falls back to what the row says, and the create
+    // call reports anything genuinely wrong with the credential.
     return null;
   }
 }
@@ -184,8 +236,21 @@ export async function createGithubPullRequest(
  */
 export async function findOpenGithubPullRequest(
   token: string,
-  args: { owner: string; repo: string; head: string },
+  args: { owner: string; repo: string; head: string; number?: number | null },
 ): Promise<GithubPullRequest | null> {
+  // The session may already know which pull request it opened. Asking for it
+  // by number is exact, and it is the only lookup that still works for a
+  // credential that may create a pull request but may not list them — which
+  // otherwise made every press after the first fail with GitHub's "a pull
+  // request already exists", forever.
+  if (args.number) {
+    const byNumber = await getGithubPullRequest(token, {
+      owner: args.owner,
+      repo: args.repo,
+      number: args.number,
+    });
+    if (byNumber && byNumber.state === "open") return byNumber;
+  }
   try {
     const payload = await githubRequest(
       token,
@@ -197,6 +262,22 @@ export async function findOpenGithubPullRequest(
   } catch {
     // A lookup that fails is not a reason to refuse to open one; the create
     // call below reports anything genuinely wrong with the credential.
+    return null;
+  }
+}
+
+/** One pull request by number, for a session that already recorded it. */
+export async function getGithubPullRequest(
+  token: string,
+  args: { owner: string; repo: string; number: number },
+): Promise<GithubPullRequest | null> {
+  try {
+    const payload = await githubRequest(
+      token,
+      `/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/pulls/${args.number}`,
+    );
+    return toPullRequest(payload);
+  } catch {
     return null;
   }
 }
@@ -317,9 +398,51 @@ async function githubRequest(
     parsed = text;
   }
   if (!response.ok) {
-    throw new Error(describeGithubError(parsed, response.status));
+    throw new GithubApiError(describeGithubError(parsed, response.status), response.status, parsed);
   }
   return parsed;
+}
+
+/**
+ * A failed GitHub call that still carries its parsed body.
+ *
+ * `describeGithubError` is a good general answer, but the caller usually knows
+ * something the HTTP layer cannot: which branch it asked for, which repository
+ * it asked about. A 422 saying `base invalid` is noise on its own and an
+ * instruction once you can name the branch. Keeping the body lets the caller
+ * write that sentence, while `message` stays exactly what it was for every
+ * caller that only reads `.message`.
+ */
+export class GithubApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly body: unknown,
+  ) {
+    super(message);
+    this.name = "GithubApiError";
+  }
+
+  /** The `code` GitHub attached to a validation error on `field`, if any. */
+  fieldCode(field: string): string | null {
+    const errors = (this.body as { errors?: Array<{ field?: unknown; code?: unknown }> } | null)
+      ?.errors;
+    if (!Array.isArray(errors)) return null;
+    for (const entry of errors) {
+      if (entry?.field === field && typeof entry?.code === "string") return entry.code;
+    }
+    return null;
+  }
+
+  /** Every `message` GitHub attached to the validation errors, joined. */
+  errorMessages(): string {
+    const errors = (this.body as { errors?: Array<{ message?: unknown }> } | null)?.errors;
+    if (!Array.isArray(errors)) return "";
+    return errors
+      .map((entry) => (typeof entry?.message === "string" ? entry.message : null))
+      .filter((value): value is string => !!value)
+      .join("; ");
+  }
 }
 
 /**
@@ -347,7 +470,12 @@ export function describeGithubError(parsed: unknown, status: number): string {
   const headline =
     typeof body?.message === "string" && body.message ? body.message : `GitHub returned ${status}`;
   if (status === 401 || status === 403) {
-    return `${headline}. The GitHub Connection may not have permission to create repositories — reconnect it with repo access.`;
+    // Every GitHub call in this file lands here, not only repository creation.
+    // Naming one operation made the sentence wrong for the others, and told
+    // people to go and fix a permission that was never the problem.
+    const sentence = headline.endsWith(".") ? headline : `${headline}.`;
+    const suffix = detail ? ` ${detail}.` : "";
+    return `${sentence}${suffix} The GitHub credential may not have permission for this — reconnect it in Settings → Integrations with repository access.`;
   }
   return detail ? `${headline}: ${detail}` : headline;
 }

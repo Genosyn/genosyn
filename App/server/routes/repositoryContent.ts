@@ -460,6 +460,12 @@ repositoryContentRouter.post(
       repo.gitUrl = created.gitUrl;
       repo.origin = "remote";
       repo.githubConnectionId = connection.id;
+      // The branch that was actually pushed, not `created.defaultBranch`: the
+      // repository is created with `auto_init: false`, so it has no branches
+      // at all when GitHub answers and its `default_branch` is only the
+      // account's preferred name for new repositories. What ends up being the
+      // trunk is whatever the first push put there.
+      if (result.branch) repo.defaultBranch = result.branch;
       repo.lastSyncStatus = "ok";
       repo.lastSyncError = "";
       repo.lastSyncedAt = new Date();

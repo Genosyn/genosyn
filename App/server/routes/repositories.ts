@@ -40,6 +40,7 @@ import {
   assertSafeGitRemoteUrl,
   SAFE_GIT_REMOTE_URL_MESSAGE,
 } from "../services/gitCredentialHelper.js";
+import { assertSafeBranchName } from "../services/repositoryWorkspace.js";
 import { deleteTagAssignments } from "../services/tags.js";
 import { removeRepositoryWorkspace } from "../services/repositoryWorkspace.js";
 import { config } from "../../config.js";
@@ -319,6 +320,22 @@ repositoriesRouter.post("/repositories/:slug/test", async (req, res) => {
   row.lastSyncedAt = new Date();
   row.lastSyncStatus = result.ok ? "ok" : "error";
   row.lastSyncError = result.ok ? "" : result.message;
+  // The probe asks the remote what its trunk is called, and the answer used to
+  // be dropped on the floor. That is how `main` came to sit on repositories
+  // whose trunk is `master` — invisible until something finally had to name
+  // the branch to GitHub, at which point opening a pull request failed with a
+  // validation error nobody could act on.
+  if (result.ok && result.defaultBranch && result.defaultBranch !== row.defaultBranch) {
+    // The name comes from the remote's own advertisement, so it is validated
+    // before it is stored — an unusable one would otherwise sit on the row
+    // until some later command refused it.
+    try {
+      assertSafeBranchName(result.defaultBranch);
+      row.defaultBranch = result.defaultBranch;
+    } catch {
+      // Leave the row as it was; nothing here is worth failing the probe over.
+    }
+  }
   await AppDataSource.getRepository(Repository).save(row);
   res.json(result);
 });

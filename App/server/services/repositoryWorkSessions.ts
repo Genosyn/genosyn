@@ -15,12 +15,14 @@ import { hasRepositoryAccess } from "./repositories.js";
 import {
   MAX_EDITABLE_FILE_BYTES,
   assertSafeBranchName,
+  detectRemoteDefaultBranch,
   ensureRepositoryWorkspace,
   isBinary,
   mergeBranchIntoCurrent,
   normalizeRepositoryPath,
   parseCommits,
   pushRepositoryBranch,
+  remoteBranchExists,
   repositoryWorkspaceRootFor,
   resolveInCheckout,
   runRepositoryGit,
@@ -30,11 +32,13 @@ import {
   type RepositoryTreeEntry,
 } from "./repositoryWorkspace.js";
 import {
+  GithubApiError,
   createGithubPullRequest,
-  findConnectionForRemote,
   findOpenGithubPullRequest,
+  githubDefaultBranch,
   isGithubHttpsUrl,
   parseGithubRemote,
+  resolveConnectionForRemote,
   resolveConnectionToken,
   type GithubPullRequest,
 } from "./repositoryGithub.js";
@@ -945,6 +949,9 @@ export type WorkSessionPullRequestDeps = {
   resolveToken: (repo: Repository) => Promise<string>;
   createPullRequest: typeof createGithubPullRequest;
   findOpenPullRequest: typeof findOpenGithubPullRequest;
+  remoteDefaultBranch: typeof githubDefaultBranch;
+  localDefaultBranch: typeof detectRemoteDefaultBranch;
+  branchExists: typeof remoteBranchExists;
 };
 
 export const defaultPullRequestDeps: WorkSessionPullRequestDeps = {
@@ -952,7 +959,62 @@ export const defaultPullRequestDeps: WorkSessionPullRequestDeps = {
   resolveToken: resolveRepositoryGithubToken,
   createPullRequest: createGithubPullRequest,
   findOpenPullRequest: findOpenGithubPullRequest,
+  remoteDefaultBranch: githubDefaultBranch,
+  localDefaultBranch: detectRemoteDefaultBranch,
+  branchExists: remoteBranchExists,
 };
+
+/**
+ * The branch a pull request should be opened against.
+ *
+ * `Repository.defaultBranch` is not trustworthy for this. The create form
+ * pre-fills it with `main`, a plain `git clone` never contradicts it, and
+ * nothing else in the product has ever had to name the branch to GitHub — so a
+ * repository whose trunk is `master` has been carrying `main` since the day it
+ * was added, silently, and the first thing to notice is this function's caller
+ * failing with a bare "Validation Failed".
+ *
+ * Ask the people who know, in order: GitHub itself, then the clone's own
+ * `origin/HEAD`, then the row. The answer is written back so every other
+ * surface that reads `defaultBranch` stops being wrong too.
+ */
+async function resolvePullRequestBase(
+  repo: Repository,
+  remote: { owner: string; repo: string },
+  token: string,
+  deps: WorkSessionPullRequestDeps,
+): Promise<string> {
+  const stored = (repo.defaultBranch || "").trim();
+  // A stored branch the remote actually has is a Member's choice — a team that
+  // merges into `develop` or a long-lived release branch means it. Only a
+  // stored branch that is not on the remote is the bug this exists to fix, and
+  // only that case may be overwritten.
+  if (stored && (await deps.branchExists(repo, stored).catch(() => false))) {
+    return stored;
+  }
+  const found =
+    (await deps.remoteDefaultBranch(token, remote.owner, remote.repo)) ??
+    (await deps.localDefaultBranch(repo).catch(() => null));
+  // The local reader validates its own answer; the API one cannot, and its
+  // result is written straight onto the row that `checkoutRepositoryBranch`
+  // and `createRepositoryBranch` will later refuse if it is not a legal name.
+  let detected: string | null = found;
+  if (detected) {
+    try {
+      assertSafeBranchName(detected);
+    } catch {
+      detected = null;
+    }
+  }
+  const base = (detected || stored || "main").trim();
+  if (detected && detected !== stored) {
+    repo.defaultBranch = detected;
+    await AppDataSource.getRepository(Repository)
+      .update({ id: repo.id }, { defaultBranch: detected })
+      .catch(() => {});
+  }
+  return base;
+}
 
 export async function openRepositoryWorkSessionPullRequest(args: {
   sessionId: string;
@@ -990,30 +1052,174 @@ export async function openRepositoryWorkSessionPullRequest(args: {
   // Push before asking for the pull request: GitHub cannot open one for a
   // branch it has never seen, and a revision's new commits have to be up there
   // before the existing pull request can pick them up.
-  await deps.push(repo, session.branch);
+  try {
+    await deps.push(repo, session.branch);
+  } catch (error) {
+    throw describePushFailure(error, {
+      owner: remote.owner,
+      repo: remote.repo,
+      branch: session.branch,
+    });
+  }
+  // Recorded immediately, not with the pull request at the end. The push has
+  // already happened and cannot be recalled; if the API call below fails, the
+  // branch is still sitting on the remote and the session has to say so — a
+  // Member who is told only "that failed" has no way to know something left
+  // the building.
   session.publishedBranch = session.branch;
+  await sessionRepo.save(session);
 
   const existing = await deps.findOpenPullRequest(token, {
     owner: remote.owner,
     repo: remote.repo,
     head: session.branch,
+    number: session.pullRequestNumber,
   });
-  const pull: GithubPullRequest =
-    existing ??
-    (await deps.createPullRequest(token, {
-      owner: remote.owner,
-      repo: remote.repo,
-      head: session.branch,
-      base: repo.defaultBranch || "main",
-      title: (args.title ?? "").trim() || session.title || deriveWorkSessionTitle(session.instruction),
-      body: composePullRequestBody(session, args.body),
-    }));
+  let pull: GithubPullRequest;
+  if (existing) {
+    // Updating one that is already open: the push above is the whole update,
+    // and GitHub keeps the base it was opened with. Nothing here needs to know
+    // what the trunk is called, so it does not go and ask.
+    pull = existing;
+  } else {
+    const base = await resolvePullRequestBase(repo, remote, token, deps);
+    try {
+      pull = await deps.createPullRequest(token, {
+        owner: remote.owner,
+        repo: remote.repo,
+        head: session.branch,
+        base,
+        title:
+          (args.title ?? "").trim() || session.title || deriveWorkSessionTitle(session.instruction),
+        body: composePullRequestBody(session, args.body),
+      });
+    } catch (error) {
+      throw describePullRequestFailure(error, {
+        owner: remote.owner,
+        repo: remote.repo,
+        head: session.branch,
+        base,
+      });
+    }
+  }
 
   session.pullRequestUrl = pull.htmlUrl;
   session.pullRequestNumber = pull.number;
   session.status = "proposed";
   await sessionRepo.save(session);
   return session;
+}
+
+/**
+ * Turn a failed push into a sentence, instead of git's stderr.
+ *
+ * This is the half of "Open pull request" most likely to fail on somebody
+ * else's repository, and the half that said the least about it. A credential
+ * that cloned a public repository read-only cannot push a branch to it — so
+ * the session ran, the diff rendered, and the button then died with
+ * `git push failed: remote: Permission to owner/repo.git denied to someone.`
+ * Nothing in that names Genosyn's side of the problem, so it reads as a broken
+ * button rather than a credential without write access.
+ */
+function describePushFailure(
+  error: unknown,
+  context: { owner: string; repo: string; branch: string },
+): Error {
+  const raw = error instanceof Error ? error.message : String(error);
+  const slug = `${context.owner}/${context.repo}`;
+  const detail = ` (${raw})`;
+
+  const denied = raw.match(/Permission to \S+ denied to ([^.\s]+)/i);
+  if (denied) {
+    return new Error(
+      `GitHub refused the push to ${slug}: the credential Genosyn used authenticates as "${denied[1]}", which cannot write to this repository. ` +
+        `Give the repository a token for an account with push access, or connect that account in Settings → Integrations.`,
+    );
+  }
+  if (/could not read Username|Authentication failed|terminal prompts disabled|error: 403|HTTP 403/i.test(raw)) {
+    return new Error(
+      `${slug} rejected the credential Genosyn pushed with. Check the repository's token has not expired, or reconnect GitHub in Settings → Integrations.${detail}`,
+    );
+  }
+  if (/\bGH006\b|\bGH013\b|protected branch|push declined|ruleset/i.test(raw)) {
+    return new Error(
+      `${slug} has a rule that refuses this push — commonly a ruleset that blocks creating branches like "${context.branch}". ` +
+        `Ask whoever owns the repository's rules to allow it, or accept the work here instead.${detail}`,
+    );
+  }
+  if (/non-fast-forward|fetch first|rejected.*updates were rejected/i.test(raw)) {
+    return new Error(
+      `The branch "${context.branch}" on ${slug} has moved on since Genosyn last pushed it, so this push was refused. ` +
+        `Someone else changed the branch directly; the safest fix is to start a new session.${detail}`,
+    );
+  }
+  if (/Repository not found|does not appear to be a git repository|remote: Not Found/i.test(raw)) {
+    return new Error(
+      `GitHub cannot find ${slug} with this credential. Check the clone URL, and that the token or GitHub Connection can see the repository.${detail}`,
+    );
+  }
+  return error instanceof Error ? error : new Error(raw);
+}
+
+/**
+ * Turn a failed `POST /pulls` into a sentence that names what to change.
+ *
+ * GitHub answers a bad pull request with `Validation Failed` and a machine
+ * triple like `{field: "base", code: "invalid"}`. That is unreadable in a
+ * toast, and it is the reason this button looked broken rather than
+ * misconfigured. Every branch below says which branch was wrong and where to
+ * fix it; anything unrecognised keeps GitHub's own wording rather than being
+ * flattened into a generic failure.
+ */
+function describePullRequestFailure(
+  error: unknown,
+  context: { owner: string; repo: string; head: string; base: string },
+): Error {
+  if (!(error instanceof GithubApiError)) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+  const slug = `${context.owner}/${context.repo}`;
+  const detail = error.errorMessages();
+
+  if (error.status === 422) {
+    if (error.fieldCode("base") === "invalid") {
+      return new Error(
+        `${slug} has no branch called "${context.base}", so there is nothing to open the pull request against. ` +
+          `Genosyn asks GitHub for the repository's default branch, so this usually means the clone URL points at a ` +
+          `different repository than you expect — check it in repository settings.`,
+      );
+    }
+    if (error.fieldCode("head") === "invalid") {
+      return new Error(
+        `GitHub cannot see the branch "${context.head}" on ${slug}. The push may have been rejected — ` +
+          `check that the repository's credential is allowed to push branches.`,
+      );
+    }
+    if (/no commits between/i.test(detail)) {
+      return new Error(
+        `There is nothing to propose: "${context.head}" holds no commits that "${context.base}" does not already have.`,
+      );
+    }
+    if (/already exists/i.test(detail)) {
+      return new Error(
+        `A pull request for "${context.head}" already exists on ${slug}. Open it on GitHub — the push above brought it up to date.`,
+      );
+    }
+    if (detail) return new Error(detail);
+  }
+  if (error.status === 403) {
+    return new Error(
+      `GitHub refused to open a pull request on ${slug}. The credential needs pull-request write access, ` +
+        `and the repository must not be archived. (${error.message})`,
+    );
+  }
+  if (error.status === 404) {
+    return new Error(
+      `GitHub cannot find ${slug} with this credential. Check the clone URL, and that the token or ` +
+        `GitHub Connection can see the repository.`,
+    );
+  }
+  return error;
 }
 
 /**
@@ -1024,12 +1230,21 @@ export async function openRepositoryWorkSessionPullRequest(args: {
  */
 function composePullRequestBody(session: RepositoryWorkSession, override?: string): string {
   const custom = (override ?? "").trim();
-  if (custom) return custom;
+  if (custom) return clampPullRequestBody(custom);
   const parts = [`**Asked for**`, session.instruction.trim()];
   const reply = session.reply.trim();
   if (reply) parts.push("", "**What the AI employee reported**", reply);
   parts.push("", "_Opened from a Genosyn AI work session._");
-  return parts.join("\n");
+  return clampPullRequestBody(parts.join("\n"));
+}
+
+/** GitHub rejects a body over this, and an employee's report can be long. */
+const GITHUB_PR_BODY_MAX = 65_536;
+
+function clampPullRequestBody(body: string): string {
+  if (body.length <= GITHUB_PR_BODY_MAX) return body;
+  const notice = "\n\n_Truncated — the full report is on the session in Genosyn._";
+  return body.slice(0, GITHUB_PR_BODY_MAX - notice.length) + notice;
 }
 
 /**
@@ -1046,12 +1261,32 @@ export async function resolveRepositoryGithubToken(repo: Repository): Promise<st
   if (!isGithubHttpsUrl(repo.gitUrl)) {
     throw new Error("Pull requests are only supported for https://github.com remotes.");
   }
-  if (repo.authMode === "https" && repo.encryptedToken) {
+  if (repo.authMode === "https") {
     const token = decryptRepositorySecret(repo.encryptedToken);
     if (token) return token;
+    // Falling through to the Connection here used to report "no credential at
+    // all" and send someone to connect GitHub — which would not have helped,
+    // because `findConnectionForRemote` only answers for `authMode: "none"`.
+    // A repository that has a token which will not decrypt has exactly one
+    // remedy, and it is not that one.
+    throw new Error(
+      "The HTTPS token on this repository is missing or could not be decrypted. Re-enter it in repository settings.",
+    );
   }
-  const connection = await findConnectionForRemote(repo);
-  if (connection) return (await resolveConnectionToken(connection)).token;
+  const resolved = await resolveConnectionForRemote(repo);
+  if (resolved.kind === "one") return (await resolveConnectionToken(resolved.connection)).token;
+  if (resolved.kind === "ambiguous") {
+    const names = resolved.connections.map((row) => row.label || "GitHub").join(", ");
+    throw new Error(
+      `This company has ${resolved.connections.length} connected GitHub accounts (${names}) and nothing says which one owns this repository. ` +
+        `Connect the repository through Settings → Integrations, or give it its own HTTPS token in repository settings.`,
+    );
+  }
+  if (repo.authMode === "ssh") {
+    throw new Error(
+      "This repository authenticates with an SSH key, which cannot open a pull request. Give it an HTTPS clone URL with a token, or connect GitHub in Settings → Integrations.",
+    );
+  }
   throw new Error(
     "No GitHub credential is available for this repository. Add a token in its settings, or connect GitHub in Settings → Integrations.",
   );
@@ -1063,6 +1298,19 @@ export async function discardRepositoryWorkSession(
   const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
   const session = await sessionRepo.findOneBy({ id: sessionId });
   if (!session) throw new Error("Work session not found.");
+  // The turn in flight owns the worktree. Removing it underneath makes the
+  // turn fail on a directory that vanished, which is then reported as if the
+  // employee had broken something. The button is hidden for this, but the
+  // route is reachable without it.
+  //
+  // Bounded by the same window `liveRepositoryWorkSession` uses, and for the
+  // same reason: nothing reconciles `status` at boot, so a process killed
+  // mid-turn leaves a row saying `running` for good. An unbounded refusal here
+  // would strand that session forever — every other exit is already shut, and
+  // discard is the only one that could clean up its worktree and branch.
+  if (session.status === "running" && Date.now() - session.createdAt.getTime() < CHAT_HARD_TIMEOUT_MS) {
+    throw new Error("This employee is still working. Wait for the turn to finish, then try again.");
+  }
   const repo = await AppDataSource.getRepository(Repository).findOneBy({
     id: session.repositoryId,
     companyId: session.companyId,

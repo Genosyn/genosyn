@@ -60,29 +60,77 @@ export type SessionActions = {
   discard: boolean;
   /** Send another instruction. */
   revise: boolean;
+  /**
+   * There is reviewable work, and the only two buttons that could send it
+   * onward are hidden because this Member may not reach the remote. The page
+   * says so rather than looking like the feature is missing.
+   */
+  remoteNeedsAdmin: boolean;
+};
+
+/** What a Member may do here, as far as the surface can know before asking. */
+export type SessionCapabilities = {
+  /** The repository has somewhere to send work at all. */
+  remote: boolean;
+  /** That remote is one we can open a pull request against. */
+  github: boolean;
+  /**
+   * The viewer is an owner or admin. Both routes that reach the remote —
+   * pushing and opening a pull request — are gated on it server-side, so a
+   * Member who is offered either gets a 403 instead of an action.
+   */
+  admin: boolean;
 };
 
 /**
  * The action set for one session.
  *
- * `remote` is the repository having somewhere to send work at all; `github` is
- * that remote being one we can open a pull request against. They are separate
- * because a self-hosted GitLab remote can be pushed to and cannot be given a
- * pull request from here, and offering the button anyway would be a lie.
+ * `remote` and `github` are separate because a self-hosted GitLab remote can
+ * be pushed to and cannot be given a pull request from here, and offering the
+ * button anyway would be a lie. `admin` is separate again because it is about
+ * the person rather than the repository: the server refuses both outward
+ * actions to an ordinary Member, and a button that always 403s is worse than
+ * no button at all.
  */
 export function sessionActions(
   session: Pick<RepositoryWorkSession, "status" | "pullRequestUrl">,
-  repo: { remote: boolean; github: boolean },
+  repo: SessionCapabilities,
 ): SessionActions {
   const reviewable = hasReviewableWork(session);
   return {
     accept: reviewable,
-    acceptAndSend: reviewable && repo.remote,
-    pullRequest: reviewable && repo.remote && repo.github,
+    acceptAndSend: reviewable && repo.remote && repo.admin,
+    pullRequest: reviewable && repo.remote && repo.github && repo.admin,
     pullRequestIsUpdate: !!session.pullRequestUrl,
-    discard: session.status !== "published" && session.status !== "discarded",
+    // Not while a turn is in flight: it owns the worktree, and throwing the
+    // branch away underneath it makes the turn fail on a directory that
+    // vanished — reported afterwards as if the employee had broken something.
+    discard:
+      session.status !== "published" &&
+      session.status !== "discarded" &&
+      session.status !== "running",
     revise: canRevise(session.status),
+    remoteNeedsAdmin: reviewable && repo.remote && !repo.admin,
   };
+}
+
+/**
+ * Whether a pull request can be opened against this remote.
+ *
+ * Mirrors the server's `isGithubHttpsUrl` exactly, by parsing the URL rather
+ * than matching a prefix. A regex anchored on `https://github.com/` disagrees
+ * with the server about a URL carrying a port or userinfo, and every
+ * disagreement is either a button that 400s or — worse, because there is
+ * nothing on screen to explain it — a button that never appears.
+ */
+export function isGithubRemote(gitUrl: string | null | undefined): boolean {
+  if (!gitUrl) return false;
+  try {
+    const parsed = new URL(gitUrl);
+    return parsed.protocol === "https:" && parsed.hostname.toLowerCase() === "github.com";
+  } catch {
+    return false;
+  }
 }
 
 /**

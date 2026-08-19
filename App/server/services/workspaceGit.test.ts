@@ -6,7 +6,37 @@ import test from "node:test";
 import {
   assertWorkspaceGitMetadataContained,
   buildWorkspaceGitInvocation,
+  redactSecrets,
 } from "./workspaceGit.js";
+
+/**
+ * The redaction this guards used to read `invocation.env`, which under
+ * bubblewrap holds only PATH — so it scrubbed nothing in the mode that ships.
+ */
+test("a bubblewrap invocation still reports the secrets handed to the child", () => {
+  const invocation = buildWorkspaceGitInvocation(
+    {
+      workspaceRoot: "/tmp/workspace",
+      cwd: "/tmp/workspace/checkout",
+      args: ["push"],
+      extraEnv: { GENOSYN_REPO_TOKEN_CONNECTION: "ghs_SUPERSECRETVALUE" },
+      serverOwned: true,
+    },
+    "bubblewrap",
+    "/usr/bin/bwrap",
+    false,
+  );
+
+  assert.deepEqual(invocation.env, { PATH: "/usr/local/bin:/usr/bin:/bin" });
+  assert.ok(
+    invocation.secrets.includes("ghs_SUPERSECRETVALUE"),
+    "the token is carried in argv, so redaction has to be told about it separately",
+  );
+  assert.equal(
+    redactSecrets("fatal: could not read ghs_SUPERSECRETVALUE", invocation.secrets),
+    "fatal: could not read «redacted»",
+  );
+});
 
 test("bubblewrapped Git receives private namespaces and an explicit environment", () => {
   const invocation = buildWorkspaceGitInvocation(

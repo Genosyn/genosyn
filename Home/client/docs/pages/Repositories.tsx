@@ -272,6 +272,13 @@ export function Repositories() {
         </LI>
         <LI>When it is right, accept the work, send it on, or open a pull request for it.</LI>
       </OL>
+      <P>
+        <Strong>Everything this session changed</Strong> lists the files rather than printing them.
+        Each row carries the path, whether the file was added, modified, deleted or renamed, and how
+        many lines moved; clicking one opens that file&apos;s diff, and <Strong>Expand all</Strong>
+        {" "}opens every one. A change small enough to read at a glance — a file or two, a hundred
+        lines or so — opens itself, because hiding a two-line fix behind a click helps nobody.
+      </P>
       <KeyList
         rows={[
           { term: "running", def: "One of the employee's turns is in flight." },
@@ -315,6 +322,15 @@ export function Repositories() {
         it pushes the session&apos;s branch and opens a pull request against the repository&apos;s
         default branch, so the work enters whatever review your team already runs. The description
         is the employee&apos;s own report unless you write your own.
+      </P>
+      <P>
+        The branch it opens against comes from GitHub, not from the value stored on the repository:
+        Genosyn asks the API what the repository&apos;s default branch is and corrects its own
+        record when they disagree. That matters for a repository whose trunk is not{" "}
+        <Code>main</Code> — <Code>master</Code>, <Code>develop</Code>, a release branch — because
+        the clone URL alone never says so. Cloning a remote repository and{" "}
+        <Strong>Test connection</Strong> both record the real branch too, so the rest of the product
+        stops guessing at it.
       </P>
       <P>
         Ask for changes afterwards and the button becomes <Strong>Update pull request</Strong>: the

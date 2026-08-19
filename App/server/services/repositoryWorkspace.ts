@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { AppDataSource } from "../db/datasource.js";
 import { Repository } from "../db/entities/Repository.js";
 import { repositoryWorkspaceCheckout, repositoryWorkspaceRoot } from "./paths.js";
 import {
@@ -385,6 +386,7 @@ export async function ensureRepositoryWorkspace(repo: Repository): Promise<strin
         });
         rememberKnownHosts(repo, result.sshKnownHosts);
         await git(repo, ["remote", "set-url", "origin", repo.gitUrl]);
+        await adoptRemoteDefaultBranch(repo);
       }
       await applyCommitterIdentity(repo);
       return checkout;
@@ -407,6 +409,44 @@ export async function ensureRepositoryWorkspace(repo: Repository): Promise<strin
     await applyCommitterIdentity(repo);
     return checkout;
   });
+}
+
+/**
+ * Correct `defaultBranch` from the clone we just made, when it is wrong.
+ *
+ * The create form pre-fills `main` and nothing has ever contradicted it, so a
+ * repository whose trunk is `master` has been carrying the wrong value from
+ * the moment it was added. The clone is the first time the truth is on disk;
+ * taking it here means every later surface — the branch picker, the pull
+ * request base, the prompt context handed to employees — is right without
+ * anyone noticing there was a problem.
+ *
+ * Only overwrites a value the remote disagrees with: a Member who deliberately
+ * pointed the repository at a long-lived release branch keeps their choice.
+ */
+async function adoptRemoteDefaultBranch(repo: Repository): Promise<void> {
+  const head = await gitOrNull(repo, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+  const detected = (head ?? "").trim().replace(/^origin\//, "");
+  if (!detected || detected === repo.defaultBranch) return;
+  try {
+    assertSafeBranchName(detected);
+  } catch {
+    return;
+  }
+  const stored = (repo.defaultBranch || "").trim();
+  if (stored) {
+    const exists = await gitOrNull(repo, [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      `refs/remotes/origin/${stored}`,
+    ]);
+    if (exists) return;
+  }
+  repo.defaultBranch = detected;
+  await AppDataSource.getRepository(Repository)
+    .update({ id: repo.id }, { defaultBranch: detected })
+    .catch(() => {});
 }
 
 /**
@@ -1073,6 +1113,48 @@ export async function createRepositoryBranch(
     if (from) args.push(from);
     await git(repo, args);
   });
+}
+
+/**
+ * The trunk the remote itself points `HEAD` at, read out of the clone.
+ *
+ * `git clone` records the remote's `HEAD` as `refs/remotes/origin/HEAD`, which
+ * makes this the one place in the checkout that knows the truth. The
+ * Repository row does not: `defaultBranch` is pre-filled with `main` by the
+ * create form and never contradicted, so a repository whose trunk is `master`
+ * carries the wrong value from the moment it is added.
+ *
+ * Returns null rather than throwing — a repository cloned before Git wrote the
+ * symbolic ref, or one with no remote at all, simply has nothing to say here.
+ */
+export async function remoteBranchExists(repo: Repository, name: string): Promise<boolean> {
+  const trimmed = (name || "").trim();
+  if (!trimmed) return false;
+  try {
+    assertSafeBranchName(trimmed);
+  } catch {
+    return false;
+  }
+  const found = await gitOrNull(repo, [
+    "rev-parse",
+    "--verify",
+    "--quiet",
+    `refs/remotes/origin/${trimmed}`,
+  ]);
+  return !!(found ?? "").trim();
+}
+
+export async function detectRemoteDefaultBranch(repo: Repository): Promise<string | null> {
+  if (repo.origin !== "remote") return null;
+  const head = await gitOrNull(repo, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+  const name = (head ?? "").trim().replace(/^origin\//, "");
+  if (!name) return null;
+  try {
+    assertSafeBranchName(name);
+  } catch {
+    return null;
+  }
+  return name;
 }
 
 export async function checkoutRepositoryBranch(repo: Repository, name: string): Promise<void> {

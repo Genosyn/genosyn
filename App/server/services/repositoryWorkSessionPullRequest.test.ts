@@ -18,6 +18,7 @@ import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.
 import { encryptConnectionConfig } from "./integrations.js";
 import { encryptRepoSecret } from "./repositories.js";
 import {
+  GithubApiError,
   parseGithubRemote,
   type GithubPullRequest,
   type GithubPullRequestArgs,
@@ -172,9 +173,22 @@ type Recorded = {
   looked: Array<{ owner: string; repo: string; head: string }>;
 };
 
+/**
+ * Both default-branch lookups are stubbed by default, and deliberately return
+ * nothing. The real ones reach github.com and the local clone respectively;
+ * leaving either unstubbed would put these tests on the network. A test that
+ * cares what the trunk is says so explicitly through `options`.
+ */
 function stubDeps(
   recorded: Recorded,
-  options: { existing?: GithubPullRequest | null } = {},
+  options: {
+    existing?: GithubPullRequest | null;
+    remoteDefaultBranch?: string | null;
+    localDefaultBranch?: string | null;
+    /** Which branches the remote is pretending to already have. */
+    remoteBranches?: string[];
+    createFails?: unknown;
+  } = {},
 ): Partial<WorkSessionPullRequestDeps> {
   return {
     push: (async (_repo: Repository, branch: string) => {
@@ -182,12 +196,17 @@ function stubDeps(
       return { branch };
     }) as WorkSessionPullRequestDeps["push"],
     resolveToken: async () => "gh-token",
+    remoteDefaultBranch: async () => options.remoteDefaultBranch ?? null,
+    localDefaultBranch: async () => options.localDefaultBranch ?? null,
+    branchExists: async (_repo: Repository, name: string) =>
+      (options.remoteBranches ?? []).includes(name),
     findOpenPullRequest: async (_token, args) => {
       recorded.looked.push(args);
       return options.existing ?? null;
     },
     createPullRequest: async (_token, args) => {
       recorded.created.push(args);
+      if (options.createFails) throw options.createFails;
       return { number: 42, htmlUrl: "https://github.com/acme/product/pull/42", state: "open" };
     },
   };
@@ -273,8 +292,11 @@ describe("opening a pull request", () => {
 
     assert.deepEqual(second.pushed, [session.branch], "the update is the push");
     assert.equal(second.created.length, 0, "a second pull request must not be opened");
+    // The number goes with the lookup: it is the only way to find the open
+    // pull request again with a credential that may create one but may not
+    // list them, which otherwise made every press after the first fail.
     assert.deepEqual(second.looked, [
-      { owner: "acme", repo: "product", head: session.branch as string },
+      { owner: "acme", repo: "product", head: session.branch as string, number: 42 },
     ]);
     assert.equal(updated.pullRequestNumber, 42);
     assert.equal(updated.status, "proposed");
@@ -369,6 +391,248 @@ describe("opening a pull request", () => {
       id: session.id,
     });
     assert.equal(unchanged.status, "ready", "a failed push leaves the session reviewable");
+    assert.equal(unchanged.pullRequestUrl, null);
+  });
+});
+
+/**
+ * The bug this covers: `Repository.defaultBranch` is pre-filled with `main` by
+ * the create form and never checked against the remote, so every repository
+ * whose trunk is `master` opened its pull requests against a branch that does
+ * not exist — and GitHub answered with an unreadable "Validation Failed".
+ */
+describe("choosing the branch to open the pull request against", () => {
+  test("asks GitHub for the real trunk instead of trusting the stored value", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    const recorded = recorder();
+
+    await openRepositoryWorkSessionPullRequest({
+      sessionId: session.id,
+      deps: stubDeps(recorded, { remoteDefaultBranch: "master" }),
+    });
+
+    assert.equal(recorded.created[0].base, "master");
+  });
+
+  test("writes the correction back so the rest of the product stops being wrong", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    await openRepositoryWorkSessionPullRequest({
+      sessionId: session.id,
+      deps: stubDeps(recorder(), { remoteDefaultBranch: "master" }),
+    });
+
+    const stored = await AppDataSource.getRepository(Repository).findOneByOrFail({
+      id: repository.id,
+    });
+    assert.equal(stored.defaultBranch, "master");
+  });
+
+  test("falls back to the clone's own origin/HEAD when GitHub cannot be asked", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    const recorded = recorder();
+    await openRepositoryWorkSessionPullRequest({
+      sessionId: session.id,
+      deps: stubDeps(recorded, { remoteDefaultBranch: null, localDefaultBranch: "trunk" }),
+    });
+    assert.equal(recorded.created[0].base, "trunk");
+  });
+
+  test("keeps a stored branch the remote actually has, and does not rewrite the row", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    await AppDataSource.getRepository(Repository).update(
+      { id: repository.id },
+      { defaultBranch: "develop" },
+    );
+    const recorded = recorder();
+    await openRepositoryWorkSessionPullRequest({
+      sessionId: session.id,
+      deps: stubDeps(recorded, { remoteDefaultBranch: "master", remoteBranches: ["develop"] }),
+    });
+
+    assert.equal(recorded.created[0].base, "develop", "a Member's choice is not overridden");
+    const stored = await AppDataSource.getRepository(Repository).findOneByOrFail({
+      id: repository.id,
+    });
+    assert.equal(stored.defaultBranch, "develop");
+  });
+
+  test("keeps the stored value when nothing else knows better", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    const recorded = recorder();
+    await openRepositoryWorkSessionPullRequest({
+      sessionId: session.id,
+      deps: stubDeps(recorded),
+    });
+    assert.equal(recorded.created[0].base, "main");
+  });
+});
+
+/**
+ * The half most likely to fail on somebody else's repository: a credential
+ * that cloned a public repo read-only cannot push a branch to it. Git's own
+ * stderr never names Genosyn's side of that, so it read as a broken button.
+ */
+describe("when the push is refused", () => {
+  function pushFails(recorded: Recorded, message: string): Partial<WorkSessionPullRequestDeps> {
+    return {
+      ...stubDeps(recorded),
+      push: (async () => {
+        throw new Error(message);
+      }) as WorkSessionPullRequestDeps["push"],
+    };
+  }
+
+  test("a credential without write access names the account it authenticated as", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    await assert.rejects(
+      () =>
+        openRepositoryWorkSessionPullRequest({
+          sessionId: session.id,
+          deps: pushFails(
+            recorder(),
+            "git push failed: remote: Permission to acme/product.git denied to octocat. | fatal: unable to access",
+          ),
+        }),
+      /authenticates as "octocat", which cannot write/,
+    );
+  });
+
+  test("a rejected credential points at the token, not at the branch", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    await assert.rejects(
+      () =>
+        openRepositoryWorkSessionPullRequest({
+          sessionId: session.id,
+          deps: pushFails(recorder(), "git push failed: fatal: Authentication failed for 'https://…'"),
+        }),
+      /rejected the credential/,
+    );
+  });
+
+  test("a branch rule says which rule and offers the way round it", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    await assert.rejects(
+      () =>
+        openRepositoryWorkSessionPullRequest({
+          sessionId: session.id,
+          deps: pushFails(recorder(), "git push failed: remote: error: GH013: Repository rule violations"),
+        }),
+      /rule that refuses this push/,
+    );
+  });
+
+  test("an unrecognised git failure is passed through rather than reworded", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    await assert.rejects(
+      () =>
+        openRepositoryWorkSessionPullRequest({
+          sessionId: session.id,
+          deps: pushFails(recorder(), "git push failed: something entirely new"),
+        }),
+      /something entirely new/,
+    );
+  });
+});
+
+describe("when GitHub refuses the pull request", () => {
+  test("a bad base branch names the branch and where to fix it", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    await assert.rejects(
+      () =>
+        openRepositoryWorkSessionPullRequest({
+          sessionId: session.id,
+          deps: stubDeps(recorder(), {
+            createFails: new GithubApiError("Validation Failed: base invalid", 422, {
+              message: "Validation Failed",
+              errors: [{ resource: "PullRequest", field: "base", code: "invalid" }],
+            }),
+          }),
+        }),
+      /no branch called "main"/,
+    );
+  });
+
+  test("a duplicate pull request says the push still landed", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    await assert.rejects(
+      () =>
+        openRepositoryWorkSessionPullRequest({
+          sessionId: session.id,
+          deps: stubDeps(recorder(), {
+            createFails: new GithubApiError("Validation Failed", 422, {
+              message: "Validation Failed",
+              errors: [{ message: "A pull request already exists for acme:branch." }],
+            }),
+          }),
+        }),
+      /already exists/,
+    );
+  });
+
+  test("an empty branch says there is nothing to propose", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    await assert.rejects(
+      () =>
+        openRepositoryWorkSessionPullRequest({
+          sessionId: session.id,
+          deps: stubDeps(recorder(), {
+            createFails: new GithubApiError("Validation Failed", 422, {
+              message: "Validation Failed",
+              errors: [{ message: "No commits between main and genosyn/ada/abcd1234" }],
+            }),
+          }),
+        }),
+      /nothing to propose/,
+    );
+  });
+
+  test("a permission failure points at the credential, not at the branch", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    await assert.rejects(
+      () =>
+        openRepositoryWorkSessionPullRequest({
+          sessionId: session.id,
+          deps: stubDeps(recorder(), {
+            createFails: new GithubApiError("Resource not accessible by integration", 403, {
+              message: "Resource not accessible by integration",
+            }),
+          }),
+        }),
+      /pull-request write access/,
+    );
+  });
+
+  test("the session stays reviewable when GitHub refuses", async () => {
+    const session = await readySession();
+    await asGithubRemote();
+    await assert.rejects(() =>
+      openRepositoryWorkSessionPullRequest({
+        sessionId: session.id,
+        deps: stubDeps(recorder(), {
+          createFails: new GithubApiError("Validation Failed", 422, {
+            message: "Validation Failed",
+            errors: [{ field: "base", code: "invalid" }],
+          }),
+        }),
+      }),
+    );
+    const unchanged = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: session.id,
+    });
+    assert.equal(unchanged.status, "ready");
     assert.equal(unchanged.pullRequestUrl, null);
   });
 });

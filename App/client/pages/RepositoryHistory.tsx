@@ -292,6 +292,7 @@ export default function RepositoryHistory() {
               <DiffView
                 patch={detail.patch}
                 truncated={detail.truncated}
+                filesChanged={detail.filesChanged}
                 emptyMessage="This commit changed no file contents."
                 className="mt-3"
               />

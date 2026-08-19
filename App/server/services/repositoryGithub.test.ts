@@ -64,8 +64,21 @@ describe("describeGithubError", () => {
 
   test("explains a permission failure instead of restating the status", () => {
     const message = describeGithubError({ message: "Not Found" }, 403);
-    assert.match(message, /permission to create repositories/);
+    // Deliberately not "permission to create repositories": every GitHub call
+    // in this module lands here, and naming one operation made the sentence
+    // wrong for opening a pull request, which is where people actually meet it.
+    assert.match(message, /permission for this/);
     assert.match(message, /reconnect/i);
+    assert.doesNotMatch(message, /\.\./, "a headline ending in a period must not double it");
+  });
+
+  test("keeps GitHub's per-error detail on a permission failure", () => {
+    const message = describeGithubError(
+      { message: "Repository was archived so is read-only.", errors: [{ message: "archived" }] },
+      403,
+    );
+    assert.match(message, /Repository was archived/);
+    assert.match(message, /archived/);
   });
 
   test("falls back to the status when the body says nothing useful", () => {

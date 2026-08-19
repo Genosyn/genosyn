@@ -1274,6 +1274,10 @@ export default function RepositoryFiles() {
                     patch={diff.patch}
                     truncated={diff.truncated}
                     emptyMessage="This file matches the last commit."
+                    // One file, opened deliberately from the tree. A summary
+                    // header over a single collapsed row would be a click
+                    // between someone and the thing they just asked to see.
+                    expanded
                   />
                 </div>
               )

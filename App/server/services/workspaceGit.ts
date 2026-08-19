@@ -48,6 +48,16 @@ export type GitInvocation = {
   args: string[];
   env: Record<string, string>;
   isolated: boolean;
+  /**
+   * Every secret value handed to the child, whichever way it was handed over.
+   *
+   * It cannot be recovered from `env`: in bubblewrap mode the launcher's own
+   * environment is only `PATH`, and the child's real environment is carried in
+   * `args` as `--setenv NAME value` triples. Anything scrubbing output for
+   * credentials has to be told what they are, or it silently scrubs nothing in
+   * exactly the mode the project ships.
+   */
+  secrets: string[];
 };
 
 /**
@@ -108,12 +118,15 @@ export function buildWorkspaceGitInvocation(
     childEnv[`GIT_CONFIG_VALUE_${index}`] = value;
   });
 
+  const secrets = secretValuesOf(childEnv);
+
   if (executionMode !== "bubblewrap") {
     return {
       executable: "git",
       args: options.args,
       env: childEnv,
       isolated: false,
+      secrets,
     };
   }
 
@@ -132,7 +145,25 @@ export function buildWorkspaceGitInvocation(
     // The bwrap launcher itself receives no App secrets either.
     env: { PATH: SAFE_PATH },
     isolated: true,
+    secrets,
   };
+}
+
+/**
+ * The values in a child environment that must never appear in output.
+ *
+ * Only the entries that can carry a credential, and only ones long enough to
+ * be one: blanket-replacing `1`, `never`, or a path would shred ordinary Git
+ * output and tell the reader nothing.
+ */
+function secretValuesOf(childEnv: Record<string, string>): string[] {
+  const values: string[] = [];
+  for (const [name, value] of Object.entries(childEnv)) {
+    if (!value || value.length < 8) continue;
+    if (!TOKEN_ENV.test(name) && !name.startsWith("GIT_CONFIG_VALUE_")) continue;
+    values.push(value);
+  }
+  return values;
 }
 
 export async function runWorkspaceGit(options: WorkspaceGitOptions): Promise<{ stdout: string }> {
@@ -157,10 +188,48 @@ export async function runWorkspaceGit(options: WorkspaceGitOptions): Promise<{ s
         `${dependency} is not installed on the Genosyn server, so "git ${command}" could not run.`,
       );
     }
-    const detail = error as { stderr?: string; stdout?: string; message?: string };
-    const tail = (detail.stderr || detail.stdout || detail.message || "").toString().trim();
-    throw new Error(`git ${command} failed: ${tail.split("\n").slice(-3).join(" | ")}`);
+    const detail = error as {
+      stderr?: string;
+      stdout?: string;
+      killed?: boolean;
+      signal?: string;
+    };
+    const output = (detail.stderr || detail.stdout || "").toString().trim();
+    if (!output) {
+      // Deliberately NOT `error.message`. Node builds that as
+      // `Command failed: <argv>`, and in bubblewrap mode the argv is the bwrap
+      // one — which carries every environment entry as a literal
+      // `--setenv GENOSYN_REPO_TOKEN_CONNECTION ghs_…` triple. This branch is
+      // reached exactly when Git printed nothing, which is the timeout and
+      // signal path, so the credential would have been handed to the browser
+      // in a toast.
+      if (detail.killed || detail.signal) {
+        throw new Error(
+          `git ${command} did not finish in time and was stopped. A very large repository can exceed the limit; try again, and check the server can reach the remote.`,
+        );
+      }
+      throw new Error(`git ${command} failed without reporting a reason.`);
+    }
+    const tail = redactSecrets(output, invocation.secrets).split("\n").slice(-3).join(" | ");
+    throw new Error(`git ${command} failed: ${tail}`);
   }
+}
+
+/**
+ * Remove anything the child was given as a secret from text about to be shown.
+ *
+ * Git does not normally echo a credential, but a remote helper, a proxy, or a
+ * misconfigured URL can put one in stderr, and this string travels all the way
+ * to a browser toast. Redaction is by value, taken from
+ * {@link GitInvocation.secrets} — reading the launcher's own environment would
+ * find nothing at all under bubblewrap, which is the mode that ships.
+ */
+export function redactSecrets(text: string, secrets: string[]): string {
+  let safe = text;
+  for (const value of secrets) {
+    safe = safe.split(value).join("«redacted»");
+  }
+  return safe;
 }
 
 /**

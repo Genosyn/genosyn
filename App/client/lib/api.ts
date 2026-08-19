@@ -6,12 +6,36 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    const msg = (data && (data.error || data.message)) || res.statusText;
-    throw new Error(msg);
+    throw new Error(errorMessageFrom(text, res.status, res.statusText));
   }
-  return data as T;
+  return (text ? JSON.parse(text) : null) as T;
+}
+
+/**
+ * The sentence to show for a failed response.
+ *
+ * Parsing before checking `res.ok` is what this replaces: a 502 from a proxy,
+ * a 413, or any unhandled 500 answers with an HTML page, `JSON.parse` threw on
+ * it, and the SyntaxError became the toast — so every infrastructure failure
+ * in the product surfaced as `Unexpected token '<'`. The status is always
+ * worth more than that.
+ */
+function errorMessageFrom(text: string, status: number, statusText: string): string {
+  if (text) {
+    try {
+      const data = JSON.parse(text);
+      const message = data && (data.error || data.message);
+      if (typeof message === "string" && message) return message;
+    } catch {
+      // Not JSON — an HTML error page from something in front of the app.
+      // Its markup is no use to anyone; the status is.
+    }
+  }
+  if (status === 502 || status === 503 || status === 504) {
+    return `The server did not respond (${status}). It may still be starting, or the request took too long.`;
+  }
+  return statusText ? `${statusText} (${status})` : `Request failed with status ${status}`;
 }
 
 /**
@@ -120,12 +144,12 @@ export const api = {
       body: form,
     });
     const text = await res.text();
-    const data = text ? JSON.parse(text) : null;
+    // Same order as `request`: an upload is the likeliest request in the
+    // product to be answered by a proxy's HTML 413 rather than by the app.
     if (!res.ok) {
-      const msg = (data && (data.error || data.message)) || res.statusText;
-      throw new Error(msg);
+      throw new Error(errorMessageFrom(text, res.status, res.statusText));
     }
-    return data as T;
+    return (text ? JSON.parse(text) : null) as T;
   },
 };
 

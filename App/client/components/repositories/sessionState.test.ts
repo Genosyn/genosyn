@@ -77,9 +77,10 @@ describe("which sessions accept another instruction", () => {
 });
 
 describe("the actions offered for a session", () => {
-  const local = { remote: false, github: false };
-  const gitlab = { remote: true, github: false };
-  const github = { remote: true, github: true };
+  const local = { remote: false, github: false, admin: true };
+  const gitlab = { remote: true, github: false, admin: true };
+  const github = { remote: true, github: true, admin: true };
+  const asMember = { remote: true, github: true, admin: false };
 
   test("a ready session in a local repository can only be merged or thrown away", () => {
     const actions = sessionActions(session(), local);
@@ -130,6 +131,7 @@ describe("the actions offered for a session", () => {
     assert.equal(actions.accept, false);
     assert.equal(actions.pullRequest, false);
     assert.equal(actions.revise, false);
+    assert.equal(actions.discard, false, "a turn in flight owns the worktree");
   });
 
   test("nothing is offered once the work is accepted or thrown away", () => {
@@ -144,10 +146,26 @@ describe("the actions offered for a session", () => {
           pullRequestIsUpdate: false,
           discard: false,
           revise: false,
+          remoteNeedsAdmin: false,
         },
         status,
       );
     }
+  });
+
+  test("an ordinary Member is not offered the two buttons the server refuses them", () => {
+    const actions = sessionActions(session(), asMember);
+    assert.equal(actions.accept, true, "merging here is a Member action");
+    assert.equal(actions.discard, true);
+    assert.equal(actions.revise, true);
+    assert.equal(actions.acceptAndSend, false, "pushing is owner/admin only");
+    assert.equal(actions.pullRequest, false, "opening a pull request is owner/admin only");
+    assert.equal(actions.remoteNeedsAdmin, true, "and the page has to say why");
+  });
+
+  test("nothing is said about admins when the repository has no remote anyway", () => {
+    const actions = sessionActions(session(), { remote: false, github: false, admin: false });
+    assert.equal(actions.remoteNeedsAdmin, false);
   });
 
   test("only ready and proposed hold work worth reviewing", () => {
