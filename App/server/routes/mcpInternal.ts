@@ -11312,7 +11312,9 @@ mcpInternalRouter.post(
       // the diff. It is the only outbound channel this surface has: the
       // resource-change event that carries the outcome is scoped to the
       // repository, and nothing forwards it to a conversation.
-      const reviewUrl = `/c/${co.slug}/repositories/${repo.slug}/ai`;
+      // Straight to the session, not the list. A session has its own URL now,
+      // and "somewhere on that page" is a worse link than the diff itself.
+      const reviewUrl = `/c/${co.slug}/repositories/${repo.slug}/ai/${prepared.session.id}`;
       res.json({
         sessionId: prepared.session.id,
         repository: repo.slug,
@@ -11320,7 +11322,7 @@ mcpInternalRouter.post(
         reviewUrl,
         note: [
           "Started. It runs in its own working copy, separately from this conversation.",
-          `Say you have started it and link them to the diff with this exact markdown: [${repo.name} → AI work](${reviewUrl}) — that is the tab where they review it and decide whether it is merged or pushed.`,
+          `Say you have started it and link them to the diff with this exact markdown: [${repo.name} → AI work](${reviewUrl}) — that is where they review it, ask you for changes, and decide whether it is merged, pushed, or opened as a pull request.`,
           "You will not see the result on this turn, so do not wait for it and do not report the work as done, committed, merged, pushed, or opened as a pull request.",
         ].join(" "),
       });

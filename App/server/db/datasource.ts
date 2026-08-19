@@ -61,6 +61,7 @@ import { Resource } from "./entities/Resource.js";
 import { EmployeeResourceGrant } from "./entities/EmployeeResourceGrant.js";
 import { Repository } from "./entities/Repository.js";
 import { RepositoryWorkSession } from "./entities/RepositoryWorkSession.js";
+import { RepositoryWorkSessionTurn } from "./entities/RepositoryWorkSessionTurn.js";
 import { EmployeeRepositoryGrant } from "./entities/EmployeeRepositoryGrant.js";
 import { EmployeeFinanceGrant } from "./entities/EmployeeFinanceGrant.js";
 import { Customer } from "./entities/Customer.js";
@@ -248,6 +249,7 @@ const entities = [
   EmployeeResourceGrant,
   Repository,
   RepositoryWorkSession,
+  RepositoryWorkSessionTurn,
   EmployeeRepositoryGrant,
   EmployeeFinanceGrant,
   Customer,

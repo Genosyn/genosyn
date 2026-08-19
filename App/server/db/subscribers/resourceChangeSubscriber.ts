@@ -134,6 +134,9 @@ const REGISTRY: Record<string, Mapping> = {
   // ── Repositories ────────────────────────────────────────────────────
   Repository: { kind: "repository", company: "direct" },
   RepositoryWorkSession: { kind: "repository", company: "direct", scopeFk: "repositoryId" },
+  // A turn has no repository id of its own; announcing it company-wide still
+  // wakes the AI work page, which reloads the session it is showing.
+  RepositoryWorkSessionTurn: { kind: "repository", company: "direct" },
 
   // ── Pipelines ────────────────────────────────────────────────────────────
   Pipeline: { kind: "pipeline", company: "direct" },

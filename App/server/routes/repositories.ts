@@ -5,6 +5,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { Repository } from "../db/entities/Repository.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
+import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
 import type { RepositoryAccessLevel } from "../db/entities/EmployeeRepositoryGrant.js";
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
@@ -282,6 +283,17 @@ repositoriesRouter.delete("/repositories/:slug", async (req, res) => {
 
   await deleteGrantsForRepository(row.id);
   await deleteTagAssignments("repository", row.id);
+  const sessionIds = (
+    await AppDataSource.getRepository(RepositoryWorkSession).find({
+      where: { repositoryId: row.id },
+      select: { id: true },
+    })
+  ).map((session) => session.id);
+  if (sessionIds.length > 0) {
+    await AppDataSource.getRepository(RepositoryWorkSessionTurn).delete({
+      sessionId: In(sessionIds),
+    });
+  }
   await AppDataSource.getRepository(RepositoryWorkSession).delete({ repositoryId: row.id });
   // The App-owned checkout is derived state; it goes with the row it mirrors.
   removeRepositoryWorkspace(row.companyId, row.id);

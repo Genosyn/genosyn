@@ -151,8 +151,19 @@ export default function RepositoriesLayout({ company }: { company: Company }) {
     </div>
   );
 
-  const trailingSegment = location.pathname.split("/").filter(Boolean).at(-1);
-  const pageLabel = trailingSegment ? PAGE_LABELS[trailingSegment] : undefined;
+  // Not the trailing segment: a page can have a sub-route below it (an open AI
+  // work session is `/ai/<id>`), and reading the last segment would lose the
+  // page's name the moment anyone opened one.
+  const segments = location.pathname.split("/").filter(Boolean);
+  const slugIndex = slug ? segments.lastIndexOf(slug) : -1;
+  const pageSegment = slugIndex >= 0 ? segments[slugIndex + 1] : undefined;
+  const pageLabel = pageSegment ? PAGE_LABELS[pageSegment] : undefined;
+  // With something open below the page (a work session), the page itself is
+  // where "back" goes, so it earns a link rather than being dead text.
+  const pageHref =
+    pageLabel && repoBase && slugIndex >= 0 && segments.length > slugIndex + 2
+      ? `${repoBase}/${pageSegment}`
+      : undefined;
 
   return (
     <ContextualLayout sidebar={sidebar}>
@@ -166,7 +177,7 @@ export default function RepositoriesLayout({ company }: { company: Company }) {
                   label: repo?.name ?? slug,
                   to: pageLabel && repoBase ? repoBase : undefined,
                 },
-                ...(pageLabel ? [{ label: pageLabel }] : []),
+                ...(pageLabel ? [{ label: pageLabel, to: pageHref }] : []),
               ]}
             />
           </div>

@@ -54,9 +54,14 @@ import { encryptRepoSecret } from "../services/repositories.js";
 import {
   createRepositoryWorkSession,
   discardRepositoryWorkSession,
+  openRepositoryWorkSessionPullRequest,
+  prepareWorkSessionRevision,
   publishRepositoryWorkSession,
+  renameRepositoryWorkSession,
   repositoryWorkSessionDiff,
+  repositoryWorkSessionTurns,
   runRepositoryWorkSession,
+  WORK_SESSION_TITLE_MAX,
 } from "../services/repositoryWorkSessions.js";
 
 /**
@@ -633,7 +638,10 @@ repositoryContentRouter.post(
   validateBody(startSessionSchema),
   withRepository(async (repo, req, res) => {
     const body = req.body as z.infer<typeof startSessionSchema>;
-    if (!req.userId || !req.session?.sessionVersion) {
+    // `sessionVersion` starts at 0 and only moves when someone resets or
+    // changes their password, so a truthiness check here refused every Member
+    // who had never done either — which is most of them.
+    if (!req.userId || typeof req.session?.sessionVersion !== "number") {
       throw new Error("Sign in again to start a work session.");
     }
     const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
@@ -679,6 +687,145 @@ repositoryContentRouter.post(
       }),
     ]);
     const [hydrated] = await hydrateSessions(repo.companyId, [finished ?? prepared.session]);
+    res.json(hydrated);
+  }),
+);
+
+/**
+ * One session with its whole transcript.
+ *
+ * The list endpoint deliberately does not carry turns: a repository with fifty
+ * sessions would ship every instruction and every report to render a sidebar.
+ * The detail read is per-session and is what the open session polls.
+ */
+repositoryContentRouter.get(
+  "/repositories/:slug/sessions/:sessionId",
+  withRepository(async (repo, req, res) => {
+    const session = await loadSession(repo, req.params.sessionId);
+    if (!session) throw new Error("Work session not found.");
+    // Turns first: reading them is what gives a session created before turns
+    // existed its first one, and that write moves `turnCount` on the row we
+    // are about to send.
+    const turns = await repositoryWorkSessionTurns(session.id);
+    const [hydrated] = await hydrateSessions(repo.companyId, [
+      (await loadSession(repo, session.id)) ?? session,
+    ]);
+    res.json({ session: hydrated, turns });
+  }),
+);
+
+const reviseSessionSchema = z.object({ instruction: z.string().min(1).max(20000) }).strict();
+
+/**
+ * Ask for changes to work that has already been done.
+ *
+ * Same contract as starting a session, pointed at one that exists: answer as
+ * soon as the turn row is written, because the turn itself may run for
+ * minutes. What it buys is continuity — the employee picks up in the worktree
+ * it left, with what it already did replayed to it, so a revision costs one
+ * sentence instead of a fresh session that starts from the trunk again.
+ */
+repositoryContentRouter.post(
+  "/repositories/:slug/sessions/:sessionId/revise",
+  validateBody(reviseSessionSchema),
+  withRepository(async (repo, req, res) => {
+    const body = req.body as z.infer<typeof reviseSessionSchema>;
+    if (!req.userId || typeof req.session?.sessionVersion !== "number") {
+      throw new Error("Sign in again to continue a work session.");
+    }
+    const session = await loadSession(repo, req.params.sessionId);
+    if (!session) throw new Error("Work session not found.");
+
+    const prepared = await prepareWorkSessionRevision({
+      companyId: repo.companyId,
+      sessionId: session.id,
+      instruction: body.instruction,
+      requesterUserId: req.userId,
+      requesterSessionVersion: req.session.sessionVersion,
+    });
+
+    await recordAudit({
+      companyId: repo.companyId,
+      actorUserId: req.userId,
+      action: "repository.work_session_revise",
+      targetType: "repository",
+      targetId: repo.id,
+      targetLabel: repo.name,
+      metadata: { sessionId: session.id, employeeId: session.employeeId },
+    });
+
+    const running = runRepositoryWorkSession(prepared);
+    running.catch((error) => {
+      console.error("[repository-session] revision failed:", error);
+    });
+    const finished = await Promise.race([
+      running.catch(() => null),
+      new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), 1500);
+      }),
+    ]);
+    const [hydrated] = await hydrateSessions(repo.companyId, [finished ?? prepared.session]);
+    res.json({ session: hydrated, turns: await repositoryWorkSessionTurns(session.id) });
+  }),
+);
+
+const renameSessionSchema = z.object({ title: z.string().min(1).max(200) }).strict();
+
+repositoryContentRouter.patch(
+  "/repositories/:slug/sessions/:sessionId",
+  validateBody(renameSessionSchema),
+  withRepository(async (repo, req, res) => {
+    const session = await loadSession(repo, req.params.sessionId);
+    if (!session) throw new Error("Work session not found.");
+    const body = req.body as z.infer<typeof renameSessionSchema>;
+    const updated = await renameRepositoryWorkSession(
+      repo.companyId,
+      session.id,
+      body.title.slice(0, WORK_SESSION_TITLE_MAX),
+    );
+    const [hydrated] = await hydrateSessions(repo.companyId, [updated]);
+    res.json(hydrated);
+  }),
+);
+
+const pullRequestSchema = z
+  .object({ title: z.string().max(200).optional(), body: z.string().max(20000).optional() })
+  .strict();
+
+/**
+ * Hand the work to the team's own review, instead of merging it here.
+ *
+ * Admin-gated for the same reason pushing is: it puts a branch on the remote
+ * under the company's credential, and that cannot be recalled by whoever
+ * pressed it.
+ */
+repositoryContentRouter.post(
+  "/repositories/:slug/sessions/:sessionId/pull-request",
+  requireAdmin,
+  validateBody(pullRequestSchema),
+  withRepository(async (repo, req, res) => {
+    const session = await loadSession(repo, req.params.sessionId);
+    if (!session) throw new Error("Work session not found.");
+    const body = req.body as z.infer<typeof pullRequestSchema>;
+    const updated = await openRepositoryWorkSessionPullRequest({
+      sessionId: session.id,
+      title: body.title,
+      body: body.body,
+    });
+    await recordAudit({
+      companyId: repo.companyId,
+      actorUserId: req.userId ?? null,
+      action: "repository.work_session_pull_request",
+      targetType: "repository",
+      targetId: repo.id,
+      targetLabel: repo.name,
+      metadata: {
+        sessionId: session.id,
+        branch: updated.branch,
+        pullRequest: updated.pullRequestNumber,
+      },
+    });
+    const [hydrated] = await hydrateSessions(repo.companyId, [updated]);
     res.json(hydrated);
   }),
 );

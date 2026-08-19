@@ -322,14 +322,20 @@ describe("a session that really starts", () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.repository, "strategy");
     assert.equal(res.body.status, "running");
-    assert.equal(res.body.reviewUrl, "/c/acme/repositories/strategy/ai");
     assert.ok(res.body.sessionId, "the employee must be told which session it started");
+    assert.equal(
+      res.body.reviewUrl,
+      `/c/acme/repositories/strategy/ai/${res.body.sessionId as string}`,
+      "the link must open the session itself, not the list it is somewhere in",
+    );
 
     const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneBy({
       id: res.body.sessionId as string,
     });
     assert.ok(row);
     assert.equal(row.instruction, "Update the plan");
+    assert.equal(row.title, "Update the plan", "a session the employee opened is still named");
+    assert.equal(row.turnCount, 1, "the opening instruction is the session's first turn");
     assert.equal(row.employeeId, employee.id);
     // The session runs for the Member, which is whose access it uses.
     assert.equal(row.requestedByUserId, requester.id);

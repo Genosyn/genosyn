@@ -234,11 +234,17 @@ export function Repositories() {
 
       <H2 id="work-sessions">Hand work to an AI Employee</H2>
       <P>
-        A <Strong>work session</Strong> is one request to an AI Employee to do something in a
-        repository, and the reviewable result of that request. Grant access first: open a
+        A <Strong>work session</Strong> is a conversation with an AI Employee about one piece of
+        work in a repository, and the reviewable result of it. Grant access first: open a
         repository&apos;s <Strong>AI access</Strong> page and add the employees that should be able
         to work on it. Any granted employee can be picked for a session, and it needs a connected{" "}
         <DocLink to="/docs/models">AI Model</DocLink> to run.
+      </P>
+      <P>
+        The <Strong>AI work</Strong> page lists every session on the left and opens one on the
+        right. Each session has its own URL, so you can switch between them, come back to one
+        tomorrow, or send a colleague straight to the diff you want them to look at. Rename a
+        session from its header when the instruction it was opened with stops describing it.
       </P>
       <OL>
         <LI>Pick the employee and describe the work in plain language.</LI>
@@ -257,25 +263,39 @@ export function Repositories() {
           what it could not verify. Anything it leaves uncommitted is discarded when the session
           ends.
         </LI>
-        <LI>Read the report and the diff, then publish the work or discard it.</LI>
+        <LI>
+          Read the report and the diff. If it is not right yet, <Strong>ask for changes</Strong> in
+          the composer at the bottom of the session — the same employee picks up in the same
+          working copy, on the same branch, with everything it already did replayed to it, and
+          commits the change on top. Every instruction and every report stays in the transcript,
+          and each one shows what that turn alone changed.
+        </LI>
+        <LI>When it is right, accept the work, send it on, or open a pull request for it.</LI>
       </OL>
       <KeyList
         rows={[
-          { term: "running", def: "The employee's turn is in flight." },
+          { term: "running", def: "One of the employee's turns is in flight." },
           {
             term: "ready",
-            def: "The turn finished and left commits on its branch, waiting for you to review the diff and decide.",
+            def: "The last turn finished and left commits on the branch, waiting for you to review the diff and decide.",
           },
           {
             term: "empty",
-            def: "The turn finished without committing anything. Not a failure — “I read it and there is nothing to change” is a legitimate answer, and there is no branch to publish.",
+            def: "The last turn finished without committing anything. Not a failure — “I read it and there is nothing to change” is a legitimate answer, and there is nothing to publish. Ask for changes if it should have done something.",
+          },
+          {
+            term: "proposed",
+            def: "The branch is pushed and a pull request is open on it. You can still ask for changes; pressing the button again pushes the new commits into the same pull request.",
           },
           {
             term: "published",
             def: "You merged the branch into the shared checkout, and for a remote repository it was pushed.",
           },
           { term: "discarded", def: "You rejected the work; the worktree and its branch are gone." },
-          { term: "failed", def: "The turn errored, or its result could not be read afterwards." },
+          {
+            term: "failed",
+            def: "The last turn errored, or its result could not be read afterwards. Ask again to retry on the same branch — earlier commits are kept.",
+          },
         ]}
       />
       <P>
@@ -283,7 +303,26 @@ export function Repositories() {
         The worktree shares the repository&apos;s object store, so the commits are already present
         and nothing has to be transferred. For a remote repository you can push in the same step.
         Merging refuses to run while the shared checkout has uncommitted changes of its own, and a
-        merge that would conflict is aborted rather than left half-applied.
+        merge that would conflict is aborted rather than left half-applied. Only{" "}
+        <Code>published</Code> and <Code>discarded</Code> end a session; everything else still
+        accepts another instruction.
+      </P>
+
+      <H3 id="pull-requests">Opening a pull request</H3>
+      <P>
+        For a repository whose remote is on GitHub, <Strong>Open pull request</Strong> is the third
+        thing you can do with reviewed work — instead of merging it here or pushing it straight on,
+        it pushes the session&apos;s branch and opens a pull request against the repository&apos;s
+        default branch, so the work enters whatever review your team already runs. The description
+        is the employee&apos;s own report unless you write your own.
+      </P>
+      <P>
+        Ask for changes afterwards and the button becomes <Strong>Update pull request</Strong>: the
+        new commits are pushed onto the same branch and the pull request that is already open picks
+        them up. Genosyn never opens a second one for the same branch. The credential comes from
+        the repository&apos;s stored token or the company&apos;s{" "}
+        <DocLink to="/docs/integrations">GitHub Connection</DocLink>, is used only by the server,
+        and — like every push — this is owner and admin only.
       </P>
 
       <Callout kind="tip" title="This works on the standard Docker install.">
@@ -326,11 +365,11 @@ export function Repositories() {
         rows={[
           {
             term: "Any Member",
-            def: "Browse the tree, search it, edit, create and delete files, commit, create and switch branches, read history and diffs, start AI work sessions, and merge a session's work into the checkout.",
+            def: "Browse the tree, search it, edit, create and delete files, commit, create and switch branches, read history and diffs, start AI work sessions, ask an open session for changes, and merge a session's work into the checkout.",
           },
           {
             term: "Owner / admin",
-            def: "Push, pull, connecting a local repository to a remote, and repository configuration — the clone URL, credentials, default branch, committer identity, and which AI Employees are granted access. Pushing a session's work while publishing it is admin too; merging it is not.",
+            def: "Push, pull, opening or updating a pull request for a session, connecting a local repository to a remote, and repository configuration — the clone URL, credentials, default branch, committer identity, and which AI Employees are granted access. Pushing a session's work while publishing it is admin too; merging it is not.",
           },
         ]}
       />

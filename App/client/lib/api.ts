@@ -2066,9 +2066,18 @@ export type RepositoryWorkSessionStatus =
   | "running"
   | "ready"
   | "empty"
+  | "proposed"
   | "published"
   | "discarded"
   | "failed";
+
+/** Statuses a Member may send another instruction into. Mirrors the server. */
+export const REVISABLE_WORK_SESSION_STATUSES: RepositoryWorkSessionStatus[] = [
+  "ready",
+  "empty",
+  "proposed",
+  "failed",
+];
 
 export type RepositoryWorkSessionEmployee = {
   id: string;
@@ -2083,28 +2092,60 @@ export type RepositoryWorkSession = {
   repositoryId: string;
   employeeId: string;
   requestedByUserId: string | null;
-  /** What the Member asked for, verbatim. */
+  /** Short label for the session list; renameable. */
+  title: string;
+  /** What the session was opened with, verbatim. */
   instruction: string;
   status: RepositoryWorkSessionStatus;
   /** Branch the employee committed on, once its turn has ended. */
   branch: string | null;
   baseCommit: string | null;
   headCommit: string | null;
-  /** The employee's own report of what it did. */
+  /** The employee's report from the most recent turn. */
   reply: string;
   error: string;
+  /** How many instructions the session has had. */
+  turnCount: number;
   filesChanged: number;
   insertions: number;
   deletions: number;
   /** Set when the branch reached the remote, so the UI can say so. */
   publishedBranch: string | null;
+  pullRequestUrl: string | null;
+  pullRequestNumber: number | null;
   finishedAt: string | null;
   createdAt: string;
   updatedAt: string;
   employee: RepositoryWorkSessionEmployee | null;
 };
 
+export type RepositoryWorkSessionTurnStatus = "running" | "ok" | "failed";
+
+/** One instruction and what the employee did about it. */
+export type RepositoryWorkSessionTurn = {
+  id: string;
+  sessionId: string;
+  ordinal: number;
+  instruction: string;
+  reply: string;
+  status: RepositoryWorkSessionTurnStatus;
+  error: string;
+  requestedByUserId: string | null;
+  baseCommit: string | null;
+  headCommit: string | null;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type RepositoryWorkSessionsResponse = { sessions: RepositoryWorkSession[] };
+export type RepositoryWorkSessionDetail = {
+  session: RepositoryWorkSession;
+  turns: RepositoryWorkSessionTurn[];
+};
 export type RepositoryWorkSessionCandidatesResponse = {
   employees: Array<RepositoryWorkSessionEmployee & { role: string }>;
 };

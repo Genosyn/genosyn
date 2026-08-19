@@ -12,9 +12,10 @@ import { Company } from "../db/entities/Company.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { Repository } from "../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
+import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
-import type { ChatResult, chatWithEmployee } from "./chat.js";
+import type { ChatResult, ChatTurn, chatWithEmployee } from "./chat.js";
 import {
   ensureRepositoryWorkspace,
   readRepositoryFile,
@@ -24,8 +25,16 @@ import {
   commitRepositoryChanges,
 } from "./repositoryWorkspace.js";
 import {
+  MAX_REPLAYED_TURNS,
+  composeTurnHistory,
   composeWorkSystemPrompt,
   createRepositoryWorkSession,
+  deriveWorkSessionTitle,
+  ensureSessionWorktree,
+  prepareWorkSessionRevision,
+  renameRepositoryWorkSession,
+  repositoryWorkSessionTurns,
+  reviseRepositoryWorkSession,
   discardRepositoryWorkSession,
   publishRepositoryWorkSession,
   repositoryWorkSessionDiff,
@@ -506,6 +515,598 @@ describe("reviewing and publishing", () => {
     assert.equal(
       (await readRepositoryFile(repository, "shared.md")).content,
       "the human's version\n",
+    );
+  });
+});
+
+
+// ────────────────────────── revising a session ──────────────────────────
+
+/**
+ * The half that makes a session a conversation.
+ *
+ * These tests are about continuity: the same branch, the same worktree, the
+ * same employee, and a transcript it can remember. A revision that quietly
+ * started again from the trunk would still look like it worked — the diff
+ * would be plausible and the earlier work would simply be gone — so the
+ * assertions are deliberately about *where* the commits land, not only that
+ * some landed.
+ */
+describe("revising a session", () => {
+  beforeEach(async () => {
+    await grantAccess();
+  });
+
+  /** Capture what the revision's turn was handed, which is the whole point. */
+  function recordingChat(
+    seen: { message?: string; history?: ChatTurn[]; options?: Record<string, unknown> },
+    work: (directory: string) => Promise<void> | void,
+    result: Partial<ChatResult> = {},
+  ): typeof chatWithEmployee {
+    return (async (_companyId, _employeeId, message, history, options) => {
+      seen.message = message;
+      seen.history = history;
+      seen.options = options as Record<string, unknown>;
+      const sessionId = (options as { repositoryWorkSessionId?: string })
+        ?.repositoryWorkSessionId;
+      assert.ok(sessionId);
+      const checkout = await resolveSessionCheckout(company.id, sessionId);
+      await work(checkout.directory);
+      return {
+        status: "ok",
+        reply: "Revised.",
+        attachmentIds: [],
+        sidecars: {},
+        ...result,
+      } as ChatResult;
+    }) as typeof chatWithEmployee;
+  }
+
+  async function revise(
+    sessionId: string,
+    runChat: typeof chatWithEmployee,
+    instruction = "Also mention the risks",
+    requesterUserId = requester.id,
+  ) {
+    return reviseRepositoryWorkSession({
+      companyId: company.id,
+      sessionId,
+      instruction,
+      requesterUserId,
+      requesterSessionVersion: 1,
+      runChat,
+    });
+  }
+
+  async function firstTurn() {
+    return start(
+      stubChat(async (directory) => {
+        sessionWriteFile(directory, "docs/plan.md", "# Plan\n\nShip it.\n");
+        await sessionCommit(repository, directory, "Add the plan");
+      }),
+    );
+  }
+
+  test("commits onto the same branch in the same working copy", async () => {
+    const session = await firstTurn();
+    const worktree = sessionWorktreePath(repository, session.id);
+    const revised = await revise(
+      session.id,
+      recordingChat({}, async (directory) => {
+        assert.equal(directory, worktree, "a revision must reuse the session's own worktree");
+        assert.equal(
+          sessionReadFile(directory, "docs/plan.md"),
+          "# Plan\n\nShip it.\n",
+          "the earlier turn's work is still there to build on",
+        );
+        sessionWriteFile(directory, "docs/plan.md", "# Plan\n\nShip it.\n\n## Risks\n");
+        await sessionCommit(repository, directory, "Note the risks");
+      }),
+    );
+
+    assert.equal(revised.id, session.id);
+    assert.equal(revised.branch, session.branch);
+    assert.equal(revised.status, "ready");
+    assert.equal(revised.baseCommit, session.baseCommit, "the branch point never moves");
+    assert.notEqual(revised.headCommit, session.headCommit);
+    assert.equal(revised.turnCount, 2);
+    assert.equal(revised.reply, "Revised.");
+
+    const diff = await repositoryWorkSessionDiff(revised);
+    assert.equal(diff.filesChanged, 1);
+    assert.deepEqual(
+      diff.commits.map((commit) => commit.subject).sort(),
+      ["Add the plan", "Note the risks"],
+    );
+  });
+
+  test("replays the earlier turns so the employee knows what it already did", async () => {
+    const session = await firstTurn();
+    const seen: { history?: ChatTurn[]; message?: string } = {};
+    await revise(
+      session.id,
+      recordingChat(seen, async (directory) => {
+        sessionWriteFile(directory, "docs/plan.md", "# Plan\n\nShip it well.\n");
+        await sessionCommit(repository, directory, "Tighten the wording");
+      }),
+    );
+
+    assert.deepEqual(seen.history, [
+      { role: "user", content: "Update the plan" },
+      { role: "assistant", content: "Done." },
+    ]);
+    assert.match(seen.message ?? "", /Continue your work/);
+    assert.match(seen.message ?? "", /Also mention the risks/);
+  });
+
+  test("records each turn's own changes as well as the session's", async () => {
+    const session = await firstTurn();
+    await revise(
+      session.id,
+      recordingChat({}, async (directory) => {
+        sessionWriteFile(directory, "docs/risks.md", "# Risks\n");
+        await sessionCommit(repository, directory, "Add the risks");
+      }),
+    );
+
+    const turns = await repositoryWorkSessionTurns(session.id);
+    assert.deepEqual(
+      turns.map((turn) => turn.ordinal),
+      [1, 2],
+    );
+    assert.equal(turns[0].instruction, "Update the plan");
+    assert.equal(turns[0].reply, "Done.");
+    assert.equal(turns[0].status, "ok");
+    assert.equal(turns[0].filesChanged, 1);
+    assert.equal(turns[1].instruction, "Also mention the risks");
+    assert.equal(turns[1].status, "ok");
+    assert.equal(
+      turns[1].filesChanged,
+      1,
+      "the second turn touched one file, not both files the session has",
+    );
+    assert.equal(turns[1].baseCommit, turns[0].headCommit, "turns chain head to base");
+
+    const session2 = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: session.id,
+    });
+    assert.equal(session2.filesChanged, 2, "the session totals both turns");
+  });
+
+  test("tells the employee it is continuing, not starting over", async () => {
+    const prompt = composeWorkSystemPrompt(repository, "s", { revision: true });
+    assert.match(prompt, /follow-up/);
+    assert.match(prompt, /read the files again/);
+    assert.ok(!composeWorkSystemPrompt(repository, "s").includes("follow-up"));
+  });
+
+  test("rescues a session that committed nothing the first time", async () => {
+    const session = await start(stubChat(() => {}));
+    assert.equal(session.status, "empty");
+    assert.equal(
+      fs.existsSync(sessionWorktreePath(repository, session.id)),
+      false,
+      "an empty session leaves no worktree, so the revision has to rebuild one",
+    );
+
+    const revised = await revise(
+      session.id,
+      recordingChat({}, async (directory) => {
+        sessionWriteFile(directory, "docs/plan.md", "# Plan\n");
+        await sessionCommit(repository, directory, "Write the plan after all");
+      }),
+      "There is something to change — do it",
+    );
+    assert.equal(revised.status, "ready");
+    assert.equal(revised.branch, session.branch);
+    assert.equal(revised.turnCount, 2);
+  });
+
+  test("retries on the same branch after a failed turn", async () => {
+    const session = await start(
+      stubChat(() => {}, { status: "error", reply: "The model is unavailable." }),
+    );
+    assert.equal(session.status, "failed");
+
+    const revised = await revise(
+      session.id,
+      recordingChat({}, async (directory) => {
+        sessionWriteFile(directory, "docs/plan.md", "# Plan\n");
+        await sessionCommit(repository, directory, "Add the plan");
+      }),
+      "Try again",
+    );
+    assert.equal(revised.status, "ready");
+    assert.equal(revised.error, "", "a retry that worked must not keep the old failure on the row");
+    assert.equal(revised.branch, session.branch);
+  });
+
+  test("a failed revision keeps the work the earlier turns committed", async () => {
+    const session = await firstTurn();
+    const revised = await revise(
+      session.id,
+      recordingChat({}, () => {}, { status: "error", reply: "Ran out of context." }),
+    );
+
+    assert.equal(revised.status, "failed");
+    assert.match(revised.error, /Ran out of context/);
+    assert.equal(revised.headCommit, session.headCommit, "the branch is where it was");
+    assert.equal(
+      fs.existsSync(sessionWorktreePath(repository, session.id)),
+      true,
+      "a worktree with commits in it survives a failed follow-up",
+    );
+    const turns = await repositoryWorkSessionTurns(session.id);
+    assert.equal(turns[1].status, "failed");
+    assert.equal(turns[0].status, "ok", "the earlier turn is untouched");
+  });
+
+  test("runs on the access of whoever asked for the revision", async () => {
+    const second = await insert(User, {
+      email: "second@example.com",
+      name: "Second",
+      passwordHash: "x",
+      sessionVersion: 4,
+    });
+    const session = await firstTurn();
+    const seen: { options?: Record<string, unknown> } = {};
+    await revise(
+      session.id,
+      recordingChat(seen, async (directory) => {
+        sessionWriteFile(directory, "docs/plan.md", "# Plan\n\nAgain.\n");
+        await sessionCommit(repository, directory, "Rewrite it");
+      }),
+      "Rewrite it",
+      second.id,
+    );
+    assert.equal(seen.options?.requesterUserId, second.id);
+    const turns = await repositoryWorkSessionTurns(session.id);
+    assert.equal(turns[1].requestedByUserId, second.id);
+  });
+
+  test("refuses while the session is still working", async () => {
+    const session = await firstTurn();
+    await AppDataSource.getRepository(RepositoryWorkSession).update(
+      { id: session.id },
+      { status: "running" },
+    );
+    await assert.rejects(
+      () => revise(session.id, recordingChat({}, () => {})),
+      /still working/,
+    );
+  });
+
+  test("refuses once the work has been accepted", async () => {
+    const session = await firstTurn();
+    await publishRepositoryWorkSession(session.id, { push: false });
+    await assert.rejects(
+      () => revise(session.id, recordingChat({}, () => {})),
+      /already been accepted/,
+    );
+  });
+
+  test("refuses once the work has been thrown away", async () => {
+    const session = await firstTurn();
+    await discardRepositoryWorkSession(session.id);
+    await assert.rejects(
+      () => revise(session.id, recordingChat({}, () => {})),
+      /thrown away/,
+    );
+  });
+
+  test("refuses when the employee's grant was taken away mid-session", async () => {
+    const session = await firstTurn();
+    await AppDataSource.getRepository(EmployeeRepositoryGrant).delete({
+      employeeId: employee.id,
+      repositoryId: repository.id,
+    });
+    await assert.rejects(
+      () => revise(session.id, recordingChat({}, () => {})),
+      /not been granted access/,
+    );
+    const unchanged = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: session.id,
+    });
+    assert.equal(unchanged.status, "ready", "a refused revision must not disturb the session");
+    assert.equal(unchanged.turnCount, 1);
+  });
+
+  test("refuses when the employee's model was disconnected", async () => {
+    const session = await firstTurn();
+    await AppDataSource.getRepository(AIModel).delete({ employeeId: employee.id });
+    await assert.rejects(
+      () => revise(session.id, recordingChat({}, () => {})),
+      /no AI Model connected/,
+    );
+  });
+
+  test("refuses on shared SaaS, where repositories are read-only", async () => {
+    const session = await firstTurn();
+    const security = config.security as { multiTenant: boolean };
+    security.multiTenant = true;
+    try {
+      await assert.rejects(
+        () => revise(session.id, recordingChat({}, () => {})),
+        /read-only in shared SaaS/,
+      );
+    } finally {
+      security.multiTenant = false;
+    }
+  });
+
+  test("refuses a session from another company", async () => {
+    const session = await firstTurn();
+    const other = await insert(Company, { name: "Other", slug: "other", ownerId: requester.id });
+    await assert.rejects(
+      () =>
+        reviseRepositoryWorkSession({
+          companyId: other.id,
+          sessionId: session.id,
+          instruction: "Change it",
+          requesterUserId: requester.id,
+          requesterSessionVersion: 1,
+          runChat: recordingChat({}, () => {}),
+        }),
+      /not found/,
+    );
+  });
+
+  test("marks the session running while the follow-up is in flight", async () => {
+    const session = await firstTurn();
+    const prepared = await prepareWorkSessionRevision({
+      companyId: company.id,
+      sessionId: session.id,
+      instruction: "Keep going",
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+      runChat: recordingChat({}, () => {}),
+    });
+    const live = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: session.id,
+    });
+    assert.equal(live.status, "running", "the client must see the session working straight away");
+    assert.equal(prepared.turn.ordinal, 2);
+    assert.equal(prepared.turn.status, "running");
+  });
+
+  test("publishes work that several turns built up", async () => {
+    const session = await firstTurn();
+    await revise(
+      session.id,
+      recordingChat({}, async (directory) => {
+        sessionWriteFile(directory, "docs/risks.md", "# Risks\n");
+        await sessionCommit(repository, directory, "Add the risks");
+      }),
+    );
+    const published = await publishRepositoryWorkSession(session.id, { push: false });
+    assert.equal(published.status, "published");
+    assert.equal((await readRepositoryFile(repository, "docs/plan.md")).content, "# Plan\n\nShip it.\n");
+    assert.equal((await readRepositoryFile(repository, "docs/risks.md")).content, "# Risks\n");
+  });
+});
+
+// ─────────────────────── the transcript and its title ───────────────────
+
+describe("session history", () => {
+  beforeEach(async () => {
+    await grantAccess();
+  });
+
+  test("writes the opening instruction as turn one", async () => {
+    const session = await start(stubChat(() => {}), "Tidy the README");
+    const turns = await repositoryWorkSessionTurns(session.id);
+    assert.equal(turns.length, 1);
+    assert.equal(turns[0].ordinal, 1);
+    assert.equal(turns[0].instruction, "Tidy the README");
+    assert.equal(turns[0].sessionId, session.id);
+    assert.equal(turns[0].companyId, company.id);
+    assert.equal(session.turnCount, 1);
+  });
+
+  test("only replays turns that have finished, and only the recent ones", async () => {
+    const session = await start(stubChat(() => {}), "First");
+    const turnRepo = AppDataSource.getRepository(RepositoryWorkSessionTurn);
+    for (let ordinal = 2; ordinal <= MAX_REPLAYED_TURNS + 4; ordinal += 1) {
+      await turnRepo.save(
+        turnRepo.create({
+          companyId: company.id,
+          sessionId: session.id,
+          ordinal,
+          instruction: `Instruction ${ordinal}`,
+          reply: `Reply ${ordinal}`,
+          status: "ok",
+        }),
+      );
+    }
+    await turnRepo.save(
+      turnRepo.create({
+        companyId: company.id,
+        sessionId: session.id,
+        ordinal: MAX_REPLAYED_TURNS + 5,
+        instruction: "The one being run now",
+        status: "running",
+      }),
+    );
+
+    const history = await composeTurnHistory(session.id, MAX_REPLAYED_TURNS + 5);
+    assert.equal(history.length, MAX_REPLAYED_TURNS * 2);
+    assert.equal(history[0].role, "user");
+    assert.equal(
+      history.some((entry) => entry.content === "The one being run now"),
+      false,
+      "the turn being run must not be replayed to itself",
+    );
+    assert.equal(history.at(-1)?.content, `Reply ${MAX_REPLAYED_TURNS + 4}`);
+  });
+
+  test("replays a failed turn's error, so the retry knows what went wrong", async () => {
+    const session = await start(
+      stubChat(() => {}, { status: "error", reply: "Tool call failed." }),
+      "Do the thing",
+    );
+    const history = await composeTurnHistory(session.id, 2);
+    assert.deepEqual(history, [
+      { role: "user", content: "Do the thing" },
+      { role: "assistant", content: "Tool call failed." },
+    ]);
+  });
+
+  test("gives a session that predates turns the turn it always had", async () => {
+    // Exactly the row shape the old schema left behind: the whole exchange on
+    // the session, no turns, no title, no count.
+    const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
+    const legacy = await sessionRepo.save(
+      sessionRepo.create({
+        companyId: company.id,
+        repositoryId: repository.id,
+        employeeId: employee.id,
+        requestedByUserId: requester.id,
+        title: "",
+        instruction: "Rewrite the pricing section",
+        status: "ready",
+        branch: "genosyn/ada/deadbeef",
+        baseCommit: "aaaa",
+        headCommit: "bbbb",
+        reply: "Rewrote it.",
+        turnCount: 0,
+        filesChanged: 2,
+        insertions: 9,
+        deletions: 4,
+      }),
+    );
+
+    const turns = await repositoryWorkSessionTurns(legacy.id);
+    assert.equal(turns.length, 1);
+    assert.equal(turns[0].ordinal, 1);
+    assert.equal(turns[0].instruction, "Rewrite the pricing section");
+    assert.equal(turns[0].reply, "Rewrote it.");
+    assert.equal(turns[0].status, "ok");
+    assert.equal(turns[0].filesChanged, 2);
+    assert.equal(turns[0].headCommit, "bbbb");
+
+    const migrated = await sessionRepo.findOneByOrFail({ id: legacy.id });
+    assert.equal(migrated.turnCount, 1);
+    assert.equal(migrated.title, "Rewrite the pricing section");
+
+    // Reading again must not add a second copy of the same exchange.
+    assert.equal((await repositoryWorkSessionTurns(legacy.id)).length, 1);
+  });
+
+  test("replays a legacy session's one exchange into its first revision", async () => {
+    const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
+    const legacy = await sessionRepo.save(
+      sessionRepo.create({
+        companyId: company.id,
+        repositoryId: repository.id,
+        employeeId: employee.id,
+        requestedByUserId: requester.id,
+        title: "",
+        instruction: "Draft the plan",
+        status: "empty",
+        reply: "Nothing needed changing.",
+        turnCount: 0,
+      }),
+    );
+    const prepared = await prepareWorkSessionRevision({
+      companyId: company.id,
+      sessionId: legacy.id,
+      instruction: "It does need changing",
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+    });
+    assert.equal(prepared.turn.ordinal, 2, "the old exchange takes ordinal 1");
+    assert.deepEqual(await composeTurnHistory(legacy.id, 2), [
+      { role: "user", content: "Draft the plan" },
+      { role: "assistant", content: "Nothing needed changing." },
+    ]);
+  });
+
+  test("titles a session from its opening instruction", async () => {
+    const session = await start(stubChat(() => {}), "  Rewrite the pricing page\nand commit it  ");
+    assert.equal(session.title, "Rewrite the pricing page and commit it");
+  });
+
+  test("truncates a long title on a word boundary", () => {
+    const long = deriveWorkSessionTitle(
+      "Refactor the billing service so invoices are generated asynchronously and the webhook handler is idempotent",
+    );
+    assert.ok(long.length <= 73, long);
+    assert.match(long, /…$/);
+    assert.ok(!long.includes("  "));
+    assert.equal(deriveWorkSessionTitle("   "), "Untitled session");
+    assert.equal(deriveWorkSessionTitle("Short one"), "Short one");
+  });
+
+  test("renames a session", async () => {
+    const session = await start(stubChat(() => {}), "Do a thing");
+    const renamed = await renameRepositoryWorkSession(company.id, session.id, "  Pricing page  ");
+    assert.equal(renamed.title, "Pricing page");
+    await assert.rejects(
+      () => renameRepositoryWorkSession(company.id, session.id, "   "),
+      /needs a name/,
+    );
+    const other = await insert(Company, { name: "Other", slug: "other", ownerId: requester.id });
+    await assert.rejects(
+      () => renameRepositoryWorkSession(other.id, session.id, "Theirs"),
+      /not found/,
+    );
+  });
+});
+
+// ───────────────────────── the worktree it keeps ────────────────────────
+
+describe("the session worktree", () => {
+  beforeEach(async () => {
+    await grantAccess();
+  });
+
+  test("is kept while there is committed work to build on", async () => {
+    const session = await start(
+      stubChat(async (directory) => {
+        sessionWriteFile(directory, "note.md", "x\n");
+        await sessionCommit(repository, directory, "Add a note");
+      }),
+    );
+    assert.equal(fs.existsSync(sessionWorktreePath(repository, session.id)), true);
+  });
+
+  test("is rebuilt from the branch when it has gone missing", async () => {
+    const session = await start(
+      stubChat(async (directory) => {
+        sessionWriteFile(directory, "note.md", "x\n");
+        await sessionCommit(repository, directory, "Add a note");
+      }),
+    );
+    fs.rmSync(sessionWorktreePath(repository, session.id), { recursive: true, force: true });
+
+    const directory = await ensureSessionWorktree(repository, session);
+    assert.equal(directory, sessionWorktreePath(repository, session.id));
+    assert.equal(
+      sessionReadFile(directory, "note.md"),
+      "x\n",
+      "the rebuilt worktree is the branch, so the work is all there",
+    );
+  });
+
+  test("is a no-op when it is already there", async () => {
+    const session = await start(
+      stubChat(async (directory) => {
+        sessionWriteFile(directory, "note.md", "x\n");
+        await sessionCommit(repository, directory, "Add a note");
+      }),
+    );
+    const directory = await ensureSessionWorktree(repository, session);
+    // An uncommitted edit is the evidence: recreating the worktree would have
+    // thrown it away, and a follow-up turn must not lose the tree it is in.
+    sessionWriteFile(directory, "scratch.md", "in progress\n");
+    const again = await ensureSessionWorktree(repository, session);
+    assert.equal(sessionReadFile(again, "scratch.md"), "in progress\n");
+  });
+
+  test("refuses to rebuild a session that never had a branch", async () => {
+    await assert.rejects(
+      () => ensureSessionWorktree(repository, { id: "nope", branch: null, baseCommit: null }),
+      /no branch/,
     );
   });
 });

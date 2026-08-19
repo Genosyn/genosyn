@@ -1,11 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
-import { MoreThan } from "typeorm";
+import { In, MoreThan } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Repository } from "../db/entities/Repository.js";
-import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
-import { CHAT_HARD_TIMEOUT_MS, chatWithEmployee } from "./chat.js";
+import {
+  REVISABLE_WORK_SESSION_STATUSES,
+  RepositoryWorkSession,
+} from "../db/entities/RepositoryWorkSession.js";
+import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
+import { CHAT_HARD_TIMEOUT_MS, chatWithEmployee, type ChatTurn } from "./chat.js";
 import { getActiveModel } from "./models.js";
 import { hasRepositoryAccess } from "./repositories.js";
 import {
@@ -25,6 +29,16 @@ import {
   type RepositoryDiff,
   type RepositoryTreeEntry,
 } from "./repositoryWorkspace.js";
+import {
+  createGithubPullRequest,
+  findConnectionForRemote,
+  findOpenGithubPullRequest,
+  isGithubHttpsUrl,
+  parseGithubRemote,
+  resolveConnectionToken,
+  type GithubPullRequest,
+} from "./repositoryGithub.js";
+import { decryptRepositorySecret } from "./repositories.js";
 import { toSlug } from "../lib/slug.js";
 import { config } from "../../config.js";
 
@@ -107,6 +121,48 @@ export async function createSessionWorktree(
     baseRef,
   ]);
   return directory;
+}
+
+/**
+ * The session's worktree, created if it is not there.
+ *
+ * A session outlives its worktree on purpose: one that committed nothing has
+ * nothing worth keeping on disk, and a follow-up instruction weeks later must
+ * still land on the same branch. Recreating from the branch is exact — the
+ * branch *is* the work — so the only thing lost is a directory that held no
+ * commits.
+ */
+export async function ensureSessionWorktree(
+  repo: Repository,
+  session: Pick<RepositoryWorkSession, "id" | "branch" | "baseCommit">,
+): Promise<string> {
+  const directory = sessionWorktreePath(repo, session.id);
+  // A worktree's `.git` is a file pointing back at the parent repository. Its
+  // presence is what separates "already materialized" from a leftover
+  // directory a failed run left behind.
+  if (fs.existsSync(path.join(directory, ".git"))) return directory;
+  const branch = session.branch;
+  if (!branch) throw new Error("This work session has no branch.");
+  assertSafeBranchName(branch);
+  const checkout = repositoryCheckoutDirectory(repo);
+  fs.rmSync(directory, { recursive: true, force: true });
+  // Git refuses to reuse a path it still has metadata for, and a killed
+  // process is exactly how that metadata is left behind.
+  await runRepositoryGit(repo, checkout, ["worktree", "prune"]).catch(() => {});
+  fs.mkdirSync(path.dirname(directory), { recursive: true, mode: 0o700 });
+  const branchExists = await runRepositoryGit(repo, checkout, [
+    "rev-parse",
+    "--verify",
+    "--quiet",
+    `refs/heads/${branch}`,
+  ]).catch(() => "");
+  if (branchExists.trim()) {
+    await runRepositoryGit(repo, checkout, ["worktree", "add", "--quiet", directory, branch]);
+    return directory;
+  }
+  const baseRef = session.baseCommit;
+  if (!baseRef) throw new Error("This work session has no base commit to branch from.");
+  return createSessionWorktree(repo, session.id, branch, baseRef);
 }
 
 export async function removeSessionWorktree(repo: Repository, sessionId: string): Promise<void> {
@@ -277,20 +333,55 @@ export type StartWorkSessionArgs = {
   runChat?: typeof chatWithEmployee;
 };
 
+export type ReviseWorkSessionArgs = {
+  companyId: string;
+  sessionId: string;
+  instruction: string;
+  requesterUserId: string;
+  requesterSessionVersion: number;
+  runChat?: typeof chatWithEmployee;
+};
+
 /**
  * Everything {@link runRepositoryWorkSession} needs, already validated.
  *
  * The repository and employee rows are carried across rather than re-read
- * because {@link createRepositoryWorkSession} has just loaded them to check
- * them, and re-reading would only introduce a window where the two halves
- * disagree about what they are working on.
+ * because the preparing half has just loaded them to check them, and
+ * re-reading would only introduce a window where the two halves disagree about
+ * what they are working on.
  */
 export type PreparedWorkSession = {
   session: RepositoryWorkSession;
+  /** The turn this run will execute — the last row in the session so far. */
+  turn: RepositoryWorkSessionTurn;
   repo: Repository;
   employee: AIEmployee;
-  args: StartWorkSessionArgs;
+  requesterUserId: string;
+  requesterSessionVersion: number;
+  runChat?: typeof chatWithEmployee;
 };
+
+/**
+ * A readable label for a session, from the instruction that opened it.
+ *
+ * The list is how a Member switches between sessions, and an instruction is
+ * frequently a paragraph. Take the first sentence's worth, collapse the
+ * whitespace, and truncate — the full text is always one click away in the
+ * transcript.
+ */
+export function deriveWorkSessionTitle(instruction: string): string {
+  const flat = instruction.replace(/\s+/g, " ").trim();
+  if (!flat) return "Untitled session";
+  if (flat.length <= WORK_SESSION_TITLE_MAX) return flat;
+  const cut = flat.slice(0, WORK_SESSION_TITLE_MAX);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${(lastSpace > 24 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+}
+
+export const WORK_SESSION_TITLE_MAX = 72;
+
+/** How many earlier turns are replayed to the employee on a follow-up. */
+export const MAX_REPLAYED_TURNS = 12;
 
 /**
  * Validate the request and write the session row — the fast half.
@@ -311,6 +402,96 @@ export type PreparedWorkSession = {
 export async function createRepositoryWorkSession(
   args: StartWorkSessionArgs,
 ): Promise<PreparedWorkSession> {
+  assertRepositoryWorkAllowed();
+  const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
+  const repo = await AppDataSource.getRepository(Repository).findOneBy({
+    id: args.repositoryId,
+    companyId: args.companyId,
+  });
+  if (!repo) throw new Error("Repository not found.");
+  const employee = await loadWorkingEmployee(args.companyId, args.employeeId, repo);
+  const instruction = args.instruction.trim();
+
+  const session = await sessionRepo.save(
+    sessionRepo.create({
+      companyId: args.companyId,
+      repositoryId: repo.id,
+      employeeId: employee.id,
+      requestedByUserId: args.requesterUserId,
+      title: deriveWorkSessionTitle(instruction),
+      instruction,
+      status: "running",
+      turnCount: 0,
+    }),
+  );
+  const turn = await appendTurn(session, instruction, args.requesterUserId);
+  return {
+    session,
+    turn,
+    repo,
+    employee,
+    requesterUserId: args.requesterUserId,
+    requesterSessionVersion: args.requesterSessionVersion,
+    runChat: args.runChat,
+  };
+}
+
+/**
+ * Validate a follow-up instruction and write its turn row — the fast half of
+ * a revision.
+ *
+ * A revision is the same machinery as the opening request pointed at a session
+ * that already exists: the same worktree, the same branch, the same tools. The
+ * only thing it adds is memory, and the only thing it forbids is talking over
+ * a turn that is still running.
+ */
+export async function prepareWorkSessionRevision(
+  args: ReviseWorkSessionArgs,
+): Promise<PreparedWorkSession> {
+  assertRepositoryWorkAllowed();
+  const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
+  const session = await sessionRepo.findOneBy({ id: args.sessionId, companyId: args.companyId });
+  if (!session) throw new Error("Work session not found.");
+  if (session.status === "running") {
+    throw new Error("That session is still working. Wait for the current turn to finish.");
+  }
+  if (!REVISABLE_WORK_SESSION_STATUSES.includes(session.status)) {
+    throw new Error(
+      session.status === "published"
+        ? "That work has already been accepted. Start a new session for anything further."
+        : "That session was thrown away. Start a new one instead.",
+    );
+  }
+  const repo = await AppDataSource.getRepository(Repository).findOneBy({
+    id: session.repositoryId,
+    companyId: args.companyId,
+  });
+  if (!repo) throw new Error("Repository not found.");
+  const employee = await loadWorkingEmployee(args.companyId, session.employeeId, repo);
+  const instruction = args.instruction.trim();
+
+  // A session started before turns existed still has its first exchange to
+  // replay; give it a turn row before adding the second.
+  await ensureFirstTurn(session);
+  session.status = "running";
+  session.error = "";
+  session.finishedAt = null;
+  session.requestedByUserId = args.requesterUserId;
+  await sessionRepo.save(session);
+  const turn = await appendTurn(session, instruction, args.requesterUserId);
+  return {
+    session,
+    turn,
+    repo,
+    employee,
+    requesterUserId: args.requesterUserId,
+    requesterSessionVersion: args.requesterSessionVersion,
+    runChat: args.runChat,
+  };
+}
+
+/** Shared refusals: both halves need the exact same answer to "may this run?". */
+function assertRepositoryWorkAllowed(): void {
   // Shared SaaS keeps repositories read-only until git runs in a dedicated
   // egress worker. The browser route enforces that on every mutation; a
   // session is a mutation reached by a second door, so the rule lives with the
@@ -320,35 +501,49 @@ export async function createRepositoryWorkSession(
       "Repositories are read-only in shared SaaS mode until git runs in a dedicated egress worker",
     );
   }
-  const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
-  const repo = await AppDataSource.getRepository(Repository).findOneBy({
-    id: args.repositoryId,
-    companyId: args.companyId,
-  });
-  if (!repo) throw new Error("Repository not found.");
+}
+
+async function loadWorkingEmployee(
+  companyId: string,
+  employeeId: string,
+  repo: Repository,
+): Promise<AIEmployee> {
   const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
-    id: args.employeeId,
-    companyId: args.companyId,
+    id: employeeId,
+    companyId,
   });
   if (!employee) throw new Error("Employee not found.");
+  // Re-checked on every turn rather than only at the first: a grant revoked
+  // mid-session must stop the next instruction, not merely the next session.
   if (!(await hasRepositoryAccess(employee.id, repo.id, "read"))) {
     throw new Error(`${employee.name} has not been granted access to this repository.`);
   }
   if (!(await getActiveModel(employee.id))) {
     throw new Error(`${employee.name} has no AI Model connected yet.`);
   }
+  return employee;
+}
 
-  const session = await sessionRepo.save(
-    sessionRepo.create({
-      companyId: args.companyId,
-      repositoryId: repo.id,
-      employeeId: employee.id,
-      requestedByUserId: args.requesterUserId,
-      instruction: args.instruction.trim(),
+async function appendTurn(
+  session: RepositoryWorkSession,
+  instruction: string,
+  requesterUserId: string,
+): Promise<RepositoryWorkSessionTurn> {
+  const turnRepo = AppDataSource.getRepository(RepositoryWorkSessionTurn);
+  const ordinal = session.turnCount + 1;
+  const turn = await turnRepo.save(
+    turnRepo.create({
+      companyId: session.companyId,
+      sessionId: session.id,
+      ordinal,
+      instruction,
       status: "running",
+      requestedByUserId: requesterUserId,
     }),
   );
-  return { session, repo, employee, args };
+  session.turnCount = ordinal;
+  await AppDataSource.getRepository(RepositoryWorkSession).save(session);
+  return turn;
 }
 
 /**
@@ -365,8 +560,15 @@ export async function startRepositoryWorkSession(
   return runRepositoryWorkSession(await createRepositoryWorkSession(args));
 }
 
+/** Prepare and run a follow-up turn on an existing session. */
+export async function reviseRepositoryWorkSession(
+  args: ReviseWorkSessionArgs,
+): Promise<RepositoryWorkSession> {
+  return runRepositoryWorkSession(await prepareWorkSessionRevision(args));
+}
+
 /**
- * Cut the worktree, run the employee's turn in it, and record what it left
+ * Run the prepared turn in the session's worktree and record what it left
  * behind — the slow half, which may take as long as any other chat turn.
  *
  * Never rejects for a reason the session itself caused: a failure is written
@@ -377,67 +579,246 @@ export async function startRepositoryWorkSession(
 export async function runRepositoryWorkSession(
   prepared: PreparedWorkSession,
 ): Promise<RepositoryWorkSession> {
-  const { session, repo, employee, args } = prepared;
+  const { session, turn, repo, employee } = prepared;
   const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
 
   try {
     await ensureRepositoryWorkspace(repo);
-    const baseRef = (
-      await runRepositoryGit(repo, repositoryCheckoutDirectory(repo), ["rev-parse", "HEAD"])
-    ).trim();
-    const branch = sessionBranchName(employee.slug, session.id);
-    const directory = await createSessionWorktree(repo, session.id, branch, baseRef);
-    session.branch = branch;
-    session.baseCommit = baseRef;
+    if (!session.baseCommit) {
+      session.baseCommit = (
+        await runRepositoryGit(repo, repositoryCheckoutDirectory(repo), ["rev-parse", "HEAD"])
+      ).trim();
+    }
+    if (!session.branch) session.branch = sessionBranchName(employee.slug, session.id);
     await sessionRepo.save(session);
+    const directory = await ensureSessionWorktree(repo, session);
 
-    const runChat = args.runChat ?? chatWithEmployee;
+    // The turn's own base is wherever the branch stands now, which is the
+    // session base on turn one and the previous turn's head after that.
+    const turnBase = (await runRepositoryGit(repo, directory, ["rev-parse", "HEAD"])).trim();
+    turn.baseCommit = turnBase;
+    await AppDataSource.getRepository(RepositoryWorkSessionTurn).save(turn);
+
+    const history = await composeTurnHistory(session.id, turn.ordinal);
+    const runChat = prepared.runChat ?? chatWithEmployee;
     const result = await runChat(
-      args.companyId,
+      session.companyId,
       employee.id,
-      composeWorkBrief(repo, args.instruction),
-      [],
+      composeWorkBrief(repo, turn.instruction, turn.ordinal),
+      history,
       {
-        requesterUserId: args.requesterUserId,
-        requesterSessionVersion: args.requesterSessionVersion,
+        requesterUserId: prepared.requesterUserId,
+        requesterSessionVersion: prepared.requesterSessionVersion,
         repositoryWorkSessionId: session.id,
-        extraSystem: composeWorkSystemPrompt(repo, session.id),
+        extraSystem: composeWorkSystemPrompt(repo, session.id, { revision: turn.ordinal > 1 }),
         extraToolset: REPOSITORY_SESSION_TOOLS,
       },
     );
 
     const fresh = await sessionRepo.findOneBy({ id: session.id });
     if (!fresh) return session;
-    fresh.reply = result.reply ?? "";
-    fresh.finishedAt = new Date();
 
     if (result.status !== "ok") {
-      fresh.status = "failed";
-      fresh.error = result.reply || "The work session did not complete.";
-      await sessionRepo.save(fresh);
-      await removeSessionWorktree(repo, session.id);
-      return fresh;
+      return finishTurn({
+        repo,
+        session: fresh,
+        turn,
+        directory,
+        reply: result.reply ?? "",
+        error: result.reply || "The work session did not complete.",
+      });
     }
-
-    const outcome = await summarizeSessionWork(repo, directory, baseRef);
-    fresh.headCommit = outcome.headCommit;
-    fresh.filesChanged = outcome.diff.filesChanged;
-    fresh.insertions = outcome.diff.insertions;
-    fresh.deletions = outcome.diff.deletions;
-    fresh.status = outcome.commits.length > 0 ? "ready" : "empty";
-    await sessionRepo.save(fresh);
-    // Nothing was committed, so the worktree holds nothing worth reviewing.
-    if (fresh.status === "empty") await removeSessionWorktree(repo, session.id);
-    return fresh;
+    return finishTurn({
+      repo,
+      session: fresh,
+      turn,
+      directory,
+      reply: result.reply ?? "",
+      error: "",
+    });
   } catch (error) {
     const fresh = (await sessionRepo.findOneBy({ id: session.id })) ?? session;
+    const message = error instanceof Error ? error.message : String(error);
     fresh.status = "failed";
-    fresh.error = error instanceof Error ? error.message : String(error);
+    fresh.error = message;
     fresh.finishedAt = new Date();
     await sessionRepo.save(fresh);
-    await removeSessionWorktree(repo, session.id).catch(() => {});
+    await failTurnRow(turn, message);
+    await pruneEmptySessionWorktree(repo, fresh).catch(() => {});
     return fresh;
   }
+}
+
+/**
+ * Write the outcome of a finished turn onto both rows.
+ *
+ * The turn records what *this instruction* changed; the session records where
+ * the branch as a whole now stands. Keeping both is what lets the transcript
+ * show a revision's own diff without re-reading everything before it.
+ */
+async function finishTurn(args: {
+  repo: Repository;
+  session: RepositoryWorkSession;
+  turn: RepositoryWorkSessionTurn;
+  directory: string;
+  reply: string;
+  error: string;
+}): Promise<RepositoryWorkSession> {
+  const { repo, session, turn, directory, reply, error } = args;
+  const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
+  const turnRepo = AppDataSource.getRepository(RepositoryWorkSessionTurn);
+  const now = new Date();
+
+  session.reply = reply;
+  session.error = error;
+  session.finishedAt = now;
+  turn.reply = reply;
+  turn.error = error;
+  turn.finishedAt = now;
+
+  if (error) {
+    session.status = "failed";
+    turn.status = "failed";
+  } else {
+    const sessionOutcome = await summarizeSessionWork(repo, directory, session.baseCommit ?? "");
+    const turnOutcome = await summarizeSessionWork(repo, directory, turn.baseCommit ?? "");
+    session.headCommit = sessionOutcome.headCommit;
+    session.filesChanged = sessionOutcome.diff.filesChanged;
+    session.insertions = sessionOutcome.diff.insertions;
+    session.deletions = sessionOutcome.diff.deletions;
+    // A revision that lands commits on a branch whose pull request is already
+    // open puts the branch ahead of the remote again, so it goes back to
+    // `ready` — the button becomes "Update pull request" and says so.
+    session.status = sessionOutcome.commits.length > 0 ? "ready" : "empty";
+    turn.status = "ok";
+    turn.headCommit = turnOutcome.headCommit;
+    turn.filesChanged = turnOutcome.diff.filesChanged;
+    turn.insertions = turnOutcome.diff.insertions;
+    turn.deletions = turnOutcome.diff.deletions;
+  }
+
+  await turnRepo.save(turn);
+  await sessionRepo.save(session);
+  await pruneEmptySessionWorktree(repo, session).catch(() => {});
+  return session;
+}
+
+async function failTurnRow(turn: RepositoryWorkSessionTurn, message: string): Promise<void> {
+  const turnRepo = AppDataSource.getRepository(RepositoryWorkSessionTurn);
+  const fresh = (await turnRepo.findOneBy({ id: turn.id })) ?? turn;
+  fresh.status = "failed";
+  fresh.error = message;
+  fresh.finishedAt = new Date();
+  await turnRepo.save(fresh);
+}
+
+/**
+ * A worktree holding nothing is worth nothing, and the next turn can recreate
+ * it from the branch in a moment. One that holds commits stays, because that
+ * is where a follow-up continues from.
+ */
+async function pruneEmptySessionWorktree(
+  repo: Repository,
+  session: RepositoryWorkSession,
+): Promise<void> {
+  if (session.headCommit && session.headCommit !== session.baseCommit) return;
+  await removeSessionWorktree(repo, session.id);
+}
+
+/**
+ * The earlier turns of a session, replayed as chat history.
+ *
+ * Without this a follow-up would arrive at an employee that has no idea what
+ * it just did, in a worktree full of changes it does not remember making — and
+ * "no, keep the old heading" would be unanswerable. Only finished turns are
+ * replayed, and only the most recent {@link MAX_REPLAYED_TURNS}: a long
+ * session's early turns are already reflected in the files the employee can
+ * read, so the transcript is the part that can safely age out.
+ */
+export async function composeTurnHistory(
+  sessionId: string,
+  beforeOrdinal: number,
+): Promise<ChatTurn[]> {
+  const rows = await AppDataSource.getRepository(RepositoryWorkSessionTurn).find({
+    where: { sessionId, status: In(["ok", "failed"]) },
+    order: { ordinal: "ASC" },
+  });
+  const earlier = rows.filter((row) => row.ordinal < beforeOrdinal).slice(-MAX_REPLAYED_TURNS);
+  const history: ChatTurn[] = [];
+  for (const row of earlier) {
+    history.push({ role: "user", content: row.instruction });
+    const reply = row.reply.trim() || row.error.trim();
+    if (reply) history.push({ role: "assistant", content: reply });
+  }
+  return history;
+}
+
+/** The turns of a session, oldest first — the transcript a Member reads. */
+export async function repositoryWorkSessionTurns(
+  sessionId: string,
+): Promise<RepositoryWorkSessionTurn[]> {
+  const session = await AppDataSource.getRepository(RepositoryWorkSession).findOneBy({
+    id: sessionId,
+  });
+  if (session) await ensureFirstTurn(session);
+  return AppDataSource.getRepository(RepositoryWorkSessionTurn).find({
+    where: { sessionId },
+    order: { ordinal: "ASC" },
+  });
+}
+
+/**
+ * Give a session that predates turns the turn it always had.
+ *
+ * Its one exchange lives on the session row — `instruction`, `reply`, and the
+ * commit range — so nothing is lost, but a transcript built only from turn
+ * rows would show an employee that said nothing, and a follow-up would be
+ * replayed no history at all. Materializing it on first read is exact, costs
+ * one insert per old session ever, and leaves both paths with a single shape
+ * to reason about rather than a fallback that has to be remembered everywhere.
+ */
+async function ensureFirstTurn(session: RepositoryWorkSession): Promise<void> {
+  if (session.turnCount > 0) return;
+  const turnRepo = AppDataSource.getRepository(RepositoryWorkSessionTurn);
+  if ((await turnRepo.countBy({ sessionId: session.id })) > 0) return;
+  await turnRepo.save(
+    turnRepo.create({
+      companyId: session.companyId,
+      sessionId: session.id,
+      ordinal: 1,
+      instruction: session.instruction,
+      reply: session.reply,
+      error: session.error,
+      status:
+        session.status === "running" ? "running" : session.status === "failed" ? "failed" : "ok",
+      requestedByUserId: session.requestedByUserId,
+      baseCommit: session.baseCommit,
+      headCommit: session.headCommit,
+      filesChanged: session.filesChanged,
+      insertions: session.insertions,
+      deletions: session.deletions,
+      finishedAt: session.finishedAt,
+    }),
+  );
+  session.turnCount = 1;
+  if (!session.title.trim()) session.title = deriveWorkSessionTitle(session.instruction);
+  await AppDataSource.getRepository(RepositoryWorkSession).save(session);
+}
+
+/** Rename a session, so a list of twenty of them stays navigable. */
+export async function renameRepositoryWorkSession(
+  companyId: string,
+  sessionId: string,
+  title: string,
+): Promise<RepositoryWorkSession> {
+  const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
+  const session = await sessionRepo.findOneBy({ id: sessionId, companyId });
+  if (!session) throw new Error("Work session not found.");
+  const trimmed = title.replace(/\s+/g, " ").trim();
+  if (!trimmed) throw new Error("A session needs a name.");
+  session.title = trimmed.slice(0, WORK_SESSION_TITLE_MAX);
+  await sessionRepo.save(session);
+  return session;
 }
 
 async function summarizeSessionWork(
@@ -513,7 +894,9 @@ export async function publishRepositoryWorkSession(
   const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
   const session = await sessionRepo.findOneBy({ id: sessionId });
   if (!session) throw new Error("Work session not found.");
-  if (session.status !== "ready") {
+  // `proposed` publishes too: a Member who opened a pull request and then
+  // decided to merge it here should not have to throw the session away first.
+  if (session.status !== "ready" && session.status !== "proposed") {
     throw new Error("This session has no reviewed work waiting to be published.");
   }
   if (!session.branch) throw new Error("This session has no branch.");
@@ -538,6 +921,140 @@ export async function publishRepositoryWorkSession(
   await sessionRepo.save(session);
   await removeSessionWorktree(repo, session.id).catch(() => {});
   return session;
+}
+
+
+/**
+ * Open (or update) a pull request for this session's branch.
+ *
+ * The third thing a Member can do with reviewed work, and the one the other
+ * two could not express: merging accepts it here and pushing sends it
+ * straight to the trunk, while a pull request hands it to whatever review the
+ * team already runs on GitHub. Until this existed, work an employee did in
+ * Genosyn could only enter a team's normal process by a human re-doing the
+ * push by hand.
+ *
+ * The credential still never leaves the server, and it is still a Member who
+ * decides: the employee can commit onto its branch and nothing else. Calling
+ * it again after a revision pushes the new commits — GitHub attaches them to
+ * the pull request that is already open, so the same button is both "open"
+ * and "update" and the row records only the one pull request that exists.
+ */
+export type WorkSessionPullRequestDeps = {
+  push: typeof pushRepositoryBranch;
+  resolveToken: (repo: Repository) => Promise<string>;
+  createPullRequest: typeof createGithubPullRequest;
+  findOpenPullRequest: typeof findOpenGithubPullRequest;
+};
+
+export const defaultPullRequestDeps: WorkSessionPullRequestDeps = {
+  push: pushRepositoryBranch,
+  resolveToken: resolveRepositoryGithubToken,
+  createPullRequest: createGithubPullRequest,
+  findOpenPullRequest: findOpenGithubPullRequest,
+};
+
+export async function openRepositoryWorkSessionPullRequest(args: {
+  sessionId: string;
+  title?: string;
+  body?: string;
+  /** Seam for tests; defaults to the real push + GitHub API. */
+  deps?: Partial<WorkSessionPullRequestDeps>;
+}): Promise<RepositoryWorkSession> {
+  const deps = { ...defaultPullRequestDeps, ...(args.deps ?? {}) };
+  const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
+  const session = await sessionRepo.findOneBy({ id: args.sessionId });
+  if (!session) throw new Error("Work session not found.");
+  if (session.status !== "ready" && session.status !== "proposed") {
+    throw new Error("This session has no committed work to propose.");
+  }
+  if (!session.branch) throw new Error("This session has no branch.");
+  const repo = await AppDataSource.getRepository(Repository).findOneBy({
+    id: session.repositoryId,
+    companyId: session.companyId,
+  });
+  if (!repo) throw new Error("Repository not found.");
+  if (repo.origin !== "remote") {
+    throw new Error(
+      "This repository lives only in Genosyn, so there is nowhere to open a pull request. Connect it to a remote in settings first.",
+    );
+  }
+  const remote = parseGithubRemote(repo.gitUrl);
+  if (!remote) {
+    throw new Error(
+      "Pull requests are only supported for GitHub remotes. Accept the work here and push it instead.",
+    );
+  }
+
+  const token = await deps.resolveToken(repo);
+  // Push before asking for the pull request: GitHub cannot open one for a
+  // branch it has never seen, and a revision's new commits have to be up there
+  // before the existing pull request can pick them up.
+  await deps.push(repo, session.branch);
+  session.publishedBranch = session.branch;
+
+  const existing = await deps.findOpenPullRequest(token, {
+    owner: remote.owner,
+    repo: remote.repo,
+    head: session.branch,
+  });
+  const pull: GithubPullRequest =
+    existing ??
+    (await deps.createPullRequest(token, {
+      owner: remote.owner,
+      repo: remote.repo,
+      head: session.branch,
+      base: repo.defaultBranch || "main",
+      title: (args.title ?? "").trim() || session.title || deriveWorkSessionTitle(session.instruction),
+      body: composePullRequestBody(session, args.body),
+    }));
+
+  session.pullRequestUrl = pull.htmlUrl;
+  session.pullRequestNumber = pull.number;
+  session.status = "proposed";
+  await sessionRepo.save(session);
+  return session;
+}
+
+/**
+ * What the pull request says when the Member did not write a description.
+ *
+ * The employee's own report is the honest body: it is what it changed and what
+ * it could not verify, written while it still had the work in front of it.
+ */
+function composePullRequestBody(session: RepositoryWorkSession, override?: string): string {
+  const custom = (override ?? "").trim();
+  if (custom) return custom;
+  const parts = [`**Asked for**`, session.instruction.trim()];
+  const reply = session.reply.trim();
+  if (reply) parts.push("", "**What the AI employee reported**", reply);
+  parts.push("", "_Opened from a Genosyn AI work session._");
+  return parts.join("\n");
+}
+
+/**
+ * A GitHub token that may push to this repository and open pull requests on
+ * it.
+ *
+ * Two shapes are supported because both already exist in the product: a
+ * repository carrying its own HTTPS token, and a repository authenticated by
+ * the company's GitHub Connection. Anything else is refused with the reason,
+ * because failing later inside the API call would report it as a GitHub error
+ * rather than a missing credential.
+ */
+export async function resolveRepositoryGithubToken(repo: Repository): Promise<string> {
+  if (!isGithubHttpsUrl(repo.gitUrl)) {
+    throw new Error("Pull requests are only supported for https://github.com remotes.");
+  }
+  if (repo.authMode === "https" && repo.encryptedToken) {
+    const token = decryptRepositorySecret(repo.encryptedToken);
+    if (token) return token;
+  }
+  const connection = await findConnectionForRemote(repo);
+  if (connection) return (await resolveConnectionToken(connection)).token;
+  throw new Error(
+    "No GitHub credential is available for this repository. Add a token in its settings, or connect GitHub in Settings → Integrations.",
+  );
 }
 
 export async function discardRepositoryWorkSession(
@@ -577,7 +1094,11 @@ export const REPOSITORY_SESSION_TOOLS = [
   "repository_commit",
 ];
 
-export function composeWorkSystemPrompt(repo: Repository, sessionId: string): string {
+export function composeWorkSystemPrompt(
+  repo: Repository,
+  sessionId: string,
+  options: { revision?: boolean } = {},
+): string {
   const subject =
     repo.kind === "documents"
       ? "a version-controlled set of documents"
@@ -593,16 +1114,27 @@ export function composeWorkSystemPrompt(repo: Repository, sessionId: string): st
     "- `repository_commit` records your work. Commit when you have finished a coherent piece, with a message in the imperative mood explaining why the change exists.",
     "",
     "You must commit. Work you leave uncommitted is discarded when the session ends and the human sees nothing.",
+    options.revision
+      ? "This is a follow-up on work you already did in this same working copy. Your earlier commits are still there and are what the human is looking at, so read the files again rather than trusting your memory of them, change only what has just been asked for, and commit the change as its own commit on top."
+      : "",
     repo.kind === "documents"
       ? "This repository holds documents rather than software. Match the surrounding structure and voice, and keep the prose readable."
       : "Match the conventions of the surrounding code. You have no shell and cannot run tests here, so keep changes reviewable and say plainly in your reply what you could not verify.",
     "",
     "Your reply is shown to the human next to your diff. Make it a short report: what you changed, why, and anything you deliberately left alone or could not do.",
-  ].join("\n");
+  ]
+    .filter((line, index, all) => line !== "" || all[index - 1] !== "")
+    .join("\n");
 }
 
-function composeWorkBrief(repo: Repository, instruction: string): string {
-  return [`Work on the repository "${repo.name}".`, "", instruction.trim()].join("\n");
+function composeWorkBrief(repo: Repository, instruction: string, ordinal: number): string {
+  return [
+    ordinal > 1
+      ? `Continue your work on the repository "${repo.name}". The human has read what you did so far and is asking for this:`
+      : `Work on the repository "${repo.name}".`,
+    "",
+    instruction.trim(),
+  ].join("\n");
 }
 
 /**

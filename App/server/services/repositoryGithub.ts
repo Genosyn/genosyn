@@ -122,6 +122,97 @@ export async function findConnectionForRemote(
   return rows.length === 1 ? rows[0] : null;
 }
 
+/**
+ * Split a GitHub HTTPS remote into the owner and repository the API wants.
+ *
+ * Only the shape a Connection or stored token can authenticate — the same
+ * narrowness {@link findConnectionForRemote} applies, for the same reason:
+ * saying "GitHub remotes only" up front beats a confusing 404 from an API call
+ * built out of a path that was never a GitHub repository.
+ */
+export function parseGithubRemote(gitUrl: string): { owner: string; repo: string } | null {
+  if (!isGithubHttpsUrl(gitUrl)) return null;
+  try {
+    const segments = new URL(gitUrl).pathname.split("/").filter(Boolean);
+    if (segments.length < 2) return null;
+    const owner = segments[0];
+    const repo = segments[1].replace(/\.git$/i, "");
+    if (!owner || !repo) return null;
+    return { owner, repo };
+  } catch {
+    return null;
+  }
+}
+
+export type GithubPullRequest = {
+  number: number;
+  htmlUrl: string;
+  state: string;
+};
+
+export type GithubPullRequestArgs = {
+  owner: string;
+  repo: string;
+  head: string;
+  base: string;
+  title: string;
+  body: string;
+};
+
+/** Open a pull request for a branch that has already been pushed. */
+export async function createGithubPullRequest(
+  token: string,
+  args: GithubPullRequestArgs,
+): Promise<GithubPullRequest> {
+  const payload = await githubRequest(
+    token,
+    `/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/pulls`,
+    {
+      method: "POST",
+      body: { title: args.title, body: args.body, head: args.head, base: args.base },
+    },
+  );
+  return toPullRequest(payload);
+}
+
+/**
+ * The open pull request for a branch, if there already is one.
+ *
+ * Asking first is what makes "open a pull request" safe to press twice: GitHub
+ * refuses a duplicate with a validation error, and a Member who revised the
+ * work and pressed the button again means "update it", not "fail".
+ */
+export async function findOpenGithubPullRequest(
+  token: string,
+  args: { owner: string; repo: string; head: string },
+): Promise<GithubPullRequest | null> {
+  try {
+    const payload = await githubRequest(
+      token,
+      `/repos/${encodeURIComponent(args.owner)}/${encodeURIComponent(args.repo)}/pulls` +
+        `?state=open&head=${encodeURIComponent(`${args.owner}:${args.head}`)}`,
+    );
+    if (!Array.isArray(payload) || payload.length === 0) return null;
+    return toPullRequest(payload[0]);
+  } catch {
+    // A lookup that fails is not a reason to refuse to open one; the create
+    // call below reports anything genuinely wrong with the credential.
+    return null;
+  }
+}
+
+function toPullRequest(payload: unknown): GithubPullRequest {
+  const body = payload as { number?: unknown; html_url?: unknown; state?: unknown };
+  if (typeof body?.number !== "number" || typeof body?.html_url !== "string") {
+    throw new Error("GitHub did not return a usable pull request.");
+  }
+  return {
+    number: body.number,
+    htmlUrl: body.html_url,
+    state: typeof body.state === "string" ? body.state : "open",
+  };
+}
+
 export function isGithubHttpsUrl(gitUrl: string): boolean {
   try {
     const parsed = new URL(gitUrl);

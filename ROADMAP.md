@@ -136,8 +136,9 @@ don't re-litigate them.
   no remote at all. Members work on it in the browser; granted AI employees
   work on it in isolation and their branches reach the remote only through a
   reviewed publish.
-- **Work session** — one request to an AI Employee to do work in a Repository,
-  and the reviewable diff it produced (`RepositoryWorkSession`).
+- **Work session** — a conversation with an AI Employee about one piece of work
+  in a Repository, and the reviewable diff it produced
+  (`RepositoryWorkSession`, one `RepositoryWorkSessionTurn` per instruction).
 - **Pipeline** — DAG of typed nodes for deterministic glue (separate
   primitive from Routines). Triggered manually, by webhook, or on cron.
 - **Note / Notebook** — Notion-style company-wide markdown knowledge base.
@@ -1039,9 +1040,36 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       reviews your diff" — was not true of anything outside them. That matters
       more once the instruction can be composed by a model rather than typed by
       a human, and it is also what stops a session starting a session.
-- [x] Authority split: browsing, editing, committing, and starting sessions
-      are Member-level; pushing, pulling, and repository configuration stay
-      owner/admin.
+- [x] **A session is a conversation, not a single request**
+      (`RepositoryWorkSessionTurn`). Every follow-up runs in the *same*
+      worktree on the *same* branch with the earlier turns replayed as history,
+      so "close, but keep the old heading" costs one sentence rather than a
+      fresh session that starts from the trunk and loses everything the
+      employee worked out. Only `published` and `discarded` end a session;
+      `empty` and `failed` are revisable too, so a session that committed
+      nothing or died mid-turn is recoverable rather than wasted. Each turn
+      records its own commit range as well as the session's, which is what
+      lets a revision be reviewed without re-reading everything before it.
+      Sessions predating this are given their first turn on read, so an old
+      one reads and revises exactly like a new one.
+- [x] **The screen is a session switcher**, in the shape people already know
+      from an agentic coding tool: sessions listed on the left, one open on the
+      right with its transcript, its diff, its actions, and a composer that
+      keeps it going. Every session has its own URL, so switching is
+      navigation, a link opens the diff a colleague should look at, and a
+      chat-started session links straight to itself. Sessions are titled from
+      the instruction that opened them and can be renamed.
+- [x] **Open a pull request for a session** — the third thing to do with
+      reviewed work, and the one merging and pushing could not express: it
+      pushes the branch and opens a pull request against the default branch, so
+      the work enters whatever review the team already runs. Pressing it after
+      a revision pushes the new commits into the pull request that is already
+      open rather than failing on a duplicate. GitHub HTTPS remotes only, using
+      the repository's stored token or the company's GitHub Connection —
+      admin-gated like every other path that reaches a remote.
+- [x] Authority split: browsing, editing, committing, starting sessions, and
+      asking an open one for changes are Member-level; pushing, pulling,
+      opening a pull request, and repository configuration stay owner/admin.
 - [x] **Connect a local repository to GitHub later** — pick a connected GitHub
       Connection, Genosyn creates the repository through the API and pushes the
       history. No personal access token is minted or pasted: the company

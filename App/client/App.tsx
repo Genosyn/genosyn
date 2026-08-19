@@ -490,6 +490,10 @@ function CompanyRoutes({
             <Route path=":slug/files" element={<RepositoryFiles />} />
             <Route path=":slug/history" element={<RepositoryHistory />} />
             <Route path=":slug/ai" element={<RepositoryAi />} />
+            {/* A session is linkable, so a Member can send someone straight to
+              the diff they need to look at — and so switching sessions is a
+              navigation rather than hidden component state. */}
+            <Route path=":slug/ai/:sessionId" element={<RepositoryAi />} />
             <Route path=":slug/access" element={<RepositoryAccess />} />
             <Route path=":slug/settings" element={<RepositorySettings />} />
           </Route>
