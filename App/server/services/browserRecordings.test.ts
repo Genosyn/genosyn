@@ -47,13 +47,13 @@ import {
   createBrowserSession,
   finalizeBrowserRecordingsForRun,
   flushBrowserRecordingFrameScans,
-  installStickyPasswordTaintForTests,
   invalidateBrowserRecordingFramesForNavigationForTests,
   markSessionLive,
   observeRuntimePasswordValues,
   queueBrowserRecordingFrameForTests,
   registerBrowserSensitiveValueListener,
   resetBrowserRpcActivityForTests,
+  passwordTaintScriptForTests,
   setPasswordObservationRuntimeForTests,
   setBeforeMarkLiveCasForTests,
   setBeforeBrowserSessionSaveForTests,
@@ -187,43 +187,122 @@ async function writeRecordingMetadata(
   );
 }
 
-function installCleanPasswordRuntime(): {
+type TestPasswordObservation = {
+  passwordPresent: boolean;
+  passwordValues: string[];
+  activeInputValue: string | null;
+};
+
+function installPasswordRuntime(
+  observe: () => TestPasswordObservation | Promise<TestPasswordObservation>,
+  options: {
+    documentRoot?: unknown;
+    failDomEnableOnce?: boolean;
+    searchResultCount?: number;
+  } = {},
+): {
+  domEnableCalls: () => number;
   reportPassword: () => Promise<void>;
 } {
-  let reporter: (() => void | Promise<void>) | null = null;
+  let consoleListener: ((message: unknown) => void) | null = null;
+  let taintSignal = "";
+  let domEnableCalls = 0;
+  let searchCounter = 0;
+  const cdp = {
+    on() {
+      // Unit fixtures are stable; browser-level tests cover real DOM events.
+    },
+    async send(method: string) {
+      if (method === "DOM.enable") {
+        domEnableCalls += 1;
+        if (options.failDomEnableOnce && domEnableCalls === 1) {
+          throw new Error("temporary DOM enable failure");
+        }
+        return {};
+      }
+      if (method === "DOM.getDocument") {
+        return {
+          root: options.documentRoot ?? { nodeName: "#document", children: [] },
+        };
+      }
+      if (method === "DOM.performSearch") {
+        return {
+          searchId: `search-${(searchCounter += 1)}`,
+          resultCount: options.searchResultCount ?? 0,
+        };
+      }
+      return {};
+    },
+  };
+  const frame = {
+    async evaluate(fn: unknown, arg?: unknown) {
+      if (typeof fn === "string") {
+        const signal = fn.match(/"signal":"([^"]+)"/)?.[1];
+        const challenge = fn.match(/"challenge":"([^"]+)"/)?.[1];
+        if (signal) taintSignal = signal;
+        if (signal && challenge) {
+          consoleListener?.({
+            text: () => `${signal}:probe:${challenge}`,
+            type: () => "debug",
+          });
+        }
+        return false;
+      }
+      if (typeof arg === "string") return observe();
+      if (
+        arg &&
+        typeof arg === "object" &&
+        "challenge" in arg &&
+        typeof arg.challenge === "string" &&
+        "signal" in arg &&
+        typeof arg.signal === "string"
+      ) {
+        taintSignal = arg.signal;
+        consoleListener?.({
+          text: () => `${arg.signal}:probe:${arg.challenge}`,
+          type: () => "debug",
+        });
+        return false;
+      }
+      return false;
+    },
+  };
   const page = {
-    async exposeBinding(_name: string, callback: () => void | Promise<void>) {
-      reporter = callback;
+    url: () => "about:blank",
+    on(event: string, callback: (message: unknown) => void) {
+      if (event === "console") consoleListener = callback;
     },
     async addInitScript() {
       // The real browser runs this before document scripts. Frame evaluation
       // below models installing it into the already-loaded document.
     },
-    frames: () => [
-      {
-        async evaluate(_fn: unknown, arg: unknown) {
-          if (typeof arg !== "string") return false;
-          return {
-            passwordPresent: false,
-            passwordValues: [] as string[],
-            activeInputValue: null as string | null,
-          };
-        },
-      },
-    ],
+    frames: () => [frame],
   };
-  setPasswordObservationRuntimeForTests(() => ({ page }));
+  setPasswordObservationRuntimeForTests(() => ({ cdp, page }));
   return {
+    domEnableCalls: () => domEnableCalls,
     async reportPassword() {
-      assert.ok(reporter, "sticky password reporter was installed");
-      await reporter();
+      assert.ok(consoleListener, "sticky password console listener was installed");
+      assert.ok(taintSignal, "sticky password signal was installed");
+      consoleListener({ text: () => taintSignal, type: () => "debug" });
     },
   };
 }
 
+function installCleanPasswordRuntime(): {
+  reportPassword: () => Promise<void>;
+} {
+  return installPasswordRuntime(() => ({
+    passwordPresent: false,
+    passwordValues: [],
+    activeInputValue: null,
+  }));
+}
+
 describe("Routine browser recordings", () => {
-  test("does not taint a clean navigation when the reporter init script runs second", async () => {
+  test("reports a transient password through the captured native console", async () => {
     const observers: Array<(records: Array<Record<string, unknown>>) => void> = [];
+    const consoleMessages: string[] = [];
     class FakeNode {}
     class FakeElement extends FakeNode {
       shadowRoot: FakeShadowRoot | null = null;
@@ -262,28 +341,187 @@ describe("Routine browser recordings", () => {
       Document: FakeDocument,
       ShadowRoot: FakeShadowRoot,
       MutationObserver: FakeMutationObserver,
+      console: {
+        debug(value: string) {
+          consoleMessages.push(value);
+        },
+      },
       document: new FakeDocument(),
       setTimeout,
-      __name: <T>(value: T) => value,
     } as Record<string, unknown>;
-    const source = `(${installStickyPasswordTaintForTests.toString()})({ key: "taint", reporterKey: "report" })`;
+    const source = passwordTaintScriptForTests({
+      key: "taint",
+      probeKey: "probe",
+      signal: "tainted",
+      challenge: "challenge",
+    });
 
     assert.equal(vm.runInNewContext(source, realm), false);
+    assert.deepEqual(consoleMessages, ["tainted:probe:challenge"]);
 
-    // Model the binding's sibling init script arriving after ours, then a
-    // transient password input that is removed before the next frame scan.
-    let reports = 0;
-    realm.report = () => {
-      reports += 1;
+    let fakeReports = 0;
+    realm.console = {
+      debug() {
+        fakeReports += 1;
+      },
     };
     const password = new FakeInput();
     for (const observer of observers) {
       observer([{ type: "childList", addedNodes: [password] }]);
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
 
-    assert.equal(reports, 1);
+    assert.deepEqual(consoleMessages, ["tainted:probe:challenge", "tainted"]);
+    assert.equal(fakeReports, 0);
     assert.equal((realm.taint as () => boolean)(), true);
+    assert.equal(Object.getOwnPropertyDescriptor(realm, "probe")?.configurable, false);
+  });
+
+  test("rejects a hostile late observer that tries to steal the probe secret", () => {
+    const consoleMessages: string[] = [];
+    const realm = {
+      console: {
+        debug(value: string) {
+          consoleMessages.push(value);
+        },
+      },
+    };
+    // Create the attack as classic non-strict page code. It replaces
+    // globalThis and walks Function.caller to try to read the installer's
+    // randomized signal from its argument object.
+    vm.runInNewContext(
+      `
+        const realGlobal = globalThis;
+        const fake = { eval: realGlobal.eval };
+        fake.taint = function () { return false; };
+        fake.probe = function (challenge) {
+          try {
+            const installerArgs = fake.probe.caller.arguments[0];
+            realGlobal.console.debug(installerArgs.signal + ":probe:" + challenge);
+          } catch (error) {
+            realGlobal.console.debug("blocked:" + error.name);
+          }
+        };
+        Object.defineProperty(realGlobal, "globalThis", {
+          value: fake,
+          writable: true,
+          configurable: true,
+        });
+      `,
+      realm,
+    );
+
+    const result = vm.runInNewContext(
+      passwordTaintScriptForTests({
+        key: "taint",
+        probeKey: "probe",
+        requireExisting: true,
+        signal: "SECRET",
+        challenge: "CHAL",
+      }),
+      realm,
+    );
+
+    assert.equal(result, false);
+    assert.deepEqual(consoleMessages, ["blocked:TypeError"]);
+    assert.equal(consoleMessages.includes("SECRET:probe:CHAL"), false);
+  });
+
+  test("withholds a password rendered inside declarative closed shadow DOM", async () => {
+    const { company, run, session } = await fixture();
+    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
+    await beginBrowserRecording(session);
+    installPasswordRuntime(
+      () => ({ passwordPresent: false, passwordValues: [], activeInputValue: null }),
+      {
+        documentRoot: {
+          nodeId: 1,
+          nodeName: "#document",
+          children: [
+            {
+              nodeId: 2,
+              nodeName: "DIV",
+              shadowRoots: [
+                {
+                  nodeId: 3,
+                  nodeName: "#document-fragment",
+                  shadowRootType: "closed",
+                  children: [
+                    {
+                      nodeId: 4,
+                      nodeName: "INPUT",
+                      attributes: ["type", "password"],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    );
+
+    await observeRuntimePasswordValues(session.id, { failClosedIfUnavailable: true });
+    await finishBrowserRecording(session);
+
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
+    await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
+  });
+
+  test("ignores an inert password input stored in template content", async () => {
+    const { session } = await fixture();
+    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
+    await beginBrowserRecording(session);
+    installPasswordRuntime(
+      () => ({ passwordPresent: false, passwordValues: [], activeInputValue: null }),
+      {
+        documentRoot: {
+          nodeId: 1,
+          nodeName: "#document",
+          children: [
+            {
+              nodeId: 2,
+              nodeName: "TEMPLATE",
+              templateContent: {
+                nodeId: 3,
+                nodeName: "#document-fragment",
+                children: [
+                  {
+                    nodeId: 4,
+                    nodeName: "INPUT",
+                    attributes: ["type", "password"],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    );
+
+    assert.equal(
+      await observeRuntimePasswordValues(session.id, { failClosedIfUnavailable: true }),
+      true,
+    );
+    assert.equal(browserRecordingDemand(session.id), true);
+    await finishBrowserRecording(session);
+  });
+
+  test("re-enables the DOM guard after a transient protocol failure", async () => {
+    const { session } = await fixture();
+    const runtime = installPasswordRuntime(
+      () => ({ passwordPresent: false, passwordValues: [], activeInputValue: null }),
+      { failDomEnableOnce: true },
+    );
+
+    assert.equal(
+      await observeRuntimePasswordValues(session.id, { discardIfUnavailable: true }),
+      false,
+    );
+    assert.equal(
+      await observeRuntimePasswordValues(session.id, { discardIfUnavailable: true }),
+      true,
+    );
+    assert.equal(runtime.domEnableCalls(), 2);
   });
 
   test("budgets enough bytes for a maximum-length Routine recording", () => {
@@ -677,23 +915,10 @@ describe("Routine browser recordings", () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
-    setPasswordObservationRuntimeForTests(() => ({
-      page: {
-        exposeBinding: async () => undefined,
-        addInitScript: async () => undefined,
-        frames: () => [
-          {
-            evaluate: async (_fn: unknown, arg: unknown) =>
-              typeof arg === "string"
-                ? {
-                    passwordPresent: true,
-                    passwordValues: [],
-                    activeInputValue: null,
-                  }
-                : false,
-          },
-        ],
-      },
+    installPasswordRuntime(() => ({
+      passwordPresent: true,
+      passwordValues: [],
+      activeInputValue: null,
     }));
 
     queueBrowserRecordingFrameForTests(
@@ -741,22 +966,11 @@ describe("Routine browser recordings", () => {
     const scanRelease = new Promise<void>((resolve) => {
       releaseScan = resolve;
     });
-    setPasswordObservationRuntimeForTests(() => ({
-      page: {
-        exposeBinding: async () => undefined,
-        addInitScript: async () => undefined,
-        frames: () => [
-          {
-            async evaluate(_fn: unknown, arg: unknown) {
-              if (typeof arg !== "string") return false;
-              enteredScan();
-              await scanRelease;
-              throw new Error("execution context was destroyed by navigation");
-            },
-          },
-        ],
-      },
-    }));
+    installPasswordRuntime(async () => {
+      enteredScan();
+      await scanRelease;
+      throw new Error("execution context was destroyed by navigation");
+    });
 
     queueBrowserRecordingFrameForTests(
       session.id,
@@ -772,34 +986,40 @@ describe("Routine browser recordings", () => {
     await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
   });
 
-  test("fails closed when the current document frame scan rejects", async () => {
+  test("drops a current-generation frame when navigation destroys its scan", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
-    setPasswordObservationRuntimeForTests(() => ({
-      page: {
-        exposeBinding: async () => undefined,
-        addInitScript: async () => undefined,
-        frames: () => [
-          {
-            async evaluate(_fn: unknown, arg: unknown) {
-              if (typeof arg !== "string") return false;
-              throw new Error("current execution context cannot be inspected");
-            },
-          },
-        ],
-      },
-    }));
+    installPasswordRuntime(async () => {
+      throw new Error("current execution context cannot be inspected");
+    });
 
     queueBrowserRecordingFrameForTests(
       session.id,
-      Buffer.from("unverified-current-frame").toString("base64"),
+      Buffer.from("unsafe-current-frame").toString("base64"),
     );
     await flushBrowserRecordingFrameScans(session.id);
-    await finishBrowserRecording(session);
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "recording");
 
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
-    await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
+    // The next stable frame is scanned and saved normally. The unverified JPEG
+    // must not be present in the published bytes, and a terminal scan remains
+    // mandatory before the recording becomes Ready.
+    installCleanPasswordRuntime();
+    queueBrowserRecordingFrameForTests(
+      session.id,
+      Buffer.from("verified-current-frame").toString("base64"),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await flushBrowserRecordingFrameScans(session.id);
+    await finalizeBrowserRecordingsForRun(run.id);
+
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
+    const contents = (
+      await fs.readFile(browserRecordingFile(company.id, run.id, session.id))
+    ).toString();
+    assert.ok(contents.length >= "verified-current-frame".length);
+    assert.equal(contents.replaceAll("verified-current-frame", ""), "");
+    assert.equal(contents.includes("unsafe-current-frame"), false);
   });
 
   test("fails an active recording closed when direct browser teardown cannot scan", async () => {

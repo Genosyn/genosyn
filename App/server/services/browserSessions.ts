@@ -71,8 +71,34 @@ const sensitiveValueListeners = new Set<
 let passwordObservationRuntime: (sessionId: string) => unknown = getRuntime;
 let beforeBrowserSessionSaveForTests: (() => Promise<void>) | null = null;
 const passwordTaintKey = `__genosynPasswordTaint_${crypto.randomBytes(12).toString("hex")}`;
-const passwordTaintReporterKey = `__genosynPasswordTaintReport_${crypto.randomBytes(12).toString("hex")}`;
+const passwordTaintProbeKey = `__genosynPasswordTaintProbe_${crypto.randomBytes(12).toString("hex")}`;
+const passwordTaintSignal = `genosyn-password-taint:${crypto.randomBytes(24).toString("hex")}`;
 const passwordTaintInstalledPages = new WeakSet<object>();
+const passwordTaintInstalledContexts = new WeakSet<object>();
+type PasswordCdpSession = {
+  send: (method: string, params?: unknown) => Promise<unknown>;
+  on: (event: string, callback: (payload: unknown) => void) => void;
+  detach?: () => Promise<void>;
+};
+type PasswordDomGuardState = {
+  closedTreeNodeIds: Set<number>;
+  enabled: boolean;
+  generation: number;
+  listenersInstalled: boolean;
+  ready: boolean;
+  refresh: Promise<boolean> | null;
+};
+const passwordDomGuardStates = new WeakMap<object, PasswordDomGuardState>();
+const passwordFrameCdpSessions = new WeakMap<object, PasswordCdpSession>();
+const passwordParentCoveredFrames = new WeakSet<object>();
+const passwordFrameLifecycleInstalledPages = new WeakSet<object>();
+
+function forgetPasswordFrame(frame: object): void {
+  const cdp = passwordFrameCdpSessions.get(frame);
+  passwordFrameCdpSessions.delete(frame);
+  passwordParentCoveredFrames.delete(frame);
+  if (cdp?.detach) void cdp.detach().catch(() => undefined);
+}
 
 /**
  * Runs before page scripts in every document and child frame, then remains
@@ -80,59 +106,89 @@ const passwordTaintInstalledPages = new WeakSet<object>();
  * and old attribute values, so a password input that appears and disappears in
  * one task still taints the page before a later screencast-frame scan.
  */
-function installStickyPasswordTaint(args: { key: string; reporterKey: string }): boolean {
-  const { key, reporterKey } = args;
+function installStickyPasswordTaint(args: {
+  key: string;
+  probeKey: string;
+  requireExisting?: boolean;
+  signal: string;
+  challenge?: string | null;
+}): boolean {
+  const { key, probeKey, requireExisting = false, signal, challenge = null } = args;
   const scope = globalThis as typeof globalThis & Record<string, unknown>;
   const existing = scope[key];
   if (typeof existing === "function") {
+    if (challenge) {
+      const probe = scope[probeKey];
+      if (typeof probe !== "function") return true;
+      try {
+        (probe as (value: string) => void)(challenge);
+      } catch {
+        return true;
+      }
+    }
     try {
       return existing() === true;
     } catch {
       return true;
     }
   }
+  // A nonblank page may be trusted only when the browser-context init script
+  // already installed the observer before document scripts. Installing one
+  // now could capture page-modified intrinsics after sensitive UI disappeared.
+  if (requireExisting) return true;
 
-  // `exposeBinding` and `addInitScript` both install document-start scripts,
-  // but Playwright does not guarantee the order in which separate init
-  // scripts run. A clean navigation may therefore execute this observer a
-  // moment before the binding global exists. That is not evidence of a
-  // password field: remember a real taint locally and resolve the randomized
-  // reporter lazily once the sibling init script has installed it.
-  let tainted = false;
+  // Capture the browser's native console method before document scripts can
+  // replace it. Playwright aggregates native console events from every frame,
+  // including OOPIFs, so this avoids a page-visible exposed-binding wrapper and
+  // its mutable transport/Promise/JSON dependencies. An already-running page
+  // has to pass a random challenge before its observer is trusted.
+  let emit: ((value: string) => void) | null = null;
+  let safeApply: typeof Reflect.apply | null = null;
+  try {
+    const nativeDebug = console.debug;
+    const nativeApply = Reflect.apply;
+    const nativeConsole = console;
+    if (typeof nativeDebug === "function" && typeof nativeApply === "function") {
+      safeApply = nativeApply;
+      emit = (value: string) => {
+        nativeApply(nativeDebug, nativeConsole, [value]);
+      };
+    }
+  } catch {
+    emit = null;
+  }
+
+  let tainted = emit === null;
   let reported = false;
-  let reportAttempts = 0;
   const reportTaint = () => {
-    if (!tainted || reported) return;
-    const exposedReporter = scope[reporterKey];
-    if (typeof exposedReporter !== "function") return;
+    if (!tainted || reported || emit === null) return;
     try {
+      // ConsoleAPICalled is emitted synchronously. The document may navigate
+      // immediately afterwards; Node has already received the sticky taint.
+      emit(signal);
       reported = true;
-      // Playwright's binding call emits a Runtime.bindingCalled event
-      // immediately. The returned promise need not survive navigation: Node
-      // has already received the session taint and persists the restriction.
-      void (exposedReporter as () => unknown).call(scope);
     } catch {
       reported = false;
     }
   };
-  const retryReportTaint = () => {
-    if (!tainted || reported || reportAttempts >= 8) return;
-    reportAttempts += 1;
-    setTimeout(() => {
-      reportTaint();
-      retryReportTaint();
-    }, 0);
+  const probe = (value: string) => {
+    if (emit === null) throw new Error("Password taint reporter unavailable");
+    // Bind the response to the init-script secret. A hostile current page can
+    // see the one-time challenge passed to Runtime.evaluate, but it cannot
+    // forge this response without the closure that ran before page scripts.
+    emit(`${signal}:probe:${value}`);
+    if (tainted) emit(signal);
   };
-  const observedRoots = new WeakSet<Node>();
-  const mark = () => {
+  try {
+    Object.defineProperty(scope, probeKey, {
+      value: probe,
+      configurable: false,
+      enumerable: false,
+      writable: false,
+    });
+  } catch {
     tainted = true;
-    reportTaint();
-    // When our init script won the ordering race, the binding arrives before
-    // page content runs. A short bounded retry bridges that document-start
-    // window without treating a clean page as sensitive. The sticky bit is
-    // still checked by every frame/final scan if the binding truly vanished.
-    retryReportTaint();
-  };
+  }
   try {
     Object.defineProperty(scope, key, {
       value: () => tainted,
@@ -145,6 +201,58 @@ function installStickyPasswordTaint(args: { key: string; reporterKey: string }):
     // the init script ran, its state cannot be trusted.
     return true;
   }
+
+  if (challenge) {
+    try {
+      probe(challenge);
+    } catch {
+      tainted = true;
+    }
+  }
+
+  const mark = () => {
+    tainted = true;
+    reportTaint();
+  };
+  const observedRoots = new WeakSet<Node>();
+
+  // Declarative closed shadow roots created after parsing require one of the
+  // unsafe HTML APIs. They cannot be rediscovered from JavaScript, so taint a
+  // call that requests one; the CDP DOM guard separately inspects declarative
+  // roots created by the network parser.
+  const wrapUnsafeHtml = (owner: object, name: string) => {
+    try {
+      const original = (owner as Record<string, unknown>)[name];
+      if (typeof original !== "function") return;
+      Object.defineProperty(owner, name, {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value: function (this: unknown, ...callArgs: unknown[]) {
+          try {
+            const markup = String(callArgs[0] ?? "");
+            if (
+              /\bshadowrootmode\s*=\s*(?:["']\s*closed\s*["']|closed(?:\s|>|\/))/i.test(markup) &&
+              /<input\b[^>]*\btype\s*=\s*(?:["']\s*password\s*["']|password(?:\s|>|\/))/i.test(
+                markup,
+              )
+            ) {
+              mark();
+            }
+          } catch {
+            mark();
+          }
+          if (safeApply === null) throw new Error("Native apply is unavailable");
+          return safeApply(original as (...args: unknown[]) => unknown, this, callArgs);
+        },
+      });
+    } catch {
+      mark();
+    }
+  };
+  wrapUnsafeHtml(Element.prototype, "setHTMLUnsafe");
+  wrapUnsafeHtml(ShadowRoot.prototype, "setHTMLUnsafe");
+  wrapUnsafeHtml(Document, "parseHTMLUnsafe");
 
   const inspectElement = (element: Element) => {
     if (element instanceof HTMLInputElement && element.type.toLowerCase() === "password") {
@@ -205,11 +313,22 @@ function installStickyPasswordTaint(args: { key: string; reporterKey: string }):
   } catch {
     mark();
   }
+  reportTaint();
   return tainted;
 }
 
-/** Test seam for exercising the exact document-start script in an isolated realm. */
-export const installStickyPasswordTaintForTests = installStickyPasswordTaint;
+function passwordTaintScript(args: Parameters<typeof installStickyPasswordTaint>[0]): string {
+  // tsx/esbuild can inject free `__name(...)` calls into a function's runtime
+  // toString(). Playwright serializes that text into the page, where the helper
+  // does not exist. Supply it inside the payload so dev/test and tsc builds run
+  // the exact same self-contained document-start script.
+  return `(() => { "use strict"; const __name = (value) => value; return (${installStickyPasswordTaint.toString()})(${JSON.stringify(
+    args,
+  )}); })()`;
+}
+
+/** Test seam for executing the exact self-contained Playwright init payload. */
+export const passwordTaintScriptForTests = passwordTaintScript;
 
 /** Test seam for final-scan failures without launching Chromium. */
 export function setPasswordObservationRuntimeForTests(
@@ -706,10 +825,11 @@ export async function notifyPageSwapped(sessionId: string): Promise<void> {
   cdpListenerAttached.delete(sessionId);
   if (wasCasting && shouldScreencast(state)) {
     if (browserRecordingDemand(sessionId)) {
-      // A Page-scoped init script does not automatically cover an adopted
-      // popup. Install and scan its sticky taint before its first JPEG can enter
-      // the recorder.
-      await observeRuntimePasswordValues(sessionId, { failClosedIfUnavailable: true });
+      // Prove the context-level observer reached the adopted popup before page
+      // scripts, then scan it before its first JPEG can enter the recorder.
+      await observeRuntimePasswordValues(sessionId, {
+        failClosedIfUnavailable: true,
+      });
     }
     await startScreencast(state);
   }
@@ -761,31 +881,20 @@ function startRecordingFrameScan(state: SessionState): void {
   const frame = state.pendingRecordingFrame;
   state.pendingRecordingFrame = null;
   state.lastRecordingFrameScanAt = Date.now();
-  let relevanceCheck: Promise<boolean> | null = null;
-  const observationIsCurrent = (): Promise<boolean> => {
-    if (frame.navigationGeneration !== state.recordingNavigationGeneration) {
-      return Promise.resolve(false);
-    }
-    // Playwright can reject an evaluation for a destroyed execution context
-    // just before CDP delivers frameNavigated/frameDetached. Give those events
-    // one short turn to invalidate the JPEG before classifying the failure as
-    // privacy-sensitive. A same-document inspection failure still fails closed.
-    relevanceCheck ??= new Promise((resolve) => {
-      setTimeout(
-        () => resolve(frame.navigationGeneration === state.recordingNavigationGeneration),
-        25,
-      );
-    });
-    return relevanceCheck;
-  };
   const task = (async () => {
     try {
-      await observeRuntimePasswordValues(state.id, {
-        failClosedIfUnavailable: true,
-        observationIsCurrent,
+      const verified = await observeRuntimePasswordValues(state.id, {
+        discardIfUnavailable: true,
       });
+      // A JPEG whose document could not be inspected is never written. This
+      // is the safe navigation race: discard the unverified frame rather than
+      // withholding already-verified video from the whole Run. Terminal scans
+      // remain fail closed, and the sticky observer still withholds a real
+      // password even if it appears and disappears between frames.
+      if (!verified) return;
     } catch {
       await restrictBrowserRecording(state.id).catch(() => undefined);
+      return;
     }
     if (frame.navigationGeneration === state.recordingNavigationGeneration) {
       acceptBrowserRecordingFrame(state.id, frame.data);
@@ -1261,160 +1370,637 @@ async function historyFromViewer(
   }
 }
 
-type PasswordObservationOptions = {
-  failClosedIfUnavailable?: boolean;
-  /** False only when the JPEG being checked was invalidated by frame lifecycle. */
-  observationIsCurrent?: () => boolean | Promise<boolean>;
-};
-
-async function observationFailureIsRelevant(opts?: PasswordObservationOptions): Promise<boolean> {
-  try {
-    return (await opts?.observationIsCurrent?.()) !== false;
-  } catch {
-    // A broken relevance check cannot turn an inspection failure into safety.
-    return true;
+async function reportPasswordPresence(sessionId: string): Promise<void> {
+  await restrictBrowserRecording(sessionId).catch(() => undefined);
+  for (const listener of sensitiveValueListeners) {
+    try {
+      await listener(sessionId, "", "password-present");
+    } catch {
+      // Recording/redaction remains auxiliary to browser work.
+    }
   }
 }
+
+async function searchCdpForPassword(cdp: PasswordCdpSession): Promise<boolean | null> {
+  let searchId: string | null = null;
+  try {
+    const result = (await cdp.send("DOM.performSearch", {
+      query: 'input[type="password"]',
+      includeUserAgentShadowDOM: true,
+    })) as { searchId: string; resultCount: number };
+    searchId = result.searchId;
+    return result.resultCount > 0;
+  } catch {
+    return null;
+  } finally {
+    if (searchId) {
+      await cdp.send("DOM.discardSearchResults", { searchId }).catch(() => undefined);
+    }
+  }
+}
+
+async function ensurePasswordDomGuard(
+  sessionId: string,
+  cdp: PasswordCdpSession,
+): Promise<boolean> {
+  let state = passwordDomGuardStates.get(cdp as object);
+  if (state) {
+    if (state.refresh) await state.refresh;
+    if (state.enabled && state.ready) return true;
+  } else {
+    state = {
+      closedTreeNodeIds: new Set(),
+      enabled: false,
+      generation: 0,
+      listenersInstalled: false,
+      ready: false,
+      refresh: null,
+    };
+    passwordDomGuardStates.set(cdp as object, state);
+  }
+  const guardState = state;
+  const noteDomMutation = () => {
+    guardState.generation += 1;
+    guardState.ready = false;
+    const recordingState = sessions.get(sessionId);
+    if (recordingState) invalidateRecordingFramesForNavigation(recordingState);
+  };
+  const nodeHasPassword = (node: unknown): boolean => {
+    if (!node || typeof node !== "object") return false;
+    const candidate = node as {
+      nodeName?: string;
+      nodeId?: number;
+      shadowRootType?: string;
+      attributes?: string[];
+      children?: unknown[];
+      shadowRoots?: unknown[];
+      pseudoElements?: unknown[];
+      contentDocument?: unknown;
+    };
+    const insideClosedTree =
+      candidate.shadowRootType === "closed" ||
+      (candidate.nodeId !== undefined && guardState.closedTreeNodeIds.has(candidate.nodeId));
+    if (insideClosedTree && candidate.nodeId !== undefined) {
+      guardState.closedTreeNodeIds.add(candidate.nodeId);
+    }
+    if (candidate.nodeName?.toUpperCase() === "INPUT") {
+      const attributes = candidate.attributes ?? [];
+      for (let index = 0; index + 1 < attributes.length; index += 2) {
+        if (
+          attributes[index]?.toLowerCase() === "type" &&
+          attributes[index + 1]?.toLowerCase() === "password"
+        ) {
+          return true;
+        }
+      }
+    }
+    for (const collection of [
+      candidate.children,
+      candidate.shadowRoots,
+      candidate.pseudoElements,
+    ]) {
+      if (
+        collection?.some((child) => {
+          if (
+            insideClosedTree &&
+            child &&
+            typeof child === "object" &&
+            "nodeId" in child &&
+            typeof child.nodeId === "number"
+          ) {
+            guardState.closedTreeNodeIds.add(child.nodeId);
+          }
+          return nodeHasPassword(child);
+        })
+      ) {
+        return true;
+      }
+    }
+    return nodeHasPassword(candidate.contentDocument);
+  };
+  const refreshTree = (): Promise<boolean> => {
+    if (guardState.refresh) return guardState.refresh;
+    const generation = guardState.generation;
+    const refresh = (async () => {
+      try {
+        const result = (await cdp.send("DOM.getDocument", {
+          depth: -1,
+          pierce: true,
+        })) as { root?: unknown };
+        if (nodeHasPassword(result.root)) await reportPasswordPresence(sessionId);
+        if (guardState.generation === generation) guardState.ready = true;
+        return guardState.generation === generation;
+      } catch {
+        guardState.ready = false;
+        return false;
+      }
+    })().finally(() => {
+      if (guardState.refresh === refresh) guardState.refresh = null;
+    });
+    guardState.refresh = refresh;
+    return refresh;
+  };
+  const verifyMutation = (nodeId?: number): Promise<boolean> => {
+    if (guardState.refresh) return guardState.refresh;
+    const generation = guardState.generation;
+    const refresh = (async () => {
+      try {
+        if (nodeId) {
+          await cdp.send("DOM.requestChildNodes", { nodeId, depth: -1, pierce: true });
+        }
+        const present = await searchCdpForPassword(cdp);
+        if (present) await reportPasswordPresence(sessionId);
+        if (present === null || guardState.generation !== generation) return false;
+        guardState.ready = true;
+        return true;
+      } catch {
+        guardState.ready = false;
+        return false;
+      }
+    })().finally(() => {
+      if (guardState.refresh === refresh) guardState.refresh = null;
+    });
+    guardState.refresh = refresh;
+    return refresh;
+  };
+  const scanSoon = (
+    delays: number[],
+    options: { refreshDocument?: boolean; nodeId?: number } = {},
+  ) => {
+    const generation = guardState.generation;
+    for (const delay of delays) {
+      const timer = setTimeout(() => {
+        // The first successful scan proves this generation. Later retries are
+        // only fallbacks for parser/navigation timing, not repeated full-tree
+        // snapshots. A newer mutation schedules its own generation of work.
+        if (guardState.generation !== generation || guardState.ready) return;
+        void (options.refreshDocument ? refreshTree() : verifyMutation(options.nodeId));
+      }, delay);
+      if (typeof timer.unref === "function") timer.unref();
+    }
+  };
+  try {
+    if (!guardState.listenersInstalled) {
+      // DOM events make transient parser/shadow changes sticky between the 4fps
+      // JPEG checks. The native protocol cannot be replaced by page JavaScript.
+      cdp.on("DOM.documentUpdated", () => {
+        guardState.closedTreeNodeIds.clear();
+        noteDomMutation();
+        scanSoon([0, 25, 100, 250], { refreshDocument: true });
+      });
+      cdp.on("DOM.shadowRootPushed", (payload) => {
+        const root = (payload as { root?: { nodeId?: number; shadowRootType?: string } }).root;
+        if (root?.shadowRootType !== "closed") return;
+        if (root.nodeId !== undefined) guardState.closedTreeNodeIds.add(root.nodeId);
+        noteDomMutation();
+        const rootId = root.nodeId;
+        scanSoon([0, 25], { nodeId: rootId });
+      });
+      cdp.on("DOM.shadowRootPopped", (payload) => {
+        const rootId = (payload as { rootId?: number }).rootId;
+        if (rootId === undefined || !guardState.closedTreeNodeIds.has(rootId)) return;
+        noteDomMutation();
+        guardState.closedTreeNodeIds.delete(rootId);
+        scanSoon([0]);
+      });
+      cdp.on("DOM.childNodeInserted", (payload) => {
+        const event = payload as {
+          parentNodeId?: number;
+          node?: {
+            nodeId?: number;
+            nodeName?: string;
+            attributes?: string[];
+            childNodeCount?: number;
+          };
+        };
+        const node = event.node;
+        const insideClosedTree =
+          event.parentNodeId !== undefined && guardState.closedTreeNodeIds.has(event.parentNodeId);
+        if (insideClosedTree && node?.nodeId !== undefined) {
+          guardState.closedTreeNodeIds.add(node.nodeId);
+        }
+        if (insideClosedTree) noteDomMutation();
+        if (node?.nodeName?.toUpperCase() === "INPUT") {
+          const attributes = node.attributes ?? [];
+          for (let index = 0; index + 1 < attributes.length; index += 2) {
+            if (
+              attributes[index]?.toLowerCase() === "type" &&
+              attributes[index + 1]?.toLowerCase() === "password"
+            ) {
+              void reportPasswordPresence(sessionId);
+              break;
+            }
+          }
+        }
+        if (insideClosedTree) {
+          scanSoon([0, 25], {
+            nodeId: node?.childNodeCount ? node.nodeId : undefined,
+          });
+        }
+      });
+      cdp.on("DOM.childNodeRemoved", (payload) => {
+        const event = payload as { parentNodeId?: number; nodeId?: number };
+        if (
+          event.parentNodeId === undefined ||
+          !guardState.closedTreeNodeIds.has(event.parentNodeId)
+        ) {
+          return;
+        }
+        noteDomMutation();
+        if (event.nodeId !== undefined) guardState.closedTreeNodeIds.delete(event.nodeId);
+        scanSoon([0]);
+      });
+      cdp.on("DOM.attributeModified", (payload) => {
+        const event = payload as { nodeId?: number; name?: string; value?: string };
+        const becamePassword =
+          event.name?.toLowerCase() === "type" && event.value?.toLowerCase() === "password";
+        if (becamePassword) void reportPasswordPresence(sessionId);
+        if (event.nodeId !== undefined && guardState.closedTreeNodeIds.has(event.nodeId)) {
+          noteDomMutation();
+          scanSoon([0]);
+        }
+      });
+      cdp.on("DOM.setChildNodes", (payload) => {
+        const event = payload as {
+          parentId?: number;
+          nodes?: unknown[];
+        };
+        if (event.parentId === undefined || !guardState.closedTreeNodeIds.has(event.parentId)) {
+          return;
+        }
+        for (const entry of event.nodes ?? []) {
+          if (
+            entry &&
+            typeof entry === "object" &&
+            "nodeId" in entry &&
+            typeof entry.nodeId === "number"
+          ) {
+            guardState.closedTreeNodeIds.add(entry.nodeId);
+          }
+          if (nodeHasPassword(entry)) void reportPasswordPresence(sessionId);
+        }
+      });
+      guardState.listenersInstalled = true;
+    }
+    if (!guardState.enabled) {
+      await cdp.send("DOM.enable");
+      guardState.enabled = true;
+    }
+    return refreshTree();
+  } catch {
+    guardState.ready = false;
+    return false;
+  }
+}
+
+async function collectPasswordCdpTargets(
+  page: {
+    context?: () => {
+      newCDPSession?: (target: unknown) => Promise<PasswordCdpSession>;
+    };
+    frames: () => unknown[];
+    mainFrame?: () => unknown;
+  },
+  mainCdp: PasswordCdpSession | null,
+): Promise<{
+  targets: Array<{ cdp: PasswordCdpSession; frame: object | null }>;
+  complete: boolean;
+}> {
+  const targets: Array<{ cdp: PasswordCdpSession; frame: object | null }> = [];
+  let complete = true;
+  if (mainCdp) targets.push({ cdp: mainCdp, frame: null });
+  else complete = false;
+
+  const context = page.context?.();
+  const createSession = context?.newCDPSession;
+  const mainFrame = page.mainFrame?.();
+  if (!createSession || !mainFrame) return { targets, complete };
+  for (const frame of page.frames()) {
+    if (!frame || frame === mainFrame || typeof frame !== "object") continue;
+    if (passwordParentCoveredFrames.has(frame)) continue;
+    let cdp = passwordFrameCdpSessions.get(frame);
+    if (!cdp) {
+      try {
+        cdp = await createSession.call(context, frame);
+        passwordFrameCdpSessions.set(frame, cdp);
+      } catch (error) {
+        // Same-process frames are included by the page session. Any other
+        // failure leaves an OOPIF renderer unverified and drops/fails closed.
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("part of the parent frame's session")) {
+          passwordParentCoveredFrames.add(frame);
+          continue;
+        }
+        complete = false;
+        continue;
+      }
+    }
+    targets.push({ cdp, frame });
+  }
+  return { targets, complete };
+}
+
+type PasswordObservationOptions = {
+  failClosedIfUnavailable?: boolean;
+  /** Drop an unverified screencast frame instead of classifying navigation as sensitive. */
+  discardIfUnavailable?: boolean;
+};
 
 export async function observeRuntimePasswordValues(
   sessionId: string,
   opts?: PasswordObservationOptions,
-): Promise<void> {
-  const runtime = passwordObservationRuntime(sessionId) as { page?: unknown } | null | undefined;
+): Promise<boolean> {
+  const runtime = passwordObservationRuntime(sessionId) as
+    | { page?: unknown; cdp?: unknown }
+    | null
+    | undefined;
   const page = runtime?.page as
     | {
-        exposeBinding?: (name: string, callback: () => void | Promise<void>) => Promise<void>;
-        addInitScript?: (
-          script: (args: { key: string; reporterKey: string }) => boolean,
-          arg: { key: string; reporterKey: string },
-        ) => Promise<void>;
+        addInitScript?: (script: { content: string }) => Promise<void>;
         frames: () => Array<{
-          evaluate: <T, Arg>(fn: (arg: Arg) => T, arg: Arg) => Promise<T>;
+          evaluate: {
+            <T>(expression: string): Promise<T>;
+            <T, Arg>(fn: (arg: Arg) => T | Promise<T>, arg: Arg): Promise<T>;
+          };
         }>;
+        mainFrame?: () => unknown;
+        context?: () => {
+          addInitScript?: (script: { content: string }) => Promise<void>;
+          newCDPSession?: (target: unknown) => Promise<PasswordCdpSession>;
+        };
+        on?: (event: string, callback: (message: unknown) => void) => void;
+        url?: () => string;
       }
     | null
     | undefined;
   if (!page) {
-    if (opts?.failClosedIfUnavailable && (await observationFailureIsRelevant(opts))) {
+    if (opts?.failClosedIfUnavailable && !opts.discardIfUnavailable) {
       await restrictBrowserRecording(sessionId).catch(() => undefined);
     }
-    return;
+    return false;
   }
+  let fullyObserved = true;
   const installInCurrentDocuments = !passwordTaintInstalledPages.has(page as object);
   if (installInCurrentDocuments) {
     try {
-      if (!page.exposeBinding) throw new Error("Page.exposeBinding is unavailable");
-      if (!page.addInitScript) throw new Error("Page.addInitScript is unavailable");
-      await page.exposeBinding(passwordTaintReporterKey, () =>
-        restrictBrowserRecording(sessionId).catch(() => undefined),
-      );
-      await page.addInitScript(installStickyPasswordTaint, {
-        key: passwordTaintKey,
-        reporterKey: passwordTaintReporterKey,
+      const context = page.context?.();
+      if (!context?.addInitScript && !page.addInitScript) {
+        throw new Error("Browser init scripts are unavailable");
+      }
+      if (!page.on) throw new Error("Page console events are unavailable");
+      const currentUrl = page.url?.() ?? "about:blank";
+      const requireExisting = currentUrl !== "about:blank" && currentUrl !== "chrome://newtab/";
+
+      const installFrames = page.frames();
+      if (installFrames.length === 0) throw new Error("Page frames are unavailable");
+      const pendingChallenges = new Map<string, () => void>();
+      let allChallengesReceived!: () => void;
+      const challengeBarrier = new Promise<void>((resolve) => {
+        allChallengesReceived = resolve;
       });
+      const challenges = installFrames.map(() => crypto.randomBytes(16).toString("hex"));
+      for (const challenge of challenges) {
+        const response = `${passwordTaintSignal}:probe:${challenge}`;
+        pendingChallenges.set(response, () => {
+          pendingChallenges.delete(response);
+          if (pendingChallenges.size === 0) allChallengesReceived();
+        });
+      }
+      page.on("console", (rawMessage) => {
+        const message = rawMessage as { text?: () => string; type?: () => string };
+        let text = "";
+        let type = "";
+        try {
+          text = message.text?.() ?? "";
+          type = message.type?.() ?? "";
+        } catch {
+          return;
+        }
+        if (type !== "debug") return;
+        const resolveChallenge = pendingChallenges.get(text);
+        if (resolveChallenge) {
+          resolveChallenge();
+          return;
+        }
+        if (text === passwordTaintSignal) void reportPasswordPresence(sessionId);
+      });
+      if (!passwordFrameLifecycleInstalledPages.has(page as object)) {
+        const forget = (frame: unknown) => {
+          if (frame && typeof frame === "object") forgetPasswordFrame(frame);
+        };
+        page.on("framenavigated", forget);
+        page.on("framedetached", forget);
+        passwordFrameLifecycleInstalledPages.add(page as object);
+      }
+
+      // Context-level installation covers future popups before their first
+      // script. The Page fallback still protects the current tab on runtimes
+      // that do not expose BrowserContext.addInitScript; such a future popup
+      // then fails the require-existing challenge closed.
+      const initScript = {
+        content: passwordTaintScript({
+          key: passwordTaintKey,
+          probeKey: passwordTaintProbeKey,
+          signal: passwordTaintSignal,
+          challenge: null,
+        }),
+      };
+      if (context?.addInitScript) {
+        if (!passwordTaintInstalledContexts.has(context as object)) {
+          await context.addInitScript(initScript);
+          passwordTaintInstalledContexts.add(context as object);
+        }
+      } else {
+        await page.addInitScript!(initScript);
+      }
+      const stickyAtInstall = await Promise.all(
+        installFrames.map((frame, index) =>
+          frame.evaluate<boolean>(
+            passwordTaintScript({
+              key: passwordTaintKey,
+              probeKey: passwordTaintProbeKey,
+              requireExisting,
+              signal: passwordTaintSignal,
+              challenge: challenges[index]!,
+            }),
+          ),
+        ),
+      );
+      let challengeTimer: ReturnType<typeof setTimeout> | null = null;
+      try {
+        if (!stickyAtInstall.some(Boolean)) {
+          await Promise.race([
+            challengeBarrier,
+            new Promise<never>((_resolve, reject) => {
+              challengeTimer = setTimeout(
+                () => reject(new Error("Password observer console handshake timed out")),
+                500,
+              );
+            }),
+          ]);
+        }
+      } finally {
+        if (challengeTimer) clearTimeout(challengeTimer);
+      }
+      if (stickyAtInstall.some(Boolean)) await reportPasswordPresence(sessionId);
       passwordTaintInstalledPages.add(page as object);
     } catch {
       // A current scan alone cannot prove that a password did not render and
       // disappear between screencast frames. Without the navigation-persistent
       // observer, withhold any Run recording while retaining ordinary browser
       // behavior and the best-effort model-output scan below.
-      if (await observationFailureIsRelevant(opts)) {
-        await restrictBrowserRecording(sessionId).catch(() => undefined);
-      }
+      fullyObserved = false;
+      await restrictBrowserRecording(sessionId).catch(() => undefined);
     }
   }
   let frames: ReturnType<typeof page.frames>;
   try {
     frames = page.frames();
   } catch {
-    // Losing the ability to inspect the final page is itself privacy-relevant:
-    // fail closed rather than publishing bytes we could not verify.
-    if (!(await observationFailureIsRelevant(opts))) return;
-    await restrictBrowserRecording(sessionId).catch(() => undefined);
-    for (const listener of sensitiveValueListeners) {
-      try {
-        await listener(sessionId, "", "password-present");
-      } catch {
-        // Recording/redaction remains auxiliary to browser teardown.
+    if (opts?.failClosedIfUnavailable && !opts.discardIfUnavailable) {
+      // Losing the ability to inspect the final page is privacy-relevant at a
+      // terminal boundary. Per-frame callers instead discard that JPEG.
+      await restrictBrowserRecording(sessionId).catch(() => undefined);
+      for (const listener of sensitiveValueListeners) {
+        try {
+          await listener(sessionId, "", "password-present");
+        } catch {
+          // Recording/redaction remains auxiliary to browser teardown.
+        }
       }
     }
-    return;
+    return false;
+  }
+  if (frames.length === 0) {
+    if (opts?.failClosedIfUnavailable && !opts.discardIfUnavailable) {
+      await restrictBrowserRecording(sessionId).catch(() => undefined);
+    }
+    return false;
   }
   const observations = await Promise.all(
     frames.map(async (frame) => {
-      let stickyAtInstall = false;
-      if (installInCurrentDocuments) {
+      const attempts = opts?.discardIfUnavailable ? 1 : 4;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
         try {
-          stickyAtInstall = await frame.evaluate(installStickyPasswordTaint, {
-            key: passwordTaintKey,
-            reporterKey: passwordTaintReporterKey,
-          });
-        } catch {
+          const observation = await frame.evaluate((key) => {
+            const passwordInputs: HTMLInputElement[] = [];
+            const visit = (root: Document | ShadowRoot) => {
+              for (const element of root.querySelectorAll("*")) {
+                if (element instanceof HTMLInputElement && element.type === "password") {
+                  passwordInputs.push(element);
+                }
+                if (element.shadowRoot) visit(element.shadowRoot);
+              }
+            };
+            visit(document);
+            const checker = (globalThis as typeof globalThis & Record<string, unknown>)[key];
+            let passwordEverObserved = true;
+            if (typeof checker === "function") {
+              try {
+                passwordEverObserved = checker() === true;
+              } catch {
+                passwordEverObserved = true;
+              }
+            }
+            let active = document.activeElement;
+            while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+            return {
+              passwordPresent: passwordEverObserved || passwordInputs.length > 0,
+              passwordValues: passwordInputs.map((input) => input.value).filter(Boolean),
+              activeInputValue:
+                active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
+                  ? active.value
+                  : null,
+            };
+          }, passwordTaintKey);
           return {
-            passwordPresent: true,
-            passwordValues: [] as string[],
-            activeInputValue: null as string | null,
-            unavailable: true,
+            ...observation,
+            unavailable: false,
           };
+        } catch {
+          if (attempt + 1 < attempts) {
+            await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+          }
         }
       }
-      try {
-        const observation = await frame.evaluate((key) => {
-          const passwordInputs: HTMLInputElement[] = [];
-          const visit = (root: Document | ShadowRoot) => {
-            for (const element of root.querySelectorAll("*")) {
-              if (element instanceof HTMLInputElement && element.type === "password") {
-                passwordInputs.push(element);
-              }
-              if (element.shadowRoot) visit(element.shadowRoot);
-            }
-          };
-          visit(document);
-          const checker = (globalThis as typeof globalThis & Record<string, unknown>)[key];
-          let passwordEverObserved = true;
-          if (typeof checker === "function") {
-            try {
-              passwordEverObserved = checker() === true;
-            } catch {
-              passwordEverObserved = true;
-            }
-          }
-          let active = document.activeElement;
-          while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
-          return {
-            passwordPresent: passwordEverObserved || passwordInputs.length > 0,
-            passwordValues: passwordInputs.map((input) => input.value).filter(Boolean),
-            activeInputValue:
-              active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
-                ? active.value
-                : null,
-          };
-        }, passwordTaintKey);
-        return {
-          ...observation,
-          passwordPresent: stickyAtInstall || observation.passwordPresent,
-          unavailable: false,
-        };
-      } catch {
-        return {
-          passwordPresent: true,
-          passwordValues: [] as string[],
-          activeInputValue: null as string | null,
-          unavailable: true,
-        };
-      }
+      return {
+        passwordPresent: true,
+        passwordValues: [] as string[],
+        activeInputValue: null as string | null,
+        unavailable: true,
+      };
     }),
   );
+
+  // JavaScript cannot enumerate declarative closed shadow roots. Search each
+  // renderer through CDP before accepting a JPEG; successful OOPIF sessions
+  // are cached, while same-process frames remain covered by the page session.
+  const frameSnapshot = [...frames];
+  const mainCdp =
+    runtime?.cdp && typeof runtime.cdp === "object" ? (runtime.cdp as PasswordCdpSession) : null;
+  const cdpTargets = await collectPasswordCdpTargets(page, mainCdp);
+  if (!cdpTargets.complete) fullyObserved = false;
+  for (const target of cdpTargets.targets) {
+    const attempts = opts?.discardIfUnavailable ? 1 : 4;
+    let passwordPresent: boolean | null = null;
+    let targetCdp = target.cdp;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (await ensurePasswordDomGuard(sessionId, targetCdp)) {
+        passwordPresent = await searchCdpForPassword(targetCdp);
+        if (passwordPresent !== null) break;
+      }
+      if (target.frame) {
+        forgetPasswordFrame(target.frame);
+        try {
+          const context = page.context?.();
+          const createSession = context?.newCDPSession;
+          if (!createSession) throw new Error("Frame CDP sessions are unavailable");
+          targetCdp = await createSession.call(context, target.frame);
+          passwordFrameCdpSessions.set(target.frame, targetCdp);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (message.includes("part of the parent frame's session") && mainCdp) {
+            passwordParentCoveredFrames.add(target.frame);
+            passwordPresent = await searchCdpForPassword(mainCdp);
+            if (passwordPresent !== null) break;
+          }
+        }
+      }
+      if (attempt + 1 < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+      }
+    }
+    if (passwordPresent === null) {
+      fullyObserved = false;
+      if (target.frame) forgetPasswordFrame(target.frame);
+      continue;
+    }
+    if (passwordPresent) {
+      await reportPasswordPresence(sessionId);
+    }
+  }
+  try {
+    const framesAfterSearch = page.frames();
+    if (
+      framesAfterSearch.length !== frameSnapshot.length ||
+      framesAfterSearch.some((frame, index) => frame !== frameSnapshot[index])
+    ) {
+      fullyObserved = false;
+    }
+  } catch {
+    fullyObserved = false;
+  }
+
   for (const observation of observations) {
-    if (observation.unavailable && !(await observationFailureIsRelevant(opts))) continue;
+    if (observation.unavailable) {
+      fullyObserved = false;
+      continue;
+    }
     if (observation.passwordPresent) {
-      await restrictBrowserRecording(sessionId).catch(() => undefined);
+      await reportPasswordPresence(sessionId);
     }
     for (const listener of sensitiveValueListeners) {
       try {
-        if (observation.passwordPresent) {
-          await listener(sessionId, "", "password-present");
-        }
         for (const value of observation.passwordValues) {
           await listener(sessionId, value, "password-value");
         }
@@ -1426,6 +2012,10 @@ export async function observeRuntimePasswordValues(
       }
     }
   }
+  if (!fullyObserved && opts?.failClosedIfUnavailable && !opts.discardIfUnavailable) {
+    await reportPasswordPresence(sessionId);
+  }
+  return fullyObserved;
 }
 
 /**
