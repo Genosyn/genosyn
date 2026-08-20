@@ -151,13 +151,21 @@ export default function RepositoriesIndex({ company }: { company: Company }) {
   );
 }
 
-/**
- * How a repository is reached, in words rather than the stored enum. "Public"
- * and "Private · SSH key" are facts someone can act on; `NONE` is not.
- */
+/** How a repository is reached, in words rather than the stored enum. */
 export function signInLabel(repo: Repository): string {
   if (repo.origin === "local") return "Only in Genosyn";
-  if (repo.authMode === "none") return "Public";
+  if (repo.authMode === "none") {
+    try {
+      const remote = new URL(repo.gitUrl);
+      if (remote.protocol === "https:" && remote.hostname.toLowerCase() === "github.com") {
+        return repo.githubConnectionId ? "GitHub Connection" : "GitHub Connection or public";
+      }
+    } catch {
+      // Unsafe legacy URLs are hidden by the API and described without
+      // guessing at their sign-in source.
+    }
+    return "No stored sign-in";
+  }
   return `Private · ${repo.authMode === "ssh" ? "SSH key" : "Token"}`;
 }
 

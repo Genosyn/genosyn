@@ -1893,6 +1893,8 @@ export type Repository = {
   gitUrl: string;
   origin: RepositoryOrigin;
   kind: RepositoryKind;
+  /** The GitHub Connection pinned when Genosyn published this repository. */
+  githubConnectionId: string | null;
   defaultBranch: string;
   authMode: RepositoryAuthMode;
   httpsUsername: string | null;

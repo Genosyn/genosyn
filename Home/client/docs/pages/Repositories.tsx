@@ -41,10 +41,10 @@ export function Repositories() {
             def: (
               <>
                 <Strong>Remote</Strong> — a clone of any HTTPS or SSH git URL: GitHub, GitLab,
-                Bitbucket, a self-hosted Gitea, anything git speaks to.{" "}
-                <Strong>Local</Strong> — created empty inside Genosyn with <Code>git init</Code> and
-                no clone URL at all, so a versioned set of documents needs no git host. A local one
-                can be connected to GitHub later without that having been the plan.
+                Bitbucket, a self-hosted Gitea, anything git speaks to. <Strong>Local</Strong> —
+                created empty inside Genosyn with <Code>git init</Code> and no clone URL at all, so
+                a versioned set of documents needs no git host. A local one can be connected to
+                GitHub later without that having been the plan.
               </>
             ),
           },
@@ -88,7 +88,9 @@ export function Repositories() {
         </LI>
         <LI>
           Open the repository. For a remote one, <Strong>Test connection</Strong> confirms Genosyn
-          can reach it and detects the default branch.
+          can reach it and detects the default branch. The check uses the repository&apos;s token or
+          SSH key when one is stored; otherwise it uses a pinned or sole GitHub Connection when one
+          is available, and anonymous access when none is available.
         </LI>
       </OL>
       <P>
@@ -127,12 +129,12 @@ export function Repositories() {
       <P>
         The other route is to paste the clone URL of an <Strong>empty</Strong> repository you made
         yourself — on GitLab, Bitbucket, a self-hosted Gitea, anywhere — and let Genosyn push into
-        that. A github.com HTTPS URL authenticates through a Connection as above; for any other
-        host you can supply an HTTPS token or an SSH key in the same step, and it is stored
-        encrypted exactly as it would be on a repository you cloned. Leave the credentials blank
-        for a remote that accepts anonymous writes. A remote that already has commits is refused
-        with an explanation rather than force-pushed — the right move there is usually to add the
-        existing repository as a Repository of its own.
+        that. A github.com HTTPS URL authenticates through a Connection as above; for any other host
+        you can supply an HTTPS token or an SSH key in the same step, and it is stored encrypted
+        exactly as it would be on a repository you cloned. Leave the credentials blank for a remote
+        that accepts anonymous writes. A remote that already has commits is refused with an
+        explanation rather than force-pushed — the right move there is usually to add the existing
+        repository as a Repository of its own.
       </P>
       <UL>
         <LI>
@@ -186,9 +188,9 @@ export function Repositories() {
           opened at an older revision.
         </LI>
         <LI>
-          <Strong>Search</Strong> finds text anywhere in the checkout: literal and
-          case-insensitive, including files nobody has committed yet, skipping ignored ones. AI
-          Employees have had the same search all along; Members have it now too.
+          <Strong>Search</Strong> finds text anywhere in the checkout: literal and case-insensitive,
+          including files nobody has committed yet, skipping ignored ones. AI Employees have had the
+          same search all along; Members have it now too.
         </LI>
         <LI>
           The changed-files list comes from <Code>git status</Code>. Review a per-file diff or the
@@ -265,19 +267,19 @@ export function Repositories() {
         </LI>
         <LI>
           Read the report and the diff. If it is not right yet, <Strong>ask for changes</Strong> in
-          the composer at the bottom of the session — the same employee picks up in the same
-          working copy, on the same branch, with everything it already did replayed to it, and
-          commits the change on top. Every instruction and every report stays in the transcript,
-          and each one shows what that turn alone changed.
+          the composer at the bottom of the session — the same employee picks up in the same working
+          copy, on the same branch, with everything it already did replayed to it, and commits the
+          change on top. Every instruction and every report stays in the transcript, and each one
+          shows what that turn alone changed.
         </LI>
         <LI>When it is right, accept the work, send it on, or open a pull request for it.</LI>
       </OL>
       <P>
         <Strong>Everything this session changed</Strong> lists the files rather than printing them.
         Each row carries the path, whether the file was added, modified, deleted or renamed, and how
-        many lines moved; clicking one opens that file&apos;s diff, and <Strong>Expand all</Strong>
-        {" "}opens every one. A change small enough to read at a glance — a file or two, a hundred
-        lines or so — opens itself, because hiding a two-line fix behind a click helps nobody.
+        many lines moved; clicking one opens that file&apos;s diff, and <Strong>Expand all</Strong>{" "}
+        opens every one. A change small enough to read at a glance — a file or two, a hundred lines
+        or so — opens itself, because hiding a two-line fix behind a click helps nobody.
       </P>
       <KeyList
         rows={[
@@ -298,7 +300,10 @@ export function Repositories() {
             term: "published",
             def: "You merged the branch into the shared checkout, and for a remote repository it was pushed.",
           },
-          { term: "discarded", def: "You rejected the work; the worktree and its branch are gone." },
+          {
+            term: "discarded",
+            def: "You rejected the work; the worktree and its branch are gone.",
+          },
           {
             term: "failed",
             def: "The last turn errored, or its result could not be read afterwards. Ask again to retry on the same branch — earlier commits are kept.",
@@ -335,8 +340,8 @@ export function Repositories() {
       <P>
         Ask for changes afterwards and the button becomes <Strong>Update pull request</Strong>: the
         new commits are pushed onto the same branch and the pull request that is already open picks
-        them up. Genosyn never opens a second one for the same branch. The credential comes from
-        the repository&apos;s stored token or the company&apos;s{" "}
+        them up. Genosyn never opens a second one for the same branch. The credential comes from the
+        repository&apos;s stored token or the company&apos;s{" "}
         <DocLink to="/docs/integrations">GitHub Connection</DocLink>, is used only by the server,
         and — like every push — this is owner and admin only.
       </P>
@@ -357,10 +362,10 @@ export function Repositories() {
       </P>
       <P>
         The session runs beside the conversation rather than inside it, so the employee replies
-        straight away with a link to the repository&apos;s <Strong>AI work</Strong> page instead
-        of making you wait — a session may take minutes, and you stay free to keep talking to the
-        same employee meanwhile. It appears there exactly like one you started yourself, and you
-        review, publish, or discard it the same way.
+        straight away with a link to the repository&apos;s <Strong>AI work</Strong> page instead of
+        making you wait — a session may take minutes, and you stay free to keep talking to the same
+        employee meanwhile. It appears there exactly like one you started yourself, and you review,
+        publish, or discard it the same way.
       </P>
       <Callout kind="warn" title="Starting work is not the same as shipping it.">
         Nothing changes about who decides. A session started from chat lands on its own branch and
@@ -405,13 +410,13 @@ export function Repositories() {
           <DocLink to="/docs/integrations">Connections</DocLink> instead of a stored credential —
           the one the repository was connected with, or the only one there is. With several and
           nothing pinned it refuses rather than guessing which account should push the
-          company&apos;s work. Local repositories always use this mode; there is no remote to
-          authenticate to.
+          company&apos;s work. <Strong>Test connection</Strong> follows the same rule. Local
+          repositories always use this mode; there is no remote to authenticate to.
         </LI>
         <LI>
-          <Strong>HTTPS token / password.</Strong> A username plus a token: <Code>x-access-token</Code>{" "}
-          for GitHub, <Code>oauth2</Code> for GitLab, your account name for Bitbucket. Use the
-          narrowest repository scope your host offers.
+          <Strong>HTTPS token / password.</Strong> A username plus a token:{" "}
+          <Code>x-access-token</Code> for GitHub, <Code>oauth2</Code> for GitLab, your account name
+          for Bitbucket. Use the narrowest repository scope your host offers.
         </LI>
         <LI>
           <Strong>SSH private key.</Strong> A private key whose public half is a deploy key on your
@@ -440,9 +445,9 @@ export function Repositories() {
           the tree.
         </LI>
         <LI>
-          Nothing an AI Employee produced reaches the remote unless a Member reviews it and an
-          owner or admin pushes it. Commits, pushes, work sessions, and publishes are all written to
-          the audit log.
+          Nothing an AI Employee produced reaches the remote unless a Member reviews it and an owner
+          or admin pushes it. Commits, pushes, work sessions, and publishes are all written to the
+          audit log.
         </LI>
       </UL>
 
@@ -461,19 +466,19 @@ export function Repositories() {
         fell back, which is what a container created without{" "}
         <Code>--security-opt seccomp=unconfined --security-opt systempaths=unconfined</Code> does.{" "}
         <Code>genosyn upgrade</Code> recreates such a container with them. A
-        subscription-authenticated model needs that working bubblewrap either way.
-        See{" "}
+        subscription-authenticated model needs that working bubblewrap either way. See{" "}
         <DocLink to="/docs/models">AI Models</DocLink> for the modes and{" "}
         <DocLink to="/docs/self-hosting">Configuration</DocLink> for the setting. The browser editor
         and AI work sessions above need none of this.
       </Callout>
       <P>
-        The two <Strong>AI access</Strong> levels apply to that checkout. <Strong>Work locally</Strong>{" "}
-        tells the employee it may branch, edit, and commit there; <Strong>Reference only</Strong>{" "}
-        keeps it for reading. Neither level places a reusable credential in a model-controlled tool,
-        so a credentialed push is not something an employee can perform from its own shell — that is
-        what publishing a work session, or a Member pushing the reported branch, is for. Existing
-        checkouts are only fetched between Runs, never hard-reset, so work in progress survives.
+        The two <Strong>AI access</Strong> levels apply to that checkout.{" "}
+        <Strong>Work locally</Strong> tells the employee it may branch, edit, and commit there;{" "}
+        <Strong>Reference only</Strong> keeps it for reading. Neither level places a reusable
+        credential in a model-controlled tool, so a credentialed push is not something an employee
+        can perform from its own shell — that is what publishing a work session, or a Member pushing
+        the reported branch, is for. Existing checkouts are only fetched between Runs, never
+        hard-reset, so work in progress survives.
       </P>
 
       <H3 id="vs-github">Repositories vs. the GitHub integration</H3>

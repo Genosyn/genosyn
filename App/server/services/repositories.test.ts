@@ -5,9 +5,11 @@ import os from "node:os";
 import path from "node:path";
 import {
   adoptLegacyCheckout,
+  encryptRepoSecret,
   findGithubRepoCredential,
   testRepositoryConnection,
 } from "./repositories.js";
+import type { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import type { Repository } from "../db/entities/Repository.js";
 import type { GithubRepoCredential } from "./repoSync.js";
 import { config } from "../../config.js";
@@ -57,6 +59,154 @@ test("requires an allowlist match to disambiguate multiple GitHub Connections", 
     findGithubRepoCredential("https://github.com/acme/web.git", [otherConnection, credential]),
     credential,
   );
+});
+
+describe("testing a Repository connection", () => {
+  const githubConnection = { id: "github-connection" } as IntegrationConnection;
+  const remote = {
+    companyId: "company-1",
+    authMode: "none",
+    gitUrl: "https://github.com/acme/private.git",
+  } as Repository;
+
+  test("reuses the pinned-or-sole GitHub Connection for a credential-free remote", async () => {
+    let capturedEnv: Record<string, string> | undefined;
+    let capturedHelper: string | undefined;
+
+    const result = await testRepositoryConnection(remote, {
+      resolveConnectionForRemote: async () => ({
+        kind: "one",
+        connection: githubConnection,
+      }),
+      resolveConnectionToken: async (connection) => {
+        assert.equal(connection, githubConnection);
+        return { token: "connection-token", login: "acme" };
+      },
+      runGit: async (_workspaceRoot, _cwd, args, extraEnv, credentialHelper) => {
+        assert.deepEqual(args, ["ls-remote", "--symref", remote.gitUrl, "HEAD"]);
+        capturedEnv = extraEnv;
+        capturedHelper = credentialHelper;
+        return { stdout: "ref: refs/heads/trunk\tHEAD\n012345\tHEAD\n" };
+      },
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      message: "Repository is reachable.",
+      defaultBranch: "trunk",
+    });
+    assert.equal(capturedEnv?.GENOSYN_REPO_TOKEN_CONNECTION_TEST, "connection-token");
+    assert.match(capturedHelper ?? "", /GENOSYN_REPO_TOKEN_CONNECTION_TEST/);
+    assert.doesNotMatch(capturedHelper ?? "", /connection-token/);
+  });
+
+  test("keeps testing anonymously when no GitHub Connection exists", async () => {
+    let resolvedToken = false;
+    const result = await testRepositoryConnection(remote, {
+      resolveConnectionForRemote: async () => ({ kind: "none" }),
+      resolveConnectionToken: async () => {
+        resolvedToken = true;
+        return { token: "unused", login: "unused" };
+      },
+      runGit: async (_workspaceRoot, _cwd, _args, extraEnv, credentialHelper) => {
+        assert.deepEqual(extraEnv, {});
+        assert.equal(credentialHelper, undefined);
+        return { stdout: "ref: refs/heads/main\tHEAD\n012345\tHEAD\n" };
+      },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.defaultBranch, "main");
+    assert.equal(resolvedToken, false);
+  });
+
+  test("explains an ambiguous private GitHub remote without exposing askpass plumbing", async () => {
+    const result = await testRepositoryConnection(remote, {
+      resolveConnectionForRemote: async () => ({
+        kind: "ambiguous",
+        connections: [githubConnection, { id: "other" } as IntegrationConnection],
+      }),
+      runGit: async () => {
+        throw new Error(
+          "git ls-remote failed: error: unable to read askpass response from '/bin/false' | " +
+            "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+        );
+      },
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.message, /more than one GitHub Connection/i);
+    assert.doesNotMatch(result.message, /askpass|\/bin\/false|terminal prompts/i);
+  });
+
+  test("explains missing authentication without exposing askpass plumbing", async () => {
+    const result = await testRepositoryConnection(remote, {
+      resolveConnectionForRemote: async () => ({ kind: "none" }),
+      runGit: async () => {
+        throw new Error("git ls-remote failed: fatal: unable to get password from user");
+      },
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.message, /requires sign-in/i);
+    assert.match(result.message, /Settings → Integrations/);
+    assert.doesNotMatch(result.message, /askpass|\/bin\/false|unable to get password/i);
+  });
+
+  test("keeps a stored HTTPS token ahead of any GitHub Connection", async () => {
+    const token = "stored-repository-token";
+    let resolvedConnection = false;
+    const result = await testRepositoryConnection(
+      {
+        ...remote,
+        authMode: "https",
+        httpsUsername: "repository-user",
+        encryptedToken: encryptRepoSecret(token, remote.companyId),
+      } as Repository,
+      {
+        resolveConnectionForRemote: async () => {
+          resolvedConnection = true;
+          return { kind: "one", connection: githubConnection };
+        },
+        runGit: async (_workspaceRoot, _cwd, _args, extraEnv, credentialHelper) => {
+          assert.equal(extraEnv?.GENOSYN_REPO_TOKEN_CONNECTION_TEST, token);
+          assert.match(credentialHelper ?? "", /repository-user/);
+          return { stdout: "ref: refs/heads/main\tHEAD\n012345\tHEAD\n" };
+        },
+      },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(resolvedConnection, false);
+  });
+
+  test("keeps the stored SSH key path for SSH repositories", async () => {
+    const privateKey = "-----BEGIN TEST KEY-----\nprivate material\n-----END TEST KEY-----";
+    let resolvedConnection = false;
+    const result = await testRepositoryConnection(
+      {
+        ...remote,
+        authMode: "ssh",
+        gitUrl: "git@github.com:acme/private.git",
+        encryptedSshKey: encryptRepoSecret(privateKey, remote.companyId),
+      } as Repository,
+      {
+        resolveConnectionForRemote: async () => {
+          resolvedConnection = true;
+          return { kind: "one", connection: githubConnection };
+        },
+        runGit: async (_workspaceRoot, cwd, _args, extraEnv, credentialHelper) => {
+          assert.equal(fs.readFileSync(path.join(cwd, "key"), "utf8"), `${privateKey}\n`);
+          assert.match(extraEnv?.GIT_SSH_COMMAND ?? "", /ssh -i/);
+          assert.equal(credentialHelper, undefined);
+          return { stdout: "ref: refs/heads/main\tHEAD\n012345\tHEAD\n" };
+        },
+      },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(resolvedConnection, false);
+  });
 });
 
 /**

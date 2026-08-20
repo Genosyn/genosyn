@@ -188,9 +188,9 @@ export function RepoFormFields({
 
       {form.origin === "remote" && form.authMode === "none" && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Public repositories clone anonymously. For an HTTPS GitHub URL, Genosyn automatically
-          reuses a matching GitHub Connection granted to the same AI employee for server-owned clone
-          and refresh operations.
+          Public repositories clone anonymously. For an HTTPS GitHub URL, Genosyn can reuse the
+          company&apos;s pinned or sole GitHub Connection. Grant that Connection to an AI employee
+          too when it should receive its own checkout.
         </p>
       )}
 

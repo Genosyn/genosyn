@@ -21,6 +21,7 @@ import {
   inlineEnvCredentialHelper,
 } from "./gitCredentialHelper.js";
 import type { GithubRepoCredential } from "./repoSync.js";
+import { resolveConnectionForRemote, resolveConnectionToken } from "./repositoryGithub.js";
 import { runWorkspaceGit } from "./workspaceGit.js";
 import { cloneWorkspaceGitRemote, fetchWorkspaceGitRemote } from "./workspaceGitRemote.js";
 import {
@@ -298,7 +299,6 @@ export async function materializeRepositoriesForEmployee(args: {
   return result;
 }
 
-
 /**
  * Move a checkout left at the pre-rename `code-repos/<slug>` path to
  * `repositories/<slug>`.
@@ -485,20 +485,72 @@ export type TestConnectionResult = {
   defaultBranch?: string;
 };
 
+type TestConnectionDependencies = {
+  resolveConnectionForRemote: typeof resolveConnectionForRemote;
+  resolveConnectionToken: typeof resolveConnectionToken;
+  runGit: typeof runGit;
+};
+
+const testConnectionDependencies: TestConnectionDependencies = {
+  resolveConnectionForRemote,
+  resolveConnectionToken,
+  runGit,
+};
+
+type ConnectionAuthAttempt = "stored" | "connection" | "anonymous" | "ambiguous";
+
+const NON_INTERACTIVE_AUTH_FAILURE =
+  /askpass|could not read username|unable to get password|terminal prompts disabled|authentication failed/i;
+
+/** Turn Git's non-interactive plumbing errors into guidance a Member can act on. */
+function describeConnectionTestFailure(
+  error: unknown,
+  repo: Repository,
+  authAttempt: ConnectionAuthAttempt,
+): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (repo.authMode !== "none" || !NON_INTERACTIVE_AUTH_FAILURE.test(message)) return message;
+
+  if (authAttempt === "ambiguous") {
+    return (
+      "This repository requires sign-in, but more than one GitHub Connection is available and " +
+      "none is linked to this repository. Choose a token/password or SSH private key in the " +
+      "repository settings."
+    );
+  }
+  if (authAttempt === "connection") {
+    return (
+      "The GitHub Connection could not authenticate to this repository. Reconnect it in " +
+      "Settings → Integrations and confirm that account can access the repository."
+    );
+  }
+  return (
+    "This repository requires sign-in. Choose a token/password or SSH private key in the " +
+    "repository settings. For GitHub, you can also add a GitHub Connection in Settings → " +
+    "Integrations."
+  );
+}
+
 /**
  * Probe a repo's credentials with `git ls-remote --symref <url> HEAD` in a
  * throwaway temp dir. Surfaces whether the clone URL + credentials actually
  * authenticate, and the remote's default branch, before the operator grants
  * an employee access.
  */
-export async function testRepositoryConnection(repo: Repository): Promise<TestConnectionResult> {
+export async function testRepositoryConnection(
+  repo: Repository,
+  dependencyOverrides: Partial<TestConnectionDependencies> = {},
+): Promise<TestConnectionResult> {
+  const dependencies = { ...testConnectionDependencies, ...dependencyOverrides };
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-repo-"));
+  let authAttempt: ConnectionAuthAttempt = "anonymous";
   try {
     assertSafeGitRemoteUrl(repo.gitUrl);
     const env: Record<string, string> = {};
     let credentialHelper: string | undefined;
 
     if (repo.authMode === "https") {
+      authAttempt = "stored";
       const token = decryptRepositorySecret(repo.encryptedToken);
       if (!token) {
         return {
@@ -516,6 +568,7 @@ export async function testRepositoryConnection(repo: Repository): Promise<TestCo
       env[envKey] = token;
       credentialHelper = inlineEnvCredentialHelper(httpsUsernameOf(repo), envKey, repo.gitUrl);
     } else if (repo.authMode === "ssh") {
+      authAttempt = "stored";
       const key = decryptRepositorySecret(repo.encryptedSshKey);
       if (!key) {
         return { ok: false, message: "No SSH key is set. Add one and try again." };
@@ -525,6 +578,23 @@ export async function testRepositoryConnection(repo: Repository): Promise<TestCo
         mode: 0o600,
       });
       env.GIT_SSH_COMMAND = sshCommandFor(workspaceVisiblePath(tmp, keyPath));
+    } else {
+      // Match the App-owned clone/fetch/push path: a credential-free GitHub
+      // Repository may reuse the Connection it was published with, or the sole
+      // connected GitHub account when there is nothing to disambiguate.
+      const resolved = await dependencies.resolveConnectionForRemote(repo);
+      if (resolved.kind === "one") {
+        const { token } = await dependencies.resolveConnectionToken(resolved.connection);
+        assertSafeCredentialToken(token);
+        const envKey = "GENOSYN_REPO_TOKEN_CONNECTION_TEST";
+        env[envKey] = token;
+        credentialHelper = inlineEnvCredentialHelper("x-access-token", envKey, repo.gitUrl);
+        authAttempt = "connection";
+      } else if (resolved.kind === "ambiguous") {
+        // Still try anonymously: the repository may be public. Keep the reason
+        // only so a private repository gets useful guidance if that fails.
+        authAttempt = "ambiguous";
+      }
     }
 
     // Server-owned: `tmp` is an empty directory this function just created,
@@ -534,7 +604,7 @@ export async function testRepositoryConnection(repo: Repository): Promise<TestCo
     // left the one diagnostic that explains a bad URL or an expired token
     // dead on installs that clone, fetch and push the server-owned checkout
     // over the very same exemption.
-    const { stdout } = await runGit(
+    const { stdout } = await dependencies.runGit(
       tmp,
       tmp,
       ["ls-remote", "--symref", repo.gitUrl, "HEAD"],
@@ -545,13 +615,13 @@ export async function testRepositoryConnection(repo: Repository): Promise<TestCo
     const m = stdout.match(/ref:\s+refs\/heads\/(\S+)\s+HEAD/);
     return {
       ok: true,
-      message: "Connected — credentials are valid.",
+      message: "Repository is reachable.",
       defaultBranch: m?.[1],
     };
   } catch (err) {
     return {
       ok: false,
-      message: err instanceof Error ? err.message : String(err),
+      message: describeConnectionTestFailure(err, repo, authAttempt),
     };
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });

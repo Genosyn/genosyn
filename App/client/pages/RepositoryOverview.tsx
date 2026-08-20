@@ -371,7 +371,7 @@ export default function RepositoryOverview() {
                 Connection health
               </h2>
               <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-                Verify the clone URL and stored credentials before assigning work.
+                Verify the clone URL and available sign-in before assigning work.
               </p>
             </div>
             <Button variant="secondary" onClick={test} disabled={testing}>
