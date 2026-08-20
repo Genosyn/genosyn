@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, before, beforeEach, describe, test } from "node:test";
+import vm from "node:vm";
 
 import { config } from "../../config.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -46,6 +47,7 @@ import {
   createBrowserSession,
   finalizeBrowserRecordingsForRun,
   flushBrowserRecordingFrameScans,
+  installStickyPasswordTaintForTests,
   invalidateBrowserRecordingFramesForNavigationForTests,
   markSessionLive,
   observeRuntimePasswordValues,
@@ -220,6 +222,70 @@ function installCleanPasswordRuntime(): {
 }
 
 describe("Routine browser recordings", () => {
+  test("does not taint a clean navigation when the reporter init script runs second", async () => {
+    const observers: Array<(records: Array<Record<string, unknown>>) => void> = [];
+    class FakeNode {}
+    class FakeElement extends FakeNode {
+      shadowRoot: FakeShadowRoot | null = null;
+      querySelectorAll(): FakeElement[] {
+        return [];
+      }
+      attachShadow(): FakeShadowRoot {
+        const root = new FakeShadowRoot();
+        this.shadowRoot = root;
+        return root;
+      }
+    }
+    class FakeInput extends FakeElement {
+      type = "password";
+    }
+    class FakeDocument extends FakeNode {
+      querySelectorAll(): FakeElement[] {
+        return [];
+      }
+    }
+    class FakeShadowRoot extends FakeNode {
+      querySelectorAll(): FakeElement[] {
+        return [];
+      }
+    }
+    class FakeMutationObserver {
+      constructor(callback: (records: Array<Record<string, unknown>>) => void) {
+        observers.push(callback);
+      }
+      observe(): void {}
+    }
+    const realm = {
+      Node: FakeNode,
+      Element: FakeElement,
+      HTMLInputElement: FakeInput,
+      Document: FakeDocument,
+      ShadowRoot: FakeShadowRoot,
+      MutationObserver: FakeMutationObserver,
+      document: new FakeDocument(),
+      setTimeout,
+      __name: <T>(value: T) => value,
+    } as Record<string, unknown>;
+    const source = `(${installStickyPasswordTaintForTests.toString()})({ key: "taint", reporterKey: "report" })`;
+
+    assert.equal(vm.runInNewContext(source, realm), false);
+
+    // Model the binding's sibling init script arriving after ours, then a
+    // transient password input that is removed before the next frame scan.
+    let reports = 0;
+    realm.report = () => {
+      reports += 1;
+    };
+    const password = new FakeInput();
+    for (const observer of observers) {
+      observer([{ type: "childList", addedNodes: [password] }]);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.equal(reports, 1);
+    assert.equal((realm.taint as () => boolean)(), true);
+  });
+
   test("budgets enough bytes for a maximum-length Routine recording", () => {
     const maximumVideoPayloadBytes =
       (BROWSER_RECORDING_MAX_BITRATE_BITS_PER_SECOND * BROWSER_RECORDING_MAX_RUN_SECONDS) / 8;
@@ -754,7 +820,10 @@ describe("Routine browser recordings", () => {
     installCleanPasswordRuntime();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
-    acceptBrowserRecordingFrame(session.id, Buffer.from("last-authorized-frame").toString("base64"));
+    acceptBrowserRecordingFrame(
+      session.id,
+      Buffer.from("last-authorized-frame").toString("base64"),
+    );
     const releaseActivity = beginBrowserRpcActivity(session);
     assert.ok(releaseActivity);
 
@@ -833,10 +902,7 @@ describe("Routine browser recordings", () => {
 
     assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
     assert.equal(browserRecordingDemand(session.id), false);
-    await assert.rejects(
-      fs.stat(browserRecordingFile(company.id, run.id, session.id)),
-      /ENOENT/,
-    );
+    await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
   });
 
   test("company deletion waits for an encoder still starting before removing its tree", async () => {

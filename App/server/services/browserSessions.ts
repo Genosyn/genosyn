@@ -92,30 +92,46 @@ function installStickyPasswordTaint(args: { key: string; reporterKey: string }):
     }
   }
 
-  // Capture the Playwright binding before page code can replace the global
-  // property. If it was not installed first, taint immediately: an observer
-  // whose report channel is missing cannot make a cross-navigation privacy
-  // claim.
-  const exposedReporter = scope[reporterKey];
-  const reportTaint =
-    typeof exposedReporter === "function"
-      ? () => (exposedReporter as () => unknown).call(scope)
-      : null;
-  let tainted = reportTaint === null;
-  const observedRoots = new WeakSet<Node>();
-  const mark = () => {
-    if (tainted) return;
-    tainted = true;
-    if (reportTaint) {
+  // `exposeBinding` and `addInitScript` both install document-start scripts,
+  // but Playwright does not guarantee the order in which separate init
+  // scripts run. A clean navigation may therefore execute this observer a
+  // moment before the binding global exists. That is not evidence of a
+  // password field: remember a real taint locally and resolve the randomized
+  // reporter lazily once the sibling init script has installed it.
+  let tainted = false;
+  let reported = false;
+  let reportAttempts = 0;
+  const reportTaint = () => {
+    if (!tainted || reported) return;
+    const exposedReporter = scope[reporterKey];
+    if (typeof exposedReporter !== "function") return;
+    try {
+      reported = true;
       // Playwright's binding call emits a Runtime.bindingCalled event
       // immediately. The returned promise need not survive navigation: Node
       // has already received the session taint and persists the restriction.
-      try {
-        void reportTaint();
-      } catch {
-        // The sticky in-document bit remains the fallback for the next scan.
-      }
+      void (exposedReporter as () => unknown).call(scope);
+    } catch {
+      reported = false;
     }
+  };
+  const retryReportTaint = () => {
+    if (!tainted || reported || reportAttempts >= 8) return;
+    reportAttempts += 1;
+    setTimeout(() => {
+      reportTaint();
+      retryReportTaint();
+    }, 0);
+  };
+  const observedRoots = new WeakSet<Node>();
+  const mark = () => {
+    tainted = true;
+    reportTaint();
+    // When our init script won the ordering race, the binding arrives before
+    // page content runs. A short bounded retry bridges that document-start
+    // window without treating a clean page as sensitive. The sticky bit is
+    // still checked by every frame/final scan if the binding truly vanished.
+    retryReportTaint();
   };
   try {
     Object.defineProperty(scope, key, {
@@ -191,6 +207,9 @@ function installStickyPasswordTaint(args: { key: string; reporterKey: string }):
   }
   return tainted;
 }
+
+/** Test seam for exercising the exact document-start script in an isolated realm. */
+export const installStickyPasswordTaintForTests = installStickyPasswordTaint;
 
 /** Test seam for final-scan failures without launching Chromium. */
 export function setPasswordObservationRuntimeForTests(
@@ -1264,10 +1283,7 @@ export async function observeRuntimePasswordValues(
   const runtime = passwordObservationRuntime(sessionId) as { page?: unknown } | null | undefined;
   const page = runtime?.page as
     | {
-        exposeBinding?: (
-          name: string,
-          callback: () => void | Promise<void>,
-        ) => Promise<void>;
+        exposeBinding?: (name: string, callback: () => void | Promise<void>) => Promise<void>;
         addInitScript?: (
           script: (args: { key: string; reporterKey: string }) => boolean,
           arg: { key: string; reporterKey: string },
