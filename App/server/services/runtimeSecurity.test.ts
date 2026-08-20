@@ -23,7 +23,6 @@ type MutableConfig = {
       bubblewrapPath: string;
       executionMode: "host" | "bubblewrap" | "disabled";
     };
-    maxConcurrentRunsPerCompany: number;
   };
   db: {
     driver: "sqlite" | "postgres";
@@ -62,7 +61,6 @@ afterEach(() => {
     original.agent.codingTools.allowUnsafeHostExecution;
   mutable.agent.codingTools.bubblewrapPath = original.agent.codingTools.bubblewrapPath;
   mutable.agent.codingTools.executionMode = original.agent.codingTools.executionMode;
-  mutable.agent.maxConcurrentRunsPerCompany = original.agent.maxConcurrentRunsPerCompany;
   mutable.db.driver = original.db.driver;
   mutable.db.postgresUrl = original.db.postgresUrl;
   mutable.db.sqlitePath = original.db.sqlitePath;
@@ -140,10 +138,6 @@ test("numeric runtime invariants fail before boot", () => {
   assert.throws(validateRuntimeSecurity, /trustedProxyHops must be a non-negative integer/);
 
   mutable.security.trustedProxyHops = 0;
-  mutable.agent.maxConcurrentRunsPerCompany = 0;
-  assert.throws(validateRuntimeSecurity, /maxConcurrentRunsPerCompany must be at least 1/);
-
-  mutable.agent.maxConcurrentRunsPerCompany = 1;
   mutable.security.sessionMaxAgeDays = 31;
   assert.throws(validateRuntimeSecurity, /sessionMaxAgeDays must be between 1 and 30/);
 });

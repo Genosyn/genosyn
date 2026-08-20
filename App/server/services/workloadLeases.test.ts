@@ -6,10 +6,9 @@ import { WorkloadLease } from "../db/entities/WorkloadLease.js";
 import { AppDataSource } from "../db/datasource.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import {
-  acquireWorkloadLease,
+  acquireChatWorkloadLease,
   EmployeeWorkloadBusyError,
-  releaseWorkloadLease,
-  WorkloadLimitError,
+  releaseChatWorkloadLease,
 } from "./workloadLeases.js";
 
 before(initTestDb);
@@ -24,73 +23,73 @@ async function company(): Promise<Company> {
   });
 }
 
-describe("workload leases", () => {
-  test("allows a chat and independent Routines to run for the same employee", async () => {
+describe("chat workload leases", () => {
+  test("serializes concurrent chat replies for one employee", async () => {
     const co = await company();
 
-    const [firstRoutine, chat, secondRoutine] = await Promise.all([
-      acquireWorkloadLease(co.id, "employee_1", "routine", 60_000),
-      acquireWorkloadLease(co.id, "employee_1", "chat", 60_000),
-      acquireWorkloadLease(co.id, "employee_1", "routine", 60_000),
+    const attempts = await Promise.allSettled([
+      acquireChatWorkloadLease(co.id, "employee_1", 60_000),
+      acquireChatWorkloadLease(co.id, "employee_1", 60_000),
     ]);
-
-    assert.deepEqual(
-      [firstRoutine.kind, chat.kind, secondRoutine.kind].sort(),
-      ["chat", "routine", "routine"],
-    );
-    assert.equal(
-      await AppDataSource.getRepository(WorkloadLease).countBy({ employeeId: "employee_1" }),
-      3,
-    );
+    assert.equal(attempts.filter((attempt) => attempt.status === "fulfilled").length, 1);
+    const rejected = attempts.find((attempt) => attempt.status === "rejected");
+    assert.ok(rejected && rejected.status === "rejected");
+    assert.ok(rejected.reason instanceof EmployeeWorkloadBusyError);
   });
 
   test("serializes chat turns for one employee without blocking other employees", async () => {
     const co = await company();
-    const first = await acquireWorkloadLease(co.id, "employee_1", "chat", 60_000);
+    const first = await acquireChatWorkloadLease(co.id, "employee_1", 60_000);
 
     await assert.rejects(
-      () => acquireWorkloadLease(co.id, "employee_1", "chat", 60_000),
+      () => acquireChatWorkloadLease(co.id, "employee_1", 60_000),
       EmployeeWorkloadBusyError,
     );
-    const otherEmployee = await acquireWorkloadLease(co.id, "employee_2", "chat", 60_000);
+    const otherEmployee = await acquireChatWorkloadLease(co.id, "employee_2", 60_000);
     assert.equal(otherEmployee.employeeId, "employee_2");
 
-    await releaseWorkloadLease(first);
-    const next = await acquireWorkloadLease(co.id, "employee_1", "chat", 60_000);
+    await releaseChatWorkloadLease(first);
+    const next = await acquireChatWorkloadLease(co.id, "employee_1", 60_000);
     assert.equal(next.employeeId, "employee_1");
   });
 
-  test("keeps the company-wide capacity ceiling across chats and Runs", async () => {
+  test("does not impose a company-wide concurrency ceiling", async () => {
     const co = await company();
-    await Promise.all([
-      acquireWorkloadLease(co.id, "employee_1", "routine", 60_000),
-      acquireWorkloadLease(co.id, "employee_1", "chat", 60_000),
-      acquireWorkloadLease(co.id, "employee_1", "routine", 60_000),
-      acquireWorkloadLease(co.id, "employee_2", "chat", 60_000),
-    ]);
+    const employees = Array.from({ length: 12 }, (_, index) => `employee_${index}`);
+    const leases = await Promise.all(
+      employees.map((employeeId) => acquireChatWorkloadLease(co.id, employeeId, 60_000)),
+    );
 
-    await assert.rejects(
-      () => acquireWorkloadLease(co.id, "employee_3", "routine", 60_000),
-      WorkloadLimitError,
+    assert.equal(leases.length, employees.length);
+    assert.equal(
+      await AppDataSource.getRepository(WorkloadLease).countBy({ companyId: co.id }),
+      12,
     );
   });
 
-  test("replaces the abandoned capacity lease for the same durable turn", async () => {
+  test("ignores a legacy Routine lease while acquiring a chat reply lease", async () => {
     const co = await company();
-    const first = await acquireWorkloadLease(
-      co.id,
-      "employee_1",
-      "chat",
-      60_000,
-      { ownerKey: "turn-1" },
-    );
-    const recovered = await acquireWorkloadLease(
-      co.id,
-      "employee_1",
-      "chat",
-      60_000,
-      { ownerKey: "turn-1" },
-    );
+    await insert(WorkloadLease, {
+      companyId: co.id,
+      employeeId: "employee_1",
+      kind: "routine",
+      ownerKey: null,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const chat = await acquireChatWorkloadLease(co.id, "employee_1", 60_000);
+
+    assert.equal(chat.kind, "chat");
+  });
+
+  test("replaces the abandoned reply lease for the same durable turn", async () => {
+    const co = await company();
+    const first = await acquireChatWorkloadLease(co.id, "employee_1", 60_000, {
+      ownerKey: "turn-1",
+    });
+    const recovered = await acquireChatWorkloadLease(co.id, "employee_1", 60_000, {
+      ownerKey: "turn-1",
+    });
 
     assert.notEqual(recovered.id, first.id);
     assert.equal(recovered.ownerKey, "turn-1");

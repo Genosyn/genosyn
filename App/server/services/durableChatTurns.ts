@@ -21,13 +21,13 @@ import { createChatTurnProgressRecorder } from "./chatTurnProgress.js";
 import { historicalAttachmentSummaries, inlineAttachmentsForMessage } from "./attachmentText.js";
 import { captureTurnActionsForAuthority } from "./turnActions.js";
 import { bindAttachmentsToMessage } from "./uploads.js";
-import { EmployeeWorkloadBusyError, WorkloadLimitError } from "./workloadLeases.js";
+import { EmployeeWorkloadBusyError } from "./workloadLeases.js";
 
 const MAX_REPLAY_TURNS = 20;
 const TURN_LEASE_MS = 15_000;
 const TURN_HEARTBEAT_MS = 5_000;
 const RECOVERY_POLL_MS = 5_000;
-const CAPACITY_RETRY_MS = 15_000;
+const BUSY_RETRY_MS = 15_000;
 const MAX_RECOVERIES_PER_SWEEP = 10;
 
 export type DurableChatTurnCallbacks = {
@@ -349,9 +349,9 @@ export async function executeDurableChatTurn(
       );
     } catch (error) {
       if (lostClaim) return "claimed_elsewhere";
-      if (error instanceof WorkloadLimitError || error instanceof EmployeeWorkloadBusyError) {
+      if (error instanceof EmployeeWorkloadBusyError) {
         await Promise.all([progressRecorder.flush(), contextUsageRecorder.flush()]);
-        const label = "Waiting for AI workload capacity";
+        const label = "Waiting for another reply";
         const deferred = await messageRepo.update(
           {
             id: claimedMessage.id,
@@ -360,7 +360,7 @@ export async function executeDurableChatTurn(
           },
           {
             turnWorkerId: null,
-            turnLeaseExpiresAt: new Date(Date.now() + CAPACITY_RETRY_MS),
+            turnLeaseExpiresAt: new Date(Date.now() + BUSY_RETRY_MS),
             progressLabel: label,
           },
         );

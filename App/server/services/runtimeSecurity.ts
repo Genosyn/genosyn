@@ -137,9 +137,6 @@ export function validateRuntimeSecurity(): void {
   if (!Number.isInteger(config.security.trustedProxyHops) || config.security.trustedProxyHops < 0) {
     throw new Error("config.security.trustedProxyHops must be a non-negative integer");
   }
-  if (config.agent.maxConcurrentRunsPerCompany < 1) {
-    throw new Error("config.agent.maxConcurrentRunsPerCompany must be at least 1");
-  }
   if (config.security.sessionMaxAgeDays < 1 || config.security.sessionMaxAgeDays > 30) {
     throw new Error("config.security.sessionMaxAgeDays must be between 1 and 30");
   }

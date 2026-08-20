@@ -29,9 +29,9 @@ export function SaasHosting() {
       />
 
       <Callout kind="warn" title="This is an operator mode, not a billing system.">
-        Multi-tenancy, isolation, authentication hardening, workload limits, and replica
-        coordination are built in. Plans, checkout, subscriptions, tax, and customer support
-        workflows are separate product decisions and are not created by this switch.
+        Multi-tenancy, isolation, authentication hardening, and replica coordination are built in.
+        Plans, checkout, subscriptions, tax, and customer support workflows are separate product
+        decisions and are not created by this switch.
       </Callout>
 
       <H2 id="baseline">Required production baseline</H2>
@@ -61,7 +61,6 @@ agent: {
     allowUnsafeHostExecution: false,
   },
   browserEnabledInMultiTenant: false,
-  maxConcurrentRunsPerCompany: 4,
 },
 db: {
   driver: "postgres",
@@ -128,10 +127,16 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         Each AI employee&apos;s shell runs inside Bubblewrap user, mount, PID, IPC, UTS, and network
         namespaces, plus a cgroup namespace where the kernel supports it. Only that employee&apos;s
         workspace is writable; the API process environment is not inherited. File tools resolve real
-        paths and reject symlink escapes. The hosted runtime lets Routine runs and chat continue in
-        parallel while capping total concurrent AI work per company. Two chat replies for one
-        employee remain serialized.
+        paths and reject symlink escapes. Top-level AI work, including Routine runs and chat, can
+        overlap without an application-level per-company cap. Two chat replies for one AI Employee
+        remain serialized.
       </P>
+      <Callout kind="warn" title="Plan capacity at the deployment and AI Model layers.">
+        Genosyn does not queue or cap top-level work by company. Provision enough replicas, CPU,
+        memory, and database capacity for the overlap your customers can create, and monitor each AI
+        Model provider&apos;s concurrency, token, spend, and rate limits. Provider-side throttling still
+        applies.
+      </Callout>
       <UL>
         <LI>Company secrets are not injected into hosted coding shells.</LI>
         <LI>Arbitrary stdio MCP servers are not started in shared SaaS mode.</LI>
@@ -157,10 +162,10 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
 
       <H2 id="replicas">Running more than one replica</H2>
       <P>
-        Postgres stores OAuth/OIDC/WebSocket handshake state, scheduler leases, workload leases, and
-        short-lived realtime fan-out records. Recurring work elects one replica, pending mail
-        handovers are claimed atomically, Telegram listeners fail over, and Postgres
-        <Code>LISTEN/NOTIFY</Code> carries authorized WebSocket events between replicas.
+        Postgres stores OAuth/OIDC/WebSocket handshake state, scheduler leases, same-AI-Employee
+        chat-reply leases, and short-lived realtime fan-out records. Recurring work elects one
+        replica, pending mail handovers are claimed atomically, Telegram listeners fail over, and
+        Postgres <Code>LISTEN/NOTIFY</Code> carries authorized WebSocket events between replicas.
       </P>
       <UL>
         <LI>

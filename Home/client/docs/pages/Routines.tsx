@@ -183,9 +183,10 @@ Post it to the #morning channel.`}</Pre>
       <P>
         Starting a Routine does not make its AI employee unavailable. You can keep chatting with
         that employee and start other independent Routines while the first Run continues. Genosyn
-        counts every top-level chat and Run against the company workload limit; the self-hosted
-        default is four. A second chat turn to the same employee waits for the first reply, but
-        Routine work never blocks the composer.
+        places no per-company ceiling on overlapping top-level AI work. A second chat reply for the
+        same AI Employee waits for the first reply, but Routine work never blocks the composer.
+        Your deployment operator and AI Model provider still determine real capacity, cost, and
+        rate limits.
       </P>
       <Callout kind="warn" title="Parallel work shares the employee workspace.">
         Reads are safe. For writes, use distinct output files and avoid simultaneous git operations
@@ -397,13 +398,6 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         Run that Genosyn marks interrupted after this recovery behavior is active receives the
         automatic attempt.
       </Callout>
-      <P>
-        The same pass releases the <Strong>workload lease</Strong> the dead run was holding. That
-        matters more than the status: without it the dead Run keeps consuming one of the
-        company&apos;s concurrent workload slots until the lease expires — up to an hour on the
-        default timeout.
-      </P>
-
       <H3 id="missed-slots">The server was off across scheduled slots</H3>
       <P>
         A routine fires <Strong>once</Strong> when the server comes back, never once per missed

@@ -26,7 +26,6 @@ import type { CompactionInfo, ToolDeferralInfo, ToolTrimInfo, TurnUsage } from "
 import { config } from "../../config.js";
 import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
-import { acquireWorkloadLease, releaseWorkloadLease } from "./workloadLeases.js";
 import { DurableRunLog, RUN_LOG_MAX_BYTES } from "./runLog.js";
 import { supportsParallelDelegation } from "./agent/tools/parallelDelegation.js";
 import { shouldMaterializeRepositoriesForTurn } from "./codexSubscription.js";
@@ -108,7 +107,7 @@ export type StartRunOptions = {
    * Internal scheduler seam, called at the last safe point before the Run row
    * is inserted. Retry dispatch uses it to renew and revalidate its durable
    * claim after all potentially slow start prerequisites have completed.
-   * Throwing aborts the start and releases any acquired workload lease.
+   * Throwing aborts the start before the Run row is written.
    *
    * @internal
    */
@@ -145,9 +144,6 @@ export async function startRoutineRun(
   // falling back to the employee's active model when it pins none.
   const { model, pinned } = await resolveRoutineModel(routine);
   const skills = await skillRepo.find({ where: { employeeId: emp.id } });
-  const workloadLease = model
-    ? await acquireWorkloadLease(co.id, emp.id, "routine", timeoutMs + 60_000)
-    : null;
 
   const missedSlots = opts.missedSlots ?? 0;
   const run = runRepo.create({
@@ -161,13 +157,8 @@ export async function startRoutineRun(
     missedSlots,
   });
   let saved: Run;
-  try {
-    await opts.beforeRunPersist?.();
-    saved = await runRepo.save(run);
-  } catch (error) {
-    await releaseWorkloadLease(workloadLease);
-    throw error;
-  }
+  await opts.beforeRunPersist?.();
+  saved = await runRepo.save(run);
   const deadlineAtMs = saved.startedAt.getTime() + timeoutMs;
 
   const checkpointState: { headerDurable: boolean; initialFailure?: unknown } = {
@@ -242,7 +233,6 @@ export async function startRoutineRun(
       }
     } finally {
       liveBuffers.delete(saved.id);
-      await releaseWorkloadLease(workloadLease);
     }
     throw err;
   }
@@ -493,7 +483,6 @@ export async function startRoutineRun(
       // Once the row has the final logContent, the live buffer is no longer the
       // source of truth — drop it so subsequent /log reads hit the DB.
       liveBuffers.delete(saved.id);
-      await releaseWorkloadLease(workloadLease);
     }
   })();
 

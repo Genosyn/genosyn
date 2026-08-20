@@ -13,7 +13,6 @@ import { runRestrictedEmployeeAgent } from "../agent/runEmployee.js";
 import type { AgentTool } from "../agent/types.js";
 import { getActiveModel } from "../models.js";
 import { isModelConnected } from "../providers.js";
-import { acquireWorkloadLease, releaseWorkloadLease } from "../workloadLeases.js";
 
 /** The model only sees this much of a newly-arrived message. */
 export const AI_RULE_BODY_CHARS = 24_000;
@@ -162,14 +161,7 @@ export async function runAiRuleDecision(
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), AI_RULE_TIMEOUT_MS);
-  let lease = null;
   try {
-    lease = await acquireWorkloadLease(
-      args.employee.companyId,
-      args.employee.id,
-      "routine",
-      AI_RULE_TIMEOUT_MS + 30_000,
-    );
     const result = await (dependencies.runRestricted ?? runRestrictedEmployeeAgent)({
       model: args.model,
       employeeId: args.employee.id,
@@ -197,7 +189,6 @@ export async function runAiRuleDecision(
     return decision;
   } finally {
     clearTimeout(timer);
-    await releaseWorkloadLease(lease);
   }
 }
 

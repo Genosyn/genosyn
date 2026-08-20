@@ -83,7 +83,6 @@ export function SelfHosting() {
       allowUnsafeHostExecution: false,
     },
     browserEnabledInMultiTenant: false,
-    maxConcurrentRunsPerCompany: 4,
   },
 
   // Global SMTP fallback. Per-company EmailProvider rows take precedence.
@@ -101,10 +100,11 @@ export function SelfHosting() {
   },
 } as const;`}</Pre>
       <P>
-        <Code>maxConcurrentRunsPerCompany</Code> caps all top-level AI work in one company,
-        including chats and Routine runs. Within that limit, a Routine can run alongside chat and
-        other independent Routines for the same employee. Increase it only when your AI Model quotas
-        and host capacity can support the extra parallel requests.
+        Genosyn does not impose a per-company ceiling on top-level AI work. Chats and Routine runs
+        can overlap freely; only chat replies for the same AI Employee are serialized. Size the host
+        and any worker replicas for the overlap Members and Routines can create, and monitor your AI
+        Model provider&apos;s concurrency, token, spend, and rate limits. Provider-side throttling still
+        applies.
       </P>
       <Callout kind="info" title="Command execution is on by default, behind bubblewrap.">
         The standard Docker image ships the <Code>bwrap</Code> executable, so an out-of-the-box

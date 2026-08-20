@@ -105,9 +105,6 @@ export const config = {
     // leaving a bearer-authenticated channel into a personal laptop standing
     // against shared infrastructure. Self-hosters can turn it off here too.
     memberBrowsersEnabled: true,
-    // Total top-level chats + Routine runs allowed at once in one company.
-    // Routines may overlap each other and chat; chats serialize per employee.
-    maxConcurrentRunsPerCompany: 4,
     // Show the model a working set of tools and let it reach the rest through
     // `find_tools` / `call_tool`, instead of sending every schema on every
     // step. Off makes every tool resident again — the model sees the whole

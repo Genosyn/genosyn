@@ -21,7 +21,7 @@ import { resolveChatModel } from "../models.js";
 import { isModelConnected } from "../providers.js";
 import { captureTurnActionsForAuthority, parseActions } from "../turnActions.js";
 import { attachmentsForMessages, bindAttachmentsToMessage } from "../uploads.js";
-import { EmployeeWorkloadBusyError, WorkloadLimitError } from "../workloadLeases.js";
+import { EmployeeWorkloadBusyError } from "../workloadLeases.js";
 import { summarizeMailAttachments } from "./attachments.js";
 import { columnHasLabel } from "./store.js";
 
@@ -725,7 +725,6 @@ export async function runAssistantTurn(args: AssistantTurnArgs): Promise<void> {
     const busyMaxWaitMs = args.busyMaxWaitMs ?? BUSY_MAX_WAIT_MS;
     const waitingSince = Date.now();
     let result: ChatResult | null = null;
-    let gaveUpWaiting: "employee" | "company" | null = null;
     for (;;) {
       try {
         result = await runChat(account.companyId, employee.id, prompt, history, callbacks.onChunk, {
@@ -745,11 +744,8 @@ export async function runAssistantTurn(args: AssistantTurnArgs): Promise<void> {
         });
         break;
       } catch (error) {
-        const contended =
-          error instanceof EmployeeWorkloadBusyError || error instanceof WorkloadLimitError;
-        if (!contended) throw error;
+        if (!(error instanceof EmployeeWorkloadBusyError)) throw error;
         if (Date.now() - waitingSince >= busyMaxWaitMs) {
-          gaveUpWaiting = error instanceof EmployeeWorkloadBusyError ? "employee" : "company";
           break;
         }
         await delay(busyRetryDelayMs);
@@ -761,11 +757,8 @@ export async function runAssistantTurn(args: AssistantTurnArgs): Promise<void> {
       const waitedFor = `${waited} minute${waited === 1 ? "" : "s"}`;
       const row = await finalizeAssistantMessage(working.id, {
         content:
-          gaveUpWaiting === "employee"
-            ? `${employee.name} was busy with another message for the whole ${waitedFor} this ` +
-              "one waited, so it wasn’t answered. Try again once they are free."
-            : `This company was at its concurrent AI workload limit for the whole ${waitedFor} ` +
-              "this message waited, so it wasn’t answered. Try again shortly.",
+          `${employee.name} was busy with another message for the whole ${waitedFor} this ` +
+          "one waited, so it wasn’t answered. Try again once they are free.",
         // No dedicated busy state on this panel: "skipped" already means
         // "didn't run, not a failure".
         status: "skipped",
@@ -873,7 +866,7 @@ function formatTurnFailure(error: unknown): string {
 /**
  * Rows left `working` by a process that died mid-turn. Nothing is going to
  * finish them, so they are closed out with an honest explanation instead of
- * leaving a permanent spinner beside the email — and their capacity lease is
+ * leaving a permanent spinner beside the email — and their reply lease is
  * dropped, so the employee isn't reported busy until the six-hour TTL lapses.
  *
  * SQLite is single-process: every inherited row is known dead at boot.

@@ -399,9 +399,7 @@ export const MAX_REPLAYED_TURNS = 12;
  *
  * Every reason a session cannot *be* started is raised here, before any row
  * exists, so a caller gets one clean error instead of a `failed` row to
- * explain. Capacity is the exception and cannot be otherwise: the workload
- * lease is taken when the turn begins, so a company already at its ceiling
- * produces a row that starts and then fails, saying so.
+ * explain. Failures after the model turn begins remain attached to the row.
  */
 export async function createRepositoryWorkSession(
   args: StartWorkSessionArgs,

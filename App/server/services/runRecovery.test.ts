@@ -109,7 +109,7 @@ describe("Routine Run crash recovery", () => {
     await insert(WorkloadLease, {
       companyId: company.id,
       employeeId: employee.id,
-      kind: "routine",
+      kind: "chat",
       ownerKey: null,
       expiresAt: new Date(NOW.getTime() + 60 * 60 * 1000),
     });
@@ -450,7 +450,7 @@ describe("Routine Run crash recovery", () => {
     await insert(WorkloadLease, {
       companyId: company.id,
       employeeId: employee.id,
-      kind: "routine",
+      kind: "chat",
       ownerKey: null,
       expiresAt: new Date(NOW.getTime() + 60 * 60 * 1000),
     });

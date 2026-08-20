@@ -11170,10 +11170,8 @@ const startRepositoryWorkSessionSchema = z
  * turn cannot sit and wait for it, so the tool answers with the session id and
  * the employee tells the Member where to look. `createRepositoryWorkSession`
  * raises every refusal it can before a row exists, so a bad request is an
- * error here rather than a `failed` session to go and read. The one thing it
- * cannot promise is capacity — the workload lease is taken when the turn
- * begins — so a company at its ceiling gets a session that starts and then
- * fails saying so, on the page the employee just linked them to.
+ * error here rather than a `failed` session to go and read. Runtime failures
+ * still belong to the session, where the Member can inspect and revise them.
  */
 mcpInternalRouter.post(
   "/tools/start_repository_work_session",
@@ -11261,12 +11259,10 @@ mcpInternalRouter.post(
         });
       }
 
-      // One session per employee per repository at a time. A turn may call a
-      // tool a hundred times, and every session takes a workload slot from a
-      // company-wide ceiling of a handful — so a model starting one per bug it
-      // noticed could crowd out every other employee's chat. It is also just
-      // duplicated work. A human clicking Start on the Repository page is not
-      // bounded this way and does not need to be.
+      // One tool-started session per employee per repository at a time. A turn
+      // may call a tool a hundred times, and starting one session per issue it
+      // notices creates competing, duplicated changes. A human clicking Start
+      // on the Repository page is not bounded this way and does not need to be.
       const alreadyRunning = await liveRepositoryWorkSession({
         companyId: co.id,
         repositoryId: repo.id,

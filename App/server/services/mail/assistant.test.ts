@@ -77,7 +77,11 @@ function chatResult(
   return { status, reply, attachmentIds, sidecars: {} } as ChatResult;
 }
 
-async function fixture(): Promise<{ account: MailAccount; employee: AIEmployee; threadId: string }> {
+async function fixture(): Promise<{
+  account: MailAccount;
+  employee: AIEmployee;
+  threadId: string;
+}> {
   const account = await insert(MailAccount, {
     companyId: COMPANY_ID,
     connectionId: testId("connection"),
@@ -255,7 +259,7 @@ describe("per-email assistant turns", () => {
 });
 
 describe("interrupted turn recovery", () => {
-  test("closes rows left working by a dead process and frees their capacity lease", async () => {
+  test("closes rows left working by a dead process and frees their reply lease", async () => {
     const { account, employee, threadId } = await fixture();
     const stranded = await insert(MailChatMessage, {
       companyId: COMPANY_ID,

@@ -23,7 +23,6 @@ import {
   isSlotStale,
   shouldRetry,
 } from "./cronMath.js";
-import { WorkloadLimitError } from "./workloadLeases.js";
 import { dispatchDueFollowUpReminders } from "./revenue/followUpReminders.js";
 
 /**
@@ -67,7 +66,7 @@ const MAX_DISPATCH_PER_TICK = 10;
 /** Ceiling on retries per pass, separate so neither phase can starve the other. */
 const MAX_RETRIES_PER_TICK = 5;
 
-/** How far out to push a routine whose run was refused a workload lease. */
+/** How far out to push a retry after a setup failure or overlap. */
 const BUSY_RETRY_MS = 60 * 1000;
 
 /**
@@ -184,37 +183,8 @@ async function tickRoutine(routineId: string, meta: { missedSlots: number }): Pr
   });
 }
 
-/**
- * Pull a routine's next fire back to a near moment after its run was refused a
- * workload lease. The lease is taken before the Run row exists, so a refusal
- * leaves no trace anywhere — without this the occurrence is simply lost until
- * the next natural slot, which for a weekly routine is a week.
- *
- * Only ever moves `nextRunAt` earlier, never later.
- */
-async function rearmAfterBusy(routineId: string): Promise<void> {
-  const repo = AppDataSource.getRepository(Routine);
-  const r = await repo.findOneBy({ id: routineId });
-  if (!r || !r.enabled) return;
-  const soon = new Date(Date.now() + BUSY_RETRY_MS);
-  if (r.nextRunAt && r.nextRunAt <= soon) return;
-  r.nextRunAt = soon;
-  await repo.save(r);
-}
-
-/** True when the company has no workload capacity right now, not "broken". */
-function isCapacityError(err: unknown): boolean {
-  return err instanceof WorkloadLimitError;
-}
-
 function onDispatchError(routineId: string) {
   return (err: unknown) => {
-    if (isCapacityError(err)) {
-      // eslint-disable-next-line no-console
-      console.log(`[cron] routine ${routineId} deferred — ${(err as Error).message}`);
-      void rearmAfterBusy(routineId).catch(() => {});
-      return;
-    }
     // eslint-disable-next-line no-console
     console.error(`[cron] routine ${routineId} failed:`, err);
   };
@@ -227,13 +197,8 @@ function onDispatchError(routineId: string) {
  */
 function onRetryError(parentRunId: string, routineId: string, claim: Date) {
   return async (err: unknown) => {
-    if (isCapacityError(err)) {
-      // eslint-disable-next-line no-console
-      console.log(`[cron] retry of run ${parentRunId} deferred — ${(err as Error).message}`);
-    } else {
-      // eslint-disable-next-line no-console
-      console.error(`[cron] retry of run ${parentRunId} failed:`, err);
-    }
+    // eslint-disable-next-line no-console
+    console.error(`[cron] retry of run ${parentRunId} failed:`, err);
     await settleRetryDispatchClaim(
       parentRunId,
       routineId,

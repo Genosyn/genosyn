@@ -4,7 +4,6 @@ import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, describe, test } from "node:test";
 
 import { config } from "../../../config.js";
-import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { AIModel } from "../../db/entities/AIModel.js";
 import { Company } from "../../db/entities/Company.js";
@@ -14,7 +13,6 @@ import {
 } from "../../db/entities/EmployeeMailAccountGrant.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
-import { WorkloadLease } from "../../db/entities/WorkloadLease.js";
 import { encryptSecret } from "../../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
 import {
@@ -493,7 +491,6 @@ describe("restricted AI email decision runtime", () => {
         ),
       /did not return a valid rule decision/,
     );
-    assert.equal(await AppDataSource.getRepository(WorkloadLease).count(), 0);
   });
 
   test("fails closed on an invalid structured decision", async () => {
@@ -546,7 +543,7 @@ describe("restricted AI email decision runtime", () => {
     );
   });
 
-  test("propagates a contained model error and releases workload capacity", async () => {
+  test("propagates a contained model error", async () => {
     const { employee, model } = await decisionFixture("error");
     await assert.rejects(
       () =>
@@ -563,7 +560,6 @@ describe("restricted AI email decision runtime", () => {
         ),
       /model unavailable/,
     );
-    assert.equal(await AppDataSource.getRepository(WorkloadLease).count(), 0);
   });
 
   test("advertises and executes exactly the structured decision tool", async () => {
@@ -687,7 +683,6 @@ describe("restricted AI email decision runtime", () => {
       );
       assert.equal(requests[1].messages?.at(-1)?.role, "tool");
       assert.equal(requests[1].messages?.at(-1)?.content, "Decision recorded. End the turn now.");
-      assert.equal(await AppDataSource.getRepository(WorkloadLease).count(), 0);
     } finally {
       config.security.outboundPrivateHostAllowlist.splice(0, Infinity, ...previousAllowlist);
       await new Promise<void>((resolve, reject) => {

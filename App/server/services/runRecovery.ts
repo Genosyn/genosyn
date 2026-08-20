@@ -18,10 +18,9 @@ import { config } from "../../config.js";
  * `startRoutineRun` commits `status: "running"` before it does any work, and
  * the writes that move the row off that status live in a detached async block
  * that a `kill -9` or a power cut never reaches. Nothing used to reconcile the
- * leftovers: the Run stayed `running` forever, System Health flagged it as
- * stuck without ever clearing it, and — worse — the `WorkloadLease` the run
- * held stayed too, so the employee read as busy and refused chat for up to
- * `timeoutSec + grace` (61 minutes at the default).
+ * leftovers: the Run stayed `running` forever and System Health flagged it as
+ * stuck without ever clearing it. This startup pass also cleans abandoned
+ * chat-reply leases, which a dead process cannot release itself.
  *
  * The predicate for "this row is debris" is deliberately the same one the
  * scheduler's overlap guard already uses to decide it may fire again: a run
@@ -30,9 +29,9 @@ import { config } from "../../config.js";
  *
  * On sqlite the process is the only executor — `withSchedulerLease` degrades
  * to a passthrough for exactly that reason — so on the first heartbeat of a
- * fresh process every `running` row and every lease is debris regardless of
- * age, and we don't make an employee wait an hour for the obvious. On Postgres
- * another replica may legitimately be running that row, so only the age test
+ * fresh process every `running` row and chat-reply lease is debris regardless
+ * of age, and we don't make an employee wait six hours for the obvious. On
+ * Postgres another replica may legitimately own either, so only the age test
  * applies.
  *
  * This module must not import `services/cron.ts` — cron imports this. The
@@ -110,7 +109,7 @@ export type CancelPendingRetryResult = "cancelled" | "none" | "dispatching" | "c
 
 /**
  * Cancel a queued retry with a compare-and-set so dispatch and cancellation
- * have a deterministic winner. The short retry handles a capacity deferral
+ * have a deterministic winner. The short retry handles scheduler recovery
  * moving `retryAt` between the route's read and write.
  */
 export async function cancelPendingRetry(runId: string): Promise<CancelPendingRetryResult> {
@@ -133,7 +132,7 @@ export async function cancelPendingRetry(runId: string): Promise<CancelPendingRe
 
 /**
  * Mark crash-orphaned `running` Runs `interrupted`, stamp a retry on the ones
- * that are owed another attempt, and clear the workload leases they stranded.
+ * that are owed another attempt, and clear abandoned chat-reply leases.
  *
  * @param opts.boot true on the first pass of a freshly started process.
  */
@@ -263,7 +262,7 @@ async function clearLeases(singleProcessBoot: boolean, now: Date): Promise<numbe
       .execute();
     return res.affected ?? 0;
   }
-  // Strictly narrower than the lazy purge `acquireWorkloadLease` already does
+  // Strictly narrower than the lazy purge `acquireChatWorkloadLease` already does
   // on every acquire — same criterion, just not scoped to one company, which
   // is why a quiet company's dead leases otherwise live forever.
   const res = await AppDataSource.getRepository(WorkloadLease).delete({

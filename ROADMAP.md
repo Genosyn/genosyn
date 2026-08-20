@@ -273,7 +273,6 @@ export const config = {
       allowUnsafeHostExecution: false,
     },
     browserEnabledInMultiTenant: false,
-    maxConcurrentRunsPerCompany: 4,
   },
   smtp: {
     host: "",
@@ -374,8 +373,10 @@ export const config = {
 - [x] Bubblewrap shell isolation with a private writable employee workspace,
       cleared server environment, symlink-safe file tools, and no shell network;
       shared browser and arbitrary stdio MCP disabled in SaaS mode
-- [x] Per-company AI concurrency quota with workload leases; Routine runs and
-      chat can overlap for one AI employee, while chat replies stay serialized
+- [x] Top-level AI work can overlap without a per-company application quota;
+      Routine runs and chat can run together for one AI Employee, while chat
+      replies stay serialized per AI Employee. Deployment operators and AI
+      Model providers remain responsible for real capacity and rate limits
 - [x] Requester-bound private AI Employee conversations and durable recovery;
       interactive tools enforce the intersection of live Member access and AI
       Employee Grants through an exhaustive fail-closed manifest policy, while
@@ -394,8 +395,8 @@ export const config = {
 
 - [x] Every in-flight transcript is checkpointed to `Run.logContent`; each
       heartbeat reconciles Runs orphaned by a crash with an `interrupted`
-      status and a marker after the last durable line, then clears the stranded
-      `WorkloadLease` so the dead Run stops consuming company workload capacity
+      status and a marker after the last durable line, so a dead process cannot
+      leave a Run looking live indefinitely
 - [x] Missed occurrences recorded on the catch-up Run (`Run.missedSlots`) and
       folded into its brief; per-routine catch-up policy (`once` — the existing
       default — or `skip` for work that is only useful on time)
@@ -408,9 +409,9 @@ export const config = {
       Runs stay excluded; pausing or gating the Routine cancels dispatch, and
       existing interrupted history is never swept. Every pending retry is
       cancellable per Run
-- [x] Fair capped dispatch (oldest slot first) instead of an unbounded burst,
-      and lease contention re-arms the schedule instead of dropping the
-      occurrence silently
+- [x] Fair, oldest-slot-first scheduler dispatch prevents restart stampedes;
+      undispatched due Routines remain eligible for the next heartbeat instead
+      of losing their occurrence
 - [x] Cron expressions validated against the scheduler that actually runs them,
       so a routine can no longer save with a 200 and never fire
 
@@ -1038,10 +1039,10 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       cannot be reached from inside a session, so sessions cannot nest. The
       session runs detached and the employee answers with a link to the diff:
       a chat turn cannot wait hours, and the outcome has no route back to a
-      conversation. A session turn also takes a `routine` workload slot rather
-      than the employee's single `chat` slot — otherwise it would collide with
-      the very conversation that started it, every time. What a session *is*
-      does not change: its branch still waits for a Member to merge or push.
+      conversation. A session turn is independent top-level AI work rather than
+      a chat reply, so it can overlap with the conversation that started it.
+      What a session *is* does not change: its branch still waits for a Member
+      to merge or push.
 - [x] A session turn is held to the `repository_*` tools at the MCP seam.
       Loading six tools up front never stopped a turn discovering the rest, so
       the session briefing — "nothing you do here affects anyone until a human

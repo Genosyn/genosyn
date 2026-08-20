@@ -178,11 +178,12 @@ export function Employees() {
         log. API-key and custom models use Genosyn&apos;s in-process loop; OpenAI subscription
         models use the official Codex app-server. A Routine does not make its AI employee
         unavailable: Members can keep chatting with that employee and start independent Routines in
-        parallel, up to the company workload limit. Concurrent work shares this directory when
-        coding is enabled, so give overlapping Runs distinct output files and avoid simultaneous
-        edits to the same git working tree. Model credentials stay encrypted in the database. They
-        never enter the employee working directory. For an OpenAI subscription login or Run, Genosyn
-        gives the official app-server a locked temporary <Code>CODEX_HOME</Code>. Managed ChatGPT
+        parallel without a per-company application cap. Chat replies for the same AI Employee remain
+        serialized. Concurrent work shares this directory when coding is enabled, so give
+        overlapping Runs distinct output files and avoid simultaneous edits to the same git working
+        tree. Model credentials stay encrypted in the database. They never enter the employee working
+        directory. For an OpenAI subscription login or Run, Genosyn gives the official app-server a
+        locked temporary <Code>CODEX_HOME</Code>. Managed ChatGPT
         sessions are materialized there; access tokens enter only the child process environment.
         Genosyn removes the directory afterward. Trusted single-tenant installs support subscription
         auth in the bubblewrap default, including standard Docker, alongside isolated coding and

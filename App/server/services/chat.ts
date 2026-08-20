@@ -25,9 +25,9 @@ import { config } from "../../config.js";
 import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
 import {
-  acquireWorkloadLease,
+  acquireChatWorkloadLease,
   EmployeeWorkloadBusyError,
-  releaseWorkloadLease,
+  releaseChatWorkloadLease,
 } from "./workloadLeases.js";
 import { createGenosynHelpSource } from "./agent/tools/genosynHelp.js";
 import { supportsParallelDelegation } from "./agent/tools/parallelDelegation.js";
@@ -93,8 +93,8 @@ export type ChatResult =
 /**
  * Hard ceiling on a whole chat turn. Direct chat uses the same six-hour
  * maximum exposed for Routines: substantial work may take hours, while this
- * still prevents a lost model/tool request from holding a workload slot
- * forever.
+ * still prevents a lost model/tool request from holding an employee's reply
+ * lock forever.
  */
 export const CHAT_HARD_TIMEOUT_MS = 6 * 60 * 60_000;
 /** Max model turns before the loop stops itself. */
@@ -159,13 +159,13 @@ type ChatBaseOptions = {
    */
   extraToolset?: string[];
   /**
-   * Stable id for a durable turn. Recovery uses it to replace the capacity
-   * lease an interrupted process could not release.
+   * Stable id for a durable turn. Recovery uses it to replace the reply lease
+   * an interrupted process could not release.
    */
   workloadKey?: string;
   /**
-   * Durable workers retry capacity contention instead of turning it into a
-   * terminal skipped/busy reply.
+   * Durable workers retry when the employee is already replying instead of
+   * turning contention into a terminal busy reply.
    */
   throwOnWorkloadUnavailable?: boolean;
   /** Remaining wall-clock budget for a recovered turn. */
@@ -247,7 +247,7 @@ export function resolveInteractiveChatContextAccess(
 }
 
 /**
- * Which workload slot a turn takes.
+ * Whether a turn needs the per-employee chat-reply lease.
  *
  * `chat` is serialized per employee so two turns a human is waiting on cannot
  * race their replies. A Repository work session runs through this same seam
@@ -261,14 +261,13 @@ export function resolveInteractiveChatContextAccess(
  * a `failed` row explaining that the employee was busy with the conversation
  * that started it.
  *
- * So it leases the way `mail/aiRuleEvaluator` leases its autonomous turns. The
- * company-wide concurrency ceiling still counts it, so this buys overlap, not
- * an exemption.
+ * Repository work sessions are independent background work, so they do not
+ * take a chat-reply lease. There is no company-wide AI workload pool.
  */
-export function workloadKindForTurn(
+export function usesChatWorkloadLease(
   options: Pick<ChatOptions, "repositoryWorkSessionId">,
-): "chat" | "routine" {
-  return options.repositoryWorkSessionId ? "routine" : "chat";
+): boolean {
+  return !options.repositoryWorkSessionId;
 }
 
 /** A deliberately company-agnostic briefing for unauthenticated surfaces. */
@@ -368,39 +367,32 @@ export async function streamChatWithEmployee(
     };
   }
 
-  const workloadKind = workloadKindForTurn(options);
-
   let workloadLease = null;
-  try {
-    workloadLease = await acquireWorkloadLease(
-      co.id,
-      emp.id,
-      workloadKind,
-      (options.timeoutMs ?? CHAT_HARD_TIMEOUT_MS) + 60_000,
-      { ownerKey: options.workloadKey },
-    );
-  } catch (error) {
-    if (options.throwOnWorkloadUnavailable) throw error;
-    // A second chat turn to the same employee waits. Routine runs and
-    // Repository work sessions never take this branch: they are allowed to
-    // overlap with chat and one another.
-    if (error instanceof EmployeeWorkloadBusyError) {
+  if (usesChatWorkloadLease(options)) {
+    try {
+      workloadLease = await acquireChatWorkloadLease(
+        co.id,
+        emp.id,
+        (options.timeoutMs ?? CHAT_HARD_TIMEOUT_MS) + 60_000,
+        { ownerKey: options.workloadKey },
+      );
+    } catch (error) {
+      if (options.throwOnWorkloadUnavailable) throw error;
+      if (error instanceof EmployeeWorkloadBusyError) {
+        return {
+          status: "busy",
+          reply: formatBusyReply(employeeDisplayName),
+          attachmentIds: [],
+          sidecars: {},
+        };
+      }
       return {
-        status: "busy",
-        reply: formatBusyReply(employeeDisplayName),
+        status: "skipped",
+        reply: error instanceof Error ? error.message : "AI workload unavailable.",
         attachmentIds: [],
         sidecars: {},
       };
     }
-    // Company-wide concurrency ceiling (or any other lease failure). Also
-    // transient and not a model/config problem, so render it as "not
-    // available" instead of an error with a misleading model-settings link.
-    return {
-      status: "skipped",
-      reply: error instanceof Error ? error.message : "AI workload limit reached.",
-      attachmentIds: [],
-      sidecars: {},
-    };
   }
 
   let mcpToken: string | null = null;
@@ -603,7 +595,7 @@ export async function streamChatWithEmployee(
     }
   } finally {
     if (mcpToken) revokeMcpToken(mcpToken);
-    await releaseWorkloadLease(workloadLease);
+    await releaseChatWorkloadLease(workloadLease);
   }
 }
 
