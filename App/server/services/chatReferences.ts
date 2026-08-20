@@ -210,7 +210,12 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     path: "/finance/recurring-invoices",
     description: "Scheduled customer invoicing",
     keywords: ["recurring invoice", "subscription billing", "repeat invoice", "schedule"],
-    toolHints: ["list_invoices", "create_invoice", "send_invoice"],
+    toolHints: [
+      "list_recurring_invoices",
+      "get_recurring_invoice",
+      "create_recurring_invoice",
+      "update_recurring_invoice",
+    ],
   },
   {
     key: "products",

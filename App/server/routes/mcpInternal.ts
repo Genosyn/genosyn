@@ -270,6 +270,15 @@ import {
   voidInvoice,
 } from "../services/finance.js";
 import {
+  applyRecurringInvoiceStatus,
+  hydrateRecurringInvoices,
+  loadRecurringInvoiceBySlug,
+  registerRecurringInvoice,
+  replaceRecurringInvoiceLines,
+  type HydratedRecurringInvoice,
+  uniqueRecurringInvoiceSlug,
+} from "../services/recurringInvoices.js";
+import {
   createEstimateDraft,
   displayEstimateStatus,
   hydrateEstimates,
@@ -281,6 +290,10 @@ import { disallowedRecipients, trustedRecipientDomains } from "../lib/recipientA
 import { CustomerContact } from "../db/entities/CustomerContact.js";
 import { Invoice } from "../db/entities/Invoice.js";
 import { InvoicePayment } from "../db/entities/InvoicePayment.js";
+import {
+  RecurringInvoice,
+  type RecurringInvoiceFrequency,
+} from "../db/entities/RecurringInvoice.js";
 import { TaxRate } from "../db/entities/TaxRate.js";
 import type { Activity } from "../db/entities/Activity.js";
 import { ACTIVITY_KINDS, type ActivityKind } from "../db/entities/Activity.js";
@@ -1126,6 +1139,51 @@ function serializeInvoiceFull(h: HydratedInvoiceRow) {
   };
 }
 
+function serializeRecurringInvoiceRow(schedule: HydratedRecurringInvoice) {
+  return {
+    id: schedule.id,
+    slug: schedule.slug,
+    name: schedule.name,
+    status: schedule.status,
+    cronExpr: schedule.cronExpr,
+    frequency: schedule.frequency,
+    intervalCount: schedule.intervalCount,
+    customer: schedule.customer
+      ? { name: schedule.customer.name, slug: schedule.customer.slug }
+      : null,
+    currency: schedule.currency,
+    daysUntilDue: schedule.daysUntilDue,
+    autoSend: schedule.autoSend,
+    nextRunAt: schedule.nextRunAt,
+    lastRunAt: schedule.lastRunAt,
+    lastInvoiceSlug: schedule.lastInvoiceSlug || null,
+    runsCreated: schedule.runsCreated,
+    maxRuns: schedule.maxRuns,
+    endsOn: schedule.endsOn,
+    linesCount: schedule.lines.length,
+    createdAt: schedule.createdAt,
+    updatedAt: schedule.updatedAt,
+  };
+}
+
+function serializeRecurringInvoiceFull(schedule: HydratedRecurringInvoice) {
+  return {
+    ...serializeRecurringInvoiceRow(schedule),
+    customerId: schedule.customerId,
+    notes: schedule.notes,
+    footer: schedule.footer,
+    lines: schedule.lines.map((line) => ({
+      id: line.id,
+      productId: line.productId,
+      description: line.description,
+      quantity: line.quantity,
+      unitPriceCents: line.unitPriceCents,
+      taxRateId: line.taxRateId,
+      sortOrder: line.sortOrder,
+    })),
+  };
+}
+
 function serializeEstimateFull(estimate: HydratedEstimate) {
   return {
     id: estimate.id,
@@ -1572,6 +1630,392 @@ async function unknownTaxRateIds(
   const known = new Set(found.map((taxRate) => taxRate.id));
   return taxRateIds.filter((id) => !known.has(id));
 }
+
+const recurringInvoiceFrequencySchema = z.enum([
+  "daily",
+  "weekly",
+  "monthly",
+  "quarterly",
+  "yearly",
+]);
+
+function validRecurringCron(expr: string): boolean {
+  const trimmed = expr.trim();
+  return trimmed.split(/\s+/).length === 5 && cron.validate(trimmed);
+}
+
+/**
+ * Recurring invoices persist both a cron expression and a semantic frequency.
+ * The frequency feeds recurring-revenue reporting, so accepting a yearly cron
+ * labelled as monthly would produce correct invoices but incorrect MRR/ARR.
+ * AI-authored schedules are therefore limited to the same canonical shapes the
+ * human schedule picker emits.
+ */
+function recurringCronMatchesFrequency(
+  expr: string,
+  frequency: RecurringInvoiceFrequency,
+): boolean {
+  if (!validRecurringCron(expr)) return false;
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = expr.trim().split(/\s+/);
+  const singleNumber = (value: string): boolean => /^\d+$/.test(value);
+  if (!singleNumber(minute) || !singleNumber(hour)) return false;
+  if (frequency === "daily") {
+    return dayOfMonth === "*" && month === "*" && dayOfWeek === "*";
+  }
+  if (frequency === "weekly") {
+    return dayOfMonth === "*" && month === "*" && singleNumber(dayOfWeek);
+  }
+  if (frequency === "monthly") {
+    return singleNumber(dayOfMonth) && month === "*" && dayOfWeek === "*";
+  }
+  if (frequency === "quarterly") {
+    return singleNumber(dayOfMonth) && month === "1,4,7,10" && dayOfWeek === "*";
+  }
+  return singleNumber(dayOfMonth) && singleNumber(month) && dayOfWeek === "*";
+}
+
+const recurringInvoiceLineSchema = invoiceLineSchema.extend({
+  sortOrder: z.number().int().min(0).max(199).optional(),
+});
+
+const listRecurringInvoicesSchema = z
+  .object({
+    status: z.enum(["active", "paused", "ended"]).optional(),
+    customerSlug: z.string().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_recurring_invoices",
+  validateBody(listRecurringInvoicesSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const companyId = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof listRecurringInvoicesSchema>;
+    const where: Record<string, unknown> = { companyId };
+    if (body.status) where.status = body.status;
+    if (body.customerSlug) {
+      const customer = await loadCustomerBySlug(companyId, body.customerSlug);
+      if (!customer) {
+        return res.status(404).json({ error: `Customer "${body.customerSlug}" not found` });
+      }
+      where.customerId = customer.id;
+    }
+    const rows = await AppDataSource.getRepository(RecurringInvoice).find({
+      where,
+      order: { createdAt: "DESC" },
+      take: body.limit ?? 50,
+    });
+    const hydrated = await hydrateRecurringInvoices(companyId, rows);
+    res.json({ recurringInvoices: hydrated.map(serializeRecurringInvoiceRow) });
+  },
+);
+
+const getRecurringInvoiceSchema = z
+  .object({ recurringInvoiceSlug: z.string().min(1).max(200) })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/get_recurring_invoice",
+  validateBody(getRecurringInvoiceSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "read"))) return;
+    const companyId = req.mcpCompany!.id;
+    const { recurringInvoiceSlug } = req.body as z.infer<typeof getRecurringInvoiceSchema>;
+    const schedule = await loadRecurringInvoiceBySlug(companyId, recurringInvoiceSlug);
+    if (!schedule) return res.status(404).json({ error: "Recurring invoice not found" });
+    const [hydrated] = await hydrateRecurringInvoices(companyId, [schedule]);
+    res.json({ recurringInvoice: serializeRecurringInvoiceFull(hydrated) });
+  },
+);
+
+const recurringInvoiceMutationFields = {
+  customerSlug: z.string().min(1).max(200).optional(),
+  name: z.string().min(1).max(200).optional(),
+  cronExpr: z
+    .string()
+    .min(1)
+    .max(120)
+    .transform((value) => value.trim())
+    .refine(validRecurringCron, "Use a valid five-field cron expression")
+    .optional(),
+  frequency: recurringInvoiceFrequencySchema.optional(),
+  intervalCount: z.number().int().min(1).max(99).optional(),
+  status: z.enum(["active", "paused", "ended"]).optional(),
+  daysUntilDue: z.number().int().min(0).max(365).optional(),
+  autoSend: z.boolean().optional(),
+  currency: isoCurrency.optional(),
+  notes: z.string().max(4000).optional(),
+  footer: z.string().max(1000).optional(),
+  maxRuns: z.number().int().min(1).max(10_000).nullable().optional(),
+  endsOn: z.string().datetime().nullable().optional(),
+  lines: z.array(recurringInvoiceLineSchema).min(1).max(200).optional(),
+};
+
+const createRecurringInvoiceSchema = z
+  .object({
+    ...recurringInvoiceMutationFields,
+    customerSlug: z.string().min(1).max(200),
+    name: z.string().min(1).max(200),
+    cronExpr: z
+      .string()
+      .min(1)
+      .max(120)
+      .transform((value) => value.trim())
+      .refine(validRecurringCron, "Use a valid five-field cron expression"),
+    frequency: recurringInvoiceFrequencySchema,
+    status: z.enum(["active", "paused"]).optional(),
+    lines: z.array(recurringInvoiceLineSchema).min(1).max(200),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    if (!recurringCronMatchesFrequency(body.cronExpr, body.frequency)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["frequency"],
+        message: "frequency must match the cron expression's cadence",
+      });
+    }
+  });
+
+function recurringInvoiceWriteNote(schedule: RecurringInvoice): string {
+  const timing =
+    schedule.status === "active"
+      ? `The next run is ${schedule.nextRunAt?.toISOString() ?? "not scheduled"}.`
+      : `The schedule is ${schedule.status} and will not run.`;
+  const delivery = schedule.autoSend
+    ? "Each run will issue the invoice, post it to the ledger, and email the customer."
+    : "Each run will create a draft for a Member to review; it will not issue or email automatically.";
+  return `Nothing was issued or emailed by this change. ${timing} ${delivery}`;
+}
+
+mcpInternalRouter.post(
+  "/tools/create_recurring_invoice",
+  validateBody(createRecurringInvoiceSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const companyId = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof createRecurringInvoiceSchema>;
+    const customer = await loadCustomerBySlug(companyId, body.customerSlug);
+    if (!customer) {
+      return res.status(404).json({ error: `Customer "${body.customerSlug}" not found` });
+    }
+    if (body.autoSend === true && !customer.email.trim()) {
+      return res.status(400).json({
+        error:
+          "Auto-send needs an email address on the customer. Add one or leave autoSend false so each run creates a draft for review.",
+      });
+    }
+    const grossCents = body.lines.reduce(
+      (sum, line) => sum + Math.round(line.quantity * line.unitPriceCents),
+      0,
+    );
+    if (grossCents <= 0) {
+      return res.status(400).json({
+        error: "Recurring invoice line items must total more than zero before tax.",
+      });
+    }
+    const missingTaxRateIds = await unknownTaxRateIds(companyId, body.lines);
+    if (missingTaxRateIds.length > 0) {
+      return res
+        .status(400)
+        .json({ error: `Unknown tax rate id(s): ${missingTaxRateIds.join(", ")}` });
+    }
+
+    try {
+      const schedule = await AppDataSource.transaction(async (manager) => {
+        const repo = manager.getRepository(RecurringInvoice);
+        const row = repo.create({
+          companyId,
+          customerId: customer.id,
+          slug: await uniqueRecurringInvoiceSlug(companyId, manager),
+          name: body.name,
+          cronExpr: body.cronExpr,
+          frequency: body.frequency,
+          intervalCount: body.intervalCount ?? 1,
+          status: body.status ?? "active",
+          daysUntilDue: body.daysUntilDue ?? 14,
+          autoSend: body.autoSend ?? false,
+          currency: body.currency ?? customer.currency ?? "USD",
+          notes: body.notes ?? "",
+          footer: body.footer ?? "",
+          maxRuns: body.maxRuns ?? null,
+          endsOn: body.endsOn ? new Date(body.endsOn) : null,
+          runsCreated: 0,
+          lastInvoiceSlug: "",
+          createdById: null,
+        });
+        registerRecurringInvoice(row);
+        await repo.save(row);
+        await replaceRecurringInvoiceLines(row, body.lines, manager);
+        return row;
+      });
+      const [hydrated] = await hydrateRecurringInvoices(companyId, [schedule]);
+      await aiWriteTrail(req, {
+        action: "finance.recurring_invoice.create",
+        targetType: "recurring_invoice",
+        targetId: schedule.id,
+        targetLabel: schedule.name,
+        journalTitle: `${req.mcpEmployee!.name} created recurring invoice ${schedule.name}`,
+        journalBody: recurringInvoiceWriteNote(schedule),
+        metadata: {
+          customerSlug: customer.slug,
+          cronExpr: schedule.cronExpr,
+          frequency: schedule.frequency,
+          intervalCount: schedule.intervalCount,
+          autoSend: schedule.autoSend,
+        },
+      });
+      res.json({
+        recurringInvoice: serializeRecurringInvoiceFull(hydrated),
+        note: recurringInvoiceWriteNote(schedule),
+      });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
+
+const updateRecurringInvoiceSchema = z
+  .object({
+    recurringInvoiceSlug: z.string().min(1).max(200),
+    ...recurringInvoiceMutationFields,
+  })
+  .strict()
+  .refine((body) => Object.keys(body).some((key) => key !== "recurringInvoiceSlug"), {
+    message: "Pass at least one field to update",
+  });
+
+mcpInternalRouter.post(
+  "/tools/update_recurring_invoice",
+  validateBody(updateRecurringInvoiceSchema),
+  async (req: McpRequest, res) => {
+    if (!(await requireFinance(req, res, "invoice"))) return;
+    const companyId = req.mcpCompany!.id;
+    const body = req.body as z.infer<typeof updateRecurringInvoiceSchema>;
+    const schedule = await loadRecurringInvoiceBySlug(companyId, body.recurringInvoiceSlug);
+    if (!schedule) return res.status(404).json({ error: "Recurring invoice not found" });
+    if (schedule.status === "ended") {
+      return res.status(409).json({
+        error: "This recurring invoice has ended and is read-only. Create a new schedule instead.",
+      });
+    }
+
+    let customer = schedule.customerId
+      ? await AppDataSource.getRepository(Customer).findOneBy({
+          id: schedule.customerId,
+          companyId,
+        })
+      : null;
+    if (body.customerSlug !== undefined) {
+      customer = await loadCustomerBySlug(companyId, body.customerSlug);
+      if (!customer) {
+        return res.status(404).json({ error: `Customer "${body.customerSlug}" not found` });
+      }
+    }
+    if (body.lines !== undefined) {
+      const grossCents = body.lines.reduce(
+        (sum, line) => sum + Math.round(line.quantity * line.unitPriceCents),
+        0,
+      );
+      if (grossCents <= 0) {
+        return res.status(400).json({
+          error: "Recurring invoice line items must total more than zero before tax.",
+        });
+      }
+      const missingTaxRateIds = await unknownTaxRateIds(companyId, body.lines);
+      if (missingTaxRateIds.length > 0) {
+        return res
+          .status(400)
+          .json({ error: `Unknown tax rate id(s): ${missingTaxRateIds.join(", ")}` });
+      }
+    }
+
+    const cadenceChanged =
+      body.cronExpr !== undefined ||
+      body.frequency !== undefined ||
+      body.intervalCount !== undefined;
+    const nextCronExpr = body.cronExpr ?? schedule.cronExpr;
+    const nextFrequency = body.frequency ?? schedule.frequency;
+    if (cadenceChanged && !recurringCronMatchesFrequency(nextCronExpr, nextFrequency)) {
+      return res.status(400).json({
+        error: "frequency must match the cron expression's cadence",
+      });
+    }
+    const effectiveAutoSend = body.autoSend ?? schedule.autoSend;
+    const recipientMustBeReady =
+      body.autoSend === true ||
+      (body.customerSlug !== undefined && effectiveAutoSend) ||
+      (body.status === "active" && effectiveAutoSend);
+    if (recipientMustBeReady && !customer?.email.trim()) {
+      return res.status(400).json({
+        error:
+          "Auto-send needs an email address on the customer. Add one or leave autoSend false so each run creates a draft for review.",
+      });
+    }
+
+    try {
+      if (customer) schedule.customerId = customer.id;
+      if (body.name !== undefined) schedule.name = body.name;
+      if (body.cronExpr !== undefined) schedule.cronExpr = body.cronExpr;
+      if (body.frequency !== undefined) schedule.frequency = body.frequency;
+      if (body.intervalCount !== undefined) schedule.intervalCount = body.intervalCount;
+      if (cadenceChanged) schedule.anchorAt = null;
+      if (body.daysUntilDue !== undefined) schedule.daysUntilDue = body.daysUntilDue;
+      if (body.autoSend !== undefined) schedule.autoSend = body.autoSend;
+      if (body.currency !== undefined) schedule.currency = body.currency;
+      if (body.notes !== undefined) schedule.notes = body.notes;
+      if (body.footer !== undefined) schedule.footer = body.footer;
+      if (body.maxRuns !== undefined) schedule.maxRuns = body.maxRuns;
+      if (body.endsOn !== undefined) {
+        schedule.endsOn = body.endsOn ? new Date(body.endsOn) : null;
+      }
+      if (body.status !== undefined && body.status !== schedule.status) {
+        applyRecurringInvoiceStatus(schedule, body.status);
+      } else if (cadenceChanged) {
+        registerRecurringInvoice(schedule);
+      } else if (schedule.status === "active") {
+        const hitRunCap = schedule.maxRuns != null && schedule.runsCreated >= schedule.maxRuns;
+        const pastEnd = Boolean(
+          schedule.nextRunAt && schedule.endsOn && schedule.nextRunAt > schedule.endsOn,
+        );
+        if (hitRunCap || pastEnd) {
+          schedule.status = "ended";
+          schedule.nextRunAt = null;
+        }
+      }
+      await AppDataSource.transaction(async (manager) => {
+        await manager.getRepository(RecurringInvoice).save(schedule);
+        if (body.lines !== undefined) {
+          await replaceRecurringInvoiceLines(schedule, body.lines, manager);
+        }
+      });
+      const [hydrated] = await hydrateRecurringInvoices(companyId, [schedule]);
+      await aiWriteTrail(req, {
+        action: "finance.recurring_invoice.update",
+        targetType: "recurring_invoice",
+        targetId: schedule.id,
+        targetLabel: schedule.name,
+        journalTitle: `${req.mcpEmployee!.name} updated recurring invoice ${schedule.name}`,
+        journalBody: recurringInvoiceWriteNote(schedule),
+        metadata: {
+          status: schedule.status,
+          cronExpr: schedule.cronExpr,
+          frequency: schedule.frequency,
+          intervalCount: schedule.intervalCount,
+          autoSend: schedule.autoSend,
+        },
+      });
+      res.json({
+        recurringInvoice: serializeRecurringInvoiceFull(hydrated),
+        note: recurringInvoiceWriteNote(schedule),
+      });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  },
+);
 
 const createEstimateSchema = z
   .object({

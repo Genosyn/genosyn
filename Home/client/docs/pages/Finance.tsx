@@ -251,6 +251,17 @@ export function Finance() {
         same path a human-sent invoice takes, so the email log captures it identically.
       </P>
 
+      <H3 id="recurring-ai-employees">Using an AI Employee</H3>
+      <P>
+        An AI Employee with <Strong>Invoicing</Strong> Finance access can list and inspect recurring
+        invoices, create a schedule, and update its cadence, customer, line items, limits, or
+        status. The four tools are <Code>list_recurring_invoices</Code>,{" "}
+        <Code>get_recurring_invoice</Code>, <Code>create_recurring_invoice</Code>, and{" "}
+        <Code>update_recurring_invoice</Code>. AI-created schedules are draft-only by default: each
+        tick creates an invoice for a Member to review. The employee must set <Code>autoSend</Code>
+        explicitly to issue and email every future invoice automatically.
+      </P>
+
       <H3 id="recurring-controls">Pausing, ending, running now</H3>
       <P>
         From the detail page, <Code>Run now</Code> generates an invoice immediately without
@@ -431,10 +442,11 @@ export function Finance() {
         </LI>
         <LI>
           <Strong>Invoicing</Strong> — everything in Read, plus the full accounts-receivable loop:
-          create estimate drafts; create, issue, email, and void invoices; create and update
-          customers; and record payments to mark an invoice paid. Estimate drafts do not affect the
-          ledger and stay unsent for a Member to review. Issuing an invoice mints its number and
-          posts it to the ledger; sending emails it to the customer on file.
+          create estimate drafts; create and manage recurring invoice schedules; create, issue,
+          email, and void invoices; create and update customers; and record payments to mark an
+          invoice paid. Estimate drafts do not affect the ledger and stay unsent for a Member to
+          review. Issuing an invoice mints its number and posts it to the ledger; sending emails it
+          to the customer on file.
         </LI>
         <LI>
           <Strong>Full accounting</Strong> — everything in Invoicing, plus staging ledger
@@ -463,13 +475,15 @@ export function Finance() {
         Granted employees use granular built-in Finance tools, reached through{" "}
         <Code>find_tools</Code> and <Code>call_tool</Code>. The read tools (
         <Code>list_invoices</Code>, <Code>get_invoice</Code>, <Code>list_customers</Code>,{" "}
-        <Code>get_customer</Code>, plus the accounts / transactions / report tools) need{" "}
-        <Strong>Read</Strong>. <Code>create_estimate</Code> and the invoice lifecycle (
+        <Code>get_customer</Code>, <Code>list_recurring_invoices</Code>,{" "}
+        <Code>get_recurring_invoice</Code>, plus the accounts / transactions / report tools) need{" "}
+        <Strong>Read</Strong>. <Code>create_estimate</Code>, <Code>create_recurring_invoice</Code>,{" "}
+        <Code>update_recurring_invoice</Code>, and the invoice lifecycle (
         <Code>create_invoice</Code>, <Code>send_invoice</Code>, <Code>record_payment</Code>,{" "}
-        <Code>void_invoice</Code>, <Code>create_customer</Code>, and{" "}
-        <Code>update_customer</Code>) need <Strong>Invoicing</Strong>. Amounts are integer minor
-        units (cents), so <Code>5000</Code> is $50.00. Without a Finance grant, calls are refused
-        with a clear access error and the tools are deprioritized in discovery.
+        <Code>void_invoice</Code>, <Code>create_customer</Code>, and <Code>update_customer</Code>)
+        need <Strong>Invoicing</Strong>. Amounts are integer minor units (cents), so{" "}
+        <Code>5000</Code> is $50.00. Without a Finance grant, calls are refused with a clear access
+        error and the tools are deprioritized in discovery.
       </P>
       <P>
         When an AI employee sends an invoice, any <Code>To</Code> / <Code>Cc</Code> it supplies is

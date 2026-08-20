@@ -71,6 +71,8 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "unpaid invoices", expect: "list_invoices" },
   { query: "prepare a quotation for a client", expect: "create_estimate" },
   { query: "raise an invoice for a client", expect: "create_invoice" },
+  { query: "set up automatic annual invoice renewal", expect: "create_recurring_invoice" },
+  { query: "pause recurring billing", expect: "update_recurring_invoice" },
   { query: "add a new client", expect: "create_customer" },
   { query: "profit and loss", expect: "get_finance_report" },
   { query: "reconcile the books", expect: "review_finance_transaction" },
@@ -231,6 +233,20 @@ describe("find_tools recall", () => {
   test("the domain footer rides on every result, including hits", async () => {
     const out = await tool.run({ query: "record a payment" });
     assert.ok(out.content.includes("catalogue names"));
+  });
+
+  test("recurring invoice discovery includes the required template-line contract", async () => {
+    const out = await tool.run({ query: "set up automatic annual invoice renewal" });
+    assert.ok(out.content.includes("### create_recurring_invoice"));
+    assert.ok(out.content.includes('"required"'));
+    assert.ok(out.content.includes('"lines"'));
+    assert.ok(out.content.includes('"unitPriceCents"'));
+  });
+
+  test("recurring invoice update discovery includes its required schedule slug", async () => {
+    const out = await tool.run({ query: "pause recurring billing" });
+    assert.ok(out.content.includes("### update_recurring_invoice"));
+    assert.ok(out.content.includes('"required": [\n    "recurringInvoiceSlug"'));
   });
 
   test("a grant-dead tool is annotated, never hidden", async () => {

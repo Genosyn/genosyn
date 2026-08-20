@@ -97,8 +97,15 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * has: a `.docx` used to reach it as "binary or unsupported type", so the
  * employee asked for a PDF instead of the file already in front of it. A
  * lexical miss that hid these would restore precisely that dead end.
+ *
+ * Raised to 4,720 for the four recurring-invoice tools. The distinction from
+ * both one-off invoices and AI Routines is load-bearing: a lexical miss for
+ * "annual renewal" must surface the schedule tools or an employee will again
+ * claim Finance cannot automate the next invoice. The extra 80 characters
+ * still leave more than 3,200 for the returned schemas inside the 8,000-char
+ * result envelope.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 4_640;
+const DOMAIN_FOOTER_CHARS_MAX = 4_720;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

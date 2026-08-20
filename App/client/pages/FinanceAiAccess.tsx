@@ -61,7 +61,7 @@ const LEVELS: LevelMeta[] = [
     value: "invoice",
     label: "Invoicing",
     tagline: "Run accounts receivable",
-    hint: "Everything in Read, plus create, issue, email & void invoices, manage customers, and record payments to mark invoices paid.",
+    hint: "Everything in Read, plus create and manage recurring invoice schedules, issue, email & void invoices, manage customers, and record payments.",
     icon: <FileText size={15} />,
     iconColor: "text-indigo-500 dark:text-indigo-400",
     iconWrap: "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300",

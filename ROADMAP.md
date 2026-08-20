@@ -1433,6 +1433,13 @@ Phased so each phase ships behind its own PR:
       optional `maxRuns` and `endsOn` caps flip to ended automatically.
       Sidebar entry under Finance, dedicated list / new / detail pages
       with cron presets + human-readable schedule preview.
+- [x] **AI recurring-invoice tools.** `list_recurring_invoices` and
+      `get_recurring_invoice` give AI Employees with `read` Finance access the
+      schedule and template context; `create_recurring_invoice` and
+      `update_recurring_invoice` let employees with `invoice` access create,
+      pause, resume, end, and revise schedules. Generated invoices are drafts
+      by default. An employee must explicitly set `autoSend` to issue and email
+      every future invoice automatically.
 - [x] **Invoice delivery defaults.** Finance settings can hold internal
       always-Cc addresses that are merged into every customer invoice email,
       including manual sends, resends, and recurring auto-sends.
@@ -1538,11 +1545,13 @@ Phased so each phase ships behind its own PR:
         list + detail. AI vendor-credit tools deferred to M33. Shipped in 1.52.0.
 
 MCP surface (shipped): reads — `list_invoices`, `get_invoice`,
-`list_customers`, `get_customer`, `list_finance_accounts`,
+`list_recurring_invoices`, `get_recurring_invoice`, `list_customers`,
+`get_customer`, `list_finance_accounts`,
 `list_finance_transactions`, `get_finance_transaction`, `get_finance_report`
 (`read`); accounts receivable — `create_invoice`, `send_invoice`,
-`record_payment`, `void_invoice`, `create_customer`, `update_customer`
-(`invoice`); accounting review — `review_finance_transaction` (`full`).
+`record_payment`, `void_invoice`, `create_recurring_invoice`,
+`update_recurring_invoice`, `create_customer`, `update_customer` (`invoice`);
+accounting review — `review_finance_transaction` (`full`).
 Manual general-journal posting (`post_journal_entry`) over MCP is still
 deferred — humans post manual journals from Finance → Journal.
 

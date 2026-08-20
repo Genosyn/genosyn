@@ -156,7 +156,7 @@ export async function deleteFinanceGrant(
 const FINANCE_LEVEL_BLURB: Record<FinanceAccessLevel, string> = {
   read: "You can read the books: list and open invoices and customers, and pull financial reports and posted transactions. You cannot change anything.",
   invoice:
-    "You can run accounts receivable: create estimate drafts; create, issue, email, and void invoices; create and update customers; and record or reverse payments to mark invoices paid. You can also read everything at the `read` level. Estimate drafts have no ledger effect and stay unsent for a Member to review. Issuing an invoice mints its number and posts it to the ledger; sending emails it to the customer on file — do those deliberately.",
+    "You can run accounts receivable: create estimate drafts; create, issue, email, and void invoices; list, inspect, create, and update recurring invoice schedules; create and update customers; and record or reverse payments to mark invoices paid. You can also read everything at the `read` level. Estimate drafts have no ledger effect and stay unsent for a Member to review. Issuing an invoice mints its number and posts it to the ledger; sending it emails the customer on file. A recurring schedule can repeat those actions automatically, so choose its status and auto-send setting deliberately.",
   full: "You have full finance access: everything `invoice` allows, plus staging general-ledger category changes for a human to approve via `review_finance_transaction`. Final approval always stays with a human owner or admin — you never post a reclassification yourself.",
 };
 
@@ -172,8 +172,8 @@ export async function composeFinanceContext(employeeId: string): Promise<string>
   return [
     "",
     "## Finance",
-    `You have been granted **${grant.accessLevel}** access to the company's finance system. Use the granular Finance tools (including create_estimate, list_invoices, get_invoice, create_invoice, send_invoice, record_payment, void_invoice, list_customers, get_customer, create_customer, and update_customer, plus the read-only accounts, transactions, and report tools).`,
+    `You have been granted **${grant.accessLevel}** access to the company's finance system. Use the granular Finance tools (including create_estimate, list_invoices, get_invoice, create_invoice, send_invoice, record_payment, void_invoice, list_recurring_invoices, get_recurring_invoice, create_recurring_invoice, update_recurring_invoice, list_customers, get_customer, create_customer, and update_customer, plus the read-only accounts, transactions, and report tools).`,
     FINANCE_LEVEL_BLURB[grant.accessLevel],
-    "Money is stored in integer minor units (cents) with a 3-letter ISO currency code. When a teammate asks you to bill someone, create the invoice, then issue or send it — don't just describe it.",
+    "Money is stored in integer minor units (cents) with a 3-letter ISO currency code. When a teammate asks you to bill someone once, create the invoice, then issue or send it — don't just describe it. When they ask for repeat billing, create a recurring invoice schedule instead; leave auto-send off when each generated draft should receive Member review, and turn it on only when the invoices should be issued and emailed automatically.",
   ].join("\n");
 }

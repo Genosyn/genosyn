@@ -3009,6 +3009,178 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "list_recurring_invoices",
+    description:
+      "List recurring invoice schedules, newest first. Filter by lifecycle status or customer. Returns the cadence, next and last run, draft-vs-auto-send mode, run caps, and latest generated invoice; call get_recurring_invoice for template lines. Needs `read` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["active", "paused", "ended"] },
+        customerSlug: {
+          type: "string",
+          description: "Filter to one customer (from list_customers).",
+        },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_recurring_invoice",
+    description:
+      "Fetch one recurring invoice schedule in full, including customer, cadence, lifecycle, delivery mode, run history, notes, and template line items. Needs `read` finance access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recurringInvoiceSlug: {
+          type: "string",
+          description: "The schedule slug from list_recurring_invoices.",
+        },
+      },
+      required: ["recurringInvoiceSlug"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_recurring_invoice",
+    description:
+      "Create a recurring invoice schedule for repeat billing. Required fields are `customerSlug`, `name`, `cronExpr`, `frequency`, and 1–200 `lines`; each line needs `{description, quantity, unitPriceCents}` and may include `taxRateId`, `productId`, or `sortOrder`. The five-field `cronExpr` uses server-local time and must match `frequency` (for example `0 9 20 8 *` + `yearly` means every August 20 at 09:00). Each run creates a draft by default. Set `autoSend: true` only when the teammate explicitly wants every future run to issue the invoice, post it to the ledger, and email the customer. Creating the schedule itself never creates or emails an invoice. Needs `invoice` finance access.",
+    inputSchema: {
+      type: "object",
+      required: ["customerSlug", "name", "cronExpr", "frequency", "lines"],
+      properties: {
+        customerSlug: {
+          type: "string",
+          description: "Who to bill (from list_customers / create_customer).",
+        },
+        name: { type: "string", description: "Human-readable schedule name." },
+        cronExpr: {
+          type: "string",
+          description:
+            "Five-field cron in server-local time. Canonical examples: daily `0 9 * * *`; weekly Monday `0 9 * * 1`; monthly on the 1st `0 9 1 * *`; quarterly on the 1st `0 9 1 1,4,7,10 *`; yearly August 20 `0 9 20 8 *`.",
+        },
+        frequency: {
+          type: "string",
+          enum: ["daily", "weekly", "monthly", "quarterly", "yearly"],
+          description: "Must describe the cadence encoded by cronExpr.",
+        },
+        lines: {
+          type: "array",
+          minItems: 1,
+          maxItems: 200,
+          description: "Template lines copied into every generated invoice.",
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unitPriceCents: {
+                type: "integer",
+                description: "Unit price in integer minor units (cents).",
+              },
+              taxRateId: { type: ["string", "null"] },
+              productId: { type: ["string", "null"] },
+              sortOrder: { type: "integer", minimum: 0, maximum: 199 },
+            },
+            required: ["description", "quantity", "unitPriceCents"],
+            additionalProperties: false,
+          },
+        },
+        intervalCount: {
+          type: "integer",
+          minimum: 1,
+          maximum: 99,
+          description: "Repeat every N frequency units; defaults to 1.",
+        },
+        status: {
+          type: "string",
+          enum: ["active", "paused"],
+          description: "Defaults to active. Use paused to save without scheduling a run.",
+        },
+        daysUntilDue: {
+          type: "integer",
+          minimum: 0,
+          maximum: 365,
+          description: "Due date offset on each generated invoice; defaults to 14.",
+        },
+        autoSend: {
+          type: "boolean",
+          description:
+            "Defaults to false (drafts only). Pass true only when explicitly asked to issue, post, and email on every run.",
+        },
+        currency: { type: "string", description: "ISO 4217 code; defaults to the customer." },
+        notes: { type: "string", description: "Copied onto every generated invoice." },
+        footer: { type: "string", description: "Copied onto every generated invoice." },
+        maxRuns: {
+          type: ["integer", "null"],
+          minimum: 1,
+          maximum: 10000,
+          description: "Optional lifetime run cap; null means unlimited.",
+        },
+        endsOn: {
+          type: ["string", "null"],
+          description: "Optional ISO datetime cutoff; null means no cutoff.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_recurring_invoice",
+    description:
+      "Edit, pause, resume, or permanently end a recurring invoice schedule. Pass only the fields that should change; cadence edits use the same five-field server-local cron rules as create_recurring_invoice. `autoSend: true` changes every future run from draft-only to issue + ledger post + customer email, so enable it only when explicitly requested. An ended schedule is terminal and read-only. Needs `invoice` finance access.",
+    inputSchema: {
+      type: "object",
+      required: ["recurringInvoiceSlug"],
+      properties: {
+        recurringInvoiceSlug: { type: "string", description: "Which schedule to update." },
+        customerSlug: { type: "string", description: "Move future billing to this customer." },
+        name: { type: "string" },
+        cronExpr: { type: "string", description: "Valid five-field cron in server-local time." },
+        frequency: {
+          type: "string",
+          enum: ["daily", "weekly", "monthly", "quarterly", "yearly"],
+        },
+        intervalCount: { type: "integer", minimum: 1, maximum: 99 },
+        status: {
+          type: "string",
+          enum: ["active", "paused", "ended"],
+          description: "Resume with active, suspend with paused, or terminate with ended.",
+        },
+        daysUntilDue: { type: "integer", minimum: 0, maximum: 365 },
+        autoSend: {
+          type: "boolean",
+          description:
+            "False creates drafts; true issues, posts, and emails each future invoice. Require explicit teammate intent for true.",
+        },
+        currency: { type: "string", description: "ISO 4217 code." },
+        notes: { type: "string" },
+        footer: { type: "string" },
+        maxRuns: { type: ["integer", "null"], minimum: 1, maximum: 10000 },
+        endsOn: { type: ["string", "null"], description: "ISO datetime or null." },
+        lines: {
+          type: "array",
+          minItems: 1,
+          maxItems: 200,
+          items: {
+            type: "object",
+            properties: {
+              description: { type: "string" },
+              quantity: { type: "number" },
+              unitPriceCents: { type: "integer" },
+              taxRateId: { type: ["string", "null"] },
+              productId: { type: ["string", "null"] },
+              sortOrder: { type: "integer", minimum: 0, maximum: 199 },
+            },
+            required: ["description", "quantity", "unitPriceCents"],
+            additionalProperties: false,
+          },
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_customers",
     description:
       "List the company's customers with ids, slugs, contact details, and default currency. Archived customers are hidden unless `includeArchived` is true. Needs `read` finance access.",

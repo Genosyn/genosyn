@@ -1,5 +1,5 @@
 import parser from "cron-parser";
-import { In, IsNull, LessThanOrEqual } from "typeorm";
+import { In, IsNull, LessThanOrEqual, type EntityManager } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Customer } from "../db/entities/Customer.js";
 import { Invoice } from "../db/entities/Invoice.js";
@@ -265,8 +265,9 @@ export type RecurringLineDraft = {
 export async function replaceRecurringInvoiceLines(
   ri: RecurringInvoice,
   drafts: RecurringLineDraft[],
+  manager: EntityManager = AppDataSource.manager,
 ): Promise<RecurringInvoiceLineItem[]> {
-  const repo = AppDataSource.getRepository(RecurringInvoiceLineItem);
+  const repo = manager.getRepository(RecurringInvoiceLineItem);
   await repo.delete({ recurringInvoiceId: ri.id });
   if (drafts.length === 0) return [];
   const built: RecurringInvoiceLineItem[] = [];
@@ -289,8 +290,11 @@ export async function replaceRecurringInvoiceLines(
 
 // ──────────────────────────── Duplication ──────────────────────────────
 
-async function uniqueRecurringInvoiceSlug(companyId: string): Promise<string> {
-  const repo = AppDataSource.getRepository(RecurringInvoice);
+export async function uniqueRecurringInvoiceSlug(
+  companyId: string,
+  manager: EntityManager = AppDataSource.manager,
+): Promise<string> {
+  const repo = manager.getRepository(RecurringInvoice);
   for (let i = 0; i < 16; i += 1) {
     const slug = `ri-${Math.random().toString(36).slice(2, 8)}`;
     if (!(await repo.findOneBy({ companyId, slug }))) return slug;

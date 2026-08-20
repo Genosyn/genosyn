@@ -20,8 +20,21 @@ describe("chat product reference catalogue", () => {
   test("finds product areas through natural synonyms", () => {
     assert.equal(searchChatProductReferences("quotation")[0]?.key, "estimates");
     assert.equal(searchChatProductReferences("bill customer")[0]?.key, "invoices");
+    assert.equal(searchChatProductReferences("subscription billing")[0]?.key, "recurring-invoices");
     assert.equal(searchChatProductReferences("slack")[0]?.key, "workspace");
     assert.equal(searchChatProductReferences("profit loss")[0]?.key, "finance-reports");
+  });
+
+  test("points recurring-invoice tags at the schedule tools", () => {
+    const reference = CHAT_PRODUCT_REFERENCES.find(
+      (candidate) => candidate.key === "recurring-invoices",
+    );
+    assert.deepEqual(reference?.toolHints, [
+      "list_recurring_invoices",
+      "get_recurring_invoice",
+      "create_recurring_invoice",
+      "update_recurring_invoice",
+    ]);
   });
 
   test("ANDs multi-word tokens across labels, descriptions, and keywords", () => {
