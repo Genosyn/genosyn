@@ -44,6 +44,7 @@ function collectOptions(children: React.ReactNode): SearchableOption[] {
       if (!React.isValidElement(child)) return;
       const props = child.props as {
         children?: React.ReactNode;
+        "data-search-text"?: string | number;
         disabled?: boolean;
         label?: React.ReactNode;
         value?: string | number | readonly string[];
@@ -58,7 +59,9 @@ function collectOptions(children: React.ReactNode): SearchableOption[] {
           group,
           id: options.length,
           label,
-          searchText: normaliseSearch(`${label} ${value} ${group ?? ""}`),
+          searchText: normaliseSearch(
+            `${label} ${value} ${group ?? ""} ${props["data-search-text"] ?? ""}`,
+          ),
           value,
         });
         return;

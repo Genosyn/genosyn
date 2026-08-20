@@ -193,19 +193,22 @@ export function groupSessions(
   return groups;
 }
 
-/** Whether a session matches the inbox's free-text search. */
-export function matchesSessionSearch(session: RepositoryWorkSession, query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-
-  const fields = [
+/** The complete search index shared by the desktop inbox and compact switcher. */
+export function sessionSearchText(session: RepositoryWorkSession): string {
+  return [
     session.title,
     session.instruction,
     session.employee?.name ?? "",
     session.branch ?? "",
     SESSION_STATUS_LABEL[session.status],
-  ];
-  return fields.some((field) => field.toLowerCase().includes(needle));
+  ].join(" ");
+}
+
+/** Whether a session matches the inbox's free-text search. */
+export function matchesSessionSearch(session: RepositoryWorkSession, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return sessionSearchText(session).toLowerCase().includes(needle);
 }
 
 /** The label under a session in the switcher: what state it is in, in words. */

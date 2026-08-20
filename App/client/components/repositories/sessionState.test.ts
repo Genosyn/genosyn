@@ -13,6 +13,7 @@ import {
   matchesSessionSearch,
   sessionActions,
   sessionInboxGroup,
+  sessionSearchText,
   sessionSubtitle,
   sessionTitle,
   sortSessions,
@@ -319,6 +320,19 @@ describe("session inbox search", () => {
     assert.equal(matchesSessionSearch(row, "lovelace"), true);
     assert.equal(matchesSessionSearch(row, "ADA/OAUTH-GUARD"), true);
     assert.equal(matchesSessionSearch(row, "pull request OPEN"), true);
+  });
+
+  test("exposes the same complete index to compact searchable controls", () => {
+    const index = sessionSearchText(row).toLowerCase();
+    for (const term of [
+      "harden oauth callbacks",
+      "refresh-token fallback",
+      "ada lovelace",
+      "genosyn/ada/oauth-guard",
+      "pull request open",
+    ]) {
+      assert.ok(index.includes(term), term);
+    }
   });
 
   test("does not match unrelated text or invent fields for removed employees", () => {

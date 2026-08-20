@@ -48,6 +48,7 @@ import {
   matchesSessionSearch,
   sessionActions,
   sessionSubtitle,
+  sessionSearchText,
   sessionTitle,
   sortSessions,
 } from "../components/repositories/sessionState";
@@ -415,19 +416,15 @@ function SessionInbox({
                 <option value="">Start a new session</option>
                 {activeMissing && <option value={activeId}>Current session</option>}
                 {(sessions ?? []).map((session) => (
-                  <option key={session.id} value={session.id}>
+                  <option
+                    key={session.id}
+                    value={session.id}
+                    data-search-text={sessionSearchText(session)}
+                  >
                     {sessionTitle(session)} — {SESSION_STATUS_LABEL[session.status]}
                   </option>
                 ))}
               </Select>
-              {activeId && (
-                <Link
-                  to={aiBase}
-                  className={buttonClassName({ size: "sm", className: "shrink-0" })}
-                >
-                  <Plus size={14} /> New
-                </Link>
-              )}
             </div>
             {error && (
               <div className="mt-2">
