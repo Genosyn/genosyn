@@ -2553,11 +2553,69 @@ export type HomeData = {
   unreadChannels: HomeChannel[];
   failedRuns: HomeFailedRun[];
   failedRunCount: number;
+  /** The newest TLDRs this Member has not dismissed, newest first. */
+  tldrs: TldrItem[];
+  unreadTldrCount: number;
   systemHealth: SystemHealthSummary;
   counts: { employees: number; projects: number };
 };
 
-// ─────────────────────────── Finance (M19) ──────────────────────────────
+// ──────────────────────────────── TLDRs ──────────────────────────────────
+
+export type TldrCadence = "four_hours" | "eight_hours" | "twelve_hours" | "daily" | "weekly";
+
+export type TldrSourceStats = {
+  journalEntries: number;
+  routineRuns: number;
+  channelMessages: number;
+  channels: number;
+};
+
+export type TldrEmployeeSnapshot = {
+  id: string | null;
+  name: string;
+  slug: string;
+  role: string;
+  avatarKey: string | null;
+};
+
+export type TldrItem = {
+  id: string;
+  title: string;
+  summary: string;
+  body: string;
+  periodStart: string;
+  periodEnd: string;
+  createdAt: string;
+  sourceStats: TldrSourceStats;
+  employee: TldrEmployeeSnapshot;
+  /** Per-Member read state. The underlying company briefing is never deleted. */
+  dismissed: boolean;
+  triggerKind: "schedule" | "manual";
+};
+
+export type TldrListResponse = {
+  items: TldrItem[];
+  total: number;
+  unreadCount: number;
+};
+
+export type TldrSettings = {
+  id: string | null;
+  enabled: boolean;
+  cadence: TldrCadence;
+  employeeId: string | null;
+  employee: TldrEmployeeSnapshot | null;
+  nextRunAt: string | null;
+  lastCoveredAt: string | null;
+  lastGeneratedAt: string | null;
+  lastAttemptAt: string | null;
+  lastError: string;
+};
+
+export type TldrGenerateResponse = { status: "created"; tldr: TldrItem } | { status: "empty" };
+
+// ─────────────────────────── Finance (M19) ───────────────
 
 export type CustomerContact = {
   id: string;

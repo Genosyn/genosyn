@@ -24,6 +24,12 @@ import {
   shouldRetry,
 } from "./cronMath.js";
 import { dispatchDueFollowUpReminders } from "./revenue/followUpReminders.js";
+import {
+  dispatchDueTldrs,
+  reconcileStaleTldrs,
+  resetTldrSchedulesAfterRestore,
+  sweepTldrSchedules,
+} from "./tldrs.js";
 
 /**
  * Heartbeat-based routine scheduler.
@@ -411,6 +417,10 @@ async function tick(): Promise<void> {
         // eslint-disable-next-line no-console
         console.error("[cron] run recovery failed:", err);
       });
+      await reconcileStaleTldrs(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] TLDR recovery failed:", err);
+      });
 
       // Phase 2 — schedule. Oldest due slot first and capped, so a restart
       // with a big overdue set can't fire everything at once (and can't keep
@@ -451,6 +461,14 @@ async function tick(): Promise<void> {
         // eslint-disable-next-line no-console
         console.error("[cron] revenue follow-up reminders failed:", err);
       });
+
+      // Phase 5 — claim due TLDR windows. The claim and schedule advance are
+      // durable before the restricted model turn continues in the background,
+      // so this heartbeat never waits for prose generation.
+      await dispatchDueTldrs(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] TLDR dispatch failed:", err);
+      });
     });
   } finally {
     ticking = false;
@@ -469,7 +487,10 @@ async function initialSweep(): Promise<void> {
   const orphans = await repo.find({
     where: { enabled: true, nextRunAt: IsNull() },
   });
-  if (orphans.length === 0) return;
+  if (orphans.length === 0) {
+    await sweepTldrSchedules();
+    return;
+  }
   const now = new Date();
   for (const r of orphans) {
     r.nextRunAt = nextRunFor(r.cronExpr, now);
@@ -484,6 +505,7 @@ async function initialSweep(): Promise<void> {
     }
     await repo.save(r);
   }
+  await sweepTldrSchedules(now);
 }
 
 /**
@@ -511,6 +533,7 @@ export async function resetSchedulesAfterRestore(): Promise<void> {
     r.nextRunAt = nextRunFor(r.cronExpr, now);
     await repo.save(r);
   }
+  await resetTldrSchedulesAfterRestore(now);
 }
 
 export async function bootCron(): Promise<void> {

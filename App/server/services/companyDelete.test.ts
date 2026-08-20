@@ -24,6 +24,9 @@ import { MarketingPerformanceSnapshot } from "../db/entities/MarketingPerformanc
 import { RealtimeEvent } from "../db/entities/RealtimeEvent.js";
 import { Tag } from "../db/entities/Tag.js";
 import { TagAssignment } from "../db/entities/TagAssignment.js";
+import { Tldr } from "../db/entities/Tldr.js";
+import { TldrDismissal } from "../db/entities/TldrDismissal.js";
+import { TldrSettings } from "../db/entities/TldrSettings.js";
 import { VendorCredit } from "../db/entities/VendorCredit.js";
 import { VendorCreditApplication } from "../db/entities/VendorCreditApplication.js";
 import { VendorCreditLine } from "../db/entities/VendorCreditLine.js";
@@ -50,6 +53,9 @@ const REGRESSION_ENTITIES: EntityTarget<ObjectLiteral>[] = [
   MarketingPerformanceSnapshot,
   RealtimeEvent,
   Tag,
+  Tldr,
+  TldrDismissal,
+  TldrSettings,
   VendorCredit,
   VendorCreditApplication,
   VendorRefund,

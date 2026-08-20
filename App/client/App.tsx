@@ -72,6 +72,9 @@ import MailRules from "./pages/MailRules";
 import MailHandovers from "./pages/MailHandovers";
 import MailSettings from "./pages/MailSettings";
 import HomePage from "./pages/Home";
+import TldrsLayout from "./pages/TldrsLayout";
+import TldrsIndex from "./pages/TldrsIndex";
+import TldrSettingsPage from "./pages/TldrSettings";
 import { EmployeeConnections } from "./pages/EmployeeConnections";
 import Invite from "./pages/Invite";
 import TasksLayout from "./pages/TasksLayout";
@@ -362,6 +365,12 @@ function CompanyRoutes({
             member's attention plus quick navigation. */}
           <Route index element={<HomePage company={company} me={me} />} />
           <Route path="onboarding" element={<CompanyOnboarding company={company} />} />
+
+          {/* TLDRs — periodic company briefings written by a selected AI Employee. */}
+          <Route path="tldrs" element={<TldrsLayout company={company} />}>
+            <Route index element={<TldrsIndex />} />
+            <Route path="settings" element={<TldrSettingsPage />} />
+          </Route>
 
           {/* Every product exposes a curated view of the shared Integration
             catalog. Settings keeps the complete catalog; these routes show

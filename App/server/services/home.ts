@@ -18,6 +18,7 @@ import { listChannelsForUser } from "./workspaceChat.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 import { isVaultCaptureApproval } from "./approvals.js";
 import { DecisionDTO, listPendingDecisions } from "./decisions.js";
+import { listHomeTldrs, type TldrDTO } from "./tldrs.js";
 
 /**
  * Aggregation behind the Home page — the landing surface after sign-in.
@@ -69,6 +70,9 @@ export type HomeFailedRun = {
 };
 
 export type HomeData = {
+  /** Latest company TLDRs this Member has not dismissed. */
+  tldrs: TldrDTO[];
+  unreadTldrCount: number;
   notifications: NotificationDTO[];
   unreadNotificationCount: number;
   /** The Decision Stack — questions AI employees raised, highest urgency first. */
@@ -293,14 +297,18 @@ export async function getHomeData(params: {
       .filter((r): r is HomeFailedRun => r !== null);
   }
 
-  const [notifications, unreadNotificationCount, systemHealth, decisionStack] = await Promise.all([
-    listUnreadForUser({ companyId, userId, limit: 8 }),
-    countUnreadForUser({ companyId, userId }),
-    getSystemHealthSummary(companyId),
-    listPendingDecisions({ companyId, limit: 5 }),
-  ]);
+  const [notifications, unreadNotificationCount, systemHealth, decisionStack, homeTldrs] =
+    await Promise.all([
+      listUnreadForUser({ companyId, userId, limit: 8 }),
+      countUnreadForUser({ companyId, userId }),
+      getSystemHealthSummary(companyId),
+      listPendingDecisions({ companyId, limit: 5 }),
+      listHomeTldrs({ companyId, userId, limit: 3 }),
+    ]);
 
   return {
+    tldrs: homeTldrs.items,
+    unreadTldrCount: homeTldrs.unreadCount,
     notifications,
     unreadNotificationCount,
     decisions: decisionStack.decisions,

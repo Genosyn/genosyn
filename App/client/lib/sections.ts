@@ -18,6 +18,7 @@ import {
   NotebookPen,
   NotebookText,
   ServerCog,
+  Sparkles,
   Video,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -39,6 +40,7 @@ import {
 
 export type SectionKey =
   | "home"
+  | "tldrs"
   | "inbox"
   | "mail"
   | "meetings"
@@ -100,6 +102,16 @@ export const SECTION_GROUPS: SectionGroup[] = [
         path: "",
         iconBg: "bg-slate-100 text-slate-600 dark:bg-slate-700/40 dark:text-slate-200",
         keywords: ["dashboard", "overview", "start"],
+      },
+      {
+        key: "tldrs",
+        label: "TLDRs",
+        description: "Periodic briefings on what your company did.",
+        icon: Sparkles,
+        shortcut: "Z",
+        path: "/tldrs",
+        iconBg: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300",
+        keywords: ["summary", "digest", "briefing", "recap", "channel updates"],
       },
       {
         key: "workspace",
@@ -507,6 +519,7 @@ export const SECTION_BY_KEY: Record<SectionKey, SectionItem> = Object.fromEntrie
  * check has to come AFTER more specific section checks fail.
  */
 export function activeSection(pathname: string): SectionKey {
+  if (/\/c\/[^/]+\/tldrs(\/|$)/.test(pathname)) return "tldrs";
   if (/\/c\/[^/]+\/inbox(\/|$)/.test(pathname)) return "inbox";
   if (/\/c\/[^/]+\/mail(\/|$)/.test(pathname)) return "mail";
   if (/\/c\/[^/]+\/meetings(\/|$)/.test(pathname)) return "meetings";

@@ -125,17 +125,20 @@ export function Introduction() {
       </P>
       <P>
         Once you&apos;re signed in, every session starts on <Strong>Home</Strong> — unread mentions
-        and DMs, todos assigned to you, reviews and approvals waiting on your decision, today&apos;s
-        AI activity, and shortcuts to every section. When something needs you, it&apos;s the first
+        and DMs, todos assigned to you, reviews and approvals waiting on your decision, the latest
+        unread <DocLink to="/docs/tldrs">TLDR</DocLink>, today&apos;s AI activity, and shortcuts to
+        every section. When something needs you — or a fresh recap is ready — it&apos;s the first
         thing you see.
       </P>
       <P>
-        Home only shows you what it actually has. Every panel — the{" "}
+        Home only shows you what it actually has. Every queue — the{" "}
         <DocLink to="/docs/decisions">decision stack</DocLink>, failed{" "}
         <DocLink to="/docs/routines">routines</DocLink>, mentions,{" "}
         <DocLink to="/docs/tasks">todos</DocLink>, reviews, unread messages, approvals, system
         health — disappears when it&apos;s empty rather than sitting there reporting that nothing is
-        waiting. So the page is only ever as long as your day is busy, and on a quiet one it says{" "}
+        waiting. Dismissing a TLDR removes it from your Home only; its history remains available,
+        and colleagues keep seeing it until they dismiss it themselves. So the page is only ever
+        as long as your day is busy, and on a quiet one it says{" "}
         <Strong>Nothing needs you right now</Strong> and leaves it at that.
       </P>
       <P>

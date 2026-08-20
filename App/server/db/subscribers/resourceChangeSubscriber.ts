@@ -65,6 +65,11 @@ const REGISTRY: Record<string, Mapping> = {
   Skill: { kind: "skill", company: { fk: "employeeId", parent: "AIEmployee" } },
   Routine: { kind: "routine", company: { fk: "employeeId", parent: "AIEmployee" } },
   Run: { kind: "run", company: { fk: "routineId", parent: "Routine" }, scopeFk: "routineId" },
+  TldrSettings: { kind: "tldr", company: "direct" },
+  Tldr: { kind: "tldr", company: "direct" },
+  // Dismissal is Member-private state. Announce only that TLDR state changed;
+  // never put the acting user id on the company-wide realtime frame.
+  TldrDismissal: { kind: "tldr", company: "direct" },
   Handoff: { kind: "handoff", company: "direct" },
   JournalEntry: {
     kind: "journal",

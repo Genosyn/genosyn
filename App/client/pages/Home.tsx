@@ -14,8 +14,10 @@ import {
   ListChecks,
   Mail,
   MessageSquare,
+  Play,
   RotateCw,
   ShieldCheck,
+  Sparkles,
   X,
 } from "lucide-react";
 // The API's Notification row is aliased so the DOM global `Notification`
@@ -32,9 +34,11 @@ import {
   Me,
   Notification as NotificationRow,
   NotificationKind,
+  TldrItem,
   TodoPriority,
 } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
+import { ChatMarkdown } from "../components/ChatMarkdown";
 import { DecisionCard } from "../components/decisions/DecisionCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
@@ -64,6 +68,7 @@ const PUSH_PROMPT_DISMISSED_KEY = "genosyn.pushPromptDismissed";
 
 export default function HomePage({ company, me }: { company: Company; me: Me }) {
   const [data, setData] = React.useState<HomeData | null>(null);
+  const { background } = useToast();
 
   const reload = React.useCallback(async () => {
     try {
@@ -96,7 +101,42 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   }, [reload]);
   // The stack is the first thing on the page, so it has to be current: a
   // teammate answering in another tab should empty it here without a refresh.
-  useLiveRefetch("decision", reload);
+  useLiveRefetch(["decision", "tldr"], reload);
+
+  function dismissTldr(item: TldrItem) {
+    const originalIndex = data?.tldrs.findIndex((row) => row.id === item.id) ?? -1;
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            tldrs: current.tldrs.filter((row) => row.id !== item.id),
+            unreadTldrCount: Math.max(0, current.unreadTldrCount - 1),
+          }
+        : current,
+    );
+
+    background(() => api.post(`/api/companies/${company.id}/tldrs/${item.id}/dismiss`), {
+      loading: "Dismissing TLDR…",
+      success: "TLDR dismissed",
+      error: (err) =>
+        `Couldn’t dismiss the TLDR: ${
+          err instanceof Error ? err.message : "Unknown error"
+        }. It has been restored.`,
+      onSuccess: () => void reload(),
+      onError: () => {
+        setData((current) => {
+          if (!current || current.tldrs.some((row) => row.id === item.id)) return current;
+          const restored = [...current.tldrs];
+          restored.splice(Math.max(0, Math.min(originalIndex, restored.length)), 0, item);
+          return {
+            ...current,
+            tldrs: restored,
+            unreadTldrCount: current.unreadTldrCount + 1,
+          };
+        });
+      },
+    });
+  }
 
   return (
     <ContextualLayout>
@@ -112,6 +152,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
           <>
             <DecisionStack company={company} data={data} onResolved={reload} />
             <FailedRoutinesAlert company={company} data={data} onChanged={reload} />
+            <HomeTldrPanel company={company} data={data} onDismiss={dismissTldr} />
             <StatStrip company={company} data={data} />
             {/* `empty:hidden` so the grid's own top margin goes away too on a
                 day when every card inside it has hidden itself. */}
@@ -150,6 +191,7 @@ function hasAnythingToShow(data: HomeData): boolean {
   return (
     data.decisions.length > 0 ||
     data.failedRuns.length > 0 ||
+    data.tldrs.length > 0 ||
     statTotal(data) > 0 ||
     data.notifications.length > 0 ||
     data.myTodos.length > 0 ||
@@ -613,8 +655,141 @@ function FailedRoutinesAlert({
   );
 }
 
-// ───────────────────────── shared card chrome ─────────────────────────────────
+// ──────────────────────────────── TLDRs ──────────────────────────────────
 
+/**
+ * The newest unread company briefings. These sit below blocked Decisions and
+ * failed Routines because they are context, not an interruption, but above
+ * the small queue cards so the day's work can be understood at a glance.
+ */
+function HomeTldrPanel({
+  company,
+  data,
+  onDismiss,
+}: {
+  company: Company;
+  data: HomeData;
+  onDismiss: (item: TldrItem) => void;
+}) {
+  if (data.tldrs.length === 0) return null;
+  const visible = data.tldrs.slice(0, 3);
+  const hidden = Math.max(0, data.unreadTldrCount - visible.length);
+  const base = `/c/${company.slug}/tldrs`;
+
+  return (
+    <section className="mt-6 overflow-hidden rounded-xl border border-violet-200 bg-white shadow-sm dark:border-violet-500/25 dark:bg-slate-950">
+      <div className="flex items-center gap-2 border-b border-violet-100 bg-violet-50/60 px-4 py-3 dark:border-violet-500/15 dark:bg-violet-500/10">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-500/20 dark:text-violet-300">
+          <Sparkles size={15} />
+        </span>
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Latest TLDRs</h2>
+        <span className="rounded-full bg-violet-100 px-1.5 text-[10px] font-semibold tabular-nums text-violet-700 dark:bg-violet-500/20 dark:text-violet-300">
+          {data.unreadTldrCount}
+        </span>
+        <span className="hidden truncate text-xs text-slate-500 sm:inline dark:text-slate-400">
+          Public Workspace activity worth knowing about
+        </span>
+        <Link
+          to={base}
+          className="ml-auto flex shrink-0 items-center gap-0.5 text-xs font-medium text-violet-700 hover:underline dark:text-violet-300"
+        >
+          All TLDRs <ChevronRight size={12} />
+        </Link>
+      </div>
+
+      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+        {visible.map((item) => (
+          <article key={item.id} className="px-4 py-4 sm:px-5">
+            <div className="flex items-start gap-3">
+              <Avatar
+                name={item.employee.name || "AI Employee"}
+                src={
+                  item.employee.id
+                    ? employeeAvatarUrl(company.id, item.employee.id, item.employee.avatarKey)
+                    : null
+                }
+                kind="ai"
+                size="md"
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-start">
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      to={`${base}#tldr-${item.id}`}
+                      className="font-medium text-slate-900 hover:text-violet-700 dark:text-slate-100 dark:hover:text-violet-300"
+                    >
+                      {item.title || "Company TLDR"}
+                    </Link>
+                    <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                      {item.employee.name || "AI Employee"} · {homeTldrPeriod(item)} ·{" "}
+                      {formatRelative(item.createdAt)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onDismiss(item)}
+                    className="-mr-1 inline-flex shrink-0 items-center gap-1 self-start rounded-md px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                    aria-label={`Dismiss ${item.title || "TLDR"}`}
+                  >
+                    <X size={13} /> Dismiss
+                  </button>
+                </div>
+
+                <div className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-300">
+                  <ChatMarkdown content={item.summary || item.body} />
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400 dark:text-slate-500">
+                  {item.sourceStats.routineRuns > 0 && (
+                    <span className="inline-flex items-center gap-1">
+                      <Play size={11} /> {item.sourceStats.routineRuns} Routine{" "}
+                      {item.sourceStats.routineRuns === 1 ? "run" : "runs"}
+                    </span>
+                  )}
+                  {item.sourceStats.channelMessages > 0 && (
+                    <span className="inline-flex items-center gap-1">
+                      <MessageSquare size={11} /> {item.sourceStats.channelMessages}{" "}
+                      {item.sourceStats.channelMessages === 1 ? "message" : "messages"} in{" "}
+                      {item.sourceStats.channels}{" "}
+                      {item.sourceStats.channels === 1 ? "channel" : "channels"}
+                    </span>
+                  )}
+                  {item.sourceStats.journalEntries > 0 && (
+                    <span>
+                      {item.sourceStats.journalEntries} journal{" "}
+                      {item.sourceStats.journalEntries === 1 ? "entry" : "entries"}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      {hidden > 0 && (
+        <Link
+          to={base}
+          className="block border-t border-violet-100 bg-violet-50/30 px-4 py-2 text-center text-xs font-medium text-violet-700 hover:bg-violet-50 dark:border-violet-500/15 dark:bg-violet-500/5 dark:text-violet-300 dark:hover:bg-violet-500/10"
+        >
+          {hidden} more unread {hidden === 1 ? "briefing" : "briefings"}
+        </Link>
+      )}
+    </section>
+  );
+}
+
+function homeTldrPeriod(item: TldrItem): string {
+  const start = new Date(item.periodStart);
+  const end = new Date(item.periodEnd);
+  const time = (date: Date) => date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (start.toDateString() === end.toDateString()) {
+    return `${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${time(start)}–${time(end)}`;
+  }
+  return `${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })}–${end.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+}
+
+// Shared card chrome for the smaller two-column attention queues below.
 function HomeCard({
   title,
   icon,

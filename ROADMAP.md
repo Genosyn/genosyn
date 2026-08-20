@@ -102,6 +102,14 @@ don't re-litigate them.
     match. A day with nothing outstanding gets one `AllClear` message instead of
     a wall of reassurance. If you are about to add a card to Home, give it the
     same guard.
+13. **A TLDR is a summary, never a new authority boundary.** A company-wide
+    TLDR may read public Workspace messages and company-visible AI work, but
+    never private channels, DMs, or direct employee chat. The chosen AI
+    Employee runs through the restricted model seam with only the structured
+    submission tool and no action-capable tools, so content being summarized
+    cannot turn the recap into an action. Reading is personal: one Member
+    dismissing a TLDR hides it only for them and never deletes the company's
+    preserved history or hides it from somebody else.
 
 ---
 
@@ -128,6 +136,10 @@ don't re-litigate them.
   provider CLI harnesses remain forbidden.
 - **Run** — a single execution of a routine. The agent's transcript (streamed
   text + tool activity) is stored on `Run.logContent` (256 KB cap).
+- **TLDR** — one company-wide, AI-written recap of public Workspace messages
+  and company-visible AI work from a bounded period. Generated on a fixed
+  cadence by a chosen AI Employee, preserved in history, and dismissed
+  separately by each Member.
 - **Integration** — a connector type (Stripe, Gmail, Metabase, …). Static
   catalog defined in `server/integrations/providers/<name>.ts`.
 - **Connection** — one authenticated account inside an Integration. DB row
@@ -213,6 +225,7 @@ genosyn/
   `RepositoryWorkSession`
 - **Approvals + audit:** `Approval` (kind: routine | lightning_payment | …),
   `AuditEvent`, `Notification`
+- **TLDRs (M45):** `TldrSettings`, `Tldr`, `TldrDismissal`
 - **Email (transactional sends):** `EmailProvider`, `EmailLog`
 - **Email client (M25):** `MailAccount`, `MailThread`, `MailMessage`,
   `MailLabel`, `MailRule`, `MailHandover`, `MailChatMessage`,
@@ -2462,6 +2475,49 @@ as real, dated, assigned rows in the queue a human already works from.
       boundary that Meet's web client needs. Both are deliberate, so both are a
       decision before they are a patch.
 
+### M45 — TLDRs ✅
+
+AI Employees can work all day without producing one place a human can scan in
+two minutes. Their Runs and journal entries accumulate, and useful updates land
+across Workspace, but reading every transcript and channel defeats the point of
+delegating the work. TLDRs turn that company-visible activity into a periodic,
+durable recap without widening who can see private conversations or giving the
+summarizer another route to act.
+
+- [x] **One company schedule, one chosen AI Employee.** `TldrSettings` stores
+      whether TLDRs are enabled, the employee that writes them, and one of five
+      fixed cadences: every 4, 8, or 12 hours, daily, or weekly. The employee
+      must still belong to the company and have a connected active AI Model.
+      Owners and admins configure the schedule or choose **Generate now**;
+      ordinary Members cannot change company automation.
+- [x] **The source window is useful and deliberately narrow.** Each pass reads
+      public Workspace messages plus company-visible AI work, journal entries,
+      and Run records from its bounded period. Private channels, DMs, and direct
+      employee chat are excluded before any text reaches the model, so a recap
+      visible to the whole company cannot launder a private conversation into
+      public copy.
+- [x] **Summarizing grants no tools.** The chosen employee's connected active
+      model receives a bounded snapshot through the restricted agent seam. The
+      snapshot is labelled as untrusted data and the turn exposes only the
+      structured TLDR submission tool — no coding, browser, Genosyn, Integration,
+      or company MCP tools — so an instruction hidden in a message cannot make
+      the summarizer take an action.
+- [x] **History is durable; empty periods are not.** Every completed recap is a
+      `Tldr` row with its covered window and generated markdown. A window with
+      no eligible activity writes nothing, leaving Home and the history free of
+      empty boilerplate. Scheduler leasing and a durable due claim keep two App
+      replicas from producing the same recap.
+- [x] **Reading is per Member.** The newest unread TLDR appears on Home and the
+      full generated history lives in the TLDRs section. Dismiss writes a
+      `TldrDismissal` for that Member only: the recap leaves their Home page but
+      remains readable in history and visible to every colleague who has not
+      dismissed it.
+- [x] **TLDRs are a first-class product section.** A top-level nav entry opens
+      the company history, schedule, employee picker, next-run state, and
+      Generate-now action. Empty, loading, error, disabled, mobile, dark-mode,
+      and live-update states follow the same quiet Linear × Notion language as
+      the rest of the App.
+
 ## V1 backlog (post-MVP)
 
 Items here are not on the active milestone path but worth picking up. Most
@@ -2593,8 +2649,9 @@ of the original V1 backlog has shipped — what remains is mostly
       and private-channel membership
 - [x] **Home page** — post-sign-in landing at the company root:
       unread notifications, my todos, reviews waiting on me, pending
-      approvals, unread channels/DMs, today's journal digest, section
-      directory (Employees roster moved to `/employees`)
+      approvals, unread channels/DMs, the latest personally unread TLDR,
+      today's journal digest, section directory (Employees roster moved to
+      `/employees`)
 - [x] **SSO / Google login** — instance-wide, Admin → SSO, disabled by
       default; see M16
 - [x] **2FA (TOTP + passkeys / security keys)** — see M15

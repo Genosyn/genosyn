@@ -5,6 +5,8 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
+import { Tldr } from "../db/entities/Tldr.js";
+import { TldrDismissal } from "../db/entities/TldrDismissal.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { getHomeData } from "./home.js";
@@ -71,7 +73,10 @@ describe("Home approval visibility", () => {
     ] as const) {
       const data = await getHomeData({ companyId: company.id, userId: user.id, role });
       assert.equal(data.approvals.length, 1);
-      assert.ok(!data.approvals[0].title?.includes("sk-live-abc123"), data.approvals[0].title ?? "");
+      assert.ok(
+        !data.approvals[0].title?.includes("sk-live-abc123"),
+        data.approvals[0].title ?? "",
+      );
       assert.ok(!data.approvals[0].summary?.includes("hunter2"), data.approvals[0].summary ?? "");
     }
   });
@@ -131,5 +136,65 @@ describe("Home decision stack", () => {
     const data = await getHomeData({ companyId: company.id, userId: member.id, role: "member" });
     assert.deepEqual(data.decisions, []);
     assert.equal(data.pendingDecisionCount, 0);
+  });
+});
+
+describe("Home TLDR briefings", () => {
+  test("returns up to three undismissed briefings and a per-Member unread count", async () => {
+    const rows: Tldr[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      const periodEnd = new Date(Date.UTC(2026, 7, 20, 8 + index));
+      rows.push(
+        await insert(Tldr, {
+          companyId: company.id,
+          employeeId: employee.id,
+          employeeName: employee.name,
+          employeeSlug: employee.slug,
+          employeeRole: employee.role,
+          employeeAvatarKey: null,
+          status: "ready",
+          triggerKind: "schedule",
+          periodStart: new Date(periodEnd.getTime() - 60 * 60_000),
+          periodEnd,
+          title: `Brief ${index}`,
+          summary: `Summary ${index}`,
+          body: `Body ${index}`,
+          sourceStatsJson: JSON.stringify({
+            journalEntries: 1,
+            routineRuns: 0,
+            channelMessages: 0,
+            channels: 0,
+          }),
+          errorMessage: "",
+          finishedAt: periodEnd,
+          createdAt: periodEnd,
+        }),
+      );
+    }
+    await insert(TldrDismissal, {
+      companyId: company.id,
+      tldrId: rows[3].id,
+      userId: member.id,
+    });
+
+    const memberHome = await getHomeData({
+      companyId: company.id,
+      userId: member.id,
+      role: "member",
+    });
+    assert.equal(memberHome.unreadTldrCount, 3);
+    assert.deepEqual(
+      memberHome.tldrs.map((tldr) => tldr.title),
+      ["Brief 2", "Brief 1", "Brief 0"],
+    );
+
+    const ownerHome = await getHomeData({
+      companyId: company.id,
+      userId: owner.id,
+      role: "owner",
+    });
+    assert.equal(ownerHome.unreadTldrCount, 4);
+    assert.equal(ownerHome.tldrs.length, 3);
+    assert.equal(ownerHome.tldrs[0].title, "Brief 3");
   });
 });

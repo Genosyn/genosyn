@@ -48,6 +48,7 @@ import { RecurringInvoice } from "../db/entities/RecurringInvoice.js";
 import { Resource } from "../db/entities/Resource.js";
 import { Todo } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
+import { TldrDismissal } from "../db/entities/TldrDismissal.js";
 import { User } from "../db/entities/User.js";
 import { Vendor } from "../db/entities/Vendor.js";
 import { WebAuthnCredential } from "../db/entities/WebAuthnCredential.js";
@@ -144,6 +145,7 @@ export async function deleteUserCascade(args: { userId: string }): Promise<Delet
     // `services/projects.ts`, locking the project for everyone left.
     await m.delete(ProjectMember, { userId });
     await m.delete(VaultItemMemberAccess, { userId });
+    await m.delete(TldrDismissal, { userId });
 
     // ── 2. Authored content — preserve the row, unlink the author ──────
     await m.update(AIEmployee, { reportsToUserId: userId }, { reportsToUserId: null });

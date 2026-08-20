@@ -592,6 +592,7 @@ describe("section routing and command search", () => {
     const keys = [
       "inbox",
       "mail",
+      "tldrs",
       "workspace",
       "employees",
       "skills",
@@ -619,6 +620,16 @@ describe("section routing and command search", () => {
     }
     assert.equal(activeSection("/c/acme/not-email"), "home");
     assert.equal(activeSection("/admin"), "home");
+  });
+
+  test("finds TLDRs by summary language and keeps product shortcuts unique", () => {
+    assert.equal(searchSections(items, "summary")[0]?.item.key, "tldrs");
+    assert.equal(searchSections(items, "recap")[0]?.item.key, "tldrs");
+
+    const productShortcuts = SECTION_GROUPS.flatMap((group) =>
+      group.items.map((item) => item.shortcut),
+    );
+    assert.equal(new Set(productShortcuts).size, productShortcuts.length);
   });
 
   test("ranks exact, prefix, boundary, keyword, description, and fuzzy matches", () => {

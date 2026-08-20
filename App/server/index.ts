@@ -80,6 +80,7 @@ import { unsubscribeRouter } from "./routes/unsubscribe.js";
 import { apiKeysRouter } from "./routes/apiKeys.js";
 import { openapiRouter } from "./routes/openapi.js";
 import { homeRouter } from "./routes/home.js";
+import { tldrsRouter } from "./routes/tldrs.js";
 import { searchRouter } from "./routes/search.js";
 import { systemHealthRouter } from "./routes/systemHealth.js";
 import { pushRouter } from "./routes/push.js";
@@ -306,6 +307,8 @@ async function main() {
   app.use("/api/companies/:cid", inboxRouter);
   // Home page aggregation — the post-sign-in landing surface.
   app.use("/api/companies/:cid", homeRouter);
+  // Scheduled company briefs: configuration, history, and per-Member dismissal.
+  app.use("/api/companies/:cid", tldrsRouter);
   // Company-wide quick search — entity results for the ⌘K palette.
   app.use("/api/companies/:cid", searchRouter);
   // System Health — company-scoped roll-up of failed/stuck/skipped runs,

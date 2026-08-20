@@ -47,6 +47,7 @@ import {
 } from "../services/browserAccess.js";
 import { removeBrowserStorageForEmployee } from "../services/browserStorage.js";
 import { removeRepositoryPrivateStateForEmployee } from "../services/repositorySshFiles.js";
+import { detachEmployeeFromTldrs } from "../services/tldrs.js";
 import {
   applyRoutineRecommendations,
   findRoutineRecommendationDefinition,
@@ -457,6 +458,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
   const co = await loadCompany((req.params as Record<string, string>).cid);
 
   await closeAllBrowserSessionsForEmployee(emp.id);
+  await detachEmployeeFromTldrs(emp.companyId, emp.id);
 
   // Clear reporting lines that pointed at this employee so subordinates
   // don't carry a dangling manager reference.
@@ -528,6 +530,12 @@ employeesRouter.delete("/:eid", async (req, res) => {
   // matches nobody and would linger in the project's Access list.
   await AppDataSource.getRepository(ProjectMember).delete({ employeeId: emp.id });
   await empRepo.delete({ id: emp.id });
+  // Recheck after the row is gone. A settings update that began while the
+  // longer cleanup above was running may have selected this employee after
+  // the first detach; its transaction-level ownership check now sees the
+  // deletion, and this pass clears any assignment that committed just before
+  // it.
+  await detachEmployeeFromTldrs(emp.companyId, emp.id);
 
   await removeBrowserStorageForEmployee(emp.companyId, emp.id);
   removeRepositoryPrivateStateForEmployee(emp.companyId, emp.id);

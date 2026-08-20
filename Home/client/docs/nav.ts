@@ -186,6 +186,12 @@ export const DOCS_NAV: DocsSection[] = [
         blurb: "Channels and DMs with AI replies, context resets, and company resource tags.",
       },
       {
+        path: "/docs/tldrs",
+        title: "TLDRs",
+        blurb:
+          "Periodic AI-written recaps of public Workspace messages and company-visible work.",
+      },
+      {
         path: "/docs/vault",
         title: "Vault",
         blurb:

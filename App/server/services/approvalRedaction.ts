@@ -45,6 +45,13 @@ function redactStringCredentials(value: string): string {
       '$1"[redacted]"',
     )
     .replace(/\b(Bearer|Basic)\s+[^\s,;]+/gi, "$1 [redacted]")
+    // Common credentials are frequently printed without a helpful `token=`
+    // label in Run output. Keep these signatures at the shared text boundary
+    // so TLDRs and approval previews cannot relay them verbatim.
+    .replace(
+      /\b(?:sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{6,}|github_pat_[A-Za-z0-9_]{6,}|gh[pousr]_[A-Za-z0-9]{6,}|glpat-[A-Za-z0-9_-]{6,}|xox[baprs]-[A-Za-z0-9-]{6,}|AKIA[A-Z0-9]{16}|AIza[A-Za-z0-9_-]{20,})\b/g,
+      "[redacted credential]",
+    )
     .replace(assignmentPattern, "$1$2[redacted]")
     .replace(
       /([?&](?:access_token|refresh_token|api_?key|token|secret|password|code|signature)=)[^&\s]+/gi,
@@ -53,6 +60,18 @@ function redactStringCredentials(value: string): string {
     .replace(/\[redacted\](?:\s+\[redacted\])+/gi, "[redacted]");
 
   return redactUrlCredentialMaterial(redacted);
+}
+
+/**
+ * Scrub credential-shaped material from ordinary human-readable text.
+ *
+ * Approvals were the first caller, but Run transcripts and public-channel
+ * excerpts can carry the same accidental `token=...` / Authorization material
+ * when they are copied into a company-wide TLDR. Keep one redaction grammar at
+ * every boundary rather than letting the two surfaces drift.
+ */
+export function redactSensitiveText(value: string): string {
+  return redactStringCredentials(value);
 }
 
 function redactApprovalValue(value: unknown, depth = 0): unknown {

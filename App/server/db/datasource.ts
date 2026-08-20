@@ -181,6 +181,9 @@ import { EmployeeCalendarGrant } from "./entities/EmployeeCalendarGrant.js";
 import { VaultItem } from "./entities/VaultItem.js";
 import { VaultItemMemberAccess } from "./entities/VaultItemMemberAccess.js";
 import { EmployeeVaultGrant } from "./entities/EmployeeVaultGrant.js";
+import { TldrSettings } from "./entities/TldrSettings.js";
+import { Tldr } from "./entities/Tldr.js";
+import { TldrDismissal } from "./entities/TldrDismissal.js";
 
 const entities = [
   User,
@@ -363,6 +366,10 @@ const entities = [
   MeetingParticipant,
   MeetingTranscriptSegment,
   EmployeeCalendarGrant,
+  // TLDRs — one company policy, generated briefs, and per-Member dismissals.
+  TldrSettings,
+  Tldr,
+  TldrDismissal,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)
