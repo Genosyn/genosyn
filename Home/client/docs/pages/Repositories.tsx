@@ -243,13 +243,30 @@ export function Repositories() {
         <DocLink to="/docs/models">AI Model</DocLink> to run.
       </P>
       <P>
-        The <Strong>AI work</Strong> page lists every session on the left and opens one on the
-        right. Each session has its own URL, so you can switch between them, come back to one
-        tomorrow, or send a colleague straight to the diff you want them to look at. Rename a
-        session from its header when the instruction it was opened with stops describing it.
+        The <Strong>AI work</Strong> page is a searchable session inbox. It groups sessions by what
+        needs attention, so work that is running or ready to review does not disappear into finished
+        work. Search by session title or employee, then open the result you need. Each session has
+        its own URL, so you can come back tomorrow or send a colleague straight to the work you want
+        them to review. Rename a session from its header when the instruction it was opened with
+        stops describing it.
+      </P>
+      <P>
+        On a phone or narrow window, the inbox becomes a compact session switcher above the open
+        session instead of squeezing the list and the work into two columns. It keeps the same
+        direct access to recent sessions, and the current session stays selected as you move between
+        its views.
+      </P>
+
+      <H3 id="quick-start">Start with a useful brief</H3>
+      <P>
+        The quick-start surface keeps the employee picker and brief together. Suggested briefs give
+        you a concrete starting point for common code and document work; choose one to adapt it, or
+        write your own in plain language. An unfinished brief is saved for this repository, so
+        opening an existing session or refreshing the page does not throw it away. Starting the
+        session clears that saved draft.
       </P>
       <OL>
-        <LI>Pick the employee and describe the work in plain language.</LI>
+        <LI>Pick the employee, choose a suggested brief if it helps, and describe the outcome.</LI>
         <LI>
           Genosyn creates a git <Strong>worktree</Strong> for the session next to the shared
           checkout, on a fresh branch under <Code>genosyn/</Code>, branched from where the checkout
@@ -266,20 +283,38 @@ export function Repositories() {
           ends.
         </LI>
         <LI>
-          Read the report and the diff. If it is not right yet, <Strong>ask for changes</Strong> in
-          the composer at the bottom of the session — the same employee picks up in the same working
-          copy, on the same branch, with everything it already did replayed to it, and commits the
-          change on top. Every instruction and every report stays in the transcript, and each one
-          shows what that turn alone changed.
+          Follow the instruction and report in <Strong>Activity</Strong>. Every completed turn ends
+          at a commit checkpoint showing what that turn alone changed. If it is not right yet, ask
+          for changes in the composer — the same employee picks up in the same working copy, on the
+          same branch, with everything it already did replayed to it, and commits the revision on
+          top.
         </LI>
-        <LI>When it is right, accept the work, send it on, or open a pull request for it.</LI>
+        <LI>
+          Open <Strong>Changes</Strong> for the focused file-by-file diff and the review actions.
+          When it is right, accept the work, send it on, or open a pull request for it.
+        </LI>
       </OL>
       <P>
-        <Strong>Everything this session changed</Strong> lists the files rather than printing them.
-        Each row carries the path, whether the file was added, modified, deleted or renamed, and how
-        many lines moved; clicking one opens that file&apos;s diff, and <Strong>Expand all</Strong>{" "}
-        opens every one. A change small enough to read at a glance — a file or two, a hundred lines
-        or so — opens itself, because hiding a two-line fix behind a click helps nobody.
+        <Strong>Activity</Strong> is the conversation and progress record: instructions, employee
+        reports, and commit checkpoints in order. <Strong>Changes</Strong> is the review surface. It
+        lists the changed files with their path, change type, and line counts; clicking one opens
+        its diff, while <Strong>Expand all</Strong> opens every file. A change small enough to read
+        at a glance opens itself. The checkpoint list shows how the work built up, while the file
+        list always reviews everything the session branch contains.
+      </P>
+      <P>
+        Merge, push, open or update pull request, and discard actions stay with the Changes review
+        instead of being mixed into the activity transcript. Genosyn only shows actions that apply
+        to the current state and explains authority boundaries, so a running session cannot look
+        ready to publish.
+      </P>
+      <P>
+        The inbox, quick-start surface, open session, and Changes view each show a loading state. If
+        a request fails, the affected surface keeps the rest of the session visible and offers
+        <Strong>Retry</Strong>; retrying a list or diff does not clear the quick-start draft or move
+        you to another session. Empty states distinguish a repository with no sessions from a search
+        with no matches. A failed employee turn is different from a page-load failure and remains in
+        Activity, where you can ask the employee to try again on the same branch.
       </P>
       <KeyList
         rows={[
@@ -347,10 +382,11 @@ export function Repositories() {
       </P>
 
       <Callout kind="tip" title="This works on the standard Docker install.">
-        The browser editor and AI work sessions need no coding tools, no bubblewrap, and no host
-        command execution — the standard install has all of them switched off. Git runs against a
+        The standard install can expose bubblewrap-isolated <Code>bash</Code> for other AI work, but
+        the browser editor and Repository work sessions do not depend on it. Git runs against a
         server-owned checkout no model process can reach, and the employee&apos;s edits arrive
-        through validated tool calls rather than a shell.
+        through validated tool calls rather than a shell. If bubblewrap cannot start and boot falls
+        back to disabled execution, these Repository surfaces still work.
       </Callout>
 
       <H3 id="sessions-from-chat">Asking for one in chat</H3>

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { In, MoreThan } from "typeorm";
+import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Repository } from "../db/entities/Repository.js";
@@ -925,7 +925,6 @@ export async function publishRepositoryWorkSession(
   return session;
 }
 
-
 /**
  * Open (or update) a pull request for this session's branch.
  *
@@ -1134,7 +1133,11 @@ function describePushFailure(
         `Give the repository a token for an account with push access, or connect that account in Settings → Integrations.`,
     );
   }
-  if (/could not read Username|Authentication failed|terminal prompts disabled|error: 403|HTTP 403/i.test(raw)) {
+  if (
+    /could not read Username|Authentication failed|terminal prompts disabled|error: 403|HTTP 403/i.test(
+      raw,
+    )
+  ) {
     return new Error(
       `${slug} rejected the credential Genosyn pushed with. Check the repository's token has not expired, or reconnect GitHub in Settings → Integrations.${detail}`,
     );
@@ -1306,7 +1309,7 @@ export async function discardRepositoryWorkSession(
   // mid-turn leaves a row saying `running` for good. An unbounded refusal here
   // would strand that session forever — every other exit is already shut, and
   // discard is the only one that could clean up its worktree and branch.
-  if (session.status === "running" && Date.now() - session.createdAt.getTime() < CHAT_HARD_TIMEOUT_MS) {
+  if (session.status === "running" && (await repositoryWorkSessionIsLive(session))) {
     throw new Error("This employee is still working. Wait for the turn to finish, then try again.");
   }
   const repo = await AppDataSource.getRepository(Repository).findOneBy({
@@ -1400,13 +1403,39 @@ export async function liveRepositoryWorkSession(args: {
   repositoryId: string;
   employeeId: string;
 }): Promise<RepositoryWorkSession | null> {
-  return AppDataSource.getRepository(RepositoryWorkSession).findOneBy({
-    companyId: args.companyId,
-    repositoryId: args.repositoryId,
-    employeeId: args.employeeId,
-    status: "running",
-    createdAt: MoreThan(new Date(Date.now() - CHAT_HARD_TIMEOUT_MS)),
+  const sessions = await AppDataSource.getRepository(RepositoryWorkSession).find({
+    where: {
+      companyId: args.companyId,
+      repositoryId: args.repositoryId,
+      employeeId: args.employeeId,
+      status: "running",
+    },
+    order: { updatedAt: "DESC" },
   });
+  for (const session of sessions) {
+    if (await repositoryWorkSessionIsLive(session)) return session;
+  }
+  return null;
+}
+
+/**
+ * Whether the turn currently owning a `running` session is still inside the
+ * hard timeout window.
+ *
+ * The session's creation time is only the right clock for its opening turn.
+ * A revision may begin days later on that same row, so using `createdAt`
+ * there makes a brand-new turn look stale and lets discard remove its
+ * worktree while it is running. Every current session has a running turn row;
+ * the session timestamp remains the compatibility fallback for legacy or
+ * partially-created rows that do not.
+ */
+async function repositoryWorkSessionIsLive(session: RepositoryWorkSession): Promise<boolean> {
+  const turn = await AppDataSource.getRepository(RepositoryWorkSessionTurn).findOne({
+    where: { sessionId: session.id, status: "running" },
+    order: { ordinal: "DESC" },
+  });
+  const startedAt = turn?.createdAt ?? session.createdAt;
+  return Date.now() - startedAt.getTime() < CHAT_HARD_TIMEOUT_MS;
 }
 
 /** Resolve the worktree a tool call belongs to, refusing anything else. */

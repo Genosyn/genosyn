@@ -1068,6 +1068,11 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       navigation, a link opens the diff a colleague should look at, and a
       chat-started session links straight to itself. Sessions are titled from
       the instruction that opened them and can be renamed.
+- [x] **AI work UI overhaul** — a searchable, status-grouped session inbox;
+      quick-start briefs with suggestions and a retained draft; focused
+      Activity and Changes views with commit checkpoints and review actions;
+      a compact mobile session switcher; and explicit loading, error, empty,
+      and retry states throughout.
 - [x] **Open a pull request for a session** — the third thing to do with
       reviewed work, and the one merging and pushing could not express: it
       pushes the branch and opens a pull request against the default branch, so

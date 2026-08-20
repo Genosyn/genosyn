@@ -1,18 +1,25 @@
 import React from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  Activity,
   AlertCircle,
   ArrowUp,
   Check,
-  ChevronDown,
-  ChevronRight,
+  CircleCheck,
+  Clock3,
   ExternalLink,
+  FileDiff,
   GitBranch,
   GitMerge,
   GitPullRequest,
+  Inbox,
   Lock,
+  MessageSquareText,
   Pencil,
   Plus,
+  RefreshCw,
+  Search,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Upload,
@@ -20,7 +27,7 @@ import {
   X,
 } from "lucide-react";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
-import { Button } from "../components/ui/Button";
+import { Button, buttonClassName } from "../components/ui/Button";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
@@ -32,8 +39,13 @@ import { DiffStats, DiffView } from "../components/repositories/DiffView";
 import {
   SESSION_STATUS_LABEL,
   SESSION_STATUS_TONE,
+  SESSION_INBOX_GROUP_LABEL,
+  SESSION_INBOX_GROUP_ORDER,
   type SessionStatusTone,
+  groupSessions,
+  hasReviewableWork,
   isGithubRemote,
+  matchesSessionSearch,
   sessionActions,
   sessionSubtitle,
   sessionTitle,
@@ -41,6 +53,7 @@ import {
 } from "../components/repositories/sessionState";
 import {
   api,
+  RepositoryCommit,
   RepositoryStatus,
   RepositoryWorkSession,
   RepositoryWorkSessionCandidatesResponse,
@@ -55,21 +68,20 @@ import { useRepositoriesContext } from "./RepositoriesLayout";
  * AI work — sessions with an AI Employee in this repository.
  *
  * The shape is deliberately the one people already know from an agentic coding
- * tool: a list of sessions on the left, one open session on the right, and a
- * composer pinned to the bottom of it that keeps the conversation going. A
- * session is not a single request. You ask, you read the diff, you say "close,
- * but keep the old heading", and the same employee picks up in the same
+ * tool: an inbox of sessions on the left and a focused Activity/Changes
+ * workbench on the right. A session is not a single request. You ask, review
+ * the result, request another pass, and the same employee picks up in the same
  * working copy on the same branch.
  *
  * Three things shape the layout, and all three came from watching the old one
  * fail:
  *
- *   1. **The transcript is the page.** It used to be squeezed between a header
- *      card, a diff card, an action card and a composer card, each with its
- *      own border, so the actual conversation had perhaps a third of the
- *      screen. Chrome is now one bar at the top and one at the bottom.
- *   2. **The diff is opened, not shown.** A change touching thirty files used
- *      to render all thirty expanded. `DiffView` now leads with the summary.
+ *   1. **Attention is visible.** Sessions are grouped by what is active, what
+ *      needs a decision, and what is complete; search works across the brief,
+ *      employee, branch, and status.
+ *   2. **Activity and Changes have room.** The running narrative and the
+ *      complete branch review are focused tabs on ordinary screens and sit
+ *      together on wide ones. Large diffs still lead with a compact summary.
  *   3. **A button that will fail is not offered.** Pushing and opening a pull
  *      request are owner/admin-only server-side; the page knows the viewer's
  *      role and says so instead of letting them find out via a 403.
@@ -82,6 +94,69 @@ import { useRepositoriesContext } from "./RepositoriesLayout";
 
 /** A running turn can take minutes, so the open session is polled as well. */
 const RUNNING_POLL_MS = 4000;
+
+type WorkspaceView = "activity" | "changes";
+
+const STARTERS: Record<"code" | "documents", Array<{ label: string; prompt: string }>> = {
+  code: [
+    {
+      label: "Fix a bug",
+      prompt:
+        "Investigate and fix this bug: [describe what is going wrong]. Add a regression test, commit the result, and state which checks a Member should run.",
+    },
+    {
+      label: "Ship a feature",
+      prompt:
+        "Implement this feature: [describe the outcome]. Follow the repository's existing patterns, cover the behavior with tests, commit the result, and state which checks a Member should run.",
+    },
+    {
+      label: "Improve quality",
+      prompt:
+        "Review [area or file] for reliability and maintainability issues. Fix the highest-impact problems, commit the changes, and state which checks a Member should run.",
+    },
+  ],
+  documents: [
+    {
+      label: "Rewrite a section",
+      prompt:
+        "Rewrite [file and section] for [audience and goal]. Preserve the useful facts, make the structure easier to scan, and commit the result.",
+    },
+    {
+      label: "Audit consistency",
+      prompt:
+        "Review these documents for contradictions, stale guidance, and inconsistent terminology. Fix what you find and commit the result.",
+    },
+    {
+      label: "Add a guide",
+      prompt:
+        "Create a practical guide for [topic and audience]. Match the repository's existing voice and structure, link related material, and commit it.",
+    },
+  ],
+};
+
+/** Keep an unfinished brief through navigation and accidental refreshes. */
+function usePersistedDraft(
+  storageKey: string,
+): [string, React.Dispatch<React.SetStateAction<string>>] {
+  const [value, setValue] = React.useState(() => {
+    try {
+      return window.localStorage.getItem(storageKey) ?? "";
+    } catch {
+      return "";
+    }
+  });
+
+  React.useEffect(() => {
+    try {
+      if (value) window.localStorage.setItem(storageKey, value);
+      else window.localStorage.removeItem(storageKey);
+    } catch {
+      // A blocked storage API should never block someone from delegating work.
+    }
+  }, [storageKey, value]);
+
+  return [value, setValue];
+}
 
 const TONE_CLASS: Record<SessionStatusTone, string> = {
   working: "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300",
@@ -100,7 +175,7 @@ const DOT_CLASS: Record<SessionStatusTone, string> = {
 };
 
 export default function RepositoryAi() {
-  const { company, repo } = useRepositoriesContext();
+  const { company, currentUserId, repo } = useRepositoriesContext();
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -124,35 +199,62 @@ export default function RepositoryAi() {
 
   const [sessions, setSessions] = React.useState<RepositoryWorkSession[] | null>(null);
   const [candidates, setCandidates] = React.useState<
-    RepositoryWorkSessionCandidatesResponse["employees"]
-  >([]);
+    RepositoryWorkSessionCandidatesResponse["employees"] | null
+  >(null);
+  const [sessionsError, setSessionsError] = React.useState<string | null>(null);
+  const [candidatesError, setCandidatesError] = React.useState<string | null>(null);
   /** Where accepted work lands. Null until the first status read comes back. */
   const [checkoutBranch, setCheckoutBranch] = React.useState<string | null>(null);
+  const listRequest = React.useRef(0);
 
   const reloadList = React.useCallback(async () => {
     if (!base) return;
-    try {
-      const [sessionRows, candidateRows, status] = await Promise.all([
-        api.get<RepositoryWorkSessionsResponse>(`${base}/sessions`),
-        api.get<RepositoryWorkSessionCandidatesResponse>(`${base}/session-candidates`),
-        // Accepting work merges it into whatever branch this checkout is on,
-        // and the page used to ask people to approve that without ever naming
-        // it. One extra read buys the sentence its missing fact.
-        api.get<RepositoryStatus>(`${base}/workspace/status`).catch(() => null),
-      ]);
-      setSessions(sortSessions(sessionRows.sessions));
-      setCandidates(candidateRows.employees);
-      setCheckoutBranch(status?.branch ?? null);
-    } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
-      setSessions([]);
+    const request = ++listRequest.current;
+    const [sessionRows, candidateRows, status] = await Promise.allSettled([
+      api.get<RepositoryWorkSessionsResponse>(`${base}/sessions`),
+      api.get<RepositoryWorkSessionCandidatesResponse>(`${base}/session-candidates`),
+      // Accepting work merges it into whatever branch this checkout is on,
+      // and the page used to ask people to approve that without ever naming
+      // it. One extra read buys the sentence its missing fact.
+      api.get<RepositoryStatus>(`${base}/workspace/status`),
+    ]);
+    if (request !== listRequest.current) return;
+
+    if (sessionRows.status === "fulfilled") {
+      setSessions(sortSessions(sessionRows.value.sessions));
+      setSessionsError(null);
+    } else {
+      setSessionsError(
+        sessionRows.reason instanceof Error
+          ? sessionRows.reason.message
+          : "Could not load work sessions.",
+      );
     }
-  }, [base, toast]);
+
+    // Candidate and history failures are deliberately independent. A broken
+    // grant read should not erase a useful session history, and vice versa.
+    if (candidateRows.status === "fulfilled") {
+      setCandidates(candidateRows.value.employees);
+      setCandidatesError(null);
+    } else {
+      setCandidatesError(
+        candidateRows.reason instanceof Error
+          ? candidateRows.reason.message
+          : "Could not load AI employees.",
+      );
+    }
+
+    if (status.status === "fulfilled") setCheckoutBranch(status.value.branch ?? null);
+  }, [base]);
 
   React.useEffect(() => {
+    listRequest.current += 1;
     setSessions(null);
+    setCandidates(null);
+    setSessionsError(null);
+    setCandidatesError(null);
     setCheckoutBranch(null);
-    reloadList();
+    void reloadList();
   }, [reloadList]);
 
   useLiveRefetch("repository", reloadList, repoId);
@@ -166,75 +268,89 @@ export default function RepositoryAi() {
   }
 
   const rows = sessions ?? [];
-  const openSession = sessionId ? (rows.find((row) => row.id === sessionId) ?? null) : null;
   const anyRunning = rows.some((row) => row.status === "running");
+  const attentionCount = rows.filter((row) =>
+    ["ready", "empty", "proposed", "failed"].includes(row.status),
+  ).length;
 
   return (
-    <div className="pb-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-4">
+    <div className="pb-8">
+      <div className="flex flex-wrap items-center justify-between gap-4 pb-5">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
-            <Sparkles size={16} />
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 ring-1 ring-inset ring-indigo-100 dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-500/20">
+            <Inbox size={17} />
           </span>
           <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50">
-              AI work
-            </h1>
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="truncate text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+                AI work
+              </h1>
+              {attentionCount > 0 && (
+                <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                  {attentionCount} need{attentionCount === 1 ? "s" : ""} attention
+                </span>
+              )}
+            </div>
             <p className="truncate text-xs text-slate-500 dark:text-slate-400">
-              An AI employee works on its own copy of {repo.name}. Nothing is kept until you say so.
+              Delegate changes, follow the work, and decide what reaches {repo.name}.
             </p>
           </div>
         </div>
         {sessionId && (
-          <Link to={aiBase} className="shrink-0">
-            <Button size="sm" variant="secondary">
-              <Plus size={14} /> New session
-            </Button>
+          <Link
+            to={aiBase}
+            className={buttonClassName({ variant: "secondary", size: "sm", className: "shrink-0" })}
+          >
+            <Plus size={14} /> New session
           </Link>
         )}
       </div>
 
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-6">
-        <SessionSwitcher
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-5">
+        <SessionInbox
           companyId={company.id}
           sessions={sessions}
+          error={sessionsError}
           activeId={sessionId ?? null}
           aiBase={aiBase}
+          onRetry={reloadList}
+          onSelect={(id) => navigate(id ? `${aiBase}/${id}` : aiBase)}
         />
 
         <div className="min-w-0 flex-1">
           {sessionId ? (
-            sessions !== null && !openSession ? (
-              <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-                That session is not in this repository any more.
-              </div>
-            ) : (
-              <SessionPane
-                key={sessionId}
-                companyId={company.id}
-                repoId={repoId}
-                base={base}
-                sessionId={sessionId}
-                repoName={repo.name}
-                allowPush={isRemote}
-                allowPullRequest={isRemote && isGithub}
-                canReachRemote={canReachRemote}
-                checkoutBranch={checkoutBranch}
-                dialog={dialog}
-                toast={toast}
-                onChanged={reloadList}
-                onGone={goToSessionList}
-              />
-            )
+            <SessionPane
+              key={`${currentUserId}:${sessionId}`}
+              companyId={company.id}
+              currentUserId={currentUserId}
+              repoId={repoId}
+              base={base}
+              sessionId={sessionId}
+              repoName={repo.name}
+              allowPush={isRemote}
+              allowPullRequest={isRemote && isGithub}
+              canReachRemote={canReachRemote}
+              checkoutBranch={checkoutBranch}
+              dialog={dialog}
+              toast={toast}
+              onChanged={reloadList}
+              onGone={goToSessionList}
+            />
           ) : (
             <NewSessionPane
+              key={`${currentUserId}:${repo.id}`}
               base={base}
+              companyId={company.id}
+              currentUserId={currentUserId}
+              repoId={repo.id}
               repoName={repo.name}
               repoKind={repo.kind}
               accessHref={`/c/${company.slug}/repositories/${repo.slug}/access`}
               candidates={candidates}
+              error={candidatesError}
               busy={anyRunning}
               toast={toast}
+              onRetry={reloadList}
               onStarted={async (session) => {
                 await reloadList();
                 navigate(`${aiBase}/${session.id}`);
@@ -247,126 +363,257 @@ export default function RepositoryAi() {
   );
 }
 
-// ─────────────────────────── the session list ───────────────────────────
+// ─────────────────────────── the session inbox ──────────────────────────
 
-function SessionSwitcher({
+function SessionInbox({
   companyId,
   sessions,
+  error,
   activeId,
   aiBase,
+  onRetry,
+  onSelect,
 }: {
   companyId: string;
   sessions: RepositoryWorkSession[] | null;
+  error: string | null;
   activeId: string | null;
   aiBase: string;
+  onRetry: () => Promise<void>;
+  onSelect: (sessionId: string | null) => void;
 }) {
+  const [query, setQuery] = React.useState("");
+  const visible = (sessions ?? []).filter((session) => matchesSessionSearch(session, query));
+  const groups = groupSessions(visible);
+  const activeMissing = !!activeId && !sessions?.some((session) => session.id === activeId);
+
   return (
-    <aside className="w-full shrink-0 lg:sticky lg:top-4 lg:w-64">
-      <div className="mb-1.5 flex items-center justify-between px-1">
-        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-          Sessions
-        </h2>
-        {activeId && (
-          <Link
-            to={aiBase}
-            className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[11px] font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-500/10"
+    <aside className="w-full shrink-0 lg:sticky lg:top-4 lg:w-72 xl:w-80">
+      {/* A select keeps the session history from becoming a 30rem wall above
+        the actual work on phones and tablets. */}
+      <div className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:hidden">
+        {sessions === null && !error ? (
+          <div
+            role="status"
+            className="flex items-center justify-center gap-2 px-3 py-2 text-xs text-slate-500 dark:text-slate-400"
           >
-            <Plus size={11} /> New
-          </Link>
+            <Spinner size={14} /> Loading work sessions…
+          </div>
+        ) : error && sessions === null ? (
+          <InlineRetry message={error} onRetry={onRetry} compact />
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <select
+                value={activeId ?? ""}
+                onChange={(event) => onSelect(event.target.value || null)}
+                aria-label="Open work session"
+                className="min-w-0 flex-1 rounded-lg border-0 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-indigo-900/30"
+              >
+                <option value="">Start a new session</option>
+                {activeMissing && <option value={activeId}>Current session</option>}
+                {(sessions ?? []).map((session) => (
+                  <option key={session.id} value={session.id}>
+                    {sessionTitle(session)} — {SESSION_STATUS_LABEL[session.status]}
+                  </option>
+                ))}
+              </select>
+              {activeId && (
+                <Link
+                  to={aiBase}
+                  className={buttonClassName({ size: "sm", className: "shrink-0" })}
+                >
+                  <Plus size={14} /> New
+                </Link>
+              )}
+            </div>
+            {error && (
+              <div className="mt-2">
+                <InlineRetry message={error} onRetry={onRetry} compact />
+              </div>
+            )}
+          </>
         )}
       </div>
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        {sessions === null ? (
-          <div className="flex h-24 items-center justify-center">
-            <Spinner size={16} />
+
+      <div className="hidden max-h-[calc(100vh-9rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:flex">
+        <div className="border-b border-slate-100 p-3 dark:border-slate-800">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                Work sessions
+              </h2>
+              <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                {sessions?.length ?? 0} recent
+              </p>
+            </div>
+            {activeId && (
+              <Link to={aiBase} className={buttonClassName({ size: "sm" })}>
+                <Plus size={13} /> New
+              </Link>
+            )}
           </div>
-        ) : sessions.length === 0 ? (
-          <p className="px-4 py-6 text-center text-xs text-slate-500 dark:text-slate-400">
-            No sessions yet. Describe a change and one starts here.
-          </p>
-        ) : (
-          <ul className="max-h-[30rem] divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800">
-            {sessions.map((session) => {
-              const tone = SESSION_STATUS_TONE[session.status];
-              const active = session.id === activeId;
-              return (
-                <li key={session.id} className="relative">
-                  {active && (
-                    <span
-                      className="absolute inset-y-0 left-0 w-0.5 bg-indigo-500"
-                      aria-hidden
-                    />
-                  )}
-                  <Link
-                    to={`${aiBase}/${session.id}`}
-                    aria-current={active ? "true" : undefined}
-                    className={
-                      "flex items-start gap-2 px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60 " +
-                      (active ? "bg-indigo-50/60 dark:bg-indigo-500/10" : "")
-                    }
-                  >
-                    <span className="mt-1.5 shrink-0">
-                      {session.status === "running" ? (
-                        <Spinner size={10} />
-                      ) : (
-                        <span
-                          className={"block h-1.5 w-1.5 rounded-full " + DOT_CLASS[tone]}
-                          aria-hidden
+          {sessions !== null && sessions.length > 4 && (
+            <label className="relative mt-3 block">
+              <Search
+                size={13}
+                className="pointer-events-none absolute left-2.5 top-2.5 text-slate-400"
+              />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search sessions"
+                aria-label="Search work sessions"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-8 pr-8 text-xs text-slate-700 placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:focus:border-indigo-700 dark:focus:ring-indigo-900/30"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label="Clear search"
+                  className="absolute right-2 top-2 rounded p-0.5 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </label>
+          )}
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {sessions === null && !error ? (
+            <div className="flex h-32 items-center justify-center">
+              <Spinner size={16} />
+            </div>
+          ) : error && sessions === null ? (
+            <InlineRetry message={error} onRetry={onRetry} compact />
+          ) : sessions?.length === 0 ? (
+            <div className="px-4 py-10 text-center">
+              <span className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500">
+                <Inbox size={16} />
+              </span>
+              <p className="mt-3 text-xs font-medium text-slate-600 dark:text-slate-300">
+                No sessions yet
+              </p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-400 dark:text-slate-500">
+                Your delegated work will stay organized here.
+              </p>
+            </div>
+          ) : visible.length === 0 ? (
+            <div className="px-4 py-10 text-center text-xs text-slate-500 dark:text-slate-400">
+              No session matches &quot;{query}&quot;.
+            </div>
+          ) : (
+            <>
+              {error && (
+                <div className="mb-2">
+                  <InlineRetry message={error} onRetry={onRetry} compact />
+                </div>
+              )}
+              {SESSION_INBOX_GROUP_ORDER.map((group) => {
+                const rows = groups[group];
+                if (rows.length === 0) return null;
+                return (
+                  <section key={group} className="mb-3 last:mb-0">
+                    <div className="flex items-center justify-between px-2 pb-1 pt-1">
+                      <h3 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        {SESSION_INBOX_GROUP_LABEL[group]}
+                      </h3>
+                      <span className="font-mono text-[10px] tabular-nums text-slate-300 dark:text-slate-600">
+                        {rows.length}
+                      </span>
+                    </div>
+                    <ul className="space-y-0.5">
+                      {rows.map((session) => (
+                        <SessionInboxRow
+                          key={session.id}
+                          companyId={companyId}
+                          session={session}
+                          active={session.id === activeId}
+                          href={`${aiBase}/${session.id}`}
                         />
-                      )}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span
-                        className={
-                          "block truncate text-[13px] leading-5 " +
-                          (active
-                            ? "font-semibold text-slate-900 dark:text-slate-50"
-                            : "font-medium text-slate-700 dark:text-slate-200")
-                        }
-                      >
-                        {sessionTitle(session)}
-                      </span>
-                      <span className="mt-1 flex items-center gap-1.5">
-                        <Avatar
-                          name={session.employee?.name ?? "Removed employee"}
-                          kind="ai"
-                          size="xs"
-                          src={
-                            session.employee
-                              ? employeeAvatarUrl(
-                                  companyId,
-                                  session.employee.id,
-                                  session.employee.avatarKey,
-                                )
-                              : null
-                          }
-                        />
-                        <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
-                          {sessionSubtitle(session)}
-                        </span>
-                      </span>
-                      <span className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[10px] text-slate-400 dark:text-slate-500">
-                        <span>{SESSION_STATUS_LABEL[session.status]}</span>
-                        <span aria-hidden>·</span>
-                        <span>{formatRelative(session.updatedAt)}</span>
-                        {session.filesChanged > 0 && (
-                          <>
-                            <span aria-hidden>·</span>
-                            <span className="font-mono tabular-nums">
-                              {session.filesChanged}f
-                            </span>
-                          </>
-                        )}
-                      </span>
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+                      ))}
+                    </ul>
+                  </section>
+                );
+              })}
+            </>
+          )}
+        </div>
       </div>
     </aside>
+  );
+}
+
+function SessionInboxRow({
+  companyId,
+  session,
+  active,
+  href,
+}: {
+  companyId: string;
+  session: RepositoryWorkSession;
+  active: boolean;
+  href: string;
+}) {
+  const tone = SESSION_STATUS_TONE[session.status];
+  const employeeName = session.employee?.name ?? "Removed employee";
+  return (
+    <li className="relative">
+      <Link
+        to={href}
+        aria-current={active ? "page" : undefined}
+        className={
+          "group flex items-start gap-2.5 rounded-lg px-2.5 py-2.5 transition-colors " +
+          (active
+            ? "bg-indigo-50 ring-1 ring-inset ring-indigo-100 dark:bg-indigo-500/10 dark:ring-indigo-500/20"
+            : "hover:bg-slate-50 dark:hover:bg-slate-800/60")
+        }
+      >
+        <Avatar
+          name={employeeName}
+          kind="ai"
+          size="sm"
+          className="mt-0.5 shrink-0"
+          src={
+            session.employee
+              ? employeeAvatarUrl(companyId, session.employee.id, session.employee.avatarKey)
+              : null
+          }
+        />
+        <span className="min-w-0 flex-1">
+          <span
+            className={
+              "block truncate text-[13px] leading-5 " +
+              (active
+                ? "font-semibold text-slate-900 dark:text-slate-50"
+                : "font-medium text-slate-700 dark:text-slate-200")
+            }
+          >
+            {sessionTitle(session)}
+          </span>
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-slate-400 dark:text-slate-500">
+            {session.status === "running" ? (
+              <Spinner size={9} />
+            ) : (
+              <span className={"h-1.5 w-1.5 shrink-0 rounded-full " + DOT_CLASS[tone]} />
+            )}
+            <span className="truncate">{sessionSubtitle(session)}</span>
+            <span aria-hidden>·</span>
+            <span className="shrink-0">{formatRelative(session.updatedAt)}</span>
+          </span>
+          {session.filesChanged > 0 && (
+            <span className="mt-1 inline-flex font-mono text-[10px] tabular-nums text-slate-400 dark:text-slate-500">
+              {session.filesChanged} {session.filesChanged === 1 ? "file" : "files"} ·
+              <span className="ml-1 text-emerald-600 dark:text-emerald-400">
+                +{session.insertions}
+              </span>
+              <span className="ml-1 text-rose-600 dark:text-rose-400">−{session.deletions}</span>
+            </span>
+          )}
+        </span>
+      </Link>
+    </li>
   );
 }
 
@@ -374,30 +621,42 @@ function SessionSwitcher({
 
 function NewSessionPane({
   base,
+  companyId,
+  currentUserId,
+  repoId,
   repoName,
   repoKind,
   accessHref,
   candidates,
+  error,
   busy,
   toast,
+  onRetry,
   onStarted,
 }: {
   base: string;
+  companyId: string;
+  currentUserId: string;
+  repoId: string;
   repoName: string;
   repoKind: string;
   accessHref: string;
-  candidates: RepositoryWorkSessionCandidatesResponse["employees"];
+  candidates: RepositoryWorkSessionCandidatesResponse["employees"] | null;
+  error: string | null;
   /** Another session is running — worth saying, not worth blocking on. */
   busy: boolean;
   toast: (message: string, kind?: "success" | "error") => void;
+  onRetry: () => Promise<void>;
   onStarted: (session: RepositoryWorkSession) => Promise<void>;
 }) {
   const [employeeId, setEmployeeId] = React.useState("");
-  const [instruction, setInstruction] = React.useState("");
+  const [instruction, setInstruction] = usePersistedDraft(
+    `repository-ai-draft:${currentUserId}:${repoId}`,
+  );
   const [starting, setStarting] = React.useState(false);
 
   React.useEffect(() => {
-    if (candidates.length === 0) {
+    if (!candidates || candidates.length === 0) {
       setEmployeeId("");
       return;
     }
@@ -406,12 +665,19 @@ function NewSessionPane({
     );
   }, [candidates]);
 
+  if (candidates === null) {
+    return error ? <InlineRetry message={error} onRetry={onRetry} /> : <NewSessionSkeleton />;
+  }
+
   if (candidates.length === 0) {
     return (
-      <section className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900">
+      <section className="rounded-xl border border-slate-200 bg-white p-7 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              <Users size={18} />
+            </span>
+            <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
               No employee can work here yet
             </div>
             <p className="mt-1 max-w-xl text-sm text-slate-500 dark:text-slate-400">
@@ -419,10 +685,11 @@ function NewSessionPane({
               a checkout, so only they can be asked to do work in it.
             </p>
           </div>
-          <Link to={accessHref} className="shrink-0">
-            <Button variant="secondary">
-              <Users size={15} /> Manage AI access
-            </Button>
+          <Link
+            to={accessHref}
+            className={buttonClassName({ variant: "secondary", className: "shrink-0" })}
+          >
+            <Users size={15} /> Manage AI access
           </Link>
         </div>
       </section>
@@ -442,7 +709,7 @@ function NewSessionPane({
         instruction: instruction.trim(),
       });
       setInstruction("");
-      const who = candidates.find((candidate) => candidate.id === employeeId)?.name;
+      const who = candidates?.find((candidate) => candidate.id === employeeId)?.name;
       toast(`${who ?? "The employee"} is on it. Follow along in this session.`, "success");
       await onStarted(session);
     } catch (err) {
@@ -454,56 +721,135 @@ function NewSessionPane({
 
   const placeholder =
     repoKind === "documents"
-      ? "Rewrite the pricing section of docs/positioning.md to lead with the enterprise tier, and commit it."
-      : "Add a health check endpoint, cover it with a test, and commit.";
+      ? "What should change in these documents? Include the audience, outcome, and any boundaries."
+      : "What should change in this repository? Include the expected behavior and how to verify it.";
+  const selected = candidates.find((candidate) => candidate.id === employeeId) ?? candidates[0];
+  const starters = STARTERS[repoKind === "documents" ? "documents" : "code"];
 
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-      <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-800">
-        <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-          Start a session
-        </h2>
-        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-          Say what needs doing. You can keep asking for changes once the first attempt is back.
-        </p>
-      </div>
-      <div className="flex flex-col gap-4 p-5">
-        <div className="max-w-sm">
-          <Select
-            label="AI employee"
-            value={employeeId}
-            onChange={(event) => setEmployeeId(event.target.value)}
-          >
-            {candidates.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>
-                {candidate.name} — {candidate.role}
-              </option>
+    <div className="space-y-4">
+      {error && <InlineRetry message={error} onRetry={onRetry} compact />}
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="border-b border-slate-100 bg-slate-50/50 px-5 py-5 dark:border-slate-800 dark:bg-slate-950/20 sm:px-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-indigo-500 dark:text-indigo-300">
+                <Sparkles size={13} /> New work session
+              </div>
+              <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50">
+                What outcome do you want?
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
+                Give the employee a clear finish line. You can review every change and ask for
+                another pass before accepting anything.
+              </p>
+            </div>
+            {selected && (
+              <div className="flex shrink-0 items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+                <Avatar
+                  name={selected.name}
+                  kind="ai"
+                  size="md"
+                  src={employeeAvatarUrl(companyId, selected.id, selected.avatarKey)}
+                />
+                <div className="min-w-0">
+                  <div className="max-w-40 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    {selected.name}
+                  </div>
+                  <div className="max-w-40 truncate text-[11px] text-slate-400 dark:text-slate-500">
+                    {selected.role}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="p-5 sm:p-6">
+          <div className="mb-4 flex flex-wrap gap-2">
+            {starters.map((starter) => (
+              <button
+                key={starter.label}
+                type="button"
+                onClick={() => setInstruction(starter.prompt)}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/30 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-300"
+              >
+                {starter.label}
+              </button>
             ))}
-          </Select>
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:focus-within:border-indigo-700 dark:focus-within:ring-indigo-900/30">
+            <textarea
+              value={instruction}
+              onChange={(event) => setInstruction(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void start();
+              }}
+              rows={8}
+              maxLength={20000}
+              autoFocus
+              placeholder={placeholder}
+              aria-label="Work brief"
+              className="w-full resize-y border-0 bg-transparent px-4 py-3 text-sm leading-6 text-slate-700 placeholder:text-slate-400 focus:outline-none dark:text-slate-200 dark:placeholder:text-slate-500"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/60">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400 dark:text-slate-500">
+                <span className="inline-flex items-center gap-1">
+                  <ShieldCheck size={12} /> Isolated branch
+                </span>
+                {instruction && (
+                  <span className="inline-flex items-center gap-1">
+                    <CircleCheck size={12} /> Draft saved
+                  </span>
+                )}
+                <span className="font-mono tabular-nums">
+                  {instruction.length.toLocaleString()} / 20,000
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500">⌘↵ to start</span>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 max-w-sm">
+              <Select
+                label="AI employee"
+                value={employeeId}
+                onChange={(event) => setEmployeeId(event.target.value)}
+              >
+                {candidates.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name} — {candidate.role}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <Button
+              onClick={start}
+              disabled={starting || !employeeId || !instruction.trim()}
+              className="w-full justify-center sm:w-auto"
+            >
+              {starting ? <Spinner size={14} /> : <Sparkles size={14} />}
+              {starting ? "Starting…" : `Start with ${selected?.name ?? "AI"}`}
+            </Button>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4 text-xs text-slate-400 dark:border-slate-800 dark:text-slate-500">
+            <span>
+              {busy
+                ? "Other work is already running. This session gets its own copy and will not collide."
+                : `Nothing reaches ${repoName} until a Member accepts it.`}
+            </span>
+            <Link
+              to={accessHref}
+              className="font-medium text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300"
+            >
+              Manage AI access
+            </Link>
+          </div>
         </div>
-        <textarea
-          value={instruction}
-          onChange={(event) => setInstruction(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void start();
-          }}
-          rows={6}
-          placeholder={placeholder}
-          className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm leading-6 text-slate-700 placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:border-indigo-700 dark:focus:ring-indigo-900/30"
-        />
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-xs text-slate-400 dark:text-slate-500">
-            {busy
-              ? "Another session is running. Starting this one is fine — they work on separate copies."
-              : `Nothing reaches ${repoName} until you accept it.`}
-          </span>
-          <Button onClick={start} disabled={starting || !employeeId}>
-            {starting ? <Spinner size={14} /> : <Sparkles size={14} />}
-            {starting ? "Starting…" : "Start work"}
-          </Button>
-        </div>
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }
 
@@ -511,6 +857,7 @@ function NewSessionPane({
 
 function SessionPane({
   companyId,
+  currentUserId,
   repoId,
   base,
   sessionId,
@@ -525,6 +872,7 @@ function SessionPane({
   onGone,
 }: {
   companyId: string;
+  currentUserId: string;
   repoId: string | null;
   base: string;
   sessionId: string;
@@ -540,11 +888,15 @@ function SessionPane({
 }) {
   const [detail, setDetail] = React.useState<RepositoryWorkSessionDetail | null>(null);
   const [diff, setDiff] = React.useState<RepositoryWorkSessionDiff | null | undefined>(undefined);
-  const [showDiff, setShowDiff] = React.useState(true);
-  const [instruction, setInstruction] = React.useState("");
+  const [view, setView] = React.useState<WorkspaceView>("activity");
+  const [instruction, setInstruction] = usePersistedDraft(
+    `repository-ai-revision-draft:${currentUserId}:${sessionId}`,
+  );
   const [sending, setSending] = React.useState(false);
   const [acting, setActing] = React.useState(false);
   const [renaming, setRenaming] = React.useState<string | null>(null);
+  const [detailError, setDetailError] = React.useState<string | null>(null);
+  const [diffError, setDiffError] = React.useState<string | null>(null);
   /**
    * The last action's failure, kept on the page rather than only in a toast.
    * A toast that says a pull request could not be opened is gone by the time
@@ -552,22 +904,33 @@ function SessionPane({
    */
   const [failure, setFailure] = React.useState<string | null>(null);
   const transcriptEnd = React.useRef<HTMLDivElement | null>(null);
+  const detailRequest = React.useRef(0);
+  const diffRequest = React.useRef(0);
+  const previousStatus = React.useRef<RepositoryWorkSession["status"] | null>(null);
 
   const reload = React.useCallback(async () => {
+    const request = ++detailRequest.current;
     try {
-      setDetail(await api.get<RepositoryWorkSessionDetail>(`${base}/sessions/${sessionId}`));
+      const next = await api.get<RepositoryWorkSessionDetail>(`${base}/sessions/${sessionId}`);
+      if (request !== detailRequest.current) return;
+      setDetail(next);
+      setDetailError(null);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
-      onGone();
+      if (request !== detailRequest.current) return;
+      setDetailError(err instanceof Error ? err.message : String(err));
     }
-  }, [base, sessionId, toast, onGone]);
+  }, [base, sessionId]);
 
   // Opening a *different* session blanks the pane; re-reading the same one
   // must not, or a background refresh replaces what someone is reading with a
   // spinner.
   React.useEffect(() => {
+    detailRequest.current += 1;
+    diffRequest.current += 1;
     setDetail(null);
     setDiff(undefined);
+    setDetailError(null);
+    setDiffError(null);
   }, [sessionId]);
 
   React.useEffect(() => {
@@ -595,38 +958,58 @@ function SessionPane({
   }, [running, reload]);
 
   const loadDiff = React.useCallback(async () => {
+    const request = ++diffRequest.current;
     try {
-      setDiff(await api.get<RepositoryWorkSessionDiff>(`${base}/sessions/${sessionId}/diff`));
+      const next = await api.get<RepositoryWorkSessionDiff>(`${base}/sessions/${sessionId}/diff`);
+      if (request !== diffRequest.current) return;
+      setDiff(next);
+      setDiffError(null);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      if (request !== diffRequest.current) return;
+      setDiffError(err instanceof Error ? err.message : String(err));
       setDiff(undefined);
     }
-  }, [base, sessionId, toast]);
+  }, [base, sessionId]);
 
   // Re-read the diff whenever the branch moves, so a revision's changes appear
   // without anyone having to collapse and reopen the panel.
   React.useEffect(() => {
-    if (running || !headCommit) return;
+    if (!headCommit) return;
     setDiff(null);
-    loadDiff();
+    setDiffError(null);
+    void loadDiff();
   }, [running, headCommit, loadDiff]);
 
   // Only when the transcript actually grows. Scrolling on the first render
   // would yank someone who just opened an old session to the bottom of it.
   const turnCount = detail?.turns.length ?? 0;
-  const lastTurnCount = React.useRef(turnCount);
+  const lastTurnCount = React.useRef<number | null>(null);
   React.useEffect(() => {
-    if (turnCount > lastTurnCount.current) {
+    if (lastTurnCount.current !== null && turnCount > lastTurnCount.current) {
       transcriptEnd.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
     lastTurnCount.current = turnCount;
   }, [turnCount]);
 
+  // A session opened after it finished lands directly in Changes. If a live
+  // turn finishes while someone watches, take them to the result once; after
+  // that their chosen view is left alone.
+  React.useEffect(() => {
+    if (!session) return;
+    const previous = previousStatus.current;
+    if (previous === null) {
+      setView(hasReviewableWork(session) ? "changes" : "activity");
+    } else if (previous === "running" && hasReviewableWork(session)) {
+      setView("changes");
+    }
+    previousStatus.current = session.status;
+  }, [session]);
+
   if (!session) {
-    return (
-      <div className="flex h-40 items-center justify-center">
-        <Spinner size={20} />
-      </div>
+    return detailError ? (
+      <InlineRetry message={detailError} onRetry={reload} onBack={onGone} />
+    ) : (
+      <SessionWorkspaceSkeleton />
     );
   }
 
@@ -731,7 +1114,9 @@ function SessionPane({
   async function discard() {
     const ok = await dialog.confirm({
       title: "Throw this work away?",
-      message: `Nothing ${employeeName} changed is kept, and ${repoName} stays exactly as it is. The session stays in the list so you can see what was asked for.`,
+      message: session?.pullRequestUrl
+        ? `The local session branch is removed, but the existing pull request and its remote branch are not closed or deleted. The session stays in this list for reference.`
+        : `Nothing ${employeeName} changed is merged into ${repoName}. The local session branch is removed, and the session stays in this list for reference.`,
       confirmLabel: "Throw it away",
       variant: "danger",
     });
@@ -759,159 +1144,126 @@ function SessionPane({
 
   const hasActions =
     actions.accept || actions.acceptAndSend || actions.pullRequest || actions.discard;
+  const changesReady = !!session.headCommit;
 
   return (
     <section className="flex min-w-0 flex-col">
-      <header className="sticky top-0 z-20 -mx-1 rounded-xl border border-slate-200 bg-white/95 px-4 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          {renaming === null ? (
-            <div className="flex min-w-0 items-center gap-1.5">
-              <h2 className="min-w-0 truncate text-[15px] font-semibold text-slate-900 dark:text-slate-100">
-                {sessionTitle(session)}
-              </h2>
-              <button
-                type="button"
-                onClick={() => setRenaming(sessionTitle(session))}
-                title="Rename this session"
-                className="shrink-0 rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
-              >
-                <Pencil size={12} />
-              </button>
-            </div>
-          ) : (
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <input
-                value={renaming}
-                autoFocus
-                onChange={(event) => setRenaming(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") void saveTitle();
-                  if (event.key === "Escape") setRenaming(null);
-                }}
-                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              />
-              <button
-                type="button"
-                onClick={() => void saveTitle()}
-                className="rounded p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
-              >
-                <Check size={14} />
-              </button>
-              <button
-                type="button"
-                onClick={() => setRenaming(null)}
-                className="rounded p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          )}
-          <span
-            className={
-              "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium " +
-              TONE_CLASS[tone]
-            }
-          >
-            {running && <Spinner size={10} />}
-            {SESSION_STATUS_LABEL[session.status]}
-          </span>
-        </div>
-
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
-          <span className="inline-flex items-center gap-1.5">
-            <Avatar name={employeeName} kind="ai" size="xs" src={avatarSrc} />
-            {employeeName}
-          </span>
-          {session.branch && (
+      <header className="sticky top-0 z-20 overflow-hidden rounded-xl border border-slate-200 bg-white/95 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+        <div className="px-4 pb-3 pt-3.5 sm:px-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            {renaming === null ? (
+              <div className="flex min-w-0 items-center gap-1.5">
+                <h2 className="min-w-0 truncate text-base font-semibold text-slate-900 dark:text-slate-100">
+                  {sessionTitle(session)}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setRenaming(sessionTitle(session))}
+                  title="Rename this session"
+                  className="shrink-0 rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                >
+                  <Pencil size={12} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <input
+                  value={renaming}
+                  autoFocus
+                  onChange={(event) => setRenaming(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void saveTitle();
+                    if (event.key === "Escape") setRenaming(null);
+                  }}
+                  className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-800 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => void saveTitle()}
+                  aria-label="Save session name"
+                  className="rounded p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
+                >
+                  <Check size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRenaming(null)}
+                  aria-label="Cancel rename"
+                  className="rounded p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
             <span
-              className="inline-flex items-center gap-1 font-mono"
-              title={`Committed on ${session.branch}`}
+              aria-live="polite"
+              className={
+                "inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold " +
+                TONE_CLASS[tone]
+              }
             >
-              <GitBranch size={11} /> {session.branch}
+              {running && <Spinner size={10} />}
+              {SESSION_STATUS_LABEL[session.status]}
             </span>
-          )}
-          {session.filesChanged > 0 && (
-            <DiffStats
-              filesChanged={session.filesChanged}
-              insertions={session.insertions}
-              deletions={session.deletions}
-              className="text-[11px]"
-            />
-          )}
-          {session.publishedBranch && (
-            <span className="inline-flex items-center gap-1" title="This branch is on the remote">
-              <Upload size={11} /> pushed
-            </span>
-          )}
-          {session.pullRequestUrl && (
-            <a
-              href={session.pullRequestUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-            >
-              <GitPullRequest size={11} />
-              {session.pullRequestNumber ? `#${session.pullRequestNumber}` : "Pull request"}
-              <ExternalLink size={10} />
-            </a>
-          )}
-        </div>
+          </div>
 
-        {hasActions && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
-            {actions.pullRequest && (
-              <Button size="sm" onClick={() => void openPullRequest(actions.pullRequestIsUpdate)} disabled={acting}>
-                {acting ? <Spinner size={13} /> : <GitPullRequest size={13} />}
-                {actions.pullRequestIsUpdate ? "Update pull request" : "Open pull request"}
-              </Button>
-            )}
-            {actions.accept && (
-              <Button
-                size="sm"
-                variant={actions.pullRequest ? "secondary" : "primary"}
-                onClick={() => void publish(false)}
-                disabled={acting}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+            <span className="inline-flex items-center gap-1.5">
+              <Avatar name={employeeName} kind="ai" size="xs" src={avatarSrc} />
+              {employeeName}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Clock3 size={11} /> {formatRelative(session.createdAt)}
+            </span>
+            {session.branch && (
+              <span
+                className="inline-flex max-w-full items-center gap-1 truncate font-mono"
+                title={`Committed on ${session.branch}`}
               >
-                <GitMerge size={13} />
-                {checkoutBranch ? `Accept into ${checkoutBranch}` : "Accept changes"}
-              </Button>
+                <GitBranch size={11} className="shrink-0" /> {session.branch}
+              </span>
             )}
-            {actions.acceptAndSend && (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void publish(true)}
-                disabled={acting}
+            {session.pullRequestUrl && (
+              <a
+                href={session.pullRequestUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
               >
-                <Upload size={13} /> Accept and send
-              </Button>
-            )}
-            {actions.discard && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="ml-auto text-slate-400 hover:text-rose-600 dark:hover:text-rose-400"
-                onClick={() => void discard()}
-                disabled={acting}
-              >
-                <Trash2 size={13} /> Throw away
-              </Button>
+                <GitPullRequest size={11} />
+                {session.pullRequestNumber
+                  ? `Pull request #${session.pullRequestNumber}`
+                  : "Pull request"}
+                <ExternalLink size={10} />
+              </a>
             )}
           </div>
-        )}
+        </div>
 
-        {actions.accept && !allowPush && (
-          <p className="mt-2 text-[11px] text-slate-400 dark:text-slate-500">
-            This repository lives only in Genosyn — there is nowhere else to send it.
-          </p>
-        )}
-        {actions.remoteNeedsAdmin && (
-          <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-            <Lock size={11} className="shrink-0" />
-            Only an owner or admin can push this to {repoName} or open a pull request for it.
-          </p>
-        )}
+        <div className="flex border-t border-slate-100 px-2 dark:border-slate-800 min-[1800px]:hidden">
+          <WorkspaceTab
+            active={view === "activity"}
+            icon={<Activity size={14} />}
+            label="Activity"
+            count={detail?.turns.length ?? 0}
+            onClick={() => setView("activity")}
+          />
+          <WorkspaceTab
+            active={view === "changes"}
+            icon={<FileDiff size={14} />}
+            label="Changes"
+            count={session.filesChanged}
+            attention={session.status === "ready" || session.status === "proposed"}
+            onClick={() => setView("changes")}
+          />
+        </div>
       </header>
+
+      {detailError && (
+        <div className="mt-3">
+          <InlineRetry message={detailError} onRetry={reload} compact />
+        </div>
+      )}
 
       {failure && (
         <div className="mt-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/5 dark:text-rose-300">
@@ -928,92 +1280,446 @@ function SessionPane({
         </div>
       )}
 
-      <div className="mt-4 flex flex-col gap-5">
-        {(detail?.turns ?? []).map((turn) => (
-          <TurnBlock
-            key={turn.id}
-            turn={turn}
-            employeeName={employeeName}
-            avatarSrc={avatarSrc}
-          />
-        ))}
-        <div ref={transcriptEnd} />
-      </div>
-
-      {session.status !== "running" && session.headCommit && (
-        <section className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-          <button
-            type="button"
-            onClick={() => setShowDiff((current) => !current)}
-            aria-expanded={showDiff}
-            className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
-          >
-            {showDiff ? (
-              <ChevronDown size={15} className="text-slate-400" />
-            ) : (
-              <ChevronRight size={15} className="text-slate-400" />
-            )}
-            <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
-              Everything this session changed
+      <div className="mt-4 min-w-0 gap-4 min-[1800px]:grid min-[1800px]:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]">
+        <section
+          className={
+            (view === "activity" ? "flex" : "hidden") +
+            " min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 min-[1800px]:flex"
+          }
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+            <div>
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                <MessageSquareText size={15} className="text-slate-400" /> Activity
+              </h3>
+              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                Every brief and result in this session
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[10px] tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              {detail?.turns.length ?? 0}
             </span>
-            <DiffStats
-              className="ml-auto"
-              filesChanged={session.filesChanged}
-              insertions={session.insertions}
-              deletions={session.deletions}
-            />
-          </button>
-          {showDiff && (
-            <div className="border-t border-slate-100 bg-slate-50/50 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/30">
-              {diff === null || diff === undefined ? (
-                <div className="flex h-24 items-center justify-center">
-                  <Spinner size={18} />
+          </div>
+
+          <div className="min-h-[20rem] flex-1 space-y-6 px-4 py-5 sm:px-5 min-[1800px]:max-h-[calc(100vh-21rem)] min-[1800px]:overflow-y-auto">
+            {(detail?.turns ?? []).map((turn) => (
+              <TurnBlock
+                key={turn.id}
+                turn={turn}
+                employeeName={employeeName}
+                avatarSrc={avatarSrc}
+              />
+            ))}
+            <div ref={transcriptEnd} />
+          </div>
+
+          <div className="border-t border-slate-100 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-950/20">
+            {actions.revise ? (
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:focus-within:border-indigo-700 dark:focus-within:ring-indigo-900/30">
+                <textarea
+                  value={instruction}
+                  onChange={(event) => setInstruction(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void send();
+                  }}
+                  rows={3}
+                  maxLength={20000}
+                  placeholder={`Ask ${employeeName} for another pass…`}
+                  className="w-full resize-y border-0 bg-transparent px-3 py-2.5 text-sm leading-6 text-slate-700 placeholder:text-slate-400 focus:outline-none dark:text-slate-200 dark:placeholder:text-slate-500"
+                />
+                <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-2.5 py-2 dark:border-slate-800">
+                  <span className="min-w-0 truncate text-[10px] text-slate-400 dark:text-slate-500">
+                    Same employee, branch, and context ·{" "}
+                    {instruction ? "draft saved" : "⌘↵ to send"}
+                  </span>
+                  <Button
+                    size="sm"
+                    onClick={() => void send()}
+                    disabled={sending || !instruction.trim()}
+                  >
+                    {sending ? <Spinner size={13} /> : <ArrowUp size={13} />}
+                    {sending ? "Sending…" : "Send"}
+                  </Button>
                 </div>
-              ) : (
+              </div>
+            ) : (
+              <SessionClosedNotice session={session} employeeName={employeeName} />
+            )}
+          </div>
+        </section>
+
+        <section
+          className={
+            (view === "changes" ? "flex" : "hidden") +
+            " min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 min-[1800px]:flex"
+          }
+        >
+          <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800 sm:px-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  <FileDiff size={15} className="text-slate-400" /> Changes
+                </h3>
+                <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                  Review the complete branch before deciding
+                </p>
+              </div>
+              {session.filesChanged > 0 && (
+                <DiffStats
+                  filesChanged={session.filesChanged}
+                  insertions={session.insertions}
+                  deletions={session.deletions}
+                />
+              )}
+            </div>
+
+            {hasActions && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+                {actions.pullRequest && (
+                  <Button
+                    size="sm"
+                    onClick={() => void openPullRequest(actions.pullRequestIsUpdate)}
+                    disabled={acting}
+                  >
+                    {acting ? <Spinner size={13} /> : <GitPullRequest size={13} />}
+                    {actions.pullRequestIsUpdate ? "Update pull request" : "Open pull request"}
+                  </Button>
+                )}
+                {actions.accept && (
+                  <Button
+                    size="sm"
+                    variant={actions.pullRequest ? "secondary" : "primary"}
+                    onClick={() => void publish(false)}
+                    disabled={acting}
+                  >
+                    <GitMerge size={13} />
+                    {checkoutBranch ? `Accept into ${checkoutBranch}` : "Accept changes"}
+                  </Button>
+                )}
+                {actions.acceptAndSend && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void publish(true)}
+                    disabled={acting}
+                  >
+                    <Upload size={13} /> Accept and send
+                  </Button>
+                )}
+                {actions.discard && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto text-slate-400 hover:text-rose-600 dark:hover:text-rose-400"
+                    onClick={() => void discard()}
+                    disabled={acting}
+                  >
+                    <Trash2 size={13} /> Throw away
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {actions.accept && !allowPush && (
+              <p className="mt-2 text-[11px] text-slate-400 dark:text-slate-500">
+                This repository lives only in Genosyn — there is nowhere else to send it.
+              </p>
+            )}
+            {actions.remoteNeedsAdmin && (
+              <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                <Lock size={11} className="shrink-0" />
+                Only an owner or admin can push this to {repoName} or open a pull request for it.
+              </p>
+            )}
+          </div>
+
+          <div className="min-h-[20rem] flex-1 overflow-y-auto bg-slate-50/40 p-3 dark:bg-slate-950/20 sm:p-4 min-[1800px]:max-h-[calc(100vh-21rem)]">
+            {session.status === "running" && !session.headCommit ? (
+              <ChangeWaiting employeeName={employeeName} />
+            ) : !changesReady ? (
+              <NoChangesState session={session} />
+            ) : diffError ? (
+              <InlineRetry message={diffError} onRetry={loadDiff} />
+            ) : diff === null || diff === undefined ? (
+              <DiffSkeleton />
+            ) : (
+              <div className="space-y-3">
+                {session.status === "running" && <RevisionWaiting employeeName={employeeName} />}
+                {diff.commits.length > 0 && <CommitCheckpoints commits={diff.commits} />}
                 <DiffView
                   patch={diff.patch}
                   truncated={diff.truncated}
                   filesChanged={session.filesChanged}
                   emptyMessage="This branch has no file changes."
                 />
-              )}
-            </div>
-          )}
-        </section>
-      )}
-
-      {actions.revise ? (
-        <div className="sticky bottom-0 z-10 mt-5 rounded-xl border border-slate-200 bg-white/95 p-2.5 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
-          <textarea
-            value={instruction}
-            onChange={(event) => setInstruction(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void send();
-            }}
-            rows={2}
-            placeholder={`Ask ${employeeName} for changes — it picks up where it left off, on the same branch.`}
-            className="w-full resize-y rounded-lg border-0 bg-transparent px-2 py-1.5 text-sm leading-6 text-slate-700 placeholder:text-slate-400 focus:outline-none dark:text-slate-200 dark:placeholder:text-slate-500"
-          />
-          <div className="flex items-center justify-between gap-2 px-1">
-            <span className="truncate text-[11px] text-slate-400 dark:text-slate-500">
-              Another commit on the same branch — nothing it already did is lost.
-            </span>
-            <Button size="sm" onClick={() => void send()} disabled={sending || !instruction.trim()}>
-              {sending ? <Spinner size={13} /> : <ArrowUp size={13} />}
-              {sending ? "Sending…" : "Send"}
-            </Button>
+              </div>
+            )}
           </div>
-        </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function WorkspaceTab({
+  active,
+  icon,
+  label,
+  count,
+  attention,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  count: number;
+  attention?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={
+        "relative inline-flex items-center gap-2 px-3 py-2.5 text-xs font-medium transition-colors " +
+        (active
+          ? "text-indigo-700 dark:text-indigo-300"
+          : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200")
+      }
+    >
+      {icon}
+      {label}
+      <span
+        className={
+          "rounded-full px-1.5 py-0.5 font-mono text-[9px] tabular-nums " +
+          (active
+            ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300"
+            : "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500")
+        }
+      >
+        {count}
+      </span>
+      {attention && !active && (
+        <span className="absolute right-1.5 top-2 h-1.5 w-1.5 rounded-full bg-amber-500" />
+      )}
+      {active && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-indigo-500" />}
+    </button>
+  );
+}
+
+function SessionClosedNotice({
+  session,
+  employeeName,
+}: {
+  session: RepositoryWorkSession;
+  employeeName: string;
+}) {
+  const message =
+    session.status === "running"
+      ? `${employeeName} is working. Another instruction can be sent as soon as this turn finishes.`
+      : session.status === "published"
+        ? "This work has been accepted. Start a new session for another outcome."
+        : "This session was thrown away. Start a new session for another outcome.";
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2.5 text-xs leading-5 text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+      {session.status === "running" ? (
+        <span className="mt-0.5 shrink-0">
+          <Spinner size={13} />
+        </span>
       ) : (
-        <p className="mt-5 rounded-xl border border-dashed border-slate-200 px-4 py-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-          {session.status === "running"
-            ? `${employeeName} is working. You can send more instructions when this turn is done.`
-            : session.status === "published"
-              ? "This work has been accepted. Start a new session for anything further."
-              : "This session was thrown away. Start a new one for anything further."}
-        </p>
+        <CircleCheck size={13} className="mt-0.5 shrink-0" />
+      )}
+      {message}
+    </div>
+  );
+}
+
+function ChangeWaiting({ employeeName }: { employeeName: string }) {
+  return (
+    <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white px-6 text-center dark:border-slate-700 dark:bg-slate-900">
+      <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+        <Spinner size={18} />
+      </span>
+      <h4 className="mt-4 text-sm font-semibold text-slate-800 dark:text-slate-100">
+        {employeeName} is building the first checkpoint
+      </h4>
+      <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500 dark:text-slate-400">
+        Committed files and the complete diff will appear here automatically when this turn ends.
+      </p>
+    </div>
+  );
+}
+
+function RevisionWaiting({ employeeName }: { employeeName: string }) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-xl border border-indigo-200 bg-indigo-50/60 px-3 py-2.5 text-xs leading-5 text-indigo-700 dark:border-indigo-500/25 dark:bg-indigo-500/5 dark:text-indigo-300">
+      <span className="mt-0.5 shrink-0">
+        <Spinner size={13} />
+      </span>
+      <span>
+        {employeeName} is working on another pass. These are the committed changes so far; this view
+        refreshes when the turn ends.
+      </span>
+    </div>
+  );
+}
+
+function NoChangesState({ session }: { session: RepositoryWorkSession }) {
+  const failed = session.status === "failed";
+  return (
+    <div className="flex min-h-64 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white px-6 text-center dark:border-slate-700 dark:bg-slate-900">
+      <span
+        className={
+          "flex h-11 w-11 items-center justify-center rounded-xl " +
+          (failed
+            ? "bg-rose-50 text-rose-500 dark:bg-rose-500/10 dark:text-rose-300"
+            : "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500")
+        }
+      >
+        {failed ? <AlertCircle size={18} /> : <FileDiff size={18} />}
+      </span>
+      <h4 className="mt-4 text-sm font-semibold text-slate-800 dark:text-slate-100">
+        {failed ? "No reviewable changes yet" : "No committed changes"}
+      </h4>
+      <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500 dark:text-slate-400">
+        {failed
+          ? "Read the error in Activity, then ask the employee to retry with any extra context it needs."
+          : "Read the employee's result in Activity. If work was expected, ask for another pass in the same session."}
+      </p>
+    </div>
+  );
+}
+
+function CommitCheckpoints({ commits }: { commits: RepositoryCommit[] }) {
+  const visible = commits.slice(0, 6);
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 dark:border-slate-800">
+        <h4 className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
+          <CircleCheck size={13} className="text-emerald-500" /> Commit checkpoints
+        </h4>
+        <span className="font-mono text-[10px] tabular-nums text-slate-400 dark:text-slate-500">
+          {commits.length}
+        </span>
+      </div>
+      <ol className="divide-y divide-slate-100 dark:divide-slate-800">
+        {visible.map((commit) => (
+          <li key={commit.sha} className="flex min-w-0 items-start gap-2.5 px-3 py-2">
+            <code className="mt-0.5 shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              {commit.shortSha}
+            </code>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-xs font-medium text-slate-700 dark:text-slate-200">
+                {commit.subject || "Untitled commit"}
+              </span>
+              <span className="mt-0.5 block text-[10px] text-slate-400 dark:text-slate-500">
+                {commit.authorName} · {formatRelative(commit.authoredAt)}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+      {commits.length > visible.length && (
+        <div className="border-t border-slate-100 px-3 py-2 text-[10px] text-slate-400 dark:border-slate-800 dark:text-slate-500">
+          +{commits.length - visible.length} earlier checkpoints
+        </div>
       )}
     </section>
+  );
+}
+
+function InlineRetry({
+  message,
+  onRetry,
+  onBack,
+  compact = false,
+}: {
+  message: string;
+  onRetry: () => Promise<void>;
+  onBack?: () => void;
+  compact?: boolean;
+}) {
+  const [retrying, setRetrying] = React.useState(false);
+  async function retry() {
+    setRetrying(true);
+    try {
+      await onRetry();
+    } finally {
+      setRetrying(false);
+    }
+  }
+  return (
+    <div
+      role="alert"
+      className={
+        "flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/60 text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/5 dark:text-rose-300 " +
+        (compact ? "px-3 py-2 text-xs" : "px-4 py-4 text-sm")
+      }
+    >
+      <AlertCircle size={compact ? 14 : 16} className="mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="break-words leading-5">{message}</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void retry()}
+            disabled={retrying}
+            className="inline-flex items-center gap-1 rounded-lg bg-white px-2 py-1 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-200 hover:bg-rose-50 disabled:opacity-60 dark:bg-slate-900 dark:text-rose-300 dark:ring-rose-500/25 dark:hover:bg-rose-500/10"
+          >
+            {retrying ? <Spinner size={11} /> : <RefreshCw size={11} />}
+            Retry
+          </button>
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="text-xs font-medium text-rose-600 hover:text-rose-800 dark:text-rose-300 dark:hover:text-rose-200"
+            >
+              Back to sessions
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NewSessionSkeleton() {
+  return (
+    <div className="animate-pulse overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <div className="border-b border-slate-100 bg-slate-50/50 p-6 dark:border-slate-800 dark:bg-slate-950/20">
+        <div className="h-3 w-28 rounded bg-slate-200 dark:bg-slate-700" />
+        <div className="mt-3 h-6 w-72 max-w-full rounded bg-slate-200 dark:bg-slate-700" />
+        <div className="mt-2 h-3 w-96 max-w-full rounded bg-slate-100 dark:bg-slate-800" />
+      </div>
+      <div className="p-6">
+        <div className="h-48 rounded-xl bg-slate-100 dark:bg-slate-800" />
+        <div className="mt-4 h-9 w-48 rounded-lg bg-slate-100 dark:bg-slate-800" />
+      </div>
+    </div>
+  );
+}
+
+function SessionWorkspaceSkeleton() {
+  return (
+    <div className="animate-pulse space-y-4">
+      <div className="h-24 rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900" />
+      <div className="grid gap-4 min-[1800px]:grid-cols-2">
+        <div className="h-96 rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900" />
+        <div className="hidden h-96 rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 min-[1800px]:block" />
+      </div>
+    </div>
+  );
+}
+
+function DiffSkeleton() {
+  return (
+    <div className="animate-pulse space-y-2">
+      <div className="h-11 rounded-xl bg-slate-200/70 dark:bg-slate-800" />
+      <div className="h-11 rounded-xl bg-slate-200/60 dark:bg-slate-800/80" />
+      <div className="h-11 rounded-xl bg-slate-200/50 dark:bg-slate-800/60" />
+    </div>
   );
 }
 
@@ -1035,7 +1741,7 @@ function TurnBlock({
         page. */}
       <div className="border-l-2 border-indigo-300 pl-3 dark:border-indigo-500/50">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500/80 dark:text-indigo-300/80">
-          You asked · {formatRelative(turn.createdAt)}
+          Brief {turn.ordinal} · {formatRelative(turn.createdAt)}
         </div>
         <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 dark:text-slate-200">
           {turn.instruction}
@@ -1043,14 +1749,18 @@ function TurnBlock({
       </div>
 
       <div className="flex items-start gap-2.5">
-        <Avatar name={employeeName} kind="ai" size="sm" src={avatarSrc} className="mt-0.5 shrink-0" />
+        <Avatar
+          name={employeeName}
+          kind="ai"
+          size="sm"
+          src={avatarSrc}
+          className="mt-0.5 shrink-0"
+        />
         <div className="min-w-0 flex-1">
           {turn.status === "running" ? (
             <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
               <Spinner size={14} />
-              <span>
-                {employeeName} is working. This updates itself when the turn ends.
-              </span>
+              <span>{employeeName} is working. This updates itself when the turn ends.</span>
             </div>
           ) : (
             <>
@@ -1072,6 +1782,12 @@ function TurnBlock({
                 )
               )}
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400 dark:text-slate-500">
+                {turn.headCommit && (
+                  <span className="inline-flex items-center gap-1 font-mono">
+                    <CircleCheck size={11} className="text-emerald-500" />
+                    checkpoint {turn.headCommit.slice(0, 7)}
+                  </span>
+                )}
                 {turn.filesChanged > 0 ? (
                   <DiffStats
                     filesChanged={turn.filesChanged}

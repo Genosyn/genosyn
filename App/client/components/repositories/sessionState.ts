@@ -37,6 +37,24 @@ export const SESSION_STATUS_TONE: Record<RepositoryWorkSessionStatus, SessionSta
   failed: "bad",
 };
 
+/** The three stable sections in the AI work inbox, in display order. */
+export const SESSION_INBOX_GROUP_ORDER = ["in_progress", "review", "completed"] as const;
+
+export type SessionInboxGroup = (typeof SESSION_INBOX_GROUP_ORDER)[number];
+
+export const SESSION_INBOX_GROUP_LABEL: Record<SessionInboxGroup, string> = {
+  in_progress: "In progress",
+  review: "Needs attention",
+  completed: "Completed",
+};
+
+/** Which inbox section owns a session status. */
+export function sessionInboxGroup(status: RepositoryWorkSessionStatus): SessionInboxGroup {
+  if (status === "running") return "in_progress";
+  if (status === "published" || status === "discarded") return "completed";
+  return "review";
+}
+
 /** A session accepting another instruction — the "ask for changes" composer. */
 export function canRevise(status: RepositoryWorkSessionStatus): boolean {
   return REVISABLE_WORK_SESSION_STATUSES.includes(status);
@@ -153,6 +171,41 @@ export function sortSessions(sessions: RepositoryWorkSession[]): RepositoryWorkS
     if (byRank !== 0) return byRank;
     return Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
   });
+}
+
+/**
+ * Split a session list into the inbox's stable sections.
+ *
+ * Every section is present even when empty, and rows retain the established
+ * session ordering within it. The input is never mutated.
+ */
+export function groupSessions(
+  sessions: readonly RepositoryWorkSession[],
+): Record<SessionInboxGroup, RepositoryWorkSession[]> {
+  const groups: Record<SessionInboxGroup, RepositoryWorkSession[]> = {
+    in_progress: [],
+    review: [],
+    completed: [],
+  };
+  for (const session of sortSessions([...sessions])) {
+    groups[sessionInboxGroup(session.status)].push(session);
+  }
+  return groups;
+}
+
+/** Whether a session matches the inbox's free-text search. */
+export function matchesSessionSearch(session: RepositoryWorkSession, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+
+  const fields = [
+    session.title,
+    session.instruction,
+    session.employee?.name ?? "",
+    session.branch ?? "",
+    SESSION_STATUS_LABEL[session.status],
+  ];
+  return fields.some((field) => field.toLowerCase().includes(needle));
 }
 
 /** The label under a session in the switcher: what state it is in, in words. */

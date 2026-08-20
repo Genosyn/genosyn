@@ -484,7 +484,10 @@ function CompanyRoutes({
 
           {/* Code — provider-agnostic git repositories the company adds so
             granted AI employees can read, commit, and push real code. */}
-          <Route path="repositories" element={<RepositoriesLayout company={company} />}>
+          <Route
+            path="repositories"
+            element={<RepositoriesLayout company={company} currentUserId={me.id} />}
+          >
             <Route index element={<RepositoriesIndex company={company} />} />
             <Route path=":slug" element={<RepositoryOverview />} />
             <Route path=":slug/files" element={<RepositoryFiles />} />

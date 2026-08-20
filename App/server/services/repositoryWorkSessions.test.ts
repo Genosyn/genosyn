@@ -15,7 +15,12 @@ import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
-import type { ChatResult, ChatTurn, chatWithEmployee } from "./chat.js";
+import {
+  CHAT_HARD_TIMEOUT_MS,
+  type ChatResult,
+  type ChatTurn,
+  type chatWithEmployee,
+} from "./chat.js";
 import {
   ensureRepositoryWorkspace,
   readRepositoryFile,
@@ -31,6 +36,7 @@ import {
   createRepositoryWorkSession,
   deriveWorkSessionTitle,
   ensureSessionWorktree,
+  liveRepositoryWorkSession,
   prepareWorkSessionRevision,
   renameRepositoryWorkSession,
   repositoryWorkSessionTurns,
@@ -178,10 +184,7 @@ async function start(runChat: typeof chatWithEmployee, instruction = "Update the
 
 describe("starting a session", () => {
   test("refuses an employee with no grant on the repository", async () => {
-    await assert.rejects(
-      () => start(stubChat(() => {})),
-      /not been granted access/,
-    );
+    await assert.rejects(() => start(stubChat(() => {})), /not been granted access/);
   });
 
   test("accepts a read grant — a session works on its own branch, not the trunk", async () => {
@@ -519,7 +522,6 @@ describe("reviewing and publishing", () => {
   });
 });
 
-
 // ────────────────────────── revising a session ──────────────────────────
 
 /**
@@ -547,8 +549,7 @@ describe("revising a session", () => {
       seen.message = message;
       seen.history = history;
       seen.options = options as Record<string, unknown>;
-      const sessionId = (options as { repositoryWorkSessionId?: string })
-        ?.repositoryWorkSessionId;
+      const sessionId = (options as { repositoryWorkSessionId?: string })?.repositoryWorkSessionId;
       assert.ok(sessionId);
       const checkout = await resolveSessionCheckout(company.id, sessionId);
       await work(checkout.directory);
@@ -614,10 +615,10 @@ describe("revising a session", () => {
 
     const diff = await repositoryWorkSessionDiff(revised);
     assert.equal(diff.filesChanged, 1);
-    assert.deepEqual(
-      diff.commits.map((commit) => commit.subject).sort(),
-      ["Add the plan", "Note the risks"],
-    );
+    assert.deepEqual(diff.commits.map((commit) => commit.subject).sort(), [
+      "Add the plan",
+      "Note the risks",
+    ]);
   });
 
   test("replays the earlier turns so the employee knows what it already did", async () => {
@@ -771,7 +772,11 @@ describe("revising a session", () => {
       { status: "running" },
     );
     await assert.rejects(
-      () => revise(session.id, recordingChat({}, () => {})),
+      () =>
+        revise(
+          session.id,
+          recordingChat({}, () => {}),
+        ),
       /still working/,
     );
   });
@@ -780,7 +785,11 @@ describe("revising a session", () => {
     const session = await firstTurn();
     await publishRepositoryWorkSession(session.id, { push: false });
     await assert.rejects(
-      () => revise(session.id, recordingChat({}, () => {})),
+      () =>
+        revise(
+          session.id,
+          recordingChat({}, () => {}),
+        ),
       /already been accepted/,
     );
   });
@@ -789,7 +798,11 @@ describe("revising a session", () => {
     const session = await firstTurn();
     await discardRepositoryWorkSession(session.id);
     await assert.rejects(
-      () => revise(session.id, recordingChat({}, () => {})),
+      () =>
+        revise(
+          session.id,
+          recordingChat({}, () => {}),
+        ),
       /thrown away/,
     );
   });
@@ -801,7 +814,11 @@ describe("revising a session", () => {
       repositoryId: repository.id,
     });
     await assert.rejects(
-      () => revise(session.id, recordingChat({}, () => {})),
+      () =>
+        revise(
+          session.id,
+          recordingChat({}, () => {}),
+        ),
       /not been granted access/,
     );
     const unchanged = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
@@ -815,7 +832,11 @@ describe("revising a session", () => {
     const session = await firstTurn();
     await AppDataSource.getRepository(AIModel).delete({ employeeId: employee.id });
     await assert.rejects(
-      () => revise(session.id, recordingChat({}, () => {})),
+      () =>
+        revise(
+          session.id,
+          recordingChat({}, () => {}),
+        ),
       /no AI Model connected/,
     );
   });
@@ -826,7 +847,11 @@ describe("revising a session", () => {
     security.multiTenant = true;
     try {
       await assert.rejects(
-        () => revise(session.id, recordingChat({}, () => {})),
+        () =>
+          revise(
+            session.id,
+            recordingChat({}, () => {}),
+          ),
         /read-only in shared SaaS/,
       );
     } finally {
@@ -869,6 +894,54 @@ describe("revising a session", () => {
     assert.equal(prepared.turn.status, "running");
   });
 
+  test("finds a fresh revision even when the session itself is older than the timeout", async () => {
+    const session = await start(stubChat(() => {}));
+    await AppDataSource.getRepository(RepositoryWorkSession).update(session.id, {
+      createdAt: new Date(Date.now() - CHAT_HARD_TIMEOUT_MS - 60_000),
+    });
+    const prepared = await prepareWorkSessionRevision({
+      companyId: company.id,
+      sessionId: session.id,
+      instruction: "Try it now",
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+      runChat: stubChat(() => {}),
+    });
+
+    const live = await liveRepositoryWorkSession({
+      companyId: company.id,
+      repositoryId: repository.id,
+      employeeId: employee.id,
+    });
+    assert.equal(live?.id, session.id);
+
+    await runRepositoryWorkSession(prepared);
+  });
+
+  test("does not discard a fresh revision on an old session", async () => {
+    const session = await start(stubChat(() => {}));
+    await AppDataSource.getRepository(RepositoryWorkSession).update(session.id, {
+      createdAt: new Date(Date.now() - CHAT_HARD_TIMEOUT_MS - 60_000),
+    });
+    const prepared = await prepareWorkSessionRevision({
+      companyId: company.id,
+      sessionId: session.id,
+      instruction: "Try it now",
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+      runChat: stubChat(() => {}),
+    });
+
+    await assert.rejects(() => discardRepositoryWorkSession(session.id), /still working/);
+    assert.equal(
+      (await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({ id: session.id }))
+        .status,
+      "running",
+    );
+
+    await runRepositoryWorkSession(prepared);
+  });
+
   test("publishes work that several turns built up", async () => {
     const session = await firstTurn();
     await revise(
@@ -880,7 +953,10 @@ describe("revising a session", () => {
     );
     const published = await publishRepositoryWorkSession(session.id, { push: false });
     assert.equal(published.status, "published");
-    assert.equal((await readRepositoryFile(repository, "docs/plan.md")).content, "# Plan\n\nShip it.\n");
+    assert.equal(
+      (await readRepositoryFile(repository, "docs/plan.md")).content,
+      "# Plan\n\nShip it.\n",
+    );
     assert.equal((await readRepositoryFile(repository, "docs/risks.md")).content, "# Risks\n");
   });
 });
@@ -893,7 +969,10 @@ describe("session history", () => {
   });
 
   test("writes the opening instruction as turn one", async () => {
-    const session = await start(stubChat(() => {}), "Tidy the README");
+    const session = await start(
+      stubChat(() => {}),
+      "Tidy the README",
+    );
     const turns = await repositoryWorkSessionTurns(session.id);
     assert.equal(turns.length, 1);
     assert.equal(turns[0].ordinal, 1);
@@ -904,7 +983,10 @@ describe("session history", () => {
   });
 
   test("only replays turns that have finished, and only the recent ones", async () => {
-    const session = await start(stubChat(() => {}), "First");
+    const session = await start(
+      stubChat(() => {}),
+      "First",
+    );
     const turnRepo = AppDataSource.getRepository(RepositoryWorkSessionTurn);
     for (let ordinal = 2; ordinal <= MAX_REPLAYED_TURNS + 4; ordinal += 1) {
       await turnRepo.save(
@@ -1022,7 +1104,10 @@ describe("session history", () => {
   });
 
   test("titles a session from its opening instruction", async () => {
-    const session = await start(stubChat(() => {}), "  Rewrite the pricing page\nand commit it  ");
+    const session = await start(
+      stubChat(() => {}),
+      "  Rewrite the pricing page\nand commit it  ",
+    );
     assert.equal(session.title, "Rewrite the pricing page and commit it");
   });
 
@@ -1038,7 +1123,10 @@ describe("session history", () => {
   });
 
   test("renames a session", async () => {
-    const session = await start(stubChat(() => {}), "Do a thing");
+    const session = await start(
+      stubChat(() => {}),
+      "Do a thing",
+    );
     const renamed = await renameRepositoryWorkSession(company.id, session.id, "  Pricing page  ");
     assert.equal(renamed.title, "Pricing page");
     await assert.rejects(
@@ -1204,10 +1292,7 @@ describe("session authority", () => {
         await sessionCommit(repository, directory, "Add a note");
       }),
     );
-    await assert.rejects(
-      () => resolveSessionCheckout(company.id, session.id),
-      /already finished/,
-    );
+    await assert.rejects(() => resolveSessionCheckout(company.id, session.id), /already finished/);
   });
 
   test("a session cannot be reached from another company", async () => {
@@ -1256,7 +1341,10 @@ describe("branch naming", () => {
   });
 
   test("survives an employee slug that is not branch-safe", () => {
-    assert.equal(sessionBranchName("Ada Lovelace!", "abcdef12-3456"), "genosyn/ada-lovelace/abcdef12");
+    assert.equal(
+      sessionBranchName("Ada Lovelace!", "abcdef12-3456"),
+      "genosyn/ada-lovelace/abcdef12",
+    );
     assert.equal(sessionBranchName("", "abcdef12-3456"), "genosyn/employee/abcdef12");
   });
 });

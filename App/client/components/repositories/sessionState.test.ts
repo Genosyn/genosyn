@@ -3,11 +3,16 @@ import { describe, test } from "node:test";
 
 import type { RepositoryWorkSession, RepositoryWorkSessionStatus } from "../../lib/api";
 import {
+  SESSION_INBOX_GROUP_LABEL,
+  SESSION_INBOX_GROUP_ORDER,
   SESSION_STATUS_LABEL,
   SESSION_STATUS_TONE,
   canRevise,
+  groupSessions,
   hasReviewableWork,
+  matchesSessionSearch,
   sessionActions,
+  sessionInboxGroup,
   sessionSubtitle,
   sessionTitle,
   sortSessions,
@@ -64,10 +69,7 @@ function session(overrides: Partial<RepositoryWorkSession> = {}): RepositoryWork
 
 describe("which sessions accept another instruction", () => {
   test("everything except a turn in flight and the two terminal outcomes", () => {
-    assert.deepEqual(
-      ALL_STATUSES.filter(canRevise),
-      ["ready", "empty", "proposed", "failed"],
-    );
+    assert.deepEqual(ALL_STATUSES.filter(canRevise), ["ready", "empty", "proposed", "failed"]);
   });
 
   test("a session with nothing committed is still worth talking to", () => {
@@ -202,7 +204,10 @@ describe("the session switcher's ordering and labels", () => {
   });
 
   test("does not mutate the array it was given", () => {
-    const rows = [session({ id: "a", status: "published" }), session({ id: "b", status: "running" })];
+    const rows = [
+      session({ id: "a", status: "published" }),
+      session({ id: "b", status: "running" }),
+    ];
     sortSessions(rows);
     assert.deepEqual(
       rows.map((row) => row.id),
@@ -229,5 +234,98 @@ describe("the session switcher's ordering and labels", () => {
       assert.ok(SESSION_STATUS_LABEL[status], status);
       assert.ok(SESSION_STATUS_TONE[status], status);
     }
+  });
+});
+
+describe("the session inbox", () => {
+  test("exposes the three sections in their display order", () => {
+    assert.deepEqual(SESSION_INBOX_GROUP_ORDER, ["in_progress", "review", "completed"]);
+    assert.deepEqual(SESSION_INBOX_GROUP_LABEL, {
+      in_progress: "In progress",
+      review: "Needs attention",
+      completed: "Completed",
+    });
+  });
+
+  test("assigns every status to exactly one section", () => {
+    assert.deepEqual(
+      Object.fromEntries(ALL_STATUSES.map((status) => [status, sessionInboxGroup(status)])),
+      {
+        running: "in_progress",
+        ready: "review",
+        empty: "review",
+        proposed: "review",
+        published: "completed",
+        discarded: "completed",
+        failed: "review",
+      },
+    );
+  });
+
+  test("groups sessions without mutating them and keeps each section newest-first", () => {
+    const rows = [
+      session({ id: "published", status: "published", updatedAt: "2026-08-19T08:00:00.000Z" }),
+      session({ id: "failed", status: "failed", updatedAt: "2026-08-19T09:00:00.000Z" }),
+      session({ id: "running", status: "running", updatedAt: "2026-08-19T07:00:00.000Z" }),
+      session({ id: "ready", status: "ready", updatedAt: "2026-08-19T11:00:00.000Z" }),
+      session({ id: "discarded", status: "discarded", updatedAt: "2026-08-19T12:00:00.000Z" }),
+    ];
+
+    const groups = groupSessions(rows);
+
+    assert.deepEqual(
+      groups.in_progress.map((row) => row.id),
+      ["running"],
+    );
+    assert.deepEqual(
+      groups.review.map((row) => row.id),
+      ["ready", "failed"],
+    );
+    assert.deepEqual(
+      groups.completed.map((row) => row.id),
+      ["discarded", "published"],
+    );
+    assert.deepEqual(
+      rows.map((row) => row.id),
+      ["published", "failed", "running", "ready", "discarded"],
+    );
+  });
+
+  test("returns every section for an empty inbox", () => {
+    assert.deepEqual(groupSessions([]), { in_progress: [], review: [], completed: [] });
+  });
+});
+
+describe("session inbox search", () => {
+  const row = session({
+    title: "Harden OAuth callbacks",
+    instruction: "Keep the existing refresh-token fallback",
+    status: "proposed",
+    branch: "genosyn/ADA/oauth-guard",
+    employee: { id: "e1", name: "Ada Lovelace", slug: "ada", avatarKey: null },
+  });
+
+  test("blank search shows every session", () => {
+    assert.equal(matchesSessionSearch(row, ""), true);
+    assert.equal(matchesSessionSearch(row, "   "), true);
+  });
+
+  test("matches title and opening instruction case-insensitively", () => {
+    assert.equal(matchesSessionSearch(row, "OAUTH CALLBACKS"), true);
+    assert.equal(matchesSessionSearch(row, "REFRESH-token"), true);
+  });
+
+  test("matches employee, branch, and the human-readable status", () => {
+    assert.equal(matchesSessionSearch(row, "lovelace"), true);
+    assert.equal(matchesSessionSearch(row, "ADA/OAUTH-GUARD"), true);
+    assert.equal(matchesSessionSearch(row, "pull request OPEN"), true);
+  });
+
+  test("does not match unrelated text or invent fields for removed employees", () => {
+    assert.equal(matchesSessionSearch(row, "database migration"), false);
+    assert.equal(
+      matchesSessionSearch(session({ employee: null, branch: null }), "removed employee"),
+      false,
+    );
   });
 });

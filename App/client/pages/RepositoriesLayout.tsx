@@ -19,6 +19,7 @@ import { useLiveRefetch } from "../components/CompanySocket";
 
 export type RepositoriesOutletCtx = {
   company: Company;
+  currentUserId: string;
   repo: Repository | null;
   repositories: Repository[];
   reload: () => Promise<void>;
@@ -37,7 +38,13 @@ const PAGE_LABELS: Record<string, string> = {
  * selecting one replaces it with a focused management menu so the repository
  * is split into Overview, AI access, and Settings instead of one long page.
  */
-export default function RepositoriesLayout({ company }: { company: Company }) {
+export default function RepositoriesLayout({
+  company,
+  currentUserId,
+}: {
+  company: Company;
+  currentUserId: string;
+}) {
   const { slug } = useParams<{ slug: string }>();
   const location = useLocation();
   const { toast } = useToast();
@@ -190,6 +197,7 @@ export default function RepositoriesLayout({ company }: { company: Company }) {
               context={
                 {
                   company,
+                  currentUserId,
                   repo,
                   repositories: rows,
                   reload,
@@ -203,6 +211,7 @@ export default function RepositoriesLayout({ company }: { company: Company }) {
           context={
             {
               company,
+              currentUserId,
               repo: null,
               repositories: rows,
               reload,
