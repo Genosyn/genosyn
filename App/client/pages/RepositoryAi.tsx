@@ -404,11 +404,13 @@ function SessionInbox({
         ) : (
           <>
             <div className="flex items-center gap-2">
-              <select
+              <Select
                 value={activeId ?? ""}
                 onChange={(event) => onSelect(event.target.value || null)}
                 aria-label="Open work session"
-                className="min-w-0 flex-1 rounded-lg border-0 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-indigo-900/30"
+                containerClassName="min-w-0 flex-1"
+                searchPlaceholder="Search work sessions…"
+                className="h-9 border-0 bg-slate-50 py-2 font-medium text-slate-700 focus:ring-indigo-100 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-indigo-900/30"
               >
                 <option value="">Start a new session</option>
                 {activeMissing && <option value={activeId}>Current session</option>}
@@ -417,7 +419,7 @@ function SessionInbox({
                     {sessionTitle(session)} — {SESSION_STATUS_LABEL[session.status]}
                   </option>
                 ))}
-              </select>
+              </Select>
               {activeId && (
                 <Link
                   to={aiBase}
