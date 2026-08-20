@@ -22,8 +22,8 @@ import type { MeetingsOutletCtx } from "./MeetingsLayout";
 
 const AUTO_RECORD_LABELS: Record<CalendarAutoRecord, string> = {
   off: "Never",
-  external: "Meetings with outside attendees",
-  all: "Every meeting with a link",
+  external: "Google Meets with outside attendees",
+  all: "Every Google Meet",
 };
 
 /**
@@ -217,7 +217,9 @@ export default function MeetingsCalendars() {
                   <Select
                     value={row.autoRecord}
                     disabled={!canManage}
-                    onChange={(e) => patch(row.id, { autoRecord: e.target.value as CalendarAutoRecord })}
+                    onChange={(e) =>
+                      patch(row.id, { autoRecord: e.target.value as CalendarAutoRecord })
+                    }
                   >
                     {(Object.keys(AUTO_RECORD_LABELS) as CalendarAutoRecord[]).map((key) => (
                       <option key={key} value={key}>
@@ -233,9 +235,7 @@ export default function MeetingsCalendars() {
                   <Select
                     value={row.notetakerEmployeeId ?? ""}
                     disabled={!canManage}
-                    onChange={(e) =>
-                      patch(row.id, { notetakerEmployeeId: e.target.value || null })
-                    }
+                    onChange={(e) => patch(row.id, { notetakerEmployeeId: e.target.value || null })}
                   >
                     <option value="">Nobody</option>
                     {employees.map((employee) => (
@@ -251,7 +251,7 @@ export default function MeetingsCalendars() {
                 {row.autoRecord === "off"
                   ? "Nothing on this calendar is recorded automatically. You can still record any meeting by hand."
                   : row.notetakerEmployeeId
-                    ? "Recorded meetings are written up by the notetaker, and follow-ups land in the Revenue queue."
+                    ? "Eligible Google Meets are joined by the notetaker, and follow-ups land in the Revenue queue."
                     : "Pick a notetaker — without one, nothing is recorded automatically."}
               </p>
             </section>

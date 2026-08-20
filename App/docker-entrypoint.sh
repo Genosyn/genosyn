@@ -1,5 +1,6 @@
 #!/bin/bash
-# Container entrypoint. Starts a virtual display, then hands off to the app.
+# Container entrypoint. Starts a virtual display and audio server, then hands
+# off to the app.
 #
 # Genosyn's browser tools drive a real, headed Google Chrome — see the
 # `browser` block in config.ts for why headed matters. Headed Chrome needs an
@@ -17,6 +18,7 @@ readonly XVFB_DISPLAY="${GENOSYN_XVFB_DISPLAY:-:99}"
 # browserProfile.ts); this is the screen it sits on, and `screen.width` /
 # `screen.height` are read by fingerprinting scripts.
 readonly XVFB_SCREEN="${GENOSYN_XVFB_SCREEN:-1920x1080x24}"
+readonly PULSE_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/genosyn-runtime-$(id -u)}"
 
 log() {
   printf 'genosyn-entrypoint: %s\n' "$1" >&2
@@ -61,7 +63,54 @@ start_xvfb() {
   return 1
 }
 
+start_pulseaudio() {
+  if ! command -v pulseaudio >/dev/null 2>&1 || ! command -v pactl >/dev/null 2>&1; then
+    log "PulseAudio is not installed; the Google Meet notetaker will be unavailable."
+    return 1
+  fi
+
+  mkdir -p "${PULSE_RUNTIME_DIR}"
+  chmod 0700 "${PULSE_RUNTIME_DIR}"
+  export XDG_RUNTIME_DIR="${PULSE_RUNTIME_DIR}"
+
+  if pactl info >/dev/null 2>&1; then
+    log "using the PulseAudio server that is already running."
+    return 0
+  fi
+
+  # Stay in the foreground of this child process so startup failures are
+  # visible in container logs. The App becomes PID 1 below; the container
+  # runtime stops both processes together.
+  pulseaudio \
+    --daemonize=no \
+    --exit-idle-time=-1 \
+    --disallow-exit \
+    --log-target=stderr &
+  local pulse_pid=$!
+
+  local waited=0
+  while [ "${waited}" -lt 100 ]; do
+    if pactl info >/dev/null 2>&1; then
+      log "PulseAudio is up for meeting capture."
+      return 0
+    fi
+    if ! kill -0 "${pulse_pid}" 2>/dev/null; then
+      log "PulseAudio exited during startup; the Google Meet notetaker will be unavailable."
+      return 1
+    fi
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+
+  log "PulseAudio did not come up within 10s; the Google Meet notetaker will be unavailable."
+  kill "${pulse_pid}" 2>/dev/null || true
+  return 1
+}
+
 # `|| true` so a failed display never takes the container down with it.
 start_xvfb || true
+# Meeting recording is optional at boot too: the driver reports a targeted
+# audio-stack error if it is invoked on a source-managed image without Pulse.
+start_pulseaudio || true
 
 exec "$@"

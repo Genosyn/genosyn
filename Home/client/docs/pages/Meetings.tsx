@@ -9,10 +9,11 @@ export function Meetings() {
         lead={
           <>
             Connect a Google calendar and Genosyn mirrors your agenda, so you can see what is coming
-            up and your <DocLink to="/docs/employees">AI employees</DocLink> can too. Give a meeting
-            a recording or a transcript and the rest follows on its own: attendees who are already{" "}
-            <DocLink to="/docs/revenue">Contacts</DocLink> get the call on their timeline, and the
-            assigned employee writes up what was decided and files the follow-ups it promised.
+            up and your <DocLink to="/docs/employees">AI Employees</DocLink> can too. For Google
+            Meet, a disclosed notetaker can join and record the call; for any meeting, you can
+            upload audio or paste a transcript. Attendees who are already{" "}
+            <DocLink to="/docs/revenue">Contacts</DocLink> then get the call on their timeline, and
+            the assigned employee writes up what was decided and files the follow-ups it promised.
           </>
         }
       />
@@ -21,22 +22,23 @@ export function Meetings() {
       <P>
         The <Strong>Meetings</Strong> section has two halves. The first is a read-only mirror of
         your calendar: Genosyn syncs events from a Google calendar into its own store so the agenda
-        loads instantly and an AI employee can answer &quot;what is on this afternoon&quot; without
+        loads instantly and an AI Employee can answer &quot;what is on this afternoon&quot; without
         an API round trip. Your calendar stays the source of truth — every change Genosyn makes goes
         back through Google.
       </P>
       <P>
         The second half is what happens after a call. A meeting with a transcript gets read by the
-        AI employee that owns it, which produces a summary and a list of what people actually
+        AI Employee that owns it, which produces a summary and a list of what people actually
         committed to. Those commitments become real dated rows in the{" "}
         <DocLink to="/docs/revenue">Follow-ups</DocLink> queue your team already works from — not a
         second inbox nobody opens.
       </P>
 
-      <Callout kind="info" title="Genosyn does not dial into your calls yet.">
-        Recording is a seam with one implementation today: you hand a meeting its audio or its text.
-        Everything downstream — transcription, contact linking, the write-up, the follow-ups — runs
-        exactly the same either way.
+      <Callout kind="info" title="Live notetaking supports Google Meet.">
+        Genosyn can join a Google Meet as a guest whose name discloses that it is a recording
+        notetaker. It does not join Zoom, Microsoft Teams, or Webex. Uploading a recording or
+        pasting a transcript remains the fallback for every meeting platform, and all three paths
+        use the same transcription, linking, write-up, and follow-up flow.
       </Callout>
 
       <H2 id="connect">Connecting a calendar</H2>
@@ -69,13 +71,20 @@ export function Meetings() {
         transcript long after the invite ages out.
       </P>
 
-      <H2 id="recording">Giving a meeting its audio</H2>
+      <H2 id="recording">Capturing a meeting</H2>
       <P>
         Open any meeting from <Strong>Meetings → Recorded</Strong>, or press{" "}
         <Strong>New meeting</Strong> on the agenda for a call that was never on a calendar. Then
         either:
       </P>
       <UL>
+        <LI>
+          <Strong>Start notetaker</Strong> — available on a scheduled Google Meet, or after a join
+          attempt failed before it saved a recording. Genosyn joins as a disclosed guest and waits
+          for somebody in the call to admit it. The meeting page shows the joining and recording
+          state while it works. Press <Strong>Stop notetaker</Strong> to make it leave; audio
+          already captured is saved and processed.
+        </LI>
         <LI>
           <Strong>Upload a recording</Strong> — mp3, m4a, wav, webm, ogg, flac, mp4, or mov, up to
           25 MB. Genosyn transcribes it, then writes it up.
@@ -89,8 +98,8 @@ export function Meetings() {
 
       <H3 id="transcription">Where transcription runs</H3>
       <P>
-        Transcription has <Strong>no credential of its own</Strong>. It borrows the notetaker
-        employee&apos;s own <DocLink to="/docs/models">AI Model</DocLink>:
+        Transcription has <Strong>no credential of its own</Strong>. It borrows the assigned AI
+        Employee&apos;s own <DocLink to="/docs/models">AI Model</DocLink>:
       </P>
       <UL>
         <LI>
@@ -114,28 +123,53 @@ export function Meetings() {
         Each calendar has an <Strong>auto-record</Strong> setting on{" "}
         <Strong>Meetings → Calendars</Strong>, which only owners and admins can change. It is{" "}
         <Strong>off</Strong> by default and stays off until you change it, because the people on the
-        other end of a call did not agree to anything.
+        other end of a call did not agree to anything. Auto-record applies only to events with a
+        Google Meet link; Zoom, Microsoft Teams, Webex, and other conference links remain on the
+        agenda but are not joined.
       </P>
       <UL>
         <LI>
           <Strong>Never</Strong> — nothing is recorded without you asking. The default.
         </LI>
         <LI>
-          <Strong>Meetings with outside attendees</Strong> — only calls where somebody is not on one
-          of your own email domains. The sales-call case.
+          <Strong>Google Meets with outside attendees</Strong> — only calls where somebody is not on
+          one of your own email domains. The sales-call case.
         </LI>
         <LI>
-          <Strong>Every meeting with a link</Strong> — internal ones too.
+          <Strong>Every Google Meet</Strong> — internal ones too.
         </LI>
       </UL>
       <P>
-        A calendar also has to name a <Strong>notetaker</Strong> — the AI employee that writes the
-        meeting up. Without one, nothing is recorded automatically, because a recording nobody reads
-        is not worth taking.
+        A calendar also has to name a <Strong>notetaker</Strong> — the AI Employee that writes the
+        meeting up — and that employee needs a <Strong>Record</Strong> Grant for the calendar under{" "}
+        <Strong>Meetings → AI access</Strong>. Without both, nothing is recorded automatically,
+        because a recording nobody reads is not worth taking.
       </P>
+      <P>
+        Shortly before a qualifying meeting starts, Genosyn opens its Google Meet link under the
+        selected employee&apos;s name followed by <Code>(AI notetaker — recording)</Code>. It waits
+        for the host to admit it, captures the call audio inside the App container, stores that
+        recording with the meeting, and transcribes it after the call ends. The notetaker does not
+        turn on a camera or present itself as a human attendee.
+      </P>
+      <Callout kind="info" title="The standard Docker install includes meeting presence.">
+        The App image includes Chrome, PulseAudio, and ffmpeg, so the normal Docker installation
+        needs no separate recorder service. A source installation must provide a
+        Playwright-compatible Chrome or Chromium, a running PulseAudio server with{" "}
+        <Code>pactl</Code>, and ffmpeg built with PulseAudio and libopus support. If any of them is
+        unavailable, use the upload or paste path while you correct the host setup.
+      </Callout>
+      <Callout kind="warn" title="A guest cannot bypass the meeting host.">
+        The notetaker is not signed into your Google account. A host or participant must admit it
+        from the waiting room, and a Google Workspace policy that blocks guests or requires an
+        authenticated account can prevent it from joining. Genosyn cannot bypass admission,
+        sign-in-only meetings, or other interactive Google checks; the meeting page keeps the
+        failure reason so you can retry or supply the recording or transcript yourself.
+      </Callout>
       <Callout kind="warn" title="Recording other people has rules where you live.">
-        Many jurisdictions require every participant&apos;s consent before a call is recorded.
-        Genosyn gives you the switch; making sure the room knows is yours.
+        Many jurisdictions require every participant&apos;s consent before a call is recorded. The
+        guest name discloses that Genosyn records, but that is not a substitute for announcing the
+        recording and obtaining whatever consent your policy and local law require.
       </Callout>
 
       <H2 id="linking">How a call reaches the customer</H2>
@@ -164,8 +198,8 @@ export function Meetings() {
         date, an owner, and a link to the Deal and account the call belonged to.
       </P>
       <P>
-        The employee is asked for commitments, not topics — and an empty list is a correct answer.
-        A call where nothing was promised produces no follow-ups.
+        The employee is asked for commitments, not topics — and an empty list is a correct answer. A
+        call where nothing was promised produces no follow-ups.
       </P>
       <P>
         Filing follow-ups is a Revenue write, so the employee needs <Code>write</Code> revenue
@@ -173,7 +207,7 @@ export function Meetings() {
         just do not enter the queue.
       </P>
 
-      <H2 id="ai">Giving an AI employee access</H2>
+      <H2 id="ai">Giving an AI Employee access</H2>
       <P>
         Owners and admins grant Meetings access per calendar under{" "}
         <Strong>Meetings → AI access</Strong>. Members are not listed there: a human with company
@@ -185,7 +219,8 @@ export function Meetings() {
           <Strong>Read</Strong> — see the agenda, the meetings, and their transcripts.
         </LI>
         <LI>
-          <Strong>Record</Strong> — read, plus start the notetaker on a call.
+          <Strong>Record</Strong> — read, plus start the notetaker on a Google Meet. It does not add
+          live-join support for other conference platforms.
         </LI>
       </UL>
       <P>The tools an employee gets, once granted:</P>
@@ -200,6 +235,11 @@ export function Meetings() {
         <LI>
           <Code>get_meeting_transcript</Code> — what was actually said, for when the summary is not
           enough.
+        </LI>
+        <LI>
+          <Code>start_notetaker</Code> — ask the disclosed guest to join an upcoming Google Meet.
+          Recording and transcription continue in the background, and the same Record Grant is
+          required.
         </LI>
       </UL>
       <P>

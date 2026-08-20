@@ -66,10 +66,13 @@ export function writeRecording(args: {
   meetingId: string;
   bytes: Buffer;
   mime: string;
+  /** Unique publication candidate. Empty retains the legacy canonical name. */
+  candidateId?: string;
 }): string {
   const dir = meetingRecordingsCompanyDir(args.companyId);
   ensureDir(dir);
-  const filename = `${args.meetingId}${extensionForMime(args.mime)}`;
+  const candidate = (args.candidateId ?? "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+  const filename = `${args.meetingId}${candidate ? `.${candidate}` : ""}${extensionForMime(args.mime)}`;
   const absolute = path.join(dir, filename);
   fs.writeFileSync(absolute, args.bytes, { mode: 0o600 });
   return path.relative(path.resolve(config.dataDir), absolute);

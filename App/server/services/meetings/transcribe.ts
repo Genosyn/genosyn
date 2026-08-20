@@ -6,7 +6,7 @@ import { decryptSecret } from "../../lib/secret.js";
 import { assertSafeOutboundUrl } from "../../lib/outboundUrl.js";
 import { readCustomEndpoint } from "../customEndpoint.js";
 import { getActiveModel } from "../models.js";
-import { readRecording } from "./storage.js";
+import { extensionForMime, readRecording } from "./storage.js";
 import { replaceTranscript } from "./store.js";
 
 /**
@@ -174,11 +174,7 @@ export async function transcribeAudio(args: {
   const form = new FormData();
   form.append("model", args.target.model);
   form.append("response_format", RESPONSE_FORMAT);
-  form.append(
-    "file",
-    new Blob([new Uint8Array(args.bytes)], { type: args.mime }),
-    args.filename,
-  );
+  form.append("file", new Blob([new Uint8Array(args.bytes)], { type: args.mime }), args.filename);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TRANSCRIBE_TIMEOUT_MS);
@@ -227,7 +223,10 @@ export async function transcribeMeeting(
 
   const resolved = await resolveTranscriptionTarget(meeting.notetakerEmployeeId);
   if ("error" in resolved) {
-    await repo.update({ id: meetingId }, { transcriptState: "failed", transcriptError: resolved.error });
+    await repo.update(
+      { id: meetingId },
+      { transcriptState: "failed", transcriptError: resolved.error },
+    );
     return resolved;
   }
 
@@ -240,11 +239,12 @@ export async function transcribeMeeting(
 
   await repo.update({ id: meetingId }, { transcriptState: "running", transcriptError: "" });
   try {
+    const mime = meeting.recordingMime || "audio/mpeg";
     const segments = await transcribeAudio({
       target: resolved.target,
       bytes,
-      filename: `meeting-${meetingId}`,
-      mime: meeting.recordingMime || "audio/mpeg",
+      filename: `meeting-${meetingId}${extensionForMime(mime)}`,
+      mime,
     });
     if (segments.length === 0) {
       const error = "The transcription service returned no text.";

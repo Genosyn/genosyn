@@ -10,6 +10,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { CalendarAccount } from "../db/entities/CalendarAccount.js";
 import { Company } from "../db/entities/Company.js";
 import { EmployeeCalendarGrant } from "../db/entities/EmployeeCalendarGrant.js";
+import { Meeting } from "../db/entities/Meeting.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { AppDataSource } from "../db/datasource.js";
@@ -351,5 +352,33 @@ describe("meetings routes — the admin gate stays scoped", () => {
     // reached the handler, which is what this asserts.
     assert.equal(res.status, 400);
     assert.notEqual(res.status, 403);
+  });
+
+  test("a member may stop an active notetaker", async () => {
+    actingUserId = memberId;
+    const created = await call<{ meeting: { id: string } }>("POST", "/meetings", {
+      title: "Renewal call",
+    });
+    assert.equal(created.status, 201);
+
+    await AppDataSource.getRepository(Meeting).update(
+      { id: created.body.meeting.id, companyId },
+      { status: "recording" },
+    );
+    const stopped = await call<{ meeting: { statusMessage: string } }>(
+      "POST",
+      `/meetings/${created.body.meeting.id}/notetaker/stop`,
+    );
+
+    assert.equal(stopped.status, 200);
+    assert.match(stopped.body.meeting.statusMessage, /Member asked the notetaker to stop/);
+  });
+
+  test("the stop route rejects an invalid meeting id at the API boundary", async () => {
+    actingUserId = memberId;
+    const res = await call<{ error: string }>("POST", "/meetings/not-a-uuid/notetaker/stop");
+
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "ValidationError");
   });
 });

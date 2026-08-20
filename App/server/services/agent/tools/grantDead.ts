@@ -110,6 +110,7 @@ const MEETING_GATED_TOOLS = new Set([
   "list_meetings",
   "get_meeting",
   "get_meeting_transcript",
+  "start_notetaker",
 ]);
 
 /**

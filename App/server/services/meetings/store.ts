@@ -1,4 +1,4 @@
-import { In, LessThanOrEqual, MoreThanOrEqual, type FindOptionsWhere } from "typeorm";
+import { In, LessThanOrEqual, MoreThan, MoreThanOrEqual, type FindOptionsWhere } from "typeorm";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { CalendarAccount } from "../../db/entities/CalendarAccount.js";
@@ -23,6 +23,8 @@ import type { StoredAttendee } from "./calendarSync.js";
 /** How far ahead meetings are materialised. Beyond this the agenda is read
  * straight off `calendar_events`, which is cheaper and always current. */
 const ARM_HORIZON_MS = 24 * 60 * 60 * 1000;
+/** A brisk sync can still first see an invite just after it began. */
+const ARM_CATCH_UP_MS = 10 * 60 * 1000;
 
 export function parseAttendees(json: string): StoredAttendee[] {
   try {
@@ -51,7 +53,15 @@ export function parseAttendees(json: string): StoredAttendee[] {
  */
 export function shouldAutoRecord(args: {
   account: Pick<CalendarAccount, "autoRecord" | "notetakerEmployeeId">;
-  event: Pick<CalendarEvent, "status" | "allDay" | "conferenceProvider" | "conferenceUrl" | "attendeesJson" | "organizerEmail">;
+  event: Pick<
+    CalendarEvent,
+    | "status"
+    | "allDay"
+    | "conferenceProvider"
+    | "conferenceUrl"
+    | "attendeesJson"
+    | "organizerEmail"
+  >;
   domains: Set<string>;
 }): boolean {
   const { account, event, domains } = args;
@@ -59,7 +69,9 @@ export function shouldAutoRecord(args: {
   if (!account.notetakerEmployeeId) return false;
   if (event.status !== "confirmed") return false;
   if (event.allDay) return false;
-  if (event.conferenceProvider === "none" || !event.conferenceUrl) return false;
+  // The built-in recorder intentionally supports Google Meet only. Do not arm
+  // a Zoom/Teams/Webex row that can do nothing except fail at due time.
+  if (event.conferenceProvider !== "meet" || !event.conferenceUrl) return false;
   if (account.autoRecord === "all") return true;
 
   // `external` from here down.
@@ -88,7 +100,8 @@ export async function armMeetingsForAccount(
     where: {
       accountId: account.id,
       status: "confirmed",
-      startAt: MoreThanOrEqual(now) as unknown as Date,
+      startAt: MoreThanOrEqual(new Date(now.getTime() - ARM_CATCH_UP_MS)) as unknown as Date,
+      endAt: MoreThan(now) as unknown as Date,
     },
     order: { startAt: "ASC" },
     take: 200,
@@ -141,7 +154,10 @@ export async function syncParticipantsFromEvent(
   const attendees = parseAttendees(event.attendeesJson);
   const organizer = normalizeEmail(event.organizerEmail);
 
-  const byEmail = new Map<string, { displayName: string; responseStatus: string; organizer: boolean }>();
+  const byEmail = new Map<
+    string,
+    { displayName: string; responseStatus: string; organizer: boolean }
+  >();
   for (const attendee of attendees) {
     byEmail.set(attendee.email, {
       displayName: attendee.displayName,
@@ -300,10 +316,7 @@ export async function createAdHocMeeting(args: {
  * Contacts are not resolved here — that is `revenueLink.ts`'s job, and it runs
  * when there is something worth putting on a timeline.
  */
-export async function addParticipants(
-  meeting: Meeting,
-  emails: string[],
-): Promise<number> {
+export async function addParticipants(meeting: Meeting, emails: string[]): Promise<number> {
   const repo = AppDataSource.getRepository(MeetingParticipant);
   const domains = await companyDomains(meeting.companyId);
   let added = 0;

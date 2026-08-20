@@ -8,6 +8,7 @@ import {
   ListChecks,
   Mic,
   RefreshCw,
+  Square,
   Upload,
   UserPlus,
   Users,
@@ -49,6 +50,8 @@ export default function MeetingDetail() {
   const [data, setData] = React.useState<MeetingDetailPayload | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [startingNotetaker, setStartingNotetaker] = React.useState(false);
+  const [stoppingNotetaker, setStoppingNotetaker] = React.useState(false);
   const [pasting, setPasting] = React.useState(false);
   const [addingAttendees, setAddingAttendees] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -66,6 +69,24 @@ export default function MeetingDetail() {
     setData(null);
     reload();
   }, [reload]);
+
+  const liveMeetingStatus = data?.meeting.status;
+  React.useEffect(() => {
+    if (
+      liveMeetingStatus !== "joining" &&
+      liveMeetingStatus !== "recording" &&
+      liveMeetingStatus !== "processing"
+    ) {
+      setStoppingNotetaker(false);
+      return;
+    }
+    // Recorder lifecycle writes are intentionally conditional database
+    // updates, which do not always carry enough entity data for the shared
+    // resource-change socket. Poll only while work is live so Joining, Stop,
+    // transcription, and write-up transitions still settle without a refresh.
+    const timer = window.setInterval(reload, 3_000);
+    return () => window.clearInterval(timer);
+  }, [liveMeetingStatus, reload]);
 
   useLiveRefetch("meeting", reload, meetingId ?? null);
 
@@ -119,6 +140,48 @@ export default function MeetingDetail() {
     }
   };
 
+  const startNotetaker = async () => {
+    if (!meetingId) return;
+    setStartingNotetaker(true);
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            meeting: { ...current.meeting, status: "joining", statusMessage: "" },
+          }
+        : current,
+    );
+    try {
+      await meetingsApi.startNotetaker(company.id, meetingId);
+      toast(
+        "The notetaker is joining Google Meet. Recording and transcription will continue here.",
+        "success",
+      );
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setStartingNotetaker(false);
+      reload();
+    }
+  };
+
+  const stopNotetaker = async () => {
+    if (!meetingId) return;
+    setStoppingNotetaker(true);
+    try {
+      await meetingsApi.stopNotetaker(company.id, meetingId);
+      toast(
+        "The notetaker is leaving. Any audio captured so far will still be processed.",
+        "success",
+      );
+      reload();
+    } catch (err) {
+      setStoppingNotetaker(false);
+      toast((err as Error).message, "error");
+      reload();
+    }
+  };
+
   if (error) {
     return (
       <div className="page-shell p-4 sm:p-8">
@@ -146,6 +209,12 @@ export default function MeetingDetail() {
   const { meeting, participants, transcript } = data;
   const when = meeting.scheduledStartAt ?? meeting.startedAt ?? meeting.createdAt;
   const knownContacts = participants.filter((row) => row.contactId);
+  const canStartNotetaker =
+    meeting.conferenceProvider === "meet" &&
+    Boolean(meeting.conferenceUrl) &&
+    !meeting.hasRecording &&
+    (meeting.status === "scheduled" || meeting.status === "failed" || startingNotetaker);
+  const canStopNotetaker = meeting.status === "joining" || meeting.status === "recording";
 
   return (
     <div className="page-shell p-4 sm:p-8">
@@ -190,6 +259,18 @@ export default function MeetingDetail() {
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {canStartNotetaker && (
+            <Button size="sm" disabled={busy || startingNotetaker} onClick={startNotetaker}>
+              {startingNotetaker ? <Spinner size={14} /> : <Mic size={14} />}
+              {startingNotetaker ? "Joining…" : "Start notetaker"}
+            </Button>
+          )}
+          {canStopNotetaker && (
+            <Button size="sm" variant="danger" disabled={stoppingNotetaker} onClick={stopNotetaker}>
+              {stoppingNotetaker ? <Spinner size={14} /> : <Square size={14} />}
+              {stoppingNotetaker ? "Stopping…" : "Stop notetaker"}
+            </Button>
+          )}
           {meeting.conferenceUrl && (
             <a href={meeting.conferenceUrl} target="_blank" rel="noreferrer noopener">
               <Button variant="secondary" size="sm">
@@ -234,6 +315,12 @@ export default function MeetingDetail() {
       {meeting.statusMessage && meeting.status === "failed" && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           {meeting.statusMessage}
+        </div>
+      )}
+      {meeting.status === "joining" && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300">
+          <Spinner size={14} /> The notetaker is joining Google Meet as a guest. The host may need
+          to admit it.
         </div>
       )}
       {meeting.transcriptError && (
@@ -384,9 +471,7 @@ export default function MeetingDetail() {
                           Contact
                         </Link>
                       ) : (
-                        !row.isInternal && (
-                          <span className="shrink-0 italic">not a Contact</span>
-                        )
+                        !row.isInternal && <span className="shrink-0 italic">not a Contact</span>
                       )}
                     </div>
                   </li>
@@ -465,8 +550,12 @@ function PasteTranscriptModal({
           value={text}
           rows={14}
           autoFocus
-          placeholder={"Priya: Thanks for making the time.\nSam: Of course — where did we land on pricing?"}
-          hint={"Lines shaped “Speaker: words” keep their speaker. Anything else becomes an unattributed line."}
+          placeholder={
+            "Priya: Thanks for making the time.\nSam: Of course — where did we land on pricing?"
+          }
+          hint={
+            "Lines shaped “Speaker: words” keep their speaker. Anything else becomes an unattributed line."
+          }
           onChange={(e) => setText(e.target.value)}
         />
         <div className="flex justify-end gap-2">

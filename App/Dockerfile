@@ -64,7 +64,8 @@ WORKDIR /app
 # clear error if the binary is ever absent.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-      bash bubblewrap ca-certificates curl git openssh-client smbclient \
+      bash bubblewrap ca-certificates curl ffmpeg git openssh-client \
+      pulseaudio pulseaudio-utils smbclient \
     && rm -rf /var/lib/apt/lists/*
 
 # Real Google Chrome from Google's own apt repository, for both linux/amd64 and
@@ -129,7 +130,8 @@ COPY --from=build /build/App/dist ./dist
 # the image rather than editing or mounting this copy after the build.
 COPY --from=build /build/App/config.ts ./config.ts
 
-# Starts the virtual display, then execs CMD.
+# Starts the virtual display and the private audio server used by the Google
+# Meet notetaker, then execs CMD.
 COPY --chmod=0755 App/docker-entrypoint.sh /usr/local/bin/genosyn-entrypoint
 
 # Fail the image build if the standard runtime contract drifts: command

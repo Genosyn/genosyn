@@ -22,7 +22,7 @@ export type CalendarSyncState = "idle" | "queued" | "running" | "succeeded" | "f
  *
  *   - `external` — meetings with at least one attendee outside the company's
  *     own domains. The sales-call case, which is the one worth recording.
- *   - `all` — every meeting with a conference link, internal ones included.
+ *   - `all` — every Google Meet, internal ones included.
  */
 export type CalendarAutoRecord = "off" | "external" | "all";
 

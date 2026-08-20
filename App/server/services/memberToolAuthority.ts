@@ -107,12 +107,14 @@ const MEMBER_TOOLS = [
   "update_mail_thread",
   "send_mail",
   "suggest_mail_actions",
-  // Meetings (M44): read-only, and a Member already sees every meeting in the
-  // Meetings section — calendar Grants govern the AI surface, not humans. So a
-  // delegated turn reading one shows the Member nothing they could not open.
+  // Meetings (M44): every Member may read meetings and manually start the
+  // notetaker from the human route. Calendar Record Grants still govern which
+  // AI Employees may act, so delegated chat intersects that existing Grant
+  // with the same member-level authority as the meeting page.
   "list_meetings",
   "get_meeting",
   "get_meeting_transcript",
+  "start_notetaker",
   "list_contacts",
   "search_contacts",
   "get_contact",

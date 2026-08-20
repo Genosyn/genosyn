@@ -464,12 +464,11 @@ async function main() {
 /**
  * Stop cleanly on the signals a container runtime actually sends.
  *
- * The reason this exists is browser state. An employee's cookies and
- * localStorage are only written to disk when a browser session is torn down
- * deliberately, so before this handler every `docker stop` and every
- * `genosyn update` killed live browsers mid-flight and silently rolled that
- * employee back to the previous snapshot — a sign-in performed two minutes
- * before an update was simply gone.
+ * The reason this exists is live browser state and meeting audio. An
+ * employee's cookies and localStorage are only written to disk when a browser
+ * session is torn down deliberately, while a notetaker's WebM needs its final
+ * trailer before the process exits. Without this handler, `docker stop` or
+ * `genosyn update` can lose a recent sign-in or the call captured so far.
  *
  * `docker stop` allows ten seconds before it escalates to `SIGKILL`, so the
  * flush is bounded well inside that: losing a few sessions' cookies is bad, but
@@ -485,18 +484,31 @@ function installShutdownHandlers(server: http.Server): void {
     if (shuttingDown) return;
     shuttingDown = true;
     // eslint-disable-next-line no-console
-    console.log(`[genosyn] ${signal} received — flushing browser sessions`);
+    console.log(`[genosyn] ${signal} received — flushing live sessions`);
 
     // Stop taking new connections immediately; in-flight requests finish or
     // die with the process, which is the same outcome they had before.
     server.close();
 
     const flush = (async () => {
-      const { releaseAllPages } = await import("./services/browserChromium.js");
-      const count = await releaseAllPages("shutdown");
-      if (count > 0) {
+      const [{ releaseAllPages }, { shutdownMeetingNotetakers }] = await Promise.all([
+        import("./services/browserChromium.js"),
+        import("./services/meetings/recorder.js"),
+      ]);
+      const [browserCount, notetakerCount] = await Promise.all([
+        releaseAllPages("shutdown"),
+        shutdownMeetingNotetakers(
+          "The App is restarting; the notetaker saved the recording captured so far.",
+          FLUSH_BUDGET_MS - 500,
+        ),
+      ]);
+      if (browserCount > 0) {
         // eslint-disable-next-line no-console
-        console.log(`[genosyn] flushed ${count} browser session(s)`);
+        console.log(`[genosyn] flushed ${browserCount} browser session(s)`);
+      }
+      if (notetakerCount > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[genosyn] finalised ${notetakerCount} meeting recording(s)`);
       }
     })();
 

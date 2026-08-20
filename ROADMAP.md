@@ -2468,23 +2468,27 @@ as real, dated, assigned rows in the queue a human already works from.
       `createFollowUpTask`. They are `task` activities, which means they arrive
       in the Follow-ups queue humans already work from rather than in a second
       inbox nobody opens.
-- [x] **Recording is a seam, not a hard-coded bot.** `MeetingRecorder` has one
-      implementation today: a recording or a transcript handed to a meeting,
-      which every deployment can use. Transcription runs through any
+- [x] **Recording is a seam, not a single ingress.** A recording uploaded to a
+      meeting or a transcript pasted into it works on every platform and every
+      deployment, including when live presence is blocked by a host policy.
+      Transcription runs through any
       OpenAI-compatible `/v1/audio/transcriptions` endpoint using credentials
       already encrypted on the `AIModel` row, so a self-hoster points it at a
-      local whisper server and no third party sees the audio. No new
-      dependency, no new credential store.
+      local whisper server and no third party sees the audio. There is no new
+      model credential path or credential store.
 - [x] **Auto-record is off, and stays off.** A recorder that turns itself on is
       the one behaviour here that can embarrass a company, because the people
       on the other end agreed to nothing. Joining is opt-in per calendar, and
       even then only for meetings with an attendee outside the company's own
       domains unless somebody deliberately widens it.
-- [ ] Next: a notetaker that joins the call itself. The seam is the easy part;
-      the honest blocker is that the App image ships Xvfb but no audio stack,
-      and `browserChromium.ts` blocks service workers as a documented security
-      boundary that Meet's web client needs. Both are deliberate, so both are a
-      decision before they are a patch.
+- [x] **The notetaker joins Google Meet itself.** Shortly before a qualifying
+      call, the built-in recorder enters as a disclosed guest, waits for host
+      admission, records call audio into the App's private meeting storage,
+      then hands the result to the existing transcription pipeline. The
+      standard Docker image carries Chrome, PulseAudio and ffmpeg; source
+      installs must provide them. Guest admission and Google Workspace
+      sign-in policies remain real boundaries, and Zoom, Teams and Webex still
+      use the upload or paste fallback.
 
 ### M45 — TLDRs ✅
 
@@ -2850,10 +2854,9 @@ of the original V1 backlog has shipped — what remains is mostly
 
 - **Marketplace** of Soul personas + skill packs (M17 above is the seed)
 - **Voice** — TTS summaries; "call" an employee
-- **Meeting presence** — an employee that joins the Google Meet itself. M44
-  shipped everything downstream of the audio (transcripts, linking, AI
-  follow-ups) behind a recorder seam; what is left is the join, which needs an
-  audio stack in the image and a decision about the service-worker boundary
+- **More meeting platforms** — Google Meet presence shipped in M44; bring the
+  same disclosed-guest, host-admitted recording path to Zoom, Teams and Webex
+  without pretending one platform's browser flow generalises to the others
 - **Soul versioning + contracts** — Soul edits go through approval
 - **Performance dashboards** — heatmaps of routine reliability
 - **Federation** — two self-hosted Genosyn orgs cooperate on a shared

@@ -38,6 +38,7 @@ describe("interactive Member tool policy", () => {
     assert.equal(memberToolPolicy("list_invoices"), "finance.read");
     assert.equal(memberToolPolicy("create_todo"), "project");
     assert.equal(memberToolPolicy("read_pdf_fields"), "attachment");
+    assert.equal(memberToolPolicy("start_notetaker"), "member");
     for (const tool of [
       "list_workspace_channels",
       "create_workspace_channel",

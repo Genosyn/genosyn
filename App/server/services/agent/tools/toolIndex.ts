@@ -54,8 +54,8 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   },
   meetings: {
     label: "meetings",
-    blurb: "Recorded calls, who was on them, and what was said.",
-    tools: ["list_meetings", "get_meeting", "get_meeting_transcript"],
+    blurb: "Recorded calls, attendees, and what was said.",
+    tools: ["list_meetings", "get_meeting", "get_meeting_transcript", "start_notetaker"],
   },
   decisions: {
     label: "decisions",
@@ -430,7 +430,16 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
 export const TOOL_KEYWORDS: Record<string, string[]> = {
   // Nothing in the meeting tools' prose says "call", "zoom" or "notes", which
   // is what somebody actually types when they want them.
-  list_meetings: ["call", "calls", "zoom", "google meet", "teams", "recording", "notetaker", "calendar"],
+  list_meetings: [
+    "call",
+    "calls",
+    "zoom",
+    "google meet",
+    "teams",
+    "recording",
+    "notetaker",
+    "calendar",
+  ],
   get_meeting: ["call", "notes", "minutes", "recap", "attendees", "who was on the call"],
   get_meeting_transcript: [
     "transcript",
@@ -441,6 +450,14 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "recording",
     "minutes",
     "verbatim",
+  ],
+  start_notetaker: [
+    "join call",
+    "join meeting",
+    "record call",
+    "take notes",
+    "notetaker",
+    "google meet",
   ],
   // Bases are the worst offender: nothing in their prose says "spreadsheet".
   list_bases: ["spreadsheet", "table", "grid", "database", "dataset"],

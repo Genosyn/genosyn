@@ -14,7 +14,7 @@ import {
   requireCompanyMember,
   requireCompanyRoleForMutations,
 } from "../middleware/auth.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import {
   createCalendarAccount,
@@ -31,7 +31,12 @@ import {
   upsertCalendarGrant,
 } from "../services/meetings/grants.js";
 import { processMeeting, processMeetingInBackground } from "../services/meetings/pipeline.js";
-import { attachRecording, attachTranscript, startNotetaker } from "../services/meetings/recorder.js";
+import {
+  attachRecording,
+  attachTranscript,
+  startNotetaker,
+  stopNotetaker,
+} from "../services/meetings/recorder.js";
 import { linkMeeting } from "../services/meetings/revenueLink.js";
 import {
   serializeCalendarAccount,
@@ -180,7 +185,9 @@ meetingsRouter.get(
       const calendars = await listConnectableCalendars(cid(req), parsed.data.connectionId);
       res.json({ calendars });
     } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : "Could not list calendars." });
+      res
+        .status(400)
+        .json({ error: err instanceof Error ? err.message : "Could not list calendars." });
     }
   }),
 );
@@ -212,7 +219,9 @@ meetingsRouter.post(
       });
       res.status(201).json({ calendar: serializeCalendarAccount(account) });
     } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : "Could not connect calendar." });
+      res
+        .status(400)
+        .json({ error: err instanceof Error ? err.message : "Could not connect calendar." });
     }
   }),
 );
@@ -229,12 +238,16 @@ meetingsRouter.patch(
   validateBody(patchCalendarBody),
   h(async (req, res) => {
     const body = req.body as z.infer<typeof patchCalendarBody>;
-    const account = await updateCalendarAccount(cid(req), (req.params as Record<string, string>).id, {
-      status: body.status,
-      autoRecord: body.autoRecord as "off" | "external" | "all" | undefined,
-      notetakerEmployeeId: body.notetakerEmployeeId,
-      windowDays: body.windowDays,
-    });
+    const account = await updateCalendarAccount(
+      cid(req),
+      (req.params as Record<string, string>).id,
+      {
+        status: body.status,
+        autoRecord: body.autoRecord as "off" | "external" | "all" | undefined,
+        notetakerEmployeeId: body.notetakerEmployeeId,
+        windowDays: body.windowDays,
+      },
+    );
     if (!account) {
       res.status(404).json({ error: "Calendar not found." });
       return;
@@ -399,6 +412,13 @@ const createMeetingBody = z.object({
   attendeeEmails: z.array(z.string().max(320)).max(100).optional(),
 });
 
+const meetingIdParams = z
+  .object({
+    cid: z.string().uuid(),
+    id: z.string().uuid(),
+  })
+  .strict();
+
 meetingsRouter.post(
   "/meetings",
   validateBody(createMeetingBody),
@@ -539,7 +559,25 @@ meetingsRouter.post(
   "/meetings/:id/notetaker",
   h(async (req, res) => {
     const id = (req.params as Record<string, string>).id;
-    const result = await startNotetaker({ companyId: cid(req), meetingId: id });
+    // This route is an explicit human retry. Automatic dispatch never retries
+    // failed rows on its own, but the meeting page deliberately offers the
+    // button again after a recoverable admission or host-runtime failure.
+    const result = await startNotetaker({ companyId: cid(req), meetingId: id, retryFailed: true });
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    const meeting = await getMeeting(cid(req), id);
+    res.json({ meeting: meeting ? serializeMeeting(meeting) : null });
+  }),
+);
+
+meetingsRouter.post(
+  "/meetings/:id/notetaker/stop",
+  validateParams(meetingIdParams),
+  h(async (req, res) => {
+    const id = (req.params as z.infer<typeof meetingIdParams>).id;
+    const result = await stopNotetaker({ companyId: cid(req), meetingId: id });
     if (!result.ok) {
       res.status(400).json({ error: result.error });
       return;

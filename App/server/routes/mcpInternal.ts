@@ -63,25 +63,16 @@ import { Conversation } from "../db/entities/Conversation.js";
 import { ConversationMessage } from "../db/entities/ConversationMessage.js";
 import { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup } from "pdf-lib";
 import { PdfLayoutError, readPdfLayout } from "../services/pdfLayout.js";
-import {
-  PdfOverlayError,
-  overlayPdfText,
-  type OverlayItem,
-} from "../services/pdfOverlay.js";
+import { PdfOverlayError, overlayPdfText, type OverlayItem } from "../services/pdfOverlay.js";
 import { PdfTextError } from "../services/pdfText.js";
-import {
-  DocxError,
-  DOCM_MIME,
-  DOCX_MIME,
-  DOTM_MIME,
-  DOTX_MIME,
-} from "../services/docxPackage.js";
+import { DocxError, DOCM_MIME, DOCX_MIME, DOTM_MIME, DOTX_MIME } from "../services/docxPackage.js";
 import { XmlParseError } from "../services/docxXml.js";
 import { readDocx } from "../services/docxRead.js";
 import { DocxEditError, editDocx, type DocxOperation } from "../services/docxEdit.js";
 import { createDocx, MAX_MARKDOWN_CHARS } from "../services/docxCreate.js";
 import { Meeting } from "../db/entities/Meeting.js";
 import { grantedCalendarIds, hasCalendarAccess } from "../services/meetings/grants.js";
+import { startNotetaker } from "../services/meetings/recorder.js";
 import { serializeMeeting, serializeParticipant } from "../services/meetings/serialize.js";
 import { getMeeting, listMeetings, listParticipants } from "../services/meetings/store.js";
 import { Approval } from "../db/entities/Approval.js";
@@ -157,12 +148,7 @@ import {
   resourceAttachmentSpecsSchema,
 } from "../services/resourceAttachments.js";
 import { extractAttachmentTextFromBuffer } from "../services/attachmentText.js";
-import {
-  WebToolError,
-  downloadWebFile,
-  fetchWebPage,
-  searchWeb,
-} from "../services/webBrowsing.js";
+import { WebToolError, downloadWebFile, fetchWebPage, searchWeb } from "../services/webBrowsing.js";
 import { Base } from "../db/entities/Base.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { BaseField, BaseFieldType } from "../db/entities/BaseField.js";
@@ -11803,9 +11789,7 @@ function respondWithSessionError(res: Response, error: unknown): void {
   res.status(400).json({ error: message });
 }
 
-const repositoryListFilesSchema = z
-  .object({ path: z.string().max(1000).optional() })
-  .strict();
+const repositoryListFilesSchema = z.object({ path: z.string().max(1000).optional() }).strict();
 
 mcpInternalRouter.post(
   "/tools/repository_list_files",
@@ -13095,7 +13079,11 @@ async function loadAttachmentPdf(
  * else is ours and keeps its stack.
  */
 function pdfToolFailure(err: unknown): { status: number; error: string } | null {
-  if (err instanceof PdfOverlayError || err instanceof PdfLayoutError || err instanceof PdfTextError) {
+  if (
+    err instanceof PdfOverlayError ||
+    err instanceof PdfLayoutError ||
+    err instanceof PdfTextError
+  ) {
     return { status: err.status, error: err.message };
   }
   return null;
@@ -13520,9 +13508,7 @@ const paragraphText = z.union([z.string(), z.array(z.string()).max(200)]);
  * document that can answer it.
  */
 const docxOperationSchema = z.discriminatedUnion("op", [
-  z
-    .object({ op: z.literal("set_paragraph"), id: blockId, text: paragraphText })
-    .strict(),
+  z.object({ op: z.literal("set_paragraph"), id: blockId, text: paragraphText }).strict(),
   z
     .object({
       op: z.literal("insert_paragraph"),
@@ -13577,9 +13563,7 @@ const editDocxSchema = z
  * ones that make several paragraphs; the lines are joined here so the service
  * has a single shape to reason about.
  */
-function toDocxOperations(
-  parsed: z.infer<typeof editDocxSchema>["operations"],
-): DocxOperation[] {
+function toDocxOperations(parsed: z.infer<typeof editDocxSchema>["operations"]): DocxOperation[] {
   return parsed.map((raw) => {
     switch (raw.op) {
       case "set_paragraph":
@@ -15849,6 +15833,7 @@ async function meetingForEmployee(
   req: McpRequest,
   res: Response,
   meetingId: string,
+  required: "read" | "record" = "read",
 ): Promise<Meeting | null> {
   const cid = req.mcpCompany!.id;
   const meeting = await getMeeting(cid, meetingId);
@@ -15856,10 +15841,24 @@ async function meetingForEmployee(
     res.status(404).json({ error: "Meeting not found" });
     return null;
   }
-  if (meeting.accountId && !(await hasCalendarAccess(req.mcpEmployee!.id, meeting.accountId, "read"))) {
+  if (
+    meeting.accountId &&
+    !(await hasCalendarAccess(req.mcpEmployee!.id, meeting.accountId, required))
+  ) {
     res.status(403).json({
       error:
-        "No grant: you do not have access to the calendar this meeting came from. Ask an owner or admin to grant it under Meetings → AI access.",
+        `No grant: you need ${required} access to the calendar this meeting came from. ` +
+        "Ask an owner or admin to grant it under Meetings → AI access.",
+    });
+    return null;
+  }
+  if (
+    !meeting.accountId &&
+    required === "record" &&
+    meeting.notetakerEmployeeId !== req.mcpEmployee!.id
+  ) {
+    res.status(403).json({
+      error: "Only the AI Employee assigned as this meeting's notetaker may start it.",
     });
     return null;
   }
@@ -15943,6 +15942,30 @@ mcpInternalRouter.post(
       truncated: full.length > cap,
       transcript: full.slice(0, cap),
       totalChars: full.length,
+    });
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/start_notetaker",
+  validateBody(meetingIdSchema),
+  async (req: McpRequest, res) => {
+    const { meetingId } = req.body as z.infer<typeof meetingIdSchema>;
+    const meeting = await meetingForEmployee(req, res, meetingId, "record");
+    if (!meeting) return;
+    const result = await startNotetaker({
+      companyId: req.mcpCompany!.id,
+      meetingId,
+      retryFailed: true,
+    });
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    const current = await getMeeting(req.mcpCompany!.id, meetingId);
+    res.json({
+      meeting: current ? serializeMeeting(current) : null,
+      note: "The disclosed Google Meet guest is joining in the background. The host may need to admit it.",
     });
   },
 );

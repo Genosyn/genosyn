@@ -78,6 +78,7 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   { query: "reconcile the books", expect: "review_finance_transaction" },
   { query: "what did we discuss on the call", expect: "get_meeting_transcript" },
   { query: "recent calls with this customer", expect: "list_meetings" },
+  { query: "join the Google Meet and take notes", expect: "start_notetaker" },
   { query: "who was on the meeting", expect: "get_meeting" },
   { query: "reply to that email", expect: "send_mail" },
   { query: "draft an email", expect: "create_mail_draft" },

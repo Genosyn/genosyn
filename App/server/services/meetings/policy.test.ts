@@ -18,8 +18,20 @@ const EVENT = {
   conferenceProvider: "meet" as const,
   conferenceUrl: "https://meet.google.com/a-b-c",
   attendeesJson: JSON.stringify([
-    { email: "me@acme.test", displayName: "", responseStatus: "", organizer: true, optional: false },
-    { email: "buyer@customer.test", displayName: "", responseStatus: "", organizer: false, optional: false },
+    {
+      email: "me@acme.test",
+      displayName: "",
+      responseStatus: "",
+      organizer: true,
+      optional: false,
+    },
+    {
+      email: "buyer@customer.test",
+      displayName: "",
+      responseStatus: "",
+      organizer: false,
+      optional: false,
+    },
   ]),
   organizerEmail: "me@acme.test",
 };
@@ -58,8 +70,20 @@ describe("shouldAutoRecord", () => {
     const internal = {
       ...EVENT,
       attendeesJson: JSON.stringify([
-        { email: "me@acme.test", displayName: "", responseStatus: "", organizer: true, optional: false },
-        { email: "pat@acme.test", displayName: "", responseStatus: "", organizer: false, optional: false },
+        {
+          email: "me@acme.test",
+          displayName: "",
+          responseStatus: "",
+          organizer: true,
+          optional: false,
+        },
+        {
+          email: "pat@acme.test",
+          displayName: "",
+          responseStatus: "",
+          organizer: false,
+          optional: false,
+        },
       ]),
     };
     assert.equal(shouldAutoRecord({ account: ARMED, event: internal, domains: OURS }), false);
@@ -69,7 +93,13 @@ describe("shouldAutoRecord", () => {
     const internal = {
       ...EVENT,
       attendeesJson: JSON.stringify([
-        { email: "me@acme.test", displayName: "", responseStatus: "", organizer: true, optional: false },
+        {
+          email: "me@acme.test",
+          displayName: "",
+          responseStatus: "",
+          organizer: true,
+          optional: false,
+        },
       ]),
     };
     assert.equal(
@@ -106,6 +136,23 @@ describe("shouldAutoRecord", () => {
       false,
     );
   });
+
+  test("refuses conference providers the built-in recorder cannot join", () => {
+    for (const conferenceProvider of ["zoom", "teams", "webex", "other"] as const) {
+      assert.equal(
+        shouldAutoRecord({
+          account: { autoRecord: "all", notetakerEmployeeId: "emp_1" },
+          event: {
+            ...EVENT,
+            conferenceProvider,
+            conferenceUrl: `https://${conferenceProvider}.example.test/room`,
+          },
+          domains: OURS,
+        }),
+        false,
+      );
+    }
+  });
 });
 
 describe("internal-address detection", () => {
@@ -139,9 +186,7 @@ describe("parseTranscriptText", () => {
   });
 
   test("does not invent a speaker out of a sentence that happens to contain a colon", () => {
-    const out = parseTranscriptText(
-      "so the thing about the price is that it depends: on volume",
-    );
+    const out = parseTranscriptText("so the thing about the price is that it depends: on volume");
     assert.equal(out[0].speaker, "");
     assert.equal(out[0].text, "so the thing about the price is that it depends: on volume");
   });
@@ -188,7 +233,10 @@ describe("parseWriteUp", () => {
 
   test("items with no title are dropped, not guessed at", () => {
     const out = parseWriteUp('{"summary":"x","actionItems":[{"title":"  "},{"title":"real"}]}');
-    assert.deepEqual(out?.actionItems.map((i) => i.title), ["real"]);
+    assert.deepEqual(
+      out?.actionItems.map((i) => i.title),
+      ["real"],
+    );
   });
 
   test("unparseable output degrades to null rather than failing the meeting", () => {

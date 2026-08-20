@@ -203,7 +203,12 @@ export const meetingsApi = {
 
   meetings: (
     companyId: string,
-    params: { status?: MeetingStatus; customerId?: string; contactId?: string; limit?: number } = {},
+    params: {
+      status?: MeetingStatus;
+      customerId?: string;
+      contactId?: string;
+      limit?: number;
+    } = {},
   ) => {
     const query = new URLSearchParams();
     if (params.status) query.set("status", params.status);
@@ -214,8 +219,7 @@ export const meetingsApi = {
     return api.get<{ meetings: Meeting[] }>(`${base(companyId)}${suffix ? `?${suffix}` : ""}`);
   },
 
-  meeting: (companyId: string, id: string) =>
-    api.get<MeetingDetail>(`${base(companyId)}/${id}`),
+  meeting: (companyId: string, id: string) => api.get<MeetingDetail>(`${base(companyId)}/${id}`),
 
   createMeeting: (
     companyId: string,
@@ -248,6 +252,9 @@ export const meetingsApi = {
 
   startNotetaker: (companyId: string, id: string) =>
     api.post<{ meeting: Meeting | null }>(`${base(companyId)}/${id}/notetaker`),
+
+  stopNotetaker: (companyId: string, id: string) =>
+    api.post<{ meeting: Meeting | null }>(`${base(companyId)}/${id}/notetaker/stop`),
 
   recordingUrl: (companyId: string, id: string) => `${base(companyId)}/${id}/recording`,
 

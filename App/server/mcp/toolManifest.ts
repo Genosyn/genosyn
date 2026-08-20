@@ -440,7 +440,8 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         status: {
           type: "string",
           enum: ["scheduled", "joining", "recording", "processing", "ready", "failed", "skipped"],
-          description: "Only meetings in this state. `ready` means the transcript and write-up are done.",
+          description:
+            "Only meetings in this state. `ready` means the transcript and write-up are done.",
         },
         customerId: { type: "string", description: "Only meetings linked to this account." },
         contactId: { type: "string", description: "Only meetings this Contact attended." },
@@ -476,6 +477,19 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           maximum: 100000,
           description: "Truncate after this many characters. Default 20000.",
         },
+      },
+      required: ["meetingId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "start_notetaker",
+    description:
+      "Send the meeting's assigned AI Employee into an upcoming Google Meet as the disclosed Genosyn notetaker. The call must come from a calendar where you hold a `record` Grant; Genosyn joins as a guest, so the host may still need to admit it. Recording and transcription continue in the background.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        meetingId: { type: "string", description: "The meeting's id." },
       },
       required: ["meetingId"],
       additionalProperties: false,
@@ -2385,7 +2399,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
               y: {
                 type: "number",
                 description:
-                  "Points from the page's top edge, as displayed. By default this is the top of the line box; pass `anchor: \"baseline\"` to give a baseline from read_pdf_layout instead.",
+                  'Points from the page\'s top edge, as displayed. By default this is the top of the line box; pass `anchor: "baseline"` to give a baseline from read_pdf_layout instead.',
               },
               type: {
                 type: "string",
@@ -2473,7 +2487,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           minimum: 1000,
           maximum: 50000,
           description:
-            "Size budget for the result, ids and structure included. Defaults to 40000, which is what fits in one tool result. If `truncated` comes back true the outline stops short of the end of the document: narrow it with `scope: \"body\"`, and note that `edit_docx`'s `replace_text` needs no id, so it still reaches text past the cut.",
+            'Size budget for the result, ids and structure included. Defaults to 40000, which is what fits in one tool result. If `truncated` comes back true the outline stops short of the end of the document: narrow it with `scope: "body"`, and note that `edit_docx`\'s `replace_text` needs no id, so it still reaches text past the cut.',
         },
       },
       required: ["attachmentId"],
