@@ -103,8 +103,9 @@ don't re-litigate them.
     a wall of reassurance. If you are about to add a card to Home, give it the
     same guard.
 13. **A TLDR is a summary, never a new authority boundary.** A company-wide
-    TLDR may read public Workspace messages and company-visible AI work, but
-    never private channels, DMs, or direct employee chat. The chosen AI
+    TLDR may read public Workspace messages, company-visible journal entries,
+    and terminal Routine Run output, but never private channels, DMs, or direct
+    employee chat. The chosen AI
     Employee runs through the restricted model seam with only the structured
     submission tool and no action-capable tools, so content being summarized
     cannot turn the recap into an action. Reading is personal: one Member
@@ -136,8 +137,9 @@ don't re-litigate them.
   provider CLI harnesses remain forbidden.
 - **Run** — a single execution of a routine. The agent's transcript (streamed
   text + tool activity) is stored on `Run.logContent` (256 KB cap).
-- **TLDR** — one company-wide, AI-written recap of public Workspace messages
-  and company-visible AI work from a bounded period. Generated on a fixed
+- **TLDR** — one company-wide, AI-written recap of public Workspace messages,
+  company-visible journal entries, and terminal Routine Run output from a
+  bounded period. Generated on a fixed
   cadence by a chosen AI Employee, preserved in history, and dismissed
   separately by each Member.
 - **Integration** — a connector type (Stripe, Gmail, Metabase, …). Static
@@ -2491,11 +2493,11 @@ summarizer another route to act.
       Owners and admins configure the schedule or choose **Generate now**;
       ordinary Members cannot change company automation.
 - [x] **The source window is useful and deliberately narrow.** Each pass reads
-      public Workspace messages plus company-visible AI work, journal entries,
-      and Run records from its bounded period. Private channels, DMs, and direct
-      employee chat are excluded before any text reaches the model, so a recap
-      visible to the whole company cannot launder a private conversation into
-      public copy.
+      public Workspace messages, company-visible journal entries, and terminal
+      Routine Run output from its bounded period. Private channels, DMs, and
+      direct employee chat are excluded before any text reaches the model, so a
+      recap visible to the whole company cannot launder a private conversation
+      into public copy.
 - [x] **Summarizing grants no tools.** The chosen employee's connected active
       model receives a bounded snapshot through the restricted agent seam. The
       snapshot is labelled as untrusted data and the turn exposes only the
@@ -2505,8 +2507,8 @@ summarizer another route to act.
 - [x] **History is durable; empty periods are not.** Every completed recap is a
       `Tldr` row with its covered window and generated markdown. A window with
       no eligible activity writes nothing, leaving Home and the history free of
-      empty boilerplate. Scheduler leasing and a durable due claim keep two App
-      replicas from producing the same recap.
+      empty boilerplate. The replica-wide scheduler lease and a durable due
+      claim keep two App replicas from producing the same recap.
 - [x] **Reading is per Member.** The newest unread TLDR appears on Home and the
       full generated history lives in the TLDRs section. Dismiss writes a
       `TldrDismissal` for that Member only: the recap leaves their Home page but

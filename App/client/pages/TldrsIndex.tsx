@@ -169,8 +169,8 @@ export default function TldrsIndex() {
               </p>
               <p className="mt-2 flex max-w-2xl items-start gap-1.5 text-[11px] leading-5 text-slate-400 dark:text-slate-500">
                 <ShieldCheck size={13} className="mt-0.5 shrink-0" />
-                Only public Workspace channels and company-visible journal and Run activity are
-                included. Private channels, DMs, and direct chats never are.
+                Only public Workspace channels, company-visible journal entries, and terminal
+                Routine Run output are included. Private channels, DMs, and direct chats never are.
               </p>
             </div>
           </div>

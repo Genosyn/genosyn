@@ -8,8 +8,9 @@ export function Tldrs() {
         title="TLDRs"
         lead={
           <>
-            Company-wide, periodic recaps written by an AI Employee. A TLDR turns public
-            Workspace messages and company-visible AI work into one brief you can read on Home.
+            Company-wide, periodic recaps written by an AI Employee. A TLDR turns public Workspace
+            messages, company-visible journal entries, and terminal Routine Run output into one
+            brief you can read on Home.
           </>
         }
       />
@@ -38,22 +39,22 @@ export function Tldrs() {
       <H2 id="included">What a TLDR includes</H2>
       <P>
         Each TLDR covers one bounded period. It can summarize messages from public{" "}
-        <DocLink to="/docs/workspace-chat">Workspace</DocLink> channels and company-visible AI work,
-        including journal entries and Routine Run records.
+        <DocLink to="/docs/workspace-chat">Workspace</DocLink> channels, company-visible journal
+        entries, and terminal Routine Run output.
       </P>
       <P>
         If that period contains no eligible activity, Genosyn creates nothing. Home and the TLDR
         history stay free of empty recaps.
       </P>
       <Callout kind="warn" title="Private conversations stay private">
-        Private channels, DMs, and direct AI Employee chat are excluded before anything reaches
-        the model. They never appear in a company-wide TLDR.
+        Private channels, DMs, and direct AI Employee chat are excluded before anything reaches the
+        model. They never appear in a company-wide TLDR.
       </Callout>
 
       <H2 id="safe-summary">The writer can summarize, not act</H2>
       <P>
-        Genosyn treats the source material as untrusted and runs the chosen employee&apos;s model in a
-        restricted summarization turn. It receives no coding, browser, Integration, Genosyn, or
+        Genosyn treats the source material as untrusted and runs the chosen employee&apos;s model in
+        a restricted summarization turn. It receives no coding, browser, Integration, Genosyn, or
         company MCP tools. Writing a TLDR cannot send a message, change a record, or use the
         employee&apos;s Grants.
       </P>
