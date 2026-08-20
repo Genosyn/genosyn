@@ -28,8 +28,9 @@ export function Customers() {
       <H2 id="what-ships">What ships</H2>
       <UL>
         <LI>
-          <Strong>Accounts</Strong> — prospect/customer/former status, domain, website, industry,
-          size and owner alongside billing email, phone, tax ID, currency, and address.
+          <Strong>Accounts</Strong> — prospect/customer/former status, with each domain visible in
+          the customer list; website, industry, size and owner alongside billing email, phone, tax
+          ID, currency, and address.
         </LI>
         <LI>
           <Strong>Annual Contract Value</Strong> — a headline revenue figure

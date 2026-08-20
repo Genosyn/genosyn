@@ -3,6 +3,7 @@ import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import {
   Archive,
   ArchiveRestore,
+  Globe2,
   Mail,
   MoreHorizontal,
   Pencil,
@@ -189,6 +190,7 @@ export default function CustomersIndex() {
               <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-2 text-left font-medium">Name</th>
+                  <th className="px-4 py-2 text-left font-medium">Domain</th>
                   <th className="px-4 py-2 text-left font-medium">Email</th>
                   <th className="px-4 py-2 text-left font-medium">Contacts</th>
                   <th className="px-4 py-2 text-right font-medium">Annual contract value</th>
@@ -210,6 +212,19 @@ export default function CustomersIndex() {
                         <div className="text-xs text-slate-500 dark:text-slate-400">
                           Tax #: {c.taxNumber}
                         </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
+                      {c.domain ? (
+                        <span
+                          className="inline-flex max-w-[220px] items-center gap-1"
+                          title={c.domain}
+                        >
+                          <Globe2 size={12} className="shrink-0" />
+                          <span className="truncate">{c.domain}</span>
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-slate-600 dark:text-slate-300">
