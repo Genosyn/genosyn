@@ -198,15 +198,18 @@ function installPasswordRuntime(
   options: {
     documentRoot?: unknown;
     failDomEnableOnce?: boolean;
+    failInstallEvaluateOnce?: boolean;
     searchResultCount?: number;
   } = {},
 ): {
   domEnableCalls: () => number;
+  installEvaluationCalls: () => number;
   reportPassword: () => Promise<void>;
 } {
   let consoleListener: ((message: unknown) => void) | null = null;
   let taintSignal = "";
   let domEnableCalls = 0;
+  let installEvaluationCalls = 0;
   let searchCounter = 0;
   const cdp = {
     on() {
@@ -241,6 +244,10 @@ function installPasswordRuntime(
         const challenge = fn.match(/"challenge":"([^"]+)"/)?.[1];
         if (signal) taintSignal = signal;
         if (signal && challenge) {
+          installEvaluationCalls += 1;
+          if (options.failInstallEvaluateOnce && installEvaluationCalls === 1) {
+            throw new Error("execution context was destroyed by navigation");
+          }
           consoleListener?.({
             text: () => `${signal}:probe:${challenge}`,
             type: () => "debug",
@@ -281,6 +288,7 @@ function installPasswordRuntime(
   setPasswordObservationRuntimeForTests(() => ({ cdp, page }));
   return {
     domEnableCalls: () => domEnableCalls,
+    installEvaluationCalls: () => installEvaluationCalls,
     async reportPassword() {
       assert.ok(consoleListener, "sticky password console listener was installed");
       assert.ok(taintSignal, "sticky password signal was installed");
@@ -522,6 +530,20 @@ describe("Routine browser recordings", () => {
       true,
     );
     assert.equal(runtime.domEnableCalls(), 2);
+  });
+
+  test("retries the observer handshake when a popup navigates during adoption", async () => {
+    const { session } = await fixture();
+    const runtime = installPasswordRuntime(
+      () => ({ passwordPresent: false, passwordValues: [], activeInputValue: null }),
+      { failInstallEvaluateOnce: true },
+    );
+
+    assert.equal(
+      await observeRuntimePasswordValues(session.id, { failClosedIfUnavailable: true }),
+      true,
+    );
+    assert.equal(runtime.installEvaluationCalls(), 2);
   });
 
   test("budgets enough bytes for a maximum-length Routine recording", () => {

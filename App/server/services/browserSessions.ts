@@ -1748,24 +1748,7 @@ export async function observeRuntimePasswordValues(
         throw new Error("Browser init scripts are unavailable");
       }
       if (!page.on) throw new Error("Page console events are unavailable");
-      const currentUrl = page.url?.() ?? "about:blank";
-      const requireExisting = currentUrl !== "about:blank" && currentUrl !== "chrome://newtab/";
-
-      const installFrames = page.frames();
-      if (installFrames.length === 0) throw new Error("Page frames are unavailable");
       const pendingChallenges = new Map<string, () => void>();
-      let allChallengesReceived!: () => void;
-      const challengeBarrier = new Promise<void>((resolve) => {
-        allChallengesReceived = resolve;
-      });
-      const challenges = installFrames.map(() => crypto.randomBytes(16).toString("hex"));
-      for (const challenge of challenges) {
-        const response = `${passwordTaintSignal}:probe:${challenge}`;
-        pendingChallenges.set(response, () => {
-          pendingChallenges.delete(response);
-          if (pendingChallenges.size === 0) allChallengesReceived();
-        });
-      }
       page.on("console", (rawMessage) => {
         const message = rawMessage as { text?: () => string; type?: () => string };
         let text = "";
@@ -1805,43 +1788,81 @@ export async function observeRuntimePasswordValues(
           challenge: null,
         }),
       };
+      const contextWasPrearmed = Boolean(
+        context && passwordTaintInstalledContexts.has(context as object),
+      );
       if (context?.addInitScript) {
-        if (!passwordTaintInstalledContexts.has(context as object)) {
+        if (!contextWasPrearmed) {
           await context.addInitScript(initScript);
           passwordTaintInstalledContexts.add(context as object);
         }
       } else {
         await page.addInitScript!(initScript);
       }
-      const stickyAtInstall = await Promise.all(
-        installFrames.map((frame, index) =>
-          frame.evaluate<boolean>(
-            passwordTaintScript({
-              key: passwordTaintKey,
-              probeKey: passwordTaintProbeKey,
-              requireExisting,
-              signal: passwordTaintSignal,
-              challenge: challenges[index]!,
-            }),
-          ),
-        ),
-      );
-      let challengeTimer: ReturnType<typeof setTimeout> | null = null;
-      try {
-        if (!stickyAtInstall.some(Boolean)) {
-          await Promise.race([
-            challengeBarrier,
-            new Promise<never>((_resolve, reject) => {
-              challengeTimer = setTimeout(
-                () => reject(new Error("Password observer console handshake timed out")),
-                500,
-              );
-            }),
-          ]);
+      let stickyAtInstall: boolean[] | null = null;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const installFrames = page.frames();
+        if (installFrames.length === 0) throw new Error("Page frames are unavailable");
+        const currentUrl = page.url?.() ?? "about:blank";
+        const blankPage =
+          currentUrl === "" || currentUrl === "about:blank" || currentUrl === "chrome://newtab/";
+        // Only the first App-created blank page may install late. A popup or
+        // later tab in a pre-armed context must prove its observer ran at
+        // document start, even while its initial blank document is navigating.
+        const requireExisting = contextWasPrearmed || !blankPage;
+        const challenges = installFrames.map(() => crypto.randomBytes(16).toString("hex"));
+        const responses = challenges.map(
+          (challenge) => `${passwordTaintSignal}:probe:${challenge}`,
+        );
+        let allChallengesReceived!: () => void;
+        const challengeBarrier = new Promise<void>((resolve) => {
+          allChallengesReceived = resolve;
+        });
+        for (const response of responses) {
+          pendingChallenges.set(response, () => {
+            pendingChallenges.delete(response);
+            if (responses.every((candidate) => !pendingChallenges.has(candidate))) {
+              allChallengesReceived();
+            }
+          });
         }
-      } finally {
-        if (challengeTimer) clearTimeout(challengeTimer);
+        let challengeTimer: ReturnType<typeof setTimeout> | null = null;
+        try {
+          const result = await Promise.all(
+            installFrames.map((frame, index) =>
+              frame.evaluate<boolean>(
+                passwordTaintScript({
+                  key: passwordTaintKey,
+                  probeKey: passwordTaintProbeKey,
+                  requireExisting,
+                  signal: passwordTaintSignal,
+                  challenge: challenges[index]!,
+                }),
+              ),
+            ),
+          );
+          if (!result.some(Boolean)) {
+            await Promise.race([
+              challengeBarrier,
+              new Promise<never>((_resolve, reject) => {
+                challengeTimer = setTimeout(
+                  () => reject(new Error("Password observer console handshake timed out")),
+                  500,
+                );
+              }),
+            ]);
+          }
+          stickyAtInstall = result;
+          break;
+        } catch (error) {
+          if (attempt === 7) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        } finally {
+          if (challengeTimer) clearTimeout(challengeTimer);
+          for (const response of responses) pendingChallenges.delete(response);
+        }
       }
+      if (!stickyAtInstall) throw new Error("Password observer could not inspect the page");
       if (stickyAtInstall.some(Boolean)) await reportPasswordPresence(sessionId);
       passwordTaintInstalledPages.add(page as object);
     } catch {
@@ -1879,7 +1900,7 @@ export async function observeRuntimePasswordValues(
   }
   const observations = await Promise.all(
     frames.map(async (frame) => {
-      const attempts = opts?.discardIfUnavailable ? 1 : 4;
+      const attempts = opts?.discardIfUnavailable ? 1 : 8;
       for (let attempt = 0; attempt < attempts; attempt += 1) {
         try {
           const observation = await frame.evaluate((key) => {
@@ -1941,7 +1962,7 @@ export async function observeRuntimePasswordValues(
   const cdpTargets = await collectPasswordCdpTargets(page, mainCdp);
   if (!cdpTargets.complete) fullyObserved = false;
   for (const target of cdpTargets.targets) {
-    const attempts = opts?.discardIfUnavailable ? 1 : 4;
+    const attempts = opts?.discardIfUnavailable ? 1 : 8;
     let passwordPresent: boolean | null = null;
     let targetCdp = target.cdp;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
