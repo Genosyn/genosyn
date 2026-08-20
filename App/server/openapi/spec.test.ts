@@ -81,6 +81,26 @@ test("OpenAPI document exposes a versioned and authenticated scripting contract"
   ]);
 });
 
+test("Routine browser recordings document cookie-only metadata and range streaming", () => {
+  const document = buildOpenApiDocument();
+  const collection = operationAt(
+    document,
+    "/api/companies/{cid}/runs/{runId}/browser-recordings",
+    "get",
+  );
+  const file = operationAt(
+    document,
+    "/api/companies/{cid}/runs/{runId}/browser-recordings/{sessionId}",
+    "get",
+  );
+
+  assert.deepEqual(collection.security, [{ cookieAuth: [] }]);
+  assert.deepEqual(file.security, [{ cookieAuth: [] }]);
+  assert.ok(collection.responses?.["200"]);
+  assert.ok(file.responses?.["206"]);
+  assert.ok(file.responses?.["416"]);
+});
+
 test("every registered operation has tags, responses, and valid path parameters", () => {
   const document = buildOpenApiDocument();
   const registered = operations(document);

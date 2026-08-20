@@ -131,7 +131,10 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
             term: "run",
             def: "Holds the connection open and launches Chrome on the first request. Ctrl-C stops both.",
           },
-          { term: "status", def: "Prints what it is paired to, and where the profile and log live." },
+          {
+            term: "status",
+            def: "Prints what it is paired to, and where the profile and log live.",
+          },
           {
             term: "logout",
             def: "Deletes the local token. Disconnect the browser in Genosyn too — that is what burns it server-side.",
@@ -141,36 +144,37 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       <P>
         The bridge has no dependencies to install, keeps everything under <Code>~/.genosyn/</Code> (
         the Chrome profile, the token, a log), and refuses to talk to a Genosyn served over plain{" "}
-        <Code>http</Code> unless it is on the same machine — a bearer token that opens a channel into
-        a browser has no business crossing a network in the clear.
+        <Code>http</Code> unless it is on the same machine — a bearer token that opens a channel
+        into a browser has no business crossing a network in the clear.
       </P>
 
       <H2 id="allow-list">The allow list is mandatory</H2>
       <P>
         Every member browser carries its own list of hosts it may open, in the same syntax as the
-        employee allow list: one host pattern per line, <Code>*.notion.so</Code> for a domain and its
-        subdomains, <Code>#</Code> for a comment. The difference is what an empty list means.
+        employee allow list: one host pattern per line, <Code>*.notion.so</Code> for a domain and
+        its subdomains, <Code>#</Code> for a comment. The difference is what an empty list means.
       </P>
       <Callout kind="warn" title="Empty means nothing, not everything">
-        On the <DocLink to="/docs/browser">Browser</DocLink> page, an empty employee allow list means
-        unrestricted. Here it means the browser opens <Strong>nothing</Strong> and every navigation
-        is refused with an explanation. That default is defensible for a throwaway container browser
-        and indefensible for one sitting on your laptop holding your signed-in sessions.
+        On the <DocLink to="/docs/browser">Browser</DocLink> page, an empty employee allow list
+        means unrestricted. Here it means the browser opens <Strong>nothing</Strong> and every
+        navigation is refused with an explanation. That default is defensible for a throwaway
+        container browser and indefensible for one sitting on your laptop holding your signed-in
+        sessions.
       </Callout>
       <P>
         The two lists are checked independently and a URL must pass <Strong>both</Strong>, so
         granting an employee your browser can only ever narrow where it may go, never widen it. The
         list is also pushed down to the bridge and re-checked there, on your machine, before the
-        navigation reaches Chrome — along with a refusal of anything that is not <Code>http</Code> or{" "}
-        <Code>https</Code>, and of Genosyn&apos;s own origin. Edits apply immediately.
+        navigation reaches Chrome — along with a refusal of anything that is not <Code>http</Code>{" "}
+        or <Code>https</Code>, and of Genosyn&apos;s own origin. Edits apply immediately.
       </P>
       <P>
         The bridge additionally refuses a set of DevTools commands that the <Code>browser_*</Code>{" "}
         tools never need and that would each take something from a personal machine: writing
-        downloads to your disk, reading or replacing the profile&apos;s whole cookie jar, turning off
-        certificate checks, or closing the browser out from under you. It is defence in depth rather
-        than the main boundary — the dedicated profile is that — but the refusal happens on your
-        computer, where a compromised server cannot argue with it.
+        downloads to your disk, reading or replacing the profile&apos;s whole cookie jar, turning
+        off certificate checks, or closing the browser out from under you. It is defence in depth
+        rather than the main boundary — the dedicated profile is that — but the refusal happens on
+        your computer, where a compromised server cannot argue with it.
       </P>
 
       <H2 id="using-it">Using it in a chat</H2>
@@ -183,10 +187,10 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       <P>
         Then, in the chat header, the browser picker switches the conversation between{" "}
         <Strong>Genosyn&apos;s browser</Strong> and any of your own. The choice sticks to that
-        conversation rather than to the next message, and switching mid-thread starts a fresh browser
-        session rather than carrying the old one over. There is deliberately no tool for this: which
-        signed-in browser to drive is a delegation of authority, not a step an employee can take for
-        itself.
+        conversation rather than to the next message, and switching mid-thread starts a fresh
+        browser session rather than carrying the old one over. There is deliberately no tool for
+        this: which signed-in browser to drive is a delegation of authority, not a step an employee
+        can take for itself.
       </P>
       <P>
         Only one session drives a browser at a time. A second one is told the browser is busy and is
@@ -213,14 +217,25 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
         on, the grant is still re-checked when the Run starts and on every single browser action, so
         removing a grant stops a Run that is already in flight, not merely the next one.
       </P>
+      <Callout kind="warn" title="Unattended browser use is recorded">
+        When a scheduled Run actually opens this browser, Genosyn automatically stores a silent
+        visual MP4 on the server with that Run&apos;s logs. A Run that never uses the browser
+        creates no recording, and parallel delegated browser sessions create separate recordings.
+        Only this browser&apos;s exact owner can play or download them. If a session observes a
+        password field, Genosyn withholds its entire recording instead of keeping a playable copy.
+        Turning on <Strong>Let scheduled Routines use this browser</Strong> is also consent to that
+        recording behavior. After upgrading from a release that predates browser recordings, an
+        existing unattended-use choice appears off once; review this notice and turn it on again to
+        confirm.
+      </Callout>
 
       <H2 id="approvals">Approvals default on</H2>
       <P>
         <Strong>Ask me before submitting a form</Strong> is on when you connect a browser. The pages
         reachable here are ones a human deliberately signed into, so a submit is worth a look. It
         works exactly like the employee-level setting described under{" "}
-        <DocLink to="/docs/browser">Browser</DocLink>: <Code>browser_submit</Code> queues an Approval
-        with the page URL and a one-line summary, and the employee re-fires it with{" "}
+        <DocLink to="/docs/browser">Browser</DocLink>: <Code>browser_submit</Code> queues an
+        Approval with the page URL and a one-line summary, and the employee re-fires it with{" "}
         <Code>browser_resume</Code> once a company owner or admin approves. The approval is bound to
         the page it was raised on and fires exactly once.
       </P>
@@ -244,6 +259,12 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
         window directly.
       </P>
       <P>
+        That owner-only boundary also covers saved Routine recordings. Company owners and admins
+        cannot play a colleague&apos;s Member-browser recording unless they are the browser&apos;s
+        exact owner. Recordings contain the visible viewport but no audio, stay with the Run logs,
+        and are deleted with the owning Routine or company.
+      </P>
+      <P>
         The address bar that take-over unlocks is bounded by both allow lists, this browser&apos;s
         and the employee&apos;s, exactly as <Code>browser_open</Code> is. Holding control does not
         let the session reach a host you left off your own list.
@@ -252,14 +273,14 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       <H2 id="offline">When the laptop sleeps</H2>
       <P>
         A closed lid leaves a connection that looks alive for minutes, so the bridge and the App
-        exchange heartbeats and Genosyn gives up on a silent bridge after about seventy seconds. What
-        happens next depends on the timing:
+        exchange heartbeats and Genosyn gives up on a silent bridge after about seventy seconds.
+        What happens next depends on the timing:
       </P>
       <UL>
         <LI>
-          <Strong>Between actions.</Strong> The employee is told the browser is offline, that nothing
-          ran and nothing changed, and that it must not retry or switch browsers — only ask you to
-          start the bridge, or whether to use Genosyn&apos;s own browser instead.
+          <Strong>Between actions.</Strong> The employee is told the browser is offline, that
+          nothing ran and nothing changed, and that it must not retry or switch browsers — only ask
+          you to start the bridge, or whether to use Genosyn&apos;s own browser instead.
         </LI>
         <LI>
           <Strong>Mid-action.</Strong> The last action is reported as unverified: it may or may not
@@ -273,8 +294,8 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       </UL>
       <P>
         When the machine wakes, the bridge reconnects by itself and the browser comes back online
-        within a few seconds. Idle sessions on a member browser are held far longer than local ones —
-        thirty minutes rather than five — because a human stepping away from their own laptop is
+        within a few seconds. Idle sessions on a member browser are held far longer than local ones
+        — thirty minutes rather than five — because a human stepping away from their own laptop is
         normal, and closing their window because of it would not be.
       </P>
 
@@ -295,7 +316,8 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       </Callout>
       <P>
         If a credential genuinely should be company property, add it in the Vault yourself, or let
-        the employee generate one with <Code>create_vault_login</Code> in Genosyn&apos;s own browser.
+        the employee generate one with <Code>create_vault_login</Code> in Genosyn&apos;s own
+        browser.
       </P>
 
       <H2 id="revoking">Disconnecting</H2>
@@ -317,8 +339,8 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       <Callout title="Related">
         <DocLink to="/docs/browser">Browser</DocLink> covers the tools, snapshots, approvals, and
         Vault autofill in full — everything on that page applies here unless this page says
-        otherwise. <DocLink to="/docs/self-hosting">Configuration</DocLink> covers the instance-level
-        switch.
+        otherwise. <DocLink to="/docs/self-hosting">Configuration</DocLink> covers the
+        instance-level switch.
       </Callout>
     </>
   );

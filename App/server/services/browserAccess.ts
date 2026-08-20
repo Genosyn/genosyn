@@ -25,7 +25,7 @@ export async function browserAccessEnabledForSession(
   }
   if (!session.runId) return employee.browserEnabled;
   const run = await AppDataSource.getRepository(Run).findOneBy({ id: session.runId });
-  if (!run) return false;
+  if (!run || run.status !== "running") return false;
   const routine = await AppDataSource.getRepository(Routine).findOneBy({
     id: run.routineId,
     employeeId: employee.id,

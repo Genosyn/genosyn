@@ -42,10 +42,12 @@ import { useToast } from "../components/ui/Toast";
 import { copyToClipboard } from "../lib/clipboard";
 import {
   RunLiveModal,
+  RunBrowserRecordingsPane,
   RunLogPane,
   RunStatusChip,
   formatDuration,
   overdueFor,
+  runLogNeedsPolling,
   timeAgo,
   timeUntil,
 } from "../components/routines/RunViews";
@@ -621,6 +623,7 @@ function RunsTab({
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [log, setLog] = React.useState<RunLog | null>(null);
   const [loadingLog, setLoadingLog] = React.useState(false);
+  const [logLoadError, setLogLoadError] = React.useState(false);
   const { toast } = useToast();
 
   const loadRuns = React.useCallback(async () => {
@@ -651,23 +654,46 @@ function RunsTab({
   React.useEffect(() => {
     if (!activeId) {
       setLog(null);
+      setLogLoadError(false);
       return;
     }
     setLoadingLog(true);
     setLog(null);
+    setLogLoadError(false);
     let cancelled = false;
-    (async () => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveErrors = 0;
+    let errorToastShown = false;
+    async function loadLog() {
       try {
         const l = await api.get<RunLog>(`/api/companies/${company.id}/runs/${activeId}/log`);
-        if (!cancelled) setLog(l);
+        if (cancelled) return;
+        consecutiveErrors = 0;
+        errorToastShown = false;
+        setLog(l);
+        setLogLoadError(false);
+        if (runLogNeedsPolling(l)) timer = setTimeout(loadLog, 1200);
       } catch (err) {
-        if (!cancelled) toast((err as Error).message, "error");
+        if (cancelled) return;
+        consecutiveErrors += 1;
+        setLogLoadError(true);
+        if (!errorToastShown) {
+          toast(`${(err as Error).message} Retrying…`, "error");
+          errorToastShown = true;
+        }
+        const retryDelay = Math.min(
+          10_000,
+          2500 * 2 ** Math.min(consecutiveErrors - 1, 2),
+        );
+        timer = setTimeout(loadLog, retryDelay);
       } finally {
         if (!cancelled) setLoadingLog(false);
       }
-    })();
+    }
+    void loadLog();
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company.id, activeId]);
@@ -763,12 +789,27 @@ function RunsTab({
             ))}
           </ul>
         </aside>
-        <RunLogPane
-          log={log}
-          loading={loadingLog}
-          placeholder="(empty log)"
-          className="h-full max-h-[60vh] min-h-[400px]"
-        />
+        <div
+          className={
+            "grid min-w-0 flex-1 gap-3 " +
+            ((log?.browserRecordings?.length ?? 0) > 0 ? "xl:grid-cols-2" : "")
+          }
+        >
+          <RunLogPane
+            log={log}
+            loading={loadingLog}
+            placeholder={logLoadError ? "Couldn’t load the log. Retrying…" : "(empty log)"}
+            className="h-full max-h-[60vh] min-h-[400px]"
+          />
+          {(log?.browserRecordings?.length ?? 0) > 0 && activeId && (
+            <RunBrowserRecordingsPane
+              companyId={company.id}
+              runId={activeId}
+              recordings={log?.browserRecordings ?? []}
+              className="min-h-[400px] max-h-[60vh]"
+            />
+          )}
+        </div>
       </div>
       <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
         <div className="text-xs text-slate-500 dark:text-slate-400">
@@ -859,9 +900,10 @@ function SettingsTab({
     if (!emp) return;
     api
       .get<MemberBrowser[]>(`/api/companies/${company.id}/member-browsers/for-employee/${emp.id}`)
-      // Only browsers whose owner opted into unattended use can be scheduled;
-      // offering the rest would be offering a run that is designed to fail.
-      .then((list) => setMemberBrowsers(list.filter((b) => b.allowUnattended)))
+      // Keep unavailable browsers in the picker so a legacy Routine does not
+      // render as if it silently switched back to Genosyn's browser. They stay
+      // disabled until their owner re-confirms unattended recording consent.
+      .then(setMemberBrowsers)
       .catch(() => setMemberBrowsers([]));
   }, [company.id, emp]);
 
@@ -1058,15 +1100,42 @@ function SettingsTab({
               >
                 <option value="">Genosyn&apos;s browser</option>
                 {memberBrowsers.map((browser) => (
-                  <option key={browser.id} value={browser.id}>
+                  <option key={browser.id} value={browser.id} disabled={!browser.allowUnattended}>
                     {browser.name}
+                    {browser.routineRecordingConsentRequired
+                      ? " (needs re-confirmation)"
+                      : !browser.allowUnattended
+                        ? " (unavailable for Routines)"
+                        : ""}
                   </option>
                 ))}
               </Select>
+              {memberBrowserId &&
+                memberBrowsers.some(
+                  (browser) =>
+                    browser.id === memberBrowserId && browser.routineRecordingConsentRequired,
+                ) && (
+                  <div className="text-xs text-amber-700 dark:text-amber-300">
+                    Its owner needs to turn scheduled Routine use on again under the new recording
+                    notice in Settings → Browsers.
+                  </div>
+                )}
+              {memberBrowserId &&
+                memberBrowsers.some(
+                  (browser) =>
+                    browser.id === memberBrowserId &&
+                    !browser.allowUnattended &&
+                    !browser.routineRecordingConsentRequired,
+                ) && (
+                  <div className="text-xs text-amber-700 dark:text-amber-300">
+                    This browser is not available to scheduled Routines. Its owner can enable it in
+                    Settings → Browsers.
+                  </div>
+                )}
               <div className="text-xs text-slate-500 dark:text-slate-400">
-                A routine fires on a schedule with nobody watching. If you point it at a browser
-                on your own computer and that computer is asleep when the routine runs, the run
-                fails rather than quietly using a different browser.
+                A routine fires on a schedule with nobody watching. If you point it at a browser on
+                your own computer and that computer is asleep when the routine runs, the run fails
+                rather than quietly using a different browser.
               </div>
             </div>
           )}
@@ -1227,7 +1296,8 @@ function SettingsTab({
               Delete this routine
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              The schedule and its brief go away. Past run logs are deleted with it.
+              The schedule and its brief go away. Past Run logs and browser recordings are deleted
+              with it.
             </div>
           </div>
           <Button
@@ -1236,7 +1306,7 @@ function SettingsTab({
               const ok = await dialog.confirm({
                 title: `Delete routine "${routine.name}"?`,
                 message:
-                  "The schedule and its brief will be removed, along with this routine's run history.",
+                  "The schedule and its brief will be removed, along with this routine's Run logs and browser recordings.",
                 confirmLabel: "Delete routine",
                 variant: "danger",
               });

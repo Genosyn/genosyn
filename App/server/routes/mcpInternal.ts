@@ -16,6 +16,10 @@ import { Company } from "../db/entities/Company.js";
 import { User } from "../db/entities/User.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
+import {
+  deleteBrowserRecordingsForRunIds,
+  markBrowserRecordingRoutineDeleting,
+} from "../services/browserRecordings.js";
 import { Skill } from "../db/entities/Skill.js";
 import { Project } from "../db/entities/Project.js";
 import { Todo, TodoPriority, TodoRecurrence, TodoStatus } from "../db/entities/Todo.js";
@@ -8118,8 +8122,14 @@ mcpInternalRouter.post(
     const found = await resolveRoutine(co, self, body.routineId, body.employeeSlug);
     if (!found.ok) return res.status(found.status).json({ error: found.error });
     const { routine, owner } = found;
+    markBrowserRecordingRoutineDeleting(routine.id);
 
+    const runs = await AppDataSource.getRepository(Run).find({
+      where: { routineId: routine.id },
+      select: { id: true },
+    });
     await AppDataSource.getRepository(Approval).delete({ routineId: routine.id });
+    await deleteBrowserRecordingsForRunIds(runs.map((run) => run.id));
     await AppDataSource.getRepository(Run).delete({ routineId: routine.id });
     await repo.delete({ id: routine.id });
 

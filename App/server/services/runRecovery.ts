@@ -1,5 +1,6 @@
 import { Between, In, LessThanOrEqual, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
+import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { Run } from "../db/entities/Run.js";
 import { Routine } from "../db/entities/Routine.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
@@ -11,6 +12,11 @@ import {
   shouldRetry,
 } from "./cronMath.js";
 import { config } from "../../config.js";
+import {
+  recoverBrowserRecordingsForRun,
+  releaseBrowserRecordingRunFinalizing,
+} from "./browserRecordings.js";
+import { finalizeBrowserRecordingsForRun } from "./browserSessions.js";
 
 /**
  * Crash recovery for Runs.
@@ -187,6 +193,19 @@ export async function reconcileOrphanedRuns(opts?: {
         });
         run.retryAt = new Date(now.getTime() + retryDelayMs);
       }
+      // Use the same terminal boundary as a normally completed Run. This
+      // claims the Run recording tombstone synchronously, drains browser RPC
+      // and live-view mutations that were already authorized, freezes frame
+      // intake, performs the final privacy scan, and closes the runtime. On a
+      // fresh process there is no runtime to drain; the post-CAS recovery
+      // below then fails any unverified `recording` partial closed.
+      await finalizeBrowserRecordingsForRun(run.id).catch((error) => {
+        // Recording finalization is auxiliary to making the orphaned Run
+        // durable. Keep the tombstone through the CAS so no late browser
+        // activity can reopen capture while the Run is still `running`.
+        // eslint-disable-next-line no-console
+        console.error(`[recovery] failed to finalize browser recordings for run ${run.id}:`, error);
+      });
       // One conditional write so a second crash cannot land the terminal
       // status without its retry, and a live sibling that finalized first can
       // never be overwritten back to `interrupted`.
@@ -201,7 +220,17 @@ export async function reconcileOrphanedRuns(opts?: {
           retryAt: run.retryAt,
         },
       );
-      if (recovered.affected !== 1) continue;
+      if (recovered.affected !== 1) {
+        releaseBrowserRecordingRunFinalizing(run.id);
+        continue;
+      }
+      await recoverBrowserRecordingsForRun(run.id).catch((error) => {
+        // Fragmented MP4 partials are auxiliary. Keep recovering later Runs
+        // even if one recording cannot be promoted after a crash.
+        // eslint-disable-next-line no-console
+        console.error(`[recovery] failed to recover browser recordings for run ${run.id}:`, error);
+      });
+      releaseBrowserRecordingRunFinalizing(run.id);
       if (retryDelayMs !== null) result.retriesScheduled += 1;
       result.interrupted += 1;
 
@@ -214,6 +243,28 @@ export async function reconcileOrphanedRuns(opts?: {
         });
       }
     }
+  }
+
+  if (opts?.boot === true) {
+    // A process can die after the Run's terminal compare-and-set but before
+    // its fragmented recording is promoted. Those Runs are no longer in the
+    // `running` query above, so retry their artifact recovery idempotently on
+    // every boot rather than leaving the UI on `recording`/`finalizing`.
+    const rows = await AppDataSource.getRepository(BrowserSession)
+      .createQueryBuilder("session")
+      .select("DISTINCT session.runId", "runId")
+      .innerJoin(Run, "run", "run.id = session.runId")
+      .where("run.status = :status", { status: "interrupted" })
+      .andWhere("session.runId IS NOT NULL")
+      .getRawMany<{ runId: string }>();
+    await Promise.all(
+      rows.map(({ runId }) =>
+        recoverBrowserRecordingsForRun(runId).catch((error) => {
+          // eslint-disable-next-line no-console
+          console.error(`[recovery] failed to recover browser recordings for run ${runId}:`, error);
+        }),
+      ),
+    );
   }
 
   result.leasesCleared = await clearLeases(singleProcessBoot, now);

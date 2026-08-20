@@ -263,6 +263,48 @@ describe("pairing codes over the wire", () => {
   });
 });
 
+describe("Routine recording consent", () => {
+  test("legacy unattended use is off until the owner explicitly re-consents", async () => {
+    const created = await createBrowser(owner);
+    await AppDataSource.getRepository(MemberBrowser).update(
+      { id: created.id },
+      { allowUnattended: true, routineRecordingConsentAt: null },
+    );
+
+    const legacy = (await call("GET", "/", { as: owner })).body as unknown as Array<{
+      allowUnattended: boolean;
+      routineRecordingConsentAt: string | null;
+      routineRecordingConsentRequired: boolean;
+    }>;
+    assert.equal(legacy[0]?.allowUnattended, false);
+    assert.equal(legacy[0]?.routineRecordingConsentAt, null);
+    assert.equal(legacy[0]?.routineRecordingConsentRequired, true);
+
+    const consented = await call("PATCH", `/${created.id}`, {
+      as: owner,
+      body: { allowUnattended: true },
+    });
+    assert.equal(consented.status, 200);
+    assert.equal(consented.body.allowUnattended, true);
+    assert.equal(typeof consented.body.routineRecordingConsentAt, "string");
+    assert.equal(consented.body.routineRecordingConsentRequired, false);
+    assert.ok(
+      (await AppDataSource.getRepository(MemberBrowser).findOneByOrFail({ id: created.id }))
+        .routineRecordingConsentAt,
+    );
+
+    await call("PATCH", `/${created.id}`, {
+      as: owner,
+      body: { allowUnattended: false },
+    });
+    const disabled = await AppDataSource.getRepository(MemberBrowser).findOneByOrFail({
+      id: created.id,
+    });
+    assert.equal(disabled.allowUnattended, false);
+    assert.equal(disabled.routineRecordingConsentAt, null);
+  });
+});
+
 describe("choosing a browser for a conversation", () => {
   test("a thread belonging to another Member cannot be pointed at any browser", async () => {
     const mine = await createBrowser(owner);

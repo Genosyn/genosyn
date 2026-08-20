@@ -140,6 +140,30 @@ describe("live policy behind a bound session", () => {
 
     assert.equal(await browserAccessEnabledForSession(session, emp), false);
   });
+
+  test("a legacy unattended opt-in without recording consent is denied", async () => {
+    const emp = await employee();
+    const browser = await memberBrowser({ allowUnattended: true });
+    await AppDataSource.getRepository(MemberBrowser).update(
+      { id: browser.id },
+      { routineRecordingConsentAt: null },
+    );
+    await grantMemberBrowser({ companyId, employeeId: emp.id, memberBrowserId: browser.id });
+    const routine = await insert(Routine, {
+      employeeId: emp.id,
+      name: "Legacy nightly",
+      slug: `legacy-nightly-${randomUUID()}`,
+      cronExpr: "0 3 * * *",
+    });
+    const run = await insert(Run, {
+      routineId: routine.id,
+      startedAt: new Date(),
+      status: "running",
+    });
+    const session = await boundSession(emp, browser.id, run.id);
+
+    assert.equal(await browserAccessEnabledForSession(session, emp), false);
+  });
 });
 
 describe("reusing a conversation's browser session", () => {

@@ -14,6 +14,7 @@ import { hashToken } from "../lib/token.js";
 import { vaultUrlAllowedForEmployee } from "../routes/browserRpc.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
 import { registerBridgeSocket, resetMemberBrowserHubForTests } from "./memberBrowserHub.js";
+import { loadBrowserConfig } from "./agent/tools/mcpSources.js";
 import {
   createMemberBrowser,
   employeeHasMemberBrowserGrant,
@@ -306,10 +307,7 @@ describe("resolving which browser a spawn drives", () => {
       null,
     );
 
-    await AppDataSource.getRepository(MemberBrowser).update(
-      { id: mine.id },
-      { allowUnattended: true },
-    );
+    await updateMemberBrowser(mine.id, { allowUnattended: true });
     const resolved = await resolveMemberBrowserForSpawn({
       employeeId: emp.id,
       companyId,
@@ -417,6 +415,31 @@ describe("live re-check for a bound session", () => {
     const verdict = await memberBrowserUsableForSession(session, emp);
     assert.equal(verdict.ok, false);
     assert.match(verdict.ok ? "" : verdict.reason, /scheduled Routines/i);
+  });
+});
+
+describe("Routine recording consent", () => {
+  test("never falls back to the App browser when a selected legacy browser lacks consent", async () => {
+    const emp = await employee();
+    const mine = await browser({ ownerUserId: "user_1", allowUnattended: true });
+    await AppDataSource.getRepository(MemberBrowser).update(
+      { id: mine.id },
+      { routineRecordingConsentAt: null },
+    );
+    await grantMemberBrowser({ companyId, employeeId: emp.id, memberBrowserId: mine.id });
+    const routine = await insert(Routine, {
+      employeeId: emp.id,
+      name: "Legacy nightly",
+      slug: `legacy-nightly-${randomUUID()}`,
+      cronExpr: "0 3 * * *",
+      memberBrowserId: mine.id,
+    });
+
+    await assert.rejects(
+      loadBrowserConfig(emp.id, { routineId: routine.id, runId: randomUUID() }),
+      /re-enable unattended use.*consent to Routine recording/i,
+    );
+    assert.equal(await AppDataSource.getRepository(BrowserSession).countBy({}), 0);
   });
 });
 

@@ -8,7 +8,9 @@ import type { VaultItemType } from "../db/entities/VaultItem.js";
 import { validateBody } from "../middleware/validate.js";
 import {
   resolveBrowserSessionToken,
+  beginBrowserRpcActivity,
   markSessionLive,
+  observeRuntimePasswordValues,
   registerBrowserSessionCleanup,
   registerBrowserSensitiveValueListener,
 } from "../services/browserSessions.js";
@@ -41,6 +43,7 @@ import {
 } from "../services/browserAccess.js";
 import { memberBrowserUrlAllowed } from "../services/memberBrowsers.js";
 import { parseAllowList, urlAllowed } from "../services/browserHostPolicy.js";
+import { restrictBrowserRecording } from "../services/browserRecordings.js";
 
 /**
  * Internal HTTP surface called by the stripped-down `browser` MCP child.
@@ -76,6 +79,8 @@ type BrowserRpcReq = Request<{ id: string }> & {
   memberBrowser?: MemberBrowser | null;
   /** Employee policy OR browser policy — resolved once, in the middleware. */
   approvalRequired?: boolean;
+  /** Lease proving this handler crossed the Run-finalization boundary first. */
+  browserRpcAllowsFinalizingRun?: boolean;
 };
 
 const SNAPSHOT_MAX_LINES = 400;
@@ -134,11 +139,33 @@ async function requireBrowserSession(req: BrowserRpcReq, res: Response, next: Ne
   const memberBrowser = row.memberBrowserId
     ? await AppDataSource.getRepository(MemberBrowser).findOneBy({ id: row.memberBrowserId })
     : null;
+  const releaseActivity = beginBrowserRpcActivity(row);
+  if (!releaseActivity) {
+    return res.status(409).json({ error: "This browser session is finalizing" });
+  }
+  let activityReleased = false;
+  const releaseOnce = () => {
+    if (activityReleased) return;
+    activityReleased = true;
+    releaseActivity();
+  };
+  const originalEnd = res.end;
+  res.end = function (this: Response, ...args: unknown[]) {
+    releaseOnce();
+    return Reflect.apply(originalEnd, this, args);
+  } as typeof res.end;
+  res.once("finish", releaseOnce);
   req.browserSession = row;
   req.browserEmployee = emp;
   req.memberBrowser = memberBrowser;
   req.approvalRequired = browserApprovalRequiredForSession(emp, memberBrowser);
-  next();
+  req.browserRpcAllowsFinalizingRun = true;
+  try {
+    next();
+  } catch (error) {
+    releaseOnce();
+    throw error;
+  }
 }
 
 browserRpcRouter.use(requireBrowserSession);
@@ -576,25 +603,29 @@ export function vaultFillTargetIsAllowed(
   return itemType === "login" && inputType?.toLowerCase() === "password";
 }
 
-function rememberVaultSensitiveValue(sessionId: string, value: string): void {
-  if (!value) return;
+async function rememberVaultSensitiveValue(sessionId: string, value: string): Promise<void> {
   vaultTaintedSessions.add(sessionId);
-  let values = vaultSensitiveValuesBySession.get(sessionId);
-  if (!values) {
-    values = new Map<string, number>();
-    vaultSensitiveValuesBySession.set(sessionId, values);
+  if (value) {
+    let values = vaultSensitiveValuesBySession.get(sessionId);
+    if (!values) {
+      values = new Map<string, number>();
+      vaultSensitiveValuesBySession.set(sessionId, values);
+    }
+    if (values.size >= MAX_TRACKED_VAULT_VALUES_PER_SESSION && !values.has(value)) {
+      // Never evict a known password: the page may reflect it later as generic
+      // text. Stop remembering new values and make all subsequent model-visible
+      // page/error output fail closed for this BrowserSession.
+      vaultSensitiveOverflowSessions.add(sessionId);
+    } else {
+      // Keep the bounded value set for the whole BrowserSession. Password reveal
+      // controls can change an input to type=text long after the original fill;
+      // expiring the scrub value would then disclose it in a later snapshot.
+      values.set(value, Date.now());
+    }
   }
-  if (values.size >= MAX_TRACKED_VAULT_VALUES_PER_SESSION && !values.has(value)) {
-    // Never evict a known password: the page may reflect it later as generic
-    // text. Stop remembering new values and make all subsequent model-visible
-    // page/error output fail closed for this BrowserSession.
-    vaultSensitiveOverflowSessions.add(sessionId);
-    return;
-  }
-  // Keep the bounded value set for the whole BrowserSession. Password reveal
-  // controls can change an input to type=text long after the original fill;
-  // expiring the scrub value would then disclose it in a later snapshot.
-  values.set(value, Date.now());
+  // Recording is all-or-nothing. This await completes before a sensitive
+  // action, but encoder/filesystem failure remains auxiliary to browser work.
+  await restrictBrowserRecording(sessionId).catch(() => undefined);
 }
 
 export function clearVaultSensitiveValuesForSession(sessionId: string): void {
@@ -608,14 +639,15 @@ export function observeBrowserSensitiveValue(
   sessionId: string,
   value: string,
   kind: "password-present" | "password-value" | "active-input-value",
-): void {
+): Promise<void> {
   if (kind === "password-present") {
     vaultTaintedSessions.add(sessionId);
-    return;
+    return restrictBrowserRecording(sessionId).catch(() => undefined);
   }
   if (kind === "password-value" || vaultTaintedSessions.has(sessionId)) {
-    rememberVaultSensitiveValue(sessionId, value);
+    return rememberVaultSensitiveValue(sessionId, value);
   }
+  return Promise.resolve();
 }
 
 registerBrowserSensitiveValueListener(observeBrowserSensitiveValue);
@@ -743,7 +775,7 @@ export async function redactPasswordInputsFromSnapshot(
           return;
         }
         const value = await handle.inputValue().catch(() => "");
-        rememberVaultSensitiveValue(sessionId, value);
+        await rememberVaultSensitiveValue(sessionId, value);
         states.set(ref, "redact");
       } catch {
         states.set(ref, "redact");
@@ -969,8 +1001,12 @@ export async function rememberCurrentPasswordValues(page: Page, sessionId: strin
     ),
   );
   for (const observation of observations) {
-    if (observation.present) vaultTaintedSessions.add(sessionId);
-    for (const value of observation.values) rememberVaultSensitiveValue(sessionId, value);
+    if (observation.present) {
+      await observeBrowserSensitiveValue(sessionId, "", "password-present");
+    }
+    for (const value of observation.values) {
+      await rememberVaultSensitiveValue(sessionId, value);
+    }
   }
 }
 
@@ -981,8 +1017,15 @@ async function bumpAndAcquire(req: BrowserRpcReq): Promise<Page> {
   // Observe password fields before any model action can click a reveal
   // control or otherwise mutate their type/value. Values stay scrubbed for
   // the lifetime of this BrowserSession.
-  await rememberCurrentPasswordValues(page, session.id);
-  await markSessionLive(session.id);
+  await observeRuntimePasswordValues(session.id, {
+    failClosedIfUnavailable: true,
+  });
+  // Start and await the cast after the fail-closed password scan but still
+  // before the first browser action. A sensitive page leaves a persisted
+  // restriction marker, so beginBrowserRecording refuses to start.
+  await markSessionLive(session.id, {
+    allowFinalizingRun: req.browserRpcAllowsFinalizingRun === true,
+  });
   return page;
 }
 
@@ -1315,7 +1358,7 @@ browserRpcRouter.post(
       }
       const value = resolved.payload[body.field];
       if (!value) throw new VaultError(`This Vault login has no ${body.field} saved`, 400);
-      if (body.field === "secret") rememberVaultSensitiveValue(session.id, value);
+      if (body.field === "secret") await rememberVaultSensitiveValue(session.id, value);
       await targetHandle.fill(value, { timeout: ACTION_TIMEOUT_MS });
       await recordAudit({
         companyId: session.companyId,
@@ -1430,7 +1473,7 @@ browserRpcRouter.post(
       const secret = target.sensitiveValue ?? "";
       if (!secret) throw new VaultError("The selected password field is empty", 400);
       if (secret.length > 10_000) throw new VaultError("The selected password is too long", 400);
-      rememberVaultSensitiveValue(session.id, secret);
+      await rememberVaultSensitiveValue(session.id, secret);
       actionAttempted = true;
       const item = await createVaultLoginForEmployee({
         companyId: session.companyId,

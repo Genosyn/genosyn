@@ -22,8 +22,9 @@ export function Routines() {
         lead={
           <>
             A <Strong>Routine</Strong> is a scheduled, recurring piece of AI work. Cron expression,
-            markdown brief, on/off switch. Every execution becomes a <Strong>Run</Strong> with
-            captured logs you can read line by line.
+            markdown brief, on/off switch. Every execution becomes a <Strong>Run</Strong> with a
+            captured log — and, when it uses a browser, a visual recording you can review beside
+            that log.
           </>
         }
       />
@@ -184,9 +185,9 @@ Post it to the #morning channel.`}</Pre>
         Starting a Routine does not make its AI employee unavailable. You can keep chatting with
         that employee and start other independent Routines while the first Run continues. Genosyn
         places no per-company ceiling on overlapping top-level AI work. A second chat reply for the
-        same AI Employee waits for the first reply, but Routine work never blocks the composer.
-        Your deployment operator and AI Model provider still determine real capacity, cost, and
-        rate limits.
+        same AI Employee waits for the first reply, but Routine work never blocks the composer. Your
+        deployment operator and AI Model provider still determine real capacity, cost, and rate
+        limits.
       </P>
       <Callout kind="warn" title="Parallel work shares the employee workspace.">
         Reads are safe. For writes, use distinct output files and avoid simultaneous git operations
@@ -327,8 +328,24 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         A routine&apos;s full run history lives on its <Strong>Runs</Strong> tab — every Run,
-        scheduled or manual, with the log viewer.
+        scheduled or manual, with the log viewer. If a Run actually opens a browser, Genosyn also
+        captures a silent visual recording automatically, from that browser session&apos;s first
+        activity until it finishes. Enabling Browser access alone creates no video, and browser
+        recordings contain no audio.
       </P>
+      <P>
+        The recording player sits beside the Run log, with a download for each finished MP4. A Run
+        may have more than one when it delegates independent browser work; use the numbered Browser
+        buttons above the player to switch between them. While a Run is active, the player says that
+        capture is in progress, then updates when the file is ready.
+      </P>
+      <Callout kind="warn" title="Recordings follow the Browser access boundary">
+        A recording made in Genosyn&apos;s browser is available only to company owners and admins. A
+        recording made in a <DocLink to="/docs/member-browsers">Member browser</DocLink> is
+        available only to that browser&apos;s exact owner, regardless of company role. If a browser
+        session observes a password field, Genosyn withholds the entire recording rather than
+        keeping a playable copy that could expose sensitive input.
+      </Callout>
       <UL>
         <LI>
           <Strong>Status</Strong> starts at <Code>running</Code> and ends at one of{" "}
@@ -349,6 +366,11 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           immediately, outside the schedule, and opens the live log for the new Run.
         </LI>
       </UL>
+      <P>
+        Recordings stay with the Run history. Deleting the Routine deletes its Run logs and browser
+        recordings; deleting the company removes them too. They live in the App-private data
+        directory and are included in whole-instance backups.
+      </P>
       <P>
         Failures are easy to notice: the Home page shows a <Strong>Failed routines</Strong> panel
         for anything that broke in the last 24 hours, and every <Strong>Journal</Strong> entry for a

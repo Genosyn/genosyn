@@ -6,7 +6,11 @@ import type { WebSocket } from "ws";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
-import { attachViewerSocket } from "./browserSessions.js";
+import { attachViewerSocket, resetBrowserRpcActivityForTests } from "./browserSessions.js";
+import {
+  markBrowserRecordingRunFinalizing,
+  releaseBrowserRecordingRunFinalizing,
+} from "./browserRecordings.js";
 
 /**
  * The live viewer's address bar is a second way to drive the employee's
@@ -64,6 +68,7 @@ before(initTestDb);
 after(closeTestDb);
 
 beforeEach(async () => {
+  resetBrowserRpcActivityForTests();
   await resetTestDb();
   employee = await insert(AIEmployee, {
     companyId,
@@ -89,12 +94,13 @@ beforeEach(async () => {
   });
 });
 
-function attach() {
+function attach(runId: string | null = session.runId) {
   const socket = fakeSocket();
   attachViewerSocket({
     sessionId: session.id,
     companyId,
     employeeId: employee.id,
+    runId,
     ws: socket.ws,
     userId: "user-1",
   });
@@ -169,5 +175,22 @@ describe("live viewer navigation", () => {
 
     await socket.deliver({ type: "control.navigate", url: "https://app.example.com/" });
     assert.deepEqual(socket.drain(), []);
+  });
+
+  test("Run finalization rejects a new live-view browser mutation", async () => {
+    const runId = `viewer-finalizing-${Date.now()}`;
+    const socket = attach(runId);
+    await socket.deliver({ type: "control.takeover", userId: "self", takeover: true });
+    socket.drain();
+    markBrowserRecordingRunFinalizing(runId);
+    try {
+      await socket.deliver({ type: "control.navigate", url: "https://app.example.com/settings" });
+    } finally {
+      releaseBrowserRecordingRunFinalizing(runId);
+    }
+
+    const [msg] = socket.drain();
+    assert.equal(msg?.type, "nav.error");
+    assert.match(String(msg?.message), /finalizing/i);
   });
 });

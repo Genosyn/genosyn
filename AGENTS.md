@@ -211,6 +211,7 @@ data/
 ├── .instance-secrets.required # non-secret loss-detection marker (mode 0600)
 ├── .private/
 │   ├── browser-state/<company-id>/<employee-id>.json # cookies/localStorage
+│   ├── browser-recordings/<company-id>/<run-id>/ # silent per-session Routine MP4s
 │   └── code-repository-ssh/<company-id>/<employee-id>.known_hosts
 ├── app.sqlite
 └── companies/<company-slug>/employees/<emp-slug>/
@@ -228,23 +229,32 @@ initialization. Never copy secret values into logs, employee working trees,
 support bundles, or source control. Explicit strong config values remain
 supported and take precedence.
 
-Browser authentication state and repository SSH host-key caches are App-private.
-Repository tokens and SSH private keys are decrypted only for short-lived,
-server-owned clone/fetch operations; they are never written into an employee
-working tree or injected into model coding tools.
+Browser authentication state, Routine browser recordings, and repository SSH
+host-key caches are App-private. Silent visual recordings live under
+`.private/browser-recordings/<company-id>/<run-id>/`, one MP4 per
+`BrowserSession`, and are linked from the Run log rather than exposed in an AI
+Employee's working tree. A recording from Genosyn's browser is admin-only; a
+recording from a Member browser is visible only to that browser's exact owner.
+Any BrowserSession in which a password field was observed withholds its
+recording entirely. Repository tokens and SSH private keys are decrypted only
+for short-lived, server-owned clone/fetch operations; they are never written
+into an employee working tree or injected into model coding tools.
 
 - **The database is the source of truth** for Soul, Skill, and Routine prose
   (`AIEmployee.soulBody`, `Skill.body`, `Routine.body`), for captured Run
   transcripts (`Run.logContent`), and for **model credentials** — API keys,
   custom-endpoint URLs, and OpenAI subscription credentials live encrypted in
-  `AIModel.configJson`. Do not
+  `AIModel.configJson`. Browser recording bytes are the file-backed Run-artifact
+  exception: the `Run` → `BrowserSession` rows carry their identity and access
+  scope, while silent MP4s stay App-private under the recording path above. Do
+  not
   reintroduce `SOUL.md` / `skills/<slug>/README.md` / `routines/<slug>/README.md`
   on disk, and never write model credentials into an employee working tree or
   a persistent provider directory. The OpenAI subscription path is the only
-  file-backed exception: each device login and Run gets a locked temporary
-  `CODEX_HOME`. A managed ChatGPT session is materialized there; a Business /
-  Enterprise access token is injected only into the child process environment.
-  The directory is removed afterward.
+  file-backed model-auth exception: each device login and Run gets a locked
+  temporary `CODEX_HOME`. A managed ChatGPT session is materialized there; a
+  Business / Enterprise access token is injected only into the child process
+  environment. The directory is removed afterward.
 - There are **no persistent per-provider credential dirs** (`.claude`,
   `.codex`, … are gone), generic provider CLI harnesses, or materialized MCP
   config files. API-key and custom models receive tools from Genosyn's
@@ -278,8 +288,13 @@ working tree or injected into model coding tools.
       runs on a human's computer, reached through the zero-dependency bridge
       agent in `server/browser-bridge/` (served to Members from the App, paired
       with a one-time code) which launches a dedicated Chrome profile and
-      relays CDP back over an outbound WebSocket. Nothing from that browser —
-      cookies, storage state, downloads — is written under `config.dataDir`;
+      relays CDP back over an outbound WebSocket. Its cookies, storage state,
+      and downloads are never written under `config.dataDir`. The sole
+      persisted output is a silent visual recording when a Routine Run actually
+      uses that browser after its owner explicitly consents to unattended
+      recording: it is stored App-private alongside the Run's browser artifacts,
+      available only to the browser's exact owner, and withheld if the
+      BrowserSession observes a password field;
 
     * any company-configured **MCP servers** (stdio/HTTP), which the agent
       connects to as an MCP client. User-configured stdio servers are omitted
@@ -288,8 +303,8 @@ working tree or injected into model coding tools.
       children, and it rejects subscription auth.
   The agent runtime lives in `server/services/agent/`. What stays on disk under
   the employee dir is only the working tree the coding tools operate on:
-  materialized git repos, the browser storage-state snapshot, and whatever the
-  tools write into cwd.
+  materialized git repos and whatever the tools write into cwd. Browser state
+  and Run recordings remain in the App-private paths above.
 - OpenAI subscription device sessions and managed refresh-token locks are
   process-local. The supported topology for this auth mode is one trusted,
   single-tenant App process. The standard Docker installer supports it in the
@@ -457,10 +472,10 @@ Don't tag manually, don't edit version numbers in `package.json` files.
 - Committing files under `data/`.
 - Writing business logic inside route handlers.
 - Reintroducing on-disk `SOUL.md` / skill / routine markdown files. Soul,
-  skill, and routine bodies live on their DB rows; run logs live on the
-  Run row. The filesystem under `data/` is only for the employee working tree
-  (git repos, browser state, tool artifacts) — never model credentials, which
-  live encrypted on the `AIModel` row.
+  skill, and routine bodies live on their DB rows; Run logs live on the Run
+  row. The filesystem under `data/` is for employee working trees and
+  App-private runtime artifacts such as browser state and Run recordings —
+  never model credentials, which live encrypted on the `AIModel` row.
 - Reintroducing generic provider CLI harnesses, persistent per-provider
   credential dirs, Anthropic subscription/OAuth routing, or materialized MCP
   config files. API-key and custom models are called directly via the

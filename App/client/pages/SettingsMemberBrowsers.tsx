@@ -114,10 +114,10 @@ export function MemberBrowsersPage({ companyId }: { companyId: string }) {
           <div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Browsers</h2>
             <p className="mt-1 max-w-2xl text-xs text-slate-500 dark:text-slate-400">
-              Connect a Chrome running on your own computer so an AI Employee can work in it
-              instead of the browser inside Genosyn. Genosyn opens its own Chrome profile on that
-              machine — a separate window from your everyday browsing — and you sign in there once
-              to the sites you want your employee to use.
+              Connect a Chrome running on your own computer so an AI Employee can work in it instead
+              of the browser inside Genosyn. Genosyn opens its own Chrome profile on that machine —
+              a separate window from your everyday browsing — and you sign in there once to the
+              sites you want your employee to use.
             </p>
           </div>
           <Button size="sm" onClick={() => setCreating(true)}>
@@ -209,7 +209,7 @@ function BrowserRow({
 }: {
   companyId: string;
   browser: MemberBrowser;
-  onChanged: () => void;
+  onChanged: () => void | Promise<void>;
   onRevoke: () => void;
   onRePair: () => void;
 }) {
@@ -251,9 +251,7 @@ function BrowserRow({
           </Button>
         </div>
       </div>
-      {expanded && (
-        <BrowserDetail companyId={companyId} browser={browser} onChanged={onChanged} />
-      )}
+      {expanded && <BrowserDetail companyId={companyId} browser={browser} onChanged={onChanged} />}
     </li>
   );
 }
@@ -265,7 +263,7 @@ function BrowserDetail({
 }: {
   companyId: string;
   browser: MemberBrowser;
-  onChanged: () => void;
+  onChanged: () => void | Promise<void>;
 }) {
   const { toast } = useToast();
   const [allowedHosts, setAllowedHosts] = React.useState(browser.allowedHosts ?? "");
@@ -298,21 +296,34 @@ function BrowserDetail({
     void reloadGrants();
   }, [reloadGrants]);
 
+  // The page refreshes presence and browser policy in the background. Keep
+  // these server-owned switches aligned with the latest response, including
+  // when a PATCH committed but its response was lost in transit.
+  React.useEffect(() => {
+    setApprovalRequired(browser.approvalRequired);
+    setAllowUnattended(browser.allowUnattended);
+  }, [browser.approvalRequired, browser.allowUnattended]);
+
   async function patch(body: Record<string, unknown>) {
     setSaving(true);
     try {
-      await api.patch(`/api/companies/${companyId}/member-browsers/${browser.id}`, body);
-      onChanged();
+      const updated = await api.patch<MemberBrowser>(
+        `/api/companies/${companyId}/member-browsers/${browser.id}`,
+        body,
+      );
+      setAllowedHosts(updated.allowedHosts ?? "");
+      setApprovalRequired(updated.approvalRequired);
+      setAllowUnattended(updated.allowUnattended);
+      void onChanged();
     } catch (err) {
       toast((err as Error).message, "error");
+      await onChanged();
     } finally {
       setSaving(false);
     }
   }
 
-  const ungranted = employees.filter(
-    (e) => !(grantees ?? []).some((g) => g.employeeId === e.id),
-  );
+  const ungranted = employees.filter((e) => !(grantees ?? []).some((g) => g.employeeId === e.id));
 
   return (
     <div className="mt-3 flex flex-col gap-4 border-t border-slate-100 pt-3 pl-7 dark:border-slate-800">
@@ -324,9 +335,9 @@ function BrowserDetail({
           Sites this browser may open
         </label>
         <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-          One host pattern per line, like <code>mail.google.com</code> or{" "}
-          <code>*.notion.so</code>. This list is required: a browser on your own machine opens
-          nothing until you say what it may reach.
+          One host pattern per line, like <code>mail.google.com</code> or <code>*.notion.so</code>.
+          This list is required: a browser on your own machine opens nothing until you say what it
+          may reach.
         </p>
         <textarea
           id={`hosts-${browser.id}`}
@@ -350,12 +361,18 @@ function BrowserDetail({
       </div>
 
       <div className="flex flex-col gap-2">
+        {browser.routineRecordingConsentRequired && (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-200">
+            Scheduled use was enabled before browser recordings existed. Review the recording notice
+            below, then turn it on again to confirm.
+          </p>
+        )}
         <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
           <Checkbox
             label="Ask me before submitting a form"
             checked={approvalRequired}
+            disabled={saving}
             onChange={(e) => {
-              setApprovalRequired(e.target.checked);
               void patch({ approvalRequired: e.target.checked });
             }}
           />
@@ -365,8 +382,8 @@ function BrowserDetail({
           <Checkbox
             label="Let scheduled Routines use this browser"
             checked={allowUnattended}
+            disabled={saving}
             onChange={(e) => {
-              setAllowUnattended(e.target.checked);
               void patch({ allowUnattended: e.target.checked });
             }}
           />
@@ -374,7 +391,10 @@ function BrowserDetail({
         </label>
         <p className="text-xs text-slate-500 dark:text-slate-400">
           Routines run on a schedule with nobody watching. If this computer is asleep when one
-          fires, the Run fails rather than quietly moving to a different browser.
+          fires, the Run fails rather than quietly moving to a different browser. When a scheduled
+          Run actually uses this browser, Genosyn stores a silent visual recording on the server
+          with its Run logs; only you can view it. Sessions that observe a password field have their
+          recording withheld, and a Run that never opens the browser creates no recording.
         </p>
       </div>
 
@@ -487,10 +507,10 @@ function CreateModal({
     e.preventDefault();
     setBusy(true);
     try {
-      const created = await api.post<MemberBrowser>(
-        `/api/companies/${companyId}/member-browsers`,
-        { name: name.trim(), allowedHosts: allowedHosts.trim() || null },
-      );
+      const created = await api.post<MemberBrowser>(`/api/companies/${companyId}/member-browsers`, {
+        name: name.trim(),
+        allowedHosts: allowedHosts.trim() || null,
+      });
       onCreated(created, created.pairingCode ?? "");
     } catch (err) {
       toast((err as Error).message, "error");
@@ -518,8 +538,8 @@ function CreateModal({
           placeholder={"mail.google.com\n*.notion.so"}
         />
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          One host pattern per line. You can change this later, but the browser opens nothing
-          until the list has something in it.
+          One host pattern per line. You can change this later, but the browser opens nothing until
+          the list has something in it.
         </p>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -586,12 +606,12 @@ function PairingModal({
           <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">
             node genosyn-bridge.mjs run
           </code>
-          . A new Chrome window opens on that computer — that is the one your AI Employee works
-          in. Sign in there to the sites you listed.
+          . A new Chrome window opens on that computer — that is the one your AI Employee works in.
+          Sign in there to the sites you listed.
         </p>
         <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
-          The code works once and expires in 10 minutes. It is not shown again — if you lose it,
-          ask for a new one.
+          The code works once and expires in 10 minutes. It is not shown again — if you lose it, ask
+          for a new one.
         </p>
         <div className="flex justify-end">
           <Button onClick={onClose}>Done</Button>

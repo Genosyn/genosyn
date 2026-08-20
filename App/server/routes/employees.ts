@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import { Router } from "express";
 import { z } from "zod";
+import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Skill } from "../db/entities/Skill.js";
 import { Routine } from "../db/entities/Routine.js";
+import { Run } from "../db/entities/Run.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { ProjectMember } from "../db/entities/ProjectMember.js";
@@ -48,6 +50,10 @@ import {
 import { removeBrowserStorageForEmployee } from "../services/browserStorage.js";
 import { removeRepositoryPrivateStateForEmployee } from "../services/repositorySshFiles.js";
 import { detachEmployeeFromTldrs } from "../services/tldrs.js";
+import {
+  deleteBrowserRecordingsForRunIds,
+  markBrowserRecordingEmployeeDeleting,
+} from "../services/browserRecordings.js";
 import {
   applyRoutineRecommendations,
   findRoutineRecommendationDefinition,
@@ -455,6 +461,7 @@ employeesRouter.delete("/:eid", async (req, res) => {
     companyId: (req.params as Record<string, string>).cid,
   });
   if (!emp) return res.status(404).json({ error: "Not found" });
+  markBrowserRecordingEmployeeDeleting(emp.id);
   const co = await loadCompany((req.params as Record<string, string>).cid);
 
   await closeAllBrowserSessionsForEmployee(emp.id);
@@ -464,7 +471,20 @@ employeesRouter.delete("/:eid", async (req, res) => {
   // don't carry a dangling manager reference.
   await empRepo.update({ reportsToEmployeeId: emp.id }, { reportsToEmployeeId: null });
 
+  const routines = await AppDataSource.getRepository(Routine).find({
+    where: { employeeId: emp.id },
+    select: { id: true },
+  });
+  const routineIds = routines.map((routine) => routine.id);
+  const runs = routineIds.length
+    ? await AppDataSource.getRepository(Run).find({
+        where: { routineId: In(routineIds) },
+        select: { id: true },
+      })
+    : [];
   await AppDataSource.getRepository(Approval).delete({ employeeId: emp.id });
+  await deleteBrowserRecordingsForRunIds(runs.map((run) => run.id));
+  if (routineIds.length) await AppDataSource.getRepository(Run).delete({ routineId: In(routineIds) });
   await AppDataSource.getRepository(Routine).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(Skill).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(AIModel).delete({ employeeId: emp.id });

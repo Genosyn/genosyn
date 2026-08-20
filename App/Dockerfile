@@ -104,6 +104,8 @@ RUN install -d -m 0755 /etc/apt/keyrings \
 # wearing a costume — and we would find out from a blocked Routine rather than
 # from CI.
 RUN google-chrome-stable --version | grep -q "Google Chrome"
+RUN ffmpeg -version | grep -q "ffmpeg version" \
+    && ffprobe -version | grep -q "ffprobe version"
 
 # Named for Playwright's convention and read by `browserProfile.ts` and
 # `htmlToPdf.ts`. It points at Chrome, not Chromium; the variable name is

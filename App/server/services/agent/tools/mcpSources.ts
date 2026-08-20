@@ -85,10 +85,14 @@ export async function loadBrowserConfig(
   }
 
   let enabled = employee.browserEnabled;
+  let selectedRoutine: Routine | null = null;
   if (options.routineId) {
-    const routine = await AppDataSource.getRepository(Routine).findOneBy({ id: options.routineId });
-    if (routine && routine.browserEnabledOverride !== null) {
-      enabled = routine.browserEnabledOverride;
+    selectedRoutine = await AppDataSource.getRepository(Routine).findOneBy({
+      id: options.routineId,
+      employeeId: employee.id,
+    });
+    if (selectedRoutine && selectedRoutine.browserEnabledOverride !== null) {
+      enabled = selectedRoutine.browserEnabledOverride;
     }
   }
 
@@ -114,6 +118,12 @@ export async function loadBrowserConfig(
     conversationId: options.conversationId ?? null,
     routineId: options.routineId ?? null,
   });
+  if (selectedRoutine?.memberBrowserId && !memberBrowser) {
+    throw new Error(
+      "The selected Member browser is unavailable. Its owner must re-enable unattended use " +
+        "to consent to Routine recording, then confirm the browser grant and connection.",
+    );
+  }
 
   const session = await createBrowserSession({
     companyId: employee.companyId,

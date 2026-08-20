@@ -3,12 +3,14 @@ import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import {
   browserPrivateCompanyDir,
+  browserRecordingsCompanyDir,
   companyDir,
   meetingRecordingsCompanyDir,
   repositoryPrivateCompanyDir,
   repositoryWorkspaceCompanyDir,
 } from "./paths.js";
 import { emitMembershipAuthorizationChange } from "./resourceEvents.js";
+import { deleteBrowserRecordingsForCompany } from "./browserRecordings.js";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
@@ -202,6 +204,14 @@ export async function deleteCompanyCascade(args: {
   companySlug: string;
 }): Promise<void> {
   const { companyId, companySlug } = args;
+
+  await deleteBrowserRecordingsForCompany(companyId).catch((err) => {
+    // Continue through the authoritative DB delete; the filesystem sweep below
+    // gets another chance to remove any orphaned bytes.
+    console.warn(
+      `[companyDelete] failed to stop browser recordings for ${companyId}: ${(err as Error).message}`,
+    );
+  });
 
   await AppDataSource.transaction(async (m) => {
     // ── 1. Collect parent IDs we'll cascade through ────────────────────
@@ -544,6 +554,13 @@ export async function deleteCompanyCascade(args: {
   } catch (err) {
     console.warn(
       `[companyDelete] failed to remove private Browser state for ${companyId}: ${(err as Error).message}`,
+    );
+  }
+  try {
+    fs.rmSync(browserRecordingsCompanyDir(companyId), { recursive: true, force: true });
+  } catch (err) {
+    console.warn(
+      `[companyDelete] failed to remove browser recordings for ${companyId}: ${(err as Error).message}`,
     );
   }
   try {

@@ -114,6 +114,14 @@ export class MemberBrowser {
   @Column({ type: "boolean", default: false })
   allowUnattended!: boolean;
 
+  /**
+   * Explicit consent to capture Routine browser video. Nullable so browsers
+   * that enabled unattended use before recording shipped fail closed until
+   * their owner sees the new disclosure and turns it on again.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  routineRecordingConsentAt!: Date | null;
+
   /** Reported by the bridge agent on connect. Display only. */
   @Column({ type: "varchar", nullable: true })
   browserVersion!: string | null;

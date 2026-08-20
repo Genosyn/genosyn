@@ -68,7 +68,12 @@ function serialize(row: MemberBrowser) {
     tokenPrefix: row.tokenPrefix,
     allowedHosts: row.allowedHosts,
     approvalRequired: row.approvalRequired,
-    allowUnattended: row.allowUnattended,
+    // A pre-recording unattended opt-in is not recording consent. Present it
+    // as off so the owner has to re-enable it under the current disclosure.
+    allowUnattended: row.allowUnattended && Boolean(row.routineRecordingConsentAt),
+    routineRecordingConsentAt: row.routineRecordingConsentAt,
+    routineRecordingConsentRequired:
+      row.allowUnattended && row.routineRecordingConsentAt === null,
     browserVersion: row.browserVersion,
     platform: row.platform,
     agentVersion: presence.agentVersion,

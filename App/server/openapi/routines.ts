@@ -81,10 +81,28 @@ const Run = z
   })
   .openapi("Run");
 
+const BrowserRecording = z
+  .object({
+    id: z.string().uuid().describe("BrowserSession id."),
+    status: z.enum(["recording", "finalizing", "ready", "failed", "restricted"]),
+    startedAt: z.string().datetime().nullable(),
+    finishedAt: z.string().datetime().nullable(),
+    mimeType: z.literal("video/mp4"),
+    sizeBytes: z.number().int().nonnegative(),
+    filename: z.string(),
+  })
+  .openapi("BrowserRecording");
+
 const RunLog = z
   .object({
     runId: z.string().uuid(),
     content: z.string().describe("Captured stdout + stderr, capped at 256 KB."),
+    browserRecordings: z
+      .array(BrowserRecording)
+      .describe(
+        "Recordings visible to this browser user. App-browser videos require admin access; " +
+          "Member-browser videos are visible only to that browser's exact owner. Empty for API keys.",
+      ),
   })
   .openapi("RunLog");
 
@@ -413,6 +431,108 @@ registry.registerPath({
     200: { description: "OK", content: { "application/json": { schema: RunLog } } },
     404: {
       description: "Run not found",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/runs/{runId}/browser-recordings",
+  summary: "List browser recordings for a Run",
+  description:
+    "Returns only recordings this signed-in Member may see. Genosyn-browser recordings " +
+    "require an owner or admin role; a Member-browser recording is visible only to that " +
+    "browser's exact owner. API keys cannot access recording metadata.",
+  tags: ["Routines"],
+  security: [{ cookieAuth: [] }],
+  request: {
+    params: z.object({
+      cid: z.string().uuid(),
+      runId: z.string().uuid(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Visible recording metadata",
+      content: { "application/json": { schema: z.array(BrowserRecording) } },
+    },
+    401: {
+      description: "Not authenticated with a browser session",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    403: {
+      description: "Not a company Member, or authenticated with an API key",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    404: {
+      description: "Run not found",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+const BrowserRecordingFile = z.string().openapi({ format: "binary" });
+const BrowserRecordingRangeHeaders = z.object({
+  "Accept-Ranges": z.literal("bytes"),
+  "Content-Range": z
+    .string()
+    .describe("The returned byte interval, or bytes */<size> for an unsatisfiable range."),
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/runs/{runId}/browser-recordings/{sessionId}",
+  summary: "Play or download one browser recording",
+  description:
+    "Streams a finished silent MP4. Byte ranges are supported for seeking. The same " +
+    "owner/admin and exact Member-browser-owner boundaries as the metadata endpoint apply; " +
+    "unauthorized recordings return 404 so their existence is not disclosed. API keys cannot " +
+    "access recording bytes.",
+  tags: ["Routines"],
+  security: [{ cookieAuth: [] }],
+  request: {
+    params: z.object({
+      cid: z.string().uuid(),
+      runId: z.string().uuid(),
+      sessionId: z.string().uuid(),
+    }),
+    query: z.object({
+      disposition: z.enum(["inline", "attachment"]).optional().default("inline"),
+    }),
+    headers: z.object({
+      range: z.string().optional().describe("RFC 7233 byte range, for example bytes=0-1023."),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Complete MP4",
+      content: { "video/mp4": { schema: BrowserRecordingFile } },
+    },
+    206: {
+      description: "Requested MP4 byte range",
+      headers: BrowserRecordingRangeHeaders,
+      content: { "video/mp4": { schema: BrowserRecordingFile } },
+    },
+    400: {
+      description: "Invalid disposition",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    401: {
+      description: "Not authenticated with a browser session",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    403: {
+      description: "Not a company Member, or authenticated with an API key",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    404: {
+      description: "Run or visible ready recording not found",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    416: {
+      description: "Requested byte range is outside the recording",
+      headers: BrowserRecordingRangeHeaders,
       content: { "application/json": { schema: ErrorResponse } },
     },
   },

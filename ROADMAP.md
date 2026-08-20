@@ -2742,6 +2742,22 @@ of the original V1 backlog has shipped — what remains is mostly
         flips into "Take over" mode. Solves captcha / 2FA without an
         external service. The async `browser_submit` Approval flow
         stays as the fallback for unattended routines.
+  - [x] **Browser recordings for Routine Runs.** A Run-linked
+        `BrowserSession` starts silent visual capture only when that session
+        actually uses a browser, for both Genosyn's browser and a Member
+        browser. Capture is per session, so parallel delegated browser work
+        produces separate MP4s instead of overwriting the parent Run's view.
+        Files are finalized with the Run/session lifecycle. Startup recovery
+        promotes only partials that reached a clean, privacy-scanned finalizing state;
+        abrupt active captures are discarded rather than assumed safe, and
+        cleanup follows the owning Run. The bytes stay App-private under
+        `.private/browser-recordings/<company-id>/<run-id>/`. Recordings from
+        Genosyn's browser are admin-only, Member-browser recordings are
+        exact-owner-only and require an explicit unattended-recording consent,
+        and any session that observes a password field has its recording
+        withheld entirely. The Runs UI surfaces every available recording
+        beside its Run log, with the same behavior documented at `/docs/browser`
+        and `/docs/routines`.
   - [x] **Member browsers.** A Member connects a Chrome running on their
         own computer and a granted employee drives that instead of the
         container's Chromium. A zero-dependency Node bridge

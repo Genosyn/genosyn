@@ -31,6 +31,11 @@ import { supportsParallelDelegation } from "./agent/tools/parallelDelegation.js"
 import { shouldMaterializeRepositoriesForTurn } from "./codexSubscription.js";
 import { CODING_TOOL_NAMES } from "./agent/tools/coding.js";
 import { codingRuntimeAvailability } from "./agent/codingAvailability.js";
+import { finalizeBrowserRecordingsForRun } from "./browserSessions.js";
+import {
+  browserRunCreationBlocked,
+  releaseBrowserRecordingRunFinalizing,
+} from "./browserRecordings.js";
 
 export { RUN_LOG_MAX_BYTES } from "./runLog.js";
 
@@ -126,6 +131,11 @@ export async function startRoutineRun(
   routine: Routine,
   opts: StartRunOptions = {},
 ): Promise<{ run: Run; completion: Promise<Run> }> {
+  if (
+    browserRunCreationBlocked({ employeeId: routine.employeeId, routineId: routine.id })
+  ) {
+    throw new Error("This Routine is being removed.");
+  }
   // The Routine's timeout is an absolute wall-clock budget, not merely an
   // agent-loop timer. Capture it before model resolution, lease acquisition,
   // and every other start prerequisite, then persist this exact boundary.
@@ -140,6 +150,14 @@ export async function startRoutineRun(
   if (!emp) throw new Error("Employee not found for routine");
   const co = await coRepo.findOneBy({ id: emp.companyId });
   if (!co) throw new Error("Company not found for employee");
+  const runAuthority = {
+    companyId: co.id,
+    employeeId: emp.id,
+    routineId: routine.id,
+  };
+  if (browserRunCreationBlocked(runAuthority)) {
+    throw new Error("This Routine is being removed.");
+  }
   // An employee can hold several models. The routine runs on the one it pins,
   // falling back to the employee's active model when it pins none.
   const { model, pinned } = await resolveRoutineModel(routine);
@@ -158,7 +176,14 @@ export async function startRoutineRun(
   });
   let saved: Run;
   await opts.beforeRunPersist?.();
+  if (browserRunCreationBlocked(runAuthority)) {
+    throw new Error("This Routine is being removed.");
+  }
   saved = await runRepo.save(run);
+  if (browserRunCreationBlocked(runAuthority)) {
+    await runRepo.delete({ id: saved.id }).catch(() => undefined);
+    throw new Error("This Routine is being removed.");
+  }
   const deadlineAtMs = saved.startedAt.getTime() + timeoutMs;
 
   const checkpointState: { headerDurable: boolean; initialFailure?: unknown } = {
@@ -500,6 +525,14 @@ async function finalizeRunFromRunning(
   log: DurableRunLog,
 ): Promise<{ run: Run; persisted: boolean }> {
   try {
+    await finalizeBrowserRecordingsForRun(run.id);
+  } catch {
+    // A recording is an auxiliary Run artifact. Its encoder, filesystem, or
+    // browser can fail without changing the Routine verdict or retry policy.
+    // Do not mention it in the shared Run log: recording metadata is restricted
+    // to browser owners/admins, while Run logs also allow API-key readers.
+  }
+  try {
     await log.stopCheckpointing();
   } catch (err) {
     // The terminal compare-and-set below carries the complete in-memory log,
@@ -520,13 +553,19 @@ async function finalizeRunFromRunning(
       retryAt: run.retryAt,
     },
   );
-  if (result.affected === 1) return { run, persisted: true };
+  if (result.affected === 1) {
+    releaseBrowserRecordingRunFinalizing(run.id);
+    return { run, persisted: true };
+  }
 
   // Reconciliation (or another terminal owner) won. Return the authoritative
   // row and, critically, do not run post-completion bookkeeping for our stale
   // verdict. A deleted Routine may have cascaded the Run away altogether; in
   // that case the local object is safe to return but must not be persisted.
   const current = await runRepo.findOneBy({ id: run.id });
+  if (!current || current.status !== "running") {
+    releaseBrowserRecordingRunFinalizing(run.id);
+  }
   return { run: current ?? run, persisted: false };
 }
 

@@ -58,8 +58,8 @@ export function Browser() {
       <P>
         Every request goes through the same outbound guard as the rest of the product: http(s) only,
         no credentials in the URL, and every redirect re-checked so a link cannot be used to reach
-        loopback, private, or cloud-metadata addresses inside your network. Fetched content is fed to
-        the model as untrusted data, and the employee is told plainly that a web page giving it
+        loopback, private, or cloud-metadata addresses inside your network. Fetched content is fed
+        to the model as untrusted data, and the employee is told plainly that a web page giving it
         instructions is a stranger talking, not its teammate. Operators who want this off entirely —
         or search off while direct fetches stay — set <Code>web.enabled</Code> and{" "}
         <Code>web.searchProvider</Code> in <Code>config.ts</Code>. Search uses DuckDuckGo&apos;s
@@ -265,13 +265,28 @@ export function Browser() {
       <P>
         Taking over also unlocks the <Strong>address bar</Strong> above the page, along with back,
         forward and reload. Type a URL and press Enter to go somewhere the employee did not — useful
-        when a sign-in bounces you to a settings page the model never opened.{" "}
-        <Code>Ctrl</Code>/<Code>⌘</Code>+<Code>L</Code> focuses it, as it would in a real browser. It
-        is the same Chrome carrying the same cookies, so the address bar answers to the same{" "}
+        when a sign-in bounces you to a settings page the model never opened. <Code>Ctrl</Code>/
+        <Code>⌘</Code>+<Code>L</Code> focuses it, as it would in a real browser. It is the same
+        Chrome carrying the same cookies, so the address bar answers to the same{" "}
         <a href="#allow-list">allow list</a> <Code>browser_open</Code> does: a host the company
         excluded is refused here too, with the reason shown under the bar. While you are only
         watching, the bar shows the current URL and nothing else.
       </P>
+      <P>
+        Live view is ephemeral in Chat. A <DocLink to="/docs/routines">Routine Run</DocLink> that
+        actually uses a browser is different: Genosyn automatically saves a silent visual MP4 of
+        each Run-linked browser session and shows it beside that Run&apos;s log. Merely giving the
+        employee Browser access does not create a recording; capture starts only when the session
+        opens the browser. Parallel delegated browser work produces separate recordings, and none of
+        them contain page audio.
+      </P>
+      <Callout kind="warn" title="Password-field sessions are withheld">
+        Visual recording can capture everything rendered in the browser viewport. A recording from
+        Genosyn&apos;s browser is therefore limited to company owners and admins, while a Member
+        browser recording is limited to that browser&apos;s exact owner. If the session observes a
+        password field, Genosyn withholds its whole recording instead of offering playback or a
+        download. The redacted structural snapshot remains available to the AI Employee.
+      </Callout>
 
       <H2 id="persistence">What persists</H2>
       <P>
@@ -290,6 +305,13 @@ export function Browser() {
         are deliberately <Strong>not</Strong> kept: IndexedDB and service-worker storage, so a site
         that keys its auth off those needs a fresh sign-in; and Chrome&apos;s own profile directory,
         which is new on every launch, so the HTTP cache always starts cold.
+      </P>
+      <P>
+        Saved Routine recordings are separate from browser state. They live under{" "}
+        <Code>.private/browser-recordings/&lt;company-id&gt;/&lt;run-id&gt;/</Code> in the data
+        directory, outside the AI Employee&apos;s working tree. They remain with Run history, are
+        included in whole-instance backups, and are removed when the owning Routine or company is
+        deleted. Chat sessions are not recorded.
       </P>
       <P>
         That per-employee session is also what{" "}

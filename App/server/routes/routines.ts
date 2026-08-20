@@ -9,13 +9,17 @@ import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { Approval } from "../db/entities/Approval.js";
+import { BrowserSession } from "../db/entities/BrowserSession.js";
+import { MemberBrowser } from "../db/entities/MemberBrowser.js";
 import crypto from "node:crypto";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import {
   requireAuth,
+  requireBrowserSession,
   requireCompanyMember,
   requireCompanyRoleForMutations,
   onRoutePaths,
+  roleAtLeast,
 } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { routineTemplate } from "../services/files.js";
@@ -25,6 +29,13 @@ import { cancelPendingRetry } from "../services/runRecovery.js";
 import { recordAudit } from "../services/audit.js";
 import { getOwnedMemberBrowser } from "../services/memberBrowsers.js";
 import { revokeDisabledBrowserSessionsForEmployee } from "../services/browserAccess.js";
+import {
+  deleteBrowserRecordingsForRunIds,
+  getBrowserRecordingFile,
+  listBrowserRecordingsForRun,
+  markBrowserRecordingRoutineDeleting,
+  type BrowserRecordingInfo,
+} from "../services/browserRecordings.js";
 import {
   deleteTagAssignments,
   replaceResourceTags,
@@ -342,7 +353,7 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
       if (!browser) {
         return res.status(404).json({ error: "That browser is not one of yours" });
       }
-      if (!browser.allowUnattended) {
+      if (!browser.allowUnattended || !browser.routineRecordingConsentAt) {
         return res.status(400).json({
           error: `"${browser.name}" is not available to scheduled Routines. Turn on unattended use for it first.`,
         });
@@ -381,7 +392,13 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
 routinesRouter.delete("/routines/:rid", async (req, res) => {
   const found = await loadRoutine((req.params as Record<string, string>).cid, req.params.rid);
   if (!found) return res.status(404).json({ error: "Not found" });
+  markBrowserRecordingRoutineDeleting(found.routine.id);
+  const runs = await AppDataSource.getRepository(Run).find({
+    where: { routineId: found.routine.id },
+    select: { id: true },
+  });
   await AppDataSource.getRepository(Approval).delete({ routineId: found.routine.id });
+  await deleteBrowserRecordingsForRunIds(runs.map((run) => run.id));
   await AppDataSource.getRepository(Run).delete({ routineId: found.routine.id });
   await deleteTagAssignments("routine", found.routine.id);
   await AppDataSource.getRepository(Routine).delete({ id: found.routine.id });
@@ -509,6 +526,127 @@ routinesRouter.get("/routines/:rid/runs", async (req, res) => {
   res.json(runs);
 });
 
+const runRecordingParamsSchema = z
+  .object({
+    cid: z.string().uuid(),
+    runId: z.string().uuid(),
+  })
+  .strict();
+const recordingFileParamsSchema = runRecordingParamsSchema
+  .extend({ sessionId: z.string().uuid() })
+  .strict();
+const recordingFileQuerySchema = z
+  .object({ disposition: z.enum(["inline", "attachment"]).default("inline") })
+  .strict();
+
+async function loadCompanyRun(companyId: string, runId: string): Promise<Run | null> {
+  const run = await AppDataSource.getRepository(Run).findOneBy({ id: runId });
+  if (!run) return null;
+  return (await loadRoutine(companyId, run.routineId)) ? run : null;
+}
+
+async function canReadBrowserRecording(
+  req: Parameters<typeof requireBrowserSession>[0],
+  session: BrowserSession,
+): Promise<boolean> {
+  if (!session.memberBrowserId) {
+    return !!req.companyRole && roleAtLeast("admin", req.companyRole);
+  }
+  if (!req.userId) return false;
+  return AppDataSource.getRepository(MemberBrowser).existsBy({
+    id: session.memberBrowserId,
+    companyId: session.companyId,
+    ownerUserId: req.userId,
+  });
+}
+
+async function recordingsVisibleToRequester(
+  req: Parameters<typeof requireBrowserSession>[0],
+  run: Run,
+): Promise<BrowserRecordingInfo[]> {
+  if (req.apiKey) return [];
+  const [recordings, sessions] = await Promise.all([
+    listBrowserRecordingsForRun(run.id),
+    AppDataSource.getRepository(BrowserSession).findBy({ runId: run.id }),
+  ]);
+  const byId = new Map(sessions.map((session) => [session.id, session]));
+  const visible: BrowserRecordingInfo[] = [];
+  for (const recording of recordings) {
+    const session = byId.get(recording.id);
+    if (session?.companyId === req.params.cid && (await canReadBrowserRecording(req, session))) {
+      visible.push(recording);
+    }
+  }
+  return visible;
+}
+
+/** Metadata-only collection; video bytes are served from the item route below. */
+routinesRouter.get(
+  "/runs/:runId/browser-recordings",
+  requireBrowserSession,
+  validateParams(runRecordingParamsSchema),
+  async (req, res) => {
+    const run = await loadCompanyRun(req.params.cid, req.params.runId);
+    if (!run) return res.status(404).json({ error: "Not found" });
+    res.setHeader("Cache-Control", "private, no-store");
+    res.json(await recordingsVisibleToRequester(req, run));
+  },
+);
+
+/**
+ * Seekable inline stream or download. Express sendFile implements byte-range
+ * requests, which lets the video element seek without loading the whole MP4.
+ */
+routinesRouter.get(
+  "/runs/:runId/browser-recordings/:sessionId",
+  requireBrowserSession,
+  validateParams(recordingFileParamsSchema),
+  async (req, res, next) => {
+    const query = recordingFileQuerySchema.safeParse(req.query);
+    if (!query.success) {
+      return res.status(400).json({ error: "ValidationError", issues: query.error.issues });
+    }
+    const run = await loadCompanyRun(req.params.cid, req.params.runId);
+    if (!run) return res.status(404).json({ error: "Not found" });
+    const session = await AppDataSource.getRepository(BrowserSession).findOneBy({
+      id: req.params.sessionId,
+      runId: run.id,
+      companyId: req.params.cid,
+    });
+    if (!session || !(await canReadBrowserRecording(req, session))) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    const recording = await getBrowserRecordingFile(session);
+    if (!recording) return res.status(404).json({ error: "Not found" });
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("Content-Type", recording.info.mimeType);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+    res.setHeader(
+      "Content-Disposition",
+      `${query.data.disposition}; filename="${recording.info.filename}"`,
+    );
+    return res.sendFile(recording.path, (error) => {
+      if (!error) return;
+      if (!res.headersSent) {
+        // sendFile preserves headers set before it discovers an unsatisfiable
+        // Range. Clear the media-only values before the API error middleware
+        // writes its JSON response; keep Content-Range so clients learn the
+        // current file size and can recover their seek request.
+        res.removeHeader("Content-Disposition");
+        res.removeHeader("Content-Type");
+        res.removeHeader("Content-Length");
+        if (typeof error === "object" && "status" in error && error.status === 416) {
+          res.status(416).json({ error: "Range Not Satisfiable" });
+          return;
+        }
+      }
+      next(error);
+    });
+  },
+);
+
 /**
  * Return the captured log for a single run. While a run is still executing
  * we serve the live in-memory buffer so the UI can tail output; once the
@@ -528,6 +666,7 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
   const content = live ? live.content : (run.logContent ?? "");
   const size = live ? live.size : Buffer.byteLength(content, "utf8");
   const truncated = live ? live.truncated : size >= RUN_LOG_MAX_BYTES;
+  const browserRecordings = await recordingsVisibleToRequester(req, run);
 
   res.json({
     content,
@@ -541,6 +680,7 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
     // So the live-log modal can say "retrying in 2m" without a second request.
     retryAt: run.retryAt,
     attempt: run.attempt,
+    browserRecordings,
   });
 });
 

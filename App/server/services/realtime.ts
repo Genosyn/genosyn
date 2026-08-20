@@ -532,6 +532,7 @@ export function attachRealtime(httpServer: HttpServer): WebSocketServer {
             sessionId: row.id,
             companyId: row.companyId,
             employeeId: row.employeeId,
+            runId: row.runId,
             ws,
             userId: rec.userId,
           });

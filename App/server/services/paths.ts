@@ -48,6 +48,29 @@ export function browserPrivateCompanyDir(companyId: string): string {
 }
 
 /**
+ * App-private browser recordings captured for Routine Runs.
+ *
+ * Recordings sit beside other private browser material, never in an AI
+ * Employee's model-visible working directory. IDs are used instead of slugs
+ * so renames cannot strand data and deletion can be scoped without a lookup.
+ */
+export function browserRecordingsCompanyDir(companyId: string): string {
+  return path.join(dataRoot(), ".private", "browser-recordings", companyId);
+}
+
+export function browserRecordingRunDir(companyId: string, runId: string): string {
+  return path.join(browserRecordingsCompanyDir(companyId), runId);
+}
+
+export function browserRecordingFile(
+  companyId: string,
+  runId: string,
+  sessionId: string,
+): string {
+  return path.join(browserRecordingRunDir(companyId, runId), `${sessionId}.mp4`);
+}
+
+/**
  * The employee's own Chrome profile directory — cookies, cache, IndexedDB,
  * service workers, the lot.
  *

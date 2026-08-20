@@ -1,6 +1,6 @@
 import React from "react";
-import { Ban, Loader2, RotateCcw } from "lucide-react";
-import { api, Company, Routine, Run, RunLog, RunStatus } from "../../lib/api";
+import { AlertTriangle, Ban, Download, Loader2, Lock, RotateCcw, Video } from "lucide-react";
+import { api, Company, Routine, Run, RunBrowserRecording, RunLog, RunStatus } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 
@@ -156,11 +156,233 @@ export function RunLogPane({
   );
 }
 
+/** True while another log poll can reveal a terminal Run or a playable video. */
+export function runLogNeedsPolling(log: RunLog): boolean {
+  return (
+    log.status === "running" ||
+    (log.browserRecordings ?? []).some(
+      (recording) => recording.status === "recording" || recording.status === "finalizing",
+    )
+  );
+}
+
+/** `2.4 MB` — recording metadata without making the browser fetch the video. */
+function formatBytes(bytes: number | null): string | null {
+  if (bytes === null || bytes < 0) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function recordingStatusLabel(recording: RunBrowserRecording): string {
+  if (recording.status === "recording") return "Recording";
+  if (recording.status === "finalizing") return "Finalizing";
+  if (recording.status === "failed") return "Failed";
+  if (recording.status === "restricted") return "Withheld";
+  return "Ready";
+}
+
+/**
+ * Saved visual browser evidence for a Run. Browser-enabled work can delegate,
+ * so the selector handles several independent BrowserSessions without making
+ * the common one-recording case feel like an artifact manager.
+ */
+export function RunBrowserRecordingsPane({
+  companyId,
+  runId,
+  recordings,
+  className = "min-h-[360px] max-h-[60vh]",
+}: {
+  companyId: string;
+  runId: string;
+  recordings: RunBrowserRecording[];
+  className?: string;
+}) {
+  const [selectedId, setSelectedId] = React.useState(recordings[0]?.id ?? "");
+  const [playbackErrorId, setPlaybackErrorId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setSelectedId((current) =>
+      recordings.some((recording) => recording.id === current)
+        ? current
+        : (recordings[0]?.id ?? ""),
+    );
+  }, [recordings]);
+
+  const selected =
+    recordings.find((recording) => recording.id === selectedId) ?? recordings[0] ?? null;
+
+  React.useEffect(() => {
+    setPlaybackErrorId(null);
+  }, [companyId, runId, selected?.id, selected?.status]);
+
+  if (!selected) return null;
+
+  const recordingUrl = `/api/companies/${companyId}/runs/${runId}/browser-recordings/${selected.id}`;
+  const size = selected.status === "ready" ? formatBytes(selected.sizeBytes) : null;
+  const duration =
+    selected.startedAt && selected.finishedAt
+      ? formatDuration(selected.startedAt, selected.finishedAt)
+      : null;
+  const selectedNumber = recordings.findIndex((recording) => recording.id === selected.id) + 1;
+  const playbackFailed = selected.status === "ready" && playbackErrorId === selected.id;
+
+  return (
+    <section
+      aria-label="Browser recording"
+      className={
+        "flex min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950 " +
+        className
+      }
+    >
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+        <Video size={14} className="shrink-0 text-slate-400 dark:text-slate-500" />
+        <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+          Browser {recordings.length === 1 ? "recording" : "recordings"}
+        </span>
+        <span
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="text-[11px] text-slate-400 dark:text-slate-500"
+        >
+          {playbackFailed ? "Playback unavailable" : recordingStatusLabel(selected)}
+          {duration ? ` · ${duration}` : ""}
+          {size ? ` · ${size}` : ""}
+        </span>
+        <span className="min-w-0 flex-1" />
+        {selected.status === "ready" && (
+          <a
+            href={`${recordingUrl}?disposition=attachment`}
+            download={selected.filename ?? undefined}
+            className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-500/10"
+          >
+            <Download size={12} /> Download
+          </a>
+        )}
+      </header>
+
+      {recordings.length > 1 && (
+        <div
+          className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 px-2 py-1.5 dark:border-slate-800 dark:bg-slate-900"
+          aria-label="Choose a browser recording"
+        >
+          {recordings.map((recording, index) => (
+            <button
+              key={recording.id}
+              type="button"
+              onClick={() => setSelectedId(recording.id)}
+              aria-pressed={recording.id === selected.id}
+              aria-label={`Browser recording ${index + 1}, ${recordingStatusLabel(recording)}`}
+              className={
+                "shrink-0 rounded px-2 py-1 text-[11px] font-medium transition " +
+                (recording.id === selected.id
+                  ? "bg-white text-indigo-700 shadow-sm dark:bg-slate-800 dark:text-indigo-300"
+                  : "text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200")
+              }
+            >
+              Browser {index + 1}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-slate-950">
+        {playbackFailed ? (
+          <RecordingState
+            icon={<AlertTriangle size={24} />}
+            title="Playback unavailable"
+            body={
+              <>
+                This browser could not play the saved video. Try{" "}
+                <a
+                  href={`${recordingUrl}?disposition=attachment`}
+                  download={selected.filename ?? undefined}
+                  className="font-medium text-indigo-300 underline underline-offset-2 hover:text-indigo-200"
+                >
+                  downloading the MP4
+                </a>
+                {" "}instead.
+              </>
+            }
+          />
+        ) : selected.status === "ready" ? (
+          <video
+            key={selected.id}
+            controls
+            playsInline
+            preload="metadata"
+            aria-label={
+              recordings.length === 1
+                ? "Browser recording playback"
+                : `Browser recording ${selectedNumber} playback`
+            }
+            onError={() => setPlaybackErrorId(selected.id)}
+            onLoadedMetadata={() => setPlaybackErrorId(null)}
+            className="max-h-full w-full bg-black object-contain"
+          >
+            <source src={recordingUrl} type={selected.mimeType ?? "video/mp4"} />
+            Your browser cannot play this recording. Use Download instead.
+          </video>
+        ) : selected.status === "recording" || selected.status === "finalizing" ? (
+          <RecordingState
+            icon={<Loader2 size={24} className="animate-spin" />}
+            title={
+              selected.status === "recording"
+                ? "Recording browser activity…"
+                : "Finalizing browser recording…"
+            }
+            body={
+              selected.status === "recording"
+                ? "Playback will be available after this browser session finishes."
+                : "The Run has finished. Genosyn is preparing the video for playback."
+            }
+          />
+        ) : selected.status === "restricted" ? (
+          <RecordingState
+            icon={<Lock size={24} />}
+            title="Recording withheld"
+            body="This recording contains protected browser data or is not available to this Member. The Run log remains available."
+          />
+        ) : (
+          <RecordingState
+            icon={<AlertTriangle size={24} />}
+            title="Recording unavailable"
+            body="The browser recording could not be saved. The Run log remains available."
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function RecordingState({
+  icon,
+  title,
+  body,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: React.ReactNode;
+}) {
+  return (
+    <div className="flex max-w-sm flex-col items-center gap-2 px-6 py-10 text-center text-slate-400">
+      {icon}
+      <div className="text-sm font-medium text-slate-200">{title}</div>
+      <p className="text-xs leading-relaxed text-slate-400">{body}</p>
+    </div>
+  );
+}
+
 /**
  * Live tail for a run that was just kicked off. Polls `/runs/:runId/log` until
- * the server reports a terminal status; that endpoint serves the in-memory
- * buffer while the child is alive and the persisted log once it finalizes, so
- * one poll drives the whole modal — no separate "is it done" probe.
+ * the server reports a terminal status and every browser recording has left
+ * its transitional state. That endpoint serves the in-memory buffer while the
+ * child is alive and the persisted log once it finalizes, so one poll drives
+ * the whole modal — no separate status or recording probe.
  */
 export function RunLiveModal({
   company,
@@ -195,7 +417,7 @@ export function RunLiveModal({
         if (cancelled) return;
         setLog(next);
         setError(null);
-        if (next.status === "running") timer = setTimeout(tick, 1200);
+        if (runLogNeedsPolling(next)) timer = setTimeout(tick, 1200);
       } catch (err) {
         if (cancelled) return;
         setError((err as Error).message);
@@ -265,13 +487,27 @@ export function RunLiveModal({
           )}
           {error && <span className="text-rose-500 dark:text-rose-400">{error}</span>}
         </div>
-        <RunLogPane
-          log={log}
-          preRef={preRef}
-          onScroll={handleScroll}
-          placeholder={log === null ? "Starting…" : "Waiting for output…"}
-          className="max-h-[60vh] min-h-[360px]"
-        />
+        <div
+          className={
+            "grid min-w-0 flex-1 gap-3 " +
+            ((log?.browserRecordings?.length ?? 0) > 0 ? "xl:grid-cols-2" : "")
+          }
+        >
+          <RunLogPane
+            log={log}
+            preRef={preRef}
+            onScroll={handleScroll}
+            placeholder={log === null ? "Starting…" : "Waiting for output…"}
+            className="max-h-[60vh] min-h-[360px]"
+          />
+          {(log?.browserRecordings?.length ?? 0) > 0 && (
+            <RunBrowserRecordingsPane
+              companyId={company.id}
+              runId={initialRun.id}
+              recordings={log?.browserRecordings ?? []}
+            />
+          )}
+        </div>
         <div className="flex justify-end gap-2">
           {log?.retryAt && (
             <Button variant="secondary" onClick={cancelRetry}>

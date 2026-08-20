@@ -89,6 +89,7 @@ export async function createMemberBrowser(params: {
       allowedHosts: params.allowedHosts ?? null,
       approvalRequired: params.approvalRequired ?? true,
       allowUnattended: params.allowUnattended ?? false,
+      routineRecordingConsentAt: params.allowUnattended ? new Date() : null,
     }),
   );
   return { browser, pairingCode: formatPairingCode(pairingCode) };
@@ -259,11 +260,46 @@ export async function updateMemberBrowser(
     Pick<MemberBrowser, "name" | "allowedHosts" | "approvalRequired" | "allowUnattended">
   >,
 ): Promise<void> {
-  await repo().update({ id: browserId }, patch);
+  const withdrawsRoutineRecordingConsent = patch.allowUnattended === false;
+  await repo().update(
+    { id: browserId },
+    {
+      ...patch,
+      ...(patch.allowUnattended === undefined
+        ? {}
+        : { routineRecordingConsentAt: patch.allowUnattended ? new Date() : null }),
+    },
+  );
+  if (withdrawsRoutineRecordingConsent) {
+    await closeRunSessionsForMemberBrowser(browserId);
+  }
   // An edited allow list has to reach the machine that enforces it, or the
   // owner would tighten the list in the UI and the agent would keep using the
   // old one until it next reconnected.
   if (patch.allowedHosts !== undefined) await pushCurrentPolicyToAgent(browserId);
+}
+
+/**
+ * Stop only unattended Run sessions when their owner withdraws recording
+ * consent. Chat sessions and the bridge stay connected for interactive use.
+ */
+export async function closeRunSessionsForMemberBrowser(browserId: string): Promise<void> {
+  const sessions = await AppDataSource.getRepository(BrowserSession).find({
+    where: [
+      {
+        memberBrowserId: browserId,
+        runId: Not(IsNull()),
+        status: "pending",
+      },
+      {
+        memberBrowserId: browserId,
+        runId: Not(IsNull()),
+        status: "live",
+      },
+    ],
+  });
+  const { closeBrowserSessionForPolicy } = await import("./browserAccess.js");
+  await Promise.all(sessions.map((session) => closeBrowserSessionForPolicy(session.id)));
 }
 
 /**
@@ -374,9 +410,9 @@ export async function employeeHasMemberBrowserGrant(
  *
  * A choice that no longer authorizes — revoked, un-granted, someone else's, or
  * a Routine on a browser whose owner never allowed unattended use — resolves
- * to `null` here rather than throwing. The spawn falls back to the server
- * browser only because the human's choice was never valid in the first place;
- * once a session is *bound*, `browserAccess.ts` fails closed instead.
+ * to `null` here. The caller must distinguish a missing choice from a selected
+ * Routine browser that became invalid; `loadBrowserConfig` fails the latter
+ * rather than silently switching to the App browser/account.
  */
 export async function resolveMemberBrowserForSpawn(params: {
   employeeId: string;
@@ -411,7 +447,7 @@ export async function resolveMemberBrowserForSpawn(params: {
 
   const browser = await repo().findOneBy({ id: candidateId, companyId: params.companyId });
   if (!browser || browser.revokedAt) return null;
-  if (unattended && !browser.allowUnattended) return null;
+  if (unattended && (!browser.allowUnattended || !browser.routineRecordingConsentAt)) return null;
   if (!(await employeeHasMemberBrowserGrant(params.employeeId, browser.id))) return null;
   return browser;
 }
@@ -439,7 +475,7 @@ export async function memberBrowserUsableForSession(
   if (!(await employeeHasMemberBrowserGrant(employee.id, browser.id))) {
     return { ok: false, reason: "This AI Employee is no longer granted access to that browser" };
   }
-  if (session.runId && !browser.allowUnattended) {
+  if (session.runId && (!browser.allowUnattended || !browser.routineRecordingConsentAt)) {
     // The session carries a Run id, so this is scheduled work by definition —
     // whether or not the Run row can still be read. Looking the row up only to
     // decide would fail open on a deleted or not-yet-committed Run.

@@ -103,13 +103,13 @@ export function SelfHosting() {
         Genosyn does not impose a per-company ceiling on top-level AI work. Chats and Routine runs
         can overlap freely; only chat replies for the same AI Employee are serialized. Size the host
         and any worker replicas for the overlap Members and Routines can create, and monitor your AI
-        Model provider&apos;s concurrency, token, spend, and rate limits. Provider-side throttling still
-        applies.
+        Model provider&apos;s concurrency, token, spend, and rate limits. Provider-side throttling
+        still applies.
       </P>
       <Callout kind="info" title="Command execution is on by default, behind bubblewrap.">
         The standard Docker image ships the <Code>bwrap</Code> executable, so an out-of-the-box
-        install runs sandboxed <Code>bash</Code> and repository work without you deciding anything
-        — and a ChatGPT subscription still signs in beside it on a trusted single-tenant install.
+        install runs sandboxed <Code>bash</Code> and repository work without you deciding anything —
+        and a ChatGPT subscription still signs in beside it on a trusted single-tenant install.
         Bubblewrap needs Linux unprivileged user namespaces, so Genosyn probes the sandbox at boot
         and falls back to <Code>disabled</Code> when it cannot start, logging the reason. In that
         mode there are no coding tools, no repository materialization, and no user-configured stdio
@@ -130,13 +130,12 @@ export function SelfHosting() {
         each AI-authored command gets its own user, PID, IPC and UTS namespaces, a fresh{" "}
         <Code>/proc</Code>, no <Code>/sys</Code>, no network, and a filesystem view holding nothing
         but its workspace — and the container still runs unprivileged as <Code>node</Code> with no
-        added capabilities. Never add <Code>--privileged</Code> or{" "}
-        <Code>--cap-add SYS_ADMIN</Code> instead; those hand the container the host, and neither is
-        needed. To keep the stock profile, install with <Code>GENOSYN_SANDBOX=0</Code> and run
-        without command execution. If the sandbox still cannot start, the host itself is refusing
-        unprivileged user namespaces: on Ubuntu 24.04 and later check{" "}
-        <Code>kernel.apparmor_restrict_unprivileged_userns</Code> and keep Docker current, and on
-        Debian check <Code>kernel.unprivileged_userns_clone</Code>.
+        added capabilities. Never add <Code>--privileged</Code> or <Code>--cap-add SYS_ADMIN</Code>{" "}
+        instead; those hand the container the host, and neither is needed. To keep the stock
+        profile, install with <Code>GENOSYN_SANDBOX=0</Code> and run without command execution. If
+        the sandbox still cannot start, the host itself is refusing unprivileged user namespaces: on
+        Ubuntu 24.04 and later check <Code>kernel.apparmor_restrict_unprivileged_userns</Code> and
+        keep Docker current, and on Debian check <Code>kernel.unprivileged_userns_clone</Code>.
       </Callout>
       <Callout kind="warn" title="Host execution is an explicit unsafe compatibility mode.">
         A trusted, single-company operator can select <Code>host</Code> and separately set{" "}
@@ -189,8 +188,9 @@ export function SelfHosting() {
       <H2 id="data-dir">The data directory</H2>
       <P>
         Files created by tools — the SQLite file, materialized git checkouts, browser state, and
-        uploaded attachments — live under <Code>dataDir</Code>. Souls, Skills, Routines, Run logs,
-        model credentials, and Connection credentials live on encrypted/scoped database rows:
+        uploaded attachments — live under <Code>dataDir</Code>. Routine browser recordings are
+        App-private files there too. Souls, Skills, Routines, Run logs, model credentials, and
+        Connection credentials live on encrypted/scoped database rows:
       </P>
       <pre className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-slate-700">
         {`data/
@@ -198,6 +198,7 @@ export function SelfHosting() {
 ├── .instance-secrets.required
 ├── .private/
 │   ├── browser-state/<company-id>/<employee-id>.json
+│   ├── browser-recordings/<company-id>/<run-id>/
 │   └── code-repository-ssh/<company-id>/<employee-id>.known_hosts
 ├── app.sqlite
 └── companies/<co-slug>/employees/<emp-slug>/
@@ -210,6 +211,24 @@ export function SelfHosting() {
         volume <Code>genosyn-data</Code> there — back that volume up and you&apos;ve backed up
         everything.
       </P>
+      <P>
+        Each file under <Code>.private/browser-recordings</Code> is a silent MP4 from one browser
+        session that a Routine Run actually used. Parallel browser work may create several files for
+        one Run, so recording-heavy Routines can materially increase storage and backup size. These
+        files are capped at 2 GiB each; that includes ample headroom for the longest supported
+        six-hour Run at the recording bitrate. If an encoder stops before the browser session ends,
+        Genosyn marks the recording unavailable rather than publishing a truncated video. These
+        files never enter an AI Employee&apos;s working tree. Genosyn keeps them with the Run
+        history and removes them when the owning Routine or company is deleted; a session that
+        observes a password field has its recording withheld entirely.
+      </P>
+      <Callout kind="info" title="Source installs need ffmpeg and ffprobe">
+        The standard Docker image includes <Code>ffmpeg</Code> for encoding browser recordings and{" "}
+        <Code>ffprobe</Code> for validating recoverable recordings. They are normally installed
+        together. If you run the App directly from source, make sure both are on <Code>PATH</Code>.
+        A missing encoder leaves the Run and its log intact, but its browser recording is shown as
+        unavailable.
+      </Callout>
       <Callout kind="warn" title="Back up the managed instance secrets with the database">
         When the stock placeholders remain, a default self-host install atomically creates strong,
         distinct values in <Code>data/.instance-secrets.json</Code> with file mode <Code>0600</Code>
@@ -260,27 +279,27 @@ export function SelfHosting() {
 
       <H2 id="oauth-apps">OAuth apps for the whole install</H2>
       <P>
-        Integrations that sign in with OAuth — Google, GitHub, Microsoft, LinkedIn, Reddit, X —
-        need a client registered with the provider. Left alone, every Connection has to bring its
-        own, so the first person to connect a Gmail mailbox has to stand up a Google Cloud project
-        before they can start.
+        Integrations that sign in with OAuth — Google, GitHub, Microsoft, LinkedIn, Reddit, X — need
+        a client registered with the provider. Left alone, every Connection has to bring its own, so
+        the first person to connect a Gmail mailbox has to stand up a Google Cloud project before
+        they can start.
       </P>
       <P>
         Do it once instead, at <Code>Admin → Integrations</Code>. Each provider card shows the exact
         redirect URI to allow-list (derived from the <Code>Public URL</Code> above, so set that
-        first) and the ordered steps for that provider&apos;s console.
-        Paste back the Client ID and Client Secret, and every company on the instance can connect
-        that provider with a single click. Registering <Strong>Google</Strong> covers Google
-        Workspace, Google Analytics, Search Console, and Google Ads at once.
+        first) and the ordered steps for that provider&apos;s console. Paste back the Client ID and
+        Client Secret, and every company on the instance can connect that provider with a single
+        click. Registering <Strong>Google</Strong> covers Google Workspace, Google Analytics, Search
+        Console, and Google Ads at once.
       </P>
       <P>
         Secrets are encrypted at rest with the instance key and never returned to the browser; the
         page shows the Client ID and whether a secret is stored. Removing a registration only
-        affects <em>new</em> Connections — existing ones keep the credentials they were created
-        with and go on refreshing their tokens. Rotate the secret while keeping the same Client ID
-        and a <Strong>Reconnect</Strong> moves an existing Connection onto it. Companies that need
-        their own client pick <Strong>Use my own OAuth client instead</Strong> on the connect form,
-        which takes precedence for that Connection.
+        affects <em>new</em> Connections — existing ones keep the credentials they were created with
+        and go on refreshing their tokens. Rotate the secret while keeping the same Client ID and a{" "}
+        <Strong>Reconnect</Strong> moves an existing Connection onto it. Companies that need their
+        own client pick <Strong>Use my own OAuth client instead</Strong> on the connect form, which
+        takes precedence for that Connection.
       </P>
 
       <H2 id="secrets">Secrets and the Password Vault</H2>

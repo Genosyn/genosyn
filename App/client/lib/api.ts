@@ -558,6 +558,22 @@ export type Run = {
   /** Occurrences missed during downtime that this run stands in for. */
   missedSlots?: number;
 };
+export type RunBrowserRecordingStatus =
+  | "recording"
+  | "finalizing"
+  | "ready"
+  | "failed"
+  | "restricted";
+export type RunBrowserRecording = {
+  /** BrowserSession id; one Run may have several when it delegates browser work. */
+  id: string;
+  status: RunBrowserRecordingStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  filename: string | null;
+};
 export type RunLog = {
   content: string;
   truncated?: boolean;
@@ -569,6 +585,11 @@ export type RunLog = {
   finishedAt?: string | null;
   retryAt?: string | null;
   attempt?: number;
+  /**
+   * Silent visual recordings captured by browser sessions that actually ran.
+   * There can be several when a Run delegates parallel browser work.
+   */
+  browserRecordings: RunBrowserRecording[];
 };
 export type Provider = "anthropic" | "openai" | "custom";
 export type AuthMode = "apikey" | "subscription" | "customEndpoint";
@@ -1033,6 +1054,10 @@ export type MemberBrowser = {
   allowedHosts: string | null;
   approvalRequired: boolean;
   allowUnattended: boolean;
+  /** Null for browsers whose unattended opt-in predates Routine recording consent. */
+  routineRecordingConsentAt: string | null;
+  /** True when a pre-recording unattended choice needs the owner to opt in again. */
+  routineRecordingConsentRequired: boolean;
   browserVersion: string | null;
   platform: string | null;
   agentVersion: string | null;

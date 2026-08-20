@@ -15,11 +15,13 @@ export type BrowserSessionCloseReason = "idle" | "shutdown" | "error" | "manual"
  *   - Show the live page URL/title in the panel header without forcing the
  *     viewer to subscribe just to render context.
  *
- * Frames are not stored in the DB — they live in the in-memory fanout hub
- * (`services/browserSessions.ts`) for the duration of the session. When the
- * MCP child closes (manual, idle watchdog, or process exit) the row flips
- * to `closed` with a reason; spawns whose token expires before any frame
- * arrives flip to `expired`.
+ * Frames are not stored in the DB. Live-view frames stay in the in-memory
+ * fanout hub (`services/browserSessions.ts`); Run-linked sessions additionally
+ * feed an App-private MP4 under `.private/browser-recordings/`, whose lifecycle
+ * is derived from this row without adding recording columns. When the MCP
+ * child closes (manual, idle watchdog, or process exit) the row flips to
+ * `closed` with a reason; spawns whose token expires before any frame arrives
+ * flip to `expired`.
  */
 @Entity("browser_sessions")
 @Index(["employeeId", "status"])
@@ -41,6 +43,7 @@ export class BrowserSession {
   conversationId!: string | null;
 
   /** Run that triggered the spawn (when routine-spawned). */
+  @Index()
   @Column({ type: "varchar", nullable: true })
   runId!: string | null;
 
