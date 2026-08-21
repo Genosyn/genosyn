@@ -30,6 +30,7 @@ import {
   pauseBrowserRecording,
   restrictBrowserRecording,
 } from "./browserRecordings.js";
+import { BROWSER_WINDOW_HEIGHT, BROWSER_WINDOW_WIDTH } from "./browserProfile.js";
 
 /**
  * Browser-session lifecycle + in-memory fanout hub.
@@ -613,8 +614,8 @@ export async function createBrowserSession(args: {
     closeReason: null,
     pageUrl: "",
     pageTitle: null,
-    viewportWidth: args.viewportWidth ?? 1280,
-    viewportHeight: args.viewportHeight ?? 800,
+    viewportWidth: args.viewportWidth ?? BROWSER_WINDOW_WIDTH,
+    viewportHeight: args.viewportHeight ?? BROWSER_WINDOW_HEIGHT,
   });
   if (browserSessionCreationBlocked(args.companyId, args.runId) || !(await runStillRunning())) {
     throw new Error("This browser session belongs to a resource that is being removed.");
@@ -2115,8 +2116,8 @@ function ensureState(sessionId: string): SessionState {
       lastFrame: null,
       pageUrl: "",
       pageTitle: null,
-      viewportWidth: 1280,
-      viewportHeight: 800,
+      viewportWidth: BROWSER_WINDOW_WIDTH,
+      viewportHeight: BROWSER_WINDOW_HEIGHT,
       screencasting: false,
       frameCounter: 0,
       pendingRecordingFrame: null,
@@ -2133,11 +2134,11 @@ function ensureState(sessionId: string): SessionState {
 /**
  * Adopt the real size of a browser we do not own.
  *
- * The App picks 1280×800 for its own Chromium and every downstream consumer
- * assumes it. A Member's browser is whatever size their screen made it, and
- * getting this wrong is not cosmetic: the screencast would be captured with
- * the wrong `maxWidth`/`maxHeight` caps (so the frame is downscaled and the
- * text is permanently soft), and the viewer scales take-over clicks by
+ * The App starts its own Chromium at the configured desktop window size. A
+ * Member's browser is whatever size their screen made it, and getting this
+ * wrong is not cosmetic: the screencast would be captured with the wrong
+ * `maxWidth`/`maxHeight` caps (so the frame is downscaled and the text is
+ * permanently soft), and the viewer scales take-over clicks by
  * `viewportWidth / rect.width` — with a stale width, a click near the right
  * edge lands hundreds of pixels away from where the human aimed it.
  *

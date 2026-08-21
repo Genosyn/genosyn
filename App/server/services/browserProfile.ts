@@ -53,9 +53,9 @@ import { config } from "../../config.js";
 
 const execFileAsync = promisify(execFile);
 
-/** The window Chrome opens. The virtual display behind it is larger. */
-export const BROWSER_WINDOW_WIDTH = 1280;
-export const BROWSER_WINDOW_HEIGHT = 800;
+/** The desktop-sized window Chrome opens inside the larger virtual display. */
+export const BROWSER_WINDOW_WIDTH = 1600;
+export const BROWSER_WINDOW_HEIGHT = 1000;
 
 /**
  * Fallback major version, used only when the binary would not tell us its own.

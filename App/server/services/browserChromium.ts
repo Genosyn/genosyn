@@ -9,6 +9,8 @@ import {
   saveStorageState,
 } from "./browserStorage.js";
 import {
+  BROWSER_WINDOW_HEIGHT,
+  BROWSER_WINDOW_WIDTH,
   chromeContextOptions,
   chromeMaskInitScript,
   chromiumLaunchOptions,
@@ -595,7 +597,15 @@ function openSessionWindow(profile: SharedProfile): Promise<unknown> {
     });
     profile.pendingWindow = settle;
     try {
-      await cdp.send("Target.createTarget", { url: "about:blank", newWindow: true });
+      // A persistent profile remembers its last window geometry. Pin every
+      // session window so an old, manually resized window cannot silently
+      // undo the App browser's current desktop-size default.
+      await cdp.send("Target.createTarget", {
+        url: "about:blank",
+        newWindow: true,
+        width: BROWSER_WINDOW_WIDTH,
+        height: BROWSER_WINDOW_HEIGHT,
+      });
       let timer: NodeJS.Timeout | null = null;
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(

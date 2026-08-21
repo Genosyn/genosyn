@@ -166,6 +166,38 @@ describe("live policy behind a bound session", () => {
   });
 });
 
+describe("browser session viewport", () => {
+  test("starts App-owned browser sessions at the desktop size by default", async () => {
+    const emp = await employee();
+    const session = await createBrowserSession({
+      companyId,
+      employeeId: emp.id,
+      conversationId: null,
+      runId: null,
+      memberBrowserId: null,
+    });
+
+    assert.equal(session.viewportWidth, 1600);
+    assert.equal(session.viewportHeight, 1000);
+  });
+
+  test("keeps an explicitly supplied session viewport", async () => {
+    const emp = await employee();
+    const session = await createBrowserSession({
+      companyId,
+      employeeId: emp.id,
+      conversationId: null,
+      runId: null,
+      memberBrowserId: null,
+      viewportWidth: 1440,
+      viewportHeight: 900,
+    });
+
+    assert.equal(session.viewportWidth, 1440);
+    assert.equal(session.viewportHeight, 900);
+  });
+});
+
 describe("reusing a conversation's browser session", () => {
   test("does not reuse a session that drives a different browser", async () => {
     const emp = await employee();

@@ -329,6 +329,14 @@ export function Browser() {
         choice, not an implementation detail.
       </P>
       <P>
+        App-owned Chrome opens in a larger <Strong>1600 × 1000</Strong> window. The page&apos;s
+        usable viewport is slightly shorter because Chrome keeps its normal browser controls. A
+        Member browser keeps the real size of its window instead. The live preview scales the
+        whole page to fit: drag the panel&apos;s left edge wider or use <Strong>Open in new tab</Strong>
+        when you want a larger view. Routine recordings stay capped at 1280 × 800 and preserve
+        the page&apos;s aspect ratio, so the larger working area does not increase recording storage.
+      </P>
+      <P>
         Sites rarely detect &quot;automation&quot; as such. They detect{" "}
         <Strong>contradictions</Strong>: a browser claiming to be Chrome on macOS while its fonts,
         GPU strings and <Code>navigator.platform</Code> all say headless Chromium on Linux. Genosyn

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 
 import {
+  BROWSER_WINDOW_HEIGHT,
+  BROWSER_WINDOW_WIDTH,
   browserIdentity,
   chromeContextOptions,
   chromeMaskInitScript,
@@ -119,7 +121,7 @@ describe("chromeContextOptions", () => {
     injectBrowserIdentityForTests(identity({ headed: false }));
     const options = await chromeContextOptions();
     const viewport = options.viewport as { width: number; height: number };
-    assert.ok(viewport.width > 0 && viewport.height > 0);
+    assert.deepEqual(viewport, { width: 1600, height: 1000 });
   });
 
   test("client hints agree with the user agent on every platform", async () => {
@@ -144,6 +146,18 @@ describe("chromeContextOptions", () => {
     const headers = options.extraHTTPHeaders as Record<string, string>;
     assert.match(String(options.userAgent), /Chrome\/133\.0\.0\.0/);
     assert.match(headers["sec-ch-ua"], /"Google Chrome";v="133"/);
+  });
+});
+
+describe("chromiumLaunchOptions", () => {
+  test("opens the App-owned browser at the desktop size", async () => {
+    injectBrowserIdentityForTests(identity());
+    const options = await chromiumLaunchOptions();
+    const args = options.args as string[];
+
+    assert.equal(BROWSER_WINDOW_WIDTH, 1600);
+    assert.equal(BROWSER_WINDOW_HEIGHT, 1000);
+    assert.ok(args.includes("--window-size=1600,1000"));
   });
 });
 

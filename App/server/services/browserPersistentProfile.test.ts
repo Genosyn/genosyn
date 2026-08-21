@@ -108,6 +108,7 @@ type Harness = {
     ) => Promise<FakeContext>;
   };
   persistentLaunches: Array<{ dir: string; opts: Record<string, unknown> }>;
+  targetRequests: Array<Record<string, unknown>>;
   ephemeralLaunches: number;
   contexts: FakeContext[];
   /** Make the next N persistent launches fail, to exercise the fallback. */
@@ -118,14 +119,17 @@ type Harness = {
 
 let pageSeq = 0;
 
-function makeCdp(ctx: FakeContext, onCreateTarget: (newWindow: boolean) => void): FakeCdp {
+function makeCdp(
+  ctx: FakeContext,
+  onCreateTarget: (params: Record<string, unknown>) => void,
+): FakeCdp {
   const cdp: FakeCdp = {
     sent: [],
     async send(method, params) {
       cdp.sent.push({ method, params });
       if (method === "Target.createTarget") {
-        const p = params as { newWindow?: boolean };
-        onCreateTarget(Boolean(p?.newWindow));
+        const p = (params ?? {}) as Record<string, unknown>;
+        onCreateTarget(p);
         return { targetId: `target-${ctx.pagesList.length}` };
       }
       if (method === "Page.getLayoutMetrics") {
@@ -142,6 +146,7 @@ function makeHarness(): Harness {
   const h: Harness = {
     chromium: { launch: async () => makeBrowser(null) },
     persistentLaunches: [],
+    targetRequests: [],
     ephemeralLaunches: 0,
     contexts: [],
     failPersistent: false,
@@ -217,8 +222,8 @@ function makeHarness(): Harness {
         return p;
       },
       async newCDPSession() {
-        return makeCdp(ctx, (newWindow) => {
-          const p = makePage(ctx, newWindow ? "window" : "tab", null);
+        return makeCdp(ctx, (params) => {
+          const p = makePage(ctx, params.newWindow ? "window" : "tab", null);
           // Chrome surfaces the target asynchronously; the profile listener is
           // what turns it into this session's page.
           setImmediate(() => ctx.emit("page", p));
@@ -249,8 +254,9 @@ function makeHarness(): Harness {
       async newBrowserCDPSession() {
         const ctx = browser.ownContext;
         if (!ctx) throw new Error("no context on this browser");
-        return makeCdp(ctx, (newWindow) => {
-          const p = makePage(ctx, newWindow ? "window" : "tab", null);
+        return makeCdp(ctx, (params) => {
+          h.targetRequests.push(params);
+          const p = makePage(ctx, params.newWindow ? "window" : "tab", null);
           setImmediate(() => ctx.emit("page", p));
         });
       },
@@ -511,6 +517,24 @@ describe("a window per session", () => {
 
     assert.equal(pageA.kind, "window");
     assert.equal(pageB.kind, "window");
+  });
+
+  test("sizes every additional OS window to the App browser default", async () => {
+    await seedCompanyEmployee("acme", "ada");
+    const a = await seedSession("acme", "ada");
+    const b = await seedSession("acme", "ada");
+
+    await acquirePage(a);
+    await acquirePage(b);
+
+    assert.deepEqual(harness.targetRequests, [
+      {
+        url: "about:blank",
+        newWindow: true,
+        width: 1600,
+        height: 1000,
+      },
+    ]);
   });
 
   test("falls back to a tab when there is no browser-level CDP session", async () => {

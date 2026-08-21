@@ -56,8 +56,8 @@ const notice = document.getElementById("notice");
 
 let ws = null;
 let takeover = false;
-let viewportWidth = 1280;
-let viewportHeight = 800;
+let viewportWidth = 1600;
+let viewportHeight = 1000;
 let sessionClosed = false;
 let connectionLabel = "Connecting…";
 let pageTitle = "";
