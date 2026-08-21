@@ -209,17 +209,19 @@ export function Employees() {
           the paperclip, or paste a screenshot and drag files onto the composer. When the employee
           creates a file for you, it appears beneath their reply; select the attachment chip to
           download it. During substantial multi-step work, the employee can replace the typing dots
-          with a live, labelled progress bar and update it at meaningful milestones. The fill keeps
-          moving between milestone updates so you can distinguish active work from a stalled
-          connection without inflating the reported percentage. As soon as the reply begins, the
-          progress bar gives way to the response. Long turns can run for up to six hours. If the
-          live connection drops, you reload the page, or the Genosyn server restarts, Genosyn
-          follows the persisted turn automatically instead of marking it failed. After a server
-          restart, a short renewable database lease lets one replacement worker resume the request
-          safely from its saved context and latest milestone; it checks current state before
-          continuing so completed side effects are not repeated. The final reply reappears in the
-          same thread. You can keep writing while the employee works — follow-ups queue and send in
-          order. Chat stays available while that employee&apos;s Routines run.
+          with a live activity card and update it at meaningful milestones. A new live turn keeps
+          the quiet typing indicator until the employee reports real progress; after that, the card
+          shows its current step and percentage. A restored turn stays indeterminate until its next
+          real milestone, and the card distinguishes live updates from saved updates or a
+          reconnecting browser. As soon as the reply begins, the progress card gives way to the
+          response. Long turns can run for up to six hours. If the live connection drops, you reload
+          the page, or the Genosyn server restarts, Genosyn follows the persisted turn automatically
+          instead of marking it failed. After a server restart, a short renewable database lease
+          lets one replacement worker resume the request safely from its saved context and latest
+          milestone; it checks current state before continuing so completed side effects are not
+          repeated. The final reply reappears in the same thread. You can keep writing while the
+          employee works — follow-ups queue and send in order. Chat stays available while that
+          employee&apos;s Routines run.
           <br />
           <br />
           Under the composer, next to the model picker, Genosyn shows{" "}

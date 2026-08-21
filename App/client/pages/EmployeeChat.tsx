@@ -14,6 +14,7 @@ import {
   Clock,
   Download,
   Gauge,
+  LoaderCircle,
   MessageSquarePlus,
   Paperclip,
   Plug,
@@ -34,6 +35,7 @@ import {
   MessageAction,
 } from "../lib/api";
 import { describeContextUsage } from "../lib/chatContextUsage";
+import { isIndeterminateChatProgress, shouldShowChatProgressCard } from "../lib/chatProgress";
 import { type EmployeeSession, QueuedChatMessage, useEmployeeSession } from "../lib/chatSessions";
 import { type ComposerModelOverride, resolveComposerModelId } from "../lib/composerModel";
 import { useComposerFileDrop } from "../lib/fileDrop";
@@ -115,6 +117,13 @@ export default function EmployeeChat() {
   const isActiveResponse =
     sending && (sendingConvId === activeConvId || (!sendingConvId && !activeConvId));
   const hasStreamingReply = streamingReply !== null && streamingReply.length > 0;
+  const hasProgressCard = progress
+    ? shouldShowChatProgressCard(progress.percent, progress.label, connectionState)
+    : false;
+  const showTypingIndicator =
+    isActiveResponse && !hasStreamingReply && (!progress || !hasProgressCard);
+  const showProgressIndicator =
+    isActiveResponse && !hasStreamingReply && Boolean(progress) && hasProgressCard;
   const visibleMessages = messages.filter((message) => message.status !== "working");
 
   // Onboarding and other guided surfaces can hand chat a draft without
@@ -496,7 +505,7 @@ export default function EmployeeChat() {
                 {isActiveResponse && hasStreamingReply && (
                   <StreamingBubble authorName={emp.name} content={streamingReply} />
                 )}
-                {isActiveResponse && progress && !hasStreamingReply && (
+                {showProgressIndicator && progress && (
                   <ProgressIndicator
                     authorName={emp.name}
                     percent={progress.percent}
@@ -504,9 +513,7 @@ export default function EmployeeChat() {
                     connectionState={connectionState}
                   />
                 )}
-                {isActiveResponse && !progress && !hasStreamingReply && (
-                  <TypingIndicator authorName={emp.name} />
-                )}
+                {showTypingIndicator && <TypingIndicator authorName={emp.name} />}
                 {visibleQueuedMessages.length > 0 && (
                   <QueuedMessageStack
                     messages={visibleQueuedMessages}
@@ -965,7 +972,12 @@ function StreamingBubble({ authorName, content }: { authorName: string; content:
 
 function TypingIndicator({ authorName }: { authorName: string }) {
   return (
-    <div className="flex justify-start gap-2.5">
+    <div
+      className="flex justify-start gap-2.5"
+      role="status"
+      aria-live="polite"
+      aria-label={`${authorName} is working`}
+    >
       <div className="w-9 shrink-0">
         <Avatar name={authorName} size={32} />
       </div>
@@ -994,70 +1006,106 @@ function ProgressIndicator({
   label: string;
   connectionState: EmployeeSession["connectionState"];
 }) {
-  const reconnecting = connectionState === "reconnecting";
+  const indeterminate = isIndeterminateChatProgress(percent, label);
+
   return (
-    <div
-      className="flex justify-start gap-2.5"
-      role="status"
-      aria-live="polite"
-      aria-label={`${authorName} is ${percent}% complete: ${label}`}
-    >
+    <div className="flex justify-start gap-2.5">
       <div className="w-9 shrink-0">
         <Avatar name={authorName} size={32} />
       </div>
-      <div className="w-full min-w-0 max-w-[85%] sm:max-w-[75%]">
+      <div className="w-full min-w-0 max-w-[85%] sm:max-w-md">
         <div className="mb-1 text-[11px] font-medium text-slate-700 dark:text-slate-200">
           {authorName}
         </div>
-        <div className="rounded-2xl rounded-tl-md border border-indigo-200 bg-white px-3.5 py-3 shadow-sm dark:border-indigo-500/30 dark:bg-slate-900">
-          <div className="mb-2 flex items-center justify-between gap-4 text-xs">
-            <span className="min-w-0 truncate font-medium text-slate-700 dark:text-slate-200">
-              {label}
-            </span>
-            <span className="shrink-0 font-semibold tabular-nums text-indigo-600 dark:text-indigo-300">
-              {percent}%
-            </span>
-          </div>
-          <div
-            className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
-            role="progressbar"
-            aria-label={label}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={percent}
-          >
-            <div
-              className="chat-progress-fill h-full rounded-full transition-[width] duration-500 ease-out"
-              style={{ width: `${percent}%` }}
-              aria-hidden="true"
-            />
-          </div>
-          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px]">
-            <span
-              className={
-                "inline-flex items-center gap-1.5 font-medium " +
-                (reconnecting
-                  ? "text-amber-700 dark:text-amber-300"
-                  : "text-emerald-700 dark:text-emerald-300")
-              }
-            >
-              {reconnecting ? (
-                <RefreshCw size={11} className="animate-spin" />
-              ) : (
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              )}
-              {reconnecting
-                ? "Reconnecting to updates…"
-                : connectionState === "polling"
-                  ? "Working · following saved updates"
-                  : "Working · live updates"}
-            </span>
-            <span className="text-slate-500 dark:text-slate-400">
-              Add a follow-up below — it will be queued
-            </span>
-          </div>
+        <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3.5 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          {indeterminate ? (
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+                <LoaderCircle size={15} className="motion-safe:animate-spin" aria-hidden="true" />
+              </span>
+              <div className="min-w-0">
+                <div className="break-words text-xs font-medium leading-5 text-slate-700 dark:text-slate-200">
+                  {label}
+                </div>
+                <ProgressConnectionStatus
+                  connectionState={connectionState}
+                  announcementPrefix={`${authorName}: ${label}`}
+                />
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="mb-2 flex items-start justify-between gap-4 text-xs">
+                <span className="min-w-0 break-words font-medium leading-5 text-slate-700 dark:text-slate-200">
+                  {label}
+                </span>
+                <span className="mt-0.5 shrink-0 font-medium tabular-nums text-slate-500 dark:text-slate-400">
+                  {percent}%
+                </span>
+              </div>
+              <div
+                className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
+                role="progressbar"
+                aria-label={`${authorName} progress`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={percent}
+                aria-valuetext={`${label}, ${percent}% complete`}
+              >
+                <div
+                  className="h-full min-w-[0.375rem] rounded-full bg-indigo-600 transition-[width] duration-500 ease-out dark:bg-indigo-500"
+                  style={{ width: `${percent}%` }}
+                  aria-hidden="true"
+                />
+              </div>
+              <ProgressConnectionStatus connectionState={connectionState} />
+            </>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ProgressConnectionStatus({
+  connectionState,
+  announcementPrefix,
+}: {
+  connectionState: EmployeeSession["connectionState"];
+  announcementPrefix?: string;
+}) {
+  const reconnecting = connectionState === "reconnecting";
+  const live = connectionState === "streaming";
+  const label = reconnecting
+    ? "Reconnecting…"
+    : connectionState === "polling"
+      ? "Following saved updates"
+      : live
+        ? "Live updates"
+        : "Checking for updates";
+  const tone = reconnecting
+    ? "text-amber-700 dark:text-amber-300"
+    : live
+      ? "text-emerald-700 dark:text-emerald-300"
+      : "text-slate-500 dark:text-slate-400";
+
+  return (
+    <div
+      className={`mt-1.5 inline-flex items-center gap-1.5 text-[11px] ${tone}`}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      aria-label={announcementPrefix ? `${announcementPrefix}. ${label}` : undefined}
+    >
+      {reconnecting ? (
+        <RefreshCw size={11} className="motion-safe:animate-spin" aria-hidden="true" />
+      ) : (
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${live ? "bg-emerald-500" : "bg-slate-400 dark:bg-slate-500"}`}
+          aria-hidden="true"
+        />
+      )}
+      {label}
     </div>
   );
 }
