@@ -21,6 +21,7 @@ import { bootMailHandovers } from "./services/mail/handovers.js";
 import { bootMailDraftSendQueue } from "./services/mail/draftSendQueue.js";
 import { bootMailAutomationQueue } from "./services/mail/automationQueue.js";
 import { finalizeInterruptedAssistantTurns } from "./services/mail/assistant.js";
+import { finalizeInterruptedTldrQuestionTurns } from "./services/tldrQuestions.js";
 import { attachRealtime, bootRealtimeBridge } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
@@ -173,6 +174,10 @@ async function main() {
   void finalizeInterruptedAssistantTurns().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[mail] assistant turn recovery failed:", err);
+  });
+  void finalizeInterruptedTldrQuestionTurns().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[tldr:question] turn recovery failed:", err);
   });
 
   const app = express();

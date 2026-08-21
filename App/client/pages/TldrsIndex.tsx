@@ -11,11 +11,11 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { Link, useOutletContext } from "react-router-dom";
+import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { useLiveRefetch } from "@/components/CompanySocket";
-import { TldrDiscussButton } from "@/components/tldrs/TldrDiscussButton";
+import { TldrQuestions } from "@/components/tldrs/TldrQuestions";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -35,6 +35,10 @@ export default function TldrsIndex() {
   const [error, setError] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<Filter>("unread");
   const [loadingMore, setLoadingMore] = React.useState(false);
+  // Home's Discuss link names the briefing to open, so arriving from there ends
+  // in a composer rather than merely scrolled next to one.
+  const [searchParams] = useSearchParams();
+  const discussId = searchParams.get("discuss");
 
   const reload = React.useCallback(async () => {
     setError(null);
@@ -55,7 +59,9 @@ export default function TldrsIndex() {
     void reload();
   }, [reload]);
 
-  useLiveRefetch("tldr", reload);
+  // `tldr_question` too: the Discuss badge counts cards, and asking or removing
+  // one never touches the briefing row that the "tldr" kind announces.
+  useLiveRefetch(["tldr", "tldr_question"], reload);
 
   // Home links to a specific briefing. The card arrives after the fetch, so
   // scroll once the target has actually mounted rather than relying on the
@@ -342,7 +348,13 @@ export default function TldrsIndex() {
                   </div>
                   <div className="space-y-3">
                     {items.map((item) => (
-                      <TldrCard key={item.id} company={company} item={item} onDismiss={dismiss} />
+                      <TldrCard
+                        key={item.id}
+                        company={company}
+                        item={item}
+                        onDismiss={dismiss}
+                        openDiscussion={item.id === discussId}
+                      />
                     ))}
                   </div>
                 </section>
@@ -403,10 +415,13 @@ function TldrCard({
   company,
   item,
   onDismiss,
+  openDiscussion = false,
 }: {
   company: TldrsOutletContext["company"];
   item: TldrItem;
   onDismiss: (item: TldrItem) => void;
+  /** Arrived here from a Discuss link naming this briefing. */
+  openDiscussion?: boolean;
 }) {
   const employee = item.employee;
   const avatar = employee.id
@@ -414,6 +429,9 @@ function TldrCard({
     : null;
   const body = item.body.trim();
   const summary = item.summary.trim();
+  // Discussion happens here, beside the briefing being discussed — opening it
+  // used to mean leaving the page for the employee's own chat window.
+  const [discussing, setDiscussing] = React.useState(openDiscussion);
 
   return (
     <article
@@ -449,7 +467,28 @@ function TldrCard({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
-          <TldrDiscussButton company={company} item={item} compact />
+          {/* Shown without a writer too, whenever cards exist: deleting the
+              AI Employee stops new questions, but the answers a teammate
+              already read stay theirs to reopen and remove. */}
+          {(employee.id || item.questionCount > 0) && !discussing && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setDiscussing(true)}
+              title={
+                employee.id
+                  ? `Ask ${employee.name || "the AI Employee"} about this briefing, here on this page`
+                  : "Read the questions already asked about this briefing"
+              }
+            >
+              <MessageSquare size={14} /> {employee.id ? "Discuss" : "Questions"}
+              {item.questionCount > 0 && (
+                <span className="tabular-nums text-slate-400 dark:text-slate-500">
+                  {item.questionCount}
+                </span>
+              )}
+            </Button>
+          )}
           {item.triggerKind === "manual" && (
             <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               Generated manually
@@ -486,6 +525,13 @@ function TldrCard({
         )}
 
         <SourceStats item={item} />
+
+        <TldrQuestions
+          company={company}
+          item={item}
+          open={discussing}
+          onOpenChange={setDiscussing}
+        />
       </div>
     </article>
   );

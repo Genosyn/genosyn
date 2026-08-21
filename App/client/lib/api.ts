@@ -2617,6 +2617,8 @@ export type TldrItem = {
   /** Per-Member read state. The underlying company briefing is never deleted. */
   dismissed: boolean;
   triggerKind: "schedule" | "manual";
+  /** Question cards already asked about this briefing. */
+  questionCount: number;
 };
 
 export type TldrListResponse = {

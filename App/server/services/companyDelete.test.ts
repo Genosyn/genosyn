@@ -26,6 +26,8 @@ import { Tag } from "../db/entities/Tag.js";
 import { TagAssignment } from "../db/entities/TagAssignment.js";
 import { Tldr } from "../db/entities/Tldr.js";
 import { TldrDismissal } from "../db/entities/TldrDismissal.js";
+import { TldrQuestion } from "../db/entities/TldrQuestion.js";
+import { TldrQuestionMessage } from "../db/entities/TldrQuestionMessage.js";
 import { TldrSettings } from "../db/entities/TldrSettings.js";
 import { VendorCredit } from "../db/entities/VendorCredit.js";
 import { VendorCreditApplication } from "../db/entities/VendorCreditApplication.js";
@@ -55,6 +57,8 @@ const REGRESSION_ENTITIES: EntityTarget<ObjectLiteral>[] = [
   Tag,
   Tldr,
   TldrDismissal,
+  TldrQuestion,
+  TldrQuestionMessage,
   TldrSettings,
   VendorCredit,
   VendorCreditApplication,

@@ -5,16 +5,25 @@ import { TLDR_CADENCES } from "../db/entities/TldrSettings.js";
 import {
   onRoutePaths,
   requireAuth,
+  requireBrowserSession,
   requireCompanyMember,
   requireCompanyRoleForMutations,
 } from "../middleware/auth.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import {
+  deleteTldrQuestion,
+  listTldrQuestions,
+  runTldrQuestionTurn,
+  TLDR_QUESTION_MESSAGE_MAX_CHARS,
+  TLDR_QUESTION_PROMPT_MAX_CHARS,
+} from "../services/tldrQuestions.js";
+import {
   dismissTldr,
   generateTldrNow,
   getTldrSettings,
   listTldrs,
+  questionCounts,
   serializeTldr,
   updateTldrSettings,
 } from "../services/tldrs.js";
@@ -160,6 +169,192 @@ tldrsRouter.post(
         targetLabel: result.tldr.title,
       });
     }
-    res.json(serializeTldr(result.tldr, true));
+    const counts = await questionCounts([result.tldr.id]);
+    res.json(serializeTldr(result.tldr, true, counts.get(result.tldr.id) ?? 0));
+  }),
+);
+
+// ───────────────────────────── question cards ─────────────────────────────
+
+const questionParamsSchema = z
+  .object({ cid: z.string().uuid(), id: z.string().uuid(), qid: z.string().uuid() })
+  .strict();
+
+const askQuestionSchema = z
+  .object({
+    prompt: z.string().trim().min(1).max(TLDR_QUESTION_PROMPT_MAX_CHARS),
+    modelId: z.string().uuid().nullable().optional().default(null),
+  })
+  .strict();
+
+const questionMessageSchema = z
+  .object({
+    message: z.string().trim().min(1).max(TLDR_QUESTION_MESSAGE_MAX_CHARS),
+    modelId: z.string().uuid().nullable().optional().default(null),
+  })
+  .strict();
+
+/**
+ * How often a card's turn stream emits an SSE keepalive comment. A reply can
+ * spend minutes between visible chunks while the employee reads the briefing
+ * and runs tools, and any idle reverse proxy in front of a self-hosted Genosyn
+ * (nginx `proxy_read_timeout` 60s, Caddy, cloud load balancers at 30–100s)
+ * resets a silent connection — which the browser reports as a bare `network
+ * error` mid-reply. Same value every other stream in the product uses.
+ */
+const TLDR_QUESTION_STREAM_HEARTBEAT_MS = 15_000;
+
+/**
+ * One card turn, streamed over SSE. Event grammar: `question` (ask flow only)
+ * → `user` (discuss flow only) → `working` → `chunk*` → `assistant` → `done`.
+ * Errors arrive as events too, so the client's rendering stays uniform.
+ *
+ * The turn is not tied to this connection: once `working` has been written the
+ * row owns the reply, and a client that loses the stream re-reads it from the
+ * card list instead of losing the answer.
+ */
+function questionStream(
+  run: (req: Request, emit: (event: string, data: unknown) => void) => Promise<void>,
+): RequestHandler {
+  return (req, res, next) => {
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    const writeEvent = (event: string, data: unknown) => {
+      if (res.writableEnded || res.destroyed) return;
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded && !res.destroyed) res.write(`: keepalive\n\n`);
+    }, TLDR_QUESTION_STREAM_HEARTBEAT_MS);
+    heartbeat.unref?.();
+    res.on("close", () => clearInterval(heartbeat));
+
+    run(req, writeEvent)
+      .then(() => {
+        writeEvent("done", {});
+        if (!res.writableEnded && !res.destroyed) res.end();
+      })
+      .catch((error: unknown) => {
+        if (!res.writableEnded && !res.destroyed) {
+          writeEvent("error", {
+            message: error instanceof Error ? error.message : "This reply could not be started.",
+          });
+          writeEvent("done", {});
+          res.end();
+        } else if (!res.destroyed) {
+          next(error);
+        }
+      })
+      .finally(() => clearInterval(heartbeat));
+  };
+}
+
+tldrsRouter.get(
+  "/tldrs/:id/questions",
+  validateParams(tldrParamsSchema),
+  h(async (req, res) => {
+    res.json(
+      await listTldrQuestions({
+        companyId: cid(req),
+        tldrId: req.params.id,
+        userId: req.userId!,
+      }),
+    );
+  }),
+);
+
+tldrsRouter.post(
+  "/tldrs/:id/questions",
+  requireBrowserSession,
+  validateParams(tldrParamsSchema),
+  validateBody(askQuestionSchema),
+  questionStream(async (req, emit) => {
+    const body = req.body as z.infer<typeof askQuestionSchema>;
+    let askedId: string | null = null;
+    await runTldrQuestionTurn({
+      companyId: cid(req),
+      tldrId: req.params.id as string,
+      prompt: body.prompt,
+      modelId: body.modelId,
+      userId: req.userId!,
+      requesterSessionVersion: req.session!.sessionVersion!,
+      callbacks: {
+        onQuestion: (question) => {
+          askedId = question.id;
+          emit("question", question);
+        },
+        onUser: (message) => emit("user", message),
+        onWorking: (message) => emit("working", message),
+        onChunk: (text) => emit("chunk", { text }),
+        onAssistant: (message) => emit("assistant", message),
+      },
+    });
+    await recordAudit({
+      companyId: cid(req),
+      actorUserId: req.userId ?? null,
+      action: "tldr.question.ask",
+      targetType: "tldr_question",
+      targetId: askedId,
+      targetLabel: body.prompt.slice(0, 160),
+      metadata: { tldrId: req.params.id },
+    });
+  }),
+);
+
+tldrsRouter.post(
+  "/tldrs/:id/questions/:qid/messages",
+  requireBrowserSession,
+  validateParams(questionParamsSchema),
+  validateBody(questionMessageSchema),
+  // No audit row per message: the conversation is not the change. Anything the
+  // employee actually does on this turn audits itself at the tool boundary.
+  questionStream(async (req, emit) => {
+    const body = req.body as z.infer<typeof questionMessageSchema>;
+    await runTldrQuestionTurn({
+      companyId: cid(req),
+      tldrId: req.params.id as string,
+      questionId: req.params.qid as string,
+      message: body.message,
+      modelId: body.modelId,
+      userId: req.userId!,
+      requesterSessionVersion: req.session!.sessionVersion!,
+      callbacks: {
+        onQuestion: () => {},
+        onUser: (message) => emit("user", message),
+        onWorking: (message) => emit("working", message),
+        onChunk: (text) => emit("chunk", { text }),
+        onAssistant: (message) => emit("assistant", message),
+      },
+    });
+  }),
+);
+
+tldrsRouter.delete(
+  "/tldrs/:id/questions/:qid",
+  validateParams(questionParamsSchema),
+  h(async (req, res) => {
+    const question = await deleteTldrQuestion({
+      companyId: cid(req),
+      tldrId: req.params.id,
+      questionId: req.params.qid,
+      userId: req.userId!,
+      isAdmin: req.companyRole === "owner" || req.companyRole === "admin",
+    });
+    await recordAudit({
+      companyId: cid(req),
+      actorUserId: req.userId ?? null,
+      action: "tldr.question.delete",
+      targetType: "tldr_question",
+      targetId: question.id,
+      targetLabel: question.prompt.slice(0, 160),
+      metadata: { tldrId: question.tldrId },
+    });
+    res.json({ ok: true });
   }),
 );

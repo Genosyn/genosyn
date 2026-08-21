@@ -11,6 +11,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { Tldr, type TldrTriggerKind } from "../db/entities/Tldr.js";
 import { TldrDismissal } from "../db/entities/TldrDismissal.js";
+import { TldrQuestion } from "../db/entities/TldrQuestion.js";
 import { TLDR_CADENCES, TldrSettings, type TldrCadence } from "../db/entities/TldrSettings.js";
 import { User } from "../db/entities/User.js";
 import { redactSensitiveText } from "./approvalRedaction.js";
@@ -78,6 +79,8 @@ export type TldrDTO = {
   employee: TldrEmployeeSnapshot;
   dismissed: boolean;
   triggerKind: TldrTriggerKind;
+  /** Question cards already asked about this briefing. */
+  questionCount: number;
 };
 
 export type TldrSettingsDTO = {
@@ -199,7 +202,7 @@ function sourceStats(value: string): TldrSourceStats {
   }
 }
 
-export function serializeTldr(tldr: Tldr, dismissed = false): TldrDTO {
+export function serializeTldr(tldr: Tldr, dismissed = false, questionCount = 0): TldrDTO {
   return {
     id: tldr.id,
     title: tldr.title,
@@ -212,7 +215,26 @@ export function serializeTldr(tldr: Tldr, dismissed = false): TldrDTO {
     employee: storedEmployeeSnapshot(tldr),
     dismissed,
     triggerKind: tldr.triggerKind,
+    questionCount,
   };
+}
+
+/**
+ * How many question cards hang off each of these briefings.
+ *
+ * Grouped in one query rather than per row: a page of briefings would otherwise
+ * cost a round-trip each just to render a count beside a button.
+ */
+export async function questionCounts(tldrIds: string[]): Promise<Map<string, number>> {
+  if (tldrIds.length === 0) return new Map();
+  const rows = await AppDataSource.getRepository(TldrQuestion)
+    .createQueryBuilder("question")
+    .select("question.tldrId", "tldrId")
+    .addSelect("COUNT(*)", "count")
+    .where("question.tldrId IN (:...tldrIds)", { tldrIds })
+    .groupBy("question.tldrId")
+    .getRawMany<{ tldrId: string; count: string | number }>();
+  return new Map(rows.map((row) => [row.tldrId, Number(row.count) || 0]));
 }
 
 async function hydrateSettings(row: TldrSettings | null): Promise<TldrSettingsDTO> {
@@ -982,6 +1004,7 @@ export async function listTldrs(params: {
       })
     : [];
   const dismissedIds = new Set(dismissals.map((row) => row.tldrId));
+  const questions = await questionCounts(rows.map((row) => row.id));
   const [total, unreadCount] = await Promise.all([
     repo.countBy({ companyId: params.companyId, status: "ready" }),
     repo
@@ -998,7 +1021,9 @@ export async function listTldrs(params: {
       .getCount(),
   ]);
   return {
-    items: rows.map((row) => serializeTldr(row, dismissedIds.has(row.id))),
+    items: rows.map((row) =>
+      serializeTldr(row, dismissedIds.has(row.id), questions.get(row.id) ?? 0),
+    ),
     total,
     unreadCount,
   };
@@ -1029,7 +1054,11 @@ export async function listHomeTldrs(params: {
       .getMany(),
     base.clone().getCount(),
   ]);
-  return { items: rows.map((row) => serializeTldr(row, false)), unreadCount };
+  const questions = await questionCounts(rows.map((row) => row.id));
+  return {
+    items: rows.map((row) => serializeTldr(row, false, questions.get(row.id) ?? 0)),
+    unreadCount,
+  };
 }
 
 export async function dismissTldr(params: {
@@ -1082,5 +1111,11 @@ export async function detachEmployeeFromTldrs(
       await settingsRepo.save(settings);
     }
     await manager.getRepository(Tldr).update({ companyId, employeeId }, { employeeId: null });
+    // Question cards keep their answers and read fine off the briefing's
+    // stored employee snapshot, but nothing may run a new turn against a
+    // deleted employee — the null pin is what refuses it.
+    await manager
+      .getRepository(TldrQuestion)
+      .update({ companyId, employeeId }, { employeeId: null });
   });
 }

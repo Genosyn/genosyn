@@ -49,6 +49,8 @@ import { Resource } from "../db/entities/Resource.js";
 import { Todo } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
 import { TldrDismissal } from "../db/entities/TldrDismissal.js";
+import { TldrQuestion } from "../db/entities/TldrQuestion.js";
+import { TldrQuestionMessage } from "../db/entities/TldrQuestionMessage.js";
 import { User } from "../db/entities/User.js";
 import { Vendor } from "../db/entities/Vendor.js";
 import { WebAuthnCredential } from "../db/entities/WebAuthnCredential.js";
@@ -169,6 +171,10 @@ export async function deleteUserCascade(args: { userId: string }): Promise<Delet
     await m.update(JournalEntry, { authorUserId: userId }, { authorUserId: null });
     await m.update(TodoComment, { authorUserId: userId }, { authorUserId: null });
     await m.update(VaultItem, { createdByUserId: userId }, { createdByUserId: null });
+    // The card and its thread stay readable to the company that kept them;
+    // only the departed Member's name comes off the question.
+    await m.update(TldrQuestion, { createdByUserId: userId }, { createdByUserId: null });
+    await m.update(TldrQuestionMessage, { createdByUserId: userId }, { createdByUserId: null });
 
     await m.update(Todo, { assigneeUserId: userId }, { assigneeUserId: null });
     await m.update(Todo, { reviewerUserId: userId }, { reviewerUserId: null });

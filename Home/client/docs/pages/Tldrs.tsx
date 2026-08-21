@@ -53,27 +53,63 @@ export function Tldrs() {
         model. They never appear in a company-wide TLDR.
       </Callout>
 
-      <H2 id="discuss">Discuss a TLDR</H2>
+      <H2 id="questions">Ask questions about a TLDR</H2>
       <P>
-        Choose <Strong>Discuss with</Strong> on a Home recap or <Strong>Discuss</Strong> in TLDR
-        history. Genosyn opens a new private Chat with the AI Employee who wrote it and fills the
-        composer with a secure reference to the recap. Review or edit the message, add your
-        question, then send it when you are ready. Opening Chat never sends anything by itself.
+        A recap says what happened. The questions you actually have afterwards — what to change,
+        what to stop — are answered on <Strong>question cards</Strong> beside the brief rather than
+        inside it. Choose <Strong>Discuss</Strong> on a TLDR to open them.
+      </P>
+      <UL>
+        <LI>
+          Click a suggested question such as <Strong>What can be improved?</Strong> or{" "}
+          <Strong>What should we stop doing?</Strong>, or type your own.
+        </LI>
+        <LI>
+          Each question becomes its own card, answered by the AI Employee who wrote the briefing.
+          The brief itself is never edited.
+        </LI>
+        <LI>
+          Cards are company-wide, like the briefing. Anyone in the company sees them; the Member who
+          asked, and any owner or admin, can remove one.
+        </LI>
+      </UL>
+      <P>
+        The first answer on a card is discussion-only. Genosyn runs it on the same restricted path
+        the briefing itself uses, with no tools at all, and treats the recap as untrusted reference
+        data — so text inside a briefing cannot trigger an action.
+      </P>
+
+      <H2 id="discuss">Discuss a TLDR without leaving the page</H2>
+      <P>
+        Reply on any card to keep talking. Follow-ups run as ordinary AI Employee Chat with your own
+        access, on the same page as the briefing — so when the employee proposes something, you can
+        simply ask for it. <Strong>Add a routine for that</Strong> creates the{" "}
+        <DocLink to="/docs/routines">Routine</DocLink>, rather than another paragraph describing
+        one.
       </P>
       <P>
-        The first reply is discussion-only: Genosyn gives the employee one read-only TLDR tool and
-        treats the recap as untrusted reference data, so text inside it cannot trigger an action.
-        Follow-ups are ordinary direct AI Employee Chat: they are private to you and are not copied
-        into a future company-wide TLDR. If the original writer has since been removed, the saved
-        TLDR remains readable but cannot open a new conversation with that employee.
+        A card and its conversation are company-wide and stay attached to the briefing. If the
+        writer has since been removed, existing cards remain readable but no new question can be
+        asked about that TLDR.
       </P>
+      <Callout kind="warn" title="Scheduling automation is an owner or admin action">
+        A Member can ask any question and discuss any answer, but creating or changing a Routine
+        needs an owner or admin. Asked by anyone else, the AI Employee writes the proposal out and
+        says who has to run it — it will not claim to have made a change it cannot make.
+      </Callout>
 
       <H2 id="safe-summary">The writer can summarize, not act</H2>
       <P>
         Genosyn treats the source material as untrusted and runs the chosen employee&apos;s model in
         a restricted summarization turn. It receives no coding, browser, Integration, Genosyn, or
         company MCP tools. Writing a TLDR cannot send a message, change a record, or use the
-        employee&apos;s Grants.
+        employee&apos;s Grants. The first answer on a question card runs on that same restricted
+        path.
+      </P>
+      <P>
+        Acting is a separate step you take deliberately. Only a follow-up you send on a card carries
+        tools, and it carries exactly your own access — never more, and never on the strength of
+        something written inside a briefing.
       </P>
 
       <H2 id="read-and-dismiss">Read and dismiss</H2>

@@ -70,6 +70,12 @@ const REGISTRY: Record<string, Mapping> = {
   // Dismissal is Member-private state. Announce only that TLDR state changed;
   // never put the acting user id on the company-wide realtime frame.
   TldrDismissal: { kind: "tldr", company: "direct" },
+  // A card another Member asks should appear on a TLDR page that is already
+  // open. Its messages are deliberately NOT registered: a per-card AI
+  // transcript is not a live resource, and announcing every `working` write
+  // would fan a company-wide refetch on each keystroke of a streamed reply.
+  // The panel's own SSE stream and follow-poll own that.
+  TldrQuestion: { kind: "tldr_question", company: "direct", scopeFk: "tldrId" },
   Handoff: { kind: "handoff", company: "direct" },
   JournalEntry: {
     kind: "journal",

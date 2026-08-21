@@ -188,7 +188,8 @@ export const DOCS_NAV: DocsSection[] = [
       {
         path: "/docs/tldrs",
         title: "TLDRs",
-        blurb: "Periodic AI-written recaps of public Workspace and terminal Routine activity.",
+        blurb:
+          "Periodic AI-written recaps, with question cards you can ask and discuss in place.",
       },
       {
         path: "/docs/vault",

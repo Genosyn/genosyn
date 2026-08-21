@@ -6,9 +6,12 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import express from "express";
 
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { AppDataSource } from "../db/datasource.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Tldr } from "../db/entities/Tldr.js";
+import { TldrQuestion } from "../db/entities/TldrQuestion.js";
+import { TldrQuestionMessage } from "../db/entities/TldrQuestionMessage.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
@@ -234,5 +237,146 @@ describe("TLDR route contract and authorization", () => {
       400,
     );
     assert.equal((await call("POST", "/tldrs/generate", { surprise: true })).status, 400);
+  });
+});
+
+/**
+ * Read a whole SSE response into its `(event, data)` pairs.
+ *
+ * These endpoints answer errors as events rather than status codes, because by
+ * the time anything can go wrong the headers are already flushed — so a test
+ * that asserted on `response.status` would pass while the human saw nothing.
+ */
+async function stream(
+  path: string,
+  body: unknown,
+  companyId = company.id,
+): Promise<{ status: number; events: Array<[string, Record<string, unknown>]> }> {
+  const response = await fetch(`${baseUrl}/api/companies/${companyId}${path}`, {
+    method: "POST",
+    headers: { connection: "close", "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  const events: Array<[string, Record<string, unknown>]> = [];
+  for (const frame of text.split("\n\n")) {
+    const lines = frame.split("\n");
+    const name = lines.find((l) => l.startsWith("event:"))?.slice(6).trim();
+    const data = lines.find((l) => l.startsWith("data:"))?.slice(5).trim();
+    if (!name) continue;
+    events.push([name, data ? (JSON.parse(data) as Record<string, unknown>) : {}]);
+  }
+  return { status: response.status, events };
+}
+
+describe("TLDR question cards", () => {
+  test("any Member can ask, and the turn is persisted before the model runs", async () => {
+    const tldr = await readyTldr();
+    actingUserId = member.id;
+
+    const asked = await stream(`/tldrs/${tldr.id}/questions`, {
+      prompt: "What can be improved?",
+    });
+    assert.equal(asked.status, 200);
+    assert.deepEqual(
+      asked.events.map(([name]) => name),
+      ["question", "working", "assistant", "done"],
+    );
+
+    const card = await AppDataSource.getRepository(TldrQuestion).findOneByOrFail({
+      tldrId: tldr.id,
+    });
+    assert.equal(card.prompt, "What can be improved?");
+    assert.equal(card.createdByUserId, member.id);
+
+    // No AI Model is connected in this harness, so the turn finalizes with an
+    // honest explanation rather than a spinner nobody will ever close.
+    const rows = await AppDataSource.getRepository(TldrQuestionMessage).find({
+      where: { questionId: card.id },
+      order: { createdAt: "ASC" },
+    });
+    assert.equal(rows.length, 2);
+    assert.equal(rows[1].status, "error");
+    assert.match(rows[1].content, /needs a connected active AI Model/);
+    assert.equal(
+      await AppDataSource.getRepository(TldrQuestionMessage).countBy({ status: "working" }),
+      0,
+    );
+
+    const listed = await call<{
+      questions: Array<{ id: string; prompt: string; messages: unknown[] }>;
+      canAsk: boolean;
+      canDelegateAutomation: boolean;
+    }>("GET", `/tldrs/${tldr.id}/questions`);
+    assert.equal(listed.status, 200);
+    assert.equal(listed.body.questions.length, 1);
+    assert.equal(listed.body.canAsk, true);
+    // A plain Member cannot delegate the tools that change company automation.
+    assert.equal(listed.body.canDelegateAutomation, false);
+    // The seeded prompt row is the card header, not a line of the thread.
+    assert.equal(listed.body.questions[0].messages.length, 1);
+  });
+
+  test("reports a missing briefing as a stream event, not an HTTP status", async () => {
+    const tldr = await readyTldr(otherCompany.id);
+
+    const asked = await stream(`/tldrs/${tldr.id}/questions`, { prompt: "What can be improved?" });
+    assert.equal(asked.status, 200);
+    assert.deepEqual(
+      asked.events.map(([name]) => name),
+      ["error", "done"],
+    );
+    assert.match(String(asked.events[0][1].message), /TLDR not found/);
+  });
+
+  test("the asker can remove their own card and another Member cannot", async () => {
+    const tldr = await readyTldr();
+    actingUserId = member.id;
+    await stream(`/tldrs/${tldr.id}/questions`, { prompt: "What should we stop doing?" });
+    const card = await AppDataSource.getRepository(TldrQuestion).findOneByOrFail({
+      tldrId: tldr.id,
+    });
+
+    actingUserId = owner.id;
+    // An owner may clear anyone's card; a plain Member may not.
+    const secondMember = await insert(User, {
+      email: "tldr-route-second@example.test",
+      name: "Second",
+      passwordHash: "x",
+      sessionVersion: 0,
+    });
+    await insert(Membership, { companyId: company.id, userId: secondMember.id, role: "member" });
+    actingUserId = secondMember.id;
+    assert.equal((await call("DELETE", `/tldrs/${tldr.id}/questions/${card.id}`)).status, 400);
+
+    actingUserId = owner.id;
+    assert.equal((await call("DELETE", `/tldrs/${tldr.id}/questions/${card.id}`)).status, 200);
+    assert.equal(await AppDataSource.getRepository(TldrQuestion).count(), 0);
+    assert.equal(await AppDataSource.getRepository(TldrQuestionMessage).count(), 0);
+  });
+
+  test("rejects an over-length question and an extra body field at the zod boundary", async () => {
+    const tldr = await readyTldr();
+    assert.equal(
+      (await call("POST", `/tldrs/${tldr.id}/questions`, { prompt: "x".repeat(501) })).status,
+      400,
+    );
+    assert.equal(
+      (await call("POST", `/tldrs/${tldr.id}/questions`, { prompt: "Fine", surprise: true }))
+        .status,
+      400,
+    );
+    assert.equal((await call("POST", `/tldrs/${tldr.id}/questions`, { prompt: "" })).status, 400);
+  });
+
+  test("reports the question count on the list so the page can label Discuss", async () => {
+    const tldr = await readyTldr();
+    await stream(`/tldrs/${tldr.id}/questions`, { prompt: "What can be improved?" });
+
+    const list = await call<{ items: Array<{ id: string; questionCount: number }> }>(
+      "GET",
+      "/tldrs",
+    );
+    assert.equal(list.body.items[0].questionCount, 1);
   });
 });

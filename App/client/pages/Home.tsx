@@ -40,10 +40,9 @@ import {
 import { ContextualLayout } from "../components/AppShell";
 import { ChatMarkdown } from "../components/ChatMarkdown";
 import { DecisionCard } from "../components/decisions/DecisionCard";
-import { TldrDiscussButton } from "../components/tldrs/TldrDiscussButton";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
-import { Button } from "../components/ui/Button";
+import { Button, buttonClassName } from "../components/ui/Button";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { useCompanySocketSubscription, useLiveRefetch } from "../components/CompanySocket";
@@ -102,7 +101,9 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   }, [reload]);
   // The stack is the first thing on the page, so it has to be current: a
   // teammate answering in another tab should empty it here without a refresh.
-  useLiveRefetch(["decision", "tldr"], reload);
+  // `tldr_question` keeps the Discuss badge honest — a card asked from the
+  // TLDRs page changes this count without touching the briefing row.
+  useLiveRefetch(["decision", "tldr", "tldr_question"], reload);
 
   function dismissTldr(item: TldrItem) {
     const originalIndex = data?.tldrs.findIndex((row) => row.id === item.id) ?? -1;
@@ -763,7 +764,21 @@ function HomeTldrPanel({
                   )}
                 </div>
                 <div className="mt-3">
-                  <TldrDiscussButton company={company} item={item} />
+                  {/* The conversation lives beside the briefing itself. The
+                      hash lands on that card; `discuss` opens it there, so one
+                      click still ends in a composer rather than a scroll. */}
+                  <Link
+                    to={`/c/${company.slug}/tldrs?discuss=${item.id}#tldr-${item.id}`}
+                    className={buttonClassName({ variant: "secondary", size: "sm" })}
+                  >
+                    <MessageSquare size={14} />
+                    Discuss
+                    {item.questionCount > 0 && (
+                      <span className="tabular-nums text-slate-400 dark:text-slate-500">
+                        {item.questionCount}
+                      </span>
+                    )}
+                  </Link>
                 </div>
               </div>
             </div>

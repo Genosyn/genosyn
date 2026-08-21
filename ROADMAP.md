@@ -108,9 +108,13 @@ don't re-litigate them.
     employee chat. The chosen AI
     Employee runs through the restricted model seam with only the structured
     submission tool and no action-capable tools, so content being summarized
-    cannot turn the recap into an action. Reading is personal: one Member
-    dismissing a TLDR hides it only for them and never deletes the company's
-    preserved history or hides it from somebody else.
+    cannot turn the recap into an action. A question card asked about a TLDR
+    answers on that same restricted seam, so asking is not a route around it;
+    only a follow-up a Member deliberately sends carries tools, and it carries
+    that Member's own access rather than the employee's. Reading is personal:
+    one Member dismissing a TLDR hides it only for them and never deletes the
+    company's preserved history or hides it from somebody else. Question cards
+    are not personal — like the briefing, they belong to the company.
 
 ---
 
@@ -142,6 +146,9 @@ don't re-litigate them.
   bounded period. Generated on a fixed
   cadence by a chosen AI Employee, preserved in history, and dismissed
   separately by each Member.
+- **Question card** — one question a Member asked about a TLDR (`TldrQuestion`),
+  answered beside the briefing rather than inside it, with its own
+  company-visible conversation.
 - **Integration** — a connector type (Stripe, Gmail, Metabase, …). Static
   catalog defined in `server/integrations/providers/<name>.ts`.
 - **Connection** — one authenticated account inside an Integration. DB row
@@ -227,7 +234,8 @@ genosyn/
   `RepositoryWorkSession`
 - **Approvals + audit:** `Approval` (kind: routine | lightning_payment | …),
   `AuditEvent`, `Notification`
-- **TLDRs (M45):** `TldrSettings`, `Tldr`, `TldrDismissal`
+- **TLDRs (M45):** `TldrSettings`, `Tldr`, `TldrDismissal`, `TldrQuestion`,
+  `TldrQuestionMessage`
 - **Email (transactional sends):** `EmailProvider`, `EmailLog`
 - **Email client (M25):** `MailAccount`, `MailThread`, `MailMessage`,
   `MailLabel`, `MailRule`, `MailHandover`, `MailChatMessage`,
@@ -2548,14 +2556,24 @@ summarizer another route to act.
       Generate-now action. Empty, loading, error, disabled, mobile, dark-mode,
       and live-update states follow the same quiet Linear × Notion language as
       the rest of the App.
-- [x] **Continue a TLDR in private Chat.** Home and TLDR history can open a
-      fresh direct conversation with the AI Employee who wrote the recap. The
-      composer receives a reviewable draft with a secure recap reference and
-      sends nothing until the Member submits it. That first turn exposes only a
-      bound read-only TLDR tool and treats its output as untrusted data; later
-      follow-ups use ordinary Chat authority. A removed employee's preserved
-      history remains readable without a dead Chat action, and the private
-      discussion stays excluded from later TLDRs.
+- [x] **Question cards, answered beside the brief.** A recap says what
+      happened; the questions a human has next — what to improve, what to stop
+      — are `TldrQuestion` cards attached to the briefing rather than folded
+      into it. Each card carries its own conversation and is company-visible
+      like the briefing, removable by the Member who asked it or by an owner or
+      admin. Its opening answer runs the same restricted, zero-tool path the
+      briefing itself uses, so asking a question is never a route to making the
+      summarizer act, and the recap reaches the model only as server-composed
+      untrusted reference data.
+- [x] **Discussion happens on the TLDR page, not in a Chat window.** Replying
+      on a card runs the ordinary chat seam under the asking Member's own
+      delegated authority, so a proposal can become the thing itself — "add a
+      Routine for that" writes the Routine. Company automation stays
+      owner/admin-gated: an ordinary Member gets the proposal and is told who
+      must run it, rather than a refusal from inside a tool call. Each turn is
+      persisted before the model starts, so a dropped stream or a restart
+      resolves to a real answer instead of a permanent spinner. A removed
+      writer leaves existing cards readable and refuses new questions.
 
 ## V1 backlog (post-MVP)
 
