@@ -290,7 +290,9 @@ export default function TldrsIndex() {
                           ? data.settings.nextRunAt
                             ? `The next scheduled check is ${formatRelative(data.settings.nextRunAt)}. A TLDR appears here and on Home when the writer has a connected AI Model and the period contains useful activity.`
                             : "A TLDR will appear here and on Home once the writer has a connected AI Model and an interval contains useful activity."
-                          : "Choose an AI Employee and a cadence to start turning company activity into readable briefings."
+                          : canManage
+                            ? "Resume automatic briefings in Settings when you want new company activity summarized."
+                            : "An owner or admin can resume automatic briefings."
                   }
                   action={
                     canManage ? (
