@@ -425,6 +425,20 @@ describe("Vault virtual passkey authenticator", () => {
         route.fulfill({ contentType: "text/html", body: "<h1>Different exact origin</h1>" }),
       );
       await page.goto("https://accounts.example.test/register");
+      const leakedPrimordial = await page.evaluate(`(async () => {
+        const originalReflectApply = Reflect.apply;
+        let intercepted = false;
+        Reflect.apply = (target, thisArgument, argumentsList) => {
+          intercepted = true;
+          return originalReflectApply(target, thisArgument, argumentsList);
+        };
+        try {
+          await navigator.credentials.create({});
+        } catch {}
+        Reflect.apply = originalReflectApply;
+        return intercepted;
+      })()`);
+      assert.equal(leakedPrimordial, false);
       const cdp = await context.newCDPSession(page);
       const registration = await prepareVaultPasskeyRegistration(
         sessionId,
@@ -432,8 +446,9 @@ describe("Vault virtual passkey authenticator", () => {
         "https://accounts.example.test",
       );
       const ambientCreate = await page.evaluate(async () => {
-        try {
-          await Object.getPrototypeOf(navigator.credentials).create.call(navigator.credentials, {
+        let nativeRead = false;
+        const options = new Proxy(
+          {
             publicKey: {
               rp: { id: "example.test", name: "Ambient request" },
               user: {
@@ -445,13 +460,36 @@ describe("Vault virtual passkey authenticator", () => {
               pubKeyCredParams: [{ type: "public-key", alg: -7 }],
               timeout: 1_000,
             },
-          });
-          return "resolved";
+          },
+          {
+            has(target, property) {
+              return property === "publicKey" ? false : property in target;
+            },
+            get(target, property) {
+              if (property === "publicKey") nativeRead = true;
+              return target[property as keyof typeof target];
+            },
+          },
+        );
+        try {
+          await Object.getPrototypeOf(navigator.credentials).create.call(
+            navigator.credentials,
+            options,
+          );
+          return { outcome: "resolved", nativeRead };
         } catch (error) {
-          return error instanceof DOMException ? error.name : "unknown";
+          return {
+            outcome: error instanceof DOMException ? error.name : "unknown",
+            nativeRead,
+          };
         }
       });
-      assert.equal(ambientCreate, "NotAllowedError");
+      assert.deepEqual(ambientCreate, { outcome: "NotAllowedError", nativeRead: false });
+      await page.evaluate(() => {
+        Event.prototype.composedPath = () => [];
+        Array.prototype.includes = () => false;
+        Date.now = () => 0;
+      });
       const registrationButton = await page.locator("#register").elementHandle();
       assert.ok(registrationButton);
       await clickAndActivateVaultPasskey(

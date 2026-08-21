@@ -1768,9 +1768,11 @@ export async function finalizeVaultPasskeyRegistrationForEmployee(args: {
 }
 
 /**
- * Rehydrate one credential for the App-owned Browser. Its bounded lease is
- * persisted inside the encrypted/versioned payload, preventing separate App
- * processes from starting two authenticators at the same stored signCount.
+ * Rehydrate one credential for the App-owned Browser. Its next counter value
+ * and bounded lease are atomically reserved in the encrypted/versioned payload
+ * before the Browser can assert. The CDP credential still receives the prior
+ * value so its assertion advances to exactly the durable reservation. Gaps are
+ * intentional when a Browser ceremony is abandoned or fails after asserting.
  */
 export async function getVaultPasskeyForEmployee(args: {
   companyId: string;
@@ -1815,9 +1817,16 @@ export async function getVaultPasskeyForEmployee(args: {
     if (hasActiveVaultPasskeyUseLease(passkey)) {
       throw new VaultError("That Vault passkey is already active in another Browser session", 409);
     }
+    if (passkey.signCount === 0xffffffff) {
+      throw new VaultError(
+        "This software passkey has exhausted its assertion counter and cannot be used again",
+        409,
+      );
+    }
     const leaseId = crypto.randomUUID();
     const leasedPasskey: VaultStoredPasskey = {
       ...passkey,
+      signCount: passkey.signCount + 1,
       useLeaseId: leaseId,
       useLeaseExpiresAt: new Date(Date.now() + VAULT_PASSKEY_USE_LEASE_MS).toISOString(),
     };
@@ -1836,7 +1845,7 @@ export async function getVaultPasskeyForEmployee(args: {
       return {
         item,
         payload,
-        passkey: withoutVaultPasskeyLease(leasedPasskey),
+        passkey: withoutVaultPasskeyLease(passkey),
         leaseId,
       };
     } catch (error) {
@@ -1895,12 +1904,9 @@ export async function recordVaultPasskeyUseForEmployee(args: {
           409,
         );
       }
-      if (
-        (stored.signCount > 0 || asserted.signCount > 0) &&
-        asserted.signCount <= stored.signCount
-      ) {
+      if (asserted.signCount !== stored.signCount) {
         throw new VaultError(
-          "The software passkey counter did not advance; its credential may have been cloned",
+          "The software passkey counter did not match its reserved assertion value",
           409,
         );
       }

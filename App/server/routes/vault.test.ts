@@ -1724,6 +1724,7 @@ describe("Vault AI service boundary", () => {
       itemId: generated.id,
       passkeyId: saved.id,
     });
+    const assertionCount = assertionLease.passkey.signCount + 1;
     const itemRepo = AppDataSource.getRepository(VaultItem);
     const originalUpdate = itemRepo.update.bind(itemRepo);
     let injectedMetadataWrite = false;
@@ -1750,7 +1751,7 @@ describe("Vault AI service boundary", () => {
           itemId: generated.id,
           passkeyId: saved.id,
           leaseId: assertionLease.leaseId,
-          credential: { ...credential, signCount: 1 },
+          credential: { ...credential, signCount: assertionCount },
         });
       } finally {
         Date.now = originalDateNow;
@@ -1774,7 +1775,7 @@ describe("Vault AI service boundary", () => {
       itemId: generated.id,
       passkeyId: saved.id,
     });
-    assert.equal(rollbackLease.passkey.signCount, 1);
+    assert.equal(rollbackLease.passkey.signCount, assertionCount);
     await assert.rejects(
       recordVaultPasskeyUseForEmployee({
         companyId: company.id,
@@ -1782,7 +1783,7 @@ describe("Vault AI service boundary", () => {
         itemId: generated.id,
         passkeyId: saved.id,
         leaseId: rollbackLease.leaseId,
-        credential: { ...credential, signCount: 1 },
+        credential: { ...credential, signCount: rollbackLease.passkey.signCount },
       }),
       (error) => error instanceof VaultError && error.statusCode === 409,
     );
@@ -1805,7 +1806,10 @@ describe("Vault AI service boundary", () => {
       itemId: generated.id,
       passkeyId: saved.id,
     });
-    const assertedBeforeRevocation = { ...credential, signCount: 2 };
+    const assertedBeforeRevocation = {
+      ...credential,
+      signCount: revokedLease.passkey.signCount + 1,
+    };
     await AppDataSource.getRepository(EmployeeVaultGrant).delete({
       companyId: company.id,
       employeeId: employee.id,
@@ -1841,7 +1845,7 @@ describe("Vault AI service boundary", () => {
       itemId: generated.id,
       passkeyId: saved.id,
     });
-    assert.equal(afterRegrant.passkey.signCount, 2);
+    assert.equal(afterRegrant.passkey.signCount, assertedBeforeRevocation.signCount);
     await releaseVaultPasskeyUseForEmployee({
       companyId: company.id,
       itemId: generated.id,
@@ -1867,6 +1871,86 @@ describe("Vault AI service boundary", () => {
     );
   });
 
+  test("durably reserves a new passkey counter before every Browser assertion", async () => {
+    const generated = await createVaultLoginForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      title: "Durable passkey counter",
+      websiteUrl: "https://accounts.example.com/login",
+    });
+    const credential = passkeyCredential();
+    const saved = await registerPasskeyForEmployee(generated.id, credential);
+
+    const abandonedLease = await getVaultPasskeyForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+    });
+    const abandonedAssertionCount = abandonedLease.passkey.signCount + 1;
+    await releaseVaultPasskeyUseForEmployee({
+      companyId: company.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+      leaseId: abandonedLease.leaseId,
+    });
+
+    const failedPersistenceLease = await getVaultPasskeyForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+    });
+    assert.equal(failedPersistenceLease.passkey.signCount, abandonedAssertionCount);
+    const failedAssertionCount = failedPersistenceLease.passkey.signCount + 1;
+    assert.ok(failedAssertionCount > abandonedAssertionCount);
+
+    const itemRepo = AppDataSource.getRepository(VaultItem);
+    const originalUpdate = itemRepo.update.bind(itemRepo);
+    let forcedRecordConflicts = 0;
+    itemRepo.update = (async (criteria, partial) => {
+      if (forcedRecordConflicts < 5) {
+        forcedRecordConflicts += 1;
+        return { generatedMaps: [], raw: [], affected: 0 };
+      }
+      return originalUpdate(criteria, partial);
+    }) as typeof itemRepo.update;
+    try {
+      await assert.rejects(
+        recordVaultPasskeyUseForEmployee({
+          companyId: company.id,
+          employeeId: employee.id,
+          itemId: generated.id,
+          passkeyId: saved.id,
+          leaseId: failedPersistenceLease.leaseId,
+          credential: { ...credential, signCount: failedAssertionCount },
+        }),
+        (error) => error instanceof VaultError && error.statusCode === 409,
+      );
+    } finally {
+      itemRepo.update = originalUpdate as typeof itemRepo.update;
+    }
+    assert.equal(forcedRecordConflicts, 5);
+
+    const recoveredLease = await getVaultPasskeyForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+    });
+    assert.equal(recoveredLease.passkey.signCount, failedAssertionCount);
+    const recoveredAssertionCount = recoveredLease.passkey.signCount + 1;
+    assert.ok(recoveredAssertionCount > failedAssertionCount);
+    await recordVaultPasskeyUseForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+      leaseId: recoveredLease.leaseId,
+      credential: { ...credential, signCount: recoveredAssertionCount },
+    });
+  });
+
   test("rejects passkeys for the wrong RP, invalid key material, and Member-created logins", async () => {
     const generated = await createVaultLoginForEmployee({
       companyId: company.id,
@@ -1884,6 +1968,20 @@ describe("Vault AI service boundary", () => {
         passkeyCredential({ privateKey: Buffer.from("not-pkcs8").toString("base64") }),
       ),
       (error) => error instanceof VaultError && error.statusCode === 400,
+    );
+    const exhausted = await registerPasskeyForEmployee(
+      generated.id,
+      passkeyCredential({ signCount: 0xffffffff }),
+    );
+    await assert.rejects(
+      getVaultPasskeyForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        passkeyId: exhausted.id,
+      }),
+      (error) =>
+        error instanceof VaultError && error.statusCode === 409 && /exhausted/i.test(error.message),
     );
 
     const humanCreated = await createItem({ title: "Human-owned passkey" });

@@ -11,6 +11,8 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { Company } from "../db/entities/Company.js";
+import { EmployeeMemberBrowserGrant } from "../db/entities/EmployeeMemberBrowserGrant.js";
+import { MemberBrowser } from "../db/entities/MemberBrowser.js";
 import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { AppDataSource } from "../db/datasource.js";
@@ -263,5 +265,61 @@ describe("Browser viewer authorization", () => {
     );
     assert.equal(response.status, 409);
     assert.match(JSON.stringify(await response.json()), /browser_submit_with_vault_totp/);
+  });
+
+  test("rejects every Vault TOTP use path in a Member browser", async () => {
+    const memberBrowser = await insert(MemberBrowser, {
+      companyId: company.id,
+      ownerUserId: owner.id,
+      name: "Member Chrome",
+      status: "offline",
+      allowedHosts: "example.com",
+      approvalRequired: false,
+      allowUnattended: false,
+      revokedAt: null,
+    });
+    await insert(EmployeeMemberBrowserGrant, {
+      companyId: company.id,
+      employeeId: employee.id,
+      memberBrowserId: memberBrowser.id,
+    });
+    browserSession.memberBrowserId = memberBrowser.id;
+    await AppDataSource.getRepository(BrowserSession).save(browserSession);
+
+    const itemId = randomUUID();
+    const cases = [
+      {
+        path: "/vault/fill",
+        body: { selector: "aria-ref=e8", itemId, field: "totp" },
+      },
+      {
+        path: "/vault/submit-totp",
+        body: { itemId, selector: "aria-ref=e9", totpSelector: "aria-ref=e8" },
+      },
+      {
+        path: "/approval/describe-target",
+        body: {
+          action: "vault_totp_submit",
+          itemId,
+          selector: "aria-ref=e9",
+          totpSelector: "aria-ref=e8",
+        },
+      },
+    ];
+    for (const candidate of cases) {
+      const response = await fetch(
+        `${baseUrl}/api/internal/mcp/browser-sessions/${browserSession.id}${candidate.path}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${browserSession.mcpToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(candidate.body),
+        },
+      );
+      assert.equal(response.status, 403, candidate.path);
+      assert.match(JSON.stringify(await response.json()), /App-owned Browser/);
+    }
   });
 });

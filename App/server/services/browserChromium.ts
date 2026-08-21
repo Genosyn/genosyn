@@ -51,6 +51,32 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
  */
 const REMOTE_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
+export type BrowserNavigationMetadata = {
+  url: string;
+  title: string | null;
+};
+
+type BrowserNavigationMetadataSanitizer = (
+  sessionId: string,
+  metadata: BrowserNavigationMetadata,
+) => BrowserNavigationMetadata | Promise<BrowserNavigationMetadata>;
+
+let navigationMetadataSanitizer: BrowserNavigationMetadataSanitizer | null = null;
+
+/**
+ * Install the credential-aware boundary that runs before navigation metadata
+ * is persisted or broadcast. Kept here as a narrow callback so the browser
+ * lifecycle service does not need to know how Vault ciphertext is classified.
+ */
+export function registerBrowserNavigationMetadataSanitizer(
+  sanitizer: BrowserNavigationMetadataSanitizer,
+): () => void {
+  navigationMetadataSanitizer = sanitizer;
+  return () => {
+    if (navigationMetadataSanitizer === sanitizer) navigationMetadataSanitizer = null;
+  };
+}
+
 /**
  * How long after a navigation settles before we snapshot cookies to disk.
  *
@@ -1084,30 +1110,45 @@ async function mirrorNav(r: SessionRuntime): Promise<void> {
   if (runtimes.get(r.id) !== r) return;
   const p = r.page as { url: () => string; title: () => Promise<string>; isClosed: () => boolean };
   if (p.isClosed()) return;
-  const url = p.url();
+  const rawUrl = p.url();
   let title = "";
   try {
     title = await p.title();
   } catch {
     // best-effort
   }
-  if (url === r.lastNavUrl && title === r.lastNavTitle) return;
-  r.lastNavUrl = url;
-  r.lastNavTitle = title;
+  let metadata: BrowserNavigationMetadata = { url: rawUrl, title: title || null };
+  if (navigationMetadataSanitizer) {
+    try {
+      metadata = await navigationMetadataSanitizer(r.id, metadata);
+    } catch {
+      // Credential metadata must fail closed. Persistence and viewer fanout
+      // receive only the origin if classification itself ever fails.
+      metadata = { url: originOnly(rawUrl), title: null };
+    }
+  }
+  // Teardown can run while `title()` or the sanitizer awaits. Never let that
+  // stale continuation write to a closed session or broadcast metadata after
+  // its credential-redaction state has been cleared.
+  if (runtimes.get(r.id) !== r || p.isClosed()) return;
   // On a Member's own machine the mirror keeps the origin only. The full URL
   // is written to the App database and broadcast to every attached viewer, and
   // on plenty of sites the path carries a token or a document the human would
   // not expect to leave their laptop.
-  const mirroredUrl = r.memberBrowserId ? originOnly(url) : url;
+  const mirroredUrl = r.memberBrowserId ? originOnly(metadata.url) : metadata.url;
+  const mirroredTitle = metadata.title || null;
+  if (mirroredUrl === r.lastNavUrl && (mirroredTitle ?? "") === r.lastNavTitle) return;
+  r.lastNavUrl = mirroredUrl;
+  r.lastNavTitle = mirroredTitle ?? "";
   await AppDataSource.getRepository(BrowserSession).update(
     { id: r.id },
-    { pageUrl: mirroredUrl, pageTitle: title || null },
+    { pageUrl: mirroredUrl, pageTitle: mirroredTitle },
   );
   // The fanout hub picks up nav events via the screencast loop's snapshot,
   // but pushing one explicitly keeps the viewer URL-bar in sync between
   // frames.
   const { broadcastNav } = await import("./browserSessions.js");
-  broadcastNav(r.id, mirroredUrl, title || null);
+  broadcastNav(r.id, mirroredUrl, mirroredTitle);
 }
 
 function originOnly(value: string): string {

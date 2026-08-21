@@ -71,12 +71,22 @@ function vaultPasskeyGateInitScript(token: string): string {
     const originalCreate = credentials.create;
     const originalGet = credentials.get;
     if (typeof originalCreate !== "function" || typeof originalGet !== "function") return;
+    const reflectApply = Reflect.apply;
+    const nativePromise = Promise;
+    const originalPromiseReject = Promise.reject;
+    const NativeDOMException = DOMException;
+    const originalComposedPath = Event.prototype.composedPath;
+    const originalArrayIncludes = Array.prototype.includes;
+    const originalDateNow = Date.now;
+    const now = () => reflectApply(originalDateNow, null, []);
     const credentialsPrototype = Object.getPrototypeOf(credentials);
     let active = null;
-    const blocked = () => Promise.reject(new DOMException(
-      "Public-key credentials in this browser must use the bound Vault passkey action",
-      "NotAllowedError",
-    ));
+    const blocked = () => reflectApply(originalPromiseReject, nativePromise, [
+      new NativeDOMException(
+        "Public-key credentials in this browser must use the bound Vault passkey action",
+        "NotAllowedError",
+      ),
+    ]);
     const control = (providedToken, command, element) => {
       if (providedToken !== gateToken || !command || typeof command !== "object") return false;
       if (command.kind === "arm") {
@@ -92,7 +102,7 @@ function vaultPasskeyGateInitScript(token: string): string {
           clicked: false,
           consumed: false,
           timeoutMs,
-          expiresAt: Date.now() + timeoutMs,
+          expiresAt: now() + timeoutMs,
         };
         return true;
       }
@@ -107,27 +117,30 @@ function vaultPasskeyGateInitScript(token: string): string {
       return false;
     };
     window.addEventListener("click", (event) => {
-      if (!active || active.consumed || !event.isTrusted || Date.now() > active.expiresAt) return;
-      if (!event.composedPath().includes(active.element)) return;
+      if (!active || active.consumed || !event.isTrusted || now() > active.expiresAt) return;
+      const eventPath = reflectApply(originalComposedPath, event, []);
+      if (!reflectApply(originalArrayIncludes, eventPath, [active.element])) return;
       active.clicked = true;
-      active.expiresAt = Date.now() + active.timeoutMs;
+      active.expiresAt = now() + active.timeoutMs;
     }, true);
     const guarded = (mode, original) => function(options) {
-      if (!options || typeof options !== "object" || !("publicKey" in options)) {
-        return Reflect.apply(original, credentials, [options]);
-      }
+      // Credential options are page-owned objects. They can be Proxies whose
+      // has trap hides publicKey from a preflight check while their get
+      // trap exposes it to native WebIDL conversion. Gate every create/get
+      // invocation so no ambient native credential request can bypass the
+      // one-shot trusted-click boundary through option-shape trickery.
       const current = active;
       if (
         !current ||
         current.mode !== mode ||
         !current.clicked ||
         current.consumed ||
-        Date.now() > current.expiresAt
+        now() > current.expiresAt
       ) {
         return blocked();
       }
       current.consumed = true;
-      return Reflect.apply(original, credentials, [options]);
+      return reflectApply(original, credentials, [options]);
     };
     const guardedCreate = guarded("create", originalCreate);
     const guardedGet = guarded("get", originalGet);
@@ -392,24 +405,24 @@ export async function clickAndActivateVaultPasskey(
   if (armed !== true) {
     throw new Error("The current page was not initialized for Vault software passkeys");
   }
-  // Presence is enabled before the click so Chrome sees it when an async site
-  // handler eventually starts WebAuthn. The document-start gate blocks every
-  // public-key request until this exact selected element receives a trusted
-  // click, so no earlier page request can consume the Vault authenticator.
-  await activateVaultPasskeyAuthenticator(sessionId, stateId);
-  const click = handle.click({ timeout: timeoutMs, noWaitAfter: true });
-  let clickFinished = false;
-  let clickError: unknown;
-  void click.then(
-    () => {
-      clickFinished = true;
-    },
-    (error: unknown) => {
-      clickFinished = true;
-      clickError = error;
-    },
-  );
   try {
+    // Presence is enabled before the click so Chrome sees it when an async
+    // site handler eventually starts WebAuthn. The document-start gate blocks
+    // every public-key request until this exact selected element receives a
+    // trusted click, so no earlier page request can consume the authenticator.
+    await activateVaultPasskeyAuthenticator(sessionId, stateId);
+    const click = handle.click({ timeout: timeoutMs, noWaitAfter: true });
+    let clickFinished = false;
+    let clickError: unknown;
+    void click.then(
+      () => {
+        clickFinished = true;
+      },
+      (error: unknown) => {
+        clickFinished = true;
+        clickError = error;
+      },
+    );
     const deadline = Date.now() + timeoutMs + 1_000;
     let observedClick = false;
     for (;;) {

@@ -9,6 +9,7 @@ import {
   browserKeyMaySubmit,
   browserModelPressKeyIsAllowed,
   browserModelPressKeySchema,
+  captureVaultSafeScreenshot,
   clearVaultSensitiveValuesForSession,
   disarmUnapprovedFormSubmitGuard,
   inspectBrowserApprovalTarget,
@@ -18,6 +19,7 @@ import {
   redactVaultSensitiveText,
   rememberVaultTotpCode,
   rememberCurrentPasswordValues,
+  sanitizeVaultBrowserNavigationMetadata,
   safeBrowserUrlForModel,
   vaultFillTargetIsAllowed,
   vaultPasskeyMatchesPage,
@@ -523,6 +525,87 @@ describe("Browser snapshot password redaction", () => {
     assert.doesNotMatch(snapshot, new RegExp(setupKey));
     assert.match(snapshot, /Title: \[redacted TOTP setup key\]/);
     clearVaultSensitiveValuesForSession(sessionId);
+  });
+
+  it("sanitizes TOTP setup keys and current codes before navigation metadata persists", async () => {
+    const titleSessionId = "browser-title-nav-totp-redaction-test";
+    const setupKey = "JBSWY3DPEHPK3PXP";
+    const fromTitle = await sanitizeVaultBrowserNavigationMetadata(titleSessionId, {
+      url: "https://example.com/mfa?step=setup",
+      title: setupKey,
+    });
+    assert.deepEqual(fromTitle, {
+      url: "https://example.com",
+      title: "[redacted during Vault credential use]",
+    });
+    assert.doesNotMatch(JSON.stringify(fromTitle), new RegExp(setupKey));
+    clearVaultSensitiveValuesForSession(titleSessionId);
+
+    const urlSessionId = "browser-url-nav-totp-redaction-test";
+    const encodedUri = encodeURIComponent(`otpauth://totp/Example:test?secret=${setupKey}`);
+    const fromUrl = await sanitizeVaultBrowserNavigationMetadata(urlSessionId, {
+      url: `https://example.com/mfa?setup=${encodedUri}`,
+      title: "Two-factor setup",
+    });
+    assert.deepEqual(fromUrl, {
+      url: "https://example.com",
+      title: "[redacted during Vault credential use]",
+    });
+    assert.doesNotMatch(JSON.stringify(fromUrl), /JBSWY3DPEHPK3PXP|otpauth/i);
+    clearVaultSensitiveValuesForSession(urlSessionId);
+
+    const fragmentSessionId = "browser-fragment-nav-totp-redaction-test";
+    const fromBareFragment = await sanitizeVaultBrowserNavigationMetadata(fragmentSessionId, {
+      url: `https://example.com/mfa#manual/${setupKey}`,
+      title: "Account settings",
+    });
+    assert.equal(fromBareFragment.url, "https://example.com");
+    assert.doesNotMatch(JSON.stringify(fromBareFragment), new RegExp(setupKey));
+    clearVaultSensitiveValuesForSession(fragmentSessionId);
+
+    const codeSessionId = "browser-code-nav-totp-redaction-test";
+    await rememberVaultTotpCode(codeSessionId, "123456", new Date(Date.now() + 30_000));
+    const fromCurrentCode = await sanitizeVaultBrowserNavigationMetadata(codeSessionId, {
+      url: "https://example.com/callback?code=123456",
+      title: "Verified 123 456",
+    });
+    assert.deepEqual(fromCurrentCode, {
+      url: "https://example.com",
+      title: "[redacted during Vault credential use]",
+    });
+    assert.doesNotMatch(JSON.stringify(fromCurrentCode), /123.?456/);
+    clearVaultSensitiveValuesForSession(codeSessionId);
+  });
+
+  it("rejects a screenshot tainted and cleaned while its PNG capture is in flight", async () => {
+    const sessionId = "browser-screenshot-totp-race-test";
+    let captureStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      captureStarted = resolve;
+    });
+    let finishCapture!: (bytes: Buffer) => void;
+    const captured = new Promise<Buffer>((resolve) => {
+      finishCapture = resolve;
+    });
+    const screenshot = captureVaultSafeScreenshot(
+      {
+        frames: () => [],
+        screenshot: async () => {
+          captureStarted();
+          return captured;
+        },
+      } as never,
+      sessionId,
+    );
+    await started;
+    await rememberVaultTotpCode(sessionId, "654321", new Date(Date.now() + 30_000));
+    clearVaultSensitiveValuesForSession(sessionId);
+    finishCapture(Buffer.from("the image must not be inspected after the boundary changed"));
+    await assert.rejects(screenshot, (error: unknown) => {
+      assert.equal((error as { statusCode?: unknown }).statusCode, 409);
+      assert.match(String((error as Error).message), /Screenshot unavailable/);
+      return true;
+    });
   });
 
   it("fails closed instead of evicting an older password from the redaction set", async () => {

@@ -21,6 +21,7 @@ import {
   getRuntime,
   markActivity,
   pushSessionNotice,
+  registerBrowserNavigationMetadataSanitizer,
   takeSessionNotices,
   awaitAdoption,
 } from "../services/browserChromium.js";
@@ -132,6 +133,7 @@ const vaultTaintedSessions = new Set<string>();
 const vaultSensitiveOverflowSessions = new Set<string>();
 const vaultTotpArmedSessions = new Set<string>();
 const vaultTotpCodesBySession = new Map<string, Map<string, number>>();
+const vaultScreenshotStates = new Map<string, { generation: number; captures: number }>();
 const vaultTotpCaptureBindings = new Map<
   string,
   { companyId: string; employeeId: string; itemId: string; origin: string }
@@ -778,6 +780,15 @@ export function vaultFillTargetIsAllowed(
   return itemType === "login" && inputType?.toLowerCase() === "password";
 }
 
+function requireLocalTotpBrowser(session: BrowserSession): void {
+  if (session.memberBrowserId) {
+    throw new VaultError(
+      "Vault TOTP is available only in the App-owned Browser. Genosyn never sends authenticator setup keys or current codes to a Member browser.",
+      403,
+    );
+  }
+}
+
 function assertVaultTotpSubmitTarget(args: {
   employee: AIEmployee;
   pageUrl: string;
@@ -824,7 +835,7 @@ function assertVaultTotpSubmitTarget(args: {
 }
 
 async function rememberVaultSensitiveValue(sessionId: string, value: string): Promise<void> {
-  vaultTaintedSessions.add(sessionId);
+  taintVaultSession(sessionId);
   if (value) {
     let values = vaultSensitiveValuesBySession.get(sessionId);
     if (!values) {
@@ -889,6 +900,7 @@ export async function rememberVaultTotpCode(
 }
 
 export function clearVaultSensitiveValuesForSession(sessionId: string): void {
+  markVaultScreenshotBoundaryChanged(sessionId);
   vaultSensitiveValuesBySession.delete(sessionId);
   vaultTaintedSessions.delete(sessionId);
   vaultSensitiveOverflowSessions.delete(sessionId);
@@ -907,13 +919,55 @@ export function observeBrowserSensitiveValue(
   kind: "password-present" | "password-value" | "active-input-value",
 ): Promise<void> {
   if (kind === "password-present") {
-    vaultTaintedSessions.add(sessionId);
+    taintVaultSession(sessionId);
     return restrictBrowserRecording(sessionId).catch(() => undefined);
   }
   if (kind === "password-value" || vaultTaintedSessions.has(sessionId)) {
     return rememberVaultSensitiveValue(sessionId, value);
   }
   return Promise.resolve();
+}
+
+function markVaultScreenshotBoundaryChanged(sessionId: string): void {
+  const state = vaultScreenshotStates.get(sessionId);
+  if (state) state.generation += 1;
+}
+
+function taintVaultSession(sessionId: string): void {
+  markVaultScreenshotBoundaryChanged(sessionId);
+  vaultTaintedSessions.add(sessionId);
+}
+
+function beginVaultScreenshotBoundary(sessionId: string): {
+  assertSafe: () => void;
+  release: () => void;
+} {
+  let state = vaultScreenshotStates.get(sessionId);
+  if (!state) {
+    state = { generation: 0, captures: 0 };
+    vaultScreenshotStates.set(sessionId, state);
+  }
+  state.captures += 1;
+  const generation = state.generation;
+  let released = false;
+  return {
+    assertSafe: () => {
+      if (vaultTaintedSessions.has(sessionId) || state?.generation !== generation) {
+        throw new VaultError(
+          "Screenshot unavailable after a password, one-time code, or authenticator setup key is present in this browser session; use the redacted page snapshot instead",
+          409,
+        );
+      }
+    },
+    release: () => {
+      if (released || !state) return;
+      released = true;
+      state.captures = Math.max(0, state.captures - 1);
+      if (state.captures === 0 && vaultScreenshotStates.get(sessionId) === state) {
+        vaultScreenshotStates.delete(sessionId);
+      }
+    },
+  };
 }
 
 registerBrowserSensitiveValueListener(observeBrowserSensitiveValue);
@@ -939,6 +993,70 @@ export function redactVaultSensitiveText(sessionId: string, text: string): strin
   }
   return redacted;
 }
+
+function navigationTotpCandidates(url: string, title: string): string[] {
+  const candidates = [title, url];
+  try {
+    candidates.push(decodeURIComponent(url));
+  } catch {
+    // Malformed percent escapes remain covered by the raw value.
+  }
+  try {
+    const parsed = new URL(url);
+    candidates.push(
+      ...parsed.pathname.split("/"),
+      ...parsed.hash.replace(/^#/, "").split(/[/?&=]/),
+    );
+    for (const [name, value] of parsed.searchParams) candidates.push(name, value);
+  } catch {
+    // Non-http navigation metadata is still scanned as raw text above.
+  }
+  return candidates.filter(Boolean);
+}
+
+/**
+ * Keep authenticator setup keys and fresh one-time codes out of the durable
+ * BrowserSession navigation mirror and its live viewer broadcast. Once a
+ * session has handled any Vault secret, origin-only metadata is the safe
+ * stable representation; a redaction marker is never embedded in a URL that
+ * a viewer could navigate back to.
+ */
+export async function sanitizeVaultBrowserNavigationMetadata(
+  sessionId: string,
+  metadata: { url: string; title: string | null },
+): Promise<{ url: string; title: string | null }> {
+  const title = metadata.title ?? "";
+  const candidates = navigationTotpCandidates(metadata.url, title);
+  const setupKey = candidates.map(findTotpSetupKeyInText).find(Boolean) ?? null;
+  const combined = `${title}\n${metadata.url}`;
+  const hasAuthenticatorText =
+    setupKey !== null ||
+    textSuggestsTotpEnrollment(combined) ||
+    redactUncapturedTotpValues(combined) !== combined;
+  if (setupKey) {
+    await rememberTotpSetupValue(sessionId, setupKey);
+  } else if (hasAuthenticatorText) {
+    await armVaultTotpSession(sessionId);
+  }
+
+  const redactedTitle = redactVaultSensitiveText(sessionId, title);
+  const redactedUrl = redactVaultSensitiveText(sessionId, metadata.url);
+  if (
+    vaultTaintedSessions.has(sessionId) ||
+    hasAuthenticatorText ||
+    redactedTitle !== title ||
+    redactedUrl !== metadata.url
+  ) {
+    const origin = safeBrowserUrlForModel(metadata.url);
+    return {
+      url: origin === "(unavailable)" ? "" : origin,
+      title: "[redacted during Vault credential use]",
+    };
+  }
+  return metadata;
+}
+
+registerBrowserNavigationMetadataSanitizer(sanitizeVaultBrowserNavigationMetadata);
 
 registerBrowserRecordingFrameInspector(async (sessionId, jpegBase64) => {
   // Inspect the exact bytes that would enter ffmpeg. Any QR is withheld: a
@@ -1517,6 +1635,7 @@ browserRpcRouter.post(
     try {
       let itemVersion: number | undefined;
       let passkeyId: string | undefined;
+      if (body.action === "vault_totp_submit") requireLocalTotpBrowser(session);
       const page = await bumpAndAcquire(req);
       const vaultTotp =
         body.action === "vault_totp_submit"
@@ -1793,13 +1912,16 @@ browserRpcRouter.post(
     const body = req.body as z.infer<typeof vaultFillSchema>;
     const session = req.browserSession!;
     const employee = req.browserEmployee!;
-    if (body.field === "totp" && req.approvalRequired) {
-      return res.status(409).json({
-        error:
-          "Filling a Vault one-time code can submit the form and requires browser_submit_with_vault_totp approval",
-      });
-    }
     try {
+      if (body.field === "totp") {
+        requireLocalTotpBrowser(session);
+        if (req.approvalRequired) {
+          throw new VaultError(
+            "Filling a Vault one-time code can submit the form and requires browser_submit_with_vault_totp approval",
+            409,
+          );
+        }
+      }
       const page = await bumpAndAcquire(req);
       const loc = await locate(page, session.id, body.selector);
       const targetHandle = await resolveVaultTarget(loc);
@@ -1959,6 +2081,7 @@ browserRpcRouter.post(
     let claimId: string | null = null;
     let submitAttempted = false;
     try {
+      requireLocalTotpBrowser(session);
       if (req.approvalRequired && !body.approvalId) {
         throw new BrowserApprovalError(
           "Submitting a Vault TOTP code requires browser approval",
@@ -3177,22 +3300,22 @@ browserRpcRouter.post("/wait", validateBody(waitSchema), async (req: BrowserRpcR
   }
 });
 
-browserRpcRouter.post("/screenshot", async (req: BrowserRpcReq, res) => {
-  const sessionId = req.browserSession!.id;
-  if (vaultTaintedSessions.has(sessionId)) {
-    return res.status(409).json({
-      error:
-        "Screenshot unavailable after a password, one-time code, or authenticator setup key is present in this browser session; use the redacted page snapshot instead",
-    });
-  }
+/**
+ * Capture, inspect, and transcode one screenshot under a monotonic sensitive
+ * boundary. The generation catches a concurrent TOTP/password action even if
+ * session teardown clears the ordinary taint set before this capture resumes.
+ */
+type VaultScreenshotBoundary = ReturnType<typeof beginVaultScreenshotBoundary>;
+
+export async function captureVaultSafeScreenshot(
+  page: Page,
+  sessionId: string,
+  existingBoundary?: VaultScreenshotBoundary,
+): Promise<Buffer> {
+  const boundary = existingBoundary ?? beginVaultScreenshotBoundary(sessionId);
+  const ownsBoundary = !existingBoundary;
   try {
-    const page = await bumpAndAcquire(req);
-    if (vaultTaintedSessions.has(sessionId)) {
-      return res.status(409).json({
-        error:
-          "Screenshot unavailable after a password, one-time code, or authenticator setup key is present in this browser session; use the redacted page snapshot instead",
-      });
-    }
+    boundary.assertSafe();
     // Capture once, inspect those exact lossless bytes, then transcode those
     // same bytes for the model. A safety capture followed by a second JPEG
     // capture would leave a race in which a setup QR could appear only in the
@@ -3206,19 +3329,53 @@ browserRpcRouter.post("/screenshot", async (req: BrowserRpcReq, res) => {
       mask: passwordMasks,
       maskColor: "#000000",
     });
+    boundary.assertSafe();
     const qrValue = await decodeQrFromImage(png);
+    boundary.assertSafe();
     if (qrValue !== null) {
       const setupKey = findTotpSetupKeyInText(qrValue);
       if (setupKey) await rememberTotpSetupValue(sessionId, setupKey);
-      return res.status(409).json({
-        error:
-          "Screenshot unavailable because it contains a QR code that could conceal authenticator setup data; use the redacted page snapshot instead",
-      });
+      throw new VaultError(
+        "Screenshot unavailable because it contains a QR code that could conceal authenticator setup data; use the redacted page snapshot instead",
+        409,
+      );
     }
-    const buf = await transcodeImageToJpeg(png, 60);
-    res.json({ data: buf.toString("base64"), mimeType: "image/jpeg" });
+    const jpeg = await transcodeImageToJpeg(png, 60);
+    boundary.assertSafe();
+    return jpeg;
+  } finally {
+    if (ownsBoundary) boundary.release();
+  }
+}
+
+browserRpcRouter.post("/screenshot", async (req: BrowserRpcReq, res) => {
+  const sessionId = req.browserSession!.id;
+  // Start before the first await. A concurrent manual close clears the usual
+  // taint sets, so this generation is what makes that cleanup observable to an
+  // already-authorized screenshot request.
+  const boundary = beginVaultScreenshotBoundary(sessionId);
+  try {
+    boundary.assertSafe();
+    const liveSession = await AppDataSource.getRepository(BrowserSession).findOneBy({
+      id: sessionId,
+    });
+    if (!liveSession || liveSession.status === "closed" || liveSession.status === "expired") {
+      throw new VaultError("This browser session is closed", 410);
+    }
+    boundary.assertSafe();
+    const page = await bumpAndAcquire(req);
+    boundary.assertSafe();
+    const jpeg = await captureVaultSafeScreenshot(page, sessionId, boundary);
+    boundary.assertSafe();
+    const data = jpeg.toString("base64");
+    boundary.assertSafe();
+    res.json({ data, mimeType: "image/jpeg" });
   } catch (err) {
-    res.status(500).json({ error: safeBrowserError(req.browserSession!.id, err) });
+    res
+      .status(err instanceof VaultError ? err.statusCode : 500)
+      .json({ error: safeBrowserError(req.browserSession!.id, err) });
+  } finally {
+    boundary.release();
   }
 });
 
