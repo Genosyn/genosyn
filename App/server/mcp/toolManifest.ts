@@ -1883,7 +1883,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_vault_items",
     description:
-      "List the Vault items explicitly granted to you. Returns safe metadata only: item id, type, title, username, saved website origin and your Grant level. Stored passwords, API keys and secure-note bodies are never returned to the model. Only a Login username or password has a Browser-fill path, and a stored password can go only into a password input. Browser access, the host allow list, the live top-page and target-frame origin, and the item Grant must all allow each fill.",
+      "List the Vault items explicitly granted to you. Returns safe metadata only: item id, type, title, username, saved website origin, whether TOTP exists, non-secret software-passkey metadata, and your Grant level. Passwords, TOTP setup keys and codes, passkey private material, API keys, and secure-note bodies are never returned to the model. Use browser_fill_vault for a Login username, password, or current TOTP code, and browser_use_vault_passkey for a listed passkey. Browser access, host policy, live origins, and the item Grant are re-checked for each use.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1903,7 +1903,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_vault_login",
     description:
-      "Create a company-visible Vault login with a strong password generated inside Genosyn. The password is encrypted immediately and is never returned in this tool result or written to the transcript. You receive a `manage` Grant on the item. Use browser_fill_vault to put the Login password only into a password input when the top page and target frame match its exact saved origin and Browser policy allows the site. For a password already present in the browser, use browser_save_vault_login; that path always needs owner/admin approval and creates a restricted item.",
+      "Create a company-visible Vault login with a strong password generated inside Genosyn. The password is encrypted immediately and is never returned in this tool result or written to the transcript. You receive a `manage` Grant on the item. Use browser_fill_vault to put the Login password only into a password input when the top page and target frame match its exact saved origin. During signup, TOTP enrollment follows browser_prepare_vault_totp before asking the site to reveal setup, then browser_save_vault_totp on the bound setup key or QR. Use browser_create_vault_passkey on the site's registration trigger for a one-shot software-passkey ceremony and encrypted save. Those values stay inside the App-owned Browser. For a password already present in the browser, browser_save_vault_login requires owner/admin approval and creates a restricted item.",
     inputSchema: {
       type: "object",
       properties: {

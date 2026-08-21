@@ -20,10 +20,11 @@ export function Vault() {
         title="Vault"
         lead={
           <>
-            Keep company logins, API keys, and secure notes in one encrypted password manager for
-            Members and AI Employees. People can reveal a value when they need it; AI Employees use
-            credentials through governed server-side actions that keep plaintext out of model output
-            and Run transcripts.
+            Keep company logins, their authenticator codes and software passkeys, API keys, and
+            secure notes in one encrypted password manager for Members and AI Employees. People can
+            deliberately reveal supported values when they need them; AI Employees use credentials
+            through governed server-side actions that keep plaintext and private keys out of model
+            output and Run transcripts.
           </>
         }
       />
@@ -52,16 +53,24 @@ export function Vault() {
           you also need to enter it somewhere outside Genosyn.
         </LI>
         <LI>
+          Optionally attach an authenticator by pasting its Base32 setup key or complete{" "}
+          <Code>otpauth://</Code> URI. Leave the field blank while editing to keep the current
+          authenticator. Software passkeys are created from an AI Employee&apos;s Browser flow, not
+          imported through this form.
+        </LI>
+        <LI>
           Choose whether every Member in the company may view the item or only selected Members may.
           Save it, then open <Strong>Access</Strong> to add people or AI Employees.
         </LI>
       </OL>
       <P>
-        The list and detail screens show the title, username, website, type, and private context
-        only to Members who can access the item. The stored password, API key, or secure-note body
-        stays masked until someone explicitly chooses <Strong>Reveal</Strong> or{" "}
-        <Strong>Copy</Strong>. Editing an item never loads the current stored value into the form;
-        leave the value blank to keep it, or enter a replacement to rotate it.
+        The list and detail screens show the title, username, website, type, private context, and
+        whether a login has authenticator codes or passkeys only to Members who can access the item.
+        The stored password, API key, or secure-note body stays masked until someone explicitly
+        chooses <Strong>Reveal</Strong> or <Strong>Copy</Strong>. A current authenticator code is
+        generated only when someone chooses <Strong>Show</Strong> or <Strong>Copy code</Strong>, and
+        auto-hides when it expires. Editing never loads an existing password or authenticator setup
+        key into the form; leave either field blank to keep it.
       </P>
 
       <H2 id="members">Member access</H2>
@@ -101,9 +110,11 @@ export function Vault() {
             def: (
               <>
                 Discover safe item metadata. For a Login, use server-side Browser autofill for its
-                username or password without returning plaintext to the model. A stored password can
-                go only into a password input; API-key values and secure-note bodies have no AI
-                plaintext-read or Browser-fill path.
+                username, password, or current authenticator code without returning plaintext to the
+                model, or use one of its software passkeys in Genosyn&apos;s browser. Passwords and
+                codes go only into matching sign-in inputs, and passkey private keys never cross the
+                browser boundary. API-key values and secure-note bodies have no AI plaintext-read or
+                Browser-fill path.
               </>
             ),
           },
@@ -113,17 +124,19 @@ export function Vault() {
               <>
                 Everything in Use, plus update a login&apos;s title, username, and private context.
                 The saved website origin cannot be rebound by an AI Employee. Manage also cannot
-                reveal, rotate, or delete the stored password. A login an employee creates receives
-                this level automatically.
+                reveal, rotate, or delete the stored password, authenticator setup key, or passkey
+                material. A login an employee creates receives this level automatically, which also
+                lets it capture authenticators during that signup flow.
               </>
             ),
           },
         ]}
       />
       <Callout kind="tip" title="Start with Use">
-        Use is enough for an employee that signs in to an existing account. Reserve Manage for an
-        employee expected to maintain the login&apos;s safe metadata, and remove the Grant when that
-        work is finished. Grant checks happen again at the moment of use, so revocation fails
+        Use is enough for an employee that signs in to an existing account, including with a current
+        authenticator code or saved software passkey. Reserve Manage for an employee expected to
+        maintain the login&apos;s safe metadata or add authenticators, and remove the Grant when
+        that work is finished. Grant checks happen again at the moment of use, so revocation fails
         closed.
       </Callout>
       <Callout kind="info" title="Coding is isolated or disabled by mode">
@@ -132,13 +145,14 @@ export function Vault() {
         available only in a working Linux bubblewrap deployment — the default — and nowhere else:
         where that sandbox cannot start, boot falls back to disabled mode, which exposes no coding
         tools at all. Genosyn gives AI Employees in separately acknowledged host mode only
-        path-confined file and search tools. This boundary applies even to an employee with no
-        Vault Grants.
+        path-confined file and search tools. This boundary applies even to an employee with no Vault
+        Grants.
       </Callout>
       <P>
         With Manage, <Code>update_vault_login</Code> can change the title, username, or private
-        context while preserving both the encrypted password and saved website origin. Website
-        rebinding, password rotation, and deletion remain deliberate Member actions in the Vault.
+        context while preserving the encrypted credentials and saved website origin. Website
+        rebinding, password rotation, authenticator removal, passkey deletion, and login deletion
+        remain deliberate Member actions in the Vault.
       </P>
 
       <H2 id="browser">Sign in without showing the model a password</H2>
@@ -148,23 +162,32 @@ export function Vault() {
       </P>
       <OL>
         <LI>
-          <Code>list_vault_items</Code> returns only granted item ids and safe metadata. It never
-          returns the password, API key, or secure-note body.
+          <Code>list_vault_items</Code> returns only granted item ids and safe metadata, including
+          whether a Login has an authenticator or passkeys. It never returns a password, setup key,
+          current code, passkey private key, API key, or secure-note body.
         </LI>
         <LI>The employee opens the website saved on the login item.</LI>
         <LI>
-          <Code>browser_fill_vault</Code> asks the App to resolve a granted username or password and
-          fill the selected field directly in App-owned Chrome. The top page and target frame must
-          both match the item&apos;s exact saved origin — scheme, host, and port. A password is
-          accepted only from a Login item and only into an input with <Code>type=password</Code>.
+          <Code>browser_fill_vault</Code> asks the App to resolve a granted username, password, or
+          current authenticator code and fill the selected field directly in App-owned Chrome. The
+          top page and target frame must both match the item&apos;s exact saved origin — scheme,
+          host, and port. A password is accepted only into <Code>type=password</Code>; a current
+          code is generated at the last possible moment and goes only into an ordinary sign-in
+          input.
+        </LI>
+        <LI>
+          For passkey sign-in, <Code>browser_use_vault_passkey</Code> loads only the selected
+          origin-bound credential into Genosyn&apos;s software authenticator. The site performs its
+          normal WebAuthn assertion and the updated signature counter returns to encrypted storage.
         </LI>
       </OL>
       <P>
         Browser access and the employee&apos;s host allow list remain independent gates: a Vault
-        Grant cannot enable the Browser or widen its browsing policy. The plaintext exists only at
-        the server-side credential-to-browser boundary. It is not serialized into the tool response,
-        model context, Run transcript, audit detail, or log. Captchas and 2FA can still use the
-        Browser&apos;s human take-over flow.
+        Grant cannot enable the Browser or widen its browsing policy. Sensitive values exist only at
+        the server-side credential-to-browser boundary. They are not serialized into the tool
+        response, model context, Run transcript, audit detail, or log. Captchas, hardware-bound
+        credentials, and unsupported challenges can still use the Browser&apos;s human take-over
+        flow.
       </P>
       <P>
         Browser snapshots redact password-input values, including values inside frames, before the
@@ -197,6 +220,37 @@ export function Vault() {
         read back or included in model output. Other Members do not see the restricted item until an
         owner or admin changes its visibility or Member access.
       </P>
+      <P>
+        During authenticator enrollment, <Code>browser_prepare_vault_totp</Code> first binds an
+        AI-created Login to the exact origin and withholds screenshots and recordings before the
+        secret appears. <Code>browser_save_vault_totp</Code> then reads the selected same-origin
+        setup key, authenticator QR image, or containing element. Genosyn validates and encrypts it
+        server-side. Later,{" "}
+        <Code>browser_fill_vault</Code> with the <Code>totp</Code> field generates and fills a
+        current code without returning the setup key or code. For approval-gated forms,{" "}
+        <Code>browser_submit_with_vault_totp</Code> generates that code only after Approval is
+        claimed and submits it immediately. A QR format Genosyn cannot decode still needs take-over
+        or manual setup-key entry in the Vault editor.
+      </P>
+      <P>
+        Passkeys use bounded Browser ceremonies. <Code>browser_create_vault_passkey</Code> triggers
+        the selected registration control, captures and encrypts the resulting credential, and
+        removes the temporary authenticator before returning. <Code>browser_use_vault_passkey</Code>{" "}
+        similarly restores one granted credential only for the selected sign-in action, saves its
+        updated counter, and removes it before returning. These tools are refused in Member browsers
+        and never access Touch ID, Face ID, a password-manager passkey, or a hardware security key.
+      </P>
+      <Callout kind="warn" title="A Vault passkey is a software credential">
+        A Vault passkey is portable because Genosyn encrypts the private key in its database and
+        presents it through an App-owned virtual authenticator. It is not hardware-bound and does
+        not prove that a human touched a biometric sensor or security key. Some sites require those
+        properties and will refuse this flow.
+      </Callout>
+      <Callout kind="warn" title="Remove authenticators at both ends">
+        Replacing or deleting an authenticator in the Vault does not change the external account.
+        Removing a setup key or passkey before another sign-in method works can lock everyone out.
+        Update or remove it on the external site too.
+      </Callout>
 
       <H2 id="audit">Reveal, copy, and audit</H2>
       <P>

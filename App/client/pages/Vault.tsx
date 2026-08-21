@@ -2,12 +2,14 @@ import React from "react";
 import {
   Bot,
   Building2,
+  Fingerprint,
   KeyRound,
   LockKeyhole,
   Plus,
   RefreshCw,
   Search,
   ShieldCheck,
+  Smartphone,
   StickyNote,
   Users,
   X,
@@ -89,7 +91,8 @@ export default function Vault({ company }: { company: Company }) {
               Vault
             </h1>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
-              Passwords, API keys, and secure notes for Members and explicitly granted AI Employees.
+              Logins with passwords, authenticator codes, and software passkeys — plus API keys and
+              secure notes for Members and explicitly granted AI Employees.
             </p>
           </div>
         </div>
@@ -112,7 +115,7 @@ export default function Vault({ company }: { company: Company }) {
         <PromiseCard
           icon={<Bot size={17} />}
           title="AI-native, not prompt-native"
-          detail="AI Employees autofill through Vault tools without placing plaintext in model context."
+          detail="AI Employees use passwords, current codes, and passkeys through governed Browser actions."
         />
       </div>
 
@@ -180,7 +183,7 @@ export default function Vault({ company }: { company: Company }) {
           <div className="px-6 py-14">
             <EmptyState
               title="Your Vault is empty"
-              description="Add a login, API key, or secure note, then choose exactly which Members and AI Employees can use it."
+              description="Add a login, API key, or secure note, then attach authenticators and choose exactly which Members and AI Employees can use it."
             />
             <div className="mt-4 flex justify-center">
               <Button size="sm" onClick={() => setCreating(true)}>
@@ -239,6 +242,14 @@ export default function Vault({ company }: { company: Company }) {
           setSelected(null);
           setEditing(item);
         }}
+        onUpdated={(updated) => {
+          setSelected(updated);
+          setItems(
+            (current) =>
+              current?.map((candidate) => (candidate.id === updated.id ? updated : candidate)) ??
+              null,
+          );
+        }}
         onDeleted={async () => {
           setSelected(null);
           await reload();
@@ -268,6 +279,17 @@ function VaultItemRow({ item, onOpen }: { item: VaultItem; onOpen: () => void })
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               {vaultItemTypeLabel(item.type)}
             </span>
+            {item.type === "login" && item.hasTotp && (
+              <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+                <Smartphone size={10} /> Authenticator
+              </span>
+            )}
+            {item.type === "login" && (item.passkeys ?? []).length > 0 && (
+              <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+                <Fingerprint size={10} /> {item.passkeys.length}{" "}
+                {item.passkeys.length === 1 ? "passkey" : "passkeys"}
+              </span>
+            )}
           </div>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
             {item.username && <span className="max-w-64 truncate">{item.username}</span>}

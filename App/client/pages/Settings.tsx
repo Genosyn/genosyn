@@ -508,7 +508,7 @@ export function SettingsSecrets() {
 
 /**
  * Per-company environment secrets. These developer values are distinct from
- * the structured Password Vault: runtime policy may expose them to AI Employee
+ * the structured Vault: runtime policy may expose them to AI Employee
  * coding shells as environment variables. The plaintext value is never
  * returned by the API — only a masked preview.
  */
@@ -556,7 +556,7 @@ function SecretsCard({ company }: { company: Company }) {
         ) : rows.length === 0 ? (
           <EmptyState
             title="No secrets yet"
-            description="Store developer tokens as environment variables for AI Employee coding tools. Use Vault for logins and shared passwords."
+            description="Store developer tokens as environment variables for AI Employee coding tools. Use Vault for company logins and their authenticators."
           />
         ) : (
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">

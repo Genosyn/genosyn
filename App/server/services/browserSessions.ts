@@ -69,6 +69,9 @@ type SensitiveObservationKind = "password-present" | "password-value" | "active-
 const sensitiveValueListeners = new Set<
   (sessionId: string, value: string, kind: SensitiveObservationKind) => void | Promise<void>
 >();
+const recordingFrameInspectors = new Set<
+  (sessionId: string, jpegBase64: string) => boolean | Promise<boolean>
+>();
 let passwordObservationRuntime: (sessionId: string) => unknown = getRuntime;
 let beforeBrowserSessionSaveForTests: (() => Promise<void>) | null = null;
 const passwordTaintKey = `__genosynPasswordTaint_${crypto.randomBytes(12).toString("hex")}`;
@@ -358,6 +361,17 @@ export function registerBrowserSensitiveValueListener(
 ): () => void {
   sensitiveValueListeners.add(listener);
   return () => sensitiveValueListeners.delete(listener);
+}
+
+/**
+ * Inspect the exact JPEG bytes before a Routine recording accepts them.
+ * Returning false, throwing, or rejecting withholds the entire recording.
+ */
+export function registerBrowserRecordingFrameInspector(
+  inspector: (sessionId: string, jpegBase64: string) => boolean | Promise<boolean>,
+): () => void {
+  recordingFrameInspectors.add(inspector);
+  return () => recordingFrameInspectors.delete(inspector);
 }
 
 /**
@@ -896,6 +910,20 @@ function startRecordingFrameScan(state: SessionState): void {
     } catch {
       await restrictBrowserRecording(state.id).catch(() => undefined);
       return;
+    }
+    for (const inspect of recordingFrameInspectors) {
+      try {
+        if (!(await inspect(state.id, frame.data))) {
+          await restrictBrowserRecording(state.id).catch(() => undefined);
+          return;
+        }
+      } catch {
+        // A frame that cannot be classified never reaches ffmpeg. Withhold
+        // the whole recording because an earlier accepted frame may belong to
+        // the same sensitive ceremony.
+        await restrictBrowserRecording(state.id).catch(() => undefined);
+        return;
+      }
     }
     if (frame.navigationGeneration === state.recordingNavigationGeneration) {
       acceptBrowserRecordingFrame(state.id, frame.data);

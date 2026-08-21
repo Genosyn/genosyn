@@ -19,14 +19,25 @@ import { VaultItem } from "../db/entities/VaultItem.js";
 import { VaultItemMemberAccess } from "../db/entities/VaultItemMemberAccess.js";
 import { errorHandler } from "../middleware/error.js";
 import { hashApiToken } from "../middleware/auth.js";
+import { encryptSecret } from "../lib/secret.js";
 import {
+  beginVaultPasskeyRegistrationForEmployee,
   createVaultLoginForEmployee,
+  finalizeVaultPasskeyRegistrationForEmployee,
   generateVaultPassword,
+  getVaultPasskeyForEmployee,
   getVaultFieldForEmployee,
+  getVaultTotpCode,
+  getVaultTotpCodeForEmployee,
   listVaultItemsForEmployee,
+  recordVaultPasskeyUseForEmployee,
+  releaseVaultPasskeyRegistrationForEmployee,
+  releaseVaultPasskeyUseForEmployee,
+  setVaultTotpForEmployee,
   updateVaultItem,
   updateVaultLoginMetadataForEmployee,
   VaultError,
+  type VaultPasskeyCredentialInput,
 } from "../services/vault.js";
 import { deleteCompanyCascade } from "../services/companyDelete.js";
 import { deleteUserCascade } from "../services/userDelete.js";
@@ -38,6 +49,7 @@ import {
   BrowserApprovalError,
   claimBrowserActionApproval,
   createBrowserActionApproval,
+  readBrowserActionPayload,
   settleBrowserActionApproval,
   type BrowserApprovalTargetDescriptor,
 } from "../services/approvals.js";
@@ -181,6 +193,7 @@ async function createItem(
     secret: string;
     websiteUrl: string;
     notes: string;
+    totpSetupKey: string;
   }> = {},
 ): Promise<Record<string, unknown> & { id: string }> {
   const response = await call<{ item: Record<string, unknown> & { id: string } }>(
@@ -201,12 +214,75 @@ async function createItem(
   return response.body.item;
 }
 
+function passkeyCredential(
+  overrides: Partial<VaultPasskeyCredentialInput> = {},
+): VaultPasskeyCredentialInput {
+  const { privateKey } = crypto.generateKeyPairSync("ec", {
+    namedCurve: "prime256v1",
+    privateKeyEncoding: { format: "der", type: "pkcs8" },
+    publicKeyEncoding: { format: "der", type: "spki" },
+  });
+  return {
+    credentialId: Buffer.from(randomUUID()).toString("base64"),
+    isResidentCredential: true,
+    rpId: "example.com",
+    privateKey: privateKey.toString("base64"),
+    userHandle: Buffer.from("vault-user").toString("base64"),
+    signCount: 0,
+    backupEligibility: false,
+    backupState: false,
+    userName: "ops@example.com",
+    userDisplayName: "Vault Operator",
+    ...overrides,
+  };
+}
+
+async function registerPasskeyForEmployee(itemId: string, credential: VaultPasskeyCredentialInput) {
+  const registration = await beginVaultPasskeyRegistrationForEmployee({
+    companyId: company.id,
+    employeeId: employee.id,
+    itemId,
+  });
+  return finalizeVaultPasskeyRegistrationForEmployee({
+    companyId: company.id,
+    employeeId: employee.id,
+    itemId,
+    registrationLeaseId: registration.registrationLeaseId,
+    credential,
+  });
+}
+
 function assertSafeMetadata(value: Record<string, unknown>): void {
   assert.equal(Object.hasOwn(value, "secret"), false);
   assert.equal(Object.hasOwn(value, "encryptedPayload"), false);
 }
 
 describe("Vault human routes", () => {
+  test("loads pre-authenticator ciphertext with safe empty defaults", async () => {
+    const legacy = await insert(VaultItem, {
+      companyId: company.id,
+      type: "login",
+      visibility: "restricted",
+      encryptedPayload: encryptSecret(
+        JSON.stringify({
+          title: "Legacy login",
+          username: "legacy@example.com",
+          secret: "legacy-password",
+          websiteUrl: "https://legacy.example.com/login",
+          notes: "Created before authenticators",
+        }),
+        `company:${company.id}:vault`,
+      ),
+      createdByUserId: owner.id,
+      createdByEmployeeId: null,
+    });
+    const response = await call<{ item: Record<string, unknown> }>("GET", `/items/${legacy.id}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.item.hasTotp, false);
+    assert.deepEqual(response.body.item.passkeys, []);
+    assertSafeMetadata(response.body.item);
+  });
+
   test("encrypts the full payload and only returns a secret from audited no-store endpoints", async () => {
     const created = await createItem();
     assertSafeMetadata(created);
@@ -254,6 +330,86 @@ describe("Vault human routes", () => {
       auditRows.some((row) => row.metadataJson.includes("rotated-never-audited")),
       false,
     );
+  });
+
+  test("locks a passkey login to its normalized exact website origin", async () => {
+    const generated = await createVaultLoginForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      title: "Origin-bound login",
+      username: "before@example.com",
+      secret: "before-password",
+      websiteUrl: "https://accounts.example.com/signup",
+      notes: "Before",
+    });
+    const passkey = await registerPasskeyForEmployee(generated.id, passkeyCredential());
+    const current = await call<{ item: { version: number } }>("GET", `/items/${generated.id}`);
+    assert.equal(current.status, 200);
+
+    const sameOrigin = await call<{
+      item: {
+        version: number;
+        title: string;
+        username: string;
+        websiteUrl: string;
+        notes: string;
+      };
+    }>("PATCH", `/items/${generated.id}`, {
+      expectedVersion: current.body.item.version,
+      title: "Updated title",
+      username: "after@example.com",
+      secret: "after-password",
+      websiteUrl: "HTTPS://ACCOUNTS.EXAMPLE.COM:443/security/passkeys?view=all#saved",
+      notes: "After",
+    });
+    assert.equal(sameOrigin.status, 200);
+    assert.equal(sameOrigin.body.item.title, "Updated title");
+    assert.equal(sameOrigin.body.item.username, "after@example.com");
+    assert.equal(
+      sameOrigin.body.item.websiteUrl,
+      "https://accounts.example.com/security/passkeys?view=all#saved",
+    );
+    assert.equal(sameOrigin.body.item.notes, "After");
+    const reveal = await call<{ secret: string }>("POST", `/items/${generated.id}/reveal`, {
+      purpose: "reveal",
+    });
+    assert.equal(reveal.body.secret, "after-password");
+
+    for (const websiteUrl of [
+      "",
+      "http://accounts.example.com/login",
+      "https://example.com/login",
+      "https://accounts.example.com:444/login",
+    ]) {
+      const rejected = await call<{ error: string }>("PATCH", `/items/${generated.id}`, {
+        expectedVersion: sameOrigin.body.item.version,
+        websiteUrl,
+      });
+      assert.equal(rejected.status, 409);
+      assert.match(rejected.body.error, /saved passkeys.*website origin/i);
+      assert.doesNotMatch(
+        JSON.stringify(rejected.body),
+        new RegExp(`${passkey.id}|${generated.id}|after-password`),
+      );
+    }
+
+    const unchanged = await call<{ item: { version: number; websiteUrl: string } }>(
+      "GET",
+      `/items/${generated.id}`,
+    );
+    assert.equal(unchanged.body.item.version, sameOrigin.body.item.version);
+    assert.equal(
+      unchanged.body.item.websiteUrl,
+      "https://accounts.example.com/security/passkeys?view=all#saved",
+    );
+
+    const ordinary = await createItem({ websiteUrl: "https://one.example.com/login" });
+    const moved = await call<{ item: { websiteUrl: string } }>("PATCH", `/items/${ordinary.id}`, {
+      expectedVersion: ordinary.version,
+      websiteUrl: "https://two.example.com/login",
+    });
+    assert.equal(moved.status, 200);
+    assert.equal(moved.body.item.websiteUrl, "https://two.example.com/login");
   });
 
   test("enforces company visibility, restricted Access, and manager-only sharing/deletion", async () => {
@@ -410,6 +566,127 @@ describe("Vault human routes", () => {
     });
     assert.equal(response.status, 400);
     assert.equal(await AppDataSource.getRepository(VaultItem).count(), 0);
+  });
+
+  test("creates, reveals, replaces, and removes TOTP without exposing its setup key", async () => {
+    const secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+    const setupKey =
+      `otpauth://totp/Example%3Aops%40example.com?secret=${secret}` +
+      "&issuer=Example&algorithm=SHA1&digits=8&period=30";
+    const created = await createItem({ totpSetupKey: setupKey });
+    assert.equal(created.hasTotp, true);
+    assert.deepEqual(created.passkeys, []);
+    assert.doesNotMatch(JSON.stringify(created), new RegExp(secret));
+
+    const stored = await AppDataSource.getRepository(VaultItem).findOneByOrFail({ id: created.id });
+    assert.doesNotMatch(stored.encryptedPayload, new RegExp(secret));
+    const fixed = await getVaultTotpCode({
+      companyId: company.id,
+      itemId: created.id,
+      actor: { userId: owner.id, role: "owner" },
+      at: new Date(59_000),
+    });
+    assert.equal(fixed.code, "94287082");
+    assert.equal(fixed.expiresAt.toISOString(), "1970-01-01T00:01:00.000Z");
+
+    const current = await call<{ code: string; expiresAt: string }>(
+      "POST",
+      `/items/${created.id}/totp/code`,
+      { purpose: "copy" },
+    );
+    assert.equal(current.status, 200);
+    assert.match(current.body.code, /^\d{8}$/);
+    assert.ok(Number.isFinite(Date.parse(current.body.expiresAt)));
+    assert.match(current.headers.get("cache-control") ?? "", /no-store/);
+
+    const metadataUpdate = await call<{ item: { hasTotp: boolean; version: number } }>(
+      "PATCH",
+      `/items/${created.id}`,
+      { title: "Renamed login", expectedVersion: Number(created.version) },
+    );
+    assert.equal(metadataUpdate.status, 200);
+    assert.equal(metadataUpdate.body.item.hasTotp, true);
+    assert.equal(
+      (
+        await call("PATCH", `/items/${created.id}`, {
+          type: "secure_note",
+          expectedVersion: metadataUpdate.body.item.version,
+        })
+      ).status,
+      409,
+    );
+
+    const removed = await call<{ item: { hasTotp: boolean } }>(
+      "DELETE",
+      `/items/${created.id}/totp`,
+    );
+    assert.equal(removed.status, 200);
+    assert.equal(removed.body.item.hasTotp, false);
+    assert.equal(
+      (await call("POST", `/items/${created.id}/totp/code`, { purpose: "reveal" })).status,
+      404,
+    );
+
+    const audits = await AppDataSource.getRepository(AuditEvent).find({
+      where: { companyId: company.id },
+    });
+    assert.ok(audits.some((row) => row.action === "vault.totp.copy"));
+    assert.ok(audits.some((row) => row.action === "vault.totp.delete"));
+    assert.doesNotMatch(JSON.stringify(audits), new RegExp(`${secret}|${fixed.code}`));
+  });
+
+  test("validates TOTP setup before atomic create and preserves an existing factor on failure", async () => {
+    const invalidSetups = [
+      "NOT-BASE32-1",
+      "otpauth://hotp/Example:user?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&counter=1",
+      "otpauth://totp/Example:user?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&algorithm=MD5",
+      "otpauth://totp/Example:user?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=9",
+      "otpauth://totp/Example:user?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&period=5",
+    ];
+    for (const totpSetupKey of invalidSetups) {
+      const response = await call("POST", "/items", {
+        type: "login",
+        visibility: "restricted",
+        title: "Invalid authenticator",
+        username: "",
+        secret: "password-stays-private",
+        websiteUrl: "https://example.com/login",
+        notes: "",
+        totpSetupKey,
+      });
+      assert.equal(response.status, 400);
+      assert.doesNotMatch(JSON.stringify(response.body), /GEZDGNBV|NOT-BASE32/);
+    }
+    assert.equal(await AppDataSource.getRepository(VaultItem).count(), 0);
+
+    const created = await createItem({
+      totpSetupKey: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+    });
+    const replaced = await call<{ item: { hasTotp: boolean } }>(
+      "POST",
+      `/items/${created.id}/totp`,
+      { setupKey: "JBSWY3DPEHPK3PXP" },
+    );
+    assert.equal(replaced.status, 200);
+    assert.equal(replaced.body.item.hasTotp, true);
+    const failedReplacement = await call("POST", `/items/${created.id}/totp`, {
+      setupKey: "INVALID-SETUP-1",
+    });
+    assert.equal(failedReplacement.status, 400);
+    const stillPresent = await call<{ item: { hasTotp: boolean } }>("GET", `/items/${created.id}`);
+    assert.equal(stillPresent.body.item.hasTotp, true);
+
+    const wrongType = await call("POST", "/items", {
+      type: "secure_note",
+      visibility: "restricted",
+      title: "Not a login",
+      username: "",
+      secret: "note-body",
+      websiteUrl: "",
+      notes: "",
+      totpSetupKey: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+    });
+    assert.equal(wrongType.status, 400);
   });
 });
 
@@ -638,6 +915,168 @@ describe("Vault capture approvals", () => {
       (error) => error instanceof BrowserApprovalError && error.statusCode === 409,
     );
   });
+
+  test("encrypts and claim-binds the Vault item and TOTP field for delayed submission", async () => {
+    const browserSessionId = randomUUID();
+    const itemId = randomUUID();
+    const itemVersion = 7;
+    const totpSelector = "aria-ref=e11";
+    const submitDescriptor: BrowserApprovalTargetDescriptor = {
+      ...targetDescriptor,
+      tagName: "button",
+      inputType: "submit",
+      submitsForm: true,
+    };
+    const approval = await createBrowserActionApproval({
+      companyId: company.id,
+      employeeId: employee.id,
+      action: "vault_totp_submit",
+      selector: "aria-ref=e12",
+      key: null,
+      pageUrl: "https://example.com/login?challenge=private",
+      browserSessionId,
+      targetFingerprint,
+      targetDescriptor: submitDescriptor,
+      summary: "Sign in with a current one-time code",
+      vaultItemId: itemId,
+      vaultItemVersion: itemVersion,
+      vaultTotpSelector: totpSelector,
+    });
+    const stored = await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id });
+    assert.match(stored.payloadJson ?? "", /encryptedVaultTotpSubmit/);
+    assert.doesNotMatch(stored.payloadJson ?? "", /vaultItemVersion/);
+    assert.doesNotMatch(
+      stored.payloadJson ?? "",
+      new RegExp(`${itemId}|${totpSelector}|challenge`),
+    );
+    const decoded = readBrowserActionPayload(stored);
+    assert.equal(decoded.action, "vault_totp_submit");
+    assert.equal(decoded.vaultItemId, itemId);
+    assert.equal(decoded.vaultItemVersion, itemVersion);
+    assert.equal(decoded.vaultTotpSelector, totpSelector);
+
+    stored.status = "approved";
+    stored.decidedAt = new Date();
+    stored.decidedByUserId = owner.id;
+    await AppDataSource.getRepository(Approval).save(stored);
+    await assert.rejects(
+      claimBrowserActionApproval({
+        approvalId: approval.id,
+        companyId: company.id,
+        employeeId: employee.id,
+        browserSessionId,
+        action: "vault_totp_submit",
+        selector: "aria-ref=e12",
+        key: null,
+        targetFingerprint,
+        targetDescriptor: submitDescriptor,
+        vaultItemId: randomUUID(),
+        vaultItemVersion: itemVersion,
+        vaultTotpSelector: totpSelector,
+      }),
+      (error) => error instanceof BrowserApprovalError && error.statusCode === 409,
+    );
+    await assert.rejects(
+      claimBrowserActionApproval({
+        approvalId: approval.id,
+        companyId: company.id,
+        employeeId: employee.id,
+        browserSessionId,
+        action: "vault_totp_submit",
+        selector: "aria-ref=e12",
+        key: null,
+        targetFingerprint,
+        targetDescriptor: submitDescriptor,
+        vaultItemId: itemId,
+        vaultItemVersion: itemVersion + 1,
+        vaultTotpSelector: totpSelector,
+      }),
+      (error) => error instanceof BrowserApprovalError && error.statusCode === 409,
+    );
+    const claimed = await claimBrowserActionApproval({
+      approvalId: approval.id,
+      companyId: company.id,
+      employeeId: employee.id,
+      browserSessionId,
+      action: "vault_totp_submit",
+      selector: "aria-ref=e12",
+      key: null,
+      targetFingerprint,
+      targetDescriptor: submitDescriptor,
+      vaultItemId: itemId,
+      vaultItemVersion: itemVersion,
+      vaultTotpSelector: totpSelector,
+    });
+    await settleBrowserActionApproval({
+      approvalId: approval.id,
+      claimId: claimed.claimId,
+      succeeded: true,
+    });
+  });
+
+  test("encrypts and claim-binds one-shot Vault passkey actions", async () => {
+    const browserSessionId = randomUUID();
+    const itemId = randomUUID();
+    const itemVersion = 11;
+    const passkeyId = randomUUID();
+    const selector = "aria-ref=e20";
+    const passkeyDescriptor: BrowserApprovalTargetDescriptor = {
+      ...targetDescriptor,
+      tagName: "button",
+      inputType: "button",
+      submitsForm: true,
+    };
+    const approval = await createBrowserActionApproval({
+      companyId: company.id,
+      employeeId: employee.id,
+      action: "vault_passkey_use",
+      selector,
+      key: null,
+      pageUrl: "https://example.com/login",
+      browserSessionId,
+      targetFingerprint,
+      targetDescriptor: passkeyDescriptor,
+      summary: "Sign in with a software passkey",
+      vaultItemId: itemId,
+      vaultItemVersion: itemVersion,
+      vaultPasskeyId: passkeyId,
+    });
+    const stored = await AppDataSource.getRepository(Approval).findOneByOrFail({ id: approval.id });
+    assert.match(stored.payloadJson ?? "", /encryptedVaultPasskeyAction/);
+    assert.doesNotMatch(stored.payloadJson ?? "", /vaultItemVersion/);
+    assert.doesNotMatch(stored.payloadJson ?? "", new RegExp(`${itemId}|${passkeyId}|${selector}`));
+    const decoded = readBrowserActionPayload(stored);
+    assert.equal(decoded.action, "vault_passkey_use");
+    assert.equal(decoded.vaultItemId, itemId);
+    assert.equal(decoded.vaultItemVersion, itemVersion);
+    assert.equal(decoded.vaultPasskeyId, passkeyId);
+    assert.equal(decoded.selector, selector);
+    stored.status = "approved";
+    stored.decidedAt = new Date();
+    stored.decidedByUserId = owner.id;
+    await AppDataSource.getRepository(Approval).save(stored);
+    await assert.rejects(
+      claimBrowserActionApproval({
+        approvalId: approval.id,
+        companyId: company.id,
+        employeeId: employee.id,
+        browserSessionId,
+        action: "vault_passkey_use",
+        selector,
+        key: null,
+        targetFingerprint,
+        targetDescriptor: passkeyDescriptor,
+        vaultItemId: itemId,
+        vaultItemVersion: itemVersion + 1,
+        vaultPasskeyId: passkeyId,
+      }),
+      (error) => error instanceof BrowserApprovalError && error.statusCode === 409,
+    );
+    // Approval notifications are deliberately fire-and-forget in production;
+    // let this test's notification query drain before the next suite rebuilds
+    // the shared in-memory schema.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  });
 });
 
 describe("Vault AI service boundary", () => {
@@ -781,6 +1220,685 @@ describe("Vault AI service boundary", () => {
     });
     assert.equal(capturedReveal.status, 200);
     assert.equal(capturedReveal.body.secret, "captured-without-model-exposure");
+  });
+
+  test("lets an AI Employee store and use TOTP only through live Vault Grants", async () => {
+    const secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+    const generated = await createVaultLoginForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      title: "TOTP signup",
+      websiteUrl: "https://accounts.example.com/signup",
+    });
+    const stored = await setVaultTotpForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      setupKey: `${secret}`,
+    });
+    assert.deepEqual(stored, { id: generated.id, title: "TOTP signup", hasTotp: true });
+    const boundTotpVersion = (
+      await AppDataSource.getRepository(VaultItem).findOneByOrFail({ id: generated.id })
+    ).version;
+    const code = await getVaultTotpCodeForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      expectedVersion: boundTotpVersion,
+      at: new Date(59_000),
+    });
+    assert.equal(code.code, "287082");
+    assert.equal(code.expiresAt.toISOString(), "1970-01-01T00:01:00.000Z");
+    assert.equal(code.itemVersion, boundTotpVersion);
+    await assert.rejects(
+      setVaultTotpForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        setupKey: secret,
+        expectedVersion: boundTotpVersion - 1,
+        expectedOrigin: "https://accounts.example.com",
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 409,
+    );
+    await assert.rejects(
+      setVaultTotpForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        setupKey: secret,
+        expectedVersion: boundTotpVersion,
+        expectedOrigin: "https://different.example.com",
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 409,
+    );
+
+    const listed = await listVaultItemsForEmployee(company.id, employee.id);
+    assert.equal(listed[0].hasTotp, true);
+    assert.deepEqual(listed[0].passkeys, []);
+    assert.doesNotMatch(JSON.stringify(listed), new RegExp(`${secret}|${code.code}`));
+    const ciphertext = (
+      await AppDataSource.getRepository(VaultItem).findOneByOrFail({ id: generated.id })
+    ).encryptedPayload;
+    assert.doesNotMatch(ciphertext, new RegExp(secret));
+    await updateVaultLoginMetadataForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      patch: { notes: "Changed after delayed TOTP approval" },
+    });
+    await assert.rejects(
+      getVaultTotpCodeForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        expectedVersion: boundTotpVersion,
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 409,
+    );
+
+    const humanCreated = await createItem({ title: "Human-owned factor" });
+    await call("POST", `/items/${humanCreated.id}/employee-grants`, {
+      employeeId: employee.id,
+      accessLevel: "manage",
+    });
+    await assert.rejects(
+      setVaultTotpForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: humanCreated.id,
+        setupKey: secret,
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 403,
+    );
+
+    await AppDataSource.getRepository(EmployeeVaultGrant).delete({
+      companyId: company.id,
+      employeeId: employee.id,
+      vaultItemId: generated.id,
+    });
+    await assert.rejects(
+      getVaultTotpCodeForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 403,
+    );
+  });
+
+  test("reserves passkey registration across processes and finalizes by token after revocation", async () => {
+    const generated = await createVaultLoginForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      title: "Reserved passkey signup",
+      username: "ops@example.com",
+      websiteUrl: "https://accounts.example.com/signup",
+    });
+    await setVaultTotpForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      setupKey: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+    });
+    const beforeRegistration = await AppDataSource.getRepository(VaultItem).findOneByOrFail({
+      id: generated.id,
+    });
+    await assert.rejects(
+      beginVaultPasskeyRegistrationForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        expectedVersion: beforeRegistration.version - 1,
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 409,
+    );
+
+    const raced = await Promise.allSettled([
+      beginVaultPasskeyRegistrationForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        expectedVersion: beforeRegistration.version,
+      }),
+      beginVaultPasskeyRegistrationForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        expectedVersion: beforeRegistration.version,
+      }),
+    ]);
+    const acquired = raced.filter(
+      (
+        result,
+      ): result is PromiseFulfilledResult<
+        Awaited<ReturnType<typeof beginVaultPasskeyRegistrationForEmployee>>
+      > => result.status === "fulfilled",
+    );
+    assert.equal(acquired.length, 1);
+    assert.equal(raced.filter((result) => result.status === "rejected").length, 1);
+    const firstRegistration = acquired[0].value;
+    assert.deepEqual(Object.keys(firstRegistration.item).sort(), [
+      "companyId",
+      "createdByEmployeeId",
+      "id",
+      "title",
+      "type",
+      "username",
+      "version",
+      "websiteUrl",
+    ]);
+    assertSafeMetadata(firstRegistration.item);
+    const safeDuringRegistration = await call<{ item: Record<string, unknown> }>(
+      "GET",
+      `/items/${generated.id}`,
+    );
+    assert.equal(
+      JSON.stringify(safeDuringRegistration.body).includes(firstRegistration.registrationLeaseId),
+      false,
+    );
+    const encryptedDuringRegistration = await AppDataSource.getRepository(
+      VaultItem,
+    ).findOneByOrFail({ id: generated.id });
+    assert.equal(
+      encryptedDuringRegistration.encryptedPayload.includes(firstRegistration.registrationLeaseId),
+      false,
+    );
+
+    await AppDataSource.getRepository(EmployeeVaultGrant).delete({
+      companyId: company.id,
+      employeeId: employee.id,
+      vaultItemId: generated.id,
+    });
+    const firstCredential = passkeyCredential();
+    const firstPasskey = await finalizeVaultPasskeyRegistrationForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      registrationLeaseId: firstRegistration.registrationLeaseId,
+      credential: firstCredential,
+    });
+    assert.equal(firstPasskey.rpId, "example.com");
+    assert.equal(Object.hasOwn(firstPasskey, "privateKey"), false);
+    await insert(EmployeeVaultGrant, {
+      companyId: company.id,
+      employeeId: employee.id,
+      vaultItemId: generated.id,
+      accessLevel: "manage",
+    });
+
+    const secondRegistration = await beginVaultPasskeyRegistrationForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+    });
+    const concurrentUse = await getVaultPasskeyForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: firstPasskey.id,
+    });
+    const current = await call<{ item: { version: number } }>("GET", `/items/${generated.id}`);
+    const blockedUpdate = await call<{ error: string }>("PATCH", `/items/${generated.id}`, {
+      expectedVersion: current.body.item.version,
+      title: "Must not change during registration",
+    });
+    assert.equal(blockedUpdate.status, 409);
+    assert.match(blockedUpdate.body.error, /completing a software passkey registration/i);
+    assert.equal((await call("DELETE", `/items/${generated.id}`)).status, 409);
+    assert.equal(
+      (await call("DELETE", `/items/${generated.id}/passkeys/${firstPasskey.id}`)).status,
+      409,
+    );
+    assert.equal(
+      (
+        await call("POST", `/items/${generated.id}/totp`, {
+          setupKey: "JBSWY3DPEHPK3PXP",
+        })
+      ).status,
+      409,
+    );
+    await assert.rejects(
+      updateVaultLoginMetadataForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        patch: { notes: "Must not change during registration" },
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 409,
+    );
+    await assert.rejects(
+      setVaultTotpForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        setupKey: "JBSWY3DPEHPK3PXP",
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 409,
+    );
+    assert.equal(
+      (
+        await call("POST", `/items/${generated.id}/totp/code`, {
+          purpose: "reveal",
+        })
+      ).status,
+      200,
+    );
+
+    const originalDateNow = Date.now;
+    Date.now = () => originalDateNow() + 31_000;
+    const newerRegistration = await (async () => {
+      try {
+        return await beginVaultPasskeyRegistrationForEmployee({
+          companyId: company.id,
+          employeeId: employee.id,
+          itemId: generated.id,
+        });
+      } finally {
+        Date.now = originalDateNow;
+      }
+    })();
+    await releaseVaultPasskeyRegistrationForEmployee({
+      companyId: company.id,
+      itemId: generated.id,
+      registrationLeaseId: secondRegistration.registrationLeaseId,
+    });
+    await assert.rejects(
+      beginVaultPasskeyRegistrationForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 409,
+    );
+    await assert.rejects(
+      finalizeVaultPasskeyRegistrationForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        registrationLeaseId: secondRegistration.registrationLeaseId,
+        credential: passkeyCredential(),
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 409,
+    );
+    const secondPasskey = await finalizeVaultPasskeyRegistrationForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      registrationLeaseId: newerRegistration.registrationLeaseId,
+      credential: passkeyCredential(),
+    });
+    assert.notEqual(secondPasskey.id, firstPasskey.id);
+    await releaseVaultPasskeyUseForEmployee({
+      companyId: company.id,
+      itemId: generated.id,
+      passkeyId: firstPasskey.id,
+      leaseId: concurrentUse.leaseId,
+    });
+    const after = await call<{ item: { hasTotp: boolean; passkeys: unknown[] } }>(
+      "GET",
+      `/items/${generated.id}`,
+    );
+    assert.equal(after.body.item.hasTotp, true);
+    assert.equal(after.body.item.passkeys.length, 2);
+  });
+
+  test("leases software passkey use, persists counters, and exposes metadata only", async () => {
+    const generated = await createVaultLoginForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      title: "Passkey signup",
+      username: "ops@example.com",
+      websiteUrl: "https://accounts.example.com/signup",
+    });
+    const credential = passkeyCredential();
+    const saved = await registerPasskeyForEmployee(generated.id, credential);
+    assert.equal(saved.rpId, "example.com");
+    assert.equal(Object.hasOwn(saved, "privateKey"), false);
+    assert.equal(Object.hasOwn(saved, "credentialId"), false);
+
+    const listed = await listVaultItemsForEmployee(company.id, employee.id);
+    assert.equal(listed[0].passkeys.length, 1);
+    assert.equal(listed[0].passkeys[0].id, saved.id);
+    assert.equal(JSON.stringify(listed).includes(credential.privateKey), false);
+    assert.equal(JSON.stringify(listed).includes(credential.credentialId), false);
+    const ciphertext = (
+      await AppDataSource.getRepository(VaultItem).findOneByOrFail({ id: generated.id })
+    ).encryptedPayload;
+    assert.equal(ciphertext.includes(credential.privateKey), false);
+
+    const approvalBoundVersion = (
+      await AppDataSource.getRepository(VaultItem).findOneByOrFail({ id: generated.id })
+    ).version;
+    await updateVaultLoginMetadataForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      patch: { notes: "Changed after delayed passkey approval" },
+    });
+    await assert.rejects(
+      getVaultPasskeyForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        passkeyId: saved.id,
+        expectedVersion: approvalBoundVersion,
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 409,
+    );
+    const currentUseVersion = (
+      await AppDataSource.getRepository(VaultItem).findOneByOrFail({ id: generated.id })
+    ).version;
+    const versionBoundLease = await getVaultPasskeyForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+      expectedVersion: currentUseVersion,
+    });
+    assert.equal(versionBoundLease.item.version, currentUseVersion + 1);
+    await releaseVaultPasskeyUseForEmployee({
+      companyId: company.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+      leaseId: versionBoundLease.leaseId,
+    });
+
+    const leaseRepo = AppDataSource.getRepository(VaultItem);
+    const leaseOriginalUpdate = leaseRepo.update.bind(leaseRepo);
+    let injectAcquireConflict = true;
+    leaseRepo.update = (async (criteria, partial) => {
+      if (injectAcquireConflict) {
+        injectAcquireConflict = false;
+        leaseRepo.update = leaseOriginalUpdate as typeof leaseRepo.update;
+        await updateVaultLoginMetadataForEmployee({
+          companyId: company.id,
+          employeeId: employee.id,
+          itemId: generated.id,
+          patch: { notes: "Concurrent with lease acquire" },
+        });
+      }
+      return leaseOriginalUpdate(criteria, partial);
+    }) as typeof leaseRepo.update;
+    const conflictLease = await (async () => {
+      try {
+        return await getVaultPasskeyForEmployee({
+          companyId: company.id,
+          employeeId: employee.id,
+          itemId: generated.id,
+          passkeyId: saved.id,
+        });
+      } finally {
+        leaseRepo.update = leaseOriginalUpdate as typeof leaseRepo.update;
+      }
+    })();
+
+    let injectReleaseConflict = true;
+    leaseRepo.update = (async (criteria, partial) => {
+      if (injectReleaseConflict) {
+        injectReleaseConflict = false;
+        leaseRepo.update = leaseOriginalUpdate as typeof leaseRepo.update;
+        await updateVaultLoginMetadataForEmployee({
+          companyId: company.id,
+          employeeId: employee.id,
+          itemId: generated.id,
+          patch: { notes: "Concurrent with lease release" },
+        });
+      }
+      return leaseOriginalUpdate(criteria, partial);
+    }) as typeof leaseRepo.update;
+    try {
+      await releaseVaultPasskeyUseForEmployee({
+        companyId: company.id,
+        itemId: generated.id,
+        passkeyId: saved.id,
+        leaseId: conflictLease.leaseId,
+      });
+    } finally {
+      leaseRepo.update = leaseOriginalUpdate as typeof leaseRepo.update;
+    }
+
+    const racedLeases = await Promise.allSettled([
+      getVaultPasskeyForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        passkeyId: saved.id,
+      }),
+      getVaultPasskeyForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        passkeyId: saved.id,
+      }),
+    ]);
+    const acquired = racedLeases.filter(
+      (
+        result,
+      ): result is PromiseFulfilledResult<Awaited<ReturnType<typeof getVaultPasskeyForEmployee>>> =>
+        result.status === "fulfilled",
+    );
+    assert.equal(acquired.length, 1);
+    assert.equal(racedLeases.filter((result) => result.status === "rejected").length, 1);
+    const firstLease = acquired[0].value;
+    assert.equal((await call("DELETE", `/items/${generated.id}`)).status, 409);
+    assert.equal((await call("DELETE", `/items/${generated.id}/passkeys/${saved.id}`)).status, 409);
+    await releaseVaultPasskeyUseForEmployee({
+      companyId: company.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+      leaseId: firstLease.leaseId,
+    });
+
+    const newerLease = await getVaultPasskeyForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+    });
+    await releaseVaultPasskeyUseForEmployee({
+      companyId: company.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+      leaseId: firstLease.leaseId,
+    });
+    await assert.rejects(
+      getVaultPasskeyForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        passkeyId: saved.id,
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 409,
+    );
+    await releaseVaultPasskeyUseForEmployee({
+      companyId: company.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+      leaseId: newerLease.leaseId,
+    });
+
+    const assertionLease = await getVaultPasskeyForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+    });
+    const itemRepo = AppDataSource.getRepository(VaultItem);
+    const originalUpdate = itemRepo.update.bind(itemRepo);
+    let injectedMetadataWrite = false;
+    itemRepo.update = (async (criteria, partial) => {
+      if (!injectedMetadataWrite) {
+        injectedMetadataWrite = true;
+        itemRepo.update = originalUpdate as typeof itemRepo.update;
+        await updateVaultLoginMetadataForEmployee({
+          companyId: company.id,
+          employeeId: employee.id,
+          itemId: generated.id,
+          patch: { notes: "Concurrent metadata survives assertion persistence" },
+        });
+      }
+      return originalUpdate(criteria, partial);
+    }) as typeof itemRepo.update;
+    const originalDateNow = Date.now;
+    Date.now = () => originalDateNow() + 121_000;
+    const recorded = await (async () => {
+      try {
+        return await recordVaultPasskeyUseForEmployee({
+          companyId: company.id,
+          employeeId: employee.id,
+          itemId: generated.id,
+          passkeyId: saved.id,
+          leaseId: assertionLease.leaseId,
+          credential: { ...credential, signCount: 1 },
+        });
+      } finally {
+        Date.now = originalDateNow;
+        itemRepo.update = originalUpdate as typeof itemRepo.update;
+      }
+    })();
+    assert.equal(recorded.passkey.lastUsedAt instanceof Date, true);
+    actingUserId = owner.id;
+    const afterConcurrentWrite = await call<{ item: { notes: string } }>(
+      "GET",
+      `/items/${generated.id}`,
+    );
+    assert.equal(
+      afterConcurrentWrite.body.item.notes,
+      "Concurrent metadata survives assertion persistence",
+    );
+
+    const rollbackLease = await getVaultPasskeyForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+    });
+    assert.equal(rollbackLease.passkey.signCount, 1);
+    await assert.rejects(
+      recordVaultPasskeyUseForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        passkeyId: saved.id,
+        leaseId: rollbackLease.leaseId,
+        credential: { ...credential, signCount: 1 },
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 409,
+    );
+    const afterFailedAssertion = await getVaultPasskeyForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+    });
+    await releaseVaultPasskeyUseForEmployee({
+      companyId: company.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+      leaseId: afterFailedAssertion.leaseId,
+    });
+
+    const revokedLease = await getVaultPasskeyForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+    });
+    const assertedBeforeRevocation = { ...credential, signCount: 2 };
+    await AppDataSource.getRepository(EmployeeVaultGrant).delete({
+      companyId: company.id,
+      employeeId: employee.id,
+      vaultItemId: generated.id,
+    });
+    const persistedAfterRevocation = await recordVaultPasskeyUseForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+      leaseId: revokedLease.leaseId,
+      credential: assertedBeforeRevocation,
+    });
+    assert.equal(persistedAfterRevocation.passkey.lastUsedAt instanceof Date, true);
+    await assert.rejects(
+      getVaultPasskeyForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        passkeyId: saved.id,
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 403,
+    );
+    await insert(EmployeeVaultGrant, {
+      companyId: company.id,
+      employeeId: employee.id,
+      vaultItemId: generated.id,
+      accessLevel: "manage",
+    });
+    const afterRegrant = await getVaultPasskeyForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+    });
+    assert.equal(afterRegrant.passkey.signCount, 2);
+    await releaseVaultPasskeyUseForEmployee({
+      companyId: company.id,
+      itemId: generated.id,
+      passkeyId: saved.id,
+      leaseId: afterRegrant.leaseId,
+    });
+
+    actingUserId = owner.id;
+    const deleted = await call<{ item: { passkeys: unknown[] } }>(
+      "DELETE",
+      `/items/${generated.id}/passkeys/${saved.id}`,
+    );
+    assert.equal(deleted.status, 200);
+    assert.deepEqual(deleted.body.item.passkeys, []);
+    await assert.rejects(
+      getVaultPasskeyForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: generated.id,
+        passkeyId: saved.id,
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 404,
+    );
+  });
+
+  test("rejects passkeys for the wrong RP, invalid key material, and Member-created logins", async () => {
+    const generated = await createVaultLoginForEmployee({
+      companyId: company.id,
+      employeeId: employee.id,
+      title: "Bound passkey",
+      websiteUrl: "https://accounts.example.com/signup",
+    });
+    await assert.rejects(
+      registerPasskeyForEmployee(generated.id, passkeyCredential({ rpId: "attacker.example" })),
+      (error) => error instanceof VaultError && error.statusCode === 400,
+    );
+    await assert.rejects(
+      registerPasskeyForEmployee(
+        generated.id,
+        passkeyCredential({ privateKey: Buffer.from("not-pkcs8").toString("base64") }),
+      ),
+      (error) => error instanceof VaultError && error.statusCode === 400,
+    );
+
+    const humanCreated = await createItem({ title: "Human-owned passkey" });
+    await call("POST", `/items/${humanCreated.id}/employee-grants`, {
+      employeeId: employee.id,
+      accessLevel: "manage",
+    });
+    await assert.rejects(
+      beginVaultPasskeyRegistrationForEmployee({
+        companyId: company.id,
+        employeeId: employee.id,
+        itemId: humanCreated.id,
+      }),
+      (error) => error instanceof VaultError && error.statusCode === 403,
+    );
   });
 
   test("an AI metadata race cannot restore the password a Member just rotated", async () => {

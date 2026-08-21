@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { createGuardrails, generate as generateOtp } from "otplib";
 import { In } from "typeorm";
 import { z } from "zod";
 
@@ -22,6 +23,86 @@ import {
 } from "../db/entities/VaultItemMemberAccess.js";
 import { decryptSecretWithStrongKeys, encryptSecret } from "../lib/secret.js";
 
+const vaultTotpAlgorithmSchema = z.enum(["sha1", "sha256", "sha512"]);
+
+const vaultTotpSchema = z
+  .object({
+    secret: z.string().min(1).max(128),
+    issuer: z.string().max(255),
+    accountName: z.string().max(500),
+    algorithm: vaultTotpAlgorithmSchema,
+    digits: z.union([z.literal(6), z.literal(7), z.literal(8)]),
+    period: z.number().int().min(15).max(120),
+  })
+  .strict();
+
+export type VaultTotp = z.infer<typeof vaultTotpSchema>;
+
+const passkeyBinarySchema = z
+  .string()
+  .min(1)
+  .max(16_384)
+  .regex(/^[A-Za-z0-9+/_-]+={0,2}$/);
+
+const vaultPasskeyCredentialSchema = z
+  .object({
+    id: z.string().uuid(),
+    credentialId: passkeyBinarySchema,
+    isResidentCredential: z.boolean(),
+    rpId: z.string().min(1).max(253),
+    privateKey: passkeyBinarySchema,
+    userHandle: z.string().max(4096).optional(),
+    signCount: z.number().int().min(0).max(0xffffffff),
+    largeBlob: z.string().max(131_072).optional(),
+    backupEligibility: z.boolean().optional(),
+    backupState: z.boolean().optional(),
+    userName: z.string().max(500).optional(),
+    userDisplayName: z.string().max(500).optional(),
+    createdAt: z.string().datetime(),
+    lastUsedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+const vaultStoredPasskeySchema = vaultPasskeyCredentialSchema.extend({
+  // The lease lives inside the encrypted, versioned payload so every App
+  // process contends through the same SQLite/Postgres compare-and-swap.
+  useLeaseId: z.string().uuid().nullable().default(null),
+  useLeaseExpiresAt: z.string().datetime().nullable().default(null),
+});
+const vaultPasskeyRegistrationLeaseSchema = z
+  .object({
+    id: z.string().uuid(),
+    employeeId: z.string().uuid(),
+    websiteOrigin: z.string().min(1).max(2048),
+    expiresAt: z.string().datetime(),
+  })
+  .strict();
+type VaultPasskeyRegistrationLease = z.infer<typeof vaultPasskeyRegistrationLeaseSchema>;
+const vaultPasskeyCredentialInputSchema = vaultPasskeyCredentialSchema.omit({
+  id: true,
+  createdAt: true,
+  lastUsedAt: true,
+});
+
+/**
+ * Sensitive CDP-compatible passkey material. This type is intentionally
+ * exported only for server-owned browser plumbing; values must never cross an
+ * HTTP, MCP, model, audit, transcript, error, or logging boundary.
+ */
+export type VaultPasskeyCredential = z.infer<typeof vaultPasskeyCredentialSchema>;
+type VaultStoredPasskey = z.infer<typeof vaultStoredPasskeySchema>;
+export type VaultPasskeyCredentialInput = Omit<
+  VaultPasskeyCredential,
+  "id" | "createdAt" | "lastUsedAt"
+>;
+
+export type VaultPasskeyView = Pick<
+  VaultPasskeyCredential,
+  "id" | "rpId" | "userName" | "userDisplayName"
+> & {
+  createdAt: Date;
+  lastUsedAt: Date | null;
+};
+
 const vaultPayloadSchema = z
   .object({
     title: z.string(),
@@ -29,6 +110,11 @@ const vaultPayloadSchema = z
     secret: z.string(),
     websiteUrl: z.string(),
     notes: z.string(),
+    // Defaults are applied while decrypting old ciphertext, so adding these
+    // authenticators requires no database column or ciphertext migration.
+    totp: vaultTotpSchema.nullable().default(null),
+    passkeys: z.array(vaultStoredPasskeySchema).max(32).default([]),
+    passkeyRegistrationLease: vaultPasskeyRegistrationLeaseSchema.nullable().default(null),
   })
   .strict();
 
@@ -42,6 +128,16 @@ const VAULT_PASSWORD_CHARACTER_CLASSES = [
 ] as const;
 const VAULT_PASSWORD_ALPHABET = VAULT_PASSWORD_CHARACTER_CLASSES.join("");
 const DEFAULT_VAULT_PASSWORD_LENGTH = 24;
+const VAULT_TOTP_GUARDRAILS = createGuardrails({
+  // Sixteen Base32 characters (80 bits) remain common on existing services.
+  // Accept those imports while bounding retained and processed key material.
+  MIN_SECRET_BYTES: 10,
+  MAX_SECRET_BYTES: 64,
+  MIN_PERIOD: 15,
+  MAX_PERIOD: 120,
+});
+const VAULT_PASSKEY_USE_LEASE_MS = 120_000;
+const VAULT_PASSKEY_REGISTRATION_LEASE_MS = 30_000;
 
 export type VaultHumanActor = {
   userId: string;
@@ -57,6 +153,8 @@ export type VaultItemView = {
   username: string;
   websiteUrl: string;
   notes: string;
+  hasTotp: boolean;
+  passkeys: VaultPasskeyView[];
   version: number;
   createdByUserId: string | null;
   createdByEmployeeId: string | null;
@@ -67,6 +165,17 @@ export type VaultItemView = {
   canShare: boolean;
   canDelete: boolean;
   canReveal: boolean;
+};
+
+export type VaultPasskeyRegistrationItem = {
+  id: string;
+  companyId: string;
+  type: "login";
+  title: string;
+  username: string;
+  websiteUrl: string;
+  version: number;
+  createdByEmployeeId: string;
 };
 
 export type VaultMemberAccessView = {
@@ -177,6 +286,369 @@ function normalizeVaultWebsiteUrl(value: string): string {
   }
 }
 
+function vaultWebsiteOrigin(value: string): string | null {
+  if (!value) return null;
+  try {
+    const website = new URL(value);
+    if (website.protocol !== "http:" && website.protocol !== "https:") return null;
+    return website.origin;
+  } catch {
+    return null;
+  }
+}
+
+function activeVaultPasskeyRegistrationLease(
+  payload: VaultPayload,
+  at = Date.now(),
+): VaultPasskeyRegistrationLease | null {
+  const lease = payload.passkeyRegistrationLease;
+  if (!lease) return null;
+  const expiresAt = Date.parse(lease.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > at ? lease : null;
+}
+
+function assertNoActiveVaultPasskeyRegistration(payload: VaultPayload): void {
+  if (activeVaultPasskeyRegistrationLease(payload)) {
+    throw new VaultError(
+      "This Vault login is completing a software passkey registration. Retry after it finishes.",
+      409,
+    );
+  }
+}
+
+function requireVaultPasskeyRegistrationLease(
+  payload: VaultPayload,
+  registrationLeaseId: string,
+  employeeId: string,
+): VaultPasskeyRegistrationLease {
+  const lease = payload.passkeyRegistrationLease;
+  // Expiry permits a newer registration to replace an abandoned reservation.
+  // A remote ceremony that already completed may still finalize afterward if
+  // no newer acquisition replaced its unguessable token.
+  if (!lease || lease.id !== registrationLeaseId || lease.employeeId !== employeeId) {
+    throw new VaultError(
+      "That Vault passkey registration session expired. Start it again safely.",
+      409,
+    );
+  }
+  return lease;
+}
+
+function normalizeVaultTotpSecret(value: string): string {
+  const compact = value.trim().toUpperCase().replace(/[\s-]/g, "");
+  const matched = /^([A-Z2-7]+)(=*)$/.exec(compact);
+  if (!matched || matched[2].length > 6) {
+    throw new VaultError("Enter a valid Base32 TOTP setup key or otpauth URI", 400);
+  }
+  const secret = matched[1];
+  if (![0, 2, 4, 5, 7].includes(secret.length % 8)) {
+    throw new VaultError("Enter a valid Base32 TOTP setup key or otpauth URI", 400);
+  }
+
+  let accumulator = 0;
+  let bitCount = 0;
+  let byteCount = 0;
+  for (const character of secret) {
+    const valueIndex = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".indexOf(character);
+    accumulator = (accumulator << 5) | valueIndex;
+    bitCount += 5;
+    while (bitCount >= 8) {
+      bitCount -= 8;
+      byteCount += 1;
+      accumulator &= (1 << bitCount) - 1;
+    }
+  }
+  if (bitCount > 0 && accumulator !== 0) {
+    throw new VaultError("Enter a valid Base32 TOTP setup key or otpauth URI", 400);
+  }
+  if (byteCount < 10 || byteCount > 64) {
+    throw new VaultError("The TOTP setup key must contain 10 to 64 bytes", 400);
+  }
+  return secret;
+}
+
+function uniqueTotpParameter(uri: URL, name: string): string | null {
+  const values = uri.searchParams.getAll(name);
+  if (values.length > 1) {
+    throw new VaultError("The TOTP setup URI contains duplicate parameters", 400);
+  }
+  return values[0] ?? null;
+}
+
+export function normalizeVaultTotpSetup(setupKey: string): VaultTotp {
+  const trimmed = setupKey.trim();
+  if (!trimmed || trimmed.length > 4096) {
+    throw new VaultError("Enter a valid Base32 TOTP setup key or otpauth URI", 400);
+  }
+  if (!trimmed.toLowerCase().startsWith("otpauth://")) {
+    return {
+      secret: normalizeVaultTotpSecret(trimmed),
+      issuer: "",
+      accountName: "",
+      algorithm: "sha1",
+      digits: 6,
+      period: 30,
+    };
+  }
+
+  let uri: URL;
+  try {
+    uri = new URL(trimmed);
+  } catch {
+    throw new VaultError("Enter a valid Base32 TOTP setup key or otpauth URI", 400);
+  }
+  if (uri.protocol !== "otpauth:" || uri.hostname.toLowerCase() !== "totp") {
+    throw new VaultError("Only time-based otpauth TOTP setup URIs are supported", 400);
+  }
+
+  const secret = normalizeVaultTotpSecret(uniqueTotpParameter(uri, "secret") ?? "");
+  const rawAlgorithm = (uniqueTotpParameter(uri, "algorithm") ?? "sha1").toLowerCase();
+  const algorithm = vaultTotpAlgorithmSchema.safeParse(rawAlgorithm);
+  if (!algorithm.success) {
+    throw new VaultError("The TOTP algorithm must be SHA1, SHA256, or SHA512", 400);
+  }
+  const rawDigits = uniqueTotpParameter(uri, "digits") ?? "6";
+  if (!/^[678]$/.test(rawDigits)) {
+    throw new VaultError("The TOTP code length must be 6, 7, or 8 digits", 400);
+  }
+  const digits = Number(rawDigits) as 6 | 7 | 8;
+  const rawPeriod = uniqueTotpParameter(uri, "period") ?? "30";
+  if (!/^\d+$/.test(rawPeriod)) {
+    throw new VaultError("The TOTP period must be from 15 to 120 seconds", 400);
+  }
+  const period = Number(rawPeriod);
+  if (!Number.isSafeInteger(period) || period < 15 || period > 120) {
+    throw new VaultError("The TOTP period must be from 15 to 120 seconds", 400);
+  }
+
+  let label = "";
+  try {
+    label = decodeURIComponent(uri.pathname.replace(/^\//, ""));
+  } catch {
+    throw new VaultError("The TOTP setup URI has an invalid account label", 400);
+  }
+  const separator = label.indexOf(":");
+  const labelIssuer = separator >= 0 ? label.slice(0, separator).trim() : "";
+  const accountName = (separator >= 0 ? label.slice(separator + 1) : label).trim();
+  const parameterIssuer = uniqueTotpParameter(uri, "issuer")?.trim() ?? "";
+  if (labelIssuer && parameterIssuer && labelIssuer !== parameterIssuer) {
+    throw new VaultError("The TOTP setup URI has inconsistent issuer metadata", 400);
+  }
+  const issuer = parameterIssuer || labelIssuer;
+  if (issuer.length > 255 || accountName.length > 500) {
+    throw new VaultError("The TOTP setup URI metadata is too long", 400);
+  }
+  return { secret, issuer, accountName, algorithm: algorithm.data, digits, period };
+}
+
+function toPasskeyView(passkey: VaultPasskeyCredential): VaultPasskeyView {
+  return {
+    id: passkey.id,
+    rpId: passkey.rpId,
+    userName: passkey.userName,
+    userDisplayName: passkey.userDisplayName,
+    createdAt: new Date(passkey.createdAt),
+    lastUsedAt: passkey.lastUsedAt ? new Date(passkey.lastUsedAt) : null,
+  };
+}
+
+function withoutVaultPasskeyLease(passkey: VaultStoredPasskey): VaultPasskeyCredential {
+  const { useLeaseId: _useLeaseId, useLeaseExpiresAt: _useLeaseExpiresAt, ...credential } = passkey;
+  return credential;
+}
+
+function requireStoredVaultPasskeyLease(passkey: VaultStoredPasskey, leaseId: string): void {
+  // Expiry allows a new acquisition to replace an abandoned lease. An
+  // assertion that already happened may persist after the deadline so long as
+  // no new acquisition replaced its unguessable token; the payload CAS then
+  // makes the old record and any new lease mutually exclusive.
+  if (passkey.useLeaseId !== leaseId) {
+    throw new VaultError("That Vault passkey use session expired. Start it again safely.", 409);
+  }
+}
+
+function hasActiveVaultPasskeyUseLease(passkey: VaultStoredPasskey, at = Date.now()): boolean {
+  const expiresAt = passkey.useLeaseExpiresAt ? Date.parse(passkey.useLeaseExpiresAt) : Number.NaN;
+  return !!passkey.useLeaseId && Number.isFinite(expiresAt) && expiresAt > at;
+}
+
+function assertNoActiveVaultPasskeyUse(payload: VaultPayload, passkeyId?: string): void {
+  if (
+    payload.passkeys.some(
+      (passkey) =>
+        (!passkeyId || passkey.id === passkeyId) && hasActiveVaultPasskeyUseLease(passkey),
+    )
+  ) {
+    throw new VaultError(
+      "This Vault login is completing a software passkey sign-in. Retry after it finishes.",
+      409,
+    );
+  }
+}
+
+function normalizeVaultPasskeyRpId(value: string): string {
+  const candidate = value.trim().toLowerCase().replace(/\.$/, "");
+  try {
+    const parsed = new URL(`https://${candidate}`);
+    if (
+      !candidate ||
+      parsed.hostname.toLowerCase() !== candidate ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port ||
+      parsed.pathname !== "/"
+    ) {
+      throw new Error();
+    }
+    return parsed.hostname.toLowerCase();
+  } catch {
+    throw new VaultError("The software passkey has an invalid relying-party ID", 400);
+  }
+}
+
+function normalizeVaultPasskeyCredential(
+  credential: VaultPasskeyCredentialInput,
+): VaultPasskeyCredentialInput {
+  const parsed = vaultPasskeyCredentialInputSchema.safeParse(credential);
+  if (!parsed.success) {
+    throw new VaultError("The software passkey credential is incomplete or invalid", 400);
+  }
+  const decodeBinary = (value: string, maximumBytes: number, allowEmpty = false): Buffer => {
+    const unpadded = value.replace(/=+$/, "");
+    if ((!allowEmpty && !unpadded) || unpadded.length % 4 === 1) throw new Error();
+    const encoding = /[-_]/.test(unpadded) ? "base64url" : "base64";
+    const bytes = Buffer.from(unpadded, encoding);
+    const canonical = bytes.toString(encoding).replace(/=+$/, "");
+    if (canonical !== unpadded || bytes.length > maximumBytes) throw new Error();
+    return bytes;
+  };
+  try {
+    decodeBinary(parsed.data.credentialId, 4096);
+    const privateKeyBytes = decodeBinary(parsed.data.privateKey, 8192);
+    if (parsed.data.userHandle !== undefined) {
+      decodeBinary(parsed.data.userHandle, 64, true);
+    }
+    if (parsed.data.largeBlob !== undefined) {
+      decodeBinary(parsed.data.largeBlob, 96 * 1024, true);
+    }
+    const privateKey = crypto.createPrivateKey({
+      key: privateKeyBytes,
+      format: "der",
+      type: "pkcs8",
+    });
+    const curve = privateKey.asymmetricKeyDetails?.namedCurve;
+    if (privateKey.asymmetricKeyType !== "ec" || !["prime256v1", "P-256"].includes(curve ?? "")) {
+      throw new Error();
+    }
+  } catch {
+    throw new VaultError("The software passkey credential is incomplete or invalid", 400);
+  }
+  const rpId = normalizeVaultPasskeyRpId(parsed.data.rpId);
+  return { ...parsed.data, rpId };
+}
+
+function assertVaultPasskeyMatchesLogin(
+  item: VaultItem,
+  payload: VaultPayload,
+  rpId: string,
+): void {
+  if (item.type !== "login") {
+    throw new VaultError("Software passkeys can only be attached to Vault logins", 400);
+  }
+  try {
+    const website = new URL(payload.websiteUrl);
+    const hostname = website.hostname.toLowerCase();
+    if (!hostname || (hostname !== rpId && !hostname.endsWith(`.${rpId}`))) throw new Error();
+  } catch {
+    throw new VaultError(
+      "The software passkey relying party does not match this Vault login's website",
+      400,
+    );
+  }
+}
+
+async function replaceVaultPayload(
+  row: VaultItem,
+  payload: VaultPayload,
+  conflictMessage: string,
+): Promise<VaultItem> {
+  const update = await AppDataSource.getRepository(VaultItem).update(
+    { id: row.id, companyId: row.companyId, version: row.version },
+    {
+      encryptedPayload: encryptPayload(row.companyId, payload),
+      version: row.version + 1,
+    },
+  );
+  if (update.affected !== 1) throw new VaultError(conflictMessage, 409);
+  return loadItem(row.companyId, row.id);
+}
+
+/**
+ * Clear only the matching encrypted lease. A stale Browser cleanup cannot
+ * unlock a newer ceremony, and bounded CAS retries tolerate unrelated Vault
+ * metadata writes in another App process.
+ */
+export async function releaseVaultPasskeyUseForEmployee(args: {
+  companyId: string;
+  itemId: string;
+  passkeyId: string;
+  leaseId: string;
+}): Promise<void> {
+  const repo = AppDataSource.getRepository(VaultItem);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const row = await repo.findOneBy({ id: args.itemId, companyId: args.companyId });
+    if (!row) return;
+    const payload = decryptPayload(row);
+    const passkey = payload.passkeys.find((candidate) => candidate.id === args.passkeyId);
+    if (!passkey || passkey.useLeaseId !== args.leaseId) return;
+    const cleared: VaultStoredPasskey = {
+      ...passkey,
+      useLeaseId: null,
+      useLeaseExpiresAt: null,
+    };
+    const nextPayload: VaultPayload = {
+      ...payload,
+      passkeys: payload.passkeys.map((candidate) =>
+        candidate.id === passkey.id ? cleared : candidate,
+      ),
+    };
+    const update = await repo.update(
+      { id: row.id, companyId: row.companyId, version: row.version },
+      {
+        encryptedPayload: encryptPayload(row.companyId, nextPayload),
+        version: row.version + 1,
+      },
+    );
+    if (update.affected === 1) return;
+  }
+  throw new VaultError("The Vault passkey lease changed while it was being released", 409);
+}
+
+/** Clear only the matching encrypted registration reservation. */
+export async function releaseVaultPasskeyRegistrationForEmployee(args: {
+  companyId: string;
+  itemId: string;
+  registrationLeaseId: string;
+}): Promise<void> {
+  const repo = AppDataSource.getRepository(VaultItem);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const row = await repo.findOneBy({ id: args.itemId, companyId: args.companyId });
+    if (!row) return;
+    const payload = decryptPayload(row);
+    if (payload.passkeyRegistrationLease?.id !== args.registrationLeaseId) return;
+    const nextPayload: VaultPayload = { ...payload, passkeyRegistrationLease: null };
+    const update = await repo.update(
+      { id: row.id, companyId: row.companyId, version: row.version },
+      {
+        encryptedPayload: encryptPayload(row.companyId, nextPayload),
+        version: row.version + 1,
+      },
+    );
+    if (update.affected === 1) return;
+  }
+  throw new VaultError("The Vault passkey registration changed while it was being released", 409);
+}
+
 function decryptPayload(row: VaultItem): VaultPayload {
   try {
     const ciphertextParts = row.encryptedPayload.split(".");
@@ -233,6 +705,8 @@ function toView(
     username: payload.username,
     websiteUrl: payload.websiteUrl,
     notes: payload.notes,
+    hasTotp: payload.totp !== null,
+    passkeys: payload.passkeys.map(toPasskeyView),
     version: row.version,
     createdByUserId: row.createdByUserId,
     createdByEmployeeId: row.createdByEmployeeId,
@@ -339,11 +813,22 @@ export async function createVaultItem(args: {
   type: VaultItemType;
   visibility: VaultItemVisibility;
   payload: VaultPayload;
+  totpSetupKey?: string;
 }): Promise<VaultItemView> {
   const repo = AppDataSource.getRepository(VaultItem);
-  const payload = {
+  if (
+    args.type !== "login" &&
+    (args.totpSetupKey ||
+      args.payload.totp ||
+      args.payload.passkeys.length > 0 ||
+      args.payload.passkeyRegistrationLease)
+  ) {
+    throw new VaultError("Additional authenticators can only be attached to a Vault login", 400);
+  }
+  const payload: VaultPayload = {
     ...args.payload,
     websiteUrl: normalizeVaultWebsiteUrl(args.payload.websiteUrl),
+    totp: args.totpSetupKey ? normalizeVaultTotpSetup(args.totpSetupKey) : args.payload.totp,
   };
   const row = repo.create({
     companyId: args.companyId,
@@ -362,13 +847,14 @@ export async function updateVaultItem(args: {
   itemId: string;
   actor: VaultHumanActor;
   expectedVersion: number;
-  patch: Partial<VaultPayload> & {
+  patch: Partial<Pick<VaultPayload, "title" | "username" | "secret" | "websiteUrl" | "notes">> & {
     type?: VaultItemType;
     visibility?: VaultItemVisibility;
   };
 }): Promise<{ before: VaultItemView; item: VaultItemView }> {
   const loaded = await loadAccessibleItem(args.companyId, args.itemId, args.actor);
   if (!loaded.view.canEdit) throw new VaultError("Edit access is required", 403);
+  assertNoActiveVaultPasskeyRegistration(loaded.payload);
   if (loaded.row.version !== args.expectedVersion) {
     throw new VaultError(
       "This Vault item changed while you were editing it. Reload and retry.",
@@ -378,17 +864,42 @@ export async function updateVaultItem(args: {
   if (args.patch.visibility !== undefined && !isHumanManager(loaded.row, args.actor)) {
     throw new VaultError("Only the creator or a company admin can change visibility", 403);
   }
+  const nextType = args.patch.type ?? loaded.row.type;
+  if (
+    nextType !== "login" &&
+    (loaded.payload.totp !== null || loaded.payload.passkeys.length > 0)
+  ) {
+    throw new VaultError(
+      "Remove the saved TOTP and software passkeys before changing this login's type",
+      409,
+    );
+  }
+  const nextWebsiteUrl =
+    args.patch.websiteUrl === undefined
+      ? loaded.payload.websiteUrl
+      : normalizeVaultWebsiteUrl(args.patch.websiteUrl);
+  const currentWebsiteOrigin = vaultWebsiteOrigin(loaded.payload.websiteUrl);
+  if (
+    args.patch.websiteUrl !== undefined &&
+    loaded.payload.passkeys.length > 0 &&
+    (currentWebsiteOrigin === null || currentWebsiteOrigin !== vaultWebsiteOrigin(nextWebsiteUrl))
+  ) {
+    throw new VaultError(
+      "This Vault login has saved passkeys bound to its website origin. Remove them before changing the origin.",
+      409,
+    );
+  }
 
   const before = loaded.view;
   const payload: VaultPayload = {
     title: args.patch.title ?? loaded.payload.title,
     username: args.patch.username ?? loaded.payload.username,
     secret: args.patch.secret ?? loaded.payload.secret,
-    websiteUrl:
-      args.patch.websiteUrl === undefined
-        ? loaded.payload.websiteUrl
-        : normalizeVaultWebsiteUrl(args.patch.websiteUrl),
+    websiteUrl: nextWebsiteUrl,
     notes: args.patch.notes ?? loaded.payload.notes,
+    totp: loaded.payload.totp,
+    passkeys: loaded.payload.passkeys,
+    passkeyRegistrationLease: loaded.payload.passkeyRegistrationLease,
   };
   const repo = AppDataSource.getRepository(VaultItem);
   const update = await repo.update(
@@ -398,7 +909,7 @@ export async function updateVaultItem(args: {
       version: args.expectedVersion,
     },
     {
-      type: args.patch.type ?? loaded.row.type,
+      type: nextType,
       visibility: args.patch.visibility ?? loaded.row.visibility,
       encryptedPayload: encryptPayload(args.companyId, payload),
       version: args.expectedVersion + 1,
@@ -423,6 +934,8 @@ export async function deleteVaultItem(args: {
   actor: VaultHumanActor;
 }): Promise<{ id: string; title: string; type: VaultItemType }> {
   const { row, payload } = await loadManagedItem(args.companyId, args.itemId, args.actor);
+  assertNoActiveVaultPasskeyRegistration(payload);
+  assertNoActiveVaultPasskeyUse(payload);
   await AppDataSource.transaction(async (manager) => {
     await manager.delete(VaultItemMemberAccess, {
       companyId: args.companyId,
@@ -432,7 +945,17 @@ export async function deleteVaultItem(args: {
       companyId: args.companyId,
       vaultItemId: row.id,
     });
-    await manager.delete(VaultItem, { id: row.id, companyId: args.companyId });
+    const deletion = await manager.delete(VaultItem, {
+      id: row.id,
+      companyId: args.companyId,
+      version: row.version,
+    });
+    if (deletion.affected !== 1) {
+      throw new VaultError(
+        "This Vault item changed while it was being deleted. Reload and retry.",
+        409,
+      );
+    }
   });
   return { id: row.id, title: payload.title, type: row.type };
 }
@@ -444,6 +967,123 @@ export async function revealVaultItem(args: {
 }): Promise<{ item: VaultItemView; secret: string }> {
   const loaded = await loadAccessibleItem(args.companyId, args.itemId, args.actor);
   return { item: loaded.view, secret: loaded.payload.secret };
+}
+
+async function generateVaultTotpCode(
+  totp: VaultTotp,
+  at: Date,
+): Promise<{ code: string; expiresAt: Date }> {
+  const epoch = Math.floor(at.getTime() / 1000);
+  if (!Number.isSafeInteger(epoch) || epoch < 0) {
+    throw new VaultError("The requested TOTP time is invalid", 400);
+  }
+  try {
+    const code = await generateOtp({
+      secret: totp.secret,
+      strategy: "totp",
+      algorithm: totp.algorithm,
+      digits: totp.digits,
+      period: totp.period,
+      epoch,
+      guardrails: VAULT_TOTP_GUARDRAILS,
+    });
+    const expiresAt = new Date((Math.floor(epoch / totp.period) + 1) * totp.period * 1000);
+    return { code, expiresAt };
+  } catch (error) {
+    if (error instanceof VaultError) throw error;
+    throw new VaultError("This Vault TOTP could not generate a one-time code", 500);
+  }
+}
+
+export async function setVaultTotp(args: {
+  companyId: string;
+  itemId: string;
+  actor: VaultHumanActor;
+  setupKey: string;
+}): Promise<VaultItemView> {
+  const loaded = await loadAccessibleItem(args.companyId, args.itemId, args.actor);
+  if (!loaded.view.canEdit) throw new VaultError("Edit access is required", 403);
+  assertNoActiveVaultPasskeyRegistration(loaded.payload);
+  if (loaded.row.type !== "login") {
+    throw new VaultError("TOTP can only be attached to a Vault login", 400);
+  }
+  const payload: VaultPayload = {
+    ...loaded.payload,
+    totp: normalizeVaultTotpSetup(args.setupKey),
+  };
+  const saved = await replaceVaultPayload(
+    loaded.row,
+    payload,
+    "This Vault login changed while its TOTP was being saved. Retry safely.",
+  );
+  return toView(saved, payload, args.actor, loaded.explicitAccess);
+}
+
+export async function deleteVaultTotp(args: {
+  companyId: string;
+  itemId: string;
+  actor: VaultHumanActor;
+}): Promise<VaultItemView> {
+  const loaded = await loadAccessibleItem(args.companyId, args.itemId, args.actor);
+  if (!loaded.view.canEdit) throw new VaultError("Edit access is required", 403);
+  assertNoActiveVaultPasskeyRegistration(loaded.payload);
+  if (loaded.row.type !== "login") {
+    throw new VaultError("TOTP can only be attached to a Vault login", 400);
+  }
+  if (!loaded.payload.totp) return loaded.view;
+  const payload: VaultPayload = { ...loaded.payload, totp: null };
+  const saved = await replaceVaultPayload(
+    loaded.row,
+    payload,
+    "This Vault login changed while its TOTP was being removed. Retry safely.",
+  );
+  return toView(saved, payload, args.actor, loaded.explicitAccess);
+}
+
+export async function getVaultTotpCode(args: {
+  companyId: string;
+  itemId: string;
+  actor: VaultHumanActor;
+  at?: Date;
+}): Promise<{ item: VaultItemView; code: string; expiresAt: Date }> {
+  const loaded = await loadAccessibleItem(args.companyId, args.itemId, args.actor);
+  if (loaded.row.type !== "login" || !loaded.payload.totp) {
+    throw new VaultError("This Vault login has no TOTP saved", 404);
+  }
+  return {
+    item: loaded.view,
+    ...(await generateVaultTotpCode(loaded.payload.totp, args.at ?? new Date())),
+  };
+}
+
+export async function deleteVaultPasskey(args: {
+  companyId: string;
+  itemId: string;
+  passkeyId: string;
+  actor: VaultHumanActor;
+}): Promise<{ item: VaultItemView; passkey: VaultPasskeyView }> {
+  const loaded = await loadAccessibleItem(args.companyId, args.itemId, args.actor);
+  if (!loaded.view.canEdit) throw new VaultError("Edit access is required", 403);
+  assertNoActiveVaultPasskeyRegistration(loaded.payload);
+  if (loaded.row.type !== "login") {
+    throw new VaultError("Software passkeys can only be attached to Vault logins", 400);
+  }
+  const passkey = loaded.payload.passkeys.find((candidate) => candidate.id === args.passkeyId);
+  if (!passkey) throw new VaultError("Vault passkey not found", 404);
+  assertNoActiveVaultPasskeyUse(loaded.payload, passkey.id);
+  const payload: VaultPayload = {
+    ...loaded.payload,
+    passkeys: loaded.payload.passkeys.filter((candidate) => candidate.id !== args.passkeyId),
+  };
+  const saved = await replaceVaultPayload(
+    loaded.row,
+    payload,
+    "This Vault login changed while its passkey was being removed. Retry safely.",
+  );
+  return {
+    item: toView(saved, payload, args.actor, loaded.explicitAccess),
+    passkey: toPasskeyView(passkey),
+  };
 }
 
 export async function listVaultMemberAccess(args: {
@@ -776,6 +1416,8 @@ export async function listVaultItemsForEmployee(
     title: string;
     username: string;
     websiteUrl: string;
+    hasTotp: boolean;
+    passkeys: VaultPasskeyView[];
     accessLevel: EmployeeVaultAccessLevel;
   }>
 > {
@@ -800,6 +1442,8 @@ export async function listVaultItemsForEmployee(
         title: payload.title,
         username: payload.username,
         websiteUrl: payload.websiteUrl,
+        hasTotp: payload.totp !== null,
+        passkeys: payload.passkeys.map(toPasskeyView),
         accessLevel: grant.accessLevel,
       },
     ];
@@ -864,6 +1508,442 @@ export async function getVaultFieldForEmployee(args: {
   return resolved.payload[args.field];
 }
 
+function assertEmployeeCreatedVaultLogin(
+  item: VaultItem,
+  employeeId: string,
+  authenticator: "TOTP" | "software passkeys",
+): void {
+  if (item.type !== "login") {
+    throw new VaultError(`${authenticator} can only be attached to Vault logins`, 400);
+  }
+  if (item.createdByEmployeeId !== employeeId) {
+    throw new VaultError(
+      `AI Employees can only attach ${authenticator} to Vault logins they created`,
+      403,
+    );
+  }
+}
+
+/** Store a captured setup key without ever returning it to the Browser tool or model. */
+export async function setVaultTotpForEmployee(args: {
+  companyId: string;
+  employeeId: string;
+  itemId: string;
+  setupKey: string;
+  expectedVersion?: number;
+  expectedOrigin?: string;
+}): Promise<{ id: string; title: string; hasTotp: true }> {
+  const resolved = await getVaultItemPayloadForEmployee({
+    companyId: args.companyId,
+    employeeId: args.employeeId,
+    itemId: args.itemId,
+    required: "manage",
+  });
+  assertEmployeeCreatedVaultLogin(resolved.item, args.employeeId, "TOTP");
+  if (args.expectedVersion !== undefined && resolved.item.version !== args.expectedVersion) {
+    throw new VaultError(
+      "This Vault login changed while its TOTP setup was being captured. Retry safely.",
+      409,
+    );
+  }
+  if (
+    args.expectedOrigin !== undefined &&
+    vaultWebsiteOrigin(resolved.payload.websiteUrl) !== args.expectedOrigin
+  ) {
+    throw new VaultError(
+      "This Vault login's website changed while its TOTP setup was being captured. Retry safely.",
+      409,
+    );
+  }
+  assertNoActiveVaultPasskeyRegistration(resolved.payload);
+  const payload: VaultPayload = {
+    ...resolved.payload,
+    totp: normalizeVaultTotpSetup(args.setupKey),
+  };
+  await replaceVaultPayload(
+    resolved.item,
+    payload,
+    "This Vault login changed while its TOTP was being saved. Retry safely.",
+  );
+  return { id: resolved.item.id, title: payload.title, hasTotp: true };
+}
+
+/** Resolve only the current code for a governed App-owned Browser fill. */
+export async function getVaultTotpCodeForEmployee(args: {
+  companyId: string;
+  employeeId: string;
+  itemId: string;
+  expectedVersion?: number;
+  at?: Date;
+}): Promise<{ code: string; expiresAt: Date; itemVersion: number }> {
+  const resolved = await getVaultItemPayloadForEmployee({
+    companyId: args.companyId,
+    employeeId: args.employeeId,
+    itemId: args.itemId,
+    required: "use",
+  });
+  if (args.expectedVersion !== undefined && resolved.item.version !== args.expectedVersion) {
+    throw new VaultError(
+      "This Vault login changed before its TOTP could be used. Reload and retry.",
+      409,
+    );
+  }
+  if (resolved.item.type !== "login" || !resolved.payload.totp) {
+    throw new VaultError("This Vault login has no TOTP saved", 404);
+  }
+  return {
+    ...(await generateVaultTotpCode(resolved.payload.totp, args.at ?? new Date())),
+    itemVersion: resolved.item.version,
+  };
+}
+
+/**
+ * Reserve one AI Employee-created login before Chrome begins a remote passkey
+ * registration ceremony. The reservation is encrypted and versioned with the
+ * login so separate App processes cannot start competing ceremonies.
+ */
+export async function beginVaultPasskeyRegistrationForEmployee(args: {
+  companyId: string;
+  employeeId: string;
+  itemId: string;
+  expectedVersion?: number;
+}): Promise<{
+  item: VaultPasskeyRegistrationItem;
+  registrationLeaseId: string;
+}> {
+  if (
+    args.expectedVersion !== undefined &&
+    (!Number.isInteger(args.expectedVersion) || args.expectedVersion < 1)
+  ) {
+    throw new VaultError("The expected Vault item version is invalid", 400);
+  }
+  const registrationLeaseId = crypto.randomUUID();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const resolved = await getVaultItemPayloadForEmployee({
+      companyId: args.companyId,
+      employeeId: args.employeeId,
+      itemId: args.itemId,
+      required: "manage",
+    });
+    assertEmployeeCreatedVaultLogin(resolved.item, args.employeeId, "software passkeys");
+    if (args.expectedVersion !== undefined && resolved.item.version !== args.expectedVersion) {
+      throw new VaultError(
+        "This Vault login changed before its passkey registration started. Reload and retry.",
+        409,
+      );
+    }
+    assertNoActiveVaultPasskeyRegistration(resolved.payload);
+    if (resolved.payload.passkeys.length >= 32) {
+      throw new VaultError("This Vault login cannot store more software passkeys", 409);
+    }
+    const websiteOrigin = vaultWebsiteOrigin(resolved.payload.websiteUrl);
+    if (!websiteOrigin) {
+      throw new VaultError(
+        "Save an absolute website URL before registering a software passkey",
+        400,
+      );
+    }
+    const lease: VaultPasskeyRegistrationLease = {
+      id: registrationLeaseId,
+      employeeId: args.employeeId,
+      websiteOrigin,
+      expiresAt: new Date(Date.now() + VAULT_PASSKEY_REGISTRATION_LEASE_MS).toISOString(),
+    };
+    const payload: VaultPayload = {
+      ...resolved.payload,
+      passkeyRegistrationLease: lease,
+    };
+    try {
+      const saved = await replaceVaultPayload(
+        resolved.item,
+        payload,
+        "This Vault login changed while its passkey registration was starting. Retry safely.",
+      );
+      return {
+        item: {
+          id: saved.id,
+          companyId: saved.companyId,
+          type: "login",
+          title: payload.title,
+          username: payload.username,
+          websiteUrl: payload.websiteUrl,
+          version: saved.version,
+          createdByEmployeeId: args.employeeId,
+        },
+        registrationLeaseId,
+      };
+    } catch (error) {
+      if (
+        args.expectedVersion !== undefined ||
+        !(error instanceof VaultError) ||
+        error.statusCode !== 409 ||
+        attempt === 4
+      ) {
+        throw error;
+      }
+    }
+  }
+  throw new VaultError("This Vault passkey registration could not be started safely", 409);
+}
+
+/**
+ * Persist the credential Chrome created and clear its encrypted reservation.
+ * Acquisition already authorized the remote action, so a matching lease token
+ * remains authoritative if the employee's Grant is revoked before finalizing.
+ */
+export async function finalizeVaultPasskeyRegistrationForEmployee(args: {
+  companyId: string;
+  employeeId: string;
+  itemId: string;
+  registrationLeaseId: string;
+  credential: VaultPasskeyCredentialInput;
+}): Promise<VaultPasskeyView> {
+  try {
+    let normalized: VaultPasskeyCredentialInput | null = null;
+    let pendingPasskey: VaultStoredPasskey | null = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const item = await loadItem(args.companyId, args.itemId);
+      const currentPayload = decryptPayload(item);
+      const lease = requireVaultPasskeyRegistrationLease(
+        currentPayload,
+        args.registrationLeaseId,
+        args.employeeId,
+      );
+      const websiteOrigin = vaultWebsiteOrigin(currentPayload.websiteUrl);
+      if (
+        item.type !== "login" ||
+        item.createdByEmployeeId !== args.employeeId ||
+        websiteOrigin === null ||
+        websiteOrigin !== lease.websiteOrigin
+      ) {
+        throw new VaultError(
+          "That Vault passkey registration no longer matches its original login and website",
+          409,
+        );
+      }
+      const normalizedCredential =
+        normalized ?? (normalized = normalizeVaultPasskeyCredential(args.credential));
+      assertVaultPasskeyMatchesLogin(item, currentPayload, normalizedCredential.rpId);
+      if (currentPayload.passkeys.length >= 32) {
+        throw new VaultError("This Vault login cannot store more software passkeys", 409);
+      }
+      if (
+        currentPayload.passkeys.some((candidate) =>
+          sameSensitivePasskeyValue(candidate.credentialId, normalizedCredential.credentialId),
+        )
+      ) {
+        throw new VaultError("That software passkey is already saved on this Vault login", 409);
+      }
+      pendingPasskey ??= {
+        ...normalizedCredential,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        lastUsedAt: null,
+        useLeaseId: null,
+        useLeaseExpiresAt: null,
+      };
+      const payload: VaultPayload = {
+        ...currentPayload,
+        passkeys: [...currentPayload.passkeys, pendingPasskey],
+        passkeyRegistrationLease: null,
+      };
+      try {
+        await replaceVaultPayload(
+          item,
+          payload,
+          "This Vault login changed while its passkey was being finalized. Retry safely.",
+        );
+        return toPasskeyView(pendingPasskey);
+      } catch (error) {
+        if (!(error instanceof VaultError) || error.statusCode !== 409 || attempt === 4) {
+          throw error;
+        }
+      }
+    }
+    throw new VaultError("This Vault passkey registration could not be finalized safely", 409);
+  } catch (error) {
+    await releaseVaultPasskeyRegistrationForEmployee(args).catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
+ * Rehydrate one credential for the App-owned Browser. Its bounded lease is
+ * persisted inside the encrypted/versioned payload, preventing separate App
+ * processes from starting two authenticators at the same stored signCount.
+ */
+export async function getVaultPasskeyForEmployee(args: {
+  companyId: string;
+  employeeId: string;
+  itemId: string;
+  passkeyId?: string;
+  expectedVersion?: number;
+}): Promise<{
+  item: VaultItem;
+  payload: VaultPayload;
+  passkey: VaultPasskeyCredential;
+  leaseId: string;
+}> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const resolved = await getVaultItemPayloadForEmployee({
+      companyId: args.companyId,
+      employeeId: args.employeeId,
+      itemId: args.itemId,
+      required: "use",
+    });
+    if (args.expectedVersion !== undefined && resolved.item.version !== args.expectedVersion) {
+      throw new VaultError(
+        "This Vault login changed before its passkey could be used. Reload and retry.",
+        409,
+      );
+    }
+    if (resolved.item.type !== "login") {
+      throw new VaultError("Software passkeys can only be used from Vault logins", 400);
+    }
+    const passkey = args.passkeyId
+      ? resolved.payload.passkeys.find((candidate) => candidate.id === args.passkeyId)
+      : resolved.payload.passkeys.length === 1
+        ? resolved.payload.passkeys[0]
+        : undefined;
+    if (!passkey) {
+      if (!args.passkeyId && resolved.payload.passkeys.length > 1) {
+        throw new VaultError("Choose which saved Vault passkey to use", 400);
+      }
+      throw new VaultError("Vault passkey not found", 404);
+    }
+    assertVaultPasskeyMatchesLogin(resolved.item, resolved.payload, passkey.rpId);
+    if (hasActiveVaultPasskeyUseLease(passkey)) {
+      throw new VaultError("That Vault passkey is already active in another Browser session", 409);
+    }
+    const leaseId = crypto.randomUUID();
+    const leasedPasskey: VaultStoredPasskey = {
+      ...passkey,
+      useLeaseId: leaseId,
+      useLeaseExpiresAt: new Date(Date.now() + VAULT_PASSKEY_USE_LEASE_MS).toISOString(),
+    };
+    const payload: VaultPayload = {
+      ...resolved.payload,
+      passkeys: resolved.payload.passkeys.map((candidate) =>
+        candidate.id === leasedPasskey.id ? leasedPasskey : candidate,
+      ),
+    };
+    try {
+      const item = await replaceVaultPayload(
+        resolved.item,
+        payload,
+        "That Vault passkey changed while its use session was starting. Retry safely.",
+      );
+      return {
+        item,
+        payload,
+        passkey: withoutVaultPasskeyLease(leasedPasskey),
+        leaseId,
+      };
+    } catch (error) {
+      if (
+        args.expectedVersion !== undefined ||
+        !(error instanceof VaultError) ||
+        error.statusCode !== 409 ||
+        attempt === 4
+      ) {
+        throw error;
+      }
+    }
+  }
+  throw new VaultError("That Vault passkey use session could not be started safely", 409);
+}
+
+function sameSensitivePasskeyValue(left: string | undefined, right: string | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  const leftBytes = Buffer.from(left);
+  const rightBytes = Buffer.from(right);
+  return leftBytes.length === rightBytes.length && crypto.timingSafeEqual(leftBytes, rightBytes);
+}
+
+/**
+ * Persist the asserted counter before the leased credential can be used again.
+ * Acquisition already authorized the external action. Once that assertion has
+ * succeeded, its matching lease token is the authority for mandatory counter
+ * bookkeeping even if the employee's Grant was revoked in the meantime.
+ */
+export async function recordVaultPasskeyUseForEmployee(args: {
+  companyId: string;
+  employeeId: string;
+  itemId: string;
+  passkeyId: string;
+  leaseId: string;
+  credential: VaultPasskeyCredentialInput;
+}): Promise<{ passkey: VaultPasskeyView }> {
+  try {
+    let asserted: VaultPasskeyCredentialInput | null = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const item = await loadItem(args.companyId, args.itemId);
+      const currentPayload = decryptPayload(item);
+      const stored = currentPayload.passkeys.find((candidate) => candidate.id === args.passkeyId);
+      if (!stored) throw new VaultError("Vault passkey not found", 404);
+      requireStoredVaultPasskeyLease(stored, args.leaseId);
+      asserted ??= normalizeVaultPasskeyCredential(args.credential);
+      const immutableCredentialMatches =
+        stored.rpId === asserted.rpId &&
+        stored.isResidentCredential === asserted.isResidentCredential &&
+        sameSensitivePasskeyValue(stored.credentialId, asserted.credentialId) &&
+        sameSensitivePasskeyValue(stored.privateKey, asserted.privateKey) &&
+        sameSensitivePasskeyValue(stored.userHandle, asserted.userHandle);
+      if (!immutableCredentialMatches) {
+        throw new VaultError(
+          "The asserted software passkey did not match the leased credential",
+          409,
+        );
+      }
+      if (
+        (stored.signCount > 0 || asserted.signCount > 0) &&
+        asserted.signCount <= stored.signCount
+      ) {
+        throw new VaultError(
+          "The software passkey counter did not advance; its credential may have been cloned",
+          409,
+        );
+      }
+
+      const passkey: VaultStoredPasskey = {
+        ...stored,
+        signCount: asserted.signCount,
+        largeBlob: asserted.largeBlob ?? stored.largeBlob,
+        backupEligibility: asserted.backupEligibility ?? stored.backupEligibility,
+        backupState: asserted.backupState ?? stored.backupState,
+        userName: asserted.userName ?? stored.userName,
+        userDisplayName: asserted.userDisplayName ?? stored.userDisplayName,
+        lastUsedAt: new Date().toISOString(),
+        useLeaseId: null,
+        useLeaseExpiresAt: null,
+      };
+      const payload: VaultPayload = {
+        ...currentPayload,
+        passkeys: currentPayload.passkeys.map((candidate) =>
+          candidate.id === passkey.id ? passkey : candidate,
+        ),
+      };
+      try {
+        await replaceVaultPayload(
+          item,
+          payload,
+          "This Vault login changed while its passkey use was being recorded. Retry safely.",
+        );
+        return { passkey: toPasskeyView(passkey) };
+      } catch (error) {
+        if (!(error instanceof VaultError) || error.statusCode !== 409 || attempt === 4)
+          throw error;
+      }
+    }
+    throw new VaultError("The software passkey counter could not be saved safely", 409);
+  } catch (error) {
+    // This token-matched release is safe even after Grant revocation or a CAS
+    // conflict, and cannot clear a newer Browser ceremony's lease.
+    await releaseVaultPasskeyUseForEmployee(args).catch(() => undefined);
+    throw error;
+  }
+}
+
 /**
  * Store a login captured or generated during an AI Employee's browser flow.
  * The creator receives a `manage` Grant atomically. A missing secret is
@@ -901,6 +1981,9 @@ export async function createVaultLoginForEmployee(args: {
     secret,
     websiteUrl: normalizeVaultWebsiteUrl(args.websiteUrl ?? ""),
     notes: args.notes ?? "",
+    totp: null,
+    passkeys: [],
+    passkeyRegistrationLease: null,
   };
   if (!payload.title) throw new VaultError("A title is required", 400);
 
@@ -984,6 +2067,7 @@ export async function updateVaultLoginMetadataForEmployee(args: {
   if (resolved.item.type !== "login") {
     throw new VaultError("Only Vault login metadata can be updated this way", 400);
   }
+  assertNoActiveVaultPasskeyRegistration(resolved.payload);
 
   const payload: VaultPayload = {
     title: args.patch.title?.trim() ?? resolved.payload.title,
@@ -991,6 +2075,9 @@ export async function updateVaultLoginMetadataForEmployee(args: {
     secret: resolved.payload.secret,
     websiteUrl: resolved.payload.websiteUrl,
     notes: args.patch.notes ?? resolved.payload.notes,
+    totp: resolved.payload.totp,
+    passkeys: resolved.payload.passkeys,
+    passkeyRegistrationLease: resolved.payload.passkeyRegistrationLease,
   };
   if (!payload.title) throw new VaultError("A title is required", 400);
 

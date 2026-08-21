@@ -14,14 +14,21 @@ type HarnessOptions = {
   approvedUrl?: string;
   claimedUrl?: string;
   currentUrls?: string[];
+  checkPayload?: Record<string, unknown>;
+  approvalRequired?: boolean;
 };
 
 type RpcResult = {
   result?: {
     content?: Array<{ type: string; text?: string }>;
     isError?: boolean;
+    tools?: Array<{ name: string }>;
   };
 };
+
+const vaultItemId = "10000000-0000-4000-8000-000000000001";
+const vaultItemVersion = 7;
+const vaultPasskeyId = "20000000-0000-4000-8000-000000000002";
 
 const children = new Set<ChildProcessWithoutNullStreams>();
 const servers = new Set<Server>();
@@ -59,7 +66,23 @@ async function browserHarness(options: HarnessOptions = {}) {
         key: null,
         pageUrl: options.claimedUrl ?? approvedUrl,
         executed: options.staleChecks ? false : executed,
+        ...options.checkPayload,
       });
+    }
+    if (url.pathname === "/mcp/tools/queue_browser_approval") {
+      const body = await requestJson(req);
+      events.push(`queue:${String(body.action)}`);
+      if (
+        body.action === "vault_totp_submit" ||
+        body.action === "vault_passkey_create" ||
+        body.action === "vault_passkey_use"
+      ) {
+        assert.equal(body.vaultItemVersion, vaultItemVersion);
+      }
+      if (body.action === "vault_passkey_use") {
+        assert.equal(body.vaultPasskeyId, vaultPasskeyId);
+      }
+      return json(res, 200, { approvalId: "approval-1", status: "pending" });
     }
     if (url.pathname === "/mcp/tools/claim_browser_approval/approval-1") {
       events.push("claim");
@@ -90,6 +113,71 @@ async function browserHarness(options: HarnessOptions = {}) {
       urlReads += 1;
       return json(res, 200, { url: currentUrl });
     }
+    if (url.pathname === "/browser/approval/describe-target") {
+      const body = await requestJson(req);
+      events.push(`describe:${String(body.action)}`);
+      return json(res, 200, {
+        pageUrl: approvedUrl,
+        ...(body.action === "vault_totp_submit" ||
+        body.action === "vault_passkey_create" ||
+        body.action === "vault_passkey_use"
+          ? { itemVersion: vaultItemVersion }
+          : {}),
+        ...(body.action === "vault_passkey_use" ? { passkeyId: vaultPasskeyId } : {}),
+        targetFingerprint: "a".repeat(64),
+        targetDescriptor: {
+          tagName: "button",
+          inputType: "submit",
+          frameUrl: approvedUrl,
+          formAction: approvedUrl,
+          formMethod: "POST",
+          submitsForm: true,
+        },
+      });
+    }
+    if (url.pathname === "/browser/vault/submit-totp") {
+      const body = await requestJson(req);
+      events.push("vault-totp-submit");
+      assert.deepEqual(body, {
+        ...(options.approvalRequired === false ? {} : { approvalId: "approval-1" }),
+        itemId: vaultItemId,
+        ...(options.approvalRequired === false ? {} : { itemVersion: vaultItemVersion }),
+        totpSelector: "aria-ref=e8",
+        selector: "aria-ref=e9",
+        key: null,
+      });
+      return json(res, 200, { snapshot: "signed in with current TOTP" });
+    }
+    if (url.pathname === "/browser/vault/prepare-totp") {
+      const body = await requestJson(req);
+      assert.deepEqual(body, { itemId: vaultItemId });
+      events.push("vault-totp-prepare");
+      return json(res, 200, { message: "TOTP enrollment protected" });
+    }
+    if (url.pathname === "/browser/vault/capture-totp") {
+      const body = await requestJson(req);
+      assert.deepEqual(body, { itemId: vaultItemId, selector: "aria-ref=e8" });
+      events.push("vault-totp-save");
+      return json(res, 200, { message: "TOTP setup saved" });
+    }
+    if (
+      url.pathname === "/browser/vault/passkeys/create" ||
+      url.pathname === "/browser/vault/passkeys/use"
+    ) {
+      const body = await requestJson(req);
+      const kind = url.pathname.endsWith("/create") ? "create" : "use";
+      events.push(`vault-passkey-${kind}`);
+      if (options.approvalRequired === false) assert.equal(body.approvalId, undefined);
+      else assert.equal(body.approvalId, "approval-1");
+      assert.equal(body.itemId, vaultItemId);
+      if (options.approvalRequired === false) assert.equal(body.itemVersion, undefined);
+      else assert.equal(body.itemVersion, vaultItemVersion);
+      assert.equal(body.selector, "aria-ref=e9");
+      if (kind === "use") {
+        assert.equal(body.passkeyId, vaultPasskeyId);
+      }
+      return json(res, 200, { snapshot: `passkey ${kind} complete` });
+    }
     if (url.pathname === "/browser/click") {
       events.push("click");
       if (options.clickFails) return json(res, 504, { error: "click timed out" });
@@ -108,7 +196,7 @@ async function browserHarness(options: HarnessOptions = {}) {
       GENOSYN_MCP_TOKEN: "mcp-token",
       GENOSYN_BROWSER_API: `${base}/browser`,
       GENOSYN_BROWSER_SESSION_TOKEN: "browser-token",
-      GENOSYN_BROWSER_APPROVAL_REQUIRED: "1",
+      GENOSYN_BROWSER_APPROVAL_REQUIRED: options.approvalRequired === false ? "" : "1",
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -122,7 +210,7 @@ async function browserHarness(options: HarnessOptions = {}) {
     pending.delete(message.id);
   });
   let nextId = 0;
-  const rpc = (name = "browser_resume"): Promise<RpcResult> => {
+  const request = (method: string, params: Record<string, unknown>): Promise<RpcResult> => {
     const id = ++nextId;
     const response = new Promise<RpcResult>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("browser MCP test timed out")), 5_000);
@@ -135,13 +223,18 @@ async function browserHarness(options: HarnessOptions = {}) {
       JSON.stringify({
         jsonrpc: "2.0",
         id,
-        method: "tools/call",
-        params: { name, arguments: { approvalId: "approval-1" } },
+        method,
+        params,
       }) + "\n",
     );
     return response;
   };
-  return { events, rpc };
+  const rpc = (
+    name = "browser_resume",
+    args: Record<string, unknown> = { approvalId: "approval-1" },
+  ) => request("tools/call", { name, arguments: args });
+  const listTools = () => request("tools/list", {});
+  return { events, rpc, listTools };
 }
 
 test("browser_resume claims before the browser side effect and records completion", async () => {
@@ -260,6 +353,183 @@ test("a lost completion receipt leaves terminal ambiguity without replay", async
     "finish:executed",
     "check",
   ]);
+});
+
+test("approval mode refuses an early standalone Vault TOTP fill", async () => {
+  const harness = await browserHarness();
+  const response = await harness.rpc("browser_fill_vault", {
+    itemId: vaultItemId,
+    selector: "aria-ref=e8",
+    field: "totp",
+  });
+
+  assert.equal(response.result?.isError, true);
+  assert.match(response.result?.content?.[0]?.text ?? "", /browser_submit_with_vault_totp/);
+  assert.deepEqual(harness.events, []);
+});
+
+test("exposes protected two-step TOTP enrollment and no legacy passkey tools", async () => {
+  const harness = await browserHarness();
+  const listed = await harness.listTools();
+  const names = listed.result?.tools?.map((tool) => tool.name) ?? [];
+  assert.equal(names.includes("browser_prepare_vault_totp"), true);
+  assert.equal(names.includes("browser_save_vault_totp"), true);
+  assert.equal(names.includes("browser_prepare_vault_passkey"), false);
+  assert.equal(names.includes("browser_save_vault_passkey"), false);
+
+  const prepared = await harness.rpc("browser_prepare_vault_totp", { itemId: vaultItemId });
+  const saved = await harness.rpc("browser_save_vault_totp", {
+    itemId: vaultItemId,
+    selector: "aria-ref=e8",
+  });
+  assert.equal(prepared.result?.isError, undefined);
+  assert.equal(saved.result?.isError, undefined);
+  assert.deepEqual(harness.events, ["vault-totp-prepare", "vault-totp-save"]);
+});
+
+test("combined Vault TOTP submit queues before filling and resumes in the same child", async () => {
+  const harness = await browserHarness({
+    checkPayload: {
+      action: "vault_totp_submit",
+      targetBound: true,
+      vaultItemId,
+      vaultItemVersion,
+      vaultTotpSelector: "aria-ref=e8",
+    },
+  });
+  const queued = await harness.rpc("browser_submit_with_vault_totp", {
+    itemId: vaultItemId,
+    totpSelector: "aria-ref=e8",
+    selector: "aria-ref=e9",
+    summary: "Sign in",
+  });
+
+  assert.equal(queued.result?.isError, undefined);
+  assert.match(queued.result?.content?.[0]?.text ?? "", /pending_approval/);
+  assert.deepEqual(harness.events, ["describe:vault_totp_submit", "queue:vault_totp_submit"]);
+
+  const resumed = await harness.rpc();
+  assert.equal(resumed.result?.isError, undefined);
+  assert.match(resumed.result?.content?.[0]?.text ?? "", /signed in with current TOTP/);
+  assert.deepEqual(harness.events, [
+    "describe:vault_totp_submit",
+    "queue:vault_totp_submit",
+    "check",
+    "url",
+    "vault-totp-submit",
+  ]);
+});
+
+test("a fresh MCP child reconstructs the encrypted Vault TOTP binding on resume", async () => {
+  const harness = await browserHarness({
+    checkPayload: {
+      action: "vault_totp_submit",
+      targetBound: true,
+      vaultItemId,
+      vaultItemVersion,
+      vaultTotpSelector: "aria-ref=e8",
+    },
+  });
+
+  const resumed = await harness.rpc();
+  assert.equal(resumed.result?.isError, undefined);
+  assert.match(resumed.result?.content?.[0]?.text ?? "", /signed in with current TOTP/);
+  assert.deepEqual(harness.events, ["check", "url", "vault-totp-submit"]);
+});
+
+test("Vault passkey creation injects no authenticator until its Approval resumes", async () => {
+  const harness = await browserHarness({
+    checkPayload: {
+      action: "vault_passkey_create",
+      targetBound: true,
+      vaultItemId,
+      vaultItemVersion,
+    },
+  });
+  const queued = await harness.rpc("browser_create_vault_passkey", {
+    itemId: vaultItemId,
+    selector: "aria-ref=e9",
+  });
+
+  assert.equal(queued.result?.isError, undefined);
+  assert.match(
+    queued.result?.content?.[0]?.text ?? "",
+    /No passkey authenticator has been injected/,
+  );
+  assert.deepEqual(harness.events, ["describe:vault_passkey_create", "queue:vault_passkey_create"]);
+
+  const resumed = await harness.rpc();
+  assert.equal(resumed.result?.isError, undefined);
+  assert.deepEqual(harness.events, [
+    "describe:vault_passkey_create",
+    "queue:vault_passkey_create",
+    "check",
+    "url",
+    "vault-passkey-create",
+  ]);
+});
+
+test("passkey use resolves and queues an exact credential when the caller omits it", async () => {
+  const harness = await browserHarness({
+    checkPayload: {
+      action: "vault_passkey_use",
+      targetBound: true,
+      vaultItemId,
+      vaultItemVersion,
+      vaultPasskeyId,
+    },
+  });
+  const queued = await harness.rpc("browser_use_vault_passkey", {
+    itemId: vaultItemId,
+    selector: "aria-ref=e9",
+  });
+
+  assert.equal(queued.result?.isError, undefined);
+  assert.deepEqual(harness.events, ["describe:vault_passkey_use", "queue:vault_passkey_use"]);
+
+  const resumed = await harness.rpc();
+  assert.equal(resumed.result?.isError, undefined);
+  assert.deepEqual(harness.events, [
+    "describe:vault_passkey_use",
+    "queue:vault_passkey_use",
+    "check",
+    "url",
+    "vault-passkey-use",
+  ]);
+});
+
+test("a fresh MCP child reconstructs a version-bound Vault passkey-use action", async () => {
+  const harness = await browserHarness({
+    checkPayload: {
+      action: "vault_passkey_use",
+      targetBound: true,
+      vaultItemId,
+      vaultItemVersion,
+      vaultPasskeyId,
+    },
+  });
+
+  const resumed = await harness.rpc();
+  assert.equal(resumed.result?.isError, undefined);
+  assert.match(resumed.result?.content?.[0]?.text ?? "", /passkey use complete/);
+  assert.deepEqual(harness.events, ["check", "url", "vault-passkey-use"]);
+});
+
+test("combined Vault authenticator tools execute directly when approval mode is off", async () => {
+  const harness = await browserHarness({ approvalRequired: false });
+  const totp = await harness.rpc("browser_submit_with_vault_totp", {
+    itemId: vaultItemId,
+    totpSelector: "aria-ref=e8",
+    selector: "aria-ref=e9",
+  });
+  const passkey = await harness.rpc("browser_create_vault_passkey", {
+    itemId: vaultItemId,
+    selector: "aria-ref=e9",
+  });
+
+  assert.equal(totp.result?.isError, undefined);
+  assert.equal(passkey.result?.isError, undefined);
+  assert.deepEqual(harness.events, ["vault-totp-submit", "vault-passkey-create"]);
 });
 
 async function requestJson(req: IncomingMessage): Promise<Record<string, unknown>> {

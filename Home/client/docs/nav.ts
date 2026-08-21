@@ -194,7 +194,7 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/vault",
         title: "Vault",
         blurb:
-          "Encrypted logins, API keys, and secure notes for Members and item-granted AI Employees.",
+          "Encrypted logins with authenticator codes and software passkeys, plus API keys and secure notes.",
       },
       {
         path: "/docs/email",

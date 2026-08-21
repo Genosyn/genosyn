@@ -302,10 +302,10 @@ export function SelfHosting() {
         takes precedence for that Connection.
       </P>
 
-      <H2 id="secrets">Secrets and the Password Vault</H2>
+      <H2 id="secrets">Secrets and the Vault</H2>
       <P>
         Genosyn stores several kinds of sensitive value, each with a different lifecycle. In
-        particular, environment Secrets and Password Vault items are separate products:
+        particular, environment Secrets and Vault items are separate products:
       </P>
       <KeyList
         rows={[
@@ -350,13 +350,14 @@ export function SelfHosting() {
             ),
           },
           {
-            term: "Password Vault item",
+            term: "Vault item",
             def: (
               <>
                 A separate encrypted <Code>VaultItem</Code> for a login, API key, or secure note,
-                managed from <Strong>Vault</Strong>. Member access and AI Employee Grants are set
-                per item; AI browser autofill uses the value server-side instead of injecting it
-                into an environment or returning it to the model. See{" "}
+                managed from <Strong>Vault</Strong>. A login can also own an encrypted TOTP setup
+                key and software passkeys. Member access and AI Employee Grants are set per item; AI
+                browser actions use credential material server-side instead of injecting it into an
+                environment or returning it to the model. See{" "}
                 <DocLink to="/docs/vault">Vault</DocLink>.
               </>
             ),

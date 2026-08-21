@@ -79,6 +79,14 @@ export function Security() {
         device. The private key stays in the authenticator; Genosyn stores only the public key and
         verification counter.
       </P>
+      <Callout kind="info" title="Account security and Vault authenticators are separate">
+        Everything on this page protects a human Member&apos;s Genosyn account and is never
+        available to an AI Employee. <DocLink to="/docs/vault">Vault</DocLink> authenticators belong
+        to external company logins instead. Vault TOTP setup keys and software-passkey private keys
+        are encrypted so an explicitly granted AI Employee can complete those external sign-ins in
+        Genosyn&apos;s browser; they do not use a Member&apos;s phone, biometrics, password manager,
+        or security key.
+      </Callout>
 
       <H2 id="security-keys">USB security keys</H2>
       <P>
@@ -151,8 +159,8 @@ export function Security() {
       <P>
         The same Member-bound authority applies when a person assigns a todo to an AI Employee or
         starts or retries a manual Mail handover. Those launches require a browser session and keep
-        the accepting sign-in&apos;s revocation epoch. Routine Runs, Pipelines, and Mail rules remain
-        explicitly trusted employee automation.
+        the accepting sign-in&apos;s revocation epoch. Routine Runs, Pipelines, and Mail rules
+        remain explicitly trusted employee automation.
       </P>
 
       <H2 id="manage">Manage methods</H2>

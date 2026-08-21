@@ -453,7 +453,7 @@ function CompanyRoutes({
             <Route path="p/:pSlug" element={<ProjectDetail company={company} me={me} />} />
           </Route>
 
-          {/* Vault — encrypted passwords, API keys, and secure notes. */}
+          {/* Vault — encrypted logins, authenticators, API keys, and secure notes. */}
           <Route path="vault" element={<Vault company={company} />} />
 
           {/* Bases (Airtable-style) — structured data for the company. */}

@@ -314,13 +314,16 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
               AI-native access without plaintext in the model
             </div>
             <p className="mt-0.5 text-xs leading-5 text-indigo-800/75 dark:text-indigo-200/75">
-              <strong>Use</strong> exposes safe metadata. For Login items, it also lets an AI
-              Employee fill the saved username or password server-side; the password goes only into
-              a password input and never appears in chat or model context. API-key and secure-note
-              values have no AI plaintext or Browser-fill path. <strong>Manage</strong> can also
-              update a Login&apos;s title, username, and private context while preserving its saved
-              website origin. It never lets AI rebind, reveal, rotate, or delete the stored value;
-              items an AI Employee creates or captures grant it Manage automatically.
+              <strong>Use</strong> exposes safe metadata. For Login items, it lets an AI Employee
+              fill the saved username, password, or current authenticator code server-side, and use
+              a saved software passkey in Genosyn&apos;s browser. Passwords and codes go only to
+              their matching sign-in fields; passkey private keys never leave the server-side
+              browser boundary. API-key and secure-note values have no AI plaintext or Browser-fill
+              path. <strong>Manage</strong> can also update a Login&apos;s title, username, and
+              private context while preserving its saved website origin. It never lets AI reveal,
+              rebind, rotate, or delete credential material. A Login an AI Employee creates grants
+              it Manage automatically, which also lets it capture authenticators during that signup
+              flow.
             </p>
           </div>
         </div>

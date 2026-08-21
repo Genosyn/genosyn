@@ -52,7 +52,10 @@ const APPROVAL_REQUIRED = process.env.GENOSYN_BROWSER_APPROVAL_REQUIRED === "1";
 
 /** @type {Map<string,
  *   { tool: "submit"; selector: string; key?: string } |
- *   { tool: "vault_capture"; selector: string; title: string; username: string; notes: string }
+ *   { tool: "vault_capture"; selector: string; title: string; username: string; notes: string } |
+ *   { tool: "vault_totp_submit"; selector: string; key?: string; itemId: string; itemVersion?: number; totpSelector: string } |
+ *   { tool: "vault_passkey_create"; selector: string; itemId: string; itemVersion?: number } |
+ *   { tool: "vault_passkey_use"; selector: string; itemId: string; itemVersion?: number; passkeyId?: string }
  * >} */
 const pendingActions = new Map();
 
@@ -253,14 +256,160 @@ async function browserFillVault(args) {
   const field = String(args?.field ?? "").trim();
   if (!selector) throw new Error("`selector` is required");
   if (!itemId) throw new Error("`itemId` is required");
-  if (field !== "username" && field !== "secret") {
-    throw new Error("`field` must be `username` or `secret`");
+  if (field !== "username" && field !== "secret" && field !== "totp") {
+    throw new Error("`field` must be `username`, `secret`, or `totp`");
+  }
+  if (field === "totp" && APPROVAL_REQUIRED) {
+    throw new Error(
+      "A TOTP code cannot be filled before a delayed Approval. Use browser_submit_with_vault_totp so Genosyn generates, fills, and submits a fresh code only after approval.",
+    );
   }
   const reply = await callBrowser("/vault/fill", { selector, itemId, field });
   return textResult(
     reply.message ??
-      `Filled the ${field === "secret" ? "stored value" : "username"} field from Vault. The value was not revealed.`,
+      `Filled the ${field === "secret" ? "stored value" : field === "totp" ? "current one-time code" : "username"} field from Vault. The value was not revealed.`,
   );
+}
+
+async function browserSaveVaultTotp(args) {
+  const selector = String(args?.selector ?? "").trim();
+  const itemId = String(args?.itemId ?? "").trim();
+  if (!selector) throw new Error("`selector` is required");
+  if (!itemId) throw new Error("`itemId` is required");
+  const reply = await callBrowser("/vault/capture-totp", { selector, itemId });
+  return textResult(
+    reply.message ??
+      "Saved the authenticator setup to the Vault login. The setup key was not revealed.",
+  );
+}
+
+async function browserPrepareVaultTotp(args) {
+  const itemId = String(args?.itemId ?? "").trim();
+  if (!itemId) throw new Error("`itemId` is required");
+  const reply = await callBrowser("/vault/prepare-totp", { itemId });
+  return textResult(
+    reply.message ??
+      "TOTP enrollment is protected. Reveal the setup key or QR, then save it to Vault.",
+  );
+}
+
+async function browserUseVaultPasskey(args) {
+  const itemId = String(args?.itemId ?? "").trim();
+  const selector = String(args?.selector ?? "").trim();
+  if (!itemId) throw new Error("`itemId` is required");
+  if (!selector) throw new Error("`selector` is required");
+  if (
+    args &&
+    Object.prototype.hasOwnProperty.call(args, "passkeyId") &&
+    typeof args.passkeyId !== "string"
+  ) {
+    throw new Error("`passkeyId` must be a string when provided");
+  }
+  const passkeyId = typeof args?.passkeyId === "string" ? args.passkeyId.trim() : "";
+  if (typeof args?.passkeyId === "string" && !passkeyId) {
+    throw new Error("`passkeyId` must not be blank when provided");
+  }
+  const action = {
+    tool: "vault_passkey_use",
+    itemId,
+    selector,
+    ...(passkeyId ? { passkeyId } : {}),
+  };
+  if (!APPROVAL_REQUIRED) return executeVaultPasskeyAction(action);
+  return queueVaultPasskeyAction(args, action);
+}
+
+async function browserCreateVaultPasskey(args) {
+  const itemId = String(args?.itemId ?? "").trim();
+  const selector = String(args?.selector ?? "").trim();
+  if (!itemId) throw new Error("`itemId` is required");
+  if (!selector) throw new Error("`selector` is required");
+  const action = { tool: "vault_passkey_create", itemId, selector };
+  if (!APPROVAL_REQUIRED) return executeVaultPasskeyAction(action);
+  return queueVaultPasskeyAction(args, action);
+}
+
+async function queueVaultPasskeyAction(args, action) {
+  const summary =
+    typeof args?.summary === "string" && args.summary.trim()
+      ? args.summary.trim()
+      : action.tool === "vault_passkey_create"
+        ? "Create and save a software passkey in Vault"
+        : "Sign in with a software passkey from Vault";
+  const target = await callBrowser("/approval/describe-target", {
+    action: action.tool,
+    selector: action.selector,
+    key: null,
+    itemId: action.itemId,
+    ...(action.passkeyId ? { passkeyId: action.passkeyId } : {}),
+  });
+  if (
+    typeof target?.targetFingerprint !== "string" ||
+    !target?.targetDescriptor ||
+    typeof target.targetDescriptor !== "object"
+  ) {
+    throw new Error("The App could not bind the live passkey action to an approval");
+  }
+  if (!Number.isSafeInteger(target.itemVersion) || target.itemVersion < 1) {
+    throw new Error("The App could not bind the current Vault item version to the approval");
+  }
+  const resolvedPasskeyId =
+    action.tool === "vault_passkey_use" && typeof target.passkeyId === "string"
+      ? target.passkeyId
+      : undefined;
+  if (action.tool === "vault_passkey_use" && !resolvedPasskeyId) {
+    throw new Error("The App could not bind an exact Vault passkey to the approval");
+  }
+  const boundAction = {
+    ...action,
+    itemVersion: target.itemVersion,
+    ...(resolvedPasskeyId ? { passkeyId: resolvedPasskeyId } : {}),
+  };
+
+  const id = crypto.randomUUID();
+  pendingActions.set(id, boundAction);
+  try {
+    const reply = await callGenosyn("/tools/queue_browser_approval", {
+      clientApprovalId: id,
+      action: action.tool,
+      summary,
+      pageUrl: typeof target.pageUrl === "string" ? target.pageUrl : "",
+      browserSessionId: BROWSER_SESSION_ID,
+      targetFingerprint: target.targetFingerprint,
+      targetDescriptor: target.targetDescriptor,
+      selector: action.selector,
+      key: null,
+      vaultItemId: action.itemId,
+      vaultItemVersion: boundAction.itemVersion,
+      ...(boundAction.passkeyId ? { vaultPasskeyId: boundAction.passkeyId } : {}),
+    });
+    const approvalId = reply?.approvalId ?? id;
+    if (approvalId !== id) {
+      pendingActions.set(approvalId, boundAction);
+      pendingActions.delete(id);
+    }
+    return textResult(
+      `Approval queued. status: pending_approval. approvalId: ${approvalId}. No passkey authenticator has been injected; call browser_resume("${approvalId}") after approval to run the one-shot ceremony.`,
+    );
+  } catch (err) {
+    pendingActions.delete(id);
+    throw new Error(
+      `Could not queue Vault passkey approval: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+async function executeVaultPasskeyAction(action, approvalId) {
+  const endpoint =
+    action.tool === "vault_passkey_create" ? "/vault/passkeys/create" : "/vault/passkeys/use";
+  const reply = await callBrowser(endpoint, {
+    ...(approvalId ? { approvalId } : {}),
+    itemId: action.itemId,
+    ...(Number.isSafeInteger(action.itemVersion) ? { itemVersion: action.itemVersion } : {}),
+    selector: action.selector,
+    ...(action.passkeyId ? { passkeyId: action.passkeyId } : {}),
+  });
+  return textResult(reply.snapshot ?? reply.message ?? "Vault passkey ceremony completed.");
 }
 
 /**
@@ -421,6 +570,77 @@ async function browserSubmit(args) {
   }
 }
 
+async function browserSubmitWithVaultTotp(args) {
+  const selector = String(args?.selector ?? "").trim();
+  const totpSelector = String(args?.totpSelector ?? "").trim();
+  const itemId = String(args?.itemId ?? "").trim();
+  if (!selector) throw new Error("`selector` is required");
+  if (!totpSelector) throw new Error("`totpSelector` is required");
+  if (!itemId) throw new Error("`itemId` is required");
+  const key = typeof args?.key === "string" ? args.key : undefined;
+  if (key) assertModelPressKeyAllowed(key);
+
+  const action = { tool: "vault_totp_submit", selector, key, itemId, totpSelector };
+  if (!APPROVAL_REQUIRED) {
+    return executeVaultTotpSubmit(action);
+  }
+
+  const summary =
+    typeof args?.summary === "string" && args.summary.trim()
+      ? args.summary.trim()
+      : "Submit a current one-time code from Vault";
+  const target = await callBrowser("/approval/describe-target", {
+    action: "vault_totp_submit",
+    selector,
+    key: key ?? null,
+    itemId,
+    totpSelector,
+  });
+  if (
+    typeof target?.targetFingerprint !== "string" ||
+    !target?.targetDescriptor ||
+    typeof target.targetDescriptor !== "object"
+  ) {
+    throw new Error("The App could not bind the live TOTP form to an approval");
+  }
+  if (!Number.isSafeInteger(target.itemVersion) || target.itemVersion < 1) {
+    throw new Error("The App could not bind the current Vault item version to the approval");
+  }
+  const boundAction = { ...action, itemVersion: target.itemVersion };
+
+  const id = crypto.randomUUID();
+  pendingActions.set(id, boundAction);
+  try {
+    const reply = await callGenosyn("/tools/queue_browser_approval", {
+      clientApprovalId: id,
+      action: "vault_totp_submit",
+      summary,
+      pageUrl: typeof target.pageUrl === "string" ? target.pageUrl : "",
+      browserSessionId: BROWSER_SESSION_ID,
+      targetFingerprint: target.targetFingerprint,
+      targetDescriptor: target.targetDescriptor,
+      selector,
+      key: key ?? null,
+      vaultItemId: itemId,
+      vaultItemVersion: boundAction.itemVersion,
+      vaultTotpSelector: totpSelector,
+    });
+    const approvalId = reply?.approvalId ?? id;
+    if (approvalId !== id) {
+      pendingActions.set(approvalId, boundAction);
+      pendingActions.delete(id);
+    }
+    return textResult(
+      `Approval queued. status: pending_approval. approvalId: ${approvalId}. The one-time code has not been generated or filled; call browser_resume("${approvalId}") after approval to generate, fill, and submit it atomically.`,
+    );
+  } catch (err) {
+    pendingActions.delete(id);
+    throw new Error(
+      `Could not queue Vault TOTP submission approval: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
 async function executeSubmit(selector, key, approvalId) {
   if (key) {
     assertModelPressKeyAllowed(key);
@@ -429,6 +649,18 @@ async function executeSubmit(selector, key, approvalId) {
   }
   const reply = await callBrowser("/click", { selector, approvalId });
   return textResult(reply.snapshot ?? "");
+}
+
+async function executeVaultTotpSubmit(action, approvalId) {
+  const reply = await callBrowser("/vault/submit-totp", {
+    ...(approvalId ? { approvalId } : {}),
+    itemId: action.itemId,
+    ...(Number.isSafeInteger(action.itemVersion) ? { itemVersion: action.itemVersion } : {}),
+    totpSelector: action.totpSelector,
+    selector: action.selector,
+    key: action.key ?? null,
+  });
+  return textResult(reply.snapshot ?? "Vault TOTP code filled and submitted without disclosure.");
 }
 
 /**
@@ -480,8 +712,7 @@ async function executeLegacyApprovedAction(approvalId, fallbackSelector) {
     );
   }
   const claimToken = typeof claim?.claimToken === "string" ? claim.claimToken : "";
-  const selector =
-    typeof claim?.selector === "string" ? claim.selector : fallbackSelector;
+  const selector = typeof claim?.selector === "string" ? claim.selector : fallbackSelector;
   const key = typeof claim?.key === "string" ? claim.key : undefined;
   const approvedUrl = typeof claim?.pageUrl === "string" ? claim.pageUrl : "";
   if (!claimToken || !selector) {
@@ -577,13 +808,20 @@ async function browserResume(args) {
     // across chat turns — this MCP child is spawned per turn, and the
     // human usually approves after the turn that queued it has ended.
     const action = pendingActions.get(approvalId);
-    const actionKind =
-      action?.tool ?? (reply?.action === "vault_capture" ? "vault_capture" : "submit");
+    const storedActionKinds = new Set([
+      "submit",
+      "vault_capture",
+      "vault_totp_submit",
+      "vault_passkey_create",
+      "vault_passkey_use",
+    ]);
+    const storedActionKind = storedActionKinds.has(reply?.action) ? reply.action : "submit";
+    const actionKind = action?.tool ?? storedActionKind;
     const targetBound = reply?.targetBound === true;
     const selector =
       action?.selector ?? (typeof reply?.selector === "string" ? reply.selector : "");
     const key =
-      action?.tool === "submit"
+      action?.tool === "submit" || action?.tool === "vault_totp_submit"
         ? action.key
         : typeof reply?.key === "string"
           ? reply.key
@@ -620,33 +858,102 @@ async function browserResume(args) {
       return executeLegacyApprovedAction(approvalId, selector);
     }
     pendingActions.delete(approvalId);
-    const result =
-      actionKind === "vault_capture"
-        ? await executeVaultCapture(
-            {
-              selector,
-              title:
-                action?.tool === "vault_capture"
-                  ? action.title
-                  : typeof reply?.vaultTitle === "string"
-                    ? reply.vaultTitle
-                    : "",
-              username:
-                action?.tool === "vault_capture"
-                  ? action.username
-                  : typeof reply?.vaultUsername === "string"
-                    ? reply.vaultUsername
-                    : "",
-              notes:
-                action?.tool === "vault_capture"
-                  ? action.notes
-                  : typeof reply?.vaultNotes === "string"
-                    ? reply.vaultNotes
-                    : "",
-            },
-            approvalId,
-          )
-        : await executeSubmit(selector, key, approvalId);
+    let result;
+    if (actionKind === "vault_capture") {
+      result = await executeVaultCapture(
+        {
+          selector,
+          title:
+            action?.tool === "vault_capture"
+              ? action.title
+              : typeof reply?.vaultTitle === "string"
+                ? reply.vaultTitle
+                : "",
+          username:
+            action?.tool === "vault_capture"
+              ? action.username
+              : typeof reply?.vaultUsername === "string"
+                ? reply.vaultUsername
+                : "",
+          notes:
+            action?.tool === "vault_capture"
+              ? action.notes
+              : typeof reply?.vaultNotes === "string"
+                ? reply.vaultNotes
+                : "",
+        },
+        approvalId,
+      );
+    } else if (actionKind === "vault_totp_submit") {
+      const itemId =
+        action?.tool === "vault_totp_submit"
+          ? action.itemId
+          : typeof reply?.vaultItemId === "string"
+            ? reply.vaultItemId
+            : "";
+      const totpSelector =
+        action?.tool === "vault_totp_submit"
+          ? action.totpSelector
+          : typeof reply?.vaultTotpSelector === "string"
+            ? reply.vaultTotpSelector
+            : "";
+      const itemVersion =
+        action?.tool === "vault_totp_submit"
+          ? action.itemVersion
+          : Number.isSafeInteger(reply?.vaultItemVersion)
+            ? reply.vaultItemVersion
+            : undefined;
+      if (!itemId || !totpSelector || !Number.isSafeInteger(itemVersion) || itemVersion < 1) {
+        throw new Error(
+          `Approval ${approvalId} is missing its encrypted Vault TOTP binding. Queue the action again.`,
+        );
+      }
+      result = await executeVaultTotpSubmit(
+        { tool: "vault_totp_submit", selector, key, itemId, itemVersion, totpSelector },
+        approvalId,
+      );
+    } else if (actionKind === "vault_passkey_create" || actionKind === "vault_passkey_use") {
+      const itemId =
+        action?.tool === actionKind
+          ? action.itemId
+          : typeof reply?.vaultItemId === "string"
+            ? reply.vaultItemId
+            : "";
+      const passkeyId =
+        action?.tool === "vault_passkey_use"
+          ? action.passkeyId
+          : typeof reply?.vaultPasskeyId === "string"
+            ? reply.vaultPasskeyId
+            : undefined;
+      const itemVersion =
+        action?.tool === actionKind
+          ? action.itemVersion
+          : Number.isSafeInteger(reply?.vaultItemVersion)
+            ? reply.vaultItemVersion
+            : undefined;
+      if (
+        !itemId ||
+        !Number.isSafeInteger(itemVersion) ||
+        itemVersion < 1 ||
+        (actionKind === "vault_passkey_use" && !passkeyId)
+      ) {
+        throw new Error(
+          `Approval ${approvalId} is missing its encrypted Vault passkey binding. Queue the action again.`,
+        );
+      }
+      result = await executeVaultPasskeyAction(
+        {
+          tool: actionKind,
+          selector,
+          itemId,
+          itemVersion,
+          ...(passkeyId ? { passkeyId } : {}),
+        },
+        approvalId,
+      );
+    } else {
+      result = await executeSubmit(selector, key, approvalId);
+    }
     return result;
   }
   if (status === "executing") {
@@ -658,7 +965,7 @@ async function browserResume(args) {
   if (status === "execution_failed") {
     pendingActions.delete(approvalId);
     throw new Error(
-      `Approval ${approvalId} was claimed but the browser action failed. Start a new browser_submit if a human should review another attempt.`,
+      `Approval ${approvalId} was claimed but the browser action failed. Queue a new browser action if a human should review another attempt.`,
     );
   }
   if (status === "rejected") {
@@ -741,7 +1048,7 @@ const TOOLS = [
   },
   {
     name: "browser_fill_vault",
-    description: `Fill a username or a Vault Login password without revealing the password to you or placing it in the transcript. Stored passwords only go into type=password inputs; API-key and secure-note values have no Browser-fill path. Call list_vault_items first to get an item id. The top page and target frame must exactly match the item's saved origin (scheme, host and port), and Browser access plus the host allow list still apply. ${SELECTOR_HINT}`,
+    description: `Fill a username, Vault Login password, or current TOTP one-time code without revealing protected values to you or placing them in the transcript. Stored passwords only go into type=password inputs; TOTP codes are generated just in time and go only into ordinary login-code inputs. API-key and secure-note values have no Browser-fill path. Call list_vault_items first to get an item id. The top page and target frame must exactly match the item's saved origin (scheme, host and port), and Browser access plus the host allow list still apply. ${SELECTOR_HINT}`,
     inputSchema: {
       type: "object",
       properties: {
@@ -755,9 +1062,9 @@ const TOOLS = [
         },
         field: {
           type: "string",
-          enum: ["username", "secret"],
+          enum: ["username", "secret", "totp"],
           description:
-            "Which login field to fill. `secret` is allowed only for a login password targeting type=password.",
+            "Which login field to fill. `secret` is allowed only for a Login password targeting type=password; `totp` generates the current one-time code inside Genosyn.",
         },
       },
       required: ["selector", "itemId", "field"],
@@ -790,6 +1097,94 @@ const TOOLS = [
       additionalProperties: false,
     },
     handler: browserSaveVaultLogin,
+  },
+  {
+    name: "browser_prepare_vault_totp",
+    description:
+      "Protect TOTP enrollment for an AI-created Vault Login before asking the website to reveal its setup key or QR. This must be the first step: after it succeeds, reveal enrollment and call browser_save_vault_totp on the bound setup key, QR image, or container. Screenshots and the Browser recording stay withheld from this point. Available only in the App-owned Browser.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemId: {
+          type: "string",
+          description: "AI-created Vault Login UUID with your manage Grant.",
+        },
+      },
+      required: ["itemId"],
+      additionalProperties: false,
+    },
+    handler: browserPrepareVaultTotp,
+  },
+  {
+    name: "browser_save_vault_totp",
+    description: `After browser_prepare_vault_totp succeeds and the website reveals enrollment, save the bound TOTP setup into the same AI-created Vault Login without showing the setup key to you. Select setup-key text/input, an authenticator QR image, or its container; the App reads or decodes it server-side, validates it, and encrypts it. The prepared Browser session, item, page origin, selected frame, and manage Grant must still match. Available only in the App-owned Browser, never a Member browser. ${SELECTOR_HINT}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        selector: {
+          type: "string",
+          description:
+            "The setup key, QR image, or containing element — aria-ref=eN from the snapshot, CSS, text, or role selector.",
+        },
+        itemId: {
+          type: "string",
+          description: "AI-created Vault Login UUID from create_vault_login/list_vault_items.",
+        },
+      },
+      required: ["selector", "itemId"],
+      additionalProperties: false,
+    },
+    handler: browserSaveVaultTotp,
+  },
+  {
+    name: "browser_create_vault_passkey",
+    description: `Run a website's Create passkey control and save the resulting encrypted software passkey to an AI-created Vault Login as one bound operation. When browser approval is required, this queues an Approval before Chrome receives any virtual authenticator; browser_resume creates, captures, and saves it only after the atomic claim. When approval is off, it runs immediately. This never uses a Member's biometric, password-manager, hardware-key, or Member-browser passkey. ${SELECTOR_HINT}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemId: {
+          type: "string",
+          description: "AI-created Vault Login UUID with your manage Grant.",
+        },
+        selector: {
+          type: "string",
+          description: "The website control that starts its Create passkey ceremony.",
+        },
+        summary: {
+          type: "string",
+          description: "Optional safe description shown to the approver.",
+        },
+      },
+      required: ["itemId", "selector"],
+      additionalProperties: false,
+    },
+    handler: browserCreateVaultPasskey,
+  },
+  {
+    name: "browser_use_vault_passkey",
+    description: `Run a website's Passkey sign-in control with a granted encrypted Vault software passkey as one bound operation. When browser approval is required, this queues an Approval and does not inject the authenticator until browser_resume atomically claims it. Genosyn checks the exact saved origin and WebAuthn relying party and saves the updated signature counter after assertion. If the Login has multiple passkeys, choose the passkey id returned by list_vault_items. Unavailable in Member browsers. ${SELECTOR_HINT}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemId: { type: "string", description: "Vault Login UUID from list_vault_items." },
+        selector: {
+          type: "string",
+          description: "The website control that starts Passkey sign-in.",
+        },
+        passkeyId: {
+          type: "string",
+          description:
+            "Optional passkey UUID from list_vault_items; omit only when the Login has one passkey.",
+        },
+        summary: {
+          type: "string",
+          description: "Optional safe description shown to the approver.",
+        },
+      },
+      required: ["itemId", "selector"],
+      additionalProperties: false,
+    },
+    handler: browserUseVaultPasskey,
   },
   {
     name: "browser_select",
@@ -882,7 +1277,7 @@ const TOOLS = [
   {
     name: "browser_screenshot",
     description:
-      "Capture a JPEG screenshot of the current viewport and return it as image content. This is refused after the browser session has observed or filled a password; use browser_snapshot, which redacts password inputs, instead. Screenshots are heavy in the context window, so use them only when layout or imagery matters. Humans can also watch the page live in the chat panel.",
+      "Capture a JPEG screenshot of the current viewport and return it as image content. This is refused after the Browser session has observed or filled a password, one-time code, or authenticator setup key, and on authenticator-enrollment pages; use browser_snapshot, which redacts sensitive values, instead. Screenshots are heavy in the context window, so use them only when layout or imagery matters. Humans can also watch the page live in the chat panel.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     handler: browserScreenshot,
   },
@@ -892,6 +1287,37 @@ const TOOLS = [
       "Shut down the browser and free its memory. Only does anything when no human is watching — viewers are protected so a model that idly closes the browser at the end of its turn doesn't yank the rug out from under a human mid-takeover.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     handler: browserClose,
+  },
+  {
+    name: "browser_submit_with_vault_totp",
+    description: `Fill a current TOTP code from a granted Vault Login and submit its form as one bound operation, without revealing the code. Use this instead of browser_fill_vault followed by browser_submit when approval mode may delay the submission. The Approval is queued before a code is generated or filled; browser_resume atomically claims it, rechecks the live Grant, exact origin, selected TOTP input, submit target, and all other form values, then generates a fresh code and immediately fills and submits it. When approval mode is off, the same combined operation runs immediately. ${SELECTOR_HINT}`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        itemId: { type: "string", description: "Vault Login UUID from list_vault_items." },
+        totpSelector: {
+          type: "string",
+          description: "The TOTP code input in the form.",
+        },
+        selector: {
+          type: "string",
+          description:
+            "The submit button to click, or the field that should receive `key` (usually Enter).",
+        },
+        key: {
+          type: "string",
+          enum: MODEL_PRESS_KEYS,
+          description: "Optional plain submit key instead of clicking selector.",
+        },
+        summary: {
+          type: "string",
+          description: "Optional safe description shown to the approver.",
+        },
+      },
+      required: ["itemId", "totpSelector", "selector"],
+      additionalProperties: false,
+    },
+    handler: browserSubmitWithVaultTotp,
   },
   {
     name: "browser_submit",
@@ -924,13 +1350,13 @@ const TOOLS = [
   {
     name: "browser_resume",
     description:
-      "Run a previously queued browser_submit or restricted Vault capture after the required human has approved it — in this turn or a later one. Genosyn atomically claims the reviewed action before Chromium acts, so concurrent calls cannot submit twice and an ambiguous crashed attempt is never replayed. The action is bound to its Browser session and reviewed page; if either changed, queue it again. Returns still-pending if the human has not decided yet and errors for rejection, expiry, prior use, or a stale target.",
+      "Run a previously queued browser submission, restricted Vault capture, combined Vault TOTP submission, or one-shot Vault passkey ceremony after the required human has approved it — in this turn or a later one. Genosyn atomically claims the reviewed action before Chromium acts, so concurrent calls cannot run twice and an ambiguous attempt is never replayed. The action is bound to its Browser session and reviewed page; if either changed, queue it again. Returns still-pending if the human has not decided yet and errors for rejection, expiry, prior use, or a stale target.",
     inputSchema: {
       type: "object",
       properties: {
         approvalId: {
           type: "string",
-          description: "The id returned by browser_submit or browser_save_vault_login.",
+          description: "The id returned by the browser tool that queued the Approval.",
         },
       },
       required: ["approvalId"],

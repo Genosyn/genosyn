@@ -111,7 +111,7 @@ export function Browser() {
           { term: "browser_fill", def: "Type into an input or textarea, replacing its contents." },
           {
             term: "browser_fill_vault",
-            def: "Fill a username or Login password from an explicitly granted Vault item. Passwords go only into password inputs, and the App never returns plaintext to the model.",
+            def: "Fill a username, Login password, or current authenticator code from an explicitly granted Vault item. Passwords and codes go only into matching sign-in inputs, and the App never returns plaintext to the model.",
           },
           {
             term: "browser_select",
@@ -139,16 +139,36 @@ export function Browser() {
             def: "Request owner/admin approval to capture a same-origin password input into a new restricted Vault login without reading it back through the model.",
           },
           {
+            term: "browser_prepare_vault_totp",
+            def: "Arm an AI-created Login for TOTP enrollment before asking the site to reveal its setup key or QR. Screenshots and recordings are restricted immediately.",
+          },
+          {
+            term: "browser_save_vault_totp",
+            def: "Capture the prepared, same-origin authenticator setup key or QR into that Login without returning the setup key.",
+          },
+          {
+            term: "browser_create_vault_passkey",
+            def: "Run the selected site's passkey-registration action inside a temporary software authenticator and encrypt the resulting credential into the Login as one bounded ceremony.",
+          },
+          {
+            term: "browser_use_vault_passkey",
+            def: "Load one granted, origin-bound Vault passkey, trigger the selected sign-in action, save its counter, and remove it from Chrome before returning.",
+          },
+          {
             term: "browser_screenshot",
-            def: "A JPEG of the viewport when layout matters. It is unavailable after the session has observed or filled a password; use the redacted snapshot then.",
+            def: "A JPEG of the viewport when layout matters. It is unavailable after the session has observed a password, one-time code, authenticator setup, or any QR; use the redacted snapshot then.",
           },
           {
             term: "browser_submit",
             def: "Submit a form. With approval mode on, queues an Approval instead of firing.",
           },
           {
+            term: "browser_submit_with_vault_totp",
+            def: "Claim the bound action, generate a fresh Vault one-time code, fill it, and submit immediately; approval mode queues this before any code is generated or filled.",
+          },
+          {
             term: "browser_resume",
-            def: "Run an approved submit or restricted Vault capture in its original Browser session and page.",
+            def: "Run an approved submit, restricted Vault password capture, TOTP submit, or one-shot passkey create/use action in its original Browser session and page.",
           },
           {
             term: "browser_close",
@@ -173,10 +193,11 @@ export function Browser() {
         <Code>NOTE:</Code> lines at the top of the next snapshot.
       </P>
       <P>
-        Password-input values are removed from snapshots before they reach the model, including
-        password fields inside frames. Once a password has been observed or filled in the session,
-        <Code>browser_screenshot</Code> refuses to create a model-visible image; the structural
-        snapshot remains available with the password redacted.
+        Password-input values and Vault-supplied authenticator values are removed from snapshots
+        before they reach the model, including fields inside frames. Once a password or TOTP setup
+        value has been observed or filled in the session, <Code>browser_screenshot</Code> refuses to
+        create a model-visible image; the structural snapshot remains available with sensitive
+        values redacted.
       </P>
 
       <H2 id="allow-list">The allow list</H2>
@@ -206,22 +227,23 @@ export function Browser() {
         widens this Browser policy.
       </P>
 
-      <H2 id="vault">Vault autofill and capture</H2>
+      <H2 id="vault">Vault passwords, authenticator codes, and passkeys</H2>
       <P>
         A granted <DocLink to="/docs/vault">Vault</DocLink> login removes the need to paste a
-        password into Chat or type it during take-over. The employee first calls{" "}
-        <Code>list_vault_items</Code> for safe metadata, opens the saved website, then calls{" "}
-        <Code>browser_fill_vault</Code> for the username or password field. The App resolves the
-        current item-level Grant and types the value directly into Chrome. The tool result only
-        confirms that the field was filled.
+        password or current authenticator code into Chat or type it during take-over. The employee
+        first calls <Code>list_vault_items</Code> for safe metadata, opens the saved website, then
+        calls <Code>browser_fill_vault</Code> for the username, password, or <Code>totp</Code>{" "}
+        field. The App resolves the current item-level Grant, generates a fresh code when needed,
+        and types the value directly into Chrome. The tool result only confirms that the field was
+        filled.
       </P>
       <P>
         Autofill is bound to the login&apos;s exact saved origin: scheme, host, and port must match
-        on both the top page and target frame. The stored password is accepted only from a Login
-        item and only into an input with <Code>type=password</Code>; API keys and secure-note bodies
-        are not Browser-fill sinks. A missing or revoked Grant fails closed. Browser access and the
-        host allow list still apply independently, so a Vault Grant cannot turn the Browser on or
-        widen where it may navigate.
+        on both the top page and target frame. The stored password is accepted only into an input
+        with <Code>type=password</Code>, while a current authenticator code goes only into an
+        ordinary sign-in input; API keys and secure-note bodies are not Browser-fill sinks. A
+        missing or revoked Grant fails closed. Browser access and the host allow list still apply
+        independently, so a Vault Grant cannot turn the Browser on or widen where it may navigate.
       </P>
       <P>
         For signup and password-generation flows, <Code>browser_save_vault_login</Code> captures the
@@ -233,6 +255,30 @@ export function Browser() {
         <Code>create_vault_login</Code> to have Genosyn generate and encrypt a company-visible
         password before filling it into the page.
       </P>
+      <P>
+        If the site offers TOTP during signup, the employee first calls{" "}
+        <Code>browser_prepare_vault_totp</Code> on its AI-created Login, then asks the site to reveal
+        enrollment. This immediately withholds screenshots and recordings. The employee then calls{" "}
+        <Code>browser_save_vault_totp</Code> on the same-origin setup key, authenticator QR image, or
+        containing element. Genosyn validates and encrypts the setup server-side; neither the setup
+        key nor a generated code appears in model output. A Member can also paste a shown Base32 key
+        or <Code>otpauth://</Code> URI through the Vault editor.
+      </P>
+      <P>
+        A Vault passkey is created inside Genosyn rather than imported from a person&apos;s device.
+        <Code>browser_create_vault_passkey</Code> takes the site&apos;s Create passkey control and
+        performs registration, capture, encryption, and browser cleanup as one bounded action. On a
+        later login, <Code>browser_use_vault_passkey</Code> takes the site&apos;s sign-in control, loads
+        only that granted RP-bound credential, completes the assertion, persists its updated
+        signature counter, and removes it from Chrome before returning. No private key enters the
+        MCP child, model context, transcript, audit detail, or log.
+      </P>
+      <Callout kind="warn" title="Software passkeys are not human authenticators">
+        Vault passkeys are encrypted software credentials. They do not use Touch ID, Face ID, a
+        password manager, or a hardware security key, and they cannot satisfy a site that requires
+        hardware-backed attestation or real human verification. All TOTP/passkey capture and use is
+        refused in <DocLink to="/docs/member-browsers">Member browsers</DocLink>.
+      </Callout>
 
       <H2 id="approvals">Approval-gated submits</H2>
       <P>
@@ -252,15 +298,22 @@ export function Browser() {
         recent primary and second-factor authentication in a logged-in browser session rather than
         an API key.
       </P>
+      <P>
+        For a TOTP-protected form, use <Code>browser_submit_with_vault_totp</Code>. It queues the
+        Approval while the one-time-code field is still empty, then generates and fills a fresh code
+        only after the approved action is claimed and submits immediately. This avoids an expired
+        code or a changed form fingerprint while the Member is reviewing the Approval.
+      </P>
 
       <H2 id="live-view">Live view and takeover</H2>
       <P>
         While the employee browses, the chat panel shows the page live. Click{" "}
         <Strong>Take over</Strong> to drive it yourself — your mouse and keyboard go straight to the
-        same Chrome. Use Vault autofill for a granted stored credential; take-over remains the
-        fallback for a credential not in the Vault and the intended flow for captchas and 2FA. The
-        employee navigates to the right page, you complete the human-only step, and the employee
-        carries on. The browser is never torn down while someone is watching.
+        same Chrome. Use Vault actions for a granted password, authenticator code, or software
+        passkey; take-over remains the fallback for a credential not in the Vault, captchas,
+        hardware-bound passkeys, and unsupported challenges. The employee navigates to the right
+        page, you complete the human-only step, and the employee carries on. The browser is never
+        torn down while someone is watching.
       </P>
       <P>
         Taking over also unlocks the <Strong>address bar</Strong> above the page, along with back,
@@ -307,6 +360,11 @@ export function Browser() {
         which is new on every launch, so the HTTP cache always starts cold.
       </P>
       <P>
+        Vault passkeys do not depend on Chrome&apos;s profile directory. Their encrypted credential
+        material lives with the Login in the database and is loaded into a temporary software
+        authenticator only for a granted, exact-RP Browser action.
+      </P>
+      <P>
         Saved Routine recordings are separate from browser state. They live under{" "}
         <Code>.private/browser-recordings/&lt;company-id&gt;/&lt;run-id&gt;/</Code> in the data
         directory, outside the AI Employee&apos;s working tree. They remain with Run history, are
@@ -316,9 +374,9 @@ export function Browser() {
       <P>
         That per-employee session is also what{" "}
         <DocLink to="/docs/integrations">browser-login Connections</DocLink> use. When a site
-        challenges a stored-password sign-in with a captcha or a 2FA prompt, the fix is to take over
-        here and sign in once — the Connection picks up the session you established and stops
-        failing.
+        challenges a sign-in with a captcha or an authenticator not attached to the Login, the fix
+        is to take over here and sign in once — the Connection picks up the session you established
+        and stops failing.
       </P>
 
       <H2 id="runtime">The browser it actually runs</H2>

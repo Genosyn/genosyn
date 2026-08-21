@@ -22,13 +22,17 @@ import {
   deleteEmployeeVaultGrant,
   deleteVaultItem,
   deleteVaultMemberAccess,
+  deleteVaultPasskey,
+  deleteVaultTotp,
   getVaultItem,
+  getVaultTotpCode,
   listEmployeeVaultGrantCandidates,
   listEmployeeVaultGrants,
   listVaultItems,
   listVaultMemberAccess,
   listVaultMemberAccessCandidates,
   revealVaultItem,
+  setVaultTotp,
   updateEmployeeVaultGrant,
   updateVaultItem,
   updateVaultMemberAccess,
@@ -104,6 +108,7 @@ const itemParamsSchema = z.object({
 });
 const memberAccessParamsSchema = itemParamsSchema.extend({ accessId: z.string().uuid() });
 const employeeGrantParamsSchema = itemParamsSchema.extend({ grantId: z.string().uuid() });
+const passkeyParamsSchema = itemParamsSchema.extend({ passkeyId: z.string().uuid() });
 
 const itemTypeSchema = z.enum(["login", "api_key", "secure_note"]);
 const visibilitySchema = z.enum(["company", "restricted"]);
@@ -132,8 +137,13 @@ const createItemSchema = z
     secret: z.string().min(1).max(20_000),
     websiteUrl: websiteUrlSchema.default(""),
     notes: z.string().max(20_000).default(""),
+    totpSetupKey: z.string().trim().min(1).max(4096).optional(),
   })
-  .strict();
+  .strict()
+  .refine((body) => body.totpSetupKey === undefined || body.type === "login", {
+    message: "TOTP can only be attached to a login",
+    path: ["totpSetupKey"],
+  });
 
 const updateItemSchema = z
   .object({
@@ -157,6 +167,7 @@ const revealSchema = z
     purpose: z.enum(["reveal", "copy"]),
   })
   .strict();
+const setTotpSchema = z.object({ setupKey: z.string().trim().min(1).max(4096) }).strict();
 
 const createMemberAccessSchema = z
   .object({
@@ -192,12 +203,16 @@ vaultRouter.post(
       actor: actor(req),
       type: body.type,
       visibility: body.visibility,
+      totpSetupKey: body.totpSetupKey,
       payload: {
         title: body.title,
         username: body.username,
         secret: body.secret,
         websiteUrl: body.websiteUrl,
         notes: body.notes,
+        totp: null,
+        passkeys: [],
+        passkeyRegistrationLease: null,
       },
     });
     await recordAudit({
@@ -207,7 +222,7 @@ vaultRouter.post(
       targetType: "vault_item",
       targetId: item.id,
       targetLabel: "Vault item",
-      metadata: { type: item.type, visibility: item.visibility },
+      metadata: { type: item.type, visibility: item.visibility, hasTotp: item.hasTotp },
     });
     res.status(201).json({ item });
   }),
@@ -297,6 +312,100 @@ vaultRouter.post(
       metadata: { purpose: body.purpose },
     });
     res.json({ secret: revealed.secret });
+  }),
+);
+
+vaultRouter.post(
+  "/items/:itemId/totp",
+  validateParams(itemParamsSchema),
+  validateBody(setTotpSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof setTotpSchema>;
+    const item = await setVaultTotp({
+      companyId: companyId(req),
+      itemId: req.params.itemId,
+      actor: actor(req),
+      setupKey: body.setupKey,
+    });
+    await recordAudit({
+      companyId: companyId(req),
+      actorUserId: req.userId,
+      action: "vault.totp.set",
+      targetType: "vault_item",
+      targetId: item.id,
+      targetLabel: "Vault item",
+      metadata: {},
+    });
+    res.json({ item });
+  }),
+);
+
+vaultRouter.delete(
+  "/items/:itemId/totp",
+  validateParams(itemParamsSchema),
+  asyncHandler(async (req, res) => {
+    const item = await deleteVaultTotp({
+      companyId: companyId(req),
+      itemId: req.params.itemId,
+      actor: actor(req),
+    });
+    await recordAudit({
+      companyId: companyId(req),
+      actorUserId: req.userId,
+      action: "vault.totp.delete",
+      targetType: "vault_item",
+      targetId: item.id,
+      targetLabel: "Vault item",
+      metadata: {},
+    });
+    res.json({ item });
+  }),
+);
+
+vaultRouter.post(
+  "/items/:itemId/totp/code",
+  validateParams(itemParamsSchema),
+  validateBody(revealSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof revealSchema>;
+    const result = await getVaultTotpCode({
+      companyId: companyId(req),
+      itemId: req.params.itemId,
+      actor: actor(req),
+    });
+    await recordAudit({
+      companyId: companyId(req),
+      actorUserId: req.userId,
+      action: body.purpose === "copy" ? "vault.totp.copy" : "vault.totp.reveal",
+      targetType: "vault_item",
+      targetId: result.item.id,
+      targetLabel: "Vault item",
+      metadata: { purpose: body.purpose },
+    });
+    res.json({ code: result.code, expiresAt: result.expiresAt.toISOString() });
+  }),
+);
+
+vaultRouter.delete(
+  "/items/:itemId/passkeys/:passkeyId",
+  validateParams(passkeyParamsSchema),
+  asyncHandler(async (req, res) => {
+    const result = await deleteVaultPasskey({
+      companyId: companyId(req),
+      itemId: req.params.itemId,
+      passkeyId: req.params.passkeyId,
+      actor: actor(req),
+    });
+    await recordAudit({
+      companyId: companyId(req),
+      actorUserId: req.userId,
+      action: "vault.passkey.delete",
+      targetType: "vault_item",
+      targetId: result.item.id,
+      targetLabel: "Vault item",
+      metadata: { passkeyId: result.passkey.id },
+    });
+    res.json({ item: result.item });
   }),
 );
 

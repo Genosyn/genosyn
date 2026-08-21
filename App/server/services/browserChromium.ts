@@ -17,6 +17,7 @@ import {
   loadChromiumLauncher,
   persistentContextOptions,
 } from "./browserProfile.js";
+import { installVaultPasskeyGate } from "./vaultBrowserAuthenticators.js";
 
 /**
  * App-owned browser per `BrowserSession`. Decoupled from the MCP
@@ -328,10 +329,7 @@ export async function acquirePage(sessionId: string): Promise<unknown> {
  * reuses a row for a matching conversation, so a Routine Run always mints a new
  * session and routinely cold-starts alongside a chat.
  */
-async function acquireSharedProfile(
-  companyId: string,
-  employeeId: string,
-): Promise<SharedProfile> {
+async function acquireSharedProfile(companyId: string, employeeId: string): Promise<SharedProfile> {
   const key = profileKeyFor(companyId, employeeId);
   for (;;) {
     const existing = profiles.get(key);
@@ -351,9 +349,11 @@ async function acquireSharedProfile(
     // caller cannot slip between them and start a second launch.
     const launch = launchProfile(key, companyId, employeeId);
     profileLaunches.set(key, launch);
-    void launch.catch(() => {}).finally(() => {
-      if (profileLaunches.get(key) === launch) profileLaunches.delete(key);
-    });
+    void launch
+      .catch(() => {})
+      .finally(() => {
+        if (profileLaunches.get(key) === launch) profileLaunches.delete(key);
+      });
     return launch;
   }
 }
@@ -407,9 +407,7 @@ async function launchProfile(
 
   if (ephemeral) {
     browser = await chromium.launch(await chromiumLaunchOptions());
-    context = await (
-      browser as { newContext: (opts: unknown) => Promise<unknown> }
-    ).newContext({
+    context = await (browser as { newContext: (opts: unknown) => Promise<unknown> }).newContext({
       ...(await chromeContextOptions()),
       serviceWorkers: "block",
       storageState: await loadStorageState(companyId, employeeId),
@@ -483,6 +481,10 @@ async function wireProfile(profile: SharedProfile): Promise<void> {
 
   const maskScript = await chromeMaskInitScript();
   if (maskScript) await context.addInitScript({ content: maskScript });
+  // This must run before any website document. It blocks ambient WebAuthn
+  // requests and opens one bounded create/get only for the exact trusted
+  // control selected by a Vault passkey action.
+  await installVaultPasskeyGate(context);
 
   // A browser-level CDP session is how we open a *window* rather than a tab.
   if (!profile.ephemeral) {
@@ -526,9 +528,7 @@ async function wireProfile(profile: SharedProfile): Promise<void> {
  * Decide what a newly appeared page is, and give it to whoever it belongs to.
  */
 async function attributeNewPage(profile: SharedProfile, newPage: unknown): Promise<void> {
-  const opener = await (newPage as { opener: () => Promise<unknown> })
-    .opener()
-    .catch(() => null);
+  const opener = await (newPage as { opener: () => Promise<unknown> }).opener().catch(() => null);
 
   if (!opener) {
     // No opener: either the window we just asked Chrome for, or a page nobody
@@ -582,9 +582,7 @@ function openSessionWindow(profile: SharedProfile): Promise<unknown> {
       const pg = candidate as { isClosed?: () => boolean } | null;
       if (pg && !pg.isClosed?.()) return candidate;
     }
-    const cdp = profile.browserCdp as
-      | { send: (m: string, p?: unknown) => Promise<unknown> }
-      | null;
+    const cdp = profile.browserCdp as { send: (m: string, p?: unknown) => Promise<unknown> } | null;
     if (!cdp) {
       // Ephemeral fallback, or a Playwright without a browser-level session.
       // A tab is worse but it is not broken; there is only one session's window
@@ -795,9 +793,8 @@ function schedulePersistForProfile(profile: SharedProfile): void {
 async function acquireRemotePage(sessionRow: BrowserSession): Promise<unknown> {
   const sessionId = sessionRow.id;
   const memberBrowserId = sessionRow.memberBrowserId!;
-  const { acquireMemberBrowserLease, isMemberBrowserOnline } = await import(
-    "./memberBrowserHub.js"
-  );
+  const { acquireMemberBrowserLease, isMemberBrowserOnline } =
+    await import("./memberBrowserHub.js");
   const { mintCdpEndpoint } = await import("./memberBrowserRelay.js");
   const { describeMemberBrowserUnavailable } = await import("./memberBrowserErrors.js");
 
@@ -1081,7 +1078,6 @@ function scheduleNavMirror(r: SessionRuntime): void {
   if (profile) schedulePersistForProfile(profile);
 }
 
-
 async function mirrorNav(r: SessionRuntime): Promise<void> {
   // The runtime may have been torn down while the debounce was pending —
   // a stale write here would resurrect hub state for a closed session.
@@ -1190,12 +1186,10 @@ export async function releasePage(
   if (!r) return;
   // Last chance to fail closed while the page still exists. A navigation can
   // reveal a password field after the final browser RPC and before teardown.
-  const { flushBrowserRecordingFrameScans, observeRuntimePasswordValues } = await import(
-    "./browserSessions.js"
-  );
-  const { browserRecordingDemand, freezeBrowserRecording, restrictBrowserRecording } = await import(
-    "./browserRecordings.js"
-  );
+  const { flushBrowserRecordingFrameScans, observeRuntimePasswordValues } =
+    await import("./browserSessions.js");
+  const { browserRecordingDemand, freezeBrowserRecording, restrictBrowserRecording } =
+    await import("./browserRecordings.js");
   const finalScanRequired = browserRecordingDemand(sessionId);
   freezeBrowserRecording(sessionId);
   await flushBrowserRecordingFrameScans(sessionId);
@@ -1282,9 +1276,7 @@ function collectOwned(r: SessionRuntime): unknown[] {
  * remaining sessions, and one browser refusing to close is not a reason to drop
  * the others' cookies on the floor.
  */
-export async function releaseAllPages(
-  reason: "shutdown" | "manual" = "shutdown",
-): Promise<number> {
+export async function releaseAllPages(reason: "shutdown" | "manual" = "shutdown"): Promise<number> {
   // Snapshot the ids first: `releasePage` mutates the map as it goes.
   const ids = [...runtimes.keys()];
   await Promise.all(

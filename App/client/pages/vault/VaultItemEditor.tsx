@@ -1,5 +1,5 @@
 import React from "react";
-import { Check, Copy, Eye, EyeOff, RefreshCw } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, RefreshCw, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
@@ -32,8 +32,9 @@ export function VaultItemEditor({
   onClose: () => void;
   onSaved: (item: VaultItem) => void | Promise<void>;
 }) {
-  const editing = !!item;
   const { toast } = useToast();
+  const [persistedItem, setPersistedItem] = React.useState<VaultItem | undefined>(item);
+  const editing = !!persistedItem;
   const [type, setType] = React.useState<VaultItemType>(item?.type ?? "login");
   const [visibility, setVisibility] = React.useState<VaultVisibility>(
     item?.visibility ?? "restricted",
@@ -44,19 +45,27 @@ export function VaultItemEditor({
   const [notes, setNotes] = React.useState(item?.notes ?? "");
   const [secret, setSecret] = React.useState("");
   const [showSecret, setShowSecret] = React.useState(false);
+  const [totpSetupKey, setTotpSetupKey] = React.useState("");
+  const [showTotpSetupKey, setShowTotpSetupKey] = React.useState(false);
   const [generated, setGenerated] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const websiteOriginLocked =
+    editing && type === "login" && (persistedItem?.passkeys.length ?? 0) > 0;
 
   React.useEffect(() => {
     if (!open) {
+      setPersistedItem(item);
       setSecret("");
       setShowSecret(false);
+      setTotpSetupKey("");
+      setShowTotpSetupKey(false);
       setGenerated(false);
       setCopied(false);
       return;
     }
+    setPersistedItem(item);
     setType(item?.type ?? "login");
     setVisibility(item?.visibility ?? "restricted");
     setTitle(item?.title ?? "");
@@ -65,6 +74,8 @@ export function VaultItemEditor({
     setNotes(item?.notes ?? "");
     setSecret("");
     setShowSecret(false);
+    setTotpSetupKey("");
+    setShowTotpSetupKey(false);
     setGenerated(false);
     setCopied(false);
     setBusy(false);
@@ -91,6 +102,7 @@ export function VaultItemEditor({
     setBusy(true);
     setError(null);
     try {
+      const currentItem = persistedItem;
       const common = {
         type,
         title: title.trim(),
@@ -98,16 +110,28 @@ export function VaultItemEditor({
         websiteUrl: type === "secure_note" ? "" : websiteUrl.trim(),
         notes: notes.trim(),
       };
-      const saved = editing
-        ? await vaultApi.updateItem(companyId, item.id, {
+      let saved = currentItem
+        ? await vaultApi.updateItem(companyId, currentItem.id, {
             ...common,
-            expectedVersion: item.version,
-            ...(item.canShare ? { visibility } : {}),
+            expectedVersion: currentItem.version,
+            ...(currentItem.canShare ? { visibility } : {}),
             ...(secret ? { secret } : {}),
           })
-        : await vaultApi.createItem(companyId, { ...common, visibility, secret });
+        : await vaultApi.createItem(companyId, {
+            ...common,
+            visibility,
+            secret,
+            ...(type === "login" && totpSetupKey.trim()
+              ? { totpSetupKey: totpSetupKey.trim() }
+              : {}),
+          });
+      setPersistedItem(saved);
+      if (currentItem && saved.type === "login" && totpSetupKey.trim()) {
+        saved = await vaultApi.setTotp(companyId, saved.id, totpSetupKey.trim());
+        setPersistedItem(saved);
+      }
       await onSaved(saved);
-      toast(editing ? "Vault item updated" : "Vault item created", "success");
+      toast(currentItem ? "Vault item updated" : "Vault item created", "success");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The Vault item could not be saved.");
     } finally {
@@ -119,7 +143,7 @@ export function VaultItemEditor({
     <Modal
       open={open}
       onClose={() => (busy ? undefined : onClose())}
-      title={editing ? `Edit ${item.title}` : "Add to Vault"}
+      title={persistedItem ? `Edit ${persistedItem.title}` : "Add to Vault"}
       size="lg"
     >
       <form className="flex flex-col gap-4" onSubmit={submit}>
@@ -129,7 +153,7 @@ export function VaultItemEditor({
           <Select
             label="Item type"
             value={type}
-            disabled={busy}
+            disabled={busy || editing}
             onChange={(event) => setType(event.target.value as VaultItemType)}
           >
             {VAULT_ITEM_TYPES.map((option) => (
@@ -141,7 +165,7 @@ export function VaultItemEditor({
           <Select
             label="Visibility"
             value={visibility}
-            disabled={busy || (editing && !item.canShare)}
+            disabled={busy || persistedItem?.canShare === false}
             onChange={(event) => setVisibility(event.target.value as VaultVisibility)}
           >
             <option value="company">Everyone in the company</option>
@@ -171,14 +195,29 @@ export function VaultItemEditor({
               autoComplete="off"
               placeholder={type === "login" ? "name@example.com" : "Production"}
             />
-            <Input
-              label="Website"
-              type="url"
-              value={websiteUrl}
-              disabled={busy}
-              onChange={(event) => setWebsiteUrl(event.target.value)}
-              placeholder="https://example.com"
-            />
+            <div>
+              <Input
+                label="Website"
+                type="url"
+                value={websiteUrl}
+                disabled={busy || websiteOriginLocked}
+                aria-describedby={
+                  websiteOriginLocked ? "vault-website-passkey-origin-lock" : undefined
+                }
+                onChange={(event) => setWebsiteUrl(event.target.value)}
+                placeholder="https://example.com"
+                className="disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500 dark:disabled:bg-slate-800 dark:disabled:text-slate-400"
+              />
+              {websiteOriginLocked && (
+                <p
+                  id="vault-website-passkey-origin-lock"
+                  className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400"
+                >
+                  Saved passkeys lock this login to its exact website origin. Remove all passkeys
+                  before changing it.
+                </p>
+              )}
+            </div>
           </div>
         )}
 
@@ -275,6 +314,62 @@ export function VaultItemEditor({
             )}
           </div>
         </div>
+
+        {type === "login" && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-800/40">
+            <div className="mb-2 flex items-start gap-2.5">
+              <Smartphone
+                size={15}
+                className="mt-0.5 shrink-0 text-indigo-500 dark:text-indigo-300"
+              />
+              <div>
+                <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                  Authenticator code <span className="font-normal text-slate-400">(optional)</span>
+                </div>
+                <p className="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                  Paste the Base32 setup key or full otpauth:// URI. Genosyn encrypts it with this
+                  login so a granted AI Employee can fill current codes without seeing the setup
+                  key.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <input
+                id="vault-totp-setup-key"
+                type={showTotpSetupKey ? "text" : "password"}
+                value={totpSetupKey}
+                disabled={busy}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) => setTotpSetupKey(event.target.value)}
+                placeholder={
+                  persistedItem?.hasTotp
+                    ? "Leave blank to keep the current authenticator"
+                    : "Base32 setup key or otpauth:// URI"
+                }
+                aria-label="Authenticator setup key or otpauth URI"
+                className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60 dark:border-slate-600 dark:bg-slate-900"
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={!totpSetupKey || busy}
+                onClick={() => setShowTotpSetupKey((current) => !current)}
+                aria-label={showTotpSetupKey ? "Hide setup key" : "Show setup key"}
+                title={showTotpSetupKey ? "Hide setup key" : "Show setup key"}
+              >
+                {showTotpSetupKey ? <EyeOff size={14} /> : <Eye size={14} />}
+              </Button>
+            </div>
+            {persistedItem?.hasTotp && totpSetupKey.trim() && (
+              <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                Saving replaces the Vault setup key only. Make this change after replacing the
+                authenticator on the external site, or the saved codes will stop working.
+              </p>
+            )}
+          </div>
+        )}
 
         <div>
           <label

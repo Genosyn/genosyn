@@ -51,6 +51,7 @@ import {
   markSessionLive,
   observeRuntimePasswordValues,
   queueBrowserRecordingFrameForTests,
+  registerBrowserRecordingFrameInspector,
   registerBrowserSensitiveValueListener,
   resetBrowserRpcActivityForTests,
   passwordTaintScriptForTests,
@@ -951,6 +952,30 @@ describe("Routine browser recordings", () => {
     setPasswordObservationRuntimeForTests(null);
     await finishBrowserRecording(session);
 
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
+    await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
+  });
+
+  test("withholds exact recorder bytes rejected by a credential-frame inspector", async () => {
+    const { company, run, session } = await fixture();
+    setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
+    installCleanPasswordRuntime();
+    await beginBrowserRecording(session);
+    const frame = Buffer.from("authenticator-qr-frame").toString("base64");
+    let inspected = "";
+    const unregister = registerBrowserRecordingFrameInspector((_sessionId, jpegBase64) => {
+      inspected = jpegBase64;
+      return false;
+    });
+    try {
+      queueBrowserRecordingFrameForTests(session.id, frame);
+      await flushBrowserRecordingFrameScans(session.id);
+      await finishBrowserRecording(session);
+    } finally {
+      unregister();
+    }
+
+    assert.equal(inspected, frame);
     assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
     await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
   });

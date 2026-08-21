@@ -45,6 +45,7 @@
     "dompurify": "^3.4.12",
     "epubjs": "^0.4.2",
     "express": "^4.22.2",
+    "jsqr": "^1.4.0",
     "jszip": "^3.10.1",
     "keygrip": "^1.1.0",
     "lucide-react": "^0.445.0",

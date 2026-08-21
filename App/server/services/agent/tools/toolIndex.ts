@@ -139,7 +139,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   vault: {
     label: "Vault",
     blurb:
-      "Use explicitly granted logins without putting stored passwords in model context; create generated logins safely.",
+      "Use granted passwords, TOTP codes, and software passkeys without putting authenticator material in model context; create generated logins safely.",
     tools: ["list_vault_items", "create_vault_login", "update_vault_login"],
   },
   signing: {
@@ -1045,12 +1045,25 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "sign in",
     "api key",
     "secure note",
+    "totp",
+    "2fa",
+    "two factor code",
+    "authenticator code",
+    "one time password",
+    "passkey",
+    "webauthn",
   ],
   create_vault_login: [
     "generate password",
     "save login",
     "new credentials",
     "create account password",
+    "complete signup",
+    "prepare authenticator enrollment",
+    "set up two factor authentication",
+    "save totp",
+    "register passkey",
+    "create software passkey",
   ],
   update_vault_login: ["rename login", "change username", "update login context"],
 

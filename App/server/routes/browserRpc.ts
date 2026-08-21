@@ -11,6 +11,7 @@ import {
   beginBrowserRpcActivity,
   markSessionLive,
   observeRuntimePasswordValues,
+  registerBrowserRecordingFrameInspector,
   registerBrowserSessionCleanup,
   registerBrowserSensitiveValueListener,
 } from "../services/browserSessions.js";
@@ -25,10 +26,30 @@ import {
 } from "../services/browserChromium.js";
 import { recordAudit } from "../services/audit.js";
 import {
+  beginVaultPasskeyRegistrationForEmployee,
   createVaultLoginForEmployee,
+  finalizeVaultPasskeyRegistrationForEmployee,
+  getVaultPasskeyForEmployee,
   getVaultItemPayloadForEmployee,
+  getVaultTotpCodeForEmployee,
+  recordVaultPasskeyUseForEmployee,
+  releaseVaultPasskeyRegistrationForEmployee,
+  releaseVaultPasskeyUseForEmployee,
+  setVaultTotpForEmployee,
   VaultError,
 } from "../services/vault.js";
+import {
+  clickAndActivateVaultPasskey,
+  clearVaultPasskeyAuthenticator,
+  decodeQrFromImage,
+  findTotpSetupKeyInText,
+  prepareVaultPasskeyAuthentication,
+  prepareVaultPasskeyRegistration,
+  readTotpSetupKeyFromElement,
+  redactUncapturedTotpValues,
+  textSuggestsTotpEnrollment,
+  transcodeImageToJpeg,
+} from "../services/vaultBrowserAuthenticators.js";
 import {
   BrowserApprovalError,
   claimBrowserActionApproval,
@@ -109,6 +130,12 @@ const MAX_TRACKED_VAULT_VALUES_PER_SESSION = 64;
 const vaultSensitiveValuesBySession = new Map<string, Map<string, number>>();
 const vaultTaintedSessions = new Set<string>();
 const vaultSensitiveOverflowSessions = new Set<string>();
+const vaultTotpArmedSessions = new Set<string>();
+const vaultTotpCodesBySession = new Map<string, Map<string, number>>();
+const vaultTotpCaptureBindings = new Map<
+  string,
+  { companyId: string; employeeId: string; itemId: string; origin: string }
+>();
 
 async function requireBrowserSession(req: BrowserRpcReq, res: Response, next: NextFunction) {
   const header = req.headers.authorization ?? "";
@@ -173,6 +200,7 @@ browserRpcRouter.use(requireBrowserSession);
 // ---------- helpers ----------
 
 type Page = {
+  context: () => { addInitScript: (script: { content: string }) => Promise<void> };
   url: () => string;
   title: () => Promise<string>;
   goto: (url: string, opts: unknown) => Promise<unknown>;
@@ -216,14 +244,23 @@ type ElementHandle = {
   fill: (value: string, opts: unknown) => Promise<void>;
   getAttribute: (name: string) => Promise<string | null>;
   inputValue: (opts?: unknown) => Promise<string>;
+  screenshot: (opts: { type: "png" }) => Promise<Buffer>;
 };
 
 type BrowserApprovalTargetInspection = {
   handle: ElementHandle;
   descriptor: BrowserApprovalTargetDescriptor;
   fingerprint: string;
+  /** Passkey ceremonies are confined to the top document. */
+  isTopDocument: boolean;
   /** Returned only inside this server process and never serialized. */
   sensitiveValue: string | null;
+  /** Bound second target for an approval-safe current-TOTP submission. */
+  vaultTotpTarget?: {
+    handle: ElementHandle;
+    frameUrl: string;
+    inputType: string | null;
+  };
 };
 
 function safeBrowserApprovalTargetUrl(value: string): string {
@@ -366,6 +403,11 @@ export async function inspectBrowserApprovalTarget(args: {
   selector: string;
   key: string | null;
   handle?: ElementHandle;
+  vaultTotp?: {
+    handle: ElementHandle;
+    itemId: string;
+    selector: string;
+  };
 }): Promise<BrowserApprovalTargetInspection> {
   const handle =
     args.handle ??
@@ -376,9 +418,23 @@ export async function inspectBrowserApprovalTarget(args: {
       return resolved;
     })());
   const inspected = await handle.evaluate(
-    (element, context) => {
+    (
+      element,
+      context: {
+        action: BrowserActionPayload["action"];
+        key: string | null;
+        vaultTotpElement: Element | null;
+        vaultItemId: string | null;
+        vaultTotpSelector: string | null;
+      },
+    ) => {
       const input = element instanceof HTMLInputElement ? element : null;
       const button = element instanceof HTMLButtonElement ? element : null;
+      const vaultTotpInput =
+        context.action === "vault_totp_submit" &&
+        context.vaultTotpElement instanceof HTMLInputElement
+          ? context.vaultTotpElement
+          : null;
       const tagName = element.tagName.toLowerCase();
       const inputType = input
         ? input.type.toLowerCase()
@@ -449,6 +505,13 @@ export async function inspectBrowserApprovalTarget(args: {
           : "") ||
         directForm?.method ||
         null;
+      const vaultTotpForm = vaultTotpInput?.form ?? vaultTotpInput?.closest("form") ?? null;
+      const vaultTotpSameDocument = Boolean(
+        vaultTotpInput && vaultTotpInput.ownerDocument === element.ownerDocument,
+      );
+      const vaultTotpSameForm = Boolean(
+        vaultTotpInput && directForm && vaultTotpForm === directForm,
+      );
       // Do not construct FormData here: that fires page-controlled `formdata`
       // listeners before a human has approved anything. Native property reads
       // capture the submitted state without dispatching DOM events.
@@ -462,13 +525,15 @@ export async function inspectBrowserApprovalTarget(args: {
                 disabled: control.disabled,
                 checked: control.checked,
                 value:
-                  control.type.toLowerCase() === "file"
-                    ? Array.from(control.files ?? []).map((file) => ({
-                        name: file.name,
-                        size: file.size,
-                        type: file.type,
-                      }))
-                    : control.value,
+                  control === vaultTotpInput
+                    ? "[current Vault TOTP]"
+                    : control.type.toLowerCase() === "file"
+                      ? Array.from(control.files ?? []).map((file) => ({
+                          name: file.name,
+                          size: file.size,
+                          type: file.type,
+                        }))
+                      : control.value,
               };
             }
             if (control instanceof HTMLTextAreaElement) {
@@ -512,9 +577,24 @@ export async function inspectBrowserApprovalTarget(args: {
         });
         cursor = parent;
       }
+      const vaultTotpDomPath: Array<{ tag: string; index: number }> = [];
+      let vaultTotpCursor: Element | null = vaultTotpInput;
+      while (vaultTotpCursor && vaultTotpDomPath.length < 32) {
+        const parent: Element | null = vaultTotpCursor.parentElement;
+        vaultTotpDomPath.push({
+          tag: vaultTotpCursor.tagName.toLowerCase(),
+          index: parent ? Array.from(parent.children).indexOf(vaultTotpCursor) : 0,
+        });
+        vaultTotpCursor = parent;
+      }
       const frameUrl =
         element.ownerDocument.defaultView?.location.href ?? element.ownerDocument.URL;
+      const vaultTotpFrameUrl = vaultTotpInput
+        ? (vaultTotpInput.ownerDocument.defaultView?.location.href ??
+          vaultTotpInput.ownerDocument.URL)
+        : null;
       return {
+        isTopDocument: element.ownerDocument.defaultView === element.ownerDocument.defaultView?.top,
         descriptor: {
           tagName,
           inputType,
@@ -524,6 +604,8 @@ export async function inspectBrowserApprovalTarget(args: {
           submitsForm,
         },
         targetMaterial: {
+          isTopDocument:
+            element.ownerDocument.defaultView === element.ownerDocument.defaultView?.top,
           frameUrl,
           tagName,
           inputType,
@@ -552,12 +634,61 @@ export async function inspectBrowserApprovalTarget(args: {
               }
             : null,
           capturedValue: context.action === "vault_capture" && input ? input.value : null,
+          vaultTotp:
+            context.action === "vault_totp_submit" && vaultTotpInput
+              ? {
+                  itemId: context.vaultItemId,
+                  selector: context.vaultTotpSelector,
+                  tagName: vaultTotpInput.tagName.toLowerCase(),
+                  inputType: vaultTotpInput.type.toLowerCase(),
+                  id: vaultTotpInput.id,
+                  name: vaultTotpInput.name,
+                  autocomplete: vaultTotpInput.autocomplete,
+                  inputMode: vaultTotpInput.inputMode,
+                  disabled: vaultTotpInput.disabled,
+                  readOnly: vaultTotpInput.readOnly,
+                  domPath: vaultTotpDomPath,
+                  frameUrl: vaultTotpFrameUrl,
+                  formControlIndex: directForm
+                    ? Array.from(directForm.elements).indexOf(vaultTotpInput)
+                    : -1,
+                  sameDocument: vaultTotpSameDocument,
+                  sameForm: vaultTotpSameForm,
+                }
+              : null,
         },
         sensitiveValue: context.action === "vault_capture" && input ? input.value : null,
+        vaultTotpTarget: vaultTotpInput
+          ? {
+              frameUrl: vaultTotpFrameUrl,
+              inputType: vaultTotpInput.type.toLowerCase(),
+              sameDocument: vaultTotpSameDocument,
+              sameForm: vaultTotpSameForm,
+            }
+          : null,
       };
     },
-    { action: args.action, key: args.key },
+    {
+      action: args.action,
+      key: args.key,
+      vaultTotpElement: (args.vaultTotp?.handle ?? null) as unknown as Element | null,
+      vaultItemId: args.vaultTotp?.itemId ?? null,
+      vaultTotpSelector: args.vaultTotp?.selector ?? null,
+    },
   );
+  if (args.action === "vault_totp_submit") {
+    if (
+      !args.vaultTotp ||
+      !inspected.vaultTotpTarget ||
+      !inspected.vaultTotpTarget.sameDocument ||
+      !inspected.vaultTotpTarget.sameForm
+    ) {
+      throw new BrowserApprovalError(
+        "The selected TOTP input must belong to the same form as the approved submit target",
+        409,
+      );
+    }
+  }
   const descriptor: BrowserApprovalTargetDescriptor = {
     ...inspected.descriptor,
     frameUrl: safeBrowserApprovalTargetUrl(inspected.descriptor.frameUrl),
@@ -575,7 +706,22 @@ export async function inspectBrowserApprovalTarget(args: {
     pageUrl: args.page.url(),
     targetMaterial: inspected.targetMaterial,
   });
-  return { handle, descriptor, fingerprint, sensitiveValue: inspected.sensitiveValue };
+  return {
+    handle,
+    descriptor,
+    fingerprint,
+    isTopDocument: inspected.isTopDocument,
+    sensitiveValue: inspected.sensitiveValue,
+    ...(args.action === "vault_totp_submit" && inspected.vaultTotpTarget && args.vaultTotp
+      ? {
+          vaultTotpTarget: {
+            handle: args.vaultTotp.handle,
+            frameUrl: safeBrowserApprovalTargetUrl(inspected.vaultTotpTarget.frameUrl ?? ""),
+            inputType: inspected.vaultTotpTarget.inputType,
+          },
+        }
+      : {}),
+  };
 }
 
 /**
@@ -594,13 +740,87 @@ export function vaultWebsiteMatchesPage(websiteUrl: string, pageUrl: string): bo
   }
 }
 
+/** WebAuthn permits an RP ID equal to the current host or one of its registrable parents. */
+export function vaultPasskeyMatchesPage(rpId: string, pageUrl: string): boolean {
+  try {
+    const page = new URL(pageUrl);
+    if (
+      page.protocol !== "https:" &&
+      !(page.protocol === "http:" && page.hostname === "localhost")
+    ) {
+      return false;
+    }
+    const normalizedRpId = rpId
+      .trim()
+      .toLowerCase()
+      .replace(/^\.+|\.+$/g, "");
+    const hostname = page.hostname.toLowerCase();
+    return Boolean(
+      normalizedRpId && (hostname === normalizedRpId || hostname.endsWith(`.${normalizedRpId}`)),
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function vaultFillTargetIsAllowed(
   itemType: VaultItemType,
-  field: "username" | "secret",
+  field: "username" | "secret" | "totp",
   inputType: string | null,
 ): boolean {
-  if (field !== "secret") return true;
+  if (field === "totp") {
+    return (
+      itemType === "login" &&
+      ["text", "tel", "number", "password"].includes(inputType?.toLowerCase() ?? "")
+    );
+  }
+  if (field !== "secret") return itemType === "login";
   return itemType === "login" && inputType?.toLowerCase() === "password";
+}
+
+function assertVaultTotpSubmitTarget(args: {
+  employee: AIEmployee;
+  pageUrl: string;
+  websiteUrl: string;
+  itemType: VaultItemType;
+  hasTotp: boolean;
+  target: BrowserApprovalTargetInspection;
+}): asserts args is typeof args & {
+  target: BrowserApprovalTargetInspection & {
+    vaultTotpTarget: NonNullable<BrowserApprovalTargetInspection["vaultTotpTarget"]>;
+  };
+} {
+  if (args.itemType !== "login" || !args.hasTotp) {
+    throw new VaultError("This Vault login has no TOTP saved", 404);
+  }
+  if (!args.target.descriptor.submitsForm || !args.target.vaultTotpTarget) {
+    throw new BrowserApprovalError(
+      "A Vault TOTP submission requires a submit target and a TOTP input in the same form",
+      409,
+    );
+  }
+  if (!vaultFillTargetIsAllowed(args.itemType, "totp", args.target.vaultTotpTarget.inputType)) {
+    throw new VaultError(
+      "A Vault TOTP code can only fill a text, telephone, number, or password input",
+      400,
+    );
+  }
+  if (
+    !vaultWebsiteMatchesPage(args.websiteUrl, args.pageUrl) ||
+    !vaultWebsiteMatchesPage(args.websiteUrl, args.target.descriptor.frameUrl) ||
+    !vaultWebsiteMatchesPage(args.websiteUrl, args.target.vaultTotpTarget.frameUrl)
+  ) {
+    throw new VaultError(
+      "Vault origin mismatch: this login can only be used in its exact saved origin",
+      403,
+    );
+  }
+  assertVaultBrowserPolicy(
+    args.employee,
+    args.pageUrl,
+    args.target.descriptor.frameUrl,
+    args.target.vaultTotpTarget.frameUrl,
+  );
 }
 
 async function rememberVaultSensitiveValue(sessionId: string, value: string): Promise<void> {
@@ -628,13 +848,59 @@ async function rememberVaultSensitiveValue(sessionId: string, value: string): Pr
   await restrictBrowserRecording(sessionId).catch(() => undefined);
 }
 
+async function rememberTotpSetupValue(sessionId: string, setupKey: string): Promise<void> {
+  vaultTotpArmedSessions.add(sessionId);
+  await rememberVaultSensitiveValue(sessionId, setupKey);
+  try {
+    const uri = new URL(setupKey);
+    if (uri.protocol === "otpauth:" && uri.hostname.toLowerCase() === "totp") {
+      const secret = uri.searchParams.get("secret") ?? "";
+      if (secret) await rememberVaultSensitiveValue(sessionId, secret);
+      return;
+    }
+  } catch {
+    // A raw Base32 setup key is expected on many enrollment pages.
+  }
+  const compact = setupKey.replace(/[\s-]/g, "");
+  if (compact && compact !== setupKey) await rememberVaultSensitiveValue(sessionId, compact);
+}
+
+async function armVaultTotpSession(sessionId: string): Promise<void> {
+  vaultTotpArmedSessions.add(sessionId);
+  await rememberVaultSensitiveValue(sessionId, "");
+}
+
+export async function rememberVaultTotpCode(
+  sessionId: string,
+  code: string,
+  expiresAt: Date,
+): Promise<void> {
+  await rememberVaultSensitiveValue(sessionId, code);
+  let codes = vaultTotpCodesBySession.get(sessionId);
+  if (!codes) {
+    codes = new Map<string, number>();
+    vaultTotpCodesBySession.set(sessionId, codes);
+  }
+  if (codes.size >= MAX_TRACKED_VAULT_VALUES_PER_SESSION && !codes.has(code)) {
+    vaultSensitiveOverflowSessions.add(sessionId);
+    return;
+  }
+  codes.set(code, expiresAt.getTime());
+}
+
 export function clearVaultSensitiveValuesForSession(sessionId: string): void {
   vaultSensitiveValuesBySession.delete(sessionId);
   vaultTaintedSessions.delete(sessionId);
   vaultSensitiveOverflowSessions.delete(sessionId);
+  vaultTotpArmedSessions.delete(sessionId);
+  vaultTotpCodesBySession.delete(sessionId);
+  vaultTotpCaptureBindings.delete(sessionId);
 }
 
 registerBrowserSessionCleanup(clearVaultSensitiveValuesForSession);
+registerBrowserSessionCleanup((sessionId) => {
+  void clearVaultPasskeyAuthenticator(sessionId);
+});
 export function observeBrowserSensitiveValue(
   sessionId: string,
   value: string,
@@ -656,7 +922,15 @@ export function redactVaultSensitiveText(sessionId: string, text: string): strin
   if (vaultSensitiveOverflowSessions.has(sessionId)) {
     return "[redacted because this BrowserSession exceeded the sensitive-value safety limit]";
   }
-  let redacted = text;
+  const now = Date.now();
+  const codes = vaultTotpCodesBySession.get(sessionId);
+  if ([...(codes?.values() ?? [])].some((expiresAt) => expiresAt + 120_000 > now)) {
+    // Pages can reflect one code across separate spans, accessibility nodes,
+    // or punctuation variants. Until it expires, withholding the complete
+    // model-visible text is the only representation-independent boundary.
+    return "[redacted while the current Vault one-time code could be reflected by the page]";
+  }
+  let redacted = redactUncapturedTotpValues(text, vaultTotpArmedSessions.has(sessionId));
   for (const value of vaultSensitiveValuesBySession.get(sessionId)?.keys() ?? []) {
     const escaped = JSON.stringify(value).slice(1, -1);
     for (const candidate of new Set([value, escaped])) {
@@ -665,6 +939,19 @@ export function redactVaultSensitiveText(sessionId: string, text: string): strin
   }
   return redacted;
 }
+
+registerBrowserRecordingFrameInspector(async (sessionId, jpegBase64) => {
+  // Inspect the exact bytes that would enter ffmpeg. Any QR is withheld: a
+  // benign first symbol must not be able to hide a second authenticator QR
+  // from a single-result decoder. Enrollment preparation independently
+  // withholds the whole recording before the website reveals its secret.
+  const page = getRuntime(sessionId)?.page as Page | undefined;
+  if (!page) throw new Error("The Browser page was unavailable for credential-frame inspection");
+  await observeRuntimeTotpEnrollment(page, sessionId);
+  if (vaultTotpArmedSessions.has(sessionId)) return false;
+  const decoded = await decodeQrFromImage(Buffer.from(jpegBase64, "base64"));
+  return decoded === null;
+});
 
 type VaultTargetDescriptor = {
   frameUrl: string;
@@ -809,6 +1096,14 @@ export async function pageSnapshot(p: Page, sessionId: string): Promise<string> 
     p.title().catch(() => ""),
     p.ariaSnapshot({ mode: "ai", timeout: ARIA_SNAPSHOT_TIMEOUT_MS }).catch(() => ""),
   ]);
+  const enrollmentText = `${title}\n${rawTree}`;
+  const uncapturedTotpSetup = findTotpSetupKeyInText(title) ?? findTotpSetupKeyInText(rawTree);
+  if (uncapturedTotpSetup) {
+    await rememberTotpSetupValue(sessionId, uncapturedTotpSetup);
+  }
+  if (textSuggestsTotpEnrollment(enrollmentText)) {
+    await armVaultTotpSession(sessionId);
+  }
   const tree = await redactPasswordInputsFromSnapshot(p, sessionId, rawTree);
 
   if (vaultSensitiveOverflowSessions.has(sessionId)) {
@@ -861,6 +1156,13 @@ export async function pageSnapshot(p: Page, sessionId: string): Promise<string> 
     bodyText = await p.evaluate(() => (document.body?.innerText ?? "").slice(0, 16_384));
   } catch {
     // ignore
+  }
+  const visibleTotpSetup = findTotpSetupKeyInText(bodyText);
+  if (visibleTotpSetup) {
+    await rememberTotpSetupValue(sessionId, visibleTotpSetup);
+  }
+  if (textSuggestsTotpEnrollment(bodyText)) {
+    await armVaultTotpSession(sessionId);
   }
   const { text, truncated } = truncateUtf8(bodyText, TEXT_MAX_BYTES);
   sections.push(
@@ -1010,6 +1312,54 @@ export async function rememberCurrentPasswordValues(page: Page, sessionId: strin
   }
 }
 
+async function observeRuntimeTotpEnrollment(page: Page, sessionId: string): Promise<void> {
+  const observations = await Promise.all(
+    page.frames().map((frame) =>
+      frame
+        .evaluate(() => {
+          const pieces: string[] = [];
+          const push = (value: unknown, limit = 64_000) => {
+            if (typeof value === "string" && value) pieces.push(value.slice(0, limit));
+          };
+          push(document.body?.innerText);
+          const candidates = Array.from(
+            document.querySelectorAll(
+              'img, canvas, svg, [data-otpauth], [data-secret], [aria-label*="QR" i], [title*="QR" i]',
+            ),
+          ).slice(0, 256);
+          for (const element of candidates) {
+            push(element.textContent, 2_000);
+            for (const attribute of [
+              "src",
+              "href",
+              "alt",
+              "title",
+              "aria-label",
+              "data-otpauth",
+              "data-secret",
+            ]) {
+              push(element.getAttribute(attribute), 2_000);
+            }
+          }
+          return pieces.join("\n").slice(0, 250_000);
+        })
+        .catch(() => null),
+    ),
+  );
+  for (const observation of observations) {
+    if (observation === null) {
+      // A frame that cannot be inspected is not evidence that enrollment
+      // secrets are absent. Withholding is reversible only by ending the
+      // BrowserSession, while leaking a setup key is not.
+      await armVaultTotpSession(sessionId);
+      continue;
+    }
+    const setupKey = findTotpSetupKeyInText(observation);
+    if (setupKey) await rememberTotpSetupValue(sessionId, setupKey);
+    if (textSuggestsTotpEnrollment(observation)) await armVaultTotpSession(sessionId);
+  }
+}
+
 async function bumpAndAcquire(req: BrowserRpcReq): Promise<Page> {
   const session = req.browserSession!;
   markActivity(session.id);
@@ -1020,6 +1370,7 @@ async function bumpAndAcquire(req: BrowserRpcReq): Promise<Page> {
   await observeRuntimePasswordValues(session.id, {
     failClosedIfUnavailable: true,
   });
+  await observeRuntimeTotpEnrollment(page, session.id);
   // Start and await the cast after the fail-closed password scan but still
   // before the first browser action. A sensitive page leaves a persisted
   // restriction marker, so beginBrowserRecording refuses to start.
@@ -1122,11 +1473,39 @@ browserRpcRouter.post("/url", async (req: BrowserRpcReq, res) => {
 
 const describeApprovalTargetSchema = z
   .object({
-    action: z.enum(["submit", "vault_capture"]),
+    action: z.enum([
+      "submit",
+      "vault_capture",
+      "vault_totp_submit",
+      "vault_passkey_create",
+      "vault_passkey_use",
+    ]),
     selector: z.string().min(1).max(500),
     key: browserModelPressKeySchema.nullable().optional(),
+    itemId: z.string().uuid().optional(),
+    totpSelector: z.string().min(1).max(500).optional(),
+    passkeyId: z.string().uuid().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((body, ctx) => {
+    if (body.action !== "vault_totp_submit") return;
+    if (!body.itemId) {
+      ctx.addIssue({ code: "custom", path: ["itemId"], message: "itemId is required" });
+    }
+    if (!body.totpSelector) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["totpSelector"],
+        message: "totpSelector is required",
+      });
+    }
+  })
+  .superRefine((body, ctx) => {
+    if (body.action !== "vault_passkey_create" && body.action !== "vault_passkey_use") return;
+    if (!body.itemId) {
+      ctx.addIssue({ code: "custom", path: ["itemId"], message: "itemId is required" });
+    }
+  });
 
 browserRpcRouter.post(
   "/approval/describe-target",
@@ -1136,7 +1515,17 @@ browserRpcRouter.post(
     const session = req.browserSession!;
     const employee = req.browserEmployee!;
     try {
+      let itemVersion: number | undefined;
+      let passkeyId: string | undefined;
       const page = await bumpAndAcquire(req);
+      const vaultTotp =
+        body.action === "vault_totp_submit"
+          ? {
+              itemId: body.itemId!,
+              selector: body.totpSelector!,
+              handle: await resolveVaultTarget(await locate(page, session.id, body.totpSelector!)),
+            }
+          : undefined;
       const target = await inspectBrowserApprovalTarget({
         page,
         session,
@@ -1144,6 +1533,7 @@ browserRpcRouter.post(
         action: body.action,
         selector: body.selector,
         key: body.key ?? null,
+        vaultTotp,
       });
       if (body.action === "vault_capture") {
         if (
@@ -1162,12 +1552,92 @@ browserRpcRouter.post(
         if (target.sensitiveValue.length > 10_000) {
           throw new VaultError("The selected password is too long", 400);
         }
+      } else if (body.action === "vault_totp_submit") {
+        const resolved = await getVaultItemPayloadForEmployee({
+          companyId: session.companyId,
+          employeeId: employee.id,
+          itemId: body.itemId!,
+          required: "use",
+        });
+        if (!Number.isSafeInteger(resolved.item.version) || resolved.item.version < 1) {
+          throw new VaultError("Vault item version is invalid", 409);
+        }
+        itemVersion = resolved.item.version;
+        assertVaultTotpSubmitTarget({
+          employee,
+          pageUrl: page.url(),
+          websiteUrl: resolved.payload.websiteUrl,
+          itemType: resolved.item.type,
+          hasTotp: resolved.payload.totp !== null,
+          target,
+        });
+      } else if (body.action === "vault_passkey_create" || body.action === "vault_passkey_use") {
+        if (session.memberBrowserId) {
+          throw new VaultError(
+            "Vault software passkeys are available only in the App-owned Browser",
+            403,
+          );
+        }
+        if (!target.isTopDocument) {
+          throw new VaultError(
+            "Vault software passkey ceremonies must start in the top-level page",
+            400,
+          );
+        }
+        const resolved = await getVaultItemPayloadForEmployee({
+          companyId: session.companyId,
+          employeeId: employee.id,
+          itemId: body.itemId!,
+          required: body.action === "vault_passkey_create" ? "manage" : "use",
+        });
+        if (!Number.isSafeInteger(resolved.item.version) || resolved.item.version < 1) {
+          throw new VaultError("Vault item version is invalid", 409);
+        }
+        itemVersion = resolved.item.version;
+        if (resolved.item.type !== "login") {
+          throw new VaultError("Software passkeys can only be used with Vault logins", 400);
+        }
+        if (body.action === "vault_passkey_use") {
+          const selected = body.passkeyId
+            ? resolved.payload.passkeys.find((candidate) => candidate.id === body.passkeyId)
+            : resolved.payload.passkeys.length === 1
+              ? resolved.payload.passkeys[0]
+              : undefined;
+          if (!selected) {
+            if (!body.passkeyId && resolved.payload.passkeys.length > 1) {
+              throw new VaultError("Choose which saved Vault passkey to use", 400);
+            }
+            throw new VaultError("Vault passkey not found", 404);
+          }
+          passkeyId = selected.id;
+        }
+        if (
+          body.action === "vault_passkey_create" &&
+          resolved.item.createdByEmployeeId !== employee.id
+        ) {
+          throw new VaultError(
+            "AI Employees can only attach software passkeys to Vault logins they created",
+            403,
+          );
+        }
+        if (
+          !vaultWebsiteMatchesPage(resolved.payload.websiteUrl, page.url()) ||
+          !vaultWebsiteMatchesPage(resolved.payload.websiteUrl, target.descriptor.frameUrl)
+        ) {
+          throw new VaultError(
+            "Vault origin mismatch: this login can only be used in its exact saved origin",
+            403,
+          );
+        }
+        assertVaultBrowserPolicy(employee, page.url(), target.descriptor.frameUrl);
       }
       res.setHeader("Cache-Control", "no-store");
       res.json({
         pageUrl: safeBrowserApprovalTargetUrl(page.url()),
         targetFingerprint: target.fingerprint,
         targetDescriptor: target.descriptor,
+        ...(itemVersion !== undefined ? { itemVersion } : {}),
+        ...(passkeyId !== undefined ? { passkeyId } : {}),
       });
     } catch (error) {
       if (error instanceof VaultError || error instanceof BrowserApprovalError) {
@@ -1312,7 +1782,7 @@ const vaultFillSchema = z
   .object({
     selector: z.string().min(1).max(500),
     itemId: z.string().uuid(),
-    field: z.enum(["username", "secret"]),
+    field: z.enum(["username", "secret", "totp"]),
   })
   .strict();
 
@@ -1323,6 +1793,12 @@ browserRpcRouter.post(
     const body = req.body as z.infer<typeof vaultFillSchema>;
     const session = req.browserSession!;
     const employee = req.browserEmployee!;
+    if (body.field === "totp" && req.approvalRequired) {
+      return res.status(409).json({
+        error:
+          "Filling a Vault one-time code can submit the form and requires browser_submit_with_vault_totp approval",
+      });
+    }
     try {
       const page = await bumpAndAcquire(req);
       const loc = await locate(page, session.id, body.selector);
@@ -1352,13 +1828,72 @@ browserRpcRouter.post(
         throw new VaultError(
           body.field === "secret"
             ? "Only a Vault login can fill its password into an input with type=password"
-            : "That Vault field cannot be filled into the selected element",
+            : body.field === "totp"
+              ? "A Vault TOTP code can only fill a text, telephone, number, or password input"
+              : "That Vault field cannot be filled into the selected element",
           400,
         );
       }
-      const value = resolved.payload[body.field];
+      let totpCode: string | null = null;
+      if (body.field === "totp") {
+        const freshnessDeadline = Date.now() + 15_000;
+        for (;;) {
+          const generated = await getVaultTotpCodeForEmployee({
+            companyId: session.companyId,
+            employeeId: employee.id,
+            itemId: body.itemId,
+            expectedVersion: resolved.item.version,
+          });
+          await rememberVaultTotpCode(session.id, generated.code, generated.expiresAt);
+          // Generation, recording restriction, and DOM/Grant reads are all
+          // asynchronous. Recheck the exact version and target after them,
+          // then recompute freshness at the real fill boundary.
+          const liveTarget = await describeVaultTarget(targetHandle);
+          const liveResolved = await getVaultItemPayloadForEmployee({
+            companyId: session.companyId,
+            employeeId: employee.id,
+            itemId: body.itemId,
+            required: "use",
+          });
+          if (
+            liveResolved.item.version !== generated.itemVersion ||
+            !vaultWebsiteMatchesPage(liveResolved.payload.websiteUrl, page.url()) ||
+            !vaultWebsiteMatchesPage(liveResolved.payload.websiteUrl, liveTarget.frameUrl)
+          ) {
+            throw new VaultError(
+              liveResolved.item.version !== generated.itemVersion
+                ? "This Vault login changed before its current one-time code could be filled"
+                : "Vault origin mismatch: this login can only be used in its exact saved origin",
+              liveResolved.item.version !== generated.itemVersion ? 409 : 403,
+            );
+          }
+          assertVaultBrowserPolicy(employee, page.url(), liveTarget.frameUrl);
+          if (!vaultFillTargetIsAllowed(liveResolved.item.type, "totp", liveTarget.inputType)) {
+            throw new VaultError(
+              "A Vault TOTP code can only fill a text, telephone, number, or password input",
+              400,
+            );
+          }
+          const remainingMs = generated.expiresAt.getTime() - Date.now();
+          if (remainingMs >= 5_000) {
+            totpCode = generated.code;
+            break;
+          }
+          const waitMs = Math.max(50, remainingMs + 50);
+          if (Date.now() + waitMs > freshnessDeadline) {
+            throw new VaultError(
+              "A fresh TOTP window was not available before the Vault fill deadline",
+              409,
+            );
+          }
+          await page.waitForTimeout(waitMs);
+        }
+      }
+      const value = body.field === "totp" ? totpCode : resolved.payload[body.field];
       if (!value) throw new VaultError(`This Vault login has no ${body.field} saved`, 400);
-      if (body.field === "secret") await rememberVaultSensitiveValue(session.id, value);
+      if (body.field === "secret") {
+        await rememberVaultSensitiveValue(session.id, value);
+      }
       await targetHandle.fill(value, { timeout: ACTION_TIMEOUT_MS });
       await recordAudit({
         companyId: session.companyId,
@@ -1372,7 +1907,7 @@ browserRpcRouter.post(
       res.setHeader("Cache-Control", "no-store");
       res.json({
         ok: true,
-        message: `Filled the ${body.field === "secret" ? "stored value" : "username"} field from Vault. The value was not revealed.`,
+        message: `Filled the ${body.field === "secret" ? "stored value" : body.field === "totp" ? "current one-time code" : "username"} field from Vault. The value was not revealed.`,
       });
     } catch (err) {
       if (err instanceof VaultError) {
@@ -1380,9 +1915,231 @@ browserRpcRouter.post(
       }
       res.status(500).json({
         error:
-          body.field === "secret"
-            ? "Vault password fill failed without revealing the stored value"
+          body.field === "secret" || body.field === "totp"
+            ? `Vault ${body.field === "secret" ? "password" : "one-time code"} fill failed without revealing the value`
             : safeBrowserError(session.id, err),
+      });
+    }
+  },
+);
+
+const vaultTotpSubmitSchema = z
+  .object({
+    approvalId: z.string().uuid().optional(),
+    itemId: z.string().uuid(),
+    itemVersion: z.number().int().safe().min(1).optional(),
+    totpSelector: z.string().min(1).max(500),
+    selector: z.string().min(1).max(500),
+    key: browserModelPressKeySchema.nullable().optional(),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    if (body.approvalId && body.itemVersion === undefined) {
+      ctx.addIssue({ code: "custom", path: ["itemVersion"], message: "itemVersion is required" });
+    }
+  });
+
+function browserApprovalTargetStillMatches(
+  expected: BrowserApprovalTargetInspection,
+  actual: BrowserApprovalTargetInspection,
+): boolean {
+  return (
+    actual.fingerprint === expected.fingerprint &&
+    JSON.stringify(actual.descriptor) === JSON.stringify(expected.descriptor)
+  );
+}
+
+browserRpcRouter.post(
+  "/vault/submit-totp",
+  validateBody(vaultTotpSubmitSchema),
+  async (req: BrowserRpcReq, res) => {
+    const body = req.body as z.infer<typeof vaultTotpSubmitSchema>;
+    const session = req.browserSession!;
+    const employee = req.browserEmployee!;
+    let claimId: string | null = null;
+    let submitAttempted = false;
+    try {
+      if (req.approvalRequired && !body.approvalId) {
+        throw new BrowserApprovalError(
+          "Submitting a Vault TOTP code requires browser approval",
+          409,
+        );
+      }
+      const page = await bumpAndAcquire(req);
+      const submitHandle = await resolveVaultTarget(await locate(page, session.id, body.selector));
+      const totpHandle = await resolveVaultTarget(
+        await locate(page, session.id, body.totpSelector),
+      );
+      const inspect = () =>
+        inspectBrowserApprovalTarget({
+          page,
+          session,
+          employee,
+          action: "vault_totp_submit",
+          selector: body.selector,
+          key: body.key ?? null,
+          handle: submitHandle,
+          vaultTotp: {
+            handle: totpHandle,
+            itemId: body.itemId,
+            selector: body.totpSelector,
+          },
+        });
+      const assertLiveVaultAccess = async (
+        target: BrowserApprovalTargetInspection,
+        generatedVersion?: number,
+      ) => {
+        const resolved = await getVaultItemPayloadForEmployee({
+          companyId: session.companyId,
+          employeeId: employee.id,
+          itemId: body.itemId,
+          required: "use",
+        });
+        if (generatedVersion !== undefined && resolved.item.version !== generatedVersion) {
+          throw new BrowserApprovalError(
+            "Vault item changed before the current TOTP code could be submitted",
+            409,
+          );
+        }
+        if (body.approvalId && resolved.item.version !== body.itemVersion) {
+          throw new BrowserApprovalError(
+            "Vault item changed after this TOTP submission was approved",
+            409,
+          );
+        }
+        assertVaultTotpSubmitTarget({
+          employee,
+          pageUrl: page.url(),
+          websiteUrl: resolved.payload.websiteUrl,
+          itemType: resolved.item.type,
+          hasTotp: resolved.payload.totp !== null,
+          target,
+        });
+      };
+
+      const approvedTarget = await inspect();
+      await assertLiveVaultAccess(approvedTarget);
+
+      if (body.approvalId) {
+        const claimed = await claimBrowserActionApproval({
+          approvalId: body.approvalId,
+          companyId: session.companyId,
+          employeeId: employee.id,
+          browserSessionId: session.id,
+          action: "vault_totp_submit",
+          selector: body.selector,
+          key: body.key ?? null,
+          targetFingerprint: approvedTarget.fingerprint,
+          targetDescriptor: approvedTarget.descriptor,
+          vaultItemId: body.itemId,
+          vaultItemVersion: body.itemVersion,
+          vaultTotpSelector: body.totpSelector,
+        });
+        claimId = claimed.claimId;
+      }
+
+      let liveTarget = await inspect();
+      if (!browserApprovalTargetStillMatches(approvedTarget, liveTarget)) {
+        throw new BrowserApprovalError(
+          "Browser target changed while the TOTP approval was being claimed",
+          409,
+        );
+      }
+      await assertLiveVaultAccess(liveTarget);
+
+      const freshnessDeadline = Date.now() + 15_000;
+      let generated: Awaited<ReturnType<typeof getVaultTotpCodeForEmployee>>;
+      for (;;) {
+        generated = await getVaultTotpCodeForEmployee({
+          companyId: session.companyId,
+          employeeId: employee.id,
+          itemId: body.itemId,
+          ...(body.approvalId ? { expectedVersion: body.itemVersion } : {}),
+        });
+        await rememberVaultTotpCode(session.id, generated.code, generated.expiresAt);
+
+        // The Vault read above is asynchronous. Recheck both DOM targets,
+        // every other form value, the live Grant, the saved origin, and host
+        // policy after it completes. If those checks used too much of this
+        // TOTP window, wait for the next one and repeat the whole live check.
+        liveTarget = await inspect();
+        if (!browserApprovalTargetStillMatches(approvedTarget, liveTarget)) {
+          throw new BrowserApprovalError(
+            "Browser target changed before the current TOTP code could be filled",
+            409,
+          );
+        }
+        await assertLiveVaultAccess(liveTarget, generated.itemVersion);
+        const remainingMs = generated.expiresAt.getTime() - Date.now();
+        if (remainingMs >= 5_000) break;
+        const waitMs = Math.max(50, remainingMs + 50);
+        if (Date.now() + waitMs > freshnessDeadline) {
+          throw new BrowserApprovalError(
+            "A fresh TOTP window was not available before the approved submission deadline",
+            409,
+          );
+        }
+        await page.waitForTimeout(waitMs);
+      }
+
+      // Filling can itself dispatch input/change handlers and some OTP forms
+      // auto-submit as soon as the final digit arrives. From this line onward,
+      // the claimed approval is therefore terminal and must never be replayed.
+      submitAttempted = true;
+      await liveTarget.vaultTotpTarget!.handle.fill(generated.code, {
+        timeout: ACTION_TIMEOUT_MS,
+      });
+
+      // Only the selected TOTP value is normalized in the fingerprint, so a
+      // fresh code leaves it stable while any unrelated field or DOM change
+      // still invalidates the reviewed action.
+      liveTarget = await inspect();
+      if (!browserApprovalTargetStillMatches(approvedTarget, liveTarget)) {
+        throw new BrowserApprovalError(
+          "Browser target changed after the current TOTP code was filled",
+          409,
+        );
+      }
+      if (body.key) {
+        await liveTarget.handle.press(body.key, { timeout: ACTION_TIMEOUT_MS });
+      } else {
+        await liveTarget.handle.click({ timeout: ACTION_TIMEOUT_MS });
+      }
+      if (body.approvalId && claimId) {
+        await settleBrowserActionApproval({
+          approvalId: body.approvalId,
+          claimId,
+          succeeded: true,
+        });
+        claimId = null;
+      }
+      await recordAudit({
+        companyId: session.companyId,
+        actorEmployeeId: employee.id,
+        action: "vault.item.use",
+        targetType: "vault_item",
+        targetId: body.itemId,
+        targetLabel: "Vault item",
+        metadata: { field: "totp", submitted: true },
+      });
+      await settle(page);
+      await awaitAdoption(session.id, ADOPTION_WAIT_MS);
+      const current = currentPage(session.id, page);
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ snapshot: await pageSnapshot(current, session.id) });
+    } catch (error) {
+      if (body.approvalId && claimId) {
+        await settleBrowserActionApproval({
+          approvalId: body.approvalId,
+          claimId,
+          succeeded: submitAttempted,
+        }).catch(() => undefined);
+      }
+      if (error instanceof VaultError || error instanceof BrowserApprovalError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      res.status(500).json({
+        error: "Vault TOTP submission failed without revealing the one-time code",
       });
     }
   },
@@ -1523,6 +2280,672 @@ browserRpcRouter.post(
       res.status(500).json({
         error: "Vault password capture failed without revealing the selected value",
       });
+    }
+  },
+);
+
+const vaultCaptureTotpSchema = z
+  .object({
+    selector: z.string().min(1).max(500),
+    itemId: z.string().uuid(),
+  })
+  .strict();
+
+const vaultPrepareTotpSchema = z.object({ itemId: z.string().uuid() }).strict();
+
+browserRpcRouter.post(
+  "/vault/prepare-totp",
+  validateBody(vaultPrepareTotpSchema),
+  async (req: BrowserRpcReq, res) => {
+    const body = req.body as z.infer<typeof vaultPrepareTotpSchema>;
+    const session = req.browserSession!;
+    const employee = req.browserEmployee!;
+    if (session.memberBrowserId) {
+      return res.status(403).json({
+        error:
+          "Saving a TOTP setup key is available only in the App-owned Browser, never in a Member browser.",
+      });
+    }
+    try {
+      const page = await bumpAndAcquire(req);
+      const resolved = await getVaultItemPayloadForEmployee({
+        companyId: session.companyId,
+        employeeId: employee.id,
+        itemId: body.itemId,
+        required: "manage",
+      });
+      if (resolved.item.type !== "login" || resolved.item.createdByEmployeeId !== employee.id) {
+        throw new VaultError("AI Employees can only attach TOTP to Vault logins they created", 403);
+      }
+      if (!vaultWebsiteMatchesPage(resolved.payload.websiteUrl, page.url())) {
+        throw new VaultError(
+          "Vault origin mismatch: prepare TOTP only on the login's exact saved origin",
+          403,
+        );
+      }
+      assertVaultBrowserPolicy(employee, page.url());
+      const origin = new URL(page.url()).origin;
+      // Arm before the website is asked to reveal enrollment. From this point
+      // onward screenshots and the entire Routine recording stay withheld.
+      await armVaultTotpSession(session.id);
+      vaultTotpCaptureBindings.set(session.id, {
+        companyId: session.companyId,
+        employeeId: employee.id,
+        itemId: body.itemId,
+        origin,
+      });
+      res.setHeader("Cache-Control", "no-store");
+      res.json({
+        ok: true,
+        message:
+          "TOTP enrollment is protected. Reveal the website's setup key or QR code, then save it to this Vault login.",
+      });
+    } catch (error) {
+      if (error instanceof VaultError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      res.status(500).json({ error: "The Browser could not prepare protected TOTP enrollment" });
+    }
+  },
+);
+
+browserRpcRouter.post(
+  "/vault/capture-totp",
+  validateBody(vaultCaptureTotpSchema),
+  async (req: BrowserRpcReq, res) => {
+    const body = req.body as z.infer<typeof vaultCaptureTotpSchema>;
+    const session = req.browserSession!;
+    const employee = req.browserEmployee!;
+    if (session.memberBrowserId) {
+      return res.status(403).json({
+        error:
+          "Saving a TOTP setup key is available only in the App-owned Browser, never in a Member browser.",
+      });
+    }
+    try {
+      const page = await bumpAndAcquire(req);
+      const binding = vaultTotpCaptureBindings.get(session.id);
+      if (
+        !binding ||
+        binding.companyId !== session.companyId ||
+        binding.employeeId !== employee.id ||
+        binding.itemId !== body.itemId ||
+        binding.origin !== new URL(page.url()).origin
+      ) {
+        throw new VaultError(
+          "Prepare protected TOTP enrollment for this Vault login before revealing and saving its setup key",
+          409,
+        );
+      }
+      const resolved = await getVaultItemPayloadForEmployee({
+        companyId: session.companyId,
+        employeeId: employee.id,
+        itemId: body.itemId,
+        required: "manage",
+      });
+      if (resolved.item.type !== "login" || resolved.item.createdByEmployeeId !== employee.id) {
+        throw new VaultError("AI Employees can only attach TOTP to Vault logins they created", 403);
+      }
+      const locator = await locate(page, session.id, body.selector);
+      const handle = await resolveVaultTarget(locator);
+      const target = await describeVaultTarget(handle);
+      if (
+        !vaultWebsiteMatchesPage(resolved.payload.websiteUrl, page.url()) ||
+        !vaultWebsiteMatchesPage(resolved.payload.websiteUrl, target.frameUrl)
+      ) {
+        throw new VaultError(
+          "Vault origin mismatch: this login can only store TOTP from its exact saved origin",
+          403,
+        );
+      }
+      assertVaultBrowserPolicy(employee, page.url(), target.frameUrl);
+      const setupKey = await readTotpSetupKeyFromElement(handle);
+      await rememberTotpSetupValue(session.id, setupKey);
+      await setVaultTotpForEmployee({
+        companyId: session.companyId,
+        employeeId: employee.id,
+        itemId: body.itemId,
+        setupKey,
+        expectedVersion: resolved.item.version,
+        expectedOrigin: binding.origin,
+      });
+      vaultTotpCaptureBindings.delete(session.id);
+      await recordAudit({
+        companyId: session.companyId,
+        actorEmployeeId: employee.id,
+        action: "vault.item.totp.store",
+        targetType: "vault_item",
+        targetId: body.itemId,
+        targetLabel: "Vault item",
+        metadata: { via: "browser_capture" },
+      });
+      res.setHeader("Cache-Control", "no-store");
+      res.json({
+        ok: true,
+        itemId: body.itemId,
+        message:
+          "Saved the authenticator setup to this Vault login. The setup key was not revealed.",
+      });
+    } catch (error) {
+      if (error instanceof VaultError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      res.status(400).json({
+        error:
+          "TOTP capture failed without revealing the setup key. Select the setup-key text, input, QR image, or QR container and try again.",
+      });
+    }
+  },
+);
+
+function requireLocalPasskeyBrowser(session: BrowserSession): void {
+  if (session.memberBrowserId) {
+    throw new VaultError(
+      "Vault software passkeys are available only in the App-owned Browser. Genosyn never accesses a Member browser's personal passkeys.",
+      403,
+    );
+  }
+}
+
+function pageCdpSession(sessionId: string): {
+  send: (method: string, params?: unknown) => Promise<unknown>;
+  on?: (event: string, listener: (payload: unknown) => void) => void;
+  off?: (event: string, listener: (payload: unknown) => void) => void;
+} {
+  const cdp = getRuntime(sessionId)?.cdp as
+    | {
+        send: (method: string, params?: unknown) => Promise<unknown>;
+        on?: (event: string, listener: (payload: unknown) => void) => void;
+        off?: (event: string, listener: (payload: unknown) => void) => void;
+      }
+    | undefined;
+  if (!cdp) throw new VaultError("The Browser passkey session is unavailable", 409);
+  return cdp;
+}
+
+const vaultCreatePasskeySchema = z
+  .object({
+    approvalId: z.string().uuid().optional(),
+    itemId: z.string().uuid(),
+    itemVersion: z.number().int().safe().min(1).optional(),
+    selector: z.string().min(1).max(500),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    if (body.approvalId && body.itemVersion === undefined) {
+      ctx.addIssue({ code: "custom", path: ["itemVersion"], message: "itemVersion is required" });
+    }
+  });
+
+const vaultUsePasskeySchema = z
+  .object({
+    approvalId: z.string().uuid().optional(),
+    itemId: z.string().uuid(),
+    itemVersion: z.number().int().safe().min(1).optional(),
+    passkeyId: z.string().uuid().optional(),
+    selector: z.string().min(1).max(500),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    if (body.approvalId && body.itemVersion === undefined) {
+      ctx.addIssue({ code: "custom", path: ["itemVersion"], message: "itemVersion is required" });
+    }
+    if (body.approvalId && !body.passkeyId) {
+      ctx.addIssue({ code: "custom", path: ["passkeyId"], message: "passkeyId is required" });
+    }
+  });
+
+function assertVaultPasskeyActionTarget(args: {
+  employee: AIEmployee;
+  pageUrl: string;
+  websiteUrl: string;
+  target: BrowserApprovalTargetInspection;
+}): void {
+  if (!args.target.isTopDocument) {
+    throw new VaultError(
+      "Vault software passkey actions require a control in the top page, not an iframe",
+      403,
+    );
+  }
+  if (
+    !vaultWebsiteMatchesPage(args.websiteUrl, args.pageUrl) ||
+    !vaultWebsiteMatchesPage(args.websiteUrl, args.target.descriptor.frameUrl)
+  ) {
+    throw new VaultError(
+      "Vault origin mismatch: this passkey can only be used on the login's exact saved origin",
+      403,
+    );
+  }
+  assertVaultBrowserPolicy(args.employee, args.pageUrl, args.target.descriptor.frameUrl);
+}
+
+browserRpcRouter.post(
+  "/vault/passkeys/create",
+  validateBody(vaultCreatePasskeySchema),
+  async (req: BrowserRpcReq, res) => {
+    const body = req.body as z.infer<typeof vaultCreatePasskeySchema>;
+    const session = req.browserSession!;
+    const employee = req.browserEmployee!;
+    let claimId: string | null = null;
+    let registrationLeaseId: string | null = null;
+    let authenticatorStateId: string | null = null;
+    let actionTerminal = false;
+    try {
+      requireLocalPasskeyBrowser(session);
+      if (req.approvalRequired && !body.approvalId) {
+        throw new BrowserApprovalError(
+          "Creating a Vault software passkey requires browser approval",
+          409,
+        );
+      }
+      const page = await bumpAndAcquire(req);
+      const targetHandle = await resolveVaultTarget(await locate(page, session.id, body.selector));
+      const inspect = () =>
+        inspectBrowserApprovalTarget({
+          page,
+          session,
+          employee,
+          action: "vault_passkey_create",
+          selector: body.selector,
+          key: null,
+          handle: targetHandle,
+        });
+      const approvedTarget = await inspect();
+      const beforeClaim = await getVaultItemPayloadForEmployee({
+        companyId: session.companyId,
+        employeeId: employee.id,
+        itemId: body.itemId,
+        required: "manage",
+      });
+      if (
+        beforeClaim.item.type !== "login" ||
+        beforeClaim.item.createdByEmployeeId !== employee.id
+      ) {
+        throw new VaultError(
+          "AI Employees can only attach software passkeys to Vault logins they created",
+          403,
+        );
+      }
+      if (body.approvalId && beforeClaim.item.version !== body.itemVersion) {
+        throw new BrowserApprovalError(
+          "Vault item changed after this passkey creation was approved",
+          409,
+        );
+      }
+      assertVaultPasskeyActionTarget({
+        employee,
+        pageUrl: page.url(),
+        websiteUrl: beforeClaim.payload.websiteUrl,
+        target: approvedTarget,
+      });
+      if (body.approvalId) {
+        const claimed = await claimBrowserActionApproval({
+          approvalId: body.approvalId,
+          companyId: session.companyId,
+          employeeId: employee.id,
+          browserSessionId: session.id,
+          action: "vault_passkey_create",
+          selector: body.selector,
+          key: null,
+          targetFingerprint: approvedTarget.fingerprint,
+          targetDescriptor: approvedTarget.descriptor,
+          vaultItemId: body.itemId,
+          vaultItemVersion: body.itemVersion,
+        });
+        claimId = claimed.claimId;
+      }
+      const liveTarget = await inspect();
+      if (!browserApprovalTargetStillMatches(approvedTarget, liveTarget)) {
+        throw new BrowserApprovalError("Browser target changed before passkey creation", 409);
+      }
+      const live = await getVaultItemPayloadForEmployee({
+        companyId: session.companyId,
+        employeeId: employee.id,
+        itemId: body.itemId,
+        required: "manage",
+      });
+      if (live.item.type !== "login" || live.item.createdByEmployeeId !== employee.id) {
+        throw new VaultError(
+          "AI Employees can only attach software passkeys to Vault logins they created",
+          403,
+        );
+      }
+      if (body.approvalId && live.item.version !== body.itemVersion) {
+        throw new BrowserApprovalError("Vault item changed before passkey creation", 409);
+      }
+      assertVaultPasskeyActionTarget({
+        employee,
+        pageUrl: page.url(),
+        websiteUrl: live.payload.websiteUrl,
+        target: liveTarget,
+      });
+
+      const registration = await beginVaultPasskeyRegistrationForEmployee({
+        companyId: session.companyId,
+        employeeId: employee.id,
+        itemId: body.itemId,
+        expectedVersion: live.item.version,
+      });
+      registrationLeaseId = registration.registrationLeaseId;
+      // Lease acquisition changes the version bound into the Approval, so it
+      // is the conservative terminal boundary even before Chrome is injected.
+      actionTerminal = true;
+      const reservedTarget = await inspect();
+      if (!browserApprovalTargetStillMatches(approvedTarget, reservedTarget)) {
+        throw new BrowserApprovalError(
+          "Browser target changed while passkey creation started",
+          409,
+        );
+      }
+      assertVaultPasskeyActionTarget({
+        employee,
+        pageUrl: page.url(),
+        websiteUrl: registration.item.websiteUrl,
+        target: reservedTarget,
+      });
+      const origin = new URL(page.url()).origin;
+      const prepared = await prepareVaultPasskeyRegistration(
+        session.id,
+        pageCdpSession(session.id),
+        origin,
+      );
+      authenticatorStateId = prepared.stateId;
+      const injectedTarget = await inspect();
+      if (!browserApprovalTargetStillMatches(approvedTarget, injectedTarget)) {
+        throw new BrowserApprovalError("Browser target changed before passkey creation", 409);
+      }
+      assertVaultPasskeyActionTarget({
+        employee,
+        pageUrl: page.url(),
+        websiteUrl: registration.item.websiteUrl,
+        target: injectedTarget,
+      });
+      await clickAndActivateVaultPasskey(
+        page,
+        injectedTarget.handle,
+        session.id,
+        prepared.stateId,
+        ACTION_TIMEOUT_MS,
+      );
+      const credential = await prepared.credential;
+      const passkey = await finalizeVaultPasskeyRegistrationForEmployee({
+        companyId: session.companyId,
+        employeeId: employee.id,
+        itemId: body.itemId,
+        registrationLeaseId: registration.registrationLeaseId,
+        credential,
+      });
+      registrationLeaseId = null;
+      authenticatorStateId = null;
+      await recordAudit({
+        companyId: session.companyId,
+        actorEmployeeId: employee.id,
+        action: "vault.item.passkey.store",
+        targetType: "vault_item",
+        targetId: body.itemId,
+        targetLabel: "Vault item",
+        metadata: { via: "browser_virtual_authenticator", passkeyId: passkey.id },
+      });
+      if (body.approvalId && claimId) {
+        await settleBrowserActionApproval({
+          approvalId: body.approvalId,
+          claimId,
+          succeeded: true,
+        });
+        claimId = null;
+      }
+      await settle(page);
+      await awaitAdoption(session.id, ADOPTION_WAIT_MS);
+      const current = currentPage(session.id, page);
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ snapshot: await pageSnapshot(current, session.id) });
+    } catch (error) {
+      if (authenticatorStateId) {
+        await clearVaultPasskeyAuthenticator(session.id, authenticatorStateId).catch(
+          () => undefined,
+        );
+        authenticatorStateId = null;
+      }
+      if (body.approvalId && claimId) {
+        await settleBrowserActionApproval({
+          approvalId: body.approvalId,
+          claimId,
+          succeeded: actionTerminal,
+        }).catch(() => undefined);
+      }
+      if (error instanceof VaultError || error instanceof BrowserApprovalError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      res.status(500).json({
+        error: "Vault software passkey creation failed without revealing credential material",
+      });
+    } finally {
+      if (authenticatorStateId) {
+        await clearVaultPasskeyAuthenticator(session.id, authenticatorStateId).catch(
+          () => undefined,
+        );
+      }
+      if (registrationLeaseId) {
+        await releaseVaultPasskeyRegistrationForEmployee({
+          companyId: session.companyId,
+          itemId: body.itemId,
+          registrationLeaseId,
+        }).catch(() => undefined);
+      }
+    }
+  },
+);
+
+browserRpcRouter.post(
+  "/vault/passkeys/use",
+  validateBody(vaultUsePasskeySchema),
+  async (req: BrowserRpcReq, res) => {
+    const body = req.body as z.infer<typeof vaultUsePasskeySchema>;
+    const session = req.browserSession!;
+    const employee = req.browserEmployee!;
+    let claimId: string | null = null;
+    let lease:
+      | { itemId: string; passkeyId: string; leaseId: string; companyId: string }
+      | undefined;
+    let authenticatorStateId: string | null = null;
+    let actionTerminal = false;
+    try {
+      requireLocalPasskeyBrowser(session);
+      if (req.approvalRequired && !body.approvalId) {
+        throw new BrowserApprovalError(
+          "Using a Vault software passkey requires browser approval",
+          409,
+        );
+      }
+      const page = await bumpAndAcquire(req);
+      const targetHandle = await resolveVaultTarget(await locate(page, session.id, body.selector));
+      const inspect = () =>
+        inspectBrowserApprovalTarget({
+          page,
+          session,
+          employee,
+          action: "vault_passkey_use",
+          selector: body.selector,
+          key: null,
+          handle: targetHandle,
+        });
+      const approvedTarget = await inspect();
+      const beforeClaim = await getVaultItemPayloadForEmployee({
+        companyId: session.companyId,
+        employeeId: employee.id,
+        itemId: body.itemId,
+        required: "use",
+      });
+      if (beforeClaim.item.type !== "login") {
+        throw new VaultError("Software passkeys can only be used from Vault logins", 400);
+      }
+      const selected = body.passkeyId
+        ? beforeClaim.payload.passkeys.find((candidate) => candidate.id === body.passkeyId)
+        : beforeClaim.payload.passkeys.length === 1
+          ? beforeClaim.payload.passkeys[0]
+          : undefined;
+      if (!selected) {
+        if (!body.passkeyId && beforeClaim.payload.passkeys.length > 1) {
+          throw new VaultError("Choose which saved Vault passkey to use", 400);
+        }
+        throw new VaultError("Vault passkey not found", 404);
+      }
+      if (body.approvalId && beforeClaim.item.version !== body.itemVersion) {
+        throw new BrowserApprovalError(
+          "Vault item changed after this passkey use was approved",
+          409,
+        );
+      }
+      assertVaultPasskeyActionTarget({
+        employee,
+        pageUrl: page.url(),
+        websiteUrl: beforeClaim.payload.websiteUrl,
+        target: approvedTarget,
+      });
+      if (!vaultPasskeyMatchesPage(selected.rpId, page.url())) {
+        throw new VaultError("This passkey belongs to a different relying party", 403);
+      }
+      if (body.approvalId) {
+        const claimed = await claimBrowserActionApproval({
+          approvalId: body.approvalId,
+          companyId: session.companyId,
+          employeeId: employee.id,
+          browserSessionId: session.id,
+          action: "vault_passkey_use",
+          selector: body.selector,
+          key: null,
+          targetFingerprint: approvedTarget.fingerprint,
+          targetDescriptor: approvedTarget.descriptor,
+          vaultItemId: body.itemId,
+          vaultItemVersion: body.itemVersion,
+          vaultPasskeyId: selected.id,
+        });
+        claimId = claimed.claimId;
+      }
+      const liveTarget = await inspect();
+      if (!browserApprovalTargetStillMatches(approvedTarget, liveTarget)) {
+        throw new BrowserApprovalError("Browser target changed before passkey use", 409);
+      }
+      const resolved = await getVaultPasskeyForEmployee({
+        companyId: session.companyId,
+        employeeId: employee.id,
+        itemId: body.itemId,
+        passkeyId: selected.id,
+        expectedVersion: body.approvalId ? body.itemVersion : beforeClaim.item.version,
+      });
+      lease = {
+        companyId: session.companyId,
+        itemId: body.itemId,
+        passkeyId: resolved.passkey.id,
+        leaseId: resolved.leaseId,
+      };
+      actionTerminal = true;
+      const leasedTarget = await inspect();
+      if (!browserApprovalTargetStillMatches(approvedTarget, leasedTarget)) {
+        throw new BrowserApprovalError("Browser target changed while passkey use started", 409);
+      }
+      assertVaultPasskeyActionTarget({
+        employee,
+        pageUrl: page.url(),
+        websiteUrl: resolved.payload.websiteUrl,
+        target: leasedTarget,
+      });
+      if (!vaultPasskeyMatchesPage(resolved.passkey.rpId, page.url())) {
+        throw new VaultError("This passkey belongs to a different relying party", 403);
+      }
+      const passkeyId = resolved.passkey.id;
+      const leaseId = resolved.leaseId;
+      const prepared = await prepareVaultPasskeyAuthentication({
+        sessionId: session.id,
+        cdp: pageCdpSession(session.id),
+        expectedOrigin: new URL(page.url()).origin,
+        credential: resolved.passkey,
+      });
+      authenticatorStateId = prepared.stateId;
+      const injectedTarget = await inspect();
+      if (!browserApprovalTargetStillMatches(approvedTarget, injectedTarget)) {
+        throw new BrowserApprovalError("Browser target changed before passkey use", 409);
+      }
+      assertVaultPasskeyActionTarget({
+        employee,
+        pageUrl: page.url(),
+        websiteUrl: resolved.payload.websiteUrl,
+        target: injectedTarget,
+      });
+      await clickAndActivateVaultPasskey(
+        page,
+        injectedTarget.handle,
+        session.id,
+        prepared.stateId,
+        ACTION_TIMEOUT_MS,
+      );
+      const credential = await prepared.assertion;
+      await recordVaultPasskeyUseForEmployee({
+        companyId: session.companyId,
+        employeeId: employee.id,
+        itemId: body.itemId,
+        passkeyId,
+        leaseId,
+        credential,
+      });
+      lease = undefined;
+      authenticatorStateId = null;
+      await recordAudit({
+        companyId: session.companyId,
+        actorEmployeeId: employee.id,
+        action: "vault.item.use",
+        targetType: "vault_item",
+        targetId: body.itemId,
+        targetLabel: "Vault item",
+        metadata: { field: "passkey", passkeyId },
+      });
+      if (body.approvalId && claimId) {
+        await settleBrowserActionApproval({
+          approvalId: body.approvalId,
+          claimId,
+          succeeded: true,
+        });
+        claimId = null;
+      }
+      await settle(page);
+      await awaitAdoption(session.id, ADOPTION_WAIT_MS);
+      const current = currentPage(session.id, page);
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ snapshot: await pageSnapshot(current, session.id) });
+    } catch (error) {
+      if (authenticatorStateId) {
+        await clearVaultPasskeyAuthenticator(session.id, authenticatorStateId).catch(
+          () => undefined,
+        );
+        authenticatorStateId = null;
+      }
+      if (body.approvalId && claimId) {
+        await settleBrowserActionApproval({
+          approvalId: body.approvalId,
+          claimId,
+          succeeded: actionTerminal,
+        }).catch(() => undefined);
+      }
+      if (error instanceof VaultError || error instanceof BrowserApprovalError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      res.status(500).json({
+        error: "Vault software passkey use failed without revealing credential material",
+      });
+    } finally {
+      if (authenticatorStateId) {
+        await clearVaultPasskeyAuthenticator(session.id, authenticatorStateId).catch(
+          () => undefined,
+        );
+      }
+      if (lease) {
+        await releaseVaultPasskeyUseForEmployee({
+          companyId: lease.companyId,
+          itemId: lease.itemId,
+          passkeyId: lease.passkeyId,
+          leaseId: lease.leaseId,
+        }).catch(() => undefined);
+      }
     }
   },
 );
@@ -1759,7 +3182,7 @@ browserRpcRouter.post("/screenshot", async (req: BrowserRpcReq, res) => {
   if (vaultTaintedSessions.has(sessionId)) {
     return res.status(409).json({
       error:
-        "Screenshot unavailable after a password is present in this browser session; use the redacted page snapshot instead",
+        "Screenshot unavailable after a password, one-time code, or authenticator setup key is present in this browser session; use the redacted page snapshot instead",
     });
   }
   try {
@@ -1767,22 +3190,32 @@ browserRpcRouter.post("/screenshot", async (req: BrowserRpcReq, res) => {
     if (vaultTaintedSessions.has(sessionId)) {
       return res.status(409).json({
         error:
-          "Screenshot unavailable after a password is present in this browser session; use the redacted page snapshot instead",
+          "Screenshot unavailable after a password, one-time code, or authenticator setup key is present in this browser session; use the redacted page snapshot instead",
       });
     }
-    // JPEG at the same quality as the live-view screencast — 3-5x smaller
-    // than PNG in the model's context for visually identical content.
-    // Mask every password input in every frame at capture time. This also
+    // Capture once, inspect those exact lossless bytes, then transcode those
+    // same bytes for the model. A safety capture followed by a second JPEG
+    // capture would leave a race in which a setup QR could appear only in the
+    // returned image. Mask every password input in every frame as well. This
     // protects a password typed by a human immediately before the first
     // semantic snapshot has had a chance to observe and taint the session.
     const passwordMasks = page.frames().map((frame) => frame.locator('input[type="password"]'));
-    const buf = await page.screenshot({
-      type: "jpeg",
-      quality: 60,
+    const png = await page.screenshot({
+      type: "png",
       fullPage: false,
       mask: passwordMasks,
       maskColor: "#000000",
     });
+    const qrValue = await decodeQrFromImage(png);
+    if (qrValue !== null) {
+      const setupKey = findTotpSetupKeyInText(qrValue);
+      if (setupKey) await rememberTotpSetupValue(sessionId, setupKey);
+      return res.status(409).json({
+        error:
+          "Screenshot unavailable because it contains a QR code that could conceal authenticator setup data; use the redacted page snapshot instead",
+      });
+    }
+    const buf = await transcodeImageToJpeg(png, 60);
     res.json({ data: buf.toString("base64"), mimeType: "image/jpeg" });
   } catch (err) {
     res.status(500).json({ error: safeBrowserError(req.browserSession!.id, err) });

@@ -16,9 +16,11 @@ import {
   pageSnapshot,
   redactPasswordInputsFromSnapshot,
   redactVaultSensitiveText,
+  rememberVaultTotpCode,
   rememberCurrentPasswordValues,
   safeBrowserUrlForModel,
   vaultFillTargetIsAllowed,
+  vaultPasskeyMatchesPage,
   vaultUrlAllowedForEmployee,
   vaultWebsiteMatchesPage,
 } from "./browserRpc.js";
@@ -96,6 +98,14 @@ describe("Vault browser fill target", () => {
     assert.equal(vaultFillTargetIsAllowed("secure_note", "secret", "textarea"), false);
   });
 
+  it("allows generated TOTP codes only in ordinary Login inputs", () => {
+    assert.equal(vaultFillTargetIsAllowed("login", "totp", "text"), true);
+    assert.equal(vaultFillTargetIsAllowed("login", "totp", "tel"), true);
+    assert.equal(vaultFillTargetIsAllowed("login", "totp", "number"), true);
+    assert.equal(vaultFillTargetIsAllowed("login", "totp", null), false);
+    assert.equal(vaultFillTargetIsAllowed("api_key", "totp", "text"), false);
+  });
+
   it("intersects Vault use with the AI Employee Browser host policy", () => {
     assert.equal(vaultUrlAllowedForEmployee("https://accounts.example.com", null), true);
     assert.equal(
@@ -109,6 +119,27 @@ describe("Vault browser fill target", () => {
       vaultUrlAllowedForEmployee("https://accounts.example.com", "mail.example.com"),
       false,
     );
+  });
+});
+
+describe("Vault passkey RP binding", () => {
+  it("accepts the exact RP ID and its subdomains on secure pages", () => {
+    assert.equal(vaultPasskeyMatchesPage("example.com", "https://example.com/login"), true);
+    assert.equal(
+      vaultPasskeyMatchesPage("example.com", "https://accounts.example.com/login"),
+      true,
+    );
+    assert.equal(vaultPasskeyMatchesPage("localhost", "http://localhost:3000/login"), true);
+  });
+
+  it("rejects sibling, lookalike, insecure, and malformed relying parties", () => {
+    assert.equal(vaultPasskeyMatchesPage("accounts.example.com", "https://example.com"), false);
+    assert.equal(
+      vaultPasskeyMatchesPage("example.com", "https://example.com.attacker.test"),
+      false,
+    );
+    assert.equal(vaultPasskeyMatchesPage("example.com", "http://example.com"), false);
+    assert.equal(vaultPasskeyMatchesPage("", "https://example.com"), false);
   });
 });
 
@@ -290,6 +321,72 @@ describe("Browser approval target binding", () => {
     }
   });
 
+  it("normalizes only the selected TOTP value while binding its field, form, and peers", async (t) => {
+    const executablePath = chromiumExecutablePath();
+    if (!executablePath) {
+      t.skip("No Chromium executable is available for the TOTP approval target test");
+      return;
+    }
+    const browser = await chromium.launch({ headless: true, executablePath });
+    try {
+      const page = await browser.newPage();
+      await page.route("https://example.test/login", (route) =>
+        route.fulfill({
+          contentType: "text/html",
+          body: `
+            <form id="login" action="/sessions" method="post">
+              <input id="password" type="password" name="password" value="UNCHANGED_PASSWORD">
+              <input id="otp" type="text" inputmode="numeric" name="otp" value="111111">
+              <button id="submit" type="submit">Sign in</button>
+            </form>
+            <form id="other"></form>
+          `,
+        }),
+      );
+      await page.goto("https://example.test/login");
+      const submitHandle = await page.locator("#submit").elementHandle();
+      const totpHandle = await page.locator("#otp").elementHandle();
+      assert.ok(submitHandle);
+      assert.ok(totpHandle);
+      const common = {
+        page: page as never,
+        session: {
+          id: "10000000-0000-4000-8000-000000000011",
+          companyId: "10000000-0000-4000-8000-000000000012",
+        } as never,
+        employee: { id: "10000000-0000-4000-8000-000000000013" } as never,
+        action: "vault_totp_submit" as const,
+        selector: "#submit",
+        key: null,
+        handle: submitHandle as never,
+        vaultTotp: {
+          handle: totpHandle as never,
+          itemId: "10000000-0000-4000-8000-000000000014",
+          selector: "#otp",
+        },
+      };
+      const first = await inspectBrowserApprovalTarget(common);
+      assert.doesNotMatch(JSON.stringify(first), /111111|UNCHANGED_PASSWORD/);
+
+      await page.locator("#otp").fill("222222");
+      const refreshedCode = await inspectBrowserApprovalTarget(common);
+      assert.equal(refreshedCode.fingerprint, first.fingerprint);
+      assert.doesNotMatch(JSON.stringify(refreshedCode), /222222|UNCHANGED_PASSWORD/);
+
+      await page.locator("#password").fill("CHANGED_PASSWORD");
+      const changedPeer = await inspectBrowserApprovalTarget(common);
+      assert.notEqual(changedPeer.fingerprint, first.fingerprint);
+
+      await page.locator("#otp").evaluate((element) => element.setAttribute("form", "other"));
+      await assert.rejects(
+        inspectBrowserApprovalTarget(common),
+        /same form as the approved submit target/,
+      );
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("blocks requestSubmit inside an iframe while an unapproved action runs", async (t) => {
     const executablePath = chromiumExecutablePath();
     if (!executablePath) {
@@ -314,6 +411,26 @@ describe("Browser approval target binding", () => {
 });
 
 describe("Browser snapshot password redaction", () => {
+  it("withholds model-visible codes from direct fill and combined submit across clock skew", async () => {
+    for (const [path, code] of [
+      ["direct-fill", "123456"],
+      ["combined-submit", "654321"],
+    ] as const) {
+      const sessionId = `browser-current-totp-redaction-${path}`;
+      // Keep the preceding code window withheld briefly too: a site's clock
+      // or response can lag behind the App after the code was accepted.
+      await rememberVaultTotpCode(sessionId, code, new Date(Date.now() - 60_000));
+      const spaced = code.split("").join(" ");
+      const redacted = redactVaultSensitiveText(
+        sessionId,
+        `The page reflected ${spaced} in separate accessibility nodes`,
+      );
+      assert.doesNotMatch(redacted, new RegExp(`${spaced}|${code}`));
+      assert.match(redacted, /current Vault one-time code/);
+      clearVaultSensitiveValuesForSession(sessionId);
+    }
+  });
+
   it("removes top-level and framed password values while retaining ordinary inputs", async () => {
     const tree = [
       "- generic [active] [ref=e1]:",
@@ -388,6 +505,23 @@ describe("Browser snapshot password redaction", () => {
     );
     assert.doesNotMatch(snapshot, /FALLBACK_PASSWORD_SECRET/);
     assert.match(snapshot, /redacted because this BrowserSession has contained a password/);
+    clearVaultSensitiveValuesForSession(sessionId);
+  });
+
+  it("redacts an authenticator setup key found only in the page title", async () => {
+    const sessionId = "browser-title-totp-redaction-test";
+    const setupKey = "JBSWY3DPEHPK3PXP";
+    const snapshot = await pageSnapshot(
+      {
+        url: () => "https://example.com/mfa",
+        title: async () => setupKey,
+        ariaSnapshot: async () => '- heading "Account settings"',
+        locator: () => ({ first: () => ({ elementHandle: async () => null }) }),
+      } as never,
+      sessionId,
+    );
+    assert.doesNotMatch(snapshot, new RegExp(setupKey));
+    assert.match(snapshot, /Title: \[redacted TOTP setup key\]/);
     clearVaultSensitiveValuesForSession(sessionId);
   });
 

@@ -148,7 +148,12 @@ export type BrowserApprovalExecution = {
 };
 
 export type BrowserActionPayload = {
-  action: "submit" | "vault_capture";
+  action:
+    | "submit"
+    | "vault_capture"
+    | "vault_totp_submit"
+    | "vault_passkey_create"
+    | "vault_passkey_use";
   selector: string;
   /** Optional key to press (e.g. "Enter") — null when the action is a click. */
   key: string | null;
@@ -162,12 +167,19 @@ export type BrowserActionPayload = {
   vaultTitle?: string;
   vaultUsername?: string;
   vaultNotes?: string;
+  /** Encrypted-at-rest Vault binding for a combined current-code submit. */
+  vaultItemId?: string;
+  vaultItemVersion?: number;
+  vaultTotpSelector?: string;
+  vaultPasskeyId?: string;
   execution?: BrowserApprovalExecution;
 };
 
 type StoredBrowserActionPayload = Partial<BrowserActionPayload> & {
-  action?: "submit" | "vault_capture";
+  action?: BrowserActionPayload["action"];
   encryptedVaultCapture?: string;
+  encryptedVaultTotpSubmit?: string;
+  encryptedVaultPasskeyAction?: string;
   executedAt?: string;
 };
 
@@ -183,6 +195,14 @@ export class BrowserApprovalError extends Error {
 
 function vaultCaptureApprovalScope(approval: Pick<Approval, "id" | "companyId">): string {
   return `company:${approval.companyId}:vault-capture-approval:${approval.id}`;
+}
+
+function vaultTotpSubmitApprovalScope(approval: Pick<Approval, "id" | "companyId">): string {
+  return `company:${approval.companyId}:vault-totp-submit-approval:${approval.id}`;
+}
+
+function vaultPasskeyApprovalScope(approval: Pick<Approval, "id" | "companyId">): string {
+  return `company:${approval.companyId}:vault-passkey-approval:${approval.id}`;
 }
 
 function ciphertextHasScope(ciphertext: string, expectedScope: string): boolean {
@@ -245,6 +265,10 @@ function validBrowserApprovalExecution(value: unknown): value is BrowserApproval
   );
 }
 
+function validVaultItemVersion(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 1;
+}
+
 /**
  * Produce an opaque proof of a live browser target. Sensitive values (most
  * importantly a captured password) may be included in `targetMaterial`, but
@@ -255,7 +279,7 @@ export function computeBrowserActionTargetFingerprint(args: {
   companyId: string;
   employeeId: string;
   browserSessionId: string;
-  action: "submit" | "vault_capture";
+  action: BrowserActionPayload["action"];
   selector: string;
   key: string | null;
   pageUrl: string;
@@ -302,7 +326,13 @@ export function readBrowserActionPayload(approval: Approval): BrowserActionPaylo
       pageUrl: stored.pageUrl,
     };
   }
-  if (stored.action !== "submit" && stored.action !== "vault_capture") {
+  if (
+    stored.action !== "submit" &&
+    stored.action !== "vault_capture" &&
+    stored.action !== "vault_totp_submit" &&
+    stored.action !== "vault_passkey_create" &&
+    stored.action !== "vault_passkey_use"
+  ) {
     throw new Error("Browser approval payload has an invalid action");
   }
   if (
@@ -313,11 +343,83 @@ export function readBrowserActionPayload(approval: Approval): BrowserActionPaylo
   ) {
     throw new Error("Browser approval payload has an invalid target binding");
   }
-  if (stored.action !== "vault_capture") {
+  if (stored.action === "submit") {
     if (typeof stored.selector !== "string" || typeof stored.pageUrl !== "string") {
       throw new Error("Browser approval payload has an invalid shape");
     }
     return stored as BrowserActionPayload;
+  }
+  if (stored.action === "vault_totp_submit") {
+    if (
+      typeof stored.encryptedVaultTotpSubmit !== "string" ||
+      !ciphertextHasScope(stored.encryptedVaultTotpSubmit, vaultTotpSubmitApprovalScope(approval))
+    ) {
+      throw new Error("Vault TOTP submit approval payload is invalid");
+    }
+    let details: BrowserActionPayload;
+    try {
+      details = JSON.parse(
+        decryptSecretWithStrongKeys(stored.encryptedVaultTotpSubmit),
+      ) as BrowserActionPayload;
+    } catch {
+      throw new Error("Vault TOTP submit approval payload could not be decrypted");
+    }
+    if (
+      details.action !== "vault_totp_submit" ||
+      typeof details.selector !== "string" ||
+      typeof details.pageUrl !== "string" ||
+      typeof details.browserSessionId !== "string" ||
+      typeof details.vaultItemId !== "string" ||
+      !validVaultItemVersion(details.vaultItemVersion) ||
+      typeof details.vaultTotpSelector !== "string" ||
+      (details.key !== null && typeof details.key !== "string")
+    ) {
+      throw new Error("Vault TOTP submit approval payload has an invalid shape");
+    }
+    return {
+      ...details,
+      browserSessionId: stored.browserSessionId,
+      targetFingerprint: stored.targetFingerprint!,
+      targetDescriptor: stored.targetDescriptor!,
+      execution: stored.execution,
+    };
+  }
+  if (stored.action === "vault_passkey_create" || stored.action === "vault_passkey_use") {
+    if (
+      typeof stored.encryptedVaultPasskeyAction !== "string" ||
+      !ciphertextHasScope(stored.encryptedVaultPasskeyAction, vaultPasskeyApprovalScope(approval))
+    ) {
+      throw new Error("Vault passkey approval payload is invalid");
+    }
+    let details: BrowserActionPayload;
+    try {
+      details = JSON.parse(
+        decryptSecretWithStrongKeys(stored.encryptedVaultPasskeyAction),
+      ) as BrowserActionPayload;
+    } catch {
+      throw new Error("Vault passkey approval payload could not be decrypted");
+    }
+    if (
+      details.action !== stored.action ||
+      typeof details.selector !== "string" ||
+      typeof details.pageUrl !== "string" ||
+      typeof details.browserSessionId !== "string" ||
+      typeof details.vaultItemId !== "string" ||
+      !validVaultItemVersion(details.vaultItemVersion) ||
+      (details.key !== null && typeof details.key !== "string") ||
+      (details.action === "vault_passkey_use"
+        ? typeof details.vaultPasskeyId !== "string"
+        : details.vaultPasskeyId !== undefined)
+    ) {
+      throw new Error("Vault passkey approval payload has an invalid shape");
+    }
+    return {
+      ...details,
+      browserSessionId: stored.browserSessionId,
+      targetFingerprint: stored.targetFingerprint!,
+      targetDescriptor: stored.targetDescriptor!,
+      execution: stored.execution,
+    };
   }
   if (
     typeof stored.encryptedVaultCapture !== "string" ||
@@ -414,7 +516,9 @@ function hasLegacyBrowserExecutionStamp(approval: Approval): boolean {
   }
 }
 
-function browserPayloadExecutionState(approval: Approval): BrowserApprovalExecution["state"] | null {
+function browserPayloadExecutionState(
+  approval: Approval,
+): BrowserApprovalExecution["state"] | null {
   try {
     const stored = parseStoredBrowserActionPayload(approval);
     return validBrowserApprovalExecution(stored.execution) ? stored.execution.state : null;
@@ -471,10 +575,7 @@ export async function claimApprovedBrowserAction(args: {
   if (action.browserSessionId || action.targetFingerprint || action.targetDescriptor) {
     return { outcome: "conflict", approval };
   }
-  if (
-    hasLegacyBrowserExecutionStamp(approval) ||
-    browserPayloadExecutionState(approval) !== null
-  ) {
+  if (hasLegacyBrowserExecutionStamp(approval) || browserPayloadExecutionState(approval) !== null) {
     return { outcome: "conflict", approval };
   }
 
@@ -735,7 +836,7 @@ export async function createMcpToolApproval(args: {
 export async function createBrowserActionApproval(args: {
   companyId: string;
   employeeId: string;
-  action?: "submit" | "vault_capture";
+  action?: BrowserActionPayload["action"];
   selector: string;
   key: string | null;
   pageUrl: string;
@@ -746,6 +847,10 @@ export async function createBrowserActionApproval(args: {
   vaultTitle?: string;
   vaultUsername?: string;
   vaultNotes?: string;
+  vaultItemId?: string;
+  vaultItemVersion?: number;
+  vaultTotpSelector?: string;
+  vaultPasskeyId?: string;
 }): Promise<Approval> {
   const repo = AppDataSource.getRepository(Approval);
   const id = crypto.randomUUID();
@@ -759,8 +864,14 @@ export async function createBrowserActionApproval(args: {
   if (hasAnyBinding && !hasCompleteBinding) {
     throw new Error("Browser approval target binding is incomplete");
   }
-  if (action === "vault_capture" && !hasCompleteBinding) {
-    throw new Error("Vault capture approvals require a bound Browser target");
+  if (
+    (action === "vault_capture" ||
+      action === "vault_totp_submit" ||
+      action === "vault_passkey_create" ||
+      action === "vault_passkey_use") &&
+    !hasCompleteBinding
+  ) {
+    throw new Error("Vault browser approvals require a bound Browser target");
   }
 
   const rawSummary =
@@ -796,41 +907,97 @@ export async function createBrowserActionApproval(args: {
     if (action === "vault_capture" && !args.vaultTitle) {
       throw new Error("Vault capture approvals require a title");
     }
+    if (
+      action === "vault_totp_submit" &&
+      (!args.vaultItemId ||
+        !validVaultItemVersion(args.vaultItemVersion) ||
+        !args.vaultTotpSelector)
+    ) {
+      throw new Error("Vault TOTP submit approvals require an item version and TOTP target");
+    }
+    if (
+      (action === "vault_passkey_create" || action === "vault_passkey_use") &&
+      (!args.vaultItemId || !validVaultItemVersion(args.vaultItemVersion))
+    ) {
+      throw new Error("Vault passkey approvals require an item version");
+    }
+    if (action === "vault_passkey_use" && !args.vaultPasskeyId) {
+      throw new Error("Vault passkey use approvals require an exact passkey");
+    }
     const expiresAt =
-      action === "vault_capture"
-        ? new Date(Date.now() + 15 * 60 * 1000).toISOString()
-        : undefined;
-    payload =
-      action === "vault_capture"
-        ? {
-            action,
-            browserSessionId,
-            targetFingerprint,
-            targetDescriptor,
-            encryptedVaultCapture: encryptSecret(
-              JSON.stringify({
-                action,
-                selector: args.selector,
-                key: args.key,
-                pageUrl,
-                browserSessionId,
-                expiresAt,
-                vaultTitle: args.vaultTitle ?? "",
-                vaultUsername: args.vaultUsername ?? "",
-                vaultNotes: args.vaultNotes ?? "",
-              }),
-              vaultCaptureApprovalScope({ id, companyId: args.companyId }),
-            ),
-          }
-        : {
+      action === "vault_capture" ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : undefined;
+    if (action === "vault_capture") {
+      payload = {
+        action,
+        browserSessionId,
+        targetFingerprint,
+        targetDescriptor,
+        encryptedVaultCapture: encryptSecret(
+          JSON.stringify({
             action,
             selector: args.selector,
             key: args.key,
             pageUrl,
             browserSessionId,
-            targetFingerprint,
-            targetDescriptor,
-          };
+            expiresAt,
+            vaultTitle: args.vaultTitle ?? "",
+            vaultUsername: args.vaultUsername ?? "",
+            vaultNotes: args.vaultNotes ?? "",
+          }),
+          vaultCaptureApprovalScope({ id, companyId: args.companyId }),
+        ),
+      };
+    } else if (action === "vault_totp_submit") {
+      payload = {
+        action,
+        browserSessionId,
+        targetFingerprint,
+        targetDescriptor,
+        encryptedVaultTotpSubmit: encryptSecret(
+          JSON.stringify({
+            action,
+            selector: args.selector,
+            key: args.key,
+            pageUrl,
+            browserSessionId,
+            vaultItemId: args.vaultItemId,
+            vaultItemVersion: args.vaultItemVersion,
+            vaultTotpSelector: args.vaultTotpSelector,
+          }),
+          vaultTotpSubmitApprovalScope({ id, companyId: args.companyId }),
+        ),
+      };
+    } else if (action === "vault_passkey_create" || action === "vault_passkey_use") {
+      payload = {
+        action,
+        browserSessionId,
+        targetFingerprint,
+        targetDescriptor,
+        encryptedVaultPasskeyAction: encryptSecret(
+          JSON.stringify({
+            action,
+            selector: args.selector,
+            key: args.key,
+            pageUrl,
+            browserSessionId,
+            vaultItemId: args.vaultItemId,
+            vaultItemVersion: args.vaultItemVersion,
+            ...(args.vaultPasskeyId ? { vaultPasskeyId: args.vaultPasskeyId } : {}),
+          }),
+          vaultPasskeyApprovalScope({ id, companyId: args.companyId }),
+        ),
+      };
+    } else {
+      payload = {
+        action,
+        selector: args.selector,
+        key: args.key,
+        pageUrl,
+        browserSessionId,
+        targetFingerprint,
+        targetDescriptor,
+      };
+    }
     const pageLabel = browserApprovalPageLabel(pageUrl);
     summary = pageLabel ? `${safeSummary}  ·  ${pageLabel}` : safeSummary;
   } else {
@@ -870,7 +1037,7 @@ export type ClaimBrowserActionApprovalArgs = {
   companyId: string;
   employeeId: string;
   browserSessionId: string;
-  action: "submit" | "vault_capture";
+  action: BrowserActionPayload["action"];
   selector: string;
   key: string | null;
   targetFingerprint: string;
@@ -878,6 +1045,10 @@ export type ClaimBrowserActionApprovalArgs = {
   vaultTitle?: string;
   vaultUsername?: string;
   vaultNotes?: string;
+  vaultItemId?: string;
+  vaultItemVersion?: number;
+  vaultTotpSelector?: string;
+  vaultPasskeyId?: string;
 };
 
 /**
@@ -944,7 +1115,15 @@ export async function claimBrowserActionApproval(
     (payload.action !== "vault_capture" ||
       (payload.vaultTitle === (args.vaultTitle ?? "") &&
         payload.vaultUsername === (args.vaultUsername ?? "") &&
-        payload.vaultNotes === (args.vaultNotes ?? "")));
+        payload.vaultNotes === (args.vaultNotes ?? ""))) &&
+    (payload.action !== "vault_totp_submit" ||
+      (payload.vaultItemId === (args.vaultItemId ?? "") &&
+        payload.vaultItemVersion === args.vaultItemVersion &&
+        payload.vaultTotpSelector === (args.vaultTotpSelector ?? ""))) &&
+    ((payload.action !== "vault_passkey_create" && payload.action !== "vault_passkey_use") ||
+      (payload.vaultItemId === (args.vaultItemId ?? "") &&
+        payload.vaultItemVersion === args.vaultItemVersion &&
+        (payload.vaultPasskeyId ?? "") === (args.vaultPasskeyId ?? "")));
   if (!actionMatches) {
     throw new BrowserApprovalError("Browser target no longer matches the approved action", 409);
   }

@@ -196,11 +196,20 @@ export function toolsBriefing(
     "- Browser tools (when enabled) and any company-configured MCP server tools.",
     "- Vault credentials are default-deny and item-granted. Never ask a teammate to paste a " +
       "password into chat. Find `list_vault_items`, then use `browser_fill_vault` on the exact " +
-      "saved origin so the value stays out of model context and transcripts. Stored passwords " +
-      "only fill Login password inputs, and Browser policy still applies. Use " +
+      "saved origin so the value stays out of model context and transcripts. It fills a Login " +
+      "username, password, or current `totp` code through a server-owned sink; stored passwords " +
+      "only fill password inputs, and Browser policy still applies. Use " +
       "`create_vault_login` for a server-generated company-visible password. " +
       "`browser_save_vault_login` always requires owner/admin approval to capture a password " +
-      "already present in the browser into a restricted item; neither path returns the password.",
+      "already present in the browser into a restricted item. During signup in the App-owned " +
+      "Browser, call `browser_prepare_vault_totp` before asking the site to reveal enrollment, " +
+      "then attach the bound setup key or selected QR with `browser_save_vault_totp`. For a " +
+      "software passkey, call `browser_create_vault_passkey` on the site's registration trigger; " +
+      "it performs one bound ceremony and encrypted save. Later use it only through " +
+      "`browser_use_vault_passkey`. If an approval-gated submit needs a one-time code, use " +
+      "`browser_submit_with_vault_totp` so fill and submit stay one approved action. TOTP seeds " +
+      "and codes, passwords, credential IDs, and passkey private keys are never returned. These " +
+      "save/use flows are unavailable in a Member browser.",
     "",
   );
 

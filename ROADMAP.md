@@ -2018,6 +2018,20 @@ boundaries.
       give the creating AI Employee a `manage` Grant; every other AI Employee
       remains denied, and a captured restricted item stays hidden from ordinary
       Members until its human access is changed.
+- [x] **Autonomous login MFA.** A Login's encrypted payload can additionally
+      retain one TOTP authenticator and multiple App-Browser software passkeys
+      without adding plaintext columns or reusing Members' own 2FA rows. An AI
+      Employee can capture a setup key or QR code into a Login it created,
+      generate and fill the current code only at the exact saved origin, and
+      create or use a Chrome virtual-authenticator passkey in one bounded action
+      tied to the exact origin, selected site control, and WebAuthn RP ID. TOTP
+      enrollment is armed before the site reveals it; approval-gated submission
+      generates its current code only after the Approval is claimed. TOTP seeds,
+      live codes and passkey private keys never enter model output, Run
+      transcripts, screenshots, recordings, audit metadata or logs; passkey
+      assertions persist their counters under an encrypted, tokenized per-key
+      lease. These governed actions are App-Browser-only and never reach a Member
+      browser's personal password manager, biometric or hardware key.
 - [x] **Audit, docs and tests.** Human reveal and copy are separate audit
       events with no secret content; item, sharing, Grant and AI-use mutations
       retain actor evidence. Dedicated `/docs/vault` guidance distinguishes

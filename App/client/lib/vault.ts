@@ -5,6 +5,15 @@ export type VaultVisibility = "company" | "restricted";
 export type VaultMemberAccessLevel = "view" | "edit";
 export type VaultEmployeeAccessLevel = "use" | "manage";
 
+export type VaultPasskey = {
+  id: string;
+  rpId: string;
+  userName?: string;
+  userDisplayName?: string;
+  createdAt: string;
+  lastUsedAt?: string | null;
+};
+
 export type VaultItem = {
   id: string;
   companyId: string;
@@ -15,6 +24,10 @@ export type VaultItem = {
   websiteUrl: string;
   /** Encrypted auxiliary context returned only to an authorized viewer. */
   notes: string;
+  /** Whether this Login has an encrypted TOTP authenticator attached. */
+  hasTotp: boolean;
+  /** Safe metadata for encrypted software passkeys attached to this Login. */
+  passkeys: VaultPasskey[];
   version: number;
   createdByUserId: string | null;
   createdByEmployeeId: string | null;
@@ -35,9 +48,13 @@ export type CreateVaultItemInput = {
   secret: string;
   websiteUrl?: string;
   notes?: string;
+  /** Optional Login-only TOTP setup key or otpauth URI, stored atomically on create. */
+  totpSetupKey?: string;
 };
 
-export type UpdateVaultItemInput = Partial<CreateVaultItemInput> & { expectedVersion: number };
+export type UpdateVaultItemInput = Partial<Omit<CreateVaultItemInput, "totpSetupKey">> & {
+  expectedVersion: number;
+};
 
 export type VaultMemberAccess = {
   id: string;
@@ -128,6 +145,36 @@ export const vaultApi = {
       purpose,
     });
     return result.secret;
+  },
+
+  async setTotp(companyId: string, itemId: string, setupKey: string): Promise<VaultItem> {
+    const result = await api.post<{ item: VaultItem }>(`${itemBase(companyId, itemId)}/totp`, {
+      setupKey,
+    });
+    return result.item;
+  },
+
+  async deleteTotp(companyId: string, itemId: string): Promise<VaultItem> {
+    const result = await api.del<{ item: VaultItem }>(`${itemBase(companyId, itemId)}/totp`);
+    return result.item;
+  },
+
+  async getTotpCode(
+    companyId: string,
+    itemId: string,
+    purpose: "reveal" | "copy",
+  ): Promise<{ code: string; expiresAt: string }> {
+    return api.post<{ code: string; expiresAt: string }>(
+      `${itemBase(companyId, itemId)}/totp/code`,
+      { purpose },
+    );
+  },
+
+  async deletePasskey(companyId: string, itemId: string, passkeyId: string): Promise<VaultItem> {
+    const result = await api.del<{ item: VaultItem }>(
+      `${itemBase(companyId, itemId)}/passkeys/${passkeyId}`,
+    );
+    return result.item;
   },
 
   async listMemberAccess(companyId: string, itemId: string): Promise<VaultMemberAccess[]> {
@@ -249,7 +296,20 @@ export function filterVaultItems(
   return items.filter((item) => {
     if (type !== "all" && item.type !== type) return false;
     if (!needle) return true;
-    return [item.title, item.username, item.websiteUrl, item.notes, vaultItemTypeLabel(item.type)]
+    return [
+      item.title,
+      item.username,
+      item.websiteUrl,
+      item.notes,
+      vaultItemTypeLabel(item.type),
+      item.hasTotp ? "authenticator totp two-factor" : "",
+      ...(item.passkeys ?? []).flatMap((passkey) => [
+        "passkey",
+        passkey.rpId,
+        passkey.userName ?? "",
+        passkey.userDisplayName ?? "",
+      ]),
+    ]
       .join("\n")
       .toLocaleLowerCase()
       .includes(needle);

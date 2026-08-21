@@ -12182,6 +12182,15 @@ mcpInternalRouter.post(
         title: row.title,
         username: row.username,
         ...safeVaultWebsiteForAi(row.websiteUrl),
+        hasTotp: row.hasTotp,
+        passkeys: row.passkeys.map((passkey) => ({
+          id: passkey.id,
+          rpId: passkey.rpId,
+          userName: passkey.userName,
+          userDisplayName: passkey.userDisplayName,
+          createdAt: passkey.createdAt,
+          lastUsedAt: passkey.lastUsedAt,
+        })),
         accessLevel: row.accessLevel,
       }))
       .filter((row) => !body.type || row.type === body.type)
@@ -12195,7 +12204,7 @@ mcpInternalRouter.post(
       items,
       note:
         items.length > 0
-          ? "Stored values are intentionally omitted. Use browser_fill_vault on the exact saved website origin."
+          ? "Stored values are intentionally omitted. Use browser_fill_vault for username, password, or the current TOTP code; use browser_use_vault_passkey for a listed software passkey. TOTP enrollment follows browser_prepare_vault_totp, the site's setup reveal, then browser_save_vault_totp. Authenticator setup stays inside the App-owned Browser."
           : "No matching Vault items are granted to you. Ask a Member who manages the item to add a Vault Grant.",
     });
   },
@@ -12760,7 +12769,15 @@ async function notifyTodoReviewByEmployee(args: {
 
 const queueBrowserApprovalSchema = z
   .object({
-    action: z.enum(["submit", "vault_capture"]).default("submit"),
+    action: z
+      .enum([
+        "submit",
+        "vault_capture",
+        "vault_totp_submit",
+        "vault_passkey_create",
+        "vault_passkey_use",
+      ])
+      .default("submit"),
     /** Free-text reason / target action shown to the approver. */
     summary: z.string().trim().min(1).max(1000),
     /** Page URL captured at queue time (best-effort; may be empty). */
@@ -12786,11 +12803,49 @@ const queueBrowserApprovalSchema = z
     vaultTitle: z.string().trim().min(1).max(255).optional(),
     vaultUsername: z.string().trim().max(500).optional(),
     vaultNotes: z.string().trim().max(10_000).optional(),
+    vaultItemId: z.string().uuid().optional(),
+    vaultItemVersion: z.number().int().safe().min(1).optional(),
+    vaultTotpSelector: z.string().min(1).max(500).optional(),
+    vaultPasskeyId: z.string().uuid().optional(),
   })
   .superRefine((body, ctx) => {
-    if (body.action !== "vault_capture") return;
-    if (body.vaultTitle === undefined) {
+    if (body.action === "vault_capture" && body.vaultTitle === undefined) {
       ctx.addIssue({ code: "custom", message: "vaultTitle is required", path: ["vaultTitle"] });
+    }
+    if (body.action === "vault_totp_submit" && body.vaultItemId === undefined) {
+      ctx.addIssue({ code: "custom", message: "vaultItemId is required", path: ["vaultItemId"] });
+    }
+    if (body.action === "vault_totp_submit" && body.vaultTotpSelector === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "vaultTotpSelector is required",
+        path: ["vaultTotpSelector"],
+      });
+    }
+    if (
+      (body.action === "vault_passkey_create" || body.action === "vault_passkey_use") &&
+      body.vaultItemId === undefined
+    ) {
+      ctx.addIssue({ code: "custom", message: "vaultItemId is required", path: ["vaultItemId"] });
+    }
+    if (
+      (body.action === "vault_totp_submit" ||
+        body.action === "vault_passkey_create" ||
+        body.action === "vault_passkey_use") &&
+      body.vaultItemVersion === undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "vaultItemVersion is required",
+        path: ["vaultItemVersion"],
+      });
+    }
+    if (body.action === "vault_passkey_use" && body.vaultPasskeyId === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "vaultPasskeyId is required",
+        path: ["vaultPasskeyId"],
+      });
     }
   });
 
@@ -12801,7 +12856,7 @@ mcpInternalRouter.post(
     const body = req.body as z.infer<typeof queueBrowserApprovalSchema>;
     const emp = req.mcpEmployee!;
     const co = req.mcpCompany!;
-    if (!emp.browserApprovalRequired && body.action !== "vault_capture") {
+    if (!emp.browserApprovalRequired && body.action === "submit") {
       return res.status(400).json({
         error:
           "browserApprovalRequired is off for this employee — queue rejected to avoid stranding the action",
@@ -12821,6 +12876,10 @@ mcpInternalRouter.post(
       vaultTitle: body.vaultTitle,
       vaultUsername: body.vaultUsername,
       vaultNotes: body.vaultNotes,
+      vaultItemId: body.vaultItemId,
+      vaultItemVersion: body.vaultItemVersion,
+      vaultTotpSelector: body.vaultTotpSelector,
+      vaultPasskeyId: body.vaultPasskeyId,
     });
     res.json({ approvalId: approval.id, status: approval.status });
   },
@@ -12872,7 +12931,7 @@ mcpInternalRouter.get("/tools/check_browser_approval/:id", async (req: McpReques
   const targetBound = typeof payload.browserSessionId === "string";
   res.json({
     status: approval.status,
-    action: payload.action === "vault_capture" ? "vault_capture" : "submit",
+    action: payload.action,
     targetBound,
     selector: typeof payload.selector === "string" ? payload.selector : null,
     key: typeof payload.key === "string" ? payload.key : null,
@@ -12880,6 +12939,14 @@ mcpInternalRouter.get("/tools/check_browser_approval/:id", async (req: McpReques
     vaultTitle: typeof payload.vaultTitle === "string" ? payload.vaultTitle : null,
     vaultUsername: typeof payload.vaultUsername === "string" ? payload.vaultUsername : null,
     vaultNotes: typeof payload.vaultNotes === "string" ? payload.vaultNotes : null,
+    vaultItemId: typeof payload.vaultItemId === "string" ? payload.vaultItemId : null,
+    vaultItemVersion:
+      Number.isSafeInteger(payload.vaultItemVersion) && payload.vaultItemVersion! >= 1
+        ? payload.vaultItemVersion
+        : null,
+    vaultTotpSelector:
+      typeof payload.vaultTotpSelector === "string" ? payload.vaultTotpSelector : null,
+    vaultPasskeyId: typeof payload.vaultPasskeyId === "string" ? payload.vaultPasskeyId : null,
     executionState: payload.execution?.state ?? null,
     executed: browserApprovalWasExecuted(approval),
   });

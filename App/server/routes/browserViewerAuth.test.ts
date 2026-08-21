@@ -242,4 +242,26 @@ describe("Browser viewer authorization", () => {
       "closed",
     );
   });
+
+  test("rejects standalone Vault TOTP fills at the authoritative RPC boundary", async () => {
+    employee.browserApprovalRequired = true;
+    await AppDataSource.getRepository(AIEmployee).save(employee);
+    const response = await fetch(
+      `${baseUrl}/api/internal/mcp/browser-sessions/${browserSession.id}/vault/fill`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${browserSession.mcpToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          selector: "aria-ref=e8",
+          itemId: randomUUID(),
+          field: "totp",
+        }),
+      },
+    );
+    assert.equal(response.status, 409);
+    assert.match(JSON.stringify(await response.json()), /browser_submit_with_vault_totp/);
+  });
 });

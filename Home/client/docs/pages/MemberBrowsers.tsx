@@ -299,12 +299,13 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
         normal, and closing their window because of it would not be.
       </P>
 
-      <H2 id="vault">Vault: filling yes, saving no</H2>
+      <H2 id="vault">Vault credentials</H2>
       <P>
-        A granted <DocLink to="/docs/vault">Vault</DocLink> login still fills normally here: the
-        employee calls <Code>browser_fill_vault</Code>, Genosyn types the value into the page, and
-        the model never sees plaintext. The origin, item-level Grant, and host-policy checks are
-        unchanged.
+        A granted <DocLink to="/docs/vault">Vault</DocLink> login can fill its username or password
+        here: Genosyn types the value into the page and the model never sees plaintext. The origin,
+        item-level Grant, and host-policy checks are unchanged. TOTP and software-passkey actions
+        stay App-Browser-only because they must never interact with a Member&apos;s personal
+        authenticators.
       </P>
       <Callout kind="warn" title="Saving a new login to the Vault is refused in a member browser">
         <Code>browser_save_vault_login</Code> — the flow that captures a password out of a page into
@@ -314,10 +315,17 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
         The flow would let an employee walk somebody&apos;s private password into the company Vault
         under a plausible label. That credential is not the company&apos;s to take.
       </Callout>
+      <Callout kind="warn" title="TOTP and passkey Vault tools are refused">
+        Member browsers do not allow <Code>browser_fill_vault</Code> with the <Code>totp</Code>{" "}
+        field,
+        <Code>browser_prepare_vault_totp</Code>, <Code>browser_save_vault_totp</Code>, or either
+        Vault passkey create/use tool. Those flows operate only in Genosyn&apos;s App-owned browser. This keeps a
+        Member&apos;s authenticator apps, Touch ID, Face ID, password-manager passkeys, and hardware
+        security keys outside the company Vault boundary.
+      </Callout>
       <P>
-        If a credential genuinely should be company property, add it in the Vault yourself, or let
-        the employee generate one with <Code>create_vault_login</Code> in Genosyn&apos;s own
-        browser.
+        If a credential genuinely should be company property, add the login or authenticator in the
+        Vault yourself, or let the employee generate and enroll it in Genosyn&apos;s own browser.
       </P>
 
       <H2 id="revoking">Disconnecting</H2>
