@@ -509,13 +509,13 @@ function Switch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={clsx(
-        "relative h-6 w-11 shrink-0 rounded-full transition focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-slate-950",
+        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-slate-950",
         checked ? "bg-indigo-600 dark:bg-indigo-500" : "bg-slate-300 dark:bg-slate-700",
       )}
     >
       <span
         className={clsx(
-          "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform",
+          "inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform",
           checked ? "translate-x-5" : "translate-x-0.5",
         )}
       />
