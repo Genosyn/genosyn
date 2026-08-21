@@ -2501,10 +2501,12 @@ summarizer another route to act.
 
 - [x] **One company schedule, one chosen AI Employee.** `TldrSettings` stores
       whether TLDRs are enabled, the employee that writes them, and one of five
-      fixed cadences: every 4, 8, or 12 hours, daily, or weekly. The employee
-      must still belong to the company and have a connected active AI Model.
-      Owners and admins configure the schedule or choose **Generate now**;
-      ordinary Members cannot change company automation.
+      fixed cadences: every 4, 8, or 12 hours, daily, or weekly. When no TLDR
+      policy has been saved, the first hired AI Employee becomes the writer and
+      starts an enabled daily schedule by default. The employee must still
+      belong to the company and have a connected active AI Model before a recap
+      can run. Owners and admins configure the schedule or choose **Generate
+      now**; ordinary Members cannot change company automation.
 - [x] **The source window is useful and deliberately narrow.** Each pass reads
       public Workspace messages, company-visible journal entries, and terminal
       Routine Run output from its bounded period. Private channels, DMs, and

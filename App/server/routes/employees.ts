@@ -49,7 +49,7 @@ import {
 } from "../services/browserAccess.js";
 import { removeBrowserStorageForEmployee } from "../services/browserStorage.js";
 import { removeRepositoryPrivateStateForEmployee } from "../services/repositorySshFiles.js";
-import { detachEmployeeFromTldrs } from "../services/tldrs.js";
+import { detachEmployeeFromTldrs, ensureDefaultTldrSchedule } from "../services/tldrs.js";
 import {
   deleteBrowserRecordingsForRunIds,
   markBrowserRecordingEmployeeDeleting,
@@ -173,6 +173,7 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
     soulBody,
   });
   await repo.save(emp);
+  await ensureDefaultTldrSchedule(co.id, emp.id);
 
   // Employee cwd is still needed on disk — the CLI spawns there, writes
   // artifacts, and resolves `.mcp.json` + credentials. Soul / Skills /
@@ -484,7 +485,8 @@ employeesRouter.delete("/:eid", async (req, res) => {
     : [];
   await AppDataSource.getRepository(Approval).delete({ employeeId: emp.id });
   await deleteBrowserRecordingsForRunIds(runs.map((run) => run.id));
-  if (routineIds.length) await AppDataSource.getRepository(Run).delete({ routineId: In(routineIds) });
+  if (routineIds.length)
+    await AppDataSource.getRepository(Run).delete({ routineId: In(routineIds) });
   await AppDataSource.getRepository(Routine).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(Skill).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(AIModel).delete({ employeeId: emp.id });

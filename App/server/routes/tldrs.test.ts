@@ -195,7 +195,14 @@ describe("TLDR route contract and authorization", () => {
   test("allows Member reads and dismissals but reserves settings and generation for admins", async () => {
     const tldr = await readyTldr();
     actingUserId = member.id;
-    assert.equal((await call("GET", "/tldrs/settings")).status, 200);
+    const defaults = await call<{ enabled: boolean; cadence: string; employeeId: string | null }>(
+      "GET",
+      "/tldrs/settings",
+    );
+    assert.equal(defaults.status, 200);
+    assert.equal(defaults.body.enabled, true);
+    assert.equal(defaults.body.cadence, "daily");
+    assert.equal(defaults.body.employeeId, null);
     assert.equal(
       (
         await call("PUT", "/tldrs/settings", {

@@ -379,7 +379,9 @@ export default function TldrSettingsPage() {
                 <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
                   <Button
                     onClick={() => void persistDraft()}
-                    disabled={saving || generating || !dirty || (draft.enabled && !draft.employeeId)}
+                    disabled={
+                      saving || generating || !dirty || (draft.enabled && !draft.employeeId)
+                    }
                   >
                     {saving ? <Spinner size={14} /> : <Save size={14} />}
                     {saving ? "Saving…" : "Save changes"}
@@ -430,11 +432,13 @@ export default function TldrSettingsPage() {
                 <StatusRow
                   label="Next briefing"
                   value={
-                    settings.enabled
-                      ? settings.nextRunAt
-                        ? formatStatusTime(settings.nextRunAt)
-                        : "Being scheduled"
-                      : "Paused"
+                    !settings.id || !settings.employeeId
+                      ? "Choose an AI Employee"
+                      : settings.enabled
+                        ? settings.nextRunAt
+                          ? formatStatusTime(settings.nextRunAt)
+                          : "Being scheduled"
+                        : "Paused"
                   }
                 />
                 <StatusRow

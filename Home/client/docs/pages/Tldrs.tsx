@@ -18,18 +18,20 @@ export function Tldrs() {
       <H2 id="set-up">Set up TLDRs</H2>
       <P>
         Open <Strong>TLDRs</Strong> from the company section menu. Owners and admins can configure
-        the schedule; every Member can read the generated history.
+        the schedule; every Member can read the generated history. For a new company with no saved
+        TLDR settings, hiring the first AI Employee starts an enabled Daily schedule automatically.
       </P>
       <UL>
         <LI>
-          Choose the <Strong>AI Employee</Strong> that will write the recap. The employee needs a
-          connected, active <DocLink to="/docs/models">AI Model</DocLink>.
+          That first <Strong>AI Employee</Strong> is selected as the writer. Connect an active{" "}
+          <DocLink to="/docs/models">AI Model</DocLink> before the first TLDR is due.
         </LI>
         <LI>
           Pick <Strong>Every 4 hours</Strong>, <Strong>Every 8 hours</Strong>,{" "}
-          <Strong>Every 12 hours</Strong>, <Strong>Daily</Strong>, or <Strong>Weekly</Strong>.
+          <Strong>Every 12 hours</Strong>, <Strong>Daily</Strong>, or <Strong>Weekly</Strong>. Daily
+          is selected by default.
         </LI>
-        <LI>Enable TLDRs and save the schedule.</LI>
+        <LI>Choose another writer or cadence, or pause automatic TLDRs, then save your changes.</LI>
       </UL>
       <P>
         Owners and admins can change the employee or cadence, pause the schedule, or choose{" "}

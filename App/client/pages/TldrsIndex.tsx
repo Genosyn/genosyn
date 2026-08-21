@@ -143,6 +143,8 @@ export default function TldrsIndex() {
   const base = `/c/${company.slug}/tldrs`;
   const hasMore = Boolean(data && data.list.items.length < data.list.total);
   const unloadedUnread = Math.max(0, (data?.list.unreadCount ?? 0) - shown.length);
+  const isDefaultDraft = data?.settings.id === null;
+  const needsWriter = Boolean(data?.settings.id && !data.settings.employeeId);
 
   return (
     <div className="page-shell px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
@@ -180,19 +182,39 @@ export default function TldrsIndex() {
               <span
                 className={
                   "h-2 w-2 rounded-full " +
-                  (data.settings.enabled ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600")
+                  (isDefaultDraft
+                    ? "bg-violet-500"
+                    : needsWriter
+                      ? "bg-amber-500"
+                      : data.settings.enabled
+                        ? "bg-emerald-500"
+                        : "bg-slate-300 dark:bg-slate-600")
                 }
               />
               <div>
                 <div className="text-xs font-medium text-slate-800 dark:text-slate-200">
-                  {data.settings.enabled ? "Briefings are on" : "Briefings are paused"}
+                  {isDefaultDraft
+                    ? "Daily briefings are ready"
+                    : needsWriter
+                      ? "A briefing AI Employee is needed"
+                      : data.settings.enabled
+                        ? "Briefings are on"
+                        : "Briefings are paused"}
                 </div>
                 <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {data.settings.enabled && data.settings.nextRunAt
-                    ? `Next ${formatRelative(data.settings.nextRunAt)}`
-                    : data.settings.enabled
-                      ? "The next interval is being scheduled"
-                      : "No automatic TLDRs will be created"}
+                  {isDefaultDraft
+                    ? canManage
+                      ? "Choose or hire an AI Employee to start the schedule"
+                      : "An owner or admin can choose the briefing writer"
+                    : needsWriter
+                      ? canManage
+                        ? "Choose a connected AI Employee to resume briefings"
+                        : "An owner or admin can resume briefings"
+                      : data.settings.enabled && data.settings.nextRunAt
+                        ? `Next ${formatRelative(data.settings.nextRunAt)}`
+                        : data.settings.enabled
+                          ? "The next interval is being scheduled"
+                          : "No automatic TLDRs will be created"}
                 </div>
               </div>
               <Link
@@ -246,13 +268,29 @@ export default function TldrsIndex() {
             <div className="mt-4">
               {data.list.total === 0 ? (
                 <EmptyState
-                  title={data.settings.enabled ? "Your first TLDR is on the way" : "No TLDRs yet"}
+                  title={
+                    isDefaultDraft || needsWriter
+                      ? canManage
+                        ? "Choose a briefing AI Employee"
+                        : "A briefing AI Employee is needed"
+                      : data.settings.enabled
+                        ? "Automatic briefings are on"
+                        : "No TLDRs yet"
+                  }
                   description={
-                    data.settings.enabled
-                      ? data.settings.nextRunAt
-                        ? `The next briefing is scheduled ${formatRelative(data.settings.nextRunAt)}. It will appear here and on Home.`
-                        : "The first briefing will appear here as soon as the next interval has something useful to report."
-                      : "Choose an AI Employee and a cadence to start turning company activity into readable briefings."
+                    isDefaultDraft
+                      ? canManage
+                        ? "Daily briefings are on by default. Choose or hire an AI Employee to start the schedule, then connect their AI Model before the first briefing is due."
+                        : "Daily briefings are on by default. An owner or admin can choose the writer; the writer needs a connected AI Model before a briefing can run."
+                      : needsWriter
+                        ? canManage
+                          ? "Choose a connected AI Employee to resume automatic briefings."
+                          : "An owner or admin needs to choose a connected AI Employee before automatic briefings can resume."
+                        : data.settings.enabled
+                          ? data.settings.nextRunAt
+                            ? `The next scheduled check is ${formatRelative(data.settings.nextRunAt)}. A TLDR appears here and on Home when the writer has a connected AI Model and the period contains useful activity.`
+                            : "A TLDR will appear here and on Home once the writer has a connected AI Model and an interval contains useful activity."
+                          : "Choose an AI Employee and a cadence to start turning company activity into readable briefings."
                   }
                   action={
                     canManage ? (

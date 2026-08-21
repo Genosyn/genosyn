@@ -20,6 +20,7 @@ import {
   detachEmployeeFromTldrs,
   dismissTldr,
   dispatchDueTldrs,
+  ensureDefaultTldrSchedule,
   generateTldrNow,
   getTldrSettings,
   listHomeTldrs,
@@ -118,6 +119,66 @@ const submittingAgent =
     assert.equal(result.isError, undefined);
     return { status: "ok", finalText: "", steps: 1 };
   };
+
+describe("TLDR settings", () => {
+  test("defaults an unconfigured company to enabled daily briefings without creating a schedule", async () => {
+    const { company } = await fixture();
+
+    const settings = await getTldrSettings(company.id);
+
+    assert.equal(settings.id, null);
+    assert.equal(settings.enabled, true);
+    assert.equal(settings.cadence, "daily");
+    assert.equal(settings.employeeId, null);
+    assert.equal(settings.nextRunAt, null);
+    assert.equal(
+      await AppDataSource.getRepository(TldrSettings).countBy({ companyId: company.id }),
+      0,
+    );
+  });
+
+  test("creates one default schedule when two first hires race", async () => {
+    const { company, employee } = await fixture();
+    const second = await insert(AIEmployee, {
+      companyId: company.id,
+      name: "Kai",
+      slug: "kai",
+      role: "Operations lead",
+      soulBody: "Keep the company moving.",
+    });
+
+    const [firstResult, secondResult] = await Promise.all([
+      ensureDefaultTldrSchedule(company.id, employee.id, NOW),
+      ensureDefaultTldrSchedule(company.id, second.id, NOW),
+    ]);
+
+    assert(firstResult.id);
+    assert.equal(secondResult.id, firstResult.id);
+    assert.equal(
+      await AppDataSource.getRepository(TldrSettings).countBy({ companyId: company.id }),
+      1,
+    );
+    assert([employee.id, second.id].includes(firstResult.employeeId ?? ""));
+  });
+
+  test("keeps an explicit first-time pause authoritative when it races the first hire", async () => {
+    const { company, employee } = await fixture();
+
+    await Promise.all([
+      ensureDefaultTldrSchedule(company.id, employee.id, NOW),
+      updateTldrSettings(company.id, { enabled: false, cadence: "daily", employeeId: null }, NOW),
+    ]);
+
+    const settings = await getTldrSettings(company.id);
+    assert.equal(settings.enabled, false);
+    assert.equal(settings.employeeId, null);
+    assert.equal(settings.nextRunAt, null);
+    assert.equal(
+      await AppDataSource.getRepository(TldrSettings).countBy({ companyId: company.id }),
+      1,
+    );
+  });
+});
 
 describe("TLDR source boundary", () => {
   test("uses public messages and company AI work only, with caps and credential redaction", async () => {

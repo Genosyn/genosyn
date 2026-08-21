@@ -9,11 +9,14 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import express from "express";
 
 import { config } from "../../config.js";
+import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
+import { TldrSettings } from "../db/entities/TldrSettings.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
+import { updateTldrSettings } from "../services/tldrs.js";
 import { EMPLOYEE_TEMPLATES, personalizeTemplateSoul } from "../services/templates.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { employeesRouter } from "./employees.js";
@@ -100,6 +103,40 @@ async function hire(
 }
 
 describe("hiring an AI Employee from a template", () => {
+  test("starts one daily TLDR schedule with the first AI Employee", async () => {
+    const beforeHire = Date.now();
+    const first = await hire("Marguerite", "VP of Go to Market", "revops-analyst");
+    const afterHire = Date.now();
+
+    assert.equal(first.status, 200);
+    const firstSchedule = await AppDataSource.getRepository(TldrSettings).findOneByOrFail({
+      companyId: company.id,
+    });
+    assert.equal(firstSchedule.employeeId, first.body.id);
+    assert.equal(firstSchedule.enabled, true);
+    assert.equal(firstSchedule.cadence, "daily");
+    assert(firstSchedule.nextRunAt);
+    assert(firstSchedule.nextRunAt.getTime() >= beforeHire + 24 * 60 * 60_000);
+    assert(firstSchedule.nextRunAt.getTime() <= afterHire + 24 * 60 * 60_000);
+
+    await updateTldrSettings(company.id, {
+      enabled: false,
+      cadence: "daily",
+      employeeId: first.body.id,
+    });
+
+    const second = await hire("Nadia", "Account Executive", "account-executive");
+
+    assert.equal(second.status, 200);
+    const unchangedSchedule = await AppDataSource.getRepository(TldrSettings).findOneByOrFail({
+      companyId: company.id,
+    });
+    assert.equal(unchangedSchedule.id, firstSchedule.id);
+    assert.equal(unchangedSchedule.employeeId, first.body.id);
+    assert.equal(unchangedSchedule.enabled, false);
+    assert.equal(unchangedSchedule.nextRunAt, null);
+  });
+
   // The three templates a hard-coded substitution list had drifted away from.
   for (const templateId of ["revops-analyst", "account-executive", "paid-marketing"]) {
     test(`renames the ${templateId} Soul to the chosen name`, async () => {

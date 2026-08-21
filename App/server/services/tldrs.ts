@@ -30,6 +30,9 @@ const CADENCE_MS: Record<TldrCadence, number> = {
   weekly: 7 * 24 * 60 * 60_000,
 };
 
+const DEFAULT_TLDR_ENABLED = true;
+const DEFAULT_TLDR_CADENCE: TldrCadence = "daily";
+
 const MAX_CHANNEL_MESSAGES = 200;
 const MAX_JOURNAL_ENTRIES = 120;
 const MAX_ROUTINE_RUNS = 60;
@@ -221,8 +224,8 @@ async function hydrateSettings(row: TldrSettings | null): Promise<TldrSettingsDT
     : null;
   return {
     id: row?.id ?? null,
-    enabled: row?.enabled ?? false,
-    cadence: row?.cadence ?? "daily",
+    enabled: row?.enabled ?? DEFAULT_TLDR_ENABLED,
+    cadence: row?.cadence ?? DEFAULT_TLDR_CADENCE,
     employeeId: employee?.id ?? null,
     employee: employee ? employeeSnapshot(employee) : null,
     nextRunAt: row?.nextRunAt?.toISOString() ?? null,
@@ -235,6 +238,39 @@ async function hydrateSettings(row: TldrSettings | null): Promise<TldrSettingsDT
 
 export async function getTldrSettings(companyId: string): Promise<TldrSettingsDTO> {
   return hydrateSettings(await AppDataSource.getRepository(TldrSettings).findOneBy({ companyId }));
+}
+
+export async function ensureDefaultTldrSchedule(
+  companyId: string,
+  employeeId: string,
+  now: Date = new Date(),
+): Promise<TldrSettingsDTO> {
+  const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
+    id: employeeId,
+    companyId,
+  });
+  if (!employee) throw new TldrValidationError("Choose an AI Employee from this company.");
+
+  const repo = AppDataSource.getRepository(TldrSettings);
+  await repo
+    .createQueryBuilder()
+    .insert()
+    .values({
+      companyId,
+      employeeId,
+      enabled: DEFAULT_TLDR_ENABLED,
+      cadence: DEFAULT_TLDR_CADENCE,
+      nextRunAt: nextTldrRunAt(DEFAULT_TLDR_CADENCE, now),
+      lastCoveredAt: null,
+      lastGeneratedAt: null,
+      lastAttemptAt: null,
+      activeTldrId: null,
+      lastError: "",
+    })
+    .orIgnore()
+    .execute();
+
+  return hydrateSettings(await repo.findOneBy({ companyId }));
 }
 
 async function ensureEmployeeCanGenerate(
@@ -277,7 +313,25 @@ export async function updateTldrSettings(
 
   const row = await AppDataSource.transaction(async (manager) => {
     const repo = manager.getRepository(TldrSettings);
-    let current = await settingsForUpdate(manager, companyId);
+    await repo
+      .createQueryBuilder()
+      .insert()
+      .values({
+        companyId,
+        employeeId: null,
+        enabled: false,
+        cadence: DEFAULT_TLDR_CADENCE,
+        nextRunAt: null,
+        lastCoveredAt: null,
+        lastGeneratedAt: null,
+        lastAttemptAt: null,
+        activeTldrId: null,
+        lastError: "",
+      })
+      .orIgnore()
+      .execute();
+    const current = await settingsForUpdate(manager, companyId);
+    if (!current) throw new Error("Could not initialize TLDR settings.");
     if (current?.activeTldrId) {
       const active = await manager.getRepository(Tldr).findOneBy({
         id: current.activeTldrId,
@@ -299,16 +353,7 @@ export async function updateTldrSettings(
         throw new TldrValidationError("Choose an AI Employee from this company.");
       }
     }
-    const scheduleChanged =
-      !current || current.cadence !== input.cadence || current.enabled !== input.enabled;
-    current ??= repo.create({
-      companyId,
-      lastCoveredAt: null,
-      lastGeneratedAt: null,
-      lastAttemptAt: null,
-      activeTldrId: null,
-      lastError: "",
-    });
+    const scheduleChanged = current.cadence !== input.cadence || current.enabled !== input.enabled;
     current.employeeId = input.employeeId;
     current.enabled = input.enabled;
     current.cadence = input.cadence;
