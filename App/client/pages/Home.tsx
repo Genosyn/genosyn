@@ -40,6 +40,7 @@ import {
 import { ContextualLayout } from "../components/AppShell";
 import { ChatMarkdown } from "../components/ChatMarkdown";
 import { DecisionCard } from "../components/decisions/DecisionCard";
+import { TldrDiscussButton } from "../components/tldrs/TldrDiscussButton";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
@@ -760,6 +761,9 @@ function HomeTldrPanel({
                       {item.sourceStats.journalEntries === 1 ? "entry" : "entries"}
                     </span>
                   )}
+                </div>
+                <div className="mt-3">
+                  <TldrDiscussButton company={company} item={item} />
                 </div>
               </div>
             </div>

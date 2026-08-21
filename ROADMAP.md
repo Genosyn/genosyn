@@ -2534,6 +2534,14 @@ summarizer another route to act.
       Generate-now action. Empty, loading, error, disabled, mobile, dark-mode,
       and live-update states follow the same quiet Linear × Notion language as
       the rest of the App.
+- [x] **Continue a TLDR in private Chat.** Home and TLDR history can open a
+      fresh direct conversation with the AI Employee who wrote the recap. The
+      composer receives a reviewable draft with a secure recap reference and
+      sends nothing until the Member submits it. That first turn exposes only a
+      bound read-only TLDR tool and treats its output as untrusted data; later
+      follow-ups use ordinary Chat authority. A removed employee's preserved
+      history remains readable without a dead Chat action, and the private
+      discussion stays excluded from later TLDRs.
 
 ## V1 backlog (post-MVP)
 

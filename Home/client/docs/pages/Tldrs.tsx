@@ -53,6 +53,21 @@ export function Tldrs() {
         model. They never appear in a company-wide TLDR.
       </Callout>
 
+      <H2 id="discuss">Discuss a TLDR</H2>
+      <P>
+        Choose <Strong>Discuss with</Strong> on a Home recap or <Strong>Discuss</Strong> in TLDR
+        history. Genosyn opens a new private Chat with the AI Employee who wrote it and fills the
+        composer with a secure reference to the recap. Review or edit the message, add your
+        question, then send it when you are ready. Opening Chat never sends anything by itself.
+      </P>
+      <P>
+        The first reply is discussion-only: Genosyn gives the employee one read-only TLDR tool and
+        treats the recap as untrusted reference data, so text inside it cannot trigger an action.
+        Follow-ups are ordinary direct AI Employee Chat: they are private to you and are not copied
+        into a future company-wide TLDR. If the original writer has since been removed, the saved
+        TLDR remains readable but cannot open a new conversation with that employee.
+      </P>
+
       <H2 id="safe-summary">The writer can summarize, not act</H2>
       <P>
         Genosyn treats the source material as untrusted and runs the chosen employee&apos;s model in

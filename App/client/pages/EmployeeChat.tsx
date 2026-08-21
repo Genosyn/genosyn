@@ -36,7 +36,12 @@ import {
 } from "../lib/api";
 import { describeContextUsage } from "../lib/chatContextUsage";
 import { isIndeterminateChatProgress, shouldShowChatProgressCard } from "../lib/chatProgress";
-import { type EmployeeSession, QueuedChatMessage, useEmployeeSession } from "../lib/chatSessions";
+import {
+  type EmployeeSession,
+  QueuedChatMessage,
+  shouldRenderQueuedMessage,
+  useEmployeeSession,
+} from "../lib/chatSessions";
 import { type ComposerModelOverride, resolveComposerModelId } from "../lib/composerModel";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { ChatMarkdown } from "../components/ChatMarkdown";
@@ -77,8 +82,10 @@ export default function EmployeeChat() {
     contextUsage,
     connectionState,
     sendingConvId,
+    sendingNewConversationIntent,
     sending,
     queuedMessages,
+    newConversationIntent,
     input,
     convs,
     convsLoaded,
@@ -110,12 +117,18 @@ export default function EmployeeChat() {
   const [showJumpToLatest, setShowJumpToLatest] = React.useState(false);
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const seededPrompt = React.useRef<string | null>(null);
-  const visibleQueuedMessages = queuedMessages.filter(
-    (message) =>
-      message.conversationId === activeConvId || (!message.conversationId && !activeConvId),
+  const visibleQueuedMessages = queuedMessages.filter((message) =>
+    shouldRenderQueuedMessage(
+      message.conversationId,
+      activeConvId,
+      message.newConversationIntent,
+      newConversationIntent,
+    ),
   );
   const isActiveResponse =
-    sending && (sendingConvId === activeConvId || (!sendingConvId && !activeConvId));
+    sending &&
+    sendingConvId === activeConvId &&
+    (sendingConvId !== null || sendingNewConversationIntent === newConversationIntent);
   const hasStreamingReply = streamingReply !== null && streamingReply.length > 0;
   const hasProgressCard = progress
     ? shouldShowChatProgressCard(progress.percent, progress.label, connectionState)

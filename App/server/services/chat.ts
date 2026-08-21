@@ -19,7 +19,7 @@ import { composeSigningContext } from "./signing.js";
 import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { composeTaggedChatReferenceContext } from "./chatReferences.js";
-import { runEmployeeAgent } from "./agent/runEmployee.js";
+import { runEmployeeAgent, runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentMessage, AgentProgress, ContextUsage } from "./agent/types.js";
 import { config } from "../../config.js";
 import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
@@ -37,6 +37,7 @@ import { Membership } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
 import { createPrivilegedMemberToolAuthorizer } from "./memberTurnAuthority.js";
 import { codingRuntimeAvailability } from "./agent/codingAvailability.js";
+import { createTldrChatSource } from "./tldrChatSource.js";
 
 /**
  * Chat seam.
@@ -280,6 +281,24 @@ export function composeUntrustedChatSystemPrompt(): string {
   ].join("\n");
 }
 
+/** A deliberately small prompt for the tool-contained opening of a TLDR discussion. */
+function composeTldrDiscussionSystemPrompt(
+  co: Company,
+  emp: AIEmployee,
+  sourcePrompt: string,
+): string {
+  return [
+    `You are ${emp.name}, ${emp.role} at ${co.name}. A teammate opened a direct discussion with you about a company TLDR. Reply in your own voice, guided by your Soul, while staying inside the discussion-only boundary below.`,
+    "",
+    "## Soul",
+    emp.soulBody,
+    "",
+    "## Delegated Member boundary",
+    "This is an interactive request from an authenticated Member. Their live company membership and authentication are checked again when the linked TLDR is read. A denial is an authorization boundary; do not work around it or infer unavailable data.",
+    sourcePrompt,
+  ].join("\n");
+}
+
 /** Non-streaming wrapper. */
 export async function chatWithEmployee(
   companyId: string,
@@ -306,7 +325,6 @@ export async function streamChatWithEmployee(
 ): Promise<ChatResult> {
   const empRepo = AppDataSource.getRepository(AIEmployee);
   const coRepo = AppDataSource.getRepository(Company);
-  const skillRepo = AppDataSource.getRepository(Skill);
 
   const emp = await empRepo.findOneBy({ id: employeeId, companyId });
   if (!emp)
@@ -314,7 +332,6 @@ export async function streamChatWithEmployee(
   const co = await coRepo.findOneBy({ id: companyId });
   if (!co) return { status: "error", reply: "Company not found.", attachmentIds: [], sidecars: {} };
   const model = await resolveChatModel(emp.id, options.modelId);
-  const skills = await skillRepo.find({ where: { employeeId: emp.id } });
 
   const [requesterMembership, requesterUser] = options.requesterUserId
     ? await Promise.all([
@@ -344,8 +361,22 @@ export async function streamChatWithEmployee(
     requesterMembership,
     options.toolAuthority,
   );
-  const privilegedToolSourcesAllowed = contextAccess.privilegedToolSources;
   const requesterSessionVersion = options.requesterSessionVersion;
+  const tldrChatSource =
+    requesterMembership &&
+    options.requesterUserId &&
+    requesterSessionVersion !== undefined &&
+    options.surface === "chat"
+      ? createTldrChatSource({
+          message,
+          companyId: co.id,
+          companySlug: co.slug,
+          employeeId: emp.id,
+          requesterUserId: options.requesterUserId,
+          requesterSessionVersion,
+        })
+      : null;
+  const privilegedToolSourcesAllowed = contextAccess.privilegedToolSources;
   const authorizePrivilegedToolCall =
     options.requesterUserId && requesterSessionVersion !== undefined && privilegedToolSourcesAllowed
       ? createPrivilegedMemberToolAuthorizer({
@@ -397,6 +428,70 @@ export async function streamChatWithEmployee(
 
   let mcpToken: string | null = null;
   try {
+    if (tldrChatSource) {
+      const system = composeTldrDiscussionSystemPrompt(co, emp, tldrChatSource.prompt);
+      const messages = buildMessages(history, message);
+      const controller = new AbortController();
+      const timeoutMs = Math.max(1, options.timeoutMs ?? CHAT_HARD_TIMEOUT_MS);
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const abortFromClaim = () => controller.abort();
+      if (options.signal?.aborted) controller.abort();
+      else options.signal?.addEventListener("abort", abortFromClaim, { once: true });
+      let buffered = "";
+      try {
+        const result = await runRestrictedEmployeeAgent({
+          model,
+          employeeId: emp.id,
+          system,
+          messages,
+          tools: tldrChatSource.tools,
+          maxSteps: 4,
+          signal: controller.signal,
+          callbacks: {
+            onModelRetry: (retry) => {
+              console.warn(
+                `[chat:model] employee=${emp.id} ${retry.reason}; retrying attempt ` +
+                  `${retry.attempt} of ${retry.maxAttempts} in ${retry.delayMs}ms`,
+              );
+            },
+            onText: (delta) => {
+              // Do not stream an ungrounded answer from a model that skipped
+              // the required read. Only post-read discussion reaches the UI.
+              if (!tldrChatSource.wasRead()) return;
+              buffered += delta;
+              try {
+                onChunk(delta);
+              } catch {
+                // Never let a disconnected subscriber break the discussion.
+              }
+            },
+            onProgress: options.onProgress,
+            onContextUsage: options.onContextUsage,
+          },
+        });
+        if (result.status === "error") {
+          return { status: "error", reply: result.error, attachmentIds: [], sidecars: {} };
+        }
+        if (!tldrChatSource.wasRead()) {
+          return {
+            status: "error",
+            reply: `${emp.name} did not load the linked TLDR before replying. Open the discussion again and retry.`,
+            attachmentIds: [],
+            sidecars: {},
+          };
+        }
+        // `result.finalText` may be prose emitted before the required tool
+        // read. Only text observed after `wasRead()` became true is safe to
+        // return or persist.
+        const reply = buffered.trim() || "(no reply)";
+        return { status: "ok", reply, attachmentIds: [], sidecars: {} };
+      } finally {
+        clearTimeout(timer);
+        options.signal?.removeEventListener("abort", abortFromClaim);
+      }
+    }
+
+    const skills = await AppDataSource.getRepository(Skill).find({ where: { employeeId: emp.id } });
     const parallelDelegationAvailable =
       privilegedToolSourcesAllowed && supportsParallelDelegation(model.authMode);
     const unavailableCodingTools =
@@ -529,7 +624,8 @@ export async function streamChatWithEmployee(
     const timeoutMs = Math.max(1, options.timeoutMs ?? CHAT_HARD_TIMEOUT_MS);
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const abortFromClaim = () => controller.abort();
-    options.signal?.addEventListener("abort", abortFromClaim, { once: true });
+    if (options.signal?.aborted) controller.abort();
+    else options.signal?.addEventListener("abort", abortFromClaim, { once: true });
     // Buffer everything the model streams. The persisted reply must match what the
     // human saw over SSE — not just the loop's final-turn text, which drops any
     // narration the model streamed before calling a tool.

@@ -15,6 +15,7 @@ import { Link, useOutletContext } from "react-router-dom";
 
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { useLiveRefetch } from "@/components/CompanySocket";
+import { TldrDiscussButton } from "@/components/tldrs/TldrDiscussButton";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -341,12 +342,7 @@ export default function TldrsIndex() {
                   </div>
                   <div className="space-y-3">
                     {items.map((item) => (
-                      <TldrCard
-                        key={item.id}
-                        companyId={company.id}
-                        item={item}
-                        onDismiss={dismiss}
-                      />
+                      <TldrCard key={item.id} company={company} item={item} onDismiss={dismiss} />
                     ))}
                   </div>
                 </section>
@@ -404,16 +400,18 @@ function FilterButton({
 }
 
 function TldrCard({
-  companyId,
+  company,
   item,
   onDismiss,
 }: {
-  companyId: string;
+  company: TldrsOutletContext["company"];
   item: TldrItem;
   onDismiss: (item: TldrItem) => void;
 }) {
   const employee = item.employee;
-  const avatar = employee.id ? employeeAvatarUrl(companyId, employee.id, employee.avatarKey) : null;
+  const avatar = employee.id
+    ? employeeAvatarUrl(company.id, employee.id, employee.avatarKey)
+    : null;
   const body = item.body.trim();
   const summary = item.summary.trim();
 
@@ -450,7 +448,8 @@ function TldrCard({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 sm:ml-auto">
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
+          <TldrDiscussButton company={company} item={item} compact />
           {item.triggerKind === "manual" && (
             <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               Generated manually

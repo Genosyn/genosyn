@@ -40,9 +40,13 @@ export type EmployeeSession = {
   connectionState: "streaming" | "polling" | "reconnecting" | null;
   /** Conversation currently receiving the in-flight reply. */
   sendingConvId: string | null;
+  /** Intent boundary used while that conversation is still being created. */
+  sendingNewConversationIntent: number | null;
   sending: boolean;
   /** Follow-up messages waiting for the current reply to finish. */
   queuedMessages: QueuedChatMessage[];
+  /** Client-only boundary for the selected, possibly not-yet-created thread. */
+  newConversationIntent: number;
   input: string;
   /** Active (non-archived) threads, newest first. */
   convs: ConversationSummary[];
@@ -59,6 +63,8 @@ export type EmployeeSession = {
 export type QueuedChatMessage = {
   id: string;
   conversationId: string | null;
+  /** Client-only boundary between distinct not-yet-created conversations. */
+  newConversationIntent: number;
   /** AI Model captured when this message entered the follow-up queue. */
   modelId: string | null;
   content: string;
@@ -75,8 +81,10 @@ const EMPTY: EmployeeSession = Object.freeze({
   contextUsage: null,
   connectionState: null,
   sendingConvId: null,
+  sendingNewConversationIntent: null,
   sending: false,
   queuedMessages: [],
+  newConversationIntent: 0,
   input: "",
   convs: [],
   archivedConvs: [],
@@ -93,6 +101,7 @@ type ChatActions = {
   selectConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
   refreshConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
   newConversation: (companyId: string, empId: string) => Promise<void>;
+  stageNewConversation: (companyId: string, empId: string, starterPrompt: string) => Promise<void>;
   claimConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
   deleteConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
   archiveConversation: (companyId: string, empId: string, convId: string) => Promise<void>;
@@ -124,6 +133,45 @@ type PendingChatMessage = QueuedChatMessage & {
   resolve: (error: string | null) => void;
 };
 
+/**
+ * Bind only queued follow-ups that belong to the lazy-created conversation.
+ * A staged TLDR discussion advances the intent, so it stays null and creates
+ * its own thread after any older in-flight turn finishes.
+ */
+export function bindLazyCreatedConversation<T extends QueuedChatMessage>(
+  messages: T[],
+  createdIntent: number,
+  conversationId: string,
+): T[] {
+  return messages.map((message) =>
+    !message.conversationId && message.newConversationIntent === createdIntent
+      ? ({ ...message, conversationId } as T)
+      : message,
+  );
+}
+
+/** Keep a newer staged/selected context from being replaced by an older POST. */
+export function resolveLazyCreatedSelection(
+  currentIntent: number,
+  createdIntent: number,
+  currentConversationId: string | null,
+  createdConversationId: string,
+): string | null {
+  return currentIntent === createdIntent ? createdConversationId : currentConversationId;
+}
+
+/** Render an optimistic message only in the context that originally queued it. */
+export function shouldRenderQueuedMessage(
+  conversationId: string | null,
+  currentConversationId: string | null,
+  messageIntent: number,
+  currentIntent: number,
+): boolean {
+  return conversationId
+    ? currentConversationId === conversationId
+    : currentConversationId === null && messageIntent === currentIntent;
+}
+
 export function ChatSessionsProvider({ children }: { children: React.ReactNode }) {
   const [sessions, setSessions] = React.useState<Record<string, EmployeeSession>>({});
   // Ref so async code (stream callbacks, lazy-create paths) can read the
@@ -134,6 +182,9 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
   // React render. The serializable mirror lives on EmployeeSession for UI.
   const pendingRef = React.useRef<Record<string, PendingChatMessage[]>>({});
   const workersRef = React.useRef(new Set<string>());
+  // Distinguishes separate drafts whose Conversation rows do not exist yet.
+  // In particular, a TLDR handoff must not be adopted by an older lazy POST.
+  const newConversationIntentRef = React.useRef<Record<string, number>>({});
 
   const update = React.useCallback((empId: string, u: Update) => {
     setSessions((prev) => {
@@ -172,6 +223,8 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
           convLoading: false,
           sending: working ? true : wasFollowingThisConversation ? false : s.sending,
           sendingConvId: working ? convId : wasFollowingThisConversation ? null : s.sendingConvId,
+          sendingNewConversationIntent:
+            working || wasFollowingThisConversation ? null : s.sendingNewConversationIntent,
           streamingReply: working
             ? s.streamingReply
             : wasFollowingThisConversation
@@ -220,14 +273,19 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
       if (sessionsRef.current[empId]?.convsLoaded) return;
       const base = `/api/companies/${companyId}/employees/${empId}`;
       const list = await api.get<ConversationSummary[]>(`${base}/conversations`);
-      update(empId, (s) => ({
-        ...s,
-        convs: list,
-        convsLoaded: true,
-        // Only auto-select the newest thread on first load; returning to
-        // this employee later reuses whatever they had selected.
-        activeConvId: s.activeConvId ?? list[0]?.id ?? null,
-      }));
+      update(empId, (s) => {
+        // A staged guided handoff or another loader may have won while this
+        // request was in flight. Do not overwrite its deliberate selection.
+        if (s.convsLoaded) return s;
+        return {
+          ...s,
+          convs: list,
+          convsLoaded: true,
+          // Only auto-select the newest thread on first load; returning to
+          // this employee later reuses whatever they had selected.
+          activeConvId: s.activeConvId ?? list[0]?.id ?? null,
+        };
+      });
     },
     [update],
   );
@@ -236,9 +294,16 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
     async (companyId: string, empId: string, convId: string) => {
       const cur = sessionsRef.current[empId] ?? EMPTY;
       if (cur.loadedConvId === convId && cur.activeConvId === convId) return;
+      const nextIntent = (newConversationIntentRef.current[empId] ?? 0) + 1;
+      newConversationIntentRef.current[empId] = nextIntent;
       // Drop the previous thread's gauge immediately; `applyConversationDetail`
       // re-derives it from whatever this conversation actually holds.
-      update(empId, { activeConvId: convId, convLoading: true, contextUsage: null });
+      update(empId, {
+        activeConvId: convId,
+        convLoading: true,
+        contextUsage: null,
+        newConversationIntent: nextIntent,
+      });
       const base = `/api/companies/${companyId}/employees/${empId}`;
       try {
         const detail = await api.get<ConversationDetail>(`${base}/conversations/${convId}`);
@@ -275,16 +340,74 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
   const newConversation = React.useCallback(
     async (companyId: string, empId: string) => {
       const base = `/api/companies/${companyId}/employees/${empId}`;
+      const nextIntent = (newConversationIntentRef.current[empId] ?? 0) + 1;
+      newConversationIntentRef.current[empId] = nextIntent;
+      update(empId, { newConversationIntent: nextIntent });
       const created = await api.post<ConversationSummary>(`${base}/conversations`, {});
-      update(empId, (s) => ({
-        ...s,
-        convs: [created, ...s.convs],
-        activeConvId: created.id,
-        loadedConvId: created.id,
-        messages: [],
-        contextUsage: null,
-        input: "",
-      }));
+      update(empId, (s) => {
+        const convs = [
+          created,
+          ...s.convs.filter((conversation) => conversation.id !== created.id),
+        ];
+        // A later select/stage action wins even if this POST returns last.
+        if (newConversationIntentRef.current[empId] !== nextIntent) return { ...s, convs };
+        return {
+          ...s,
+          convs,
+          activeConvId: created.id,
+          loadedConvId: created.id,
+          messages: [],
+          contextUsage: null,
+          newConversationIntent: nextIntent,
+          input: "",
+        };
+      });
+    },
+    [update],
+  );
+
+  /**
+   * Open an unsaved thread with a reviewable draft. The first explicit Send
+   * lazily creates the Conversation, so guided handoffs do not leave empty
+   * rows when a Member opens Chat and changes their mind.
+   */
+  const stageNewConversation = React.useCallback(
+    async (companyId: string, empId: string, starterPrompt: string) => {
+      const nextIntent = (newConversationIntentRef.current[empId] ?? 0) + 1;
+      newConversationIntentRef.current[empId] = nextIntent;
+      update(empId, { newConversationIntent: nextIntent });
+      const existing = sessionsRef.current[empId];
+      const conversations = existing?.convsLoaded
+        ? null
+        : await api.get<ConversationSummary[]>(
+            `/api/companies/${companyId}/employees/${empId}/conversations`,
+          );
+      update(empId, (session) => {
+        // Preserve any conversation created while the list request was in
+        // flight, then fill in rows the request knew about.
+        const fetched = conversations ?? [];
+        const knownIds = new Set(session.convs.map((conversation) => conversation.id));
+        const convs = session.convsLoaded
+          ? session.convs
+          : [...session.convs, ...fetched.filter((conversation) => !knownIds.has(conversation.id))];
+        // A later select/new/stage action wins even if this list request
+        // returns last. Its fetched rows are still safe to merge.
+        if (newConversationIntentRef.current[empId] !== nextIntent) {
+          return { ...session, convs, convsLoaded: true };
+        }
+        return {
+          ...session,
+          convs,
+          convsLoaded: true,
+          activeConvId: null,
+          loadedConvId: null,
+          messages: [],
+          contextUsage: null,
+          convLoading: false,
+          newConversationIntent: nextIntent,
+          input: starterPrompt,
+        };
+      });
     },
     [update],
   );
@@ -384,6 +507,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         clearInput?: boolean;
         attachments?: ChatAttachment[];
         conversationId?: string | null;
+        newConversationIntent?: number;
         modelId?: string | null;
       },
     ): Promise<string | null> => {
@@ -392,7 +516,15 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
       if (!msg && attachments.length === 0) return null;
       const base = `/api/companies/${companyId}/employees/${empId}`;
       const clearInput = opts?.clearInput ?? true;
-      let convId = opts?.conversationId ?? sessionsRef.current[empId]?.activeConvId ?? null;
+      // An explicit null belongs to a staged, not-yet-created conversation.
+      // Do not reinterpret it as whichever older thread happens to be active
+      // by the time this queued message drains.
+      let convId =
+        opts?.conversationId === undefined
+          ? (sessionsRef.current[empId]?.activeConvId ?? null)
+          : opts.conversationId;
+      const newConversationIntent =
+        opts?.newConversationIntent ?? newConversationIntentRef.current[empId] ?? 0;
       const tempId = `temp-${Date.now()}`;
       const tempUser: ConversationMessage = {
         id: tempId,
@@ -404,16 +536,25 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         createdAt: new Date().toISOString(),
       };
 
-      update(empId, (s) => ({
-        ...s,
-        sending: true,
-        sendingConvId: convId,
-        streamingReply: "",
-        progress: null,
-        connectionState: "streaming",
-        input: clearInput ? "" : s.input,
-        messages: !convId || s.activeConvId === convId ? [...s.messages, tempUser] : s.messages,
-      }));
+      update(empId, (s) => {
+        const isVisibleContext = shouldRenderQueuedMessage(
+          convId,
+          s.activeConvId,
+          newConversationIntent,
+          newConversationIntentRef.current[empId] ?? 0,
+        );
+        return {
+          ...s,
+          sending: true,
+          sendingConvId: convId,
+          sendingNewConversationIntent: newConversationIntent,
+          streamingReply: "",
+          progress: null,
+          connectionState: "streaming",
+          input: clearInput && isVisibleContext ? "" : s.input,
+          messages: isVisibleContext ? [...s.messages, tempUser] : s.messages,
+        };
+      });
 
       let accumulated = "";
       let gotAssistant = false;
@@ -429,19 +570,32 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
           const created = await api.post<ConversationSummary>(`${base}/conversations`, {});
           convId = created.id;
           const queue = pendingRef.current[empId] ?? [];
-          for (const pending of queue) {
-            if (!pending.conversationId) {
-              pending.conversationId = created.id;
-            }
-          }
+          pendingRef.current[empId] = bindLazyCreatedConversation(
+            queue,
+            newConversationIntent,
+            created.id,
+          );
+          const currentIntent = newConversationIntentRef.current[empId] ?? 0;
           update(empId, (s) => ({
             ...s,
-            convs: [created, ...s.convs],
-            activeConvId: created.id,
-            loadedConvId: created.id,
+            convs: [created, ...s.convs.filter((conversation) => conversation.id !== created.id)],
+            activeConvId: resolveLazyCreatedSelection(
+              currentIntent,
+              newConversationIntent,
+              s.activeConvId,
+              created.id,
+            ),
+            loadedConvId: resolveLazyCreatedSelection(
+              currentIntent,
+              newConversationIntent,
+              s.loadedConvId,
+              created.id,
+            ),
             sendingConvId: created.id,
-            queuedMessages: s.queuedMessages.map((pending) =>
-              pending.conversationId ? pending : { ...pending, conversationId: created.id },
+            queuedMessages: bindLazyCreatedConversation(
+              s.queuedMessages,
+              newConversationIntent,
+              created.id,
             ),
           }));
         }
@@ -642,7 +796,14 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         }
         const m = serverEventError ? raw : formatChatConnectionError(raw);
         update(empId, (s) => {
-          if (s.activeConvId !== convId) {
+          if (
+            !shouldRenderQueuedMessage(
+              convId,
+              s.activeConvId,
+              newConversationIntent,
+              newConversationIntentRef.current[empId] ?? 0,
+            )
+          ) {
             return { ...s, streamingReply: null, progress: null };
           }
           const userMsg = persistedUser ?? tempUser;
@@ -672,6 +833,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         update(empId, {
           sending: false,
           sendingConvId: null,
+          sendingNewConversationIntent: null,
           progress: null,
           connectionState: null,
         });
@@ -702,6 +864,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         const visibleItem: QueuedChatMessage = {
           id: makeQueuedMessageId(),
           conversationId: sessionsRef.current[empId]?.activeConvId ?? null,
+          newConversationIntent: newConversationIntentRef.current[empId] ?? 0,
           modelId: opts?.modelId ?? null,
           content,
           attachments,
@@ -717,6 +880,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
               clearInput: firstTurn ? opts?.clearInput : false,
               attachments: current.attachments,
               conversationId: current.conversationId,
+              newConversationIntent: current.newConversationIntent,
               modelId: current.modelId,
             });
             current.resolve(error);
@@ -804,6 +968,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
       selectConversation,
       refreshConversation,
       newConversation,
+      stageNewConversation,
       claimConversation,
       deleteConversation,
       archiveConversation,
@@ -818,6 +983,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
       selectConversation,
       refreshConversation,
       newConversation,
+      stageNewConversation,
       claimConversation,
       deleteConversation,
       archiveConversation,
