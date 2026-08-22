@@ -27,6 +27,7 @@ import {
   resolveInCheckout,
   runRepositoryGit,
   summarizeDiff,
+  syncDefaultBranch,
   type RepositoryCommit,
   type RepositoryDiff,
   type RepositoryTreeEntry,
@@ -586,11 +587,14 @@ export async function runRepositoryWorkSession(
 
   try {
     await ensureRepositoryWorkspace(repo);
-    if (!session.baseCommit) {
-      session.baseCommit = (
-        await runRepositoryGit(repo, repositoryCheckoutDirectory(repo), ["rev-parse", "HEAD"])
-      ).trim();
-    }
+    // Always before work starts, never after: `ensureRepositoryWorkspace` has
+    // just refreshed `origin/*`, and this is what turns that fetch into a
+    // trunk. A session that opened its branch on an earlier turn keeps the
+    // base it already has — a revision continues the work, and re-basing it
+    // mid-conversation would move the ground under commits a human is
+    // already reviewing.
+    const base = await syncDefaultBranch(repo);
+    if (!session.baseCommit) session.baseCommit = base.commit;
     if (!session.branch) session.branch = sessionBranchName(employee.slug, session.id);
     await sessionRepo.save(session);
     const directory = await ensureSessionWorktree(repo, session);

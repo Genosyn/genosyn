@@ -15,6 +15,7 @@ import type { RepositoryAccessLevel } from "../db/entities/EmployeeRepositoryGra
 import { encryptSecret, decryptSecret } from "../lib/secret.js";
 import { toSlug } from "../lib/slug.js";
 import {
+  assertSafeBranchName,
   assertSafeCredentialToken,
   assertSafeGitRemoteUrl,
   clearEnvCredentialHelper,
@@ -404,6 +405,8 @@ async function syncOneRepo(
     persistRepositoryKnownHosts(employee.companyId, employee.id, syncedKnownHosts);
   }
 
+  await fastForwardEmployeeDefaultBranch(cwd, repoPath, repo);
+
   // The checkout is model-writable. Remove reusable helpers and key paths left
   // by older releases after the credentialed server operation completes.
   await clearCredentialHelper(cwd, repoPath);
@@ -470,6 +473,61 @@ export function findGithubRepoCredential(
 
   const connectionIds = new Set(credentials.map((credential) => credential.connectionId));
   return connectionIds.size === 1 ? (credentials[0] ?? null) : null;
+}
+
+/**
+ * Bring the employee's own checkout of the default branch up to date, when
+ * that costs nothing.
+ *
+ * The sync above is fetch-only by design: this tree is where an employee's
+ * uncommitted work lives between turns, and throwing that away to match the
+ * remote is the one unrecoverable thing available here. But fetch-only also
+ * meant the tree never moved. An employee that cloned a repository in March
+ * and was asked to change a file in August read March's code, however many
+ * times `origin/*` had been refreshed in between.
+ *
+ * So the working tree advances under exactly the conditions where advancing it
+ * cannot destroy anything:
+ *
+ *   - the checkout is *on* the default branch, so no branch the employee chose
+ *     is switched away from;
+ *   - nothing is uncommitted, so there is no work in progress to lose;
+ *   - and the move is a fast-forward, so no local commit is rewritten.
+ *
+ * Any of those failing leaves the tree exactly as it was. The employee is then
+ * working from a stale trunk, which is the old behaviour and recoverable — a
+ * human can see the branch is behind. Silently discarding a half-finished
+ * change is not.
+ *
+ * Exported for its tests. What it refuses to do is the whole point of it, and
+ * reaching those refusals through a full materialize would need a database, a
+ * grant, and a live remote to assert that one `git merge` did not run.
+ */
+export async function fastForwardEmployeeDefaultBranch(
+  workspaceRoot: string,
+  repoPath: string,
+  repo: Repository,
+): Promise<void> {
+  const branch = (repo.defaultBranch ?? "").trim();
+  if (!branch) return;
+  try {
+    assertSafeBranchName(branch);
+    const current = await runGit(workspaceRoot, repoPath, ["symbolic-ref", "--short", "HEAD"]);
+    if (current.stdout.trim() !== branch) return;
+    const dirty = await runGit(workspaceRoot, repoPath, ["status", "--porcelain"]);
+    if (dirty.stdout.trim()) return;
+    // `--ff-only` refuses a divergence, which is the remaining case this must
+    // not resolve on its own.
+    await runGit(workspaceRoot, repoPath, [
+      "merge",
+      "--ff-only",
+      `refs/remotes/origin/${branch}`,
+    ]);
+  } catch {
+    // Every failure here — no such remote branch, a divergence, a detached
+    // HEAD, a repository with no commits yet — means "leave it alone", which
+    // is what the employee had before this existed.
+  }
 }
 
 async function clearCredentialHelper(workspaceRoot: string, repoPath: string): Promise<void> {

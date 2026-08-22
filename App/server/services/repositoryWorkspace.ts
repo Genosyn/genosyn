@@ -4,6 +4,7 @@ import { AppDataSource } from "../db/datasource.js";
 import { Repository } from "../db/entities/Repository.js";
 import { repositoryWorkspaceCheckout, repositoryWorkspaceRoot } from "./paths.js";
 import {
+  assertSafeBranchName,
   assertSafeCredentialToken,
   assertSafeGitRemoteUrl,
   inlineEnvCredentialHelper,
@@ -17,6 +18,11 @@ import {
 import { decryptRepositorySecret } from "./repositories.js";
 import { findConnectionForRemote, resolveConnectionToken } from "./repositoryGithub.js";
 import { readRepositoryKnownHosts, persistRepositoryKnownHosts } from "./repositorySshFiles.js";
+
+// Defined in `gitCredentialHelper` beside the remote-URL guard so the employee
+// materializer can validate a branch name without importing this module back,
+// and re-exported here because this is where every caller already looks.
+export { assertSafeBranchName } from "./gitCredentialHelper.js";
 
 /**
  * The App-owned working copy of a Repository.
@@ -1076,20 +1082,6 @@ export async function discardRepositoryChanges(repo: Repository, paths: string[]
   });
 }
 
-/** Branch names are user input that reaches Git as an argument. */
-export function assertSafeBranchName(name: string): void {
-  if (!name || name.length > 200) throw new Error("Enter a branch name.");
-  if (!/^[A-Za-z0-9._\-/]+$/.test(name)) {
-    throw new Error("Branch names may use letters, numbers, dot, dash, underscore, and slash.");
-  }
-  if (name.startsWith("-") || name.startsWith("/") || name.endsWith("/")) {
-    throw new Error("That branch name is not valid.");
-  }
-  if (name.includes("..") || name.includes("//") || name.endsWith(".lock")) {
-    throw new Error("That branch name is not valid.");
-  }
-}
-
 /**
  * Refs reach Git as arguments too, and `show`/`diff` accept a lot of syntax.
  * Keep it to the shapes the UI actually produces.
@@ -1281,6 +1273,162 @@ export async function pullRepositoryBranch(
     const after = (await git(repo, ["rev-parse", "HEAD"])).trim();
     return { updated: before !== after };
   });
+}
+
+/** What {@link syncDefaultBranch} resolved, and what it changed doing so. */
+export type DefaultBranchSync = {
+  /** The branch treated as this repository's trunk, when one could be named. */
+  branch: string | null;
+  /** The commit new work should branch from. */
+  commit: string;
+  /** Which ref {@link commit} was read from. */
+  source: "origin" | "local" | "head";
+  /** True when the local default branch was moved onto the remote's. */
+  fastForwarded: boolean;
+};
+
+/**
+ * Bring the default branch up to date and answer with the commit new AI work
+ * should start from.
+ *
+ * A work session used to branch from the Member checkout's `HEAD`, which is
+ * whatever branch somebody last switched to and however far behind it was
+ * left. Nothing ever advances a local branch on its own — {@link
+ * ensureRepositoryWorkspace} refreshes `origin/*` and deliberately stops
+ * there — so an employee could be asked to change a file and be handed a
+ * trunk from weeks ago, produce a diff against history the team had already
+ * moved past, and open a pull request full of conflicts nobody could explain.
+ *
+ * So the trunk is resolved from the remote rather than from the checkout:
+ * after the fetch, `origin/<defaultBranch>` *is* the branch as the team has
+ * it. The local branch is fast-forwarded onto it as well when that is free of
+ * consequences, which keeps the Repository UI from showing a stale trunk
+ * forever, but the session's base does not depend on that succeeding.
+ *
+ * Three things are deliberately left alone:
+ *
+ *   - **A local branch that is ahead or has diverged.** Unpushed Member
+ *     commits are the trunk this install actually has, so work starts from
+ *     them and nothing is rewritten. Throwing them away to match the remote
+ *     is the one unrecoverable move available here.
+ *   - **A branch checked out in a worktree that is not the Member checkout.**
+ *     Moving a ref out from under a checked-out tree desynchronizes its index.
+ *   - **The working tree, always.** The fast-forward of a checked-out trunk
+ *     goes through `merge --ff-only`, which refuses rather than clobber. A
+ *     refusal costs a stale local ref, not a Member's uncommitted edits.
+ */
+export async function syncDefaultBranch(repo: Repository): Promise<DefaultBranchSync> {
+  const branch = await resolveDefaultBranchName(repo);
+  return withRepositoryLock(repo.id, async () => {
+    const local = branch ? await revParseOrNull(repo, `refs/heads/${branch}`) : null;
+    const remote =
+      branch && repo.origin === "remote"
+        ? await revParseOrNull(repo, `refs/remotes/origin/${branch}`)
+        : null;
+
+    // `--is-ancestor` is also true when the two are the same commit, which is
+    // the ordinary case and correctly reports nothing to fast-forward.
+    if (branch && remote && (!local || (await isAncestorCommit(repo, local, remote)))) {
+      const fastForwarded =
+        !!local && local !== remote ? await fastForwardDefaultBranch(repo, branch, local, remote) : false;
+      return { branch, commit: remote, source: "origin", fastForwarded };
+    }
+    if (branch && local) return { branch, commit: local, source: "local", fastForwarded: false };
+    const head = (await git(repo, ["rev-parse", "HEAD"])).trim();
+    return { branch, commit: head, source: "head", fastForwarded: false };
+  });
+}
+
+/**
+ * The branch this repository calls its trunk.
+ *
+ * `defaultBranch` is the Member's stated answer and wins. It is free text on a
+ * form, though, so a value Git would reject as an argument is treated as
+ * absent rather than passed along, and the remote's own `HEAD` is asked
+ * instead — the same correction {@link adoptRemoteDefaultBranch} makes at
+ * clone time, available to a repository that was added before it existed.
+ */
+async function resolveDefaultBranchName(repo: Repository): Promise<string | null> {
+  const stored = (repo.defaultBranch ?? "").trim();
+  if (stored) {
+    try {
+      assertSafeBranchName(stored);
+      return stored;
+    } catch {
+      // Fall through to the remote's answer.
+    }
+  }
+  return detectRemoteDefaultBranch(repo);
+}
+
+async function revParseOrNull(repo: Repository, ref: string): Promise<string | null> {
+  const found = await gitOrNull(repo, ["rev-parse", "--verify", "--quiet", ref]);
+  return (found ?? "").trim() || null;
+}
+
+async function isAncestorCommit(
+  repo: Repository,
+  ancestor: string,
+  descendant: string,
+): Promise<boolean> {
+  return (await gitOrNull(repo, ["merge-base", "--is-ancestor", ancestor, descendant])) !== null;
+}
+
+/**
+ * Move the local default branch onto the remote's, when doing so cannot cost
+ * anybody anything. Returns whether the ref actually moved.
+ */
+async function fastForwardDefaultBranch(
+  repo: Repository,
+  branch: string,
+  from: string,
+  to: string,
+): Promise<boolean> {
+  const holder = await worktreeHoldingBranch(repo, branch);
+  if (holder === "other") return false;
+  if (holder === "checkout") {
+    // Git's own refusal is the safety check: it will not fast-forward over an
+    // uncommitted edit or an untracked file it would have to overwrite.
+    const merged = await gitOrNull(repo, ["merge", "--ff-only", `refs/remotes/origin/${branch}`]);
+    return merged !== null;
+  }
+  // Compare-and-swap. A concurrent session that got here first has already
+  // moved the ref, and this must not undo it.
+  const updated = await gitOrNull(repo, [
+    "update-ref",
+    "-m",
+    "genosyn: fast-forward default branch before AI work",
+    `refs/heads/${branch}`,
+    to,
+    from,
+  ]);
+  return updated !== null;
+}
+
+/**
+ * Which tree, if any, has this branch checked out.
+ *
+ * `checkout` is the Member checkout — the first entry `worktree list` prints,
+ * because it is the tree every other one was added from. `other` is a session
+ * worktree, which normally holds a `genosyn/*` branch and never the trunk, but
+ * a ref moved under a checked-out tree is corruption rather than staleness so
+ * the question is asked rather than assumed.
+ */
+async function worktreeHoldingBranch(
+  repo: Repository,
+  branch: string,
+): Promise<"checkout" | "other" | null> {
+  const listing = await gitOrNull(repo, ["worktree", "list", "--porcelain"]);
+  if (listing === null) return null;
+  const target = `branch refs/heads/${branch}`;
+  let isFirst = true;
+  for (const record of listing.split(/\n\s*\n/)) {
+    if (!record.trim()) continue;
+    const lines = record.split("\n").map((line) => line.trim());
+    if (lines.includes(target)) return isFirst ? "checkout" : "other";
+    isFirst = false;
+  }
+  return null;
 }
 
 /**

@@ -1125,6 +1125,19 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
 - [x] Repository search for Members (`git grep` over the checkout, literal and
       case-insensitive, untracked files included) — AI Employees already had it.
 - [x] Syntax highlighting in the editor, README rendered on the Overview.
+- [x] **AI work starts from the trunk, not from wherever the checkout was
+      left.** A session took its base from the Member checkout's `HEAD` —
+      whatever branch somebody last switched to, however far behind it had been
+      left — so an employee could be handed a copy of the repository from weeks
+      ago and produce a diff against history the team had already moved past.
+      The fetch that runs before every session now resolves the base from
+      `origin/<defaultBranch>` instead, and fast-forwards the local trunk as
+      well where that costs nothing. Unpushed Member commits, a diverged trunk,
+      and uncommitted edits are all left alone — the session still starts from
+      the remote's tip, and a stale local ref is the acceptable price for never
+      discarding work. A session already under way keeps its base: re-basing it
+      mid-conversation would move the ground under a diff a human is reading.
+      The per-employee checkout is fast-forwarded on the same terms.
 - [ ] Conflict resolution in the browser (a conflicting merge is refused, not
       surfaced for editing)
 - [ ] Streaming a work session's progress instead of polling it

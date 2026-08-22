@@ -179,3 +179,17 @@ export async function clearEnvCredentialHelper(runGit: GitConfigRunner): Promise
   await runGit(["config", "--local", "--add", "credential.helper", ""]);
   await runGit(["config", "--local", "--unset-all", "credential.useHttpPath"]).catch(() => {});
 }
+
+/** Branch names are user input that reaches Git as an argument. */
+export function assertSafeBranchName(name: string): void {
+  if (!name || name.length > 200) throw new Error("Enter a branch name.");
+  if (!/^[A-Za-z0-9._\-/]+$/.test(name)) {
+    throw new Error("Branch names may use letters, numbers, dot, dash, underscore, and slash.");
+  }
+  if (name.startsWith("-") || name.startsWith("/") || name.endsWith("/")) {
+    throw new Error("That branch name is not valid.");
+  }
+  if (name.includes("..") || name.includes("//") || name.endsWith(".lock")) {
+    throw new Error("That branch name is not valid.");
+  }
+}

@@ -22,6 +22,8 @@ import {
   type chatWithEmployee,
 } from "./chat.js";
 import {
+  checkoutRepositoryBranch,
+  createRepositoryBranch,
   ensureRepositoryWorkspace,
   readRepositoryFile,
   repositoryLog,
@@ -1346,5 +1348,132 @@ describe("branch naming", () => {
       "genosyn/ada-lovelace/abcdef12",
     );
     assert.equal(sessionBranchName("", "abcdef12-3456"), "genosyn/employee/abcdef12");
+  });
+});
+
+// ────────────── the trunk a session branches from ───────────────────────
+
+/**
+ * A session used to branch from the Member checkout's `HEAD` — whatever branch
+ * somebody last switched to, however far behind it had been left. These pin
+ * the replacement: work starts from the repository's *default branch*, brought
+ * up to date first, and a session already under way is never re-based out from
+ * under the human reading its diff.
+ */
+describe("the trunk a session branches from", () => {
+  test("is the default branch, not whatever the Member last checked out", async () => {
+    await grantAccess();
+    await ensureRepositoryWorkspace(repository);
+    await writeRepositoryFile(repository, "trunk.md", "the plan of record\n");
+    const trunk = await commitRepositoryChanges(repository, { message: "Set the plan" });
+    assert.ok(trunk);
+
+    // A Member wanders off to a side branch and leaves the checkout there.
+    await createRepositoryBranch(repository, "member-side");
+    await checkoutRepositoryBranch(repository, "member-side");
+    await writeRepositoryFile(repository, "side.md", "half-finished\n");
+    const side = await commitRepositoryChanges(repository, { message: "Side work" });
+    assert.ok(side);
+    assert.equal((await repositoryStatus(repository)).branch, "member-side");
+
+    let sawSideFile = true;
+    const session = await start(
+      stubChat(async (directory) => {
+        sawSideFile = fs.existsSync(path.join(directory, "side.md"));
+        sessionWriteFile(directory, "note.md", "from the trunk\n");
+        await sessionCommit(repository, directory, "Add a note");
+      }),
+    );
+
+    assert.equal(session.baseCommit, trunk.sha, "the session must start from the trunk");
+    assert.notEqual(session.baseCommit, side.sha);
+    assert.equal(sawSideFile, false, "the employee must not inherit unrelated side-branch work");
+    // The Member's checkout is exactly where they left it.
+    assert.equal((await repositoryStatus(repository)).branch, "member-side");
+  });
+
+  test("picks up a commit made on the trunk since the last session", async () => {
+    await grantAccess();
+    await ensureRepositoryWorkspace(repository);
+    await writeRepositoryFile(repository, "plan.md", "v1\n");
+    await commitRepositoryChanges(repository, { message: "Plan v1" });
+
+    const first = await start(stubChat(() => {}), "Look around");
+    await writeRepositoryFile(repository, "plan.md", "v2\n");
+    const moved = await commitRepositoryChanges(repository, { message: "Plan v2" });
+    assert.ok(moved);
+
+    let seen = "";
+    const second = await start(
+      stubChat((directory) => {
+        seen = sessionReadFile(directory, "plan.md");
+      }),
+      "Now update it",
+    );
+
+    assert.notEqual(second.baseCommit, first.baseCommit);
+    assert.equal(second.baseCommit, moved.sha);
+    assert.equal(seen, "v2\n", "a session started after a change must see the change");
+  });
+
+  test("does not re-base a session that is already under way", async () => {
+    await grantAccess();
+    await ensureRepositoryWorkspace(repository);
+    const session = await start(
+      stubChat(async (directory) => {
+        sessionWriteFile(directory, "draft.md", "first pass\n");
+        await sessionCommit(repository, directory, "First pass");
+      }),
+    );
+    const originalBase = session.baseCommit;
+    assert.ok(originalBase);
+
+    // The trunk moves while the human is reading the diff.
+    await writeRepositoryFile(repository, "unrelated.md", "meanwhile\n");
+    const advanced = await commitRepositoryChanges(repository, { message: "Unrelated work" });
+    assert.ok(advanced);
+
+    const revised = await reviseRepositoryWorkSession({
+      companyId: company.id,
+      sessionId: session.id,
+      instruction: "Add a second paragraph",
+      requesterUserId: requester.id,
+      requesterSessionVersion: 1,
+      runChat: stubChat(async (directory) => {
+        // The earlier commit is still here: this is the same branch.
+        assert.equal(sessionReadFile(directory, "draft.md"), "first pass\n");
+        sessionWriteFile(directory, "draft.md", "first pass\nsecond pass\n");
+        await sessionCommit(repository, directory, "Second pass");
+      }),
+    });
+
+    assert.equal(
+      revised.baseCommit,
+      originalBase,
+      "moving the base under a diff a human is reviewing is worse than a stale base",
+    );
+    assert.notEqual(revised.baseCommit, advanced.sha);
+  });
+
+  test("still starts when the stored default branch names a branch that is gone", async () => {
+    await grantAccess();
+    await ensureRepositoryWorkspace(repository);
+    await writeRepositoryFile(repository, "plan.md", "v1\n");
+    const head = await commitRepositoryChanges(repository, { message: "Plan v1" });
+    assert.ok(head);
+    await AppDataSource.getRepository(Repository).update(
+      { id: repository.id },
+      { defaultBranch: "trunk-that-was-renamed" },
+    );
+    repository.defaultBranch = "trunk-that-was-renamed";
+
+    const session = await start(
+      stubChat(async (directory) => {
+        sessionWriteFile(directory, "note.md", "still works\n");
+        await sessionCommit(repository, directory, "Add a note");
+      }),
+    );
+    assert.equal(session.status, "ready");
+    assert.equal(session.baseCommit, head.sha, "a wrong default branch must not block the work");
   });
 });

@@ -32,6 +32,9 @@ import {
   repositoryLog,
   repositoryStatus,
   repositoryWorkingDiff,
+  repositoryWorkspaceRootFor,
+  runRepositoryGit,
+  syncDefaultBranch,
   writeRepositoryFile,
 } from "./repositoryWorkspace.js";
 
@@ -882,5 +885,327 @@ describe("publishing a local repository to a remote", () => {
       () => publishRepositoryToRemote(repo, "https://example.invalid/acme/web.git"),
       /./,
     );
+  });
+});
+
+// ────────────────── the trunk AI work starts from ───────────────────────
+
+/**
+ * {@link syncDefaultBranch} is what stops an AI work session branching from a
+ * stale trunk. The valuable behaviour is entirely about *refs* — which commit
+ * comes back, and which local ref was allowed to move — so these run against
+ * real Git and assert on both.
+ */
+describe("the trunk AI work starts from, without a remote", () => {
+  test("is the default branch of a local repository", async () => {
+    const repo = await localRepository();
+    await writeRepositoryFile(repo, "plan.md", "v1\n");
+    const commit = await commitRepositoryChanges(repo, { message: "Add the plan" });
+
+    const base = await syncDefaultBranch(repo);
+    assert.equal(base.branch, "main");
+    assert.equal(base.source, "local");
+    assert.equal(base.fastForwarded, false);
+    assert.equal(base.commit, commit?.sha ?? "");
+  });
+
+  test("is still the default branch when the Member checked out another one", async () => {
+    const repo = await localRepository();
+    const trunk = (await repositoryLog(repo))[0].sha;
+    await createRepositoryBranch(repo, "side");
+    await checkoutRepositoryBranch(repo, "side");
+    await writeRepositoryFile(repo, "side.md", "aside\n");
+    const sideCommit = await commitRepositoryChanges(repo, { message: "Work on the side" });
+    assert.ok(sideCommit);
+
+    const base = await syncDefaultBranch(repo);
+    assert.equal(base.branch, "main");
+    assert.equal(
+      base.commit,
+      trunk,
+      "a session must branch from the trunk, not from wherever a Member wandered",
+    );
+    assert.notEqual(base.commit, sideCommit.sha);
+    // And the Member's branch is exactly where they left it.
+    assert.equal((await repositoryStatus(repo)).branch, "side");
+  });
+
+  test("falls back to HEAD when the stored default branch does not exist", async () => {
+    const repo = await localRepository({ defaultBranch: "main" });
+    const head = (await repositoryLog(repo))[0].sha;
+    repo.defaultBranch = "release-2019";
+
+    const base = await syncDefaultBranch(repo);
+    assert.equal(base.branch, "release-2019");
+    assert.equal(base.source, "head");
+    assert.equal(base.commit, head, "work still has to start somewhere");
+  });
+
+  test("falls back to HEAD when the stored default branch is not a name Git would accept", async () => {
+    const repo = await localRepository();
+    const head = (await repositoryLog(repo))[0].sha;
+    // Free text on a form. It must never reach Git as an argument.
+    repo.defaultBranch = "--upload-pack=whoami";
+
+    const base = await syncDefaultBranch(repo);
+    assert.equal(base.branch, null);
+    assert.equal(base.source, "head");
+    assert.equal(base.commit, head);
+  });
+
+  test("never touches the working tree", async () => {
+    const repo = await localRepository();
+    await writeRepositoryFile(repo, "draft.md", "unsaved thinking");
+    await syncDefaultBranch(repo);
+    assert.equal((await readRepositoryFile(repo, "draft.md")).content, "unsaved thinking");
+  });
+});
+
+/**
+ * The remote cases, against the same dumb-HTTP fixture the clone tests use —
+ * but one that can be *advanced*, because "the remote moved on and nobody told
+ * the checkout" is the entire bug this exists to fix.
+ */
+describe("the trunk AI work starts from, with a remote", () => {
+  let fixtureRoot: string;
+  let work: string;
+  let origin: string;
+  let server: http.Server;
+  let baseUrl: string;
+  let requests = 0;
+
+  const fixtureGit = (args: string[], cwd: string) =>
+    exec("git", args, {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Upstream",
+        GIT_AUTHOR_EMAIL: "upstream@example.com",
+        GIT_COMMITTER_NAME: "Upstream",
+        GIT_COMMITTER_EMAIL: "upstream@example.com",
+      },
+    });
+
+  /** Land one more commit on the remote's default branch, as a colleague would. */
+  async function advanceRemote(file: string, body: string, message: string): Promise<string> {
+    fs.writeFileSync(path.join(work, file), body);
+    await fixtureGit(["add", "-A"], work);
+    await fixtureGit(["commit", "--quiet", "-m", message], work);
+    await fixtureGit(["push", "--quiet", "origin", "main"], work);
+    // Dumb HTTP serves files, so the ref advertisement has to be rewritten.
+    await fixtureGit(["update-server-info"], origin);
+    const { stdout } = await fixtureGit(["rev-parse", "HEAD"], work);
+    return stdout.trim();
+  }
+
+  before(async () => {
+    fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-repo-trunk-"));
+    work = path.join(fixtureRoot, "work");
+    origin = path.join(fixtureRoot, "origin.git");
+    fs.mkdirSync(work, { recursive: true });
+    await fixtureGit(["init", "--quiet", "--bare", "--initial-branch=main", origin], fixtureRoot);
+    await fixtureGit(["init", "--quiet", "--initial-branch=main"], work);
+    await fixtureGit(["remote", "add", "origin", origin], work);
+    fs.writeFileSync(path.join(work, "README.md"), "# Upstream\n");
+    await fixtureGit(["add", "-A"], work);
+    await fixtureGit(["commit", "--quiet", "-m", "Initial commit"], work);
+    await fixtureGit(["push", "--quiet", "origin", "main"], work);
+    await fixtureGit(["update-server-info"], origin);
+
+    server = http.createServer((req, res) => {
+      requests += 1;
+      const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+      const candidate = path.resolve(origin, `.${decodeURIComponent(pathname)}`);
+      const relative = path.relative(path.resolve(origin), candidate);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) {
+        res.writeHead(404).end();
+        return;
+      }
+      fs.readFile(candidate, (error, body) => {
+        if (error) {
+          res.writeHead(404).end();
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/octet-stream" }).end(body);
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("no server address");
+    baseUrl = `http://127.0.0.1:${address.port}`;
+  });
+
+  after(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  });
+
+  async function clonedRepository(): Promise<Repository> {
+    const repo = makeRepository({ origin: "remote", kind: "code", gitUrl: `${baseUrl}/` });
+    await ensureRepositoryWorkspace(repo);
+    return repo;
+  }
+
+  test("moves to the remote's tip once the remote has moved", async () => {
+    const repo = await clonedRepository();
+    const stale = (await repositoryLog(repo))[0].sha;
+
+    const upstream = await advanceRemote("README.md", "# Upstream v2\n", "Second commit");
+    // The fetch a session does before it starts.
+    await ensureRepositoryWorkspace(repo);
+    const base = await syncDefaultBranch(repo);
+
+    assert.equal(base.source, "origin");
+    assert.equal(base.commit, upstream);
+    assert.notEqual(base.commit, stale, "this is the whole point");
+    assert.equal(base.fastForwarded, true, "and the local trunk stopped being stale too");
+    assert.equal((await repositoryLog(repo))[0].sha, upstream);
+  });
+
+  test("reports nothing to do when the checkout is already current", async () => {
+    const repo = await clonedRepository();
+    const first = await syncDefaultBranch(repo);
+    const second = await syncDefaultBranch(repo);
+    assert.equal(second.commit, first.commit);
+    assert.equal(second.fastForwarded, false, "an unchanged ref did not move");
+    assert.equal(second.source, "origin");
+  });
+
+  test("does not go to the network — the fetch already happened", async () => {
+    const repo = await clonedRepository();
+    const before = requests;
+    await syncDefaultBranch(repo);
+    assert.equal(
+      requests,
+      before,
+      "resolving the trunk is local ref work; a second fetch would double every session's startup",
+    );
+  });
+
+  test("fast-forwards a trunk that is not the branch checked out", async () => {
+    const repo = await clonedRepository();
+    await createRepositoryBranch(repo, "member-work");
+    await checkoutRepositoryBranch(repo, "member-work");
+
+    const upstream = await advanceRemote("notes.md", "upstream notes\n", "Add notes");
+    await ensureRepositoryWorkspace(repo);
+    const base = await syncDefaultBranch(repo);
+
+    assert.equal(base.commit, upstream);
+    assert.equal(base.fastForwarded, true);
+    // The ref moved without disturbing the tree the Member is standing in.
+    assert.equal((await repositoryStatus(repo)).branch, "member-work");
+    const local = await runRepositoryGit(repo, repositoryCheckoutPath(repo), [
+      "rev-parse",
+      "refs/heads/main",
+    ]);
+    assert.equal(local.trim(), upstream);
+  });
+
+  test("keeps unpushed Member commits as the base rather than rewinding to the remote", async () => {
+    const repo = await clonedRepository();
+    await writeRepositoryFile(repo, "local-only.md", "not pushed yet\n");
+    const localCommit = await commitRepositoryChanges(repo, { message: "Local work" });
+    assert.ok(localCommit);
+
+    const base = await syncDefaultBranch(repo);
+    assert.equal(base.source, "local");
+    assert.equal(base.commit, localCommit.sha, "the trunk this install has is the local one");
+    assert.equal(base.fastForwarded, false);
+    // Nothing was rewritten.
+    assert.equal((await repositoryLog(repo))[0].sha, localCommit.sha);
+  });
+
+  test("leaves a diverged trunk exactly as it is", async () => {
+    const repo = await clonedRepository();
+    await writeRepositoryFile(repo, "mine.md", "member line\n");
+    const localCommit = await commitRepositoryChanges(repo, { message: "Member commit" });
+    assert.ok(localCommit);
+    await advanceRemote("theirs.md", "upstream line\n", "Upstream commit");
+    await ensureRepositoryWorkspace(repo);
+
+    const base = await syncDefaultBranch(repo);
+    assert.equal(base.source, "local", "a divergence is not this function's to resolve");
+    assert.equal(base.commit, localCommit.sha);
+    assert.equal(base.fastForwarded, false);
+    assert.equal((await repositoryLog(repo))[0].sha, localCommit.sha);
+  });
+
+  test("refuses to fast-forward over an uncommitted edit, and still bases work on the remote", async () => {
+    const repo = await clonedRepository();
+    // The same file the upstream commit touches, so Git has to choose.
+    await writeRepositoryFile(repo, "README.md", "# Member was editing this\n");
+    const upstream = await advanceRemote("README.md", "# Upstream v3\n", "Rewrite the readme");
+    await ensureRepositoryWorkspace(repo);
+
+    const base = await syncDefaultBranch(repo);
+    assert.equal(base.source, "origin");
+    assert.equal(base.commit, upstream, "the session still starts from the current trunk");
+    assert.equal(base.fastForwarded, false, "a stale local ref is the acceptable cost");
+    assert.equal(
+      (await readRepositoryFile(repo, "README.md")).content,
+      "# Member was editing this\n",
+      "losing this would be the worst bug this feature could have",
+    );
+  });
+
+  test("does not move a trunk another worktree has checked out", async () => {
+    const repo = await clonedRepository();
+    await createRepositoryBranch(repo, "elsewhere");
+    await checkoutRepositoryBranch(repo, "elsewhere");
+    const held = path.join(repositoryWorkspaceRootFor(repo), "sessions", "holds-the-trunk");
+    fs.mkdirSync(path.dirname(held), { recursive: true, mode: 0o700 });
+    await runRepositoryGit(repo, repositoryCheckoutPath(repo), [
+      "worktree",
+      "add",
+      "--quiet",
+      held,
+      "main",
+    ]);
+    const pinned = (
+      await runRepositoryGit(repo, repositoryCheckoutPath(repo), ["rev-parse", "refs/heads/main"])
+    ).trim();
+
+    const upstream = await advanceRemote("held.md", "held\n", "Advance past the worktree");
+    await ensureRepositoryWorkspace(repo);
+    const base = await syncDefaultBranch(repo);
+
+    assert.equal(base.commit, upstream, "new work still starts from the remote's tip");
+    assert.equal(base.fastForwarded, false);
+    const local = await runRepositoryGit(repo, repositoryCheckoutPath(repo), [
+      "rev-parse",
+      "refs/heads/main",
+    ]);
+    assert.equal(
+      local.trim(),
+      pinned,
+      "moving a ref under a checked-out tree desynchronizes its index",
+    );
+  });
+
+  test("survives two sessions resolving the trunk at once", async () => {
+    const repo = await clonedRepository();
+    const upstream = await advanceRemote("race.md", "race\n", "Advance for the race");
+    await ensureRepositoryWorkspace(repo);
+
+    const results = await Promise.all([
+      syncDefaultBranch(repo),
+      syncDefaultBranch(repo),
+      syncDefaultBranch(repo),
+    ]);
+    for (const result of results) assert.equal(result.commit, upstream);
+    assert.equal(
+      results.filter((result) => result.fastForwarded).length,
+      1,
+      "exactly one of them moved the ref; the compare-and-swap is what makes the rest no-ops",
+    );
+  });
+
+  test("adopts the remote's own default branch when the stored one is unusable", async () => {
+    const repo = await clonedRepository();
+    repo.defaultBranch = "not a branch name";
+    const base = await syncDefaultBranch(repo);
+    assert.equal(base.branch, "main", "origin/HEAD is the answer when the form's value is not");
+    assert.equal(base.source, "origin");
   });
 });

@@ -268,9 +268,15 @@ export function Repositories() {
       <OL>
         <LI>Pick the employee, choose a suggested brief if it helps, and describe the outcome.</LI>
         <LI>
-          Genosyn creates a git <Strong>worktree</Strong> for the session next to the shared
-          checkout, on a fresh branch under <Code>genosyn/</Code>, branched from where the checkout
-          is now. Nobody else is editing it, and two sessions never collide.
+          Genosyn fetches from the remote and starts the session on the repository&apos;s{" "}
+          <Strong>default branch</Strong> as it stands there — not on whatever branch the shared
+          checkout happens to be sitting on, and not on a trunk that has been left behind. See{" "}
+          <Strong>Where a session starts</Strong> below.
+        </LI>
+        <LI>
+          It creates a git <Strong>worktree</Strong> for the session next to the shared checkout, on
+          a fresh branch under <Code>genosyn/</Code>. Nobody else is editing it, and two sessions
+          never collide.
         </LI>
         <LI>
           The employee works only through six tools Genosyn runs on its behalf — list files, read,
@@ -353,6 +359,39 @@ export function Repositories() {
         merge that would conflict is aborted rather than left half-applied. Only{" "}
         <Code>published</Code> and <Code>discarded</Code> end a session; everything else still
         accepts another instruction.
+      </P>
+
+      <H3 id="session-base">Where a session starts</H3>
+      <P>
+        Work starts from the repository&apos;s <Strong>default branch</Strong>, brought up to date
+        first. Genosyn fetches from the remote before every session and takes the trunk from{" "}
+        <Code>origin/</Code> rather than from the shared checkout, so an employee is never handed a
+        copy of the code from weeks ago and never produces a diff against history your team has
+        already moved past.
+      </P>
+      <P>
+        Where it can be done without costing you anything, the local default branch is
+        fast-forwarded to match, so the branch list and the file tree stop showing a stale trunk
+        too. Three things are deliberately left alone:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Local commits you have not pushed.</Strong> Those are the trunk this installation
+          actually has, so the session starts from them and nothing is rewritten.
+        </LI>
+        <LI>
+          <Strong>A default branch that has diverged from the remote.</Strong> Reconciling that is a
+          decision, not a refresh. Use <Strong>Pull</Strong> when you have decided.
+        </LI>
+        <LI>
+          <Strong>Your uncommitted edits, always.</Strong> If the trunk cannot fast-forward without
+          touching them, it is left behind instead. The session still starts from the remote&apos;s
+          tip either way.
+        </LI>
+      </UL>
+      <P>
+        A session already under way keeps the base it started with. Asking for changes continues on
+        the same branch rather than moving the ground under a diff you are in the middle of reading.
       </P>
 
       <H3 id="pull-requests">Opening a pull request</H3>
@@ -515,6 +554,12 @@ export function Repositories() {
         can perform from its own shell — that is what publishing a work session, or a Member pushing
         the reported branch, is for. Existing checkouts are only fetched between Runs, never
         hard-reset, so work in progress survives.
+      </P>
+      <P>
+        The default branch of that checkout is fast-forwarded before each Run when doing so cannot
+        cost anything — the checkout is on the default branch, nothing is uncommitted, and the move
+        is a fast-forward. Otherwise it is left exactly as it is, so an employee&apos;s
+        half-finished work is never discarded to make it current.
       </P>
 
       <H3 id="vs-github">Repositories vs. the GitHub integration</H3>

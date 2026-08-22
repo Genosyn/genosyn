@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   adoptLegacyCheckout,
   encryptRepoSecret,
+  fastForwardEmployeeDefaultBranch,
   findGithubRepoCredential,
   testRepositoryConnection,
 } from "./repositories.js";
@@ -319,5 +322,216 @@ describe("adopting a pre-rename checkout", () => {
     assert.doesNotThrow(() => adoptLegacyCheckout(cwd, "web", target));
     assert.equal(fs.existsSync(target), false);
     fs.rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+// ─────────── the trunk an employee checkout works from ──────────────────
+
+/**
+ * The employee's own checkout is model-writable and holds whatever an employee
+ * left uncommitted between turns, so the sync that refreshes it is fetch-only.
+ * That kept the tree safe and also kept it *still*: refs moved, the working
+ * tree never did, and an employee asked to change a file could be reading code
+ * from whenever it first cloned.
+ *
+ * {@link fastForwardEmployeeDefaultBranch} closes that gap under conditions
+ * where closing it cannot cost anything. Most of these tests assert it does
+ * nothing — that is the valuable half.
+ */
+describe("bringing an employee checkout's trunk up to date", () => {
+  const codingTools = config.agent.codingTools as {
+    enabled: boolean;
+    executionMode: "host" | "bubblewrap" | "disabled";
+    allowUnsafeHostExecution: boolean;
+  };
+  const originalCodingTools = { ...codingTools };
+
+  // The materializer runs Git over a model-writable tree, which is gated on a
+  // coding runtime. Make the host access these fixtures need explicit.
+  before(() => {
+    codingTools.enabled = true;
+    codingTools.executionMode = "host";
+    codingTools.allowUnsafeHostExecution = true;
+  });
+
+  after(() => {
+    Object.assign(codingTools, originalCodingTools);
+  });
+
+  const exec = promisify(execFile);
+  const roots: string[] = [];
+
+  after(() => {
+    for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const git = (args: string[], cwd: string) =>
+    exec("git", args, {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Fixture",
+        GIT_AUTHOR_EMAIL: "fixture@example.com",
+        GIT_COMMITTER_NAME: "Fixture",
+        GIT_COMMITTER_EMAIL: "fixture@example.com",
+      },
+    });
+
+  function repositoryRow(overrides: Partial<Repository> = {}): Repository {
+    return { defaultBranch: "main", ...overrides } as Repository;
+  }
+
+  /**
+   * A workspace holding an employee checkout whose `origin` is one commit
+   * ahead — exactly the state a fetch-only sync leaves behind.
+   */
+  async function behindCheckout(): Promise<{
+    workspaceRoot: string;
+    repoPath: string;
+    upstream: string;
+    head: () => Promise<string>;
+  }> {
+    const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-employee-sync-"));
+    roots.push(workspaceRoot);
+    const origin = path.join(workspaceRoot, "origin.git");
+    const seed = path.join(workspaceRoot, "seed");
+    const repoPath = path.join(workspaceRoot, "repositories", "web");
+
+    fs.mkdirSync(seed, { recursive: true });
+    await git(["init", "--quiet", "--bare", "--initial-branch=main", origin], workspaceRoot);
+    await git(["init", "--quiet", "--initial-branch=main"], seed);
+    await git(["remote", "add", "origin", origin], seed);
+    fs.writeFileSync(path.join(seed, "app.ts"), "export const version = 1;\n");
+    await git(["add", "-A"], seed);
+    await git(["commit", "--quiet", "-m", "First"], seed);
+    await git(["push", "--quiet", "origin", "main"], seed);
+
+    fs.mkdirSync(path.dirname(repoPath), { recursive: true });
+    await git(["clone", "--quiet", origin, repoPath], workspaceRoot);
+
+    // A colleague ships something after the employee's clone.
+    fs.writeFileSync(path.join(seed, "app.ts"), "export const version = 2;\n");
+    await git(["add", "-A"], seed);
+    await git(["commit", "--quiet", "-m", "Second"], seed);
+    await git(["push", "--quiet", "origin", "main"], seed);
+    const { stdout } = await git(["rev-parse", "HEAD"], seed);
+
+    // The fetch the materializer already did before this function is reached.
+    await git(["fetch", "--quiet", "origin"], repoPath);
+
+    return {
+      workspaceRoot,
+      repoPath,
+      upstream: stdout.trim(),
+      head: async () => (await git(["rev-parse", "HEAD"], repoPath)).stdout.trim(),
+    };
+  }
+
+  test("advances a clean checkout sitting on the default branch", async () => {
+    const fixture = await behindCheckout();
+    assert.notEqual(await fixture.head(), fixture.upstream, "the fixture must start behind");
+
+    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+
+    assert.equal(await fixture.head(), fixture.upstream);
+    assert.equal(
+      fs.readFileSync(path.join(fixture.repoPath, "app.ts"), "utf8"),
+      "export const version = 2;\n",
+      "the working tree, not just the ref",
+    );
+  });
+
+  test("leaves an uncommitted change alone, however stale that makes the tree", async () => {
+    const fixture = await behindCheckout();
+    const stale = await fixture.head();
+    fs.writeFileSync(path.join(fixture.repoPath, "app.ts"), "export const version = 99;\n");
+
+    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+
+    assert.equal(await fixture.head(), stale);
+    assert.equal(
+      fs.readFileSync(path.join(fixture.repoPath, "app.ts"), "utf8"),
+      "export const version = 99;\n",
+      "an employee's work in progress is not this function's to discard",
+    );
+  });
+
+  test("leaves an untracked file's tree alone too", async () => {
+    const fixture = await behindCheckout();
+    const stale = await fixture.head();
+    fs.writeFileSync(path.join(fixture.repoPath, "scratch.md"), "half an idea\n");
+
+    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+
+    assert.equal(await fixture.head(), stale, "an untracked file is still work in progress");
+    assert.equal(fs.existsSync(path.join(fixture.repoPath, "scratch.md")), true);
+  });
+
+  test("leaves a checkout the employee moved to another branch alone", async () => {
+    const fixture = await behindCheckout();
+    await git(["switch", "--quiet", "--create", "feature/thing"], fixture.repoPath);
+    const stale = await fixture.head();
+
+    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+
+    assert.equal(await fixture.head(), stale);
+    const { stdout } = await git(["symbolic-ref", "--short", "HEAD"], fixture.repoPath);
+    assert.equal(stdout.trim(), "feature/thing", "switching branches under an employee is worse");
+  });
+
+  test("leaves a diverged trunk alone rather than resolving it", async () => {
+    const fixture = await behindCheckout();
+    fs.writeFileSync(path.join(fixture.repoPath, "local.ts"), "export const mine = 1;\n");
+    await git(["add", "-A"], fixture.repoPath);
+    await git(["commit", "--quiet", "-m", "Employee commit"], fixture.repoPath);
+    const local = await fixture.head();
+
+    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+
+    assert.equal(await fixture.head(), local, "--ff-only refuses, and that refusal is the point");
+  });
+
+  test("does nothing when the remote has no such branch", async () => {
+    const fixture = await behindCheckout();
+    const stale = await fixture.head();
+    await fastForwardEmployeeDefaultBranch(
+      fixture.workspaceRoot,
+      fixture.repoPath,
+      repositoryRow({ defaultBranch: "release-2019" }),
+    );
+    assert.equal(await fixture.head(), stale);
+  });
+
+  test("does nothing when the repository row has no default branch", async () => {
+    const fixture = await behindCheckout();
+    const stale = await fixture.head();
+    await fastForwardEmployeeDefaultBranch(
+      fixture.workspaceRoot,
+      fixture.repoPath,
+      repositoryRow({ defaultBranch: "" }),
+    );
+    assert.equal(await fixture.head(), stale);
+  });
+
+  test("never lets a stored branch name reach Git as an option", async () => {
+    const fixture = await behindCheckout();
+    const stale = await fixture.head();
+    await assert.doesNotReject(() =>
+      fastForwardEmployeeDefaultBranch(
+        fixture.workspaceRoot,
+        fixture.repoPath,
+        repositoryRow({ defaultBranch: "--upload-pack=touch /tmp/genosyn-pwned" }),
+      ),
+    );
+    assert.equal(await fixture.head(), stale);
+    assert.equal(fs.existsSync("/tmp/genosyn-pwned"), false);
+  });
+
+  test("is a no-op on a checkout that is already current", async () => {
+    const fixture = await behindCheckout();
+    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+    const current = await fixture.head();
+    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+    assert.equal(await fixture.head(), current);
   });
 });
