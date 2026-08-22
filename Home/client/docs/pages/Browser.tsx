@@ -372,11 +372,10 @@ export function Browser() {
         deleted. Chat sessions are not recorded.
       </P>
       <P>
-        That per-employee session is also what{" "}
-        <DocLink to="/docs/integrations">browser-login Connections</DocLink> use. When a site
-        challenges a sign-in with a captcha or an authenticator not attached to the Login, the fix
-        is to take over here and sign in once — the Connection picks up the session you established
-        and stops failing.
+        That per-employee session is also what a sign-in driven from the{" "}
+        <DocLink to="/docs/vault">Vault</DocLink> uses. When a site challenges a sign-in with a
+        captcha or an authenticator not attached to the Login, the fix is to take over here and sign
+        in once — the employee picks up the session you established and stops failing.
       </P>
 
       <H2 id="runtime">The browser it actually runs</H2>

@@ -723,14 +723,14 @@ describe("the cookie snapshot", () => {
     assert.equal(page.ctx.addedCookies.length, 0, "a stale snapshot overwrote the live profile");
   });
 
-  test("is exported on teardown so browser-login Connections still see the jar", async () => {
+  test("is exported on teardown so the next session still sees the jar", async () => {
     await seedCompanyEmployee("acme", "ada");
     const a = await seedSession("acme", "ada");
     const page = (await acquirePage(a)) as FakePage;
 
     await releasePage(a, "manual");
     await waitFor(
-      "the cookie jar to be exported for Connections",
+      "the cookie jar to be exported",
       () => page.ctx.storageStateCalls > 0,
     );
   });

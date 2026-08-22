@@ -9,6 +9,7 @@ import { encryptSecret, decryptSecret } from "../lib/secret.js";
 import {
   assertIntegrationAllowed,
   getProvider,
+  getRetiredProvider,
   providerSupportsApiKey,
 } from "../integrations/index.js";
 import {
@@ -16,14 +17,8 @@ import {
   ConnectionAuthError,
   type IntegrationConfig,
   type IntegrationRuntimeContext,
+  type RetiredIntegration,
 } from "../integrations/types.js";
-import {
-  asStorageState,
-  filterStorageState,
-  loadStorageState,
-  mergeStorageState,
-  saveStorageState,
-} from "./browserStorage.js";
 import { refreshTelegramListener } from "./telegramListener.js";
 import { createAdSpendApproval, createPaymentApproval } from "./approvals.js";
 import { makeResourceAttachmentResolver } from "./resourceAttachments.js";
@@ -61,6 +56,11 @@ export type ConnectionDTO = {
    * Empty array for API-key connections or legacy rows that pre-date
    * scope groups. The reconnect modal uses this to prefill checkboxes. */
   scopeGroups: string[];
+  /** Set when this row's connector has been removed from the catalog, so the
+   * connection list can say so instead of rendering an anonymous card the
+   * operator can only stare at. Null for every live Connection. Costs no
+   * decryption, so it cannot break the list endpoint. */
+  retired: RetiredIntegration | null;
 };
 
 export function serializeConnection(c: IntegrationConnection): ConnectionDTO {
@@ -77,6 +77,7 @@ export function serializeConnection(c: IntegrationConnection): ConnectionDTO {
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
     scopeGroups: readScopeGroups(c),
+    retired: getRetiredProvider(c.provider),
   };
 }
 
@@ -86,6 +87,9 @@ export function serializeConnection(c: IntegrationConnection): ConnectionDTO {
  * we can't decrypt — the UI treats `[]` as "no scope groups picked".
  */
 function readScopeGroups(c: IntegrationConnection): string[] {
+  // `browser` is a retired mode with rows still in the table; its config
+  // never held scope groups, so keep skipping it rather than decrypting a
+  // credential blob to learn nothing.
   if (c.authMode === "apikey" || c.authMode === "browser") return [];
   try {
     const cfg = decryptConnectionConfig(c) as { scopeGroups?: unknown };
@@ -224,49 +228,11 @@ export async function withConnectionCredentialMutation<T>(
 }
 
 /**
- * Hand a provider read/write access to one employee's shared browser
- * storage state without telling it whose it is or where it lives. The
- * identity is closed over here; the provider only ever sees `load()` /
- * `save()`, and only for the domains it names.
- *
- * The scoping is the load-bearing part. The jar holds every site the
- * employee browses, so an unscoped read would copy their Gmail cookies into
- * a Connection row that other employees hold Grants on, and an unscoped
- * write would replace the whole jar with the one site the provider happened
- * to visit — silently signing the employee out of everything else.
- *
- * `saveStorageState` wants a live Playwright context, but the only thing it
- * asks of one is `storageState()` — so a merged plain object can go through
- * the same door.
- */
-function makeSharedBrowserState(args: {
-  companyId: string;
-  employeeId: string;
-}): NonNullable<IntegrationRuntimeContext["sharedBrowserState"]> {
-  return {
-    async load(domains: string[]) {
-      const state = await loadStorageState(args.companyId, args.employeeId);
-      if (!state) return undefined;
-      return filterStorageState(state, domains);
-    },
-    async save(state: unknown, domains: string[]) {
-      const incoming = asStorageState(state);
-      if (!incoming) return;
-      const existing = await loadStorageState(args.companyId, args.employeeId);
-      const merged = mergeStorageState(existing, incoming, domains);
-      await saveStorageState(args.companyId, args.employeeId, {
-        storageState: async () => merged,
-      });
-    },
-  };
-}
-
-/**
  * Record that a Connection's credential itself is unusable. Keyed on the
  * row rather than compare-and-swapped against the config, because the
- * provider may have just rewritten that config (a browser driver stamps its
- * health record there) and losing the status write is worse than losing a
- * race for the newest message.
+ * provider may have just rewritten that config (an OAuth refresh rotates
+ * the token there) and losing the status write is worse than losing a race
+ * for the newest message.
  */
 async function markConnectionUnusable(args: {
   connection: IntegrationConnection;
@@ -424,78 +390,6 @@ export async function createServiceAccountConnection(args: {
   await repo.save(row);
   notifyConnectionChanged(row.id, row.provider);
   return row;
-}
-
-/**
- * Create a Connection from a username/password the headless browser will
- * replay at runtime. We deliberately do NOT attempt a real login at
- * create-time — login on these sites is slow, fragile, and often gated by
- * "unusual activity" challenges. The first tool call performs the login,
- * caches a `storageState`, and from then on subsequent calls reuse the
- * cached cookies. The provider's `buildBrowserLoginConfig` shapes the
- * persisted blob.
- */
-export async function createBrowserLoginConnection(args: {
-  companyId: string;
-  provider: string;
-  label: string;
-  fields: Record<string, string>;
-}): Promise<IntegrationConnection> {
-  const provider = getProvider(args.provider);
-  if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
-  if (!provider.catalog.browserLogin) {
-    throw new Error(`${provider.catalog.name} does not support browser login`);
-  }
-  if (!provider.buildBrowserLoginConfig) {
-    throw new Error(`${provider.catalog.name} declared browser-login support but has no validator`);
-  }
-  const { config, accountHint } = await provider.buildBrowserLoginConfig(args.fields);
-  const repo = AppDataSource.getRepository(IntegrationConnection);
-  const row = repo.create({
-    companyId: args.companyId,
-    provider: args.provider,
-    label: args.label.trim() || provider.catalog.name,
-    authMode: "browser",
-    encryptedConfig: encryptConnectionConfig(config, args.companyId),
-    accountHint,
-    status: "connected",
-    statusMessage: "",
-    lastCheckedAt: new Date(),
-  });
-  await repo.save(row);
-  notifyConnectionChanged(row.id, row.provider);
-  return row;
-}
-
-export async function updateBrowserLoginCredentials(args: {
-  companyId: string;
-  connectionId: string;
-  fields: Record<string, string>;
-}): Promise<IntegrationConnection | null> {
-  const repo = AppDataSource.getRepository(IntegrationConnection);
-  const existing = await repo.findOneBy({
-    companyId: args.companyId,
-    id: args.connectionId,
-  });
-  if (!existing) return null;
-  if (existing.authMode !== "browser") {
-    throw new Error(
-      `Connection is ${existing.authMode}, not browser-login — use the matching reconnect flow.`,
-    );
-  }
-  const provider = getProvider(existing.provider);
-  if (!provider || !provider.buildBrowserLoginConfig) {
-    throw new Error(`Unknown integration: ${existing.provider}`);
-  }
-  const { config, accountHint } = await provider.buildBrowserLoginConfig(args.fields);
-  existing.encryptedConfig = encryptConnectionConfig(config, existing.companyId);
-  existing.accountHint = accountHint;
-  existing.status = "connected";
-  existing.statusMessage = "";
-  existing.lastCheckedAt = new Date();
-  await repo.save(existing);
-  notifyConnectionChanged(existing.id, existing.provider);
-  return existing;
 }
 
 /**
@@ -816,7 +710,23 @@ export async function refreshConnectionStatus(
   const returnCurrent = async (): Promise<IntegrationConnection> =>
     (await repo.findOneBy({ id: conn.id, companyId: conn.companyId })) ?? conn;
   const provider = getProvider(conn.provider);
-  if (!provider || !provider.checkStatus) {
+  if (!provider) {
+    // "No provider registered" and "provider has no health hook" used to
+    // collapse into the same healthy write, so a connector removed from the
+    // catalog kept reporting a green badge — and overwrote anything that had
+    // explained why it was there. A row with no provider cannot work.
+    const retired = getRetiredProvider(conn.provider);
+    await persistConnectionStatusIfCurrent({
+      connection: conn,
+      status: "error",
+      statusMessage: retired
+        ? `${retired.name} was retired in ${retired.retiredIn}. ${retired.reason}`
+        : `The "${conn.provider}" Integration is not available on this instance.`,
+      lastCheckedAt: new Date(),
+    });
+    return returnCurrent();
+  }
+  if (!provider.checkStatus) {
     await persistConnectionStatusIfCurrent({
       connection: conn,
       status: "connected",
@@ -1030,14 +940,6 @@ export async function invokeConnectionTool(args: {
     }),
     adSpend: makeAdSpendLedger({
       connection: pair.connection,
-      employeeId: args.employee.id,
-    }),
-    // Bound to this employee's cookie jar — the same one their `browser_*`
-    // tools use, which a human can watch and take over. A browser-login
-    // provider that hits a captcha has nowhere else to turn; this is how a
-    // sign-in a human completed by hand reaches the Connection.
-    sharedBrowserState: makeSharedBrowserState({
-      companyId: pair.connection.companyId,
       employeeId: args.employee.id,
     }),
   };

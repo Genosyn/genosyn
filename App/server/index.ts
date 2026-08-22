@@ -105,6 +105,7 @@ import { bootDurableChatTurnRecovery } from "./services/durableChatTurns.js";
 import { bootSignatureExpirySweeper } from "./services/signing.js";
 import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
 import { bindInstanceSecretsToDatabase } from "./services/instanceSecretsDatabase.js";
+import { backfillRetiredIntegrationsIntoVault } from "./services/retiredIntegrationVaultBackfill.js";
 import { rejectAiBrowserAppRequests } from "./services/browserRequestBoundary.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -130,6 +131,11 @@ async function main() {
   // was just added on an existing DB, promote the earliest user so the Admin
   // dashboard stays reachable. No-op once any master admin exists.
   await ensureBootstrapMasterAdmin();
+  // Connectors retired from the catalog leave their credential sealed inside
+  // a row nothing can read any more. Move it into the Vault, where a human
+  // can still reveal it, before dropping the dead Connection. Runs after the
+  // key ring is bound and validated, which is why it is not a migration.
+  await backfillRetiredIntegrationsIntoVault();
   await bootCron();
   await bootDurableChatTurnRecovery();
   await bootSignatureExpirySweeper();

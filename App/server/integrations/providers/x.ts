@@ -1,28 +1,11 @@
 import crypto from "node:crypto";
 import {
-  ConnectionAuthError,
   type IntegrationConfig,
   type IntegrationProvider,
   type IntegrationRuntimeContext,
   type IntegrationScopeGroup,
   type OauthTokenSet,
 } from "../types.js";
-import {
-  describeBrowserBlock,
-  readSessionHealth,
-} from "../../services/browserConnectionHealth.js";
-import {
-  deleteTweetViaBrowser,
-  followUserViaBrowser,
-  likeTweetViaBrowser,
-  postTweetViaBrowser,
-  retweetViaBrowser,
-  runWithXBrowser,
-  unfollowUserViaBrowser,
-  unlikeTweetViaBrowser,
-  X_SITE_NAME,
-  type XBrowserConfig,
-} from "./x-browser.js";
 
 /**
  * X.com (Twitter) — OAuth 2.0 + PKCE integration.
@@ -474,56 +457,10 @@ export const xProvider: IntegrationProvider = {
       setupDocs:
         "https://docs.x.com/resources/fundamentals/authentication/oauth-2-0/authorization-code",
     },
-    browserLogin: {
-      description:
-        "Skip the X dev project entirely. We store the username + password encrypted at rest and drive a headless browser for posts, likes, retweets, replies, and follows — search, timelines, and DMs need the OAuth mode. Heavier than OAuth and best-effort against X's anti-automation defences: X may show a captcha, a 2FA prompt, or an unusual-activity check (add a Verification value below for that one). Genosyn never solves a challenge itself — when one appears, give an AI employee that holds this connection Browser access, ask it to open x.com's login page, and use \"Take over\" in the live browser panel to sign in once by hand. That session is then reused by this connection.",
-      fields: [
-        {
-          key: "username",
-          label: "Username (handle)",
-          type: "text",
-          placeholder: "yourhandle",
-          required: true,
-          hint: "Without the leading @. Same value you type into x.com/login.",
-        },
-        {
-          key: "password",
-          label: "Password",
-          type: "password",
-          required: true,
-          hint: "Encrypted at rest with the app's session secret.",
-        },
-        {
-          key: "verification",
-          label: "Verification email or phone (optional)",
-          type: "text",
-          required: false,
-          placeholder: "you@example.com",
-          hint: "Used only when X shows the \"unusual activity\" prompt the first time we log in. Skip if you've never seen that prompt for this account.",
-        },
-      ],
-    },
     enabled: true,
   },
 
   tools: X_TOOLS,
-
-  async buildBrowserLoginConfig(input) {
-    const username = (input.username ?? "").trim().replace(/^@/, "");
-    const password = input.password ?? "";
-    const verification = (input.verification ?? "").trim();
-    if (!username) throw new Error("Username is required");
-    if (!password) throw new Error("Password is required");
-    const cfg: XBrowserConfig = {
-      username,
-      password,
-      verification: verification || undefined,
-    };
-    return {
-      config: cfg as unknown as IntegrationConfig,
-      accountHint: `@${username}`,
-    };
-  },
 
   buildOauthConfig({ tokens, userInfo, clientId, clientSecret, scopeGroups }) {
     if (!tokens.refreshToken) {
@@ -555,48 +492,32 @@ export const xProvider: IntegrationProvider = {
     return { config: cfg as unknown as IntegrationConfig, accountHint: hint };
   },
 
-  supportsTool(toolName, authMode) {
-    if (authMode !== "browser") return true;
-    return X_BROWSER_TOOLS.has(toolName);
-  },
-
-  describeAuthMode(authMode) {
-    if (authMode !== "browser") return undefined;
-    return (
-      "This connection is browser-login, not the X API: Genosyn drives x.com in a headless browser " +
-      "using a stored password. It is slower, and X can interrupt it with a captcha, a 2FA prompt, or an " +
-      "unusual-activity check that only a human can clear — so never promise this path avoids a login page. " +
-      "If a call comes back saying the sign-in is blocked, relay the remedy it gives you verbatim instead of " +
-      "retrying; the retry is already rate-limited and will fail the same way."
-    );
+  /**
+   * X speaks only its OAuth 2.0 API now — the browser-login driver is gone
+   * (the Vault plus the built-in Browser cover that ground generically).
+   *
+   * This hook survives the driver because the Connections it created did:
+   * rows with `authMode: "browser"` are still in the database, and nothing
+   * behind them can run. Answering `false` for them is what keeps the
+   * listing honest — `buildIntegrationToolListing` drops every tool a
+   * Connection cannot run, so such a row advertises nothing at all rather
+   * than seventeen tools that would each fail on the first call.
+   */
+  supportsTool(_toolName, authMode) {
+    return authMode === "oauth2";
   },
 
   async checkStatus(ctx) {
-    if (ctx.authMode === "browser") {
-      // Deliberately no live login here: a real sign-in burns 30s+ and
-      // repeated attempts are what trip X's "too many login attempts" gate.
-      // What we report instead is what we last observed while doing real
-      // work — which is the honest answer, and a far better one than the
-      // "credentials are present, so we're connected" this used to give
-      // while every tool call failed.
-      const cfg = ctx.config as XBrowserConfig;
-      if (!cfg.username || !cfg.password) {
-        return { ok: false, message: "Missing username or password" };
-      }
-      const health = readSessionHealth(cfg);
-      if (health.state !== "blocked") return { ok: true };
-      const message = describeBrowserBlock({
-        health,
-        siteName: X_SITE_NAME,
-        now: Date.now(),
-        // `checkStatus` has no employee bound to it (it runs for the whole
-        // company from Settings), so we describe the handoff generically.
-        manualSignInAvailable: false,
-      });
+    if (ctx.authMode !== "oauth2") {
+      // A Connection left over from browser login. Say so plainly instead
+      // of falling through to the token refresh and reporting whatever
+      // internal message that happens to throw — the operator's next move
+      // is a new Connection, not a retry.
       return {
         ok: false,
-        message,
-        status: health.reason === "session_expired" ? "expired" : "error",
+        status: "error",
+        message:
+          "Browser login for X has been retired. Disconnect this connection and connect X over its official API (Settings → Integrations → X → OAuth); keep the account's password in the Vault if an AI employee still needs to sign in to x.com with the built-in Browser.",
       };
     }
     try {
@@ -617,9 +538,6 @@ export const xProvider: IntegrationProvider = {
 
   async invokeTool(name, args, ctx) {
     const a = (args as Record<string, unknown>) ?? {};
-    if (ctx.authMode === "browser") {
-      return invokeXBrowserTool(name, a, ctx);
-    }
     await ensureFreshToken(ctx);
     const cfg = ctx.config as XOauthConfig;
     switch (name) {
@@ -805,156 +723,6 @@ export const xProvider: IntegrationProvider = {
   },
 };
 
-// ---------- Browser-mode dispatch ----------
-//
-// Browser-mode connections drive the x.com UI through a headless Chromium
-// instead of hitting the v2 API. We support the high-value subset of the
-// OAuth tool list — post, reply, like / unlike, retweet, delete, follow /
-// unfollow. The read-only and DM tools fall through with a clear error
-// because the UI doesn't expose them in a stable shape.
-
-/**
- * The subset of the OAuth tool list that browser mode can actually drive.
- * `supportsTool` reads this, so a browser-login Connection never advertises
- * `search_recent` or `send_dm` at all — the model can't plan around a tool
- * it was never shown, and can't mistake this connection for the API.
- */
-const X_BROWSER_TOOLS: ReadonlySet<string> = new Set([
-  "get_me",
-  "post_tweet",
-  "delete_tweet",
-  "like_tweet",
-  "unlike_tweet",
-  "retweet",
-  "follow_user",
-  "unfollow_user",
-]);
-
-async function invokeXBrowserTool(
-  name: string,
-  a: Record<string, unknown>,
-  ctx: IntegrationRuntimeContext,
-): Promise<unknown> {
-  const cfg = ctx.config as XBrowserConfig;
-  if (!cfg.username || !cfg.password) {
-    throw new ConnectionAuthError(
-      "Browser-login connection is missing credentials — reconnect from Settings → Integrations.",
-    );
-  }
-  switch (name) {
-    case "get_me": {
-      // The preflight. It used to echo the stored username back, which read
-      // as proof the account was reachable — so an employee would confirm
-      // "connected as @handle" and then fail on the very next call. Report
-      // the session we actually have, cheaply and without a login attempt.
-      const health = readSessionHealth(cfg);
-      const now = Date.now();
-      return {
-        id: "",
-        username: cfg.username,
-        name: cfg.displayName ?? "",
-        authMode: "browser",
-        session: {
-          state: health.state,
-          reason: health.reason,
-          lastSignedInAt: health.lastOkAt ? new Date(health.lastOkAt).toISOString() : null,
-          detail: describeBrowserBlock({
-            health,
-            siteName: X_SITE_NAME,
-            now,
-            manualSignInAvailable: Boolean(ctx.sharedBrowserState),
-          }),
-        },
-      };
-    }
-
-    case "post_tweet": {
-      const text = requireString(a.text, "text");
-      const replyToTweetId = strOrUndef(a.replyToTweetId);
-      return runWithXBrowser({
-        cfg,
-        ctx,
-        action: (page) => postTweetViaBrowser(page, { text, replyToTweetId }),
-      });
-    }
-
-    case "delete_tweet": {
-      const tweetId = requireString(a.tweetId, "tweetId");
-      return runWithXBrowser({
-        cfg,
-        ctx,
-        action: (page) => deleteTweetViaBrowser(page, { tweetId }),
-      });
-    }
-
-    case "like_tweet": {
-      const tweetId = requireString(a.tweetId, "tweetId");
-      return runWithXBrowser({
-        cfg,
-        ctx,
-        action: (page) => likeTweetViaBrowser(page, { tweetId }),
-      });
-    }
-
-    case "unlike_tweet": {
-      const tweetId = requireString(a.tweetId, "tweetId");
-      return runWithXBrowser({
-        cfg,
-        ctx,
-        action: (page) => unlikeTweetViaBrowser(page, { tweetId }),
-      });
-    }
-
-    case "retweet": {
-      const tweetId = requireString(a.tweetId, "tweetId");
-      return runWithXBrowser({
-        cfg,
-        ctx,
-        action: (page) => retweetViaBrowser(page, { tweetId }),
-      });
-    }
-
-    case "follow_user": {
-      // Browser mode follows by handle — the route is /<handle>, and there
-      // is no UI that takes a numeric id. Resolved before the launch, not
-      // inside the action: a bad argument shouldn't cost a browser start,
-      // and it must not be recorded as if the connection were unhealthy.
-      const handle = requireHandle(a);
-      return runWithXBrowser({
-        cfg,
-        ctx,
-        action: (page) => followUserViaBrowser(page, { handle }),
-      });
-    }
-
-    case "unfollow_user": {
-      const handle = requireHandle(a);
-      return runWithXBrowser({
-        cfg,
-        ctx,
-        action: (page) => unfollowUserViaBrowser(page, { handle }),
-      });
-    }
-
-    default:
-      throw new Error(
-        `Tool "${name}" is not available on browser-login X connections — X's web UI has no stable surface for it. Connect X over its official API (Settings → Integrations → X → OAuth) if you need search, timelines, or DMs.`,
-      );
-  }
-}
-
-/**
- * Browser mode can only act on a handle. Rather than the old "not a numeric
- * userId" scolding, tell the caller how to get one.
- */
-function requireHandle(a: Record<string, unknown>): string {
-  const handle = strOrUndef(a.handle) ?? strOrUndef(a.username);
-  if (handle) return handle.replace(/^@/, "");
-  throw new Error(
-    "Browser-login X connections identify people by `handle` (the @username), not a numeric `userId`. Pass handle instead.",
-  );
-}
-
 // ---------- Token lifecycle ----------
 
 async function ensureFreshToken(ctx: IntegrationRuntimeContext): Promise<void> {
@@ -1080,9 +848,9 @@ function strField(o: Record<string, unknown>, key: string): string {
 }
 
 /**
- * OAuth mode acts on numeric user ids, but callers frequently only have the
- * handle — and browser mode only *ever* has the handle. Accept either and
- * resolve here so one tool schema serves both auth modes.
+ * X acts on numeric user ids, but callers frequently only have the handle.
+ * Accept either and resolve here, so a model that knows a @name does not
+ * have to be taught the lookup call first.
  */
 async function resolveTargetUserId(
   cfg: XOauthConfig,

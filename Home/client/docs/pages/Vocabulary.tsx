@@ -164,7 +164,7 @@ export function Vocabulary() {
         rows={[
           {
             term: "Approval",
-            def: "A gate that blocks an action until a human ✓. Kinds include routine and lightning_payment.",
+            def: "A gate that blocks an action until a human ✓. Kinds include routine, browser_action, mcp_tool, and ad_spend.",
           },
           {
             term: "Decision",

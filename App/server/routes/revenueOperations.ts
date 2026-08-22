@@ -127,12 +127,6 @@ import {
   rollbackRevenueOperation,
 } from "../services/revenue/operations.js";
 import {
-  listRevenueFirmographicLookups,
-  MAX_FIRMOGRAPHIC_ACCOUNTS,
-  previewRevenueFirmographics,
-  proposeRevenueFirmographics,
-} from "../services/revenue/firmographics.js";
-import {
   commitLinkedRevenueImport,
   commitRevenueImport,
   getRevenueImportSummary,
@@ -1414,67 +1408,6 @@ revenueOperationsRouter.post(
     } catch (error) {
       return res.status(409).json({ error: (error as Error).message });
     }
-  }),
-);
-
-const firmographicSelectionSchema = z
-  .object({
-    connectionId: z.string().uuid(),
-    accountIds: z.array(z.string().uuid()).max(MAX_FIRMOGRAPHIC_ACCOUNTS).optional(),
-    missingOnly: z.boolean().optional(),
-    refreshOlderThanDays: z.number().int().min(1).max(3_650).optional(),
-    limit: z.number().int().min(1).max(MAX_FIRMOGRAPHIC_ACCOUNTS).optional(),
-    force: z.boolean().optional(),
-  })
-  .strict();
-
-revenueOperationsRouter.post(
-  "/revenue/enrichment/firmographics/preview",
-  validateBody(firmographicSelectionSchema),
-  h(async (req, res) => {
-    try {
-      return res.json(await previewRevenueFirmographics(cidOf(req), req.body));
-    } catch (error) {
-      return res.status(400).json({ error: (error as Error).message });
-    }
-  }),
-);
-
-revenueOperationsRouter.post(
-  "/revenue/enrichment/firmographics/propose",
-  validateBody(firmographicSelectionSchema.extend({ confirm: z.literal("PROPOSE") })),
-  h(async (req, res) => {
-    try {
-      const result = await proposeRevenueFirmographics(cidOf(req), req.body);
-      await audit(
-        req,
-        "revenue.enrichment.firmographics.propose",
-        "revenue_firmographic_lookup",
-        null,
-        "Firmographic evidence",
-        result,
-      );
-      return res.json(result);
-    } catch (error) {
-      return res.status(400).json({ error: (error as Error).message });
-    }
-  }),
-);
-
-revenueOperationsRouter.get(
-  "/revenue/enrichment/firmographics/lookups",
-  h(async (req, res) => {
-    const parsed = z
-      .object({
-        connectionId: z.string().uuid().optional(),
-        customerId: z.string().uuid().optional(),
-        status: z.enum(["matched", "not_found", "failed"]).optional(),
-        limit: z.coerce.number().int().min(1).max(500).optional(),
-        offset: z.coerce.number().int().min(0).optional(),
-      })
-      .safeParse(req.query);
-    if (!parsed.success) return res.status(400).json({ error: "Invalid query parameters" });
-    return res.json(await listRevenueFirmographicLookups(cidOf(req), parsed.data));
   }),
 );
 

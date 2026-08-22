@@ -155,7 +155,7 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         egress firewall that blocks metadata and private ranges as defense in depth.
       </P>
       <P>
-        Raw-TCP Postgres, MySQL, and Redis Connections and arbitrary Repository remotes are
+        Raw-TCP Postgres and MySQL Connections and arbitrary Repository remotes are
         disabled in shared SaaS mode until they can run in a dedicated egress worker. Fixed-host
         GitHub checkouts remain available through a granted GitHub Connection.
       </P>

@@ -1,32 +1,28 @@
-import type { IntegrationCatalogEntry, IntegrationProvider } from "./types.js";
+import type {
+  IntegrationCatalogEntry,
+  IntegrationProvider,
+  RetiredIntegration,
+} from "./types.js";
 import { stripeProvider } from "./providers/stripe.js";
 import { brexProvider } from "./providers/brex.js";
 import { googleProvider } from "./providers/google.js";
 import { googleAnalyticsProvider } from "./providers/google-analytics.js";
 import { googleSearchConsoleProvider } from "./providers/google-search-console.js";
-import { metabaseProvider } from "./providers/metabase.js";
-import { nocodbProvider } from "./providers/nocodb.js";
 import { githubProvider } from "./providers/github.js";
 import { airtableProvider } from "./providers/airtable.js";
 import { postgresProvider } from "./providers/postgres.js";
 import { mysqlProvider } from "./providers/mysql.js";
 import { clickhouseProvider } from "./providers/clickhouse.js";
-import { redisProvider } from "./providers/redis.js";
 import { notionProvider } from "./providers/notion.js";
 import { linearProvider } from "./providers/linear.js";
 import { telegramProvider } from "./providers/telegram.js";
 import { xProvider } from "./providers/x.js";
-import { nostrProvider } from "./providers/nostr.js";
-import { lightningProvider } from "./providers/lightning.js";
-import { lightningLndProvider } from "./providers/lightning-lnd.js";
 import { redditProvider } from "./providers/reddit.js";
 import { linkedinProvider } from "./providers/linkedin.js";
 import { googleAdsProvider } from "./providers/google-ads.js";
 import { metaAdsProvider } from "./providers/meta-ads.js";
 import { microsoftAdsProvider } from "./providers/microsoft-ads.js";
 import { redditAdsProvider } from "./providers/reddit-ads.js";
-import { peopleDataLabsProvider } from "./providers/people-data-labs.js";
-import { hackerNewsProvider } from "./providers/hacker-news.js";
 import { config } from "../../config.js";
 
 /**
@@ -41,32 +37,104 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [googleProvider.catalog.provider]: googleProvider,
   [googleAnalyticsProvider.catalog.provider]: googleAnalyticsProvider,
   [googleSearchConsoleProvider.catalog.provider]: googleSearchConsoleProvider,
-  [metabaseProvider.catalog.provider]: metabaseProvider,
-  [nocodbProvider.catalog.provider]: nocodbProvider,
   [githubProvider.catalog.provider]: githubProvider,
   [airtableProvider.catalog.provider]: airtableProvider,
   [postgresProvider.catalog.provider]: postgresProvider,
   [mysqlProvider.catalog.provider]: mysqlProvider,
   [clickhouseProvider.catalog.provider]: clickhouseProvider,
-  [redisProvider.catalog.provider]: redisProvider,
   [notionProvider.catalog.provider]: notionProvider,
   [linearProvider.catalog.provider]: linearProvider,
   [telegramProvider.catalog.provider]: telegramProvider,
   [xProvider.catalog.provider]: xProvider,
-  [nostrProvider.catalog.provider]: nostrProvider,
-  [lightningProvider.catalog.provider]: lightningProvider,
-  [lightningLndProvider.catalog.provider]: lightningLndProvider,
   [redditProvider.catalog.provider]: redditProvider,
   [linkedinProvider.catalog.provider]: linkedinProvider,
   [googleAdsProvider.catalog.provider]: googleAdsProvider,
   [metaAdsProvider.catalog.provider]: metaAdsProvider,
   [microsoftAdsProvider.catalog.provider]: microsoftAdsProvider,
   [redditAdsProvider.catalog.provider]: redditAdsProvider,
-  [peopleDataLabsProvider.catalog.provider]: peopleDataLabsProvider,
-  [hackerNewsProvider.catalog.provider]: hackerNewsProvider,
 };
 
-const SHARED_SAAS_BLOCKED_PROVIDERS = new Set(["postgres", "mysql", "redis"]);
+const SHARED_SAAS_BLOCKED_PROVIDERS = new Set(["postgres", "mysql"]);
+
+/**
+ * Connectors that used to be registered above and no longer are.
+ *
+ * The Vault made most of them redundant: a credential the company keeps in
+ * the Vault, plus the App browser, reaches these services without a bespoke
+ * provider module to maintain. Removing the module does not remove the
+ * `IntegrationConnection` rows an operator already created, so this table
+ * keeps the ids meaningful — the connection list explains what happened
+ * instead of rendering an anonymous broken card, and the Vault backfill
+ * (`services/retiredIntegrationVaultBackfill.ts`) uses it to decide which
+ * rows to move.
+ *
+ * Entries are permanent. An id that appears here must never be reused for a
+ * new provider: a stale row would silently adopt the new provider's meaning.
+ */
+const RETIRED_PROVIDERS: Record<string, RetiredIntegration> = {
+  nostr: {
+    provider: "nostr",
+    name: "Nostr",
+    retiredIn: "1.132.0",
+    reason: "Keep the account key in the Vault and reach relays from a Skill.",
+  },
+  lightning: {
+    provider: "lightning",
+    name: "Lightning (Nostr Wallet Connect)",
+    retiredIn: "1.132.0",
+    reason: "Keep the wallet connection string in the Vault.",
+  },
+  "lightning-lnd": {
+    provider: "lightning-lnd",
+    name: "Lightning (LND)",
+    retiredIn: "1.132.0",
+    reason: "Keep the node macaroon and TLS certificate in the Vault.",
+  },
+  "hacker-news": {
+    provider: "hacker-news",
+    name: "Hacker News",
+    retiredIn: "1.132.0",
+    reason: "Keep the login in the Vault and browse the site with the App browser.",
+  },
+  nocodb: {
+    provider: "nocodb",
+    name: "NocoDB",
+    retiredIn: "1.132.0",
+    reason: "Keep the API token in the Vault, or use native Bases.",
+  },
+  metabase: {
+    provider: "metabase",
+    name: "Metabase",
+    retiredIn: "1.132.0",
+    reason: "Keep the API key in the Vault, or use native Explore.",
+  },
+  redis: {
+    provider: "redis",
+    name: "Redis",
+    retiredIn: "1.132.0",
+    reason: "Keep the connection URL in the Vault.",
+  },
+  "people-data-labs": {
+    provider: "people-data-labs",
+    name: "People Data Labs",
+    retiredIn: "1.132.0",
+    reason: "Keep the API key in the Vault. Revenue no longer runs firmographic lookups.",
+  },
+};
+
+/**
+ * Look up a retired connector by id. Returns `null` for ids that were never
+ * registered at all, which callers should treat as an unknown provider
+ * rather than a retirement.
+ */
+export function getRetiredProvider(id: string): RetiredIntegration | null {
+  return RETIRED_PROVIDERS[id] ?? null;
+}
+
+export function listRetiredProviderIds(): string[] {
+  return Object.keys(RETIRED_PROVIDERS);
+}
+
 
 export function assertIntegrationAllowed(providerId: string): void {
   if (config.security.multiTenant && SHARED_SAAS_BLOCKED_PROVIDERS.has(providerId)) {
@@ -131,4 +199,8 @@ export function listCatalog(
   });
 }
 
-export type { IntegrationProvider, IntegrationCatalogEntry } from "./types.js";
+export type {
+  IntegrationProvider,
+  IntegrationCatalogEntry,
+  RetiredIntegration,
+} from "./types.js";

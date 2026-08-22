@@ -209,7 +209,7 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "sales manager",
     ],
     contextKeywords: ["sales", "revenue", "deal", "growth", "conversion", "forecast"],
-    integrationProviders: ["google", "people-data-labs", "stripe"],
+    integrationProviders: ["google", "stripe"],
   },
   {
     id: "monthly-revenue-report",
@@ -266,7 +266,7 @@ export const ROUTINE_RECOMMENDATION_DEFINITIONS: readonly RoutineRecommendationD
       "business development",
     ],
     contextKeywords: ["deal", "sales", "revenue", "outbound", "prospect", "conversion"],
-    integrationProviders: ["google", "people-data-labs", "linkedin"],
+    integrationProviders: ["google", "linkedin"],
   },
   {
     id: "monday-status-digest",
@@ -647,7 +647,7 @@ const INTEGRATION_AFFINITIES: readonly IntegrationAffinity[] = [
     reason: "Bring day-to-day communication and company context into recurring work.",
   },
   {
-    providers: ["google", "people-data-labs", "linkedin", "stripe"],
+    providers: ["google", "linkedin", "stripe"],
     templateIds: ["sdr", "revops-analyst", "account-executive"],
     rolePhrases: ["sales", "sdr", "revops", "revenue", "account executive", "business development"],
     contextKeywords: ["sales", "revenue", "prospect", "deal", "growth", "customer"],

@@ -149,7 +149,7 @@ don't re-litigate them.
 - **Question card** — one question a Member asked about a TLDR (`TldrQuestion`),
   answered beside the briefing rather than inside it, with its own
   company-visible conversation.
-- **Integration** — a connector type (Stripe, Gmail, Metabase, …). Static
+- **Integration** — a connector type (Stripe, Gmail, GitHub, …). Static
   catalog defined in `server/integrations/providers/<name>.ts`.
 - **Connection** — one authenticated account inside an Integration. DB row
   (`IntegrationConnection`), per-company.
@@ -198,7 +198,7 @@ genosyn/
 │   │   │   └── migrations/
 │   │   ├── routes/               # 30+ HTTP routers — auth, companies, …
 │   │   ├── services/             # cron, runner, chat, repoSync, oauth, …
-│   │   ├── integrations/providers/  # Stripe, Gmail, GitHub, Lightning, …
+│   │   ├── integrations/providers/  # Stripe, Gmail, GitHub, Linear, …
 │   │   ├── mcp-browser/          # Isolated browser MCP child for self-hosting
 │   │   ├── browser-bridge/       # Zero-dep agent a Member runs to connect their Chrome
 │   │   └── middleware/           # session, auth guard, error, zod validate
@@ -1131,19 +1131,21 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
 - [ ] Connecting to GitLab / Bitbucket the same way (today only GitHub has a
       Connection that can create a repository)
 
-### M13 — Lightning ✅
+### M13 — Lightning ✅ → retired in 1.132.0
 
-- [x] `lightning` provider (NWC / NIP-47) — wallet-agnostic via Alby Hub /
-      Mutiny / Phoenixd / Coinos / LNbits / Zeus
-- [x] `lightning-lnd` provider with REST + macaroon + optional CA pinning
-- [x] Tools: `get_info`, `get_balance`, `make_invoice`, `pay_invoice`,
-      `pay_keysend` (NWC only), `lookup_invoice`, `list_transactions`
-- [x] Spending controls (`maxPaymentSats`, `dailyLimitSats`,
-      `requireApprovalAboveSats`) enforced at the tool boundary
-- [x] Live `checkStatus` at create + on "Test connection"
-- [x] Generalized `Approval` entity with `kind` discriminator;
-      `services/approvals.ts` dispatches; lightning over-cap payments queue
-      a `lightning_payment` Approval which replays the call on approve
+Both Lightning connectors (`lightning` over NWC/NIP-47 and `lightning-lnd`)
+were removed once the Vault shipped: a wallet connection string or node
+macaroon is a credential the company keeps, not a connector Genosyn
+maintains. Existing Connections had their config moved into the Vault on
+upgrade (`services/retiredIntegrationVaultBackfill.ts`).
+
+What this milestone contributed and what survives it:
+
+- [x] Generalized `Approval` entity with a `kind` discriminator and the
+      dispatch in `services/approvals.ts` — **kept**. The pattern outlived
+      the connector and now carries `ad_spend` and browser approvals.
+- [x] `lightning_payment` remains a valid `Approval.kind` so historical rows
+      still read, but nothing issues one any more.
 
 ### M14 — API Keys + REST API ✅
 
@@ -1878,12 +1880,12 @@ or enrichment trusts the resulting records:
       calendar and writes `meeting` activities onto the Contact/Deal/Account
       timelines. Booking a meeting is still the `calendar_create_event` tool
       rather than a native scheduler; that earns its complexity later
-- [x] **Bring-your-own-key firmographics.** People Data Labs connects through
-      the Integration framework and proposes reviewable Account domain, website,
-      industry, employee-count, headquarters and parent-company evidence.
-      Preview estimates external requests without calling the provider; matched
-      and no-match lookups are cached, credit-consuming work is explicit, and AI
-      Employees need both Revenue access and a Grant to the Connection.
+- [~] **Bring-your-own-key firmographics.** Shipped against People Data Labs,
+      then **removed in 1.132.0** with that connector. It was the only
+      implementer of the `lookupCompanyFirmographics` provider hook, so the
+      hook, the Revenue firmographics service and its review surface went with
+      it. An enrichment key now lives in the Vault; re-introducing enrichment
+      means designing it for more than one vendor.
 - [ ] A second sales process per company (one nullable `processId` when asked)
 
 ### M35 — Autonomous Marketing agency ✅
@@ -2635,16 +2637,19 @@ of the original V1 backlog has shipped — what remains is mostly
       catalog. AI Employees, Skills, Routines, and Pipelines intentionally
       show every Integration because their runtimes can use any granted
       Connection.
-- [x] **Stripe, Gmail, Metabase, GitHub, Linear, Notion, Postgres,
-      MySQL, Clickhouse, Redis, Airtable, NocoDB, Telegram, X.com,
-      Nostr, Lightning (NWC + LND), Google (Calendar + Drive + Gmail
-      scopes), Google Analytics (GA4, read-only), Google Search
-      Console (read-only), Reddit, LinkedIn**
-- [x] **Hacker News (official API, read-only)** — feed monitoring, item and
-      bounded thread review, public profiles/activity, update polling, and a
-      human submission handoff. Automated writes are deliberately absent:
-      Hacker News exposes no supported write API and its guidelines prohibit
-      generated or AI-edited comments.
+- [x] **Stripe, Brex, GitHub, Linear, Notion, Postgres, MySQL, Clickhouse,
+      Airtable, Telegram, X.com, Google (Calendar + Drive + Gmail scopes),
+      Google Analytics (GA4, read-only), Google Search Console (read-only),
+      Reddit, LinkedIn**, and the ads platforms (Google, Meta, Microsoft,
+      Reddit)
+- [~] **Retired in 1.132.0:** Metabase, NocoDB, Redis, Nostr, Lightning
+      (NWC + LND), Hacker News, People Data Labs — and X's browser-login
+      auth mode. The Vault (M37) made them redundant: a credential the
+      company stores there, plus the App browser, reaches these services
+      without a bespoke provider module to keep alive. Existing Connections
+      are moved into the Vault on upgrade and then dropped; see
+      `services/retiredIntegrationVaultBackfill.ts`. Retired ids are recorded
+      permanently in `RETIRED_PROVIDERS` and must never be reused.
 - [x] **Secrets vault** (`Secret` entity, env-merged into spawns)
 - [x] **Incoming webhooks** for both routines and pipelines
 - [x] **Email attachments from Resources** — `gmail_send_message` /
@@ -2822,7 +2827,14 @@ of the original V1 backlog has shipped — what remains is mostly
         to stop rather than silently fall back to the server browser.
         Forced off in shared SaaS by startup validation. Docs at
         `/docs/member-browsers`.
-  - [x] **Browser-login Connections rejoin the same browser.** The
+  - [~] **Browser-login Connections rejoin the same browser.** *Retired in
+        1.132.0 — the whole `authMode: "browser"` mode is gone, superseded by
+        a Vault login the built-in Browser fills at the exact saved origin
+        (M37). `services/browserConnectionHealth.ts` and
+        `ctx.sharedBrowserState` were deleted with it; the shared desktop-Chrome
+        profile and the per-mode tool filtering below outlived it. Kept here
+        because the reasoning still explains why the Vault path is shaped the
+        way it is.* The
         `authMode: "browser"` Integration drivers (X today) ran a second,
         private Chromium that no human could see or take over, kept its own
         cookie jar, announced itself with a `Genosyn/0.1` user agent, and

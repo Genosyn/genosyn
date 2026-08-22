@@ -59,12 +59,12 @@ function originMatchesDomains(origin: string, domains: string[]): boolean {
 /**
  * Narrow a storage state to the sites in `domains`.
  *
- * An employee's jar accumulates cookies for everything they browse. A
- * browser-login Connection only has business with its own site, and its
- * state is persisted onto a Connection row that other employees may hold a
- * Grant for — so handing it the whole jar would put one employee's Gmail
- * session inside a Connection another employee can use. Both directions of
- * the share are scoped through here.
+ * An employee's jar accumulates cookies for everything they browse, so any
+ * caller that hands the jar somewhere else — or writes a jar back from one
+ * site's session — has to clip it to the site it actually owns first.
+ * Unscoped, a read copies the employee's Gmail session along with it, and a
+ * write replaces the whole jar with the single site that produced it,
+ * signing them out of everything else.
  */
 export function filterStorageState(state: StorageState, domains: string[]): StorageState {
   return {

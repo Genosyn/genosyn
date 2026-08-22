@@ -187,9 +187,10 @@ function profileKeyFor(companyId: string, employeeId: string): string {
 }
 
 // Which binary to launch, and how, lives in `browserProfile.ts` — shared with
-// the browser-login Integration drivers, which face the same login pages. The
-// image ships real Google Chrome running headed against a virtual display, so
-// on the standard deployment there is no disguise involved at all.
+// `browserFingerprint.ts`, which checks the same profile for
+// self-contradictions. The image ships real Google Chrome running headed
+// against a virtual display, so on the standard deployment there is no
+// disguise involved at all.
 
 type SessionRuntime = {
   id: string;

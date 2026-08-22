@@ -88,71 +88,47 @@ describe("buildIntegrationToolListing", () => {
   /**
    * The regression this whole change exists for: a browser-login X
    * connection used to advertise `x_search_recent` and `x_send_dm`, which
-   * the driver cannot do at all. An employee that sees them concludes it
+   * the driver could not do at all. An employee that sees them concludes it
    * has API access.
+   *
+   * Browser login is retired now, but the Connections it created outlived
+   * it, so the rule has more work to do rather than less: a row whose mode
+   * has no implementation left must advertise nothing whatsoever.
    */
   describe("auth-mode honesty", () => {
-    test("a browser-login connection hides the tools it cannot run", () => {
+    test("a Connection left behind by browser login lists no tools at all", () => {
       const tools = buildIntegrationToolListing([conn({ provider: "x", authMode: "browser" })]);
-      const names = tools.map((t) => t.providerToolName).sort();
-      assert.deepEqual(names, [
-        "delete_tweet",
-        "follow_user",
-        "get_me",
-        "like_tweet",
-        "post_tweet",
-        "retweet",
-        "unfollow_user",
-        "unlike_tweet",
-      ]);
-      for (const hidden of ["search_recent", "send_dm", "get_home_timeline", "unretweet"]) {
-        assert.ok(
-          !tools.some((t) => t.providerToolName === hidden),
-          `${hidden} must not be advertised on a browser connection`,
-        );
-      }
+      assert.deepEqual(tools, []);
     });
 
     test("the same integration over OAuth still gets everything", () => {
-      const browser = buildIntegrationToolListing([
-        conn({ provider: "x", authMode: "browser" }),
-      ]);
       const oauth = buildIntegrationToolListing([conn({ provider: "x", authMode: "oauth2" })]);
-      assert.ok(oauth.length > browser.length);
+      assert.equal(oauth.length, getProvider("x")!.tools.length);
       assert.ok(oauth.some((t) => t.providerToolName === "send_dm"));
     });
 
-    test("every browser-connection tool description carries the mode caveat", () => {
+    test("a description is the tool's own, prefixed — no caveat where none applies", () => {
       const tools = buildIntegrationToolListing([
-        conn({ provider: "x", authMode: "browser", label: "Brand" }),
+        conn({ provider: "x", authMode: "oauth2", label: "Brand" }),
       ]);
       assert.ok(tools.length > 0);
       for (const tool of tools) {
-        assert.match(tool.description, /^\[X \(Twitter\) · Brand\]/);
-        assert.match(tool.description, /not the X API/);
-        assert.match(tool.description, /never promise this path avoids a login page/);
+        const inner = getProvider("x")!.tools.find((t) => t.name === tool.providerToolName)!;
+        assert.equal(tool.description, `[X (Twitter) · Brand] ${inner.description}`);
       }
     });
 
-    test("OAuth descriptions stay clean — no caveat where none applies", () => {
-      const tools = buildIntegrationToolListing([conn({ provider: "x", authMode: "oauth2" })]);
-      for (const tool of tools) {
-        assert.doesNotMatch(tool.description, /not the X API/);
-      }
-    });
-
-    test("mixed-mode connections for one provider are described independently", () => {
+    test("a retired connection alongside a live one does not cost the live one its tools", () => {
       const tools = buildIntegrationToolListing([
         conn({ provider: "x", id: "api", label: "API", authMode: "oauth2" }),
         conn({ provider: "x", id: "web", label: "Web", authMode: "browser" }),
       ]);
-      const apiPost = tools.find((t) => t.name === "x_api_post_tweet")!;
-      const webPost = tools.find((t) => t.name === "x_web_post_tweet")!;
-      assert.doesNotMatch(apiPost.description, /not the X API/);
-      assert.match(webPost.description, /not the X API/);
-      // The API-only tools exist for the OAuth connection only.
+      // Two connections for one provider, so names stay disambiguated even
+      // though only one of them contributes anything.
+      assert.ok(tools.some((t) => t.name === "x_api_post_tweet"));
       assert.ok(tools.some((t) => t.name === "x_api_send_dm"));
-      assert.ok(!tools.some((t) => t.name === "x_web_send_dm"));
+      assert.ok(!tools.some((t) => t.name.startsWith("x_web_")));
+      assert.ok(tools.every((t) => t.connectionId === "api"));
     });
 
     test("providers with no supportsTool hook are unaffected", () => {
@@ -166,7 +142,7 @@ describe("buildIntegrationToolListing", () => {
   });
 
   test("schemas are passed through untouched", () => {
-    const tools = buildIntegrationToolListing([conn({ provider: "x", authMode: "browser" })]);
+    const tools = buildIntegrationToolListing([conn({ provider: "x", authMode: "oauth2" })]);
     const post = tools.find((t) => t.providerToolName === "post_tweet")!;
     assert.equal(post.inputSchema, getProvider("x")!.tools.find((t) => t.name === "post_tweet")!.inputSchema);
   });

@@ -2,7 +2,6 @@ import React from "react";
 import { useOutletContext } from "react-router-dom";
 import {
   Archive,
-  Building2,
   Check,
   DatabaseZap,
   Download,
@@ -152,22 +151,6 @@ type HistoryImportSummary = {
       reordered: boolean;
       reason?: string;
     }>;
-  }>;
-};
-type FirmographicPreview = {
-  connection: { id: string; label: string; provider: string };
-  selectedAccounts: number;
-  unavailableAccounts: number;
-  eligibleAccounts: number;
-  cachedAccounts: number;
-  completeAccounts: number;
-  estimatedExternalRequests: number;
-  rows: Array<{
-    accountId: string;
-    accountName: string;
-    missingFields: string[];
-    state: "eligible" | "cached_match" | "cached_not_found" | "complete";
-    lastAttemptedAt: string | null;
   }>;
 };
 
@@ -381,14 +364,6 @@ export default function RevenueDataQuality() {
     Record<string, { resourceType: ResourceType; resourceId: string }>
   >({});
   const [exporting, setExporting] = React.useState<(typeof EXPORTS)[number] | null>(null);
-  const [firmographicConnections, setFirmographicConnections] = React.useState<
-    IntegrationConnection[]
-  >([]);
-  const [firmographicConnectionId, setFirmographicConnectionId] = React.useState("");
-  const [firmographicAccountIds, setFirmographicAccountIds] = React.useState("");
-  const [firmographicPreview, setFirmographicPreview] = React.useState<FirmographicPreview | null>(
-    null,
-  );
   const [historyCoverage, setHistoryCoverage] =
     React.useState<RevenueDealHistoryCoveragePage | null>(null);
   const [selectedHistoryDealIds, setSelectedHistoryDealIds] = React.useState<string[]>([]);
@@ -469,16 +444,6 @@ export default function RevenueDataQuality() {
             ["finance_candidate", "stripe_candidate"].includes(row.disposition),
         ),
       ),
-    );
-    const supported = connections.filter(
-      (connection) =>
-        connection.provider === "people-data-labs" && connection.status === "connected",
-    );
-    setFirmographicConnections(supported);
-    setFirmographicConnectionId((current) =>
-      supported.some((connection) => connection.id === current)
-        ? current
-        : (supported[0]?.id ?? ""),
     );
     const connectedStripe = connections.filter(
       (connection) => connection.provider === "stripe" && connection.status === "connected",
@@ -902,55 +867,6 @@ export default function RevenueDataQuality() {
     } finally {
       setCommercialSubmitting(false);
     }
-  }
-
-  function firmographicSelection() {
-    const accountIds = firmographicAccountIds
-      .split(/[\s,]+/)
-      .map((value) => value.trim())
-      .filter(Boolean);
-    return {
-      connectionId: firmographicConnectionId,
-      accountIds: accountIds.length ? accountIds : undefined,
-      missingOnly: true,
-      limit: 100,
-    };
-  }
-
-  async function previewFirmographics() {
-    setError(null);
-    try {
-      setFirmographicPreview(
-        await api.post<FirmographicPreview>(
-          `${base}/enrichment/firmographics/preview`,
-          firmographicSelection(),
-        ),
-      );
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }
-
-  function proposeFirmographics() {
-    runMaintenance(
-      "Looking up Account firmographics…",
-      async () => {
-        const result = await api.post<{
-          externalRequests: number;
-          matched: number;
-          notFound: number;
-          cached: number;
-          failed: number;
-          proposedEvidence: number;
-        }>(`${base}/enrichment/firmographics/propose`, {
-          ...firmographicSelection(),
-          confirm: "PROPOSE",
-        });
-        setFirmographicPreview(null);
-        return result;
-      },
-      "Firmographic evidence proposals refreshed.",
-    );
   }
 
   if (
@@ -1521,85 +1437,6 @@ export default function RevenueDataQuality() {
                 Cancel
               </Button>
             </div>
-          </div>
-        )}
-      </Section>
-
-      <Section
-        title="Firmographic lookup"
-        description="Preview billable company lookups, then create reviewable Account evidence. No returned value is applied automatically."
-        icon={<Building2 size={18} />}
-      >
-        {firmographicConnections.length === 0 ? (
-          <Empty text="Connect People Data Labs from Revenue → Integrations to enrich Accounts." />
-        ) : (
-          <div className="space-y-3">
-            <div className="grid gap-3 lg:grid-cols-[18rem_1fr_auto_auto] lg:items-end">
-              <Select
-                value={firmographicConnectionId}
-                onChange={(event) => {
-                  setFirmographicConnectionId(event.target.value);
-                  setFirmographicPreview(null);
-                }}
-              >
-                {firmographicConnections.map((connection) => (
-                  <option key={connection.id} value={connection.id}>
-                    {connection.label}
-                  </option>
-                ))}
-              </Select>
-              <Input
-                value={firmographicAccountIds}
-                onChange={(event) => {
-                  setFirmographicAccountIds(event.target.value);
-                  setFirmographicPreview(null);
-                }}
-                placeholder="Optional Account UUIDs, separated by commas"
-              />
-              <Button variant="secondary" onClick={() => void previewFirmographics()}>
-                Preview
-              </Button>
-              <Button
-                disabled={
-                  !firmographicPreview ||
-                  firmographicPreview.connection.id !== firmographicConnectionId ||
-                  firmographicPreview.eligibleAccounts + firmographicPreview.cachedAccounts === 0
-                }
-                onClick={proposeFirmographics}
-              >
-                Propose evidence
-              </Button>
-            </div>
-            <p className="text-xs text-amber-700 dark:text-amber-300">
-              Successful external matches may consume provider credits. Fresh matches and no-matches
-              are cached for 30 days; preview never calls the provider.
-            </p>
-            {firmographicPreview && (
-              <div className="rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-950">
-                <p className="font-medium text-slate-700 dark:text-slate-200">
-                  {firmographicPreview.selectedAccounts} selected ·{" "}
-                  {firmographicPreview.eligibleAccounts} eligible ·{" "}
-                  {firmographicPreview.cachedAccounts} cached ·{" "}
-                  {firmographicPreview.completeAccounts} already complete · up to{" "}
-                  {firmographicPreview.estimatedExternalRequests} external requests
-                </p>
-                {firmographicPreview.unavailableAccounts > 0 && (
-                  <p className="mt-1 text-amber-700 dark:text-amber-300">
-                    {firmographicPreview.unavailableAccounts} selected Account IDs were unavailable.
-                  </p>
-                )}
-                <div className="mt-2 max-h-40 space-y-1 overflow-y-auto text-slate-500">
-                  {firmographicPreview.rows.map((row) => (
-                    <p key={row.accountId}>
-                      {row.accountName} · {row.state.replaceAll("_", " ")} ·{" "}
-                      {row.missingFields.length
-                        ? `missing ${row.missingFields.join(", ")}`
-                        : "complete"}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </Section>

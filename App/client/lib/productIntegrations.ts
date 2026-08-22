@@ -37,7 +37,7 @@ export const PRODUCT_INTEGRATION_SCOPES: Record<ProductIntegrationKey, ProductIn
     label: "Workspace",
     description:
       "Connect the communication and collaboration services your team uses alongside Workspace.",
-    providers: ["google", "telegram", "reddit", "linkedin", "x", "nostr", "hacker-news"],
+    providers: ["google", "telegram", "reddit", "linkedin", "x"],
   },
   mail: {
     label: "Email",
@@ -70,7 +70,7 @@ export const PRODUCT_INTEGRATION_SCOPES: Record<ProductIntegrationKey, ProductIn
     label: "Bases",
     description:
       "Connect external no-code databases that AI Employees can use alongside native Bases.",
-    providers: ["airtable", "nocodb"],
+    providers: ["airtable"],
   },
   notes: {
     label: "Notes",
@@ -115,7 +115,6 @@ export const PRODUCT_INTEGRATION_SCOPES: Record<ProductIntegrationKey, ProductIn
       "reddit",
       "linkedin",
       "x",
-      "hacker-news",
     ],
   },
   revenue: {
@@ -128,7 +127,6 @@ export const PRODUCT_INTEGRATION_SCOPES: Record<ProductIntegrationKey, ProductIn
       "mysql",
       "clickhouse",
       "stripe",
-      "people-data-labs",
       "google-analytics",
       "google-search-console",
       "google-ads",
@@ -150,7 +148,7 @@ export const PRODUCT_INTEGRATION_SCOPES: Record<ProductIntegrationKey, ProductIn
     label: "Finance",
     description:
       "Connect payment and banking services used for reconciliation, card expenses, and finance work.",
-    providers: ["stripe", "brex", "lightning", "lightning-lnd"],
+    providers: ["stripe", "brex"],
   },
 };
 

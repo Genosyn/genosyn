@@ -167,7 +167,6 @@ import {
   deleteBaseAttachmentBytes,
 } from "../services/baseRecordUploads.js";
 import { EmployeeMemory } from "../db/entities/EmployeeMemory.js";
-import { getProvider } from "../integrations/index.js";
 import { buildIntegrationToolListing } from "../services/integrationToolListing.js";
 import {
   archiveChannel,
@@ -481,12 +480,6 @@ import {
   exportRevenueSnapshotPage,
   revenueExportCsv,
 } from "../services/revenue/exports.js";
-import {
-  listRevenueFirmographicLookups,
-  MAX_FIRMOGRAPHIC_ACCOUNTS,
-  previewRevenueFirmographics,
-  proposeRevenueFirmographics,
-} from "../services/revenue/firmographics.js";
 import {
   listRevenueDocumentCandidates,
   reviewRevenueDocumentCandidate,
@@ -6822,117 +6815,6 @@ mcpInternalRouter.post(
       metadata: result,
     });
     res.json(result);
-  },
-);
-
-const revenueFirmographicSelectionToolSchema = z
-  .object({
-    connectionId: z.string().uuid(),
-    accountIds: z.array(z.string().uuid()).max(MAX_FIRMOGRAPHIC_ACCOUNTS).optional(),
-    missingOnly: z.boolean().optional(),
-    refreshOlderThanDays: z.number().int().min(1).max(3_650).optional(),
-    limit: z.number().int().min(1).max(MAX_FIRMOGRAPHIC_ACCOUNTS).optional(),
-    force: z.boolean().optional(),
-  })
-  .strict();
-
-async function requireFirmographicConnectionGrant(
-  req: McpRequest,
-  res: Response,
-  connectionId: string,
-): Promise<boolean> {
-  const pair = await getGrantWithConnection(req.mcpEmployee!.id, connectionId);
-  if (!pair || pair.connection.companyId !== req.mcpCompany!.id) {
-    res.status(403).json({
-      error: "This AI Employee needs a Grant to the selected firmographics Connection",
-    });
-    return false;
-  }
-  const provider = getProvider(pair.connection.provider);
-  if (!provider?.lookupCompanyFirmographics) {
-    res.status(400).json({ error: "The selected Connection does not support firmographics" });
-    return false;
-  }
-  return true;
-}
-
-mcpInternalRouter.post(
-  "/tools/preview_revenue_firmographics",
-  validateBody(revenueFirmographicSelectionToolSchema),
-  async (req: McpRequest, res) => {
-    if (!(await requireRevenue(req, res, "write"))) return;
-    const body = req.body as z.infer<typeof revenueFirmographicSelectionToolSchema>;
-    if (!(await requireFirmographicConnectionGrant(req, res, body.connectionId))) return;
-    try {
-      res.json(await previewRevenueFirmographics(req.mcpCompany!.id, body));
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  },
-);
-
-mcpInternalRouter.post(
-  "/tools/propose_revenue_firmographics",
-  validateBody(
-    revenueFirmographicSelectionToolSchema.extend({
-      confirm: z.literal("PROPOSE"),
-    }),
-  ),
-  async (req: McpRequest, res) => {
-    if (!(await requireRevenue(req, res, "write"))) return;
-    const body = req.body as z.infer<typeof revenueFirmographicSelectionToolSchema> & {
-      confirm: "PROPOSE";
-    };
-    if (!(await requireFirmographicConnectionGrant(req, res, body.connectionId))) return;
-    try {
-      const result = await proposeRevenueFirmographics(req.mcpCompany!.id, body);
-      await aiWriteTrail(req, {
-        action: "revenue.enrichment.firmographics.propose",
-        targetType: "revenue_field_evidence",
-        targetId: req.mcpCompany!.id,
-        targetLabel: "Firmographic evidence",
-        journalTitle: `${req.mcpEmployee!.name} proposed Account firmographics`,
-        metadata: result,
-      });
-      res.json(result);
-    } catch (error) {
-      res.status(400).json({ error: (error as Error).message });
-    }
-  },
-);
-
-mcpInternalRouter.post(
-  "/tools/list_revenue_firmographic_lookups",
-  validateBody(
-    z
-      .object({
-        connectionId: z.string().uuid(),
-        accountId: z.string().uuid().optional(),
-        status: z.enum(["matched", "not_found", "failed"]).optional(),
-        limit: z.number().int().min(1).max(500).optional(),
-        offset: z.number().int().min(0).optional(),
-      })
-      .strict(),
-  ),
-  async (req: McpRequest, res) => {
-    if (!(await requireRevenue(req, res, "read"))) return;
-    const body = req.body as {
-      connectionId: string;
-      accountId?: string;
-      status?: "matched" | "not_found" | "failed";
-      limit?: number;
-      offset?: number;
-    };
-    if (!(await requireFirmographicConnectionGrant(req, res, body.connectionId))) return;
-    res.json(
-      await listRevenueFirmographicLookups(req.mcpCompany!.id, {
-        connectionId: body.connectionId,
-        customerId: body.accountId,
-        status: body.status,
-        limit: body.limit,
-        offset: body.offset,
-      }),
-    );
   },
 );
 

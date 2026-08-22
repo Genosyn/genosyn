@@ -918,6 +918,8 @@ export type IntegrationAuthMode =
   | "oauth2"
   | "service_account"
   | "github_app"
+  /** Retired mode. Nothing creates one any more, but Connections made
+   *  before it was removed still serialize with it. */
   | "browser";
 export type IntegrationCatalogField = {
   key: string;
@@ -984,10 +986,6 @@ export type IntegrationCatalogEntry = {
   githubApp?: {
     setupDocs?: string;
   };
-  browserLogin?: {
-    fields: IntegrationCatalogField[];
-    description?: string;
-  };
   enabled: boolean;
   disabledReason?: string;
 };
@@ -1005,6 +1003,15 @@ export type IntegrationConnection = {
   createdAt: string;
   updatedAt: string;
   scopeGroups: string[];
+  /** Set when the connector behind this row was removed from the catalog.
+   * The connection survives so its credential is not silently orphaned. */
+  retired: RetiredIntegration | null;
+};
+export type RetiredIntegration = {
+  provider: string;
+  name: string;
+  retiredIn: string;
+  reason: string;
 };
 export type ConnectionGrant = {
   id: string;

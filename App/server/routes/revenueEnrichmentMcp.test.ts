@@ -43,9 +43,6 @@ const NEW_REVENUE_AI_TOOLS = [
   "list_deal_history_coverage",
   "preview_deal_history_backfill",
   "backfill_deal_history",
-  "preview_revenue_firmographics",
-  "propose_revenue_firmographics",
-  "list_revenue_firmographic_lookups",
   "list_commercial_value_backlog",
   "propose_finance_commercial_values",
   "propose_stripe_commercial_values",
@@ -259,42 +256,6 @@ test("Deal-history coverage and Activity backfill keep commits explicitly scoped
   });
   assert.equal(scopedCommit.status, 200, scopedCommit.body.error);
   assert.equal(scopedCommit.body.selectedDeals, 1);
-});
-
-test("firmographics require confirmation and a Grant to the selected Connection", async () => {
-  const connection = await insert(IntegrationConnection, {
-    companyId: company.id,
-    provider: "people-data-labs",
-    label: "People Data Labs",
-    authMode: "apikey",
-    encryptedConfig: "not-used-by-preview",
-    status: "connected",
-  });
-  const selection = { connectionId: connection.id, limit: 10 };
-
-  const ungrantedPreview = await aiCall("preview_revenue_firmographics", selection);
-  assert.equal(ungrantedPreview.status, 403);
-  assert.match(ungrantedPreview.body.error ?? "", /Grant/);
-  const unconfirmedProposal = await aiCall("propose_revenue_firmographics", selection);
-  assert.equal(unconfirmedProposal.status, 400);
-  const ungrantedProposal = await aiCall("propose_revenue_firmographics", {
-    ...selection,
-    confirm: "PROPOSE",
-  });
-  assert.equal(ungrantedProposal.status, 403);
-  assert.match(ungrantedProposal.body.error ?? "", /Grant/);
-  const ungrantedLookups = await aiCall("list_revenue_firmographic_lookups", selection);
-  assert.equal(ungrantedLookups.status, 403);
-  assert.match(ungrantedLookups.body.error ?? "", /Grant/);
-
-  await insert(EmployeeConnectionGrant, {
-    employeeId: employee.id,
-    connectionId: connection.id,
-  });
-  const grantedPreview = await aiCall("preview_revenue_firmographics", selection);
-  assert.equal(grantedPreview.status, 200, grantedPreview.body.error);
-  const grantedLookups = await aiCall("list_revenue_firmographic_lookups", selection);
-  assert.equal(grantedLookups.status, 200, grantedLookups.body.error);
 });
 
 test("commercial-value backlog and proposals require explicit safe scopes", async () => {

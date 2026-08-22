@@ -515,8 +515,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <H2 id="approvals">Approvals</H2>
       <P>
         Some routines should not auto-fire. Flip <Code>approvalRequired</Code> on and the runner
-        stops the moment the routine would take a sensitive action — paying a Lightning invoice,
-        sending an email, hitting a third-party API. The action is recorded as an{" "}
+        stops the moment the routine would take a sensitive action — raising an ad budget, sending
+        an email, hitting a third-party API. The action is recorded as an{" "}
         <Code>Approval</Code> row. A company owner or admin must approve or reject it from a
         logged-in browser session with recent primary and second-factor authentication; API keys and
         ordinary Members cannot open the inbox or decide approvals. Approval claims are one-shot, so
@@ -532,8 +532,22 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           <Code>routine</Code> — the whole Run is gated.
         </LI>
         <LI>
-          <Code>lightning_payment</Code> — auto-issued when a payment exceeds the per-connection
-          cap. See the <DocLink to="/docs/integrations">Integrations</DocLink> page.
+          <Code>browser_action</Code> — a form submit from an employee whose{" "}
+          <DocLink to="/docs/browser">Browser</DocLink> requires approval for submits.
+        </LI>
+        <LI>
+          <Code>mcp_tool</Code> — a guarded tool on a company-configured{" "}
+          <DocLink to="/docs/integrations">MCP server</DocLink>. The call is snapshotted and
+          replayed on approve.
+        </LI>
+        <LI>
+          <Code>ad_spend</Code> — a spend-increasing ad-platform change above the Connection&apos;s
+          threshold. See <DocLink to="/docs/marketing">Paid Marketing</DocLink>.
+        </LI>
+        <LI>
+          <Code>lightning_payment</Code> — a retired kind. Nothing issues one any more; it stays
+          readable so Approvals decided before the Lightning connector was removed keep their
+          meaning.
         </LI>
       </UL>
     </>

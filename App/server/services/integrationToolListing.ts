@@ -8,11 +8,12 @@ import type { IntegrationAuthMode } from "../integrations/types.js";
  * rule this encodes is worth testing directly.
  *
  * The rule: **a Connection advertises only what it can actually do.** The
- * same Integration behaves very differently across auth modes — X over
- * OAuth searches tweets and sends DMs; X over browser login drives the web
- * UI and can do neither. Listing the union taught employees to plan around
- * capabilities that were never there, then explain the resulting failure by
- * guessing. A tool the model was never shown is a promise it cannot make.
+ * same Integration behaves very differently across auth modes, and a
+ * Connection can outlive the mode it was created in — X's retired
+ * browser-login rows can run nothing at all now, so they list nothing at
+ * all. Listing the union taught employees to plan around capabilities that
+ * were never there, then explain the resulting failure by guessing. A tool
+ * the model was never shown is a promise it cannot make.
  */
 
 /** The connection fields this module needs — kept structural so tests

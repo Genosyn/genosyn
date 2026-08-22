@@ -2,18 +2,17 @@
  * The shared browser profile: which binary we launch, how we launch it, and
  * what — if anything — we have to pretend about.
  *
- * Three different parts of the App drive this browser:
+ * Two different parts of the App drive this browser:
  *
  *   * `browserChromium.ts` — the App-owned browser behind an employee's
- *     `browser_*` tools, which humans can watch live and take over.
- *   * the browser-login Integration drivers (`providers/x-browser.ts`),
- *     which replay a stored username/password against a site that has no
- *     usable API.
+ *     `browser_*` tools, which humans can watch live and take over. A Vault
+ *     Login is signed in here, so this is the path that meets a site with
+ *     no usable API.
  *   * `browserFingerprint.ts`, which loads the profile and checks it for
  *     self-contradictions.
  *
- * All of them talk to the same hostile login pages, so the profile lives in
- * one place and a bump for one caller is a bump for all.
+ * Both talk to the same hostile login pages, so the profile lives in one
+ * place and a bump for one caller is a bump for the other.
  *
  * ## Why this file shrank
  *
@@ -42,8 +41,8 @@
  * `chromeMaskInitScript`).
  *
  * This is camouflage, not evasion of a decision: we never solve a captcha or
- * defeat a challenge. When a site does challenge us, the browser-login drivers
- * stop and hand the page to a human (see `browserConnectionHealth.ts`).
+ * defeat a challenge. When a site does challenge us, the session stops and
+ * the page is handed to a human to take over.
  */
 
 import { execFile } from "node:child_process";
@@ -271,7 +270,7 @@ export type ChromiumLauncher = {
 let chromiumLauncherForTests: ChromiumLauncher | null = null;
 
 /**
- * Swap in a fake Chromium for tests. The browser-login drivers have real
+ * Swap in a fake Chromium for tests. The code around the browser has real
  * decision logic worth covering — which cookie jar to reach for, when to
  * refuse a retry — and none of it should need a 150 MB browser to exercise.
  * Pass `null` to restore the real loader.

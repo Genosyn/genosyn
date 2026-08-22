@@ -5494,60 +5494,6 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
-    name: "preview_revenue_firmographics",
-    description:
-      "Preview up to 100 active Accounts for a selected, granted firmographics Connection. Returns cache state, missing fields, and the maximum external requests before any provider credits are consumed. Needs `write` revenue access and a Grant to the Connection.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        connectionId: { type: "string" },
-        accountIds: { type: "array", items: { type: "string" }, maxItems: 100 },
-        missingOnly: { type: "boolean" },
-        refreshOlderThanDays: { type: "integer", minimum: 1, maximum: 3_650 },
-        limit: { type: "integer", minimum: 1, maximum: 100 },
-        force: { type: "boolean" },
-      },
-      required: ["connectionId"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "propose_revenue_firmographics",
-    description:
-      "Look up at most 100 selected Accounts through a granted firmographics Connection and create reviewable field evidence for domain, website, industry, employee count, headquarters, and parent company. This may consume provider credits; preview first and pass confirm `PROPOSE`. It never mutates Accounts directly. Needs `write` revenue access and a Grant to the Connection.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        connectionId: { type: "string" },
-        accountIds: { type: "array", items: { type: "string" }, maxItems: 100 },
-        missingOnly: { type: "boolean" },
-        refreshOlderThanDays: { type: "integer", minimum: 1, maximum: 3_650 },
-        limit: { type: "integer", minimum: 1, maximum: 100 },
-        force: { type: "boolean" },
-        confirm: { type: "string", enum: ["PROPOSE"] },
-      },
-      required: ["connectionId", "confirm"],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "list_revenue_firmographic_lookups",
-    description:
-      "Page the normalized firmographic reconciliation cache for a selected, granted Connection, including matched, not-found, and failed attempts without raw provider payloads. Needs `read` revenue access and a Grant to the Connection.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        connectionId: { type: "string" },
-        accountId: { type: "string" },
-        status: { type: "string", enum: ["matched", "not_found", "failed"] },
-        limit: { type: "integer", minimum: 1, maximum: 500 },
-        offset: { type: "integer", minimum: 0 },
-      },
-      required: ["connectionId"],
-      additionalProperties: false,
-    },
-  },
-  {
     name: "list_commercial_value_backlog",
     description:
       "Page open zero-value Deals with Account ambiguity, Finance candidates, non-Integration evidence, stale-proposal state, and a recommended disposition. Stripe data is excluded; use the explicitly granted Stripe proposal tool for it. Use this backlog to choose an explicit safe proposal scope. Needs `read` revenue access and a `read` Finance Grant.",

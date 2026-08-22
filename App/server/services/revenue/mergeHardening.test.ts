@@ -133,7 +133,7 @@ async function firmographicLookup(
     companyId,
     customerId,
     connectionId,
-    provider: "people-data-labs",
+    provider: "retired-firmographics-provider",
     providerRecordId,
     status: "matched",
     normalizedSnapshotJson: JSON.stringify({ providerRecordId }),

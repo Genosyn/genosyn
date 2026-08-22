@@ -21,18 +21,12 @@ const CATALOG: Array<{ name: string; kind: string }> = [
   { name: "Gmail / Google", kind: "comms + drive" },
   { name: "Google Analytics", kind: "analytics" },
   { name: "Google Search Console", kind: "SEO / search" },
-  { name: "People Data Labs", kind: "firmographics" },
   { name: "Notion", kind: "knowledge" },
   { name: "Airtable", kind: "data" },
   { name: "Linear", kind: "tickets" },
   { name: "Telegram", kind: "comms" },
   { name: "Postgres / MySQL / ClickHouse", kind: "databases" },
-  { name: "Redis", kind: "cache / KV" },
-  { name: "Metabase / NocoDB", kind: "BI / data" },
-  { name: "Lightning (NWC + LND)", kind: "payments" },
-  { name: "Nostr", kind: "social" },
   { name: "Reddit, X, LinkedIn", kind: "social" },
-  { name: "Hacker News", kind: "community monitoring" },
   { name: "Google Ads", kind: "paid marketing" },
   { name: "Meta Ads", kind: "paid marketing" },
   { name: "Microsoft Advertising", kind: "paid marketing" },
@@ -100,8 +94,8 @@ export function Integrations() {
         The safe disabled and bubblewrap modes omit those same-UID children; host mode in turn
         rejects OpenAI subscription auth. HTTP MCP servers remain available. In shared SaaS,
         Connection URLs and hosts must resolve to public addresses, including at socket connection
-        time, and HTTP MCP servers remain subject to the same outbound policy. Raw-TCP Postgres,
-        MySQL, and Redis Connections stay disabled until an isolated egress worker is configured.
+        time, and HTTP MCP servers remain subject to the same outbound policy. Raw-TCP Postgres and
+        MySQL Connections stay disabled until an isolated egress worker is configured.
       </Callout>
 
       <H2 id="instance-oauth-apps">Register an OAuth app once, connect with one click</H2>
@@ -172,8 +166,7 @@ export function Integrations() {
           shows payment and banking Connections.
         </LI>
         <LI>
-          <Strong>Revenue → Integrations</Strong> includes Stripe, Gmail, data Connections, and
-          People Data Labs for company firmographics.
+          <Strong>Revenue → Integrations</Strong> includes Stripe, Gmail, and data Connections.
         </LI>
         <LI>
           AI Employees, Skills, Routines, and Pipelines show the full catalog because they can use
@@ -195,81 +188,37 @@ export function Integrations() {
         working set — see <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>.
       </P>
 
-      <H2 id="browser-login">Browser-login Connections</H2>
+      <H2 id="sites-without-an-api">Sites with no usable API</H2>
       <P>
-        Most Connections talk to an API. A few sites either have no usable API or paywall the parts
-        that matter, so those Integrations also offer a <Strong>Browser login</Strong> tab: you
-        store a username and password, and Genosyn drives the real site in a real Chrome. X is the
-        main one today.
-      </P>
-      <P>
-        A browser-login Connection is <Strong>not</Strong> the site&apos;s API, and Genosyn is
-        careful not to let an AI employee believe otherwise:
+        Every Integration talks to an API. Some sites have no usable API, or paywall the parts that
+        matter, and a Connection cannot help you there — Genosyn no longer stores a site password on
+        a Connection, so there is no <Strong>Browser login</Strong> tab on X or anywhere else. Keep
+        the credential in the <DocLink to="/docs/vault">Vault</DocLink> instead and let an AI
+        employee sign in with the <DocLink to="/docs/browser">built-in Browser</DocLink>.
       </P>
       <UL>
         <LI>
-          <Strong>It only lists what it can do.</Strong> X over OAuth exposes search, timelines and
-          DMs; X over browser login exposes posting, replies, likes, retweets and follows, because
-          those are the only ones with a stable web UI to drive. The employee never sees the others,
-          so it cannot plan around them.
+          <Strong>Store the login once.</Strong> Add a Vault item carrying the site&apos;s origin,
+          the username, the password, and its authenticator setup key if it has one.
         </LI>
         <LI>
-          <Strong>Every tool description says so.</Strong> Each browser-login tool carries a caveat
-          naming the mode and warning that the site can interrupt with a challenge — so an employee
-          will not promise you a path that &quot;avoids the login page&quot;.
+          <Strong>Grant the item, not the password.</Strong> An employee with <Strong>Use</Strong>{" "}
+          fills those fields through <Code>browser_fill_vault</Code>, so the plaintext never reaches
+          the model, the Run transcript, or a log.
         </LI>
         <LI>
-          <Strong>The status pill tells the truth.</Strong> It reflects the last session Genosyn
-          actually used, not merely whether a password is stored. A Connection whose sign-in is
-          blocked shows <Strong>Error</Strong> or <Strong>Expired</Strong> with the reason and the
-          fix printed underneath it.
+          <Strong>Challenges stay human.</Strong> Genosyn never solves a captcha or a 2FA prompt it
+          has no setup key for. Open the live browser panel, click <Strong>Take over</Strong>, sign
+          in by hand once, and the employee carries on with the session you established.
         </LI>
       </UL>
-
-      <H3 id="browser-login-challenges">When the site challenges the sign-in</H3>
       <P>
-        Sites like X run captchas, two-factor prompts and &quot;unusual activity&quot; checks.
-        <Strong> Genosyn never solves a challenge.</Strong> It stops, records what it saw, and backs
-        off — repeated sign-in attempts make a soft block harden into a real one, so a blocked
-        Connection is not retried until a cooldown lapses.
-      </P>
-      <P>
-        The way through is to sign in <Strong>once, by hand</Strong>, using the live browser panel:
-      </P>
-      <KeyList
-        rows={[
-          {
-            term: "1. Browser access",
-            def: (
-              <>
-                Turn on Browser for an AI employee that holds the Connection — see{" "}
-                <DocLink to="/docs/browser">Browser</DocLink>.
-              </>
-            ),
-          },
-          {
-            term: "2. Open the login",
-            def: "Ask it to open the site's login page. The page appears in the live browser panel in chat.",
-          },
-          {
-            term: "3. Take over",
-            def: "Click “Take over” and drive the real browser yourself: type the password, clear the captcha, enter the 2FA code. The employee waits.",
-          },
-          {
-            term: "4. Carry on",
-            def: "The signed-in session is saved for that employee, and the Connection picks it up on its next call. Nothing to copy anywhere.",
-          },
-        ]}
-      />
-      <Callout kind="info" title="One session, both paths.">
-        An employee&apos;s browser session and its browser-login Connections share the same cookie
-        jar. Signing in by hand fixes the Connection, and a sign-in the Connection managed on its own
-        saves you from signing in again in chat.
-      </Callout>
-      <P>
-        The one thing a manual sign-in cannot fix is a wrong stored password — for that, use{" "}
-        <Strong>Reconnect</Strong> on the Connection. If a site keeps challenging an account, prefer
-        the Integration&apos;s official API mode where one exists.
+        X is the connector this changes most, though not in what it can do: it stays a full OAuth
+        Integration exposing search, timelines, posting, replies, likes, retweets, follows and DMs.
+        What went away is its <Strong>browser login</Strong> auth mode, which kept a site password on
+        the Connection row. Connect X over OAuth instead; if you need a site Genosyn ships no
+        Integration for, keep that login in the <DocLink to="/docs/vault">Vault</DocLink> and let the
+        built-in Browser sign in under a Grant.
       </P>
 
       <H2 id="external-mcp">Connecting an external MCP client</H2>
@@ -380,23 +329,6 @@ export function Integrations() {
         flag.
       </P>
 
-      <H3 id="hacker-news">Hacker News monitoring and review</H3>
-      <P>
-        Open <Strong>Settings → Integrations</Strong>, choose <Strong>Hacker News</Strong>, and
-        optionally enter a public HN username. Hacker News does not require an API key: the username
-        only becomes the default profile for activity tools. Grant the Connection to an AI employee,
-        then use a Skill or Routine to monitor the top, new, best, Ask HN, Show HN, or jobs feeds;
-        read individual items; review bounded comment trees; watch public profile activity; or poll
-        the official updates feed.
-      </P>
-      <Callout kind="warn" title="Publication stays human.">
-        Hacker News exposes a supported read-only API, not a write API, and its guidelines prohibit
-        generated or AI-edited comments. Genosyn therefore does not automate HN posts or comments.
-        An AI employee can package a link title, original-source URL, internal review notes, and the
-        submission checklist, but a human must review and publish it in Hacker News. Employees must
-        not draft or post HN comments.
-      </Callout>
-
       <H2 id="grants-and-revocation">Grants & revocation</H2>
       <UL>
         <LI>
@@ -436,25 +368,6 @@ export function Integrations() {
         settles.
       </P>
 
-      <H3 id="people-data-labs">People Data Labs firmographics</H3>
-      <P>
-        Open <Code>Settings → Integrations</Code>, choose <Strong>People Data Labs</Strong>, and
-        paste your own API key into a new Connection. Genosyn stores the key encrypted and keeps the
-        provider request fixed to the company-enrichment endpoint. Give an AI Employee a Grant to
-        this Connection only when it should be allowed to request firmographic evidence.
-      </P>
-      <P>
-        Use the Connection from{" "}
-        <DocLink to="/docs/revenue-data-quality#firmographics">
-          Revenue → Data quality → Firmographic lookup
-        </DocLink>
-        . Preview shows eligible Accounts, cache hits, and the maximum number of external requests
-        without calling the provider. The proposal step can return domain, website, industry,
-        employee count, headquarters, and parent-company evidence, but every value waits in the
-        Revenue evidence queue for review. Successful matches may consume your provider credits;
-        fresh matches and no-matches are cached for 30 days by default.
-      </P>
-
       <H3 id="github-engineering">GitHub & engineering grants</H3>
       <P>
         GitHub is special: a Connection holds a list of repos the employee is allowed to touch, and
@@ -466,15 +379,6 @@ export function Integrations() {
         credential when the Connection is granted to that employee. Genosyn prefers an exact
         owner/repository allowlist match and can use the employee&apos;s sole GitHub Connection when
         no disambiguation is needed.
-      </P>
-
-      <H3 id="lightning-payments">Lightning payments</H3>
-      <P>
-        The Lightning integration adds spending caps on the Connection itself:{" "}
-        <Code>maxPaymentSats</Code>, <Code>dailyLimitSats</Code>,{" "}
-        <Code>requireApprovalAboveSats</Code>. Over-cap payments queue a{" "}
-        <Code>lightning_payment</Code> <DocLink to="/docs/routines">Approval</DocLink> that replays
-        the call once a human ✓&apos;s it.
       </P>
 
       <H3 id="gmail-search-pagination">Searching busy Gmail inboxes</H3>
@@ -562,7 +466,7 @@ export function Integrations() {
         read-first campaign visibility plus a tiny, approval-gated mutation surface (pause / enable
         / budget change) bounded by per-Connection spending caps and a kill switch. Spend increases
         queue in the Approvals inbox by default; pausing never does. Setup recipes, the full safety
-        model, and the browser-based fallback for LinkedIn / X / TikTok live on the{" "}
+        model, and the built-in Browser path for the LinkedIn / X / TikTok ads UIs live on the{" "}
         <DocLink to="/docs/marketing">Paid Marketing</DocLink> page.
       </P>
     </>

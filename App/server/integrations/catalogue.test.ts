@@ -3,16 +3,49 @@ import { describe, test } from "node:test";
 
 import {
   getProvider,
+  getRetiredProvider,
   listCatalog,
   listProviderIds,
+  listRetiredProviderIds,
   providerSupportsApiKey,
 } from "./index.js";
 import { INTEGRATION_CATEGORY_ORDER } from "./types.js";
 
+/**
+ * The catalogue named explicitly, rather than counted.
+ *
+ * A `length >= N` assertion used to guard this, which is exactly the check
+ * that stays green while a provider silently disappears from the registry.
+ * Adding or retiring a connector is a deliberate act, so it should mean
+ * editing this list.
+ */
+const EXPECTED_PROVIDER_IDS = [
+  "stripe",
+  "brex",
+  "google",
+  "google-analytics",
+  "google-search-console",
+  "github",
+  "airtable",
+  "postgres",
+  "mysql",
+  "clickhouse",
+  "notion",
+  "linear",
+  "telegram",
+  "x",
+  "reddit",
+  "linkedin",
+  "google-ads",
+  "meta-ads",
+  "microsoft-ads",
+  "reddit-ads",
+];
+
 describe("Integration catalogue invariants", () => {
   test("every registered provider resolves and appears exactly once", () => {
     const ids = listProviderIds();
-    assert.ok(ids.length >= 25, `expected the full catalogue, got ${ids.length}`);
+    assert.deepEqual([...ids].sort(), [...EXPECTED_PROVIDER_IDS].sort());
     assert.equal(new Set(ids).size, ids.length);
     assert.deepEqual(
       listCatalog().map((entry) => entry.provider),
@@ -45,10 +78,7 @@ describe("Integration catalogue invariants", () => {
     let toolCount = 0;
     for (const id of listProviderIds()) {
       const provider = getProvider(id)!;
-      assert.ok(
-        provider.tools.length > 0 || provider.lookupCompanyFirmographics,
-        `${id} exposes neither tools nor a host-owned capability`,
-      );
+      assert.ok(provider.tools.length > 0, `${id} exposes no tools`);
       const local = new Set<string>();
       for (const tool of provider.tools) {
         toolCount += 1;
@@ -68,16 +98,12 @@ describe("Integration catalogue invariants", () => {
       }
     }
     assert.equal(totalNames.size, toolCount);
-    assert.ok(toolCount >= 150, `expected the broad tool catalogue, got ${toolCount}`);
+    assert.ok(toolCount >= 130, `expected the broad tool catalogue, got ${toolCount}`);
   });
 
   test("connection form fields and scope groups have stable unique keys", () => {
     for (const entry of listCatalog()) {
-      for (const fields of [
-        entry.fields ?? [],
-        entry.oauth?.extraFields ?? [],
-        entry.browserLogin?.fields ?? [],
-      ]) {
+      for (const fields of [entry.fields ?? [], entry.oauth?.extraFields ?? []]) {
         const keys = fields.map((field) => field.key);
         assert.equal(new Set(keys).size, keys.length, `${entry.provider} repeats a field key`);
         for (const field of fields) {
@@ -129,25 +155,26 @@ describe("Integration catalogue invariants", () => {
           `${id} lacks GitHub App builder`,
         );
       }
-      if (catalog.browserLogin) {
-        assert.equal(
-          typeof provider.buildBrowserLoginConfig,
-          "function",
-          `${id} lacks browser-login builder`,
-        );
-      }
     }
   });
 
-  test("People Data Labs exposes normalized firmographics without a configurable endpoint", () => {
-    const provider = getProvider("people-data-labs");
-    assert.ok(provider);
-    assert.equal(typeof provider.lookupCompanyFirmographics, "function");
-    assert.deepEqual(
-      provider.catalog.fields?.map((field) => field.key),
-      ["apiKey"],
-    );
-    assert.deepEqual(provider.tools, []);
+  test("retired provider ids are described and never shadow a live provider", () => {
+    const live = new Set(listProviderIds());
+    const retired = listRetiredProviderIds();
+    assert.ok(retired.length > 0);
+    assert.equal(new Set(retired).size, retired.length);
+    for (const id of retired) {
+      // Reusing a retired id would silently repoint an operator's surviving
+      // rows at a different service.
+      assert.ok(!live.has(id), `${id} is both registered and retired`);
+      const entry = getRetiredProvider(id)!;
+      assert.equal(entry.provider, id);
+      assert.ok(entry.name.trim(), `${id} has no display name`);
+      assert.match(entry.retiredIn, /^\d+\.\d+\.\d+$/);
+      assert.ok(entry.reason.trim(), `${id} does not say what to do instead`);
+    }
+    assert.equal(getRetiredProvider("stripe"), null);
+    assert.equal(getRetiredProvider("not-a-provider"), null);
   });
 
   test("LinkedIn defaults to permissions available without partner review", () => {

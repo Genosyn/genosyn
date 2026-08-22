@@ -13,6 +13,13 @@ export type IntegrationAuthMode =
   | "oauth2"
   | "service_account"
   | "github_app"
+  /**
+   * Retired mode — no provider offers browser login any more, and nothing
+   * writes this value. Existing rows still carry it, so it stays a legal
+   * value of the column: narrowing the union would mis-type them on read,
+   * and there is no migration worth writing to rewrite a credential we no
+   * longer know how to use.
+   */
   | "browser";
 export type IntegrationConnectionStatus = "connected" | "error" | "expired";
 
@@ -38,12 +45,12 @@ export type IntegrationConnectionStatus = "connected" | "error" | "expired";
  *                         scopes, impersonationEmail?, accessToken?,
  *                         expiresAt? } — JWT-bearer auth; access tokens are
  *                         re-minted on demand (no refresh token concept).
- *   - browser         : { username, password, ...providerExtras,
- *                         storageStateJson?, lastLoginAt? } — credentials
- *                         the headless-browser driver replays at runtime.
- *                         `storageStateJson` is the cached Playwright
- *                         storageState (cookies + localStorage) so we don't
- *                         re-login on every tool call.
+ *   - browser         : { username, password, ...providerExtras } —
+ *                         retired. No driver reads this shape any more and
+ *                         no path writes it; rows that predate the
+ *                         retirement survive untouched, list no tools, and
+ *                         report the retirement from `checkStatus`. Keep a
+ *                         site password in the Vault instead.
  *
  * AI employees access a Connection via an `EmployeeConnectionGrant`; the
  * raw credential never leaves the server.

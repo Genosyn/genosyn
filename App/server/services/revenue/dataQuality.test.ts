@@ -533,9 +533,9 @@ describe("controlled enrichment", () => {
     }
   });
 
-  test("applies reviewed Account firmographic evidence to every supported field", async () => {
+  test("applies reviewed Account company-profile evidence to every supported field", async () => {
     const companyId = testCompanyId();
-    const acme = await account(companyId, "Firmographic Acme");
+    const acme = await account(companyId, "Company Profile Acme");
     const proposals = [
       {
         fieldKey: "domain",
@@ -582,14 +582,14 @@ describe("controlled enrichment", () => {
           resourceId: acme.id,
           fieldKey: proposal.fieldKey,
           sourceType: "integration",
-          sourceId: "firmographic-profile-1",
+          sourceId: "company-profile-1",
           sourceLabel: "Company profile",
           extractedValueJson: JSON.stringify(proposal.value),
           normalizedValue: proposal.normalizedValue,
           confidence: 95,
           status: "proposed",
           verificationState: "unverified",
-          extractionMethod: "company_firmographic_profile",
+          extractionMethod: "company_profile",
           observedAt: new Date("2026-07-01T00:00:00.000Z"),
           extractedAt: new Date("2026-07-01T00:00:00.000Z"),
           metadataJson: "{}",
@@ -599,7 +599,7 @@ describe("controlled enrichment", () => {
 
     for (const evidence of evidenceRows) {
       const accepted = await reviewRevenueEvidence(companyId, evidence.id, "accept", {
-        employeeId: "firmographic-reviewer",
+        employeeId: "company-profile-reviewer",
       });
       assert.equal(accepted.status, "accepted");
       assert.equal(accepted.verifyingActorType, "ai_employee");

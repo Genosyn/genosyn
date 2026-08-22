@@ -310,9 +310,26 @@ function IntegrationsPage({
   }
 
   async function reconnect(conn: IntegrationConnection) {
+    if (conn.retired) {
+      toast(
+        `${conn.retired.name} was retired in ${conn.retired.retiredIn}. ${conn.retired.reason}`,
+        "error",
+      );
+      return;
+    }
     const entry = catalog?.find((e) => e.provider === conn.provider);
     if (!entry) {
       toast(`Unknown integration: ${conn.provider}`, "error");
+      return;
+    }
+    // Browser login is retired, so there is no form to reopen for a
+    // connection created under it. Say that here rather than opening a
+    // modal whose only button would fail on submit.
+    if (conn.authMode === "browser") {
+      toast(
+        `Browser login for ${entry.name} has been retired. Disconnect this connection and connect over OAuth instead; keep the site password in the Vault.`,
+        "error",
+      );
       return;
     }
     setReconnecting({ entry, conn });
@@ -474,12 +491,43 @@ function IntegrationsPage({
                           <StatusBadge status={c.status} message={c.statusMessage} />
                         </div>
                         <div className="truncate text-xs text-slate-500 dark:text-slate-400">
-                          {entry?.name ?? c.provider} · {c.accountHint || "—"}
+                          {c.retired?.name ?? entry?.name ?? c.provider} ·{" "}
+                          {c.accountHint || "—"}
                         </div>
-                        {c.status !== "connected" && c.statusMessage ? (
-                          // Not a tooltip: a browser-login connection that a
-                          // site has challenged needs the operator to *do*
-                          // something, and the instructions are the fix.
+                        {c.retired ? (
+                          // A retired connector has no catalog entry, so
+                          // nothing else on this row can explain why it stopped
+                          // working.
+                          //
+                          // The upgrade DELETES every row whose credential it
+                          // managed to move into the Vault, so a row still
+                          // rendering this banner is by construction one the
+                          // backfill could not decrypt — its secret is still
+                          // sealed in this row and nowhere else. Saying
+                          // anything that reads as "it is safe in the Vault
+                          // now, tidy this up" would talk the operator into
+                          // destroying the only copy, which is the exact thing
+                          // the backfill declined to do on their behalf.
+                          <p className="mt-1 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+                            Retired in {c.retired.retiredIn}. {c.retired.reason}{" "}
+                            {c.statusMessage ? `${c.statusMessage} ` : ""}
+                            This connection still holds the only copy of that secret, and
+                            disconnecting deletes it for good. Restore the previous
+                            encryption key first if you need the value back; otherwise keep
+                            new credentials in the{" "}
+                            <Link
+                              to={`/c/${company.slug}/vault`}
+                              className="underline underline-offset-2"
+                            >
+                              Vault
+                            </Link>
+                            .
+                          </p>
+                        ) : c.status !== "connected" && c.statusMessage ? (
+                          // Not a tooltip: a connection that needs the
+                          // operator to *do* something carries the
+                          // instructions in its status message, and the
+                          // instructions are the fix.
                           <p className="mt-1 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
                             {c.statusMessage}
                           </p>
@@ -524,14 +572,16 @@ function IntegrationsPage({
                             className={refreshingId === c.id ? "animate-spin" : ""}
                           />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => reconnect(c)}
-                          title="Reconnect"
-                        >
-                          <Plug2 size={12} />
-                        </Button>
+                        {!c.retired && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => reconnect(c)}
+                            title="Reconnect"
+                          >
+                            <Plug2 size={12} />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -628,14 +678,10 @@ function IntegrationsPage({
                             )}
                             <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
                               {entry.authMode === "oauth2"
-                                ? entry.browserLogin
-                                  ? "OAuth · Browser"
-                                  : entry.oauth?.instanceApp
-                                    ? "OAuth · 1-click"
-                                    : "OAuth"
-                                : entry.authMode === "browser"
-                                  ? "Browser"
-                                  : "API key"}
+                                ? entry.oauth?.instanceApp
+                                  ? "OAuth · 1-click"
+                                  : "OAuth"
+                                : "API key"}
                             </span>
                           </div>
                           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -688,23 +734,20 @@ function IntegrationsPage({
           (reconnecting !== null &&
             (reconnecting.conn.authMode === "oauth2" ||
               reconnecting.conn.authMode === "service_account" ||
-              reconnecting.conn.authMode === "github_app" ||
-              reconnecting.conn.authMode === "browser"))
+              reconnecting.conn.authMode === "github_app"))
         }
         entry={
           addingGoogle ??
           (reconnecting?.conn.authMode === "oauth2" ||
           reconnecting?.conn.authMode === "service_account" ||
-          reconnecting?.conn.authMode === "github_app" ||
-          reconnecting?.conn.authMode === "browser"
+          reconnecting?.conn.authMode === "github_app"
             ? reconnecting.entry
             : null)
         }
         reconnect={
           reconnecting?.conn.authMode === "oauth2" ||
           reconnecting?.conn.authMode === "service_account" ||
-          reconnecting?.conn.authMode === "github_app" ||
-          reconnecting?.conn.authMode === "browser"
+          reconnecting?.conn.authMode === "github_app"
             ? {
                 connectionId: reconnecting.conn.id,
                 label: reconnecting.conn.label,
@@ -966,7 +1009,8 @@ function AuthModeBadge({ mode }: { mode: IntegrationConnection["authMode"] }) {
         : mode === "github_app"
           ? "GitHub App"
           : mode === "browser"
-            ? "Browser"
+            ? // Retired mode; only pre-existing rows still carry it.
+              "Browser"
             : "API key";
   return (
     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-300">
@@ -1120,7 +1164,7 @@ export function ApiKeyModal({
   );
 }
 
-type ConnectMode = "oauth" | "service_account" | "apikey" | "github_app" | "browser";
+type ConnectMode = "oauth" | "service_account" | "apikey" | "github_app";
 
 type GithubAppInstallation = {
   id: number;
@@ -1149,7 +1193,7 @@ export function OauthOrServiceAccountModal({
   reconnect: {
     connectionId: string;
     label: string;
-    authMode: "oauth2" | "service_account" | "github_app" | "browser";
+    authMode: "oauth2" | "service_account" | "github_app";
     scopeGroups: string[];
   } | null;
   companyId: string;
@@ -1166,7 +1210,6 @@ export function OauthOrServiceAccountModal({
   // them straight to `ApiKeyModal`.
   const supportsApiKey = !!entry?.oauth && (entry?.fields?.length ?? 0) > 0;
   const supportsGithubApp = !!entry?.githubApp;
-  const supportsBrowser = !!entry?.browserLogin;
   const isReconnect = reconnect !== null;
   // This instance registered the underlying OAuth app (Admin → Integrations),
   // so a new Connection needs no credentials of its own — the whole Client
@@ -1193,7 +1236,6 @@ export function OauthOrServiceAccountModal({
   const [selectedInstallationId, setSelectedInstallationId] = React.useState("");
   const [discovering, setDiscovering] = React.useState(false);
   const [selectedScopeGroups, setSelectedScopeGroups] = React.useState<string[]>([]);
-  const [browserFields, setBrowserFields] = React.useState<Record<string, string>>({});
   const [oauthExtraFields, setOauthExtraFields] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState(false);
 
@@ -1204,20 +1246,14 @@ export function OauthOrServiceAccountModal({
           ? "oauth"
           : reconnect.authMode === "service_account"
             ? "service_account"
-            : reconnect.authMode === "github_app"
-              ? "github_app"
-              : reconnect.authMode === "browser"
-                ? "browser"
-                : "oauth"
+            : "github_app"
         : supportsOauth
           ? "oauth"
           : supportsSa
             ? "service_account"
             : supportsGithubApp
               ? "github_app"
-              : supportsBrowser
-                ? "browser"
-                : "oauth";
+              : "oauth";
       setMode(initialMode);
       setLabel(reconnect?.label ?? defaultLabel(entry));
       setClientId("");
@@ -1229,7 +1265,6 @@ export function OauthOrServiceAccountModal({
       setAppPrivateKey("");
       setAppDiscovery(null);
       setSelectedInstallationId("");
-      setBrowserFields({});
       setOauthExtraFields({});
       // Providers may declare a safer starting set when some permissions
       // require a separate review (LinkedIn company-page posting, for
@@ -1260,7 +1295,6 @@ export function OauthOrServiceAccountModal({
     supportsOauth,
     supportsSa,
     supportsGithubApp,
-    supportsBrowser,
     isReconnect,
     reconnect,
     initialScopeGroups,
@@ -1382,33 +1416,6 @@ export function OauthOrServiceAccountModal({
     }
   }
 
-  async function submitBrowser(e: React.FormEvent) {
-    e.preventDefault();
-    if (!entry) return;
-    setBusy(true);
-    try {
-      if (isReconnect && reconnect.authMode === "browser") {
-        await api.put(
-          `/api/companies/${companyId}/integrations/connections/${reconnect.connectionId}/browser-login`,
-          { fields: browserFields },
-        );
-        toast(`${entry.name} reconnected`, "success");
-      } else {
-        await api.post(`/api/companies/${companyId}/integrations/connections/browser-login`, {
-          provider: entry.provider,
-          label: label.trim() || entry.name,
-          fields: browserFields,
-        });
-        toast(`${entry.name} connected`, "success");
-      }
-      onSaved();
-    } catch (err) {
-      toast((err as Error).message, "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function submitServiceAccount(e: React.FormEvent) {
     e.preventDefault();
     if (!entry) return;
@@ -1510,9 +1517,7 @@ export function OauthOrServiceAccountModal({
           <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
             {reconnect.authMode === "oauth2"
               ? `Re-run ${oauthSetup.consentTitle}'s consent screen for "${reconnect.label}" to refresh tokens or change which products this connection can access. The connection id and existing employee grants are preserved.`
-              : reconnect.authMode === "browser"
-                ? `Replace the username and password for "${reconnect.label}". The cached login session is cleared so the next tool call re-logs in. Existing employee grants and the connection id are preserved.`
-                : `Replace the service-account JSON for "${reconnect.label}". Existing employee grants and the connection id are preserved.`}
+              : `Replace the service-account JSON for "${reconnect.label}". Existing employee grants and the connection id are preserved.`}
           </p>
         ) : entry.description ? (
           <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
@@ -1524,8 +1529,7 @@ export function OauthOrServiceAccountModal({
           (supportsOauth ? 1 : 0) +
             (supportsSa ? 1 : 0) +
             (supportsApiKey ? 1 : 0) +
-            (supportsGithubApp ? 1 : 0) +
-            (supportsBrowser ? 1 : 0) >=
+            (supportsGithubApp ? 1 : 0) >=
             2 && (
             <div className="flex gap-1 rounded-lg bg-slate-100 p-1 text-xs dark:bg-slate-800">
               {supportsOauth && (
@@ -1578,19 +1582,6 @@ export function OauthOrServiceAccountModal({
                   }`}
                 >
                   Personal token
-                </button>
-              )}
-              {supportsBrowser && (
-                <button
-                  type="button"
-                  onClick={() => setMode("browser")}
-                  className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
-                    mode === "browser"
-                      ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
-                      : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                  }`}
-                >
-                  Browser login
                 </button>
               )}
             </div>
@@ -1972,75 +1963,6 @@ export function OauthOrServiceAccountModal({
           </form>
         ) : null}
 
-        {mode === "browser" && supportsBrowser ? (
-          <form className="flex flex-col gap-3" onSubmit={submitBrowser}>
-            {!isReconnect && entry.browserLogin?.description && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
-                <p className="font-medium">Browser-driven login</p>
-                <p className="mt-1">{entry.browserLogin.description}</p>
-              </div>
-            )}
-            {!isReconnect && (
-              <Input
-                label="Label"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder={entry.name}
-                required
-              />
-            )}
-            {(entry.browserLogin?.fields ?? []).map((f) => (
-              <div key={f.key}>
-                <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-                  {f.label}
-                  {f.required && <span className="ml-1 text-red-500">*</span>}
-                </label>
-                {f.type === "textarea" ? (
-                  <textarea
-                    required={f.required}
-                    placeholder={f.placeholder}
-                    value={browserFields[f.key] ?? ""}
-                    onChange={(e) =>
-                      setBrowserFields((prev) => ({ ...prev, [f.key]: e.target.value }))
-                    }
-                    rows={4}
-                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
-                  />
-                ) : (
-                  <input
-                    type={f.type === "password" ? "password" : "text"}
-                    required={f.required}
-                    placeholder={f.placeholder}
-                    value={browserFields[f.key] ?? ""}
-                    onChange={(e) =>
-                      setBrowserFields((prev) => ({ ...prev, [f.key]: e.target.value }))
-                    }
-                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
-                  />
-                )}
-                {f.hint && (
-                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{f.hint}</p>
-                )}
-              </div>
-            ))}
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={
-                  busy ||
-                  (entry.browserLogin?.fields ?? []).some(
-                    (f) => f.required && !(browserFields[f.key] ?? "").trim(),
-                  )
-                }
-              >
-                {busy ? "Saving…" : isReconnect ? "Reconnect" : "Save credentials"}
-              </Button>
-            </div>
-          </form>
-        ) : null}
       </div>
     </Modal>
   );

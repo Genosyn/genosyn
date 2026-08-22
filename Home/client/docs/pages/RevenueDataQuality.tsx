@@ -194,36 +194,6 @@ export function RevenueDataQuality() {
         Deal changed after the proposal was generated. Accepting a current value updates the Deal
         and writes a real amount-history event.
       </P>
-      <H3 id="firmographics">Bring-your-own-key firmographics</H3>
-      <OL>
-        <LI>
-          Open <Strong>Settings → Integrations</Strong>, choose <Strong>People Data Labs</Strong>,
-          and create a Connection with your own API key.
-        </LI>
-        <LI>
-          Return to <Strong>Revenue → Data quality → Firmographic lookup</Strong>, choose that
-          Connection and optionally paste up to 100 Account IDs.
-        </LI>
-        <LI>
-          Choose <Strong>Preview</Strong>. Preview does not call the provider: it shows complete,
-          cached, and eligible Accounts plus the maximum number of external requests.
-        </LI>
-        <LI>
-          Choose <Strong>Propose evidence</Strong>, then accept or reject each returned field in the
-          normal evidence queue.
-        </LI>
-      </OL>
-      <P>
-        Matches can propose Account domain, website, industry, employee count, headquarters, and
-        parent-company name and domain. Nothing is applied automatically. Matches and no-matches are
-        cached for 30 days by default, and repeated evidence is deduplicated. A domain collision is
-        sent to the merge workflow instead of overwriting another Account.
-      </P>
-      <Callout kind="warn" title="Preview the credit boundary first.">
-        Successful external matches may consume provider credits. Preview uses the local cache and
-        Account state only; the proposal action is the point that may contact People Data Labs. AI
-        Employees need both Revenue access and a Grant to the selected Connection.
-      </Callout>
       <P>
         Every derived field keeps its source email, document, Integration, import, or manual
         evidence; extracted value and date; confidence; last-verified date; and human-confirmed

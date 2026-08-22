@@ -1423,6 +1423,11 @@ function firmographicState(row: RevenueFirmographicLookup): Record<string, unkno
   return Object.fromEntries(FIRMOGRAPHIC_STATE_FIELDS.map((field) => [field, row[field]]));
 }
 
+/**
+ * Firmographic lookups were retired in 1.132.0 with the People Data Labs
+ * connector; nothing creates new rows. This still runs so a merge reparents,
+ * deduplicates, and can undo the historical rows that remain on the table.
+ */
 async function mergeFirmographicLookups(
   manager: EntityManager,
   rows: OperationRowWrite[],

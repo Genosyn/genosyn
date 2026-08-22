@@ -36,6 +36,25 @@ export function Vault() {
         <DocLink to="/docs/self-hosting#secrets">Configuration</DocLink> for the full distinction.
       </Callout>
 
+      <P>
+        The Vault is where a credential belongs when no first-class{" "}
+        <DocLink to="/docs/integrations">Integration</DocLink> covers the service — an API with no
+        connector, or a site an AI Employee has to sign in to.
+      </P>
+      <P>
+        A retired connector&apos;s secret is already here. Upgrading to 1.132.0 moved each one into a
+        restricted secure note named <Code>&lt;Connector&gt; (retired Integration)</Code>, holding
+        the connector&apos;s configuration, and removed the dead Connection. Company owners and
+        admins can <Strong>Reveal</Strong> it; the only step left is sharing it, or granting it to
+        the AI Employees that were using the connector.
+      </P>
+      <Callout>
+        A retired Connection still listed under <Strong>Settings → Integrations</Strong> is one whose
+        credential could <Strong>not</Strong> be decrypted during the upgrade, so it was deliberately left
+        alone. That row holds the only copy — restore the previous encryption key before
+        disconnecting it, or the value is gone.
+      </Callout>
+
       <H2 id="add">Add a Vault item</H2>
       <OL>
         <LI>

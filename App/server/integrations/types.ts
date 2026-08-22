@@ -20,6 +20,13 @@ export type IntegrationAuthMode =
   | "oauth2"
   | "service_account"
   | "github_app"
+  /**
+   * Retired: no provider offers browser login any more (the Vault plus the
+   * built-in Browser cover it generically), and there is no path left that
+   * creates a Connection in this mode. The member stays because
+   * `IntegrationConnection.authMode` rows created under it are still in the
+   * database — dropping it would mis-type every one of them on read.
+   */
   | "browser";
 
 /**
@@ -148,25 +155,30 @@ export type IntegrationCatalogEntry = {
   githubApp?: {
     setupDocs?: string;
   };
-  /** When set, this integration accepts a username + password (and optional
-   * extra fields) that drive a headless browser at runtime. The connect
-   * modal renders a "Browser login" tab for it. Used for sites where the
-   * official API is rate-limited, paywalled, or simply doesn't exist. */
-  browserLogin?: {
-    /** Form fields collected at create-time (typically username + password,
-     * sometimes email/phone for verification). Same shape as `fields` for
-     * apikey integrations. */
-    fields: IntegrationCatalogField[];
-    /** Short blurb explaining the trade-offs (rate-limits, anti-bot) so the
-     * operator knows what they're signing up for. Rendered above the form. */
-    description?: string;
-  };
   /** Whether this integration can be used right now. With the move to
    * per-Connection credentials, OAuth integrations are always enabled —
    * the user supplies clientId/secret per Connection. */
   enabled: boolean;
   /** When `enabled=false`, why. Rendered on the card. */
   disabledReason?: string;
+};
+
+/**
+ * A connector that used to be registered and no longer is.
+ *
+ * Retiring a provider deletes its module but not the Connections an operator
+ * already created, so this is what the connection list and the Vault backfill
+ * read to explain a row whose provider no longer exists.
+ */
+export type RetiredIntegration = {
+  /** The id the surviving `IntegrationConnection.provider` rows carry. */
+  provider: string;
+  /** Display name, so a retired row still reads as something. */
+  name: string;
+  /** Release the connector was removed in, e.g. "1.132.0". */
+  retiredIn: string;
+  /** One sentence telling the operator what to do instead. */
+  reason: string;
 };
 
 /** One AI-employee-callable tool that the provider exposes per connection. */
@@ -183,47 +195,6 @@ export type IntegrationTool = {
 
 /** The JSON blob stored inside `IntegrationConnection.encryptedConfig`. */
 export type IntegrationConfig = Record<string, unknown>;
-
-/**
- * Provider-neutral input for a billable company-firmographics lookup.
- *
- * Providers should use the strongest identifier they support. A persisted
- * provider record id is preferred for refreshes; domain/website are stronger
- * than a name-only match.
- */
-export type CompanyFirmographicLookupInput = {
-  providerRecordId?: string;
-  name?: string;
-  domain?: string;
-  website?: string;
-  location?: string;
-};
-
-/** A parent-company reference returned by a firmographics provider. */
-export type CompanyFirmographicParent = {
-  providerRecordId: string | null;
-  name: string | null;
-  domain: string | null;
-};
-
-/**
- * Small, allowlisted company profile shared by Revenue and Integration
- * providers. It intentionally excludes a provider's full raw response.
- */
-export type CompanyFirmographicProfile = {
-  providerRecordId: string;
-  name: string | null;
-  domain: string | null;
-  websiteUrl: string | null;
-  industry: string | null;
-  employeeCount: number | null;
-  headquartersAddress: string | null;
-  parentCompany: CompanyFirmographicParent | null;
-  /** Provider confidence normalized to an integer from 0 through 100. */
-  confidence: number;
-  /** ISO timestamp describing when the provider result was observed. */
-  observedAt: string;
-};
 
 /**
  * A file a tool is about to send somewhere — an email attachment today.
@@ -324,34 +295,6 @@ export type IntegrationRuntimeContext = {
    * days-old approval can't fire against changed campaign state.
    */
   approvalSnapshot?: Record<string, unknown>;
-  /**
-   * The calling employee's shared browser session state — the same cookie
-   * jar behind their `browser_*` tools, which a human can watch live and
-   * take over.
-   *
-   * Browser-login providers use it to escape a dead end: their own headless
-   * Chromium has no viewer and no takeover, so when a site challenges the
-   * login there is nobody to answer. Reading this lets a provider adopt the
-   * session a human established by hand in the live browser panel; writing
-   * it back means a login the provider *did* manage carries over to the
-   * employee's own browsing.
-   *
-   * Host-bound closure, same contract as `assertCapability`: the identity
-   * whose jar this is gets bound in by whoever builds the context, never
-   * read back off `employeeId` here. Contexts with no employee (pipelines,
-   * approval replay) leave it undefined, and providers must treat that as
-   * "no shared session available" rather than reaching for a default.
-   *
-   * `domains` scopes both directions to the site the provider actually owns
-   * (e.g. `["x.com", "twitter.com"]`). It is not a convenience: the jar
-   * holds every site the employee browses, a provider persists what it
-   * reads onto a Connection row other employees may hold, and a provider
-   * writing back must not clear logins it knows nothing about.
-   */
-  sharedBrowserState?: {
-    load(domains: string[]): Promise<unknown | undefined>;
-    save(state: unknown, domains: string[]): Promise<void>;
-  };
 };
 
 /**
@@ -438,16 +381,6 @@ export type IntegrationProvider = {
   tools: IntegrationTool[];
 
   /**
-   * Optional normalized company-enrichment capability. Revenue uses this
-   * seam instead of parsing a provider-specific tool response, so another
-   * BYOK provider can be added without changing the Revenue service.
-   */
-  lookupCompanyFirmographics?(
-    input: CompanyFirmographicLookupInput,
-    ctx: IntegrationRuntimeContext,
-  ): Promise<CompanyFirmographicProfile | null>;
-
-  /**
    * API-key providers implement this. Return the JSON config to persist and
    * the short "account hint" string that appears next to the connection in
    * the UI (e.g. "acct_1Abcd…XyZ9" or a masked key suffix).
@@ -501,27 +434,15 @@ export type IntegrationProvider = {
   }): Promise<{ config: IntegrationConfig; accountHint: string }>;
 
   /**
-   * Browser-login providers implement this. Receives the form fields the
-   * operator typed (username + password + whatever else the catalog asked
-   * for) and returns the persisted config blob. Implementations should NOT
-   * attempt a full browser login at create-time — login flows on these
-   * sites are slow and fragile, so the first real login happens lazily on
-   * the first tool call. Throw if a required field is missing or empty.
-   */
-  buildBrowserLoginConfig?(
-    input: Record<string, string>,
-  ): Promise<{ config: IntegrationConfig; accountHint: string }>;
-
-  /**
    * Which of this provider's tools actually work under a given auth mode.
    * Defaults to "all of them" when a provider doesn't implement it.
    *
    * A provider that supports several auth modes rarely supports the same
-   * tools in each: X's browser-login mode can post and like, but the DM and
-   * search endpoints have no stable UI to drive. Advertising the full list
-   * regardless is how an AI employee ends up promising a "direct API" path
-   * that does not exist and then reporting a browser failure it never
-   * expected. The dispatcher asks this before listing a tool, so the model
+   * tools in each — and a Connection can outlive the mode it was made in,
+   * as X's retired browser-login rows did. Advertising the full list
+   * regardless is how an AI employee ends up promising a path that does not
+   * exist and then explaining the failure by guessing. The dispatcher asks
+   * this before listing a tool and again before running one, so the model
    * only ever sees what the Connection in front of it can really do.
    */
   supportsTool?(toolName: string, authMode: IntegrationAuthMode): boolean;

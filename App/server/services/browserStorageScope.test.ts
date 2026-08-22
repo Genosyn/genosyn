@@ -9,12 +9,12 @@ import {
 } from "./browserStorage.js";
 
 /**
- * An employee's cookie jar is shared with their browser-login Connections.
- * That share is only safe because it is clipped to the site a Connection
- * owns — otherwise reading it copies the employee's Gmail session onto a
- * Connection row other employees hold a Grant on, and writing it back
- * replaces the whole jar with the one site the driver happened to visit,
- * signing them out of everything else.
+ * Clipping an employee's cookie jar to one site is what makes it safe to
+ * move a session in or out of it: unscoped, a read carries the employee's
+ * Gmail session along with the site that was asked for, and a write
+ * replaces the whole jar with the one site that produced it, signing them
+ * out of everything else. The scoping rules are subtle enough (domain
+ * suffixes, leading dots, case) to be worth pinning down on their own.
  */
 
 const X_DOMAINS = ["x.com", "twitter.com"];

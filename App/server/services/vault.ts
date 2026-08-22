@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { createGuardrails, generate as generateOtp } from "otplib";
-import { In } from "typeorm";
+import { In, type EntityManager } from "typeorm";
 import { z } from "zod";
 
 import { AppDataSource } from "../db/datasource.js";
@@ -805,6 +805,51 @@ export async function getVaultItem(
   actor: VaultHumanActor,
 ): Promise<VaultItemView> {
   return (await loadAccessibleItem(companyId, itemId, actor)).view;
+}
+
+/**
+ * Create a company-scoped item with no human author.
+ *
+ * The one caller is the retired-Integration backfill: when a connector is
+ * removed from the catalog its credential would otherwise sit forever inside
+ * an `IntegrationConnection` ciphertext nothing can read, so the upgrade
+ * moves it here instead. There is no Member to attribute that to — the
+ * instance did it during boot — so `createdByUserId` stays null.
+ *
+ * A null author is deliberately the most restrictive combination the Vault
+ * has: `isHumanManager` only matches owners and admins, so a `restricted`
+ * item written this way is invisible to every other Member until an admin
+ * shares it. Callers must not relax that by passing `company` visibility.
+ *
+ * This never accepts authenticators. A migrated credential is a
+ * `secure_note` or an `api_key`, and `createVaultItem`'s rule that only a
+ * login may carry TOTP or passkeys holds here by construction.
+ */
+export async function createSystemVaultItem(args: {
+  companyId: string;
+  type: Exclude<VaultItemType, "login">;
+  payload: Omit<VaultPayload, "totp" | "passkeys" | "passkeyRegistrationLease">;
+  /** Transactional manager, when the caller is atomically replacing another
+   *  record with this item. Without it the write lands on its own. */
+  manager?: EntityManager;
+}): Promise<VaultItem> {
+  const repo = (args.manager ?? AppDataSource.manager).getRepository(VaultItem);
+  const payload: VaultPayload = {
+    ...args.payload,
+    websiteUrl: normalizeVaultWebsiteUrl(args.payload.websiteUrl),
+    totp: null,
+    passkeys: [],
+    passkeyRegistrationLease: null,
+  };
+  const row = repo.create({
+    companyId: args.companyId,
+    type: args.type,
+    visibility: "restricted",
+    encryptedPayload: encryptPayload(args.companyId, payload),
+    createdByUserId: null,
+    createdByEmployeeId: null,
+  });
+  return repo.save(row);
 }
 
 export async function createVaultItem(args: {

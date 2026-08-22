@@ -11,13 +11,18 @@ import { dateTimeColumnType } from "./columnTypes.js";
 export type RevenueFirmographicLookupStatus = "matched" | "not_found" | "failed";
 
 /**
- * Latest reconciliation state for one Account through one firmographics
- * Connection.
+ * RETIRED IN 1.132.0 — Revenue firmographics went away with the People Data
+ * Labs connector, which was the only provider implementing the lookup hook.
+ *
+ * Nothing looks these rows up, refreshes them, or creates new ones any more.
+ * The entity and its `revenue_firmographic_lookups` table stay registered so
+ * historical rows survive and the generated schema does not change; the only
+ * code left touching them is generic record lifecycle work (company delete,
+ * Account merge/undo, and dependency counting).
  *
  * `normalizedSnapshotJson` is the small provider-neutral profile, never the
  * provider's raw response. Field-level history belongs to
- * `RevenueFieldEvidence`; this row exists to avoid repeated billable lookups,
- * remember no-matches, and expose failures for repair.
+ * `RevenueFieldEvidence`.
  */
 @Entity("revenue_firmographic_lookups")
 @Index(["companyId", "customerId", "connectionId"], { unique: true })

@@ -330,12 +330,7 @@ export function RecommendationsStep({
       toast(integration.disabledReason ?? "This Integration is unavailable", "error");
       return;
     }
-    if (
-      integration.oauth ||
-      integration.serviceAccount ||
-      integration.githubApp ||
-      integration.browserLogin
-    ) {
+    if (integration.oauth || integration.serviceAccount || integration.githubApp) {
       setOauthEntry(integration);
     } else {
       setApiKeyEntry(integration);

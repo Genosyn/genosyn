@@ -17,9 +17,6 @@ const NEW_REVENUE_AI_TOOLS = [
   "list_deal_history_coverage",
   "preview_deal_history_backfill",
   "backfill_deal_history",
-  "preview_revenue_firmographics",
-  "propose_revenue_firmographics",
-  "list_revenue_firmographic_lookups",
   "list_commercial_value_backlog",
   "propose_finance_commercial_values",
   "propose_stripe_commercial_values",
@@ -381,35 +378,6 @@ describe("Revenue AI capability contracts", () => {
     assert.ok(TOOL_KEYWORDS.set_revenue_custom_fields.includes("custom field provenance"));
   });
 
-  test("firmographic enrichment is review-first, scoped, confirmed, and Connection-gated", () => {
-    for (const name of ["preview_revenue_firmographics", "propose_revenue_firmographics"]) {
-      includesContract(name, [
-        "connectionId",
-        "accountIds",
-        "missingOnly",
-        "refreshOlderThanDays",
-        "limit",
-        "force",
-      ]);
-      assert.ok(requiredProperties(name).includes("connectionId"));
-    }
-    includesContract("propose_revenue_firmographics", ["confirm", "PROPOSE"]);
-    assert.deepEqual(requiredProperties("propose_revenue_firmographics"), [
-      "connectionId",
-      "confirm",
-    ]);
-    includesContract("list_revenue_firmographic_lookups", [
-      "connectionId",
-      "accountId",
-      "matched",
-      "not_found",
-      "failed",
-      "limit",
-      "offset",
-    ]);
-    assert.deepEqual(requiredProperties("list_revenue_firmographic_lookups"), ["connectionId"]);
-  });
-
   test("every capability remains in the discoverable Revenue domain", () => {
     const revenue = new Set(TOOL_DOMAINS.revenue.tools);
     const expected = [
@@ -441,9 +409,6 @@ describe("Revenue AI capability contracts", () => {
       "export_revenue_import_reconciliation",
       "export_revenue_snapshot",
       "propose_revenue_account_domains",
-      "preview_revenue_firmographics",
-      "propose_revenue_firmographics",
-      "list_revenue_firmographic_lookups",
       "list_commercial_value_backlog",
       "propose_finance_commercial_values",
       "propose_stripe_commercial_values",

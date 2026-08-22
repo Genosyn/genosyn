@@ -141,7 +141,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Can an AI Employee take an action I haven't approved?",
-        a: "Not if you gate it. Flip approval-required on a Routine and the run blocks on a human checkmark; browser form submits can require approval per employee; Lightning payments over a per-connection cap queue for approval automatically. An Approvals inbox surfaces everything waiting.",
+        a: "Not if you gate it. Flip approval-required on a Routine and the run blocks on a human checkmark; browser form submits can require approval per employee; guarded MCP tools and spend-increasing ad-platform changes queue for approval automatically. An Approvals inbox surfaces everything waiting.",
       },
       {
         q: "Do I need to install a provider CLI or wrapper per model?",
@@ -712,7 +712,7 @@ export const PRODUCTS: ProductDef[] = [
     checks: [
       "14 node types across 4 families",
       "Manual, webhook, and cron triggers",
-      "21 Integrations callable as nodes",
+      "20 Integrations callable as nodes",
       "Every run logged and auditable",
     ],
     features: [
@@ -776,7 +776,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Can a pipeline talk to my other tools?",
-        a: "Yes. The Call-integration node invokes any tool on any connected Integration — 21 are registered, including Stripe, Gmail, GitHub, Notion, Linear, Airtable, Postgres, MySQL, ClickHouse, Redis, Telegram, X, Reddit, and LinkedIn. For everything else there's a generic HTTP node.",
+        a: "Yes. The Call-integration node invokes any tool on any connected Integration — 20 are registered, including Stripe, Gmail, GitHub, Notion, Linear, Airtable, Postgres, MySQL, ClickHouse, Telegram, X, Reddit, and LinkedIn. For everything else there's a generic HTTP node.",
       },
       {
         q: "How do I debug a failed run?",
@@ -1398,7 +1398,7 @@ export const PRODUCTS: ProductDef[] = [
         },
         {
           title: "Native tools, gated, next",
-          body: "A dedicated finance tool surface for employees is on the roadmap — read-only tools first, money-moving actions behind the approval-by-amount pattern already used for Lightning payments.",
+          body: "A dedicated finance tool surface for employees is on the roadmap — read-only tools first, money-moving actions behind the same approval-by-amount pattern the ad platforms already use for spend increases.",
         },
       ],
     },

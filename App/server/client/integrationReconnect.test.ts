@@ -18,6 +18,7 @@ function connection(id: string, provider = "google"): IntegrationConnection {
     status: "connected",
     statusMessage: "",
     lastCheckedAt: null,
+    retired: null,
     createdAt: "2026-08-14T10:00:00.000Z",
     updatedAt: "2026-08-14T10:00:00.000Z",
     scopeGroups: [],

@@ -36,6 +36,10 @@ export function resolveReconnectTarget(
   const conn = connections.find((item) => item.id === requestedId);
   if (!conn) return null;
   if (allowedProviders && !allowedProviders.includes(conn.provider)) return null;
+  // Browser login is retired, so there is no form to reopen for a Connection
+  // created under it. The Reconnect button already refuses these; resolving a
+  // ?reconnect= deep link to one would open a modal with nothing to submit.
+  if (conn.authMode === "browser") return null;
   const entry = catalog.find((item) => item.provider === conn.provider);
   return entry ? { entry, conn } : null;
 }
