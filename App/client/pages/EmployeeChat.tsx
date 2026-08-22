@@ -48,6 +48,20 @@ import { ChatMarkdown } from "../components/ChatMarkdown";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { BrowserLivePanel } from "../components/BrowserLivePanel";
+import {
+  RepositoryWorkPanel,
+  WORK_PANEL_MIN_SIDE_BY_SIDE,
+} from "../components/RepositoryWorkPanel";
+import { useWideViewport } from "../components/ui/SidePanel";
+import {
+  collectTranscriptWorkTargets,
+  parseRepositoryWorkHref,
+  shouldOpenWorkLinkInPanel,
+} from "../lib/repositoryWorkLink";
+import {
+  initialRepositoryWorkPanelState,
+  repositoryWorkPanelReducer,
+} from "../lib/repositoryWorkPanel";
 import { ChatBrowserTarget } from "../components/ChatBrowserTarget";
 import {
   ChatResourceReference,
@@ -67,7 +81,7 @@ import type { EmployeeOutletCtx } from "./EmployeeLayout";
  */
 
 export default function EmployeeChat() {
-  const { company, emp } = useOutletContext<EmployeeOutletCtx>();
+  const { company, currentUserId, emp } = useOutletContext<EmployeeOutletCtx>();
   const { toast } = useToast();
   const dialog = useDialog();
   const location = useLocation();
@@ -138,6 +152,71 @@ export default function EmployeeChat() {
   const showProgressIndicator =
     isActiveResponse && !hasStreamingReply && Boolean(progress) && hasProgressCard;
   const visibleMessages = messages.filter((message) => message.status !== "working");
+
+  /**
+   * Repository work the employee has linked in this thread.
+   *
+   * Derived from the stored messages rather than the render-time list so a
+   * streaming reply, which repaints this component on every chunk, doesn't
+   * re-scan the transcript dozens of times a second — but filtered the same
+   * way the transcript is, so the panel never opens onto something the reader
+   * cannot see the link for.
+   */
+  const workTargets = React.useMemo(
+    () =>
+      collectTranscriptWorkTargets(
+        messages.filter((message) => message.status !== "working").map((m) => m.content),
+        company.slug,
+        window.location.origin,
+      ),
+    [messages, company.slug],
+  );
+  const [workPanel, dispatchWorkPanel] = React.useReducer(
+    repositoryWorkPanelReducer,
+    initialRepositoryWorkPanelState,
+  );
+  /** Whether the panel would sit beside the thread rather than cover it. */
+  const canDockWorkPanel = useWideViewport(WORK_PANEL_MIN_SIDE_BY_SIDE);
+  /**
+   * The thread whose history has already been taken in, so later links are
+   * news. Undefined rather than null to start: null is a real value here — a
+   * thread that has not been created yet — and it must not read as "already
+   * loaded" on the first pass.
+   */
+  const hydratedConvId = React.useRef<string | null | undefined>(undefined);
+
+  /**
+   * A work-session link opens the session beside the thread instead of
+   * replacing it. Delegated from the transcript because the reply is rendered
+   * markdown — there is no component to hang an onClick on — and because it
+   * then also covers a link a Member pasted in themselves.
+   */
+  const openWorkFromLink = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const node = event.target as Element | null;
+      const anchor = node?.closest?.("a");
+      if (!anchor) return;
+      const intercept = shouldOpenWorkLinkInPanel({
+        button: event.button,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        defaultPrevented: event.defaultPrevented,
+        anchorTarget: anchor.getAttribute("target"),
+      });
+      if (!intercept) return;
+      const target = parseRepositoryWorkHref(
+        anchor.getAttribute("href"),
+        company.slug,
+        window.location.origin,
+      );
+      if (!target) return;
+      event.preventDefault();
+      dispatchWorkPanel({ type: "open", target });
+    },
+    [company.slug],
+  );
 
   // Onboarding and other guided surfaces can hand chat a draft without
   // sending it. The Member still reviews and submits the message, so opening
@@ -426,8 +505,31 @@ export default function EmployeeChat() {
   // thread's title. Every other per-thread surface is already behind this flag.
   const visibleContextUsage = isLoadingMessages ? null : contextUsage;
 
+  React.useEffect(() => {
+    // Hydration belongs to a completed load of *this* thread, so leaving one
+    // invalidates it. Leaving a thread while it was still loading and coming
+    // straight back would otherwise find the ref still holding this id, read
+    // as "already loaded", and greet the reader with an old session.
+    hydratedConvId.current = undefined;
+    dispatchWorkPanel({ type: "thread", conversationId: activeConvId });
+  }, [activeConvId]);
+
+  // History is recorded, not reopened: a thread you come back to should not
+  // pop a panel onto a diff that was reviewed last week. Once the thread is
+  // loaded, a session linked by a reply arriving in front of you is news, and
+  // the panel opens itself the way the live browser does — but only where it
+  // can sit beside the conversation. On a narrow window opening it covers the
+  // screen, and taking someone's screen mid-sentence is not an improvement on
+  // a link they can tap.
+  React.useEffect(() => {
+    if (isLoadingMessages) return;
+    const live = hydratedConvId.current === activeConvId && canDockWorkPanel;
+    hydratedConvId.current = activeConvId;
+    dispatchWorkPanel({ type: "transcript", targets: workTargets, live });
+  }, [workTargets, isLoadingMessages, activeConvId, canDockWorkPanel]);
+
   return (
-    <div className="flex h-full min-h-0 overflow-hidden bg-white dark:bg-slate-950">
+    <div className="relative flex h-full min-h-0 overflow-hidden bg-white dark:bg-slate-950">
       <ConversationList
         convs={convs}
         archivedConvs={session.archivedConvs}
@@ -492,6 +594,7 @@ export default function EmployeeChat() {
           <div
             ref={scrollRef}
             onScroll={handleScroll}
+            onClick={openWorkFromLink}
             className="flex-1 overflow-y-auto bg-slate-50/50 px-4 py-6 dark:bg-slate-900/40 sm:px-8"
           >
             {isLoadingMessages ? (
@@ -571,11 +674,30 @@ export default function EmployeeChat() {
         )}
       </section>
 
+      {/* One companion panel at a time. Two of them either squeeze the
+        conversation into a column nobody can read or push it off the screen
+        entirely, and repository work is the one the reader just asked for.
+        The browser panel is hidden rather than unmounted, so its live viewer
+        keeps running and a Member who already dismissed or collapsed it does
+        not get it back, full size, when this panel closes. */}
+      {workPanel.open && (
+        <RepositoryWorkPanel
+          companyId={company.id}
+          companySlug={company.slug}
+          companyRole={company.role}
+          currentUserId={currentUserId}
+          target={workPanel.open}
+          collapsed={workPanel.collapsed}
+          onCollapsedChange={(collapsed) => dispatchWorkPanel({ type: "collapse", collapsed })}
+          onClose={() => dispatchWorkPanel({ type: "close" })}
+        />
+      )}
       {emp.browserEnabled && activeConvId && !activeConv?.legacyUnclaimed && (
         <BrowserLivePanel
           companyId={company.id}
           employeeId={emp.id}
           conversationId={activeConvId}
+          hidden={Boolean(workPanel.open)}
         />
       )}
 

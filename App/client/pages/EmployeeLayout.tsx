@@ -43,7 +43,13 @@ const EMP_TAB_LABEL: Record<string, string> = {
   model: "Model",
 };
 
-export default function EmployeeLayout({ company }: { company: Company }) {
+export default function EmployeeLayout({
+  company,
+  currentUserId,
+}: {
+  company: Company;
+  currentUserId: string;
+}) {
   const { empSlug } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -189,7 +195,7 @@ export default function EmployeeLayout({ company }: { company: Company }) {
   return (
     <ContextualLayout sidebar={sidebar}>
       {fullBleed ? (
-        <Outlet context={{ company, emp }} />
+        <Outlet context={{ company, currentUserId, emp }} />
       ) : (
         <div className="page-shell p-8">
           <div className="mb-4">
@@ -201,11 +207,11 @@ export default function EmployeeLayout({ company }: { company: Company }) {
               ]}
             />
           </div>
-          <Outlet context={{ company, emp }} />
+          <Outlet context={{ company, currentUserId, emp }} />
         </div>
       )}
     </ContextualLayout>
   );
 }
 
-export type EmployeeOutletCtx = { company: Company; emp: Employee };
+export type EmployeeOutletCtx = { company: Company; currentUserId: string; emp: Employee };

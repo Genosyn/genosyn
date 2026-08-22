@@ -1091,6 +1091,18 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       navigation, a link opens the diff a colleague should look at, and a
       chat-started session links straight to itself. Sessions are titled from
       the instruction that opened them and can be renamed.
+- [x] **Repository work opens beside the conversation** — following the link
+      an employee replies with used to replace the thread with the Repository
+      section: the Member left the conversation to look at a diff and had to
+      navigate back to say what they thought of it. Chat now docks the session
+      in a resizable panel on the same seam the live browser uses, so the
+      transcript, the diff, and the composer that asks for another pass are one
+      screen. It is the same `SessionPane` the Repository page renders — one
+      set of rules about which of accept / send / open a pull request / throw
+      away is offered — and a session started while the Member is reading opens
+      itself, exactly as a browser session does. ⌘-click still opens the full
+      page, and history is recorded rather than reopened, so returning to an
+      old thread does not greet you with last week's diff.
 - [x] **AI work UI overhaul** — a searchable, status-grouped session inbox;
       quick-start briefs with suggestions and a retained draft; focused
       Activity and Changes views with commit checkpoints and review actions;

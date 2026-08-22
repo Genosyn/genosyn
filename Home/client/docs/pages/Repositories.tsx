@@ -461,10 +461,21 @@ export function Repositories() {
       </P>
       <P>
         The session runs beside the conversation rather than inside it, so the employee replies
-        straight away with a link to the repository&apos;s <Strong>AI work</Strong> page instead of
-        making you wait — a session may take minutes, and you stay free to keep talking to the same
-        employee meanwhile. It appears there exactly like one you started yourself, and you review,
-        publish, or discard it the same way.
+        straight away with a link to the session instead of making you wait — a session may take
+        minutes, and you stay free to keep talking to the same employee meanwhile. It is exactly
+        like one you started yourself, and you review, publish, or discard it the same way.
+      </P>
+      <P>
+        Following that link opens the session in a panel beside the thread rather than taking you
+        away from it: the same transcript, diff, and review actions the <Strong>AI work</Strong>{" "}
+        page gives you, while the conversation stays where it was. Drag the panel&apos;s left edge
+        to resize it, collapse it to a rail, or open the full page from its header when you want the
+        whole screen. On a narrow window it takes the screen instead of squeezing the conversation.
+      </P>
+      <P>
+        If an employee starts work while you are reading the thread, the panel opens itself — the
+        same behaviour as the <DocLink to="/docs/browser">live browser view</DocLink>. Coming back
+        to an old conversation does not reopen its sessions; click the link when you want one.
       </P>
       <Callout kind="warn" title="Starting work is not the same as shipping it.">
         Nothing changes about who decides. A session started from chat lands on its own branch and

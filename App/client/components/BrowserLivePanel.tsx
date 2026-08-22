@@ -1,6 +1,7 @@
 import * as React from "react";
 import { ExternalLink, Globe2, Laptop, Loader2, Monitor, X } from "lucide-react";
 import { api } from "../lib/api";
+import { SidePanelCollapseIcon, SidePanelResizeHandle, useSidePanelWidth } from "./ui/SidePanel";
 
 /**
  * Live-view panel for the built-in `browser` MCP server. Polls the server
@@ -43,27 +44,19 @@ type Props = {
   runId?: string;
   /** Called when the user dismisses the panel. */
   onDismiss?: () => void;
+  /**
+   * Hide without unmounting, for when another panel has the slot beside the
+   * chat. Unmounting would tear down the live viewer's iframe and reset the
+   * "hide" and "collapse" the Member already chose, so a browser session they
+   * dismissed would reappear the moment the other panel closed.
+   */
+  hidden?: boolean;
 };
 
 const POLL_INTERVAL_MS = 3000;
 const STALE_AFTER_MS = 30 * 60 * 1000; // ignore sessions older than 30min
 
-const PANEL_MIN_WIDTH = 360;
-const PANEL_DEFAULT_WIDTH = 520;
 const PANEL_WIDTH_STORAGE_KEY = "genosyn.browserLivePanel.width";
-
-function readStoredPanelWidth(): number {
-  if (typeof window === "undefined") return PANEL_DEFAULT_WIDTH;
-  try {
-    const raw = window.localStorage.getItem(PANEL_WIDTH_STORAGE_KEY);
-    if (!raw) return PANEL_DEFAULT_WIDTH;
-    const n = Number.parseInt(raw, 10);
-    if (Number.isFinite(n) && n >= PANEL_MIN_WIDTH) return n;
-  } catch {
-    // localStorage may be disabled — fall through to default.
-  }
-  return PANEL_DEFAULT_WIDTH;
-}
 
 /**
  * Fields the panel actually renders. Anything not listed here (viewer counts,
@@ -86,97 +79,13 @@ function sameSession(a: BrowserSessionDto | null, b: BrowserSessionDto | null): 
   );
 }
 
-/**
- * Cap the panel width so the chat column always keeps a sensible minimum
- * (~360 px). Recalculated on every resize event so the panel reflows
- * gracefully when the window shrinks.
- */
-function clampPanelWidth(width: number): number {
-  if (typeof window === "undefined") return width;
-  const max = Math.max(PANEL_MIN_WIDTH, window.innerWidth - 360);
-  if (width > max) return max;
-  if (width < PANEL_MIN_WIDTH) return PANEL_MIN_WIDTH;
-  return width;
-}
-
 export function BrowserLivePanel(props: Props) {
-  const { companyId, employeeId, conversationId, runId, onDismiss } = props;
+  const { companyId, employeeId, conversationId, runId, onDismiss, hidden = false } = props;
   const [session, setSession] = React.useState<BrowserSessionDto | null>(null);
   const [dismissed, setDismissed] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(false);
-  const [width, setWidth] = React.useState<number>(readStoredPanelWidth);
-  const [resizing, setResizing] = React.useState(false);
-
-  // Re-clamp the width whenever the window resizes so a once-comfortable
-  // panel doesn't end up squeezing the chat after the user shrinks the
-  // viewport.
-  React.useEffect(() => {
-    function onResize() {
-      setWidth((current) => clampPanelWidth(current));
-    }
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  // Drag-to-resize the panel. The handle sits on the panel's *left* edge,
-  // so as the cursor moves left the panel grows; the math is just
-  // `panelRight - cursorX`. Clamp to the same bounds the resize listener
-  // uses, persist the final value to localStorage so it sticks across
-  // mounts and reloads.
-  const startResize = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
-    setResizing(true);
-
-    function onMove(ev: PointerEvent) {
-      const next = clampPanelWidth(window.innerWidth - ev.clientX);
-      setWidth(next);
-    }
-    function onUp(ev: PointerEvent) {
-      setResizing(false);
-      try {
-        target.releasePointerCapture(ev.pointerId);
-      } catch {
-        // capture may already be gone; harmless.
-      }
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      setWidth((current) => {
-        const clamped = clampPanelWidth(current);
-        try {
-          window.localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(Math.round(clamped)));
-        } catch {
-          // ignore — width is a UX nicety, not critical state.
-        }
-        return clamped;
-      });
-    }
-
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  }, []);
-
-  // Keyboard accessibility: ←/→ nudge the width 24 px at a time. Matches
-  // the size of a typical Tailwind step so the result feels intentional
-  // even without a mouse.
-  const handleKeyResize = React.useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-    e.preventDefault();
-    const step = e.shiftKey ? 80 : 24;
-    setWidth((current) => {
-      const delta = e.key === "ArrowLeft" ? step : -step;
-      const next = clampPanelWidth(current + delta);
-      try {
-        window.localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(Math.round(next)));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  }, []);
+  const { width, resizing, startResize, onResizeKeyDown } =
+    useSidePanelWidth(PANEL_WIDTH_STORAGE_KEY);
 
   const cacheKey = `${companyId}:${employeeId}:${conversationId ?? runId ?? ""}`;
   React.useEffect(() => {
@@ -252,24 +161,24 @@ export function BrowserLivePanel(props: Props) {
   return (
     <aside
       className={
+        (hidden ? "hidden " : "") +
         "relative flex shrink-0 flex-col border-l border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900" +
         (resizing ? "" : " transition-[width] duration-200")
       }
       style={{ width: collapsed ? 44 : width }}
+      aria-hidden={hidden || undefined}
       aria-label="Live browser"
     >
       {!collapsed && (
-        <ResizeHandle
+        <SidePanelResizeHandle
+          label="Resize live browser panel"
           onPointerDown={startResize}
-          onKeyDown={handleKeyResize}
+          onKeyDown={onResizeKeyDown}
           active={resizing}
         />
       )}
       {collapsed ? (
-        <CollapsedRail
-          status={session.status}
-          onExpand={() => setCollapsed(false)}
-        />
+        <CollapsedRail status={session.status} onExpand={() => setCollapsed(false)} />
       ) : (
         <>
           <PanelHeader
@@ -290,41 +199,6 @@ export function BrowserLivePanel(props: Props) {
         </>
       )}
     </aside>
-  );
-}
-
-function ResizeHandle({
-  onPointerDown,
-  onKeyDown,
-  active,
-}: {
-  onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
-  onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
-  active: boolean;
-}) {
-  return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize live browser panel"
-      tabIndex={0}
-      onPointerDown={onPointerDown}
-      onKeyDown={onKeyDown}
-      className={
-        "group absolute left-0 top-0 z-10 flex h-full w-2 -translate-x-1/2 cursor-col-resize select-none items-center justify-center focus:outline-none " +
-        (active ? "bg-indigo-500/20" : "")
-      }
-      title="Drag to resize"
-    >
-      <span
-        className={
-          "pointer-events-none h-12 w-0.5 rounded-full transition-colors " +
-          (active
-            ? "bg-indigo-500"
-            : "bg-slate-300 group-hover:bg-indigo-400 group-focus-visible:bg-indigo-400 dark:bg-slate-700")
-        }
-      />
-    </div>
   );
 }
 
@@ -353,7 +227,10 @@ function PanelHeader({
             </span>
           )}
         </div>
-        <div className="truncate text-[11px] text-slate-500 dark:text-slate-400" title={session.pageUrl}>
+        <div
+          className="truncate text-[11px] text-slate-500 dark:text-slate-400"
+          title={session.pageUrl}
+        >
           {session.pageTitle || session.pageUrl || statusBlurb(session.status)}
         </div>
       </div>
@@ -372,7 +249,7 @@ function PanelHeader({
         title="Collapse"
         aria-label="Collapse live browser"
       >
-        <ChevronRightIcon />
+        <SidePanelCollapseIcon />
       </button>
       <button
         onClick={onClose}
@@ -437,8 +314,8 @@ function PanelBody({
             Working in {session.memberBrowserName ?? "your browser"}
           </h3>
           <p className="mt-1 max-w-xs text-xs text-slate-500 dark:text-slate-400">
-            This is running in the Genosyn Chrome window on your own computer. Switch to that
-            window to watch, or to sign in when a site asks.
+            This is running in the Genosyn Chrome window on your own computer. Switch to that window
+            to watch, or to sign in when a site asks.
           </p>
         </div>
         {session.pageUrl && (
@@ -464,8 +341,7 @@ function PanelBody({
           Starting browser…
         </h3>
         <p className="max-w-xs text-xs text-slate-500 dark:text-slate-400">
-          The AI hasn&apos;t opened a page yet. The live view will start the
-          moment it does.
+          The AI hasn&apos;t opened a page yet. The live view will start the moment it does.
         </p>
       </div>
     );
@@ -521,11 +397,7 @@ function StatusDot({
   compact?: boolean;
 }) {
   const tone =
-    status === "live"
-      ? "bg-emerald-500"
-      : status === "pending"
-      ? "bg-amber-500"
-      : "bg-slate-400";
+    status === "live" ? "bg-emerald-500" : status === "pending" ? "bg-amber-500" : "bg-slate-400";
   return (
     <span
       className={
@@ -536,14 +408,6 @@ function StatusDot({
       }
       aria-hidden
     />
-  );
-}
-
-function ChevronRightIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="6 4 10 8 6 12" />
-    </svg>
   );
 }
 

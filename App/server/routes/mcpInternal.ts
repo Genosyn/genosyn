@@ -11632,6 +11632,10 @@ mcpInternalRouter.post(
       // repository, and nothing forwards it to a conversation.
       // Straight to the session, not the list. A session has its own URL now,
       // and "somewhere on that page" is a worse link than the diff itself.
+      // Chat recognises this exact shape and opens the session in a panel
+      // beside the thread rather than navigating away from it — see
+      // `client/lib/repositoryWorkLink.ts`. Changing the shape of this URL
+      // breaks that, so change both together.
       const reviewUrl = `/c/${co.slug}/repositories/${repo.slug}/ai/${prepared.session.id}`;
       res.json({
         sessionId: prepared.session.id,
@@ -11640,7 +11644,7 @@ mcpInternalRouter.post(
         reviewUrl,
         note: [
           "Started. It runs in its own working copy, separately from this conversation.",
-          `Say you have started it and link them to the diff with this exact markdown: [${repo.name} → AI work](${reviewUrl}) — that is where they review it, ask you for changes, and decide whether it is merged, pushed, or opened as a pull request.`,
+          `Say you have started it and link them to the work with this exact markdown: [${repo.name} → AI work](${reviewUrl}) — it opens beside this conversation, where they review the diff, ask you for changes, and decide whether it is merged, pushed, or opened as a pull request.`,
           "You will not see the result on this turn, so do not wait for it and do not report the work as done, committed, merged, pushed, or opened as a pull request.",
         ].join(" "),
       });

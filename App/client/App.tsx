@@ -404,7 +404,10 @@ function CompanyRoutes({
           </Route>
 
           {/* Selected-employee section — sidebar = employee sub-nav */}
-          <Route path="employees/:empSlug" element={<EmployeeLayout company={company} />}>
+          <Route
+            path="employees/:empSlug"
+            element={<EmployeeLayout company={company} currentUserId={me.id} />}
+          >
             <Route index element={<Navigate to="chat" replace />} />
             <Route path="chat" element={<EmployeeChat />} />
             <Route path="journal" element={<JournalPage />} />

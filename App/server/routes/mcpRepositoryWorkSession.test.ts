@@ -22,6 +22,10 @@ import { errorHandler } from "../middleware/error.js";
 import { issueMcpToken, revokeMcpToken } from "../services/mcpTokens.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { mcpInternalRouter } from "./mcpInternal.js";
+// The client's own parser, deliberately. Chat opens this session beside the
+// conversation instead of navigating to it, which only works if the link this
+// tool dictates is one that parser recognises.
+import { parseRepositoryWorkHref } from "../../client/lib/repositoryWorkLink.js";
 
 /**
  * `start_repository_work_session` — the tool that lets an employee open the
@@ -238,7 +242,6 @@ describe("starting a work session from a tool call", () => {
       "the refused request must not leave a second row behind",
     );
   });
-
 });
 
 describe("what a session's own turn may reach", () => {
@@ -327,6 +330,25 @@ describe("a session that really starts", () => {
       res.body.reviewUrl,
       `/c/acme/repositories/strategy/ai/${res.body.sessionId as string}`,
       "the link must open the session itself, not the list it is somewhere in",
+    );
+
+    // The employee is told to paste one exact markdown link, and chat reads
+    // that link to decide whether to open the work beside the thread. If the
+    // note stops dictating a link, or dictates a different shape, the panel
+    // silently stops opening — so the contract is pinned from both ends.
+    const note = String(res.body.note ?? "");
+    assert.ok(
+      note.includes(`[Strategy → AI work](${res.body.reviewUrl as string})`),
+      "the note must dictate the exact markdown chat knows how to open",
+    );
+    assert.deepEqual(
+      parseRepositoryWorkHref(res.body.reviewUrl as string, "acme"),
+      { repositorySlug: "strategy", sessionId: res.body.sessionId as string },
+      "the chat panel must recognise the link this tool hands out",
+    );
+    assert.ok(
+      /opens beside this conversation/.test(note),
+      "the employee should say where the work opens, because that is where it opens",
     );
 
     const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneBy({
