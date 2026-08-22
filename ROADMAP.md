@@ -1138,6 +1138,14 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       discarding work. A session already under way keeps its base: re-basing it
       mid-conversation would move the ground under a diff a human is reading.
       The per-employee checkout is fast-forwarded on the same terms.
+- [x] **`AGENTS.md` reaches the employee.** A repository that keeps one is
+      telling contributors how to work in it, and an employee that never read it
+      produced work a human sent back for reasons that were written down all
+      along. A session's briefing now carries the file, capped and quoted as a
+      document rather than as an instruction from the requester — it cannot
+      widen what the session may do, because the tools are fixed at the MCP
+      seam. Chat and Routine work, which has a shell, is told to look for it in
+      each granted checkout.
 - [ ] Conflict resolution in the browser (a conflicting merge is refused, not
       surfaced for editing)
 - [ ] Streaming a work session's progress instead of polling it

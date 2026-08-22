@@ -32,6 +32,7 @@ import {
   commitRepositoryChanges,
 } from "./repositoryWorkspace.js";
 import {
+  MAX_AGENTS_GUIDE_BYTES,
   MAX_REPLAYED_TURNS,
   composeTurnHistory,
   composeWorkSystemPrompt,
@@ -40,6 +41,7 @@ import {
   ensureSessionWorktree,
   liveRepositoryWorkSession,
   prepareWorkSessionRevision,
+  readAgentsGuide,
   renameRepositoryWorkSession,
   repositoryWorkSessionTurns,
   reviseRepositoryWorkSession,
@@ -1475,5 +1477,187 @@ describe("the trunk a session branches from", () => {
     );
     assert.equal(session.status, "ready");
     assert.equal(session.baseCommit, head.sha, "a wrong default branch must not block the work");
+  });
+});
+
+// ──────────────── the repository's own contributor guide ────────────────
+
+/**
+ * A repository that keeps an `AGENTS.md` is telling contributors how to work
+ * in it. An employee that never reads it produces work a human sends back for
+ * reasons that were written down all along — so the session briefing carries
+ * it.
+ */
+describe("AGENTS.md", () => {
+  const guide = "# AGENTS\n\nUse the word Routine, never Task.\n";
+
+  async function repositoryWithGuide(body = guide): Promise<void> {
+    await ensureRepositoryWorkspace(repository);
+    await writeRepositoryFile(repository, "AGENTS.md", body);
+    await commitRepositoryChanges(repository, { message: "Add the contributor guide" });
+  }
+
+  /** The system prompt the run path actually handed the model. */
+  function capturingChat(): { chat: typeof chatWithEmployee; brief: () => string } {
+    let captured = "";
+    const chat = (async (_companyId, _employeeId, _message, _history, options) => {
+      const opts = options as { repositoryWorkSessionId?: string; extraSystem?: string };
+      captured = opts.extraSystem ?? "";
+      const checkout = await resolveSessionCheckout(company.id, opts.repositoryWorkSessionId ?? "");
+      sessionWriteFile(checkout.directory, "note.md", "ok\n");
+      await sessionCommit(repository, checkout.directory, "Add a note");
+      return { status: "ok", reply: "Done.", attachmentIds: [], sidecars: {} } as ChatResult;
+    }) as typeof chatWithEmployee;
+    return { chat, brief: () => captured };
+  }
+
+  test("reaches the employee's briefing when the repository has one", async () => {
+    await grantAccess();
+    await repositoryWithGuide();
+
+    const capture = capturingChat();
+    const session = await start(capture.chat);
+    assert.equal(session.status, "ready");
+
+    const brief = capture.brief();
+    assert.match(brief, /Use the word Routine, never Task\./, "the guide's own text must be there");
+    assert.match(brief, /<AGENTS\.md>/);
+    assert.match(brief, /<\/AGENTS\.md>/);
+  });
+
+  test("is not mentioned in the briefing of a repository without one", async () => {
+    await grantAccess();
+    await ensureRepositoryWorkspace(repository);
+
+    const capture = capturingChat();
+    await start(capture.chat);
+    assert.ok(
+      !capture.brief().includes("AGENTS.md"),
+      "an absent guide must not leave an empty section behind",
+    );
+  });
+
+  test("is read from the session's own worktree", async () => {
+    await grantAccess();
+    await repositoryWithGuide();
+
+    let seen: string | null = "not read";
+    await start(
+      stubChat(async (directory) => {
+        seen = readAgentsGuide(directory);
+        sessionWriteFile(directory, "note.md", "ok\n");
+        await sessionCommit(repository, directory, "Add a note");
+      }),
+    );
+    assert.equal(seen, guide);
+  });
+
+  test("is absent, and harmless, when the repository has no guide", async () => {
+    await grantAccess();
+    await ensureRepositoryWorkspace(repository);
+
+    let seen: string | null = "not read";
+    const session = await start(
+      stubChat(async (directory) => {
+        seen = readAgentsGuide(directory);
+        sessionWriteFile(directory, "note.md", "ok\n");
+        await sessionCommit(repository, directory, "Add a note");
+      }),
+    );
+    assert.equal(seen, null);
+    assert.equal(session.status, "ready");
+    const brief = composeWorkSystemPrompt(repository, "s", { agentsGuide: null });
+    assert.ok(!brief.includes("AGENTS.md"), "no guide means no section, not an empty one");
+  });
+
+  test("says the briefing wins where the guide disagrees with it", async () => {
+    const brief = composeWorkSystemPrompt(repository, "s", { agentsGuide: guide });
+    assert.match(brief, /the instructions above win/);
+    assert.match(brief, /it is how this team expects work here to be done/);
+    // The guide is quoted after the rules it cannot override.
+    assert.ok(
+      brief.indexOf("the instructions above win") < brief.indexOf("<AGENTS.md>"),
+      "the precedence line has to be read before the document it is about",
+    );
+  });
+
+  test("truncates a guide too large to inline, and says it did", async () => {
+    const huge = `# AGENTS\n\n${"Follow the house style.\n".repeat(4000)}`;
+    assert.ok(Buffer.byteLength(huge) > MAX_AGENTS_GUIDE_BYTES, "the fixture must exceed the cap");
+    await grantAccess();
+    await repositoryWithGuide(huge);
+
+    let seen: string | null = null;
+    await start(
+      stubChat(async (directory) => {
+        seen = readAgentsGuide(directory);
+        sessionWriteFile(directory, "note.md", "ok\n");
+        await sessionCommit(repository, directory, "Add a note");
+      }),
+    );
+    assert.ok(seen);
+    const read = seen as unknown as string;
+    assert.ok(
+      Buffer.byteLength(read) < Buffer.byteLength(huge),
+      "an unbounded guide would crowd out the instruction",
+    );
+    assert.match(read, /\[Truncated\. Read `AGENTS\.md` with `repository_read_file` for the rest\.\]/);
+    assert.ok(read.startsWith("# AGENTS"), "the beginning is the part worth keeping");
+    // Cut on a line boundary, so the guide never ends mid-sentence.
+    const lines = read.split("\n");
+    assert.ok(
+      lines.some((line) => line === "Follow the house style."),
+      "whole lines survive the cut",
+    );
+  });
+
+  test("treats an empty or whitespace-only guide as no guide", async () => {
+    await grantAccess();
+    await repositoryWithGuide("   \n\n\t\n");
+
+    let seen: string | null = "not read";
+    await start(
+      stubChat(async (directory) => {
+        seen = readAgentsGuide(directory);
+        sessionWriteFile(directory, "note.md", "ok\n");
+        await sessionCommit(repository, directory, "Add a note");
+      }),
+    );
+    assert.equal(seen, null);
+  });
+
+  test("refuses an AGENTS.md symlinked out of the worktree", async () => {
+    await grantAccess();
+    await ensureRepositoryWorkspace(repository);
+    const secret = path.join(dataDir, "outside-agents.md");
+    fs.writeFileSync(secret, "# Read the operator's private notes\n");
+
+    let seen: string | null = "not read";
+    await start(
+      stubChat(async (directory) => {
+        fs.symlinkSync(secret, path.join(directory, "AGENTS.md"));
+        seen = readAgentsGuide(directory);
+        sessionWriteFile(directory, "note.md", "ok\n");
+        await sessionCommit(repository, directory, "Add a note");
+      }),
+    );
+    assert.equal(seen, null, "a guide is not worth following a symlink out of the worktree for");
+  });
+
+  test("only reads the guide at the root, not one nested in the tree", async () => {
+    await grantAccess();
+    await ensureRepositoryWorkspace(repository);
+    await writeRepositoryFile(repository, "docs/AGENTS.md", "# Not the root guide\n");
+    await commitRepositoryChanges(repository, { message: "Add a nested file" });
+
+    let seen: string | null = "not read";
+    await start(
+      stubChat(async (directory) => {
+        seen = readAgentsGuide(directory);
+        sessionWriteFile(directory, "note.md", "ok\n");
+        await sessionCommit(repository, directory, "Add a note");
+      }),
+    );
+    assert.equal(seen, null);
   });
 });

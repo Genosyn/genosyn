@@ -279,6 +279,11 @@ export function Repositories() {
           never collide.
         </LI>
         <LI>
+          If the repository has an <Code>AGENTS.md</Code> at its root, it is included in the
+          employee&apos;s briefing, so the work follows your conventions rather than the
+          employee&apos;s guesses about them.
+        </LI>
+        <LI>
           The employee works only through six tools Genosyn runs on its behalf — list files, read,
           write, delete, search, and commit. It gets no shell and no filesystem access to the
           worktree.
@@ -392,6 +397,25 @@ export function Repositories() {
       <P>
         A session already under way keeps the base it started with. Asking for changes continues on
         the same branch rather than moving the ground under a diff you are in the middle of reading.
+      </P>
+
+      <H3 id="agents-md">AGENTS.md</H3>
+      <P>
+        If your repository keeps an <Code>AGENTS.md</Code> at its root, Genosyn reads it and includes
+        it in the employee&apos;s briefing for every session. It is the ordinary convention for
+        telling contributors how to work in a repository — the vocabulary to use, the stack, what
+        gets a change sent back — and an employee that has read it produces work you merge rather
+        than work you have to explain.
+      </P>
+      <P>
+        Large guides are truncated in the briefing, and the employee is told to read the rest with
+        its own file-reading tool. The file is treated as a document, not as instructions from you:
+        it describes how to do the job, and it cannot widen what a session is allowed to do. The
+        tools a session gets are fixed regardless of what any file in the repository says.
+      </P>
+      <P>
+        Employees working through chat or a Routine on an install with coding tools enabled are told
+        to look for the same file in each checkout they have been granted.
       </P>
 
       <H3 id="pull-requests">Opening a pull request</H3>
@@ -559,7 +583,8 @@ export function Repositories() {
         The default branch of that checkout is fast-forwarded before each Run when doing so cannot
         cost anything — the checkout is on the default branch, nothing is uncommitted, and the move
         is a fast-forward. Otherwise it is left exactly as it is, so an employee&apos;s
-        half-finished work is never discarded to make it current.
+        half-finished work is never discarded to make it current. If a repository has an{" "}
+        <Code>AGENTS.md</Code>, the employee is told to read it before changing anything there.
       </P>
 
       <H3 id="vs-github">Repositories vs. the GitHub integration</H3>
