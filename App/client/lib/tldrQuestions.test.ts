@@ -4,9 +4,11 @@ import { describe, test } from "node:test";
 import {
   mergeQuestions,
   upsertQuestionMessage,
+  visibleActions,
   workingMessage,
   type TldrQuestion,
   type TldrQuestionMessage,
+  type TldrSuggestedAction,
 } from "./tldrQuestions.js";
 
 function message(
@@ -24,20 +26,43 @@ function message(
     content,
     status,
     actions: [],
+    actionId: null,
     createdByUserId: role === "user" ? "user" : null,
     createdAt: "2026-08-20T12:00:00.000Z",
   };
 }
 
-function question(messages: TldrQuestionMessage[], id = "q1"): TldrQuestion {
+function question(
+  messages: TldrQuestionMessage[],
+  id = "q1",
+  suggestedActions: TldrSuggestedAction[] = [],
+): TldrQuestion {
   return {
     id,
     tldrId: "t1",
     prompt: "What can be improved?",
+    origin: "member",
     employee: { id: "emp", name: "Rey", slug: "rey", role: "Chief of staff", avatarKey: null },
     createdByUserId: "user",
     createdAt: "2026-08-20T12:00:00.000Z",
     messages,
+    suggestedActions,
+  };
+}
+
+function action(id: string, status: TldrSuggestedAction["status"] = "proposed"): TldrSuggestedAction {
+  return {
+    id,
+    questionId: "q1",
+    messageId: "m2",
+    kind: "routine",
+    label: "Pause it",
+    intent: "Pause the Nightly Scrape Routine.",
+    status,
+    runMessageId: null,
+    completedByUserId: null,
+    runnable: true,
+    createdAt: "2026-08-20T12:00:00.000Z",
   };
 }
 
@@ -128,5 +153,33 @@ describe("workingMessage", () => {
 
   test("never treats a Member's own message as an in-flight reply", () => {
     assert.equal(workingMessage(question([message("u1", "user", "Why?")])), null);
+  });
+});
+
+describe("visibleActions", () => {
+  test("hides a dismissed suggestion but keeps everything still worth offering", () => {
+    const q = question([], "q1", [
+      action("a1"),
+      action("a2", "dismissed"),
+      action("a3", "done"),
+      action("a4", "running"),
+    ]);
+    assert.deepEqual(
+      visibleActions(q).map((a) => a.id),
+      ["a1", "a3", "a4"],
+    );
+  });
+});
+
+describe("mergeQuestions and suggested actions", () => {
+  test("the server wins for buttons, because it is the only thing that persists them", () => {
+    const before = question([], "q1", [action("a1", "proposed")]);
+    const after = question([], "q1", [action("a1", "done")]);
+    const merged = mergeQuestions([before], [after]);
+    assert.deepEqual(
+      merged[0].suggestedActions.map((a) => [a.id, a.status]),
+      [["a1", "done"]],
+      "a reload must not resurrect a button somebody already pressed",
+    );
   });
 });

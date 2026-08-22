@@ -180,7 +180,9 @@ import { WorkloadLease } from "../db/entities/WorkloadLease.js";
 import { Tldr } from "../db/entities/Tldr.js";
 import { TldrDismissal } from "../db/entities/TldrDismissal.js";
 import { TldrQuestion } from "../db/entities/TldrQuestion.js";
+import { TldrQuestionAction } from "../db/entities/TldrQuestionAction.js";
 import { TldrQuestionMessage } from "../db/entities/TldrQuestionMessage.js";
+import { TldrStandingQuestion } from "../db/entities/TldrStandingQuestion.js";
 import { TldrSettings } from "../db/entities/TldrSettings.js";
 
 /**
@@ -385,8 +387,10 @@ export async function deleteCompanyCascade(args: {
     }
 
     // ── 3. Direct companyId rows (order is mostly free now) ────────────
+    await m.delete(TldrQuestionAction, { companyId });
     await m.delete(TldrQuestionMessage, { companyId });
     await m.delete(TldrQuestion, { companyId });
+    await m.delete(TldrStandingQuestion, { companyId });
     await m.delete(TldrDismissal, { companyId });
     await m.delete(Tldr, { companyId });
     await m.delete(TldrSettings, { companyId });

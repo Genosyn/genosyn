@@ -62,6 +62,17 @@ export class TldrQuestionMessage {
   @Column({ type: "text", default: "" })
   actionsJson!: string;
 
+  /**
+   * Set on the `user` row a suggested action created when it was pressed.
+   *
+   * The thread still carries the full instruction as ordinary text — pressing
+   * a button is a Member speaking, and hiding what was said would make the
+   * transcript a worse record than the conversation it describes. This only
+   * lets the card badge that turn as a button press rather than typing.
+   */
+  @Column({ type: "varchar", nullable: true })
+  actionId!: string | null;
+
   @Column({ type: "varchar", nullable: true })
   createdByUserId!: string | null;
 

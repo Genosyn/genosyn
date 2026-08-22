@@ -2634,6 +2634,17 @@ export type TldrListResponse = {
   unreadCount: number;
 };
 
+/**
+ * One question this company answers on every briefing. Configured at TLDR
+ * settings; each one posts its own card under the brief it answers.
+ */
+export type TldrStandingQuestion = {
+  id: string;
+  prompt: string;
+  enabled: boolean;
+  position: number;
+};
+
 export type TldrSettings = {
   id: string | null;
   enabled: boolean;
@@ -2645,7 +2656,12 @@ export type TldrSettings = {
   lastGeneratedAt: string | null;
   lastAttemptAt: string | null;
   lastError: string;
+  /** In answering order. Sent whole on save; omitting it leaves them alone. */
+  questions: TldrStandingQuestion[];
 };
+
+/** Mirrors `MAX_STANDING_QUESTIONS` — each one costs model turns per briefing. */
+export const MAX_STANDING_QUESTIONS = 8;
 
 export type TldrGenerateResponse = { status: "created"; tldr: TldrItem } | { status: "empty" };
 

@@ -38,6 +38,68 @@ export function Tldrs() {
         <Strong>Generate now</Strong> when a recap is useful before the next interval.
       </P>
 
+      <H2 id="standing-questions">Questions every briefing answers</H2>
+      <P>
+        A recap tells you what happened. The questions you have afterwards are usually the same
+        ones every week — so write them down once instead of asking them every time. Under{" "}
+        <Strong>Questions to answer</Strong> on the TLDR settings page, add up to eight{" "}
+        <Strong>standing questions</Strong>.
+      </P>
+      <UL>
+        <LI>
+          Add your own, or start from a suggestion such as{" "}
+          <Strong>What should we stop doing?</Strong>
+        </LI>
+        <LI>
+          Reorder them with the arrows — cards appear under the briefing in this order — and save
+          your changes with the rest of the schedule.
+        </LI>
+        <LI>
+          Switch one off to keep its wording without answering it for a while. Delete it to remove
+          it for good.
+        </LI>
+      </UL>
+      <P>
+        As soon as a briefing is posted, the writing AI Employee works through the list and adds
+        each answer as its own card beneath the brief. They are waiting for you when you read it,
+        rather than something you have to remember to ask for.
+      </P>
+      <Callout kind="tip" title="Standing questions apply to future briefings">
+        Adding one never rewrites briefings you have already read. The next briefing is the first
+        to carry it.
+      </Callout>
+
+      <H2 id="actions">One-click actions on an answer</H2>
+      <P>
+        Where an answer names something concrete — &quot;stop the nightly scrape, it has found
+        nothing for three weeks&quot; — the AI Employee attaches a button for it. Agreeing costs a
+        click instead of typing the proposal back in your own words.
+      </P>
+      <UL>
+        <LI>
+          Each button carries a short label and the full sentence of what pressing it will ask
+          for. You see that sentence before anything runs, and confirming is what sends it.
+        </LI>
+        <LI>
+          The AI Employee then carries it out <Strong>with your access, not its own</Strong>, and
+          reports back on the same card. A finished button turns into a tick.
+        </LI>
+        <LI>
+          <Strong>Discuss</Strong> opens the card&apos;s conversation instead, for anything a
+          button does not cover.
+        </LI>
+        <LI>
+          Not worth doing? Clear a suggestion with the <Strong>×</Strong> beside it. The card still
+          records that it was suggested.
+        </LI>
+      </UL>
+      <Callout kind="warn" title="A button is never a shortcut around your permissions">
+        Pressing one runs the same turn as typing the request yourself, under your own access.
+        Buttons that would create or change a <DocLink to="/docs/routines">Routine</DocLink> are
+        shown locked to anyone who is not an owner or admin, and the server refuses them too —
+        greying out a button is a courtesy, not the boundary.
+      </Callout>
+
       <H2 id="included">What a TLDR includes</H2>
       <P>
         Each TLDR covers one bounded period. It can summarize messages from public{" "}
@@ -53,30 +115,31 @@ export function Tldrs() {
         model. They never appear in a company-wide TLDR.
       </Callout>
 
-      <H2 id="questions">Ask questions about a TLDR</H2>
+      <H2 id="questions">Ask your own question about a TLDR</H2>
       <P>
-        A recap says what happened. The questions you actually have afterwards — what to change,
-        what to stop — are answered on <Strong>question cards</Strong> beside the brief rather than
-        inside it. Choose <Strong>Discuss</Strong> on a TLDR to open them.
+        Standing questions cover what you always want to know. For anything else, ask on the spot:
+        choose <Strong>Ask a question</Strong> on a briefing, or{" "}
+        <Strong>Ask … something else</Strong> under the answers it already carries.
       </P>
       <UL>
         <LI>
-          Click a suggested question such as <Strong>What can be improved?</Strong> or{" "}
-          <Strong>What should we stop doing?</Strong>, or type your own.
+          Click a suggested question such as <Strong>What can be improved?</Strong>, or type your
+          own.
         </LI>
         <LI>
-          Each question becomes its own card, answered by the AI Employee who wrote the briefing.
-          The brief itself is never edited.
+          Each question becomes its own card, answered by the AI Employee who wrote the briefing,
+          with its own buttons. The brief itself is never edited.
         </LI>
         <LI>
           Cards are company-wide, like the briefing. Anyone in the company sees them; the Member who
-          asked, and any owner or admin, can remove one.
+          asked, and any owner or admin, can remove one. Removing a card produced by a standing
+          question leaves the standing question itself in place.
         </LI>
       </UL>
       <P>
-        The first answer on a card is discussion-only. Genosyn runs it on the same restricted path
-        the briefing itself uses, with no tools at all, and treats the recap as untrusted reference
-        data — so text inside a briefing cannot trigger an action.
+        The first answer on a card is discussion-only, however the card was created. Genosyn runs it
+        on the same restricted path the briefing itself uses, with no tools at all, and treats the
+        recap as untrusted reference data — so text inside a briefing cannot trigger an action.
       </P>
 
       <H2 id="discuss">Discuss a TLDR without leaving the page</H2>
@@ -107,9 +170,14 @@ export function Tldrs() {
         path.
       </P>
       <P>
-        Acting is a separate step you take deliberately. Only a follow-up you send on a card carries
-        tools, and it carries exactly your own access — never more, and never on the strength of
-        something written inside a briefing.
+        Working out which buttons an answer deserves is a second restricted turn with the same
+        shape: it can submit a list of suggestions and do nothing else. Suggesting an action is
+        mechanically incapable of taking one.
+      </P>
+      <P>
+        Acting is a separate step you take deliberately. Only a follow-up you send on a card, or a
+        button you press after reading what it will do, carries tools — and it carries exactly your
+        own access, never more, and never on the strength of something written inside a briefing.
       </P>
 
       <H2 id="read-and-dismiss">Read and dismiss</H2>

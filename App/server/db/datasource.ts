@@ -186,6 +186,8 @@ import { Tldr } from "./entities/Tldr.js";
 import { TldrDismissal } from "./entities/TldrDismissal.js";
 import { TldrQuestion } from "./entities/TldrQuestion.js";
 import { TldrQuestionMessage } from "./entities/TldrQuestionMessage.js";
+import { TldrQuestionAction } from "./entities/TldrQuestionAction.js";
+import { TldrStandingQuestion } from "./entities/TldrStandingQuestion.js";
 
 const entities = [
   User,
@@ -374,6 +376,8 @@ const entities = [
   TldrDismissal,
   TldrQuestion,
   TldrQuestionMessage,
+  TldrQuestionAction,
+  TldrStandingQuestion,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

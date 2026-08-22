@@ -102,6 +102,24 @@ async function message(
   });
 }
 
+/**
+ * Stands in for the standing-question pass that a ready briefing kicks off.
+ *
+ * Generation deliberately does not await it — a Member asking for a briefing
+ * should not wait on several more model turns. Injected here so those turns do
+ * not outlive the test that started them and land on a closed database.
+ */
+function readyHook() {
+  const ready: string[] = [];
+  return {
+    ready,
+    deps: { onTldrReady: (tldr: Tldr) => ready.push(tldr.id) } satisfies Pick<
+      TldrServiceDependencies,
+      "onTldrReady"
+    >,
+  };
+}
+
 const submittingAgent =
   (
     inspect?: (serializedPrompt: string, toolNames: string[]) => void,
@@ -353,7 +371,9 @@ describe("TLDR generation, history, and acknowledgements", () => {
     );
 
     let inspected = false;
+    const hook = readyHook();
     const tldr = await generateTldrNow(company.id, {
+      ...hook.deps,
       now: () => NOW,
       runRestricted: submittingAgent((prompt, toolNames) => {
         inspected = true;
@@ -393,9 +413,15 @@ describe("TLDR generation, history, and acknowledgements", () => {
     assert.equal(settingsAfterReady.lastCoveredAt, NOW.toISOString());
     assert.equal(settingsAfterReady.lastGeneratedAt, NOW.toISOString());
     assert.equal(settingsAfterReady.lastAttemptAt, NOW.toISOString());
+    // A ready briefing hands off to its standing questions, and only once it
+    // is readable — the cards land under a brief, never in place of one.
+    assert.deepEqual(hook.ready, [tldr!.id]);
 
     const emptyAt = new Date(NOW.getTime() + 60 * 60_000);
-    const empty = await generateTldrNow(company.id, { now: () => emptyAt });
+    const empty = await generateTldrNow(company.id, {
+      ...hook.deps,
+      now: () => emptyAt,
+    });
     assert.equal(empty, null);
     const settingsAfterEmpty = await getTldrSettings(company.id);
     assert.equal(settingsAfterEmpty.lastCoveredAt, emptyAt.toISOString());
@@ -427,6 +453,7 @@ describe("TLDR generation, history, and acknowledgements", () => {
     );
 
     const failedDispatch = await dispatchDueTldrs(NOW, {
+      ...readyHook().deps,
       now: () => NOW,
       runRestricted: async () => {
         throw new Error("temporary model outage");
@@ -446,6 +473,7 @@ describe("TLDR generation, history, and acknowledgements", () => {
 
     const retryAt = afterFailure.nextRunAt!;
     const retry = await dispatchDueTldrs(retryAt, {
+      ...readyHook().deps,
       now: () => retryAt,
       runRestricted: submittingAgent(),
     });
@@ -476,9 +504,13 @@ describe("TLDR generation, history, and acknowledgements", () => {
       { nextRunAt: NOW },
     );
     const generation = generateTldrNow(company.id, {
+      ...readyHook().deps,
       now: () => NOW,
       runRestricted: async (params) => {
-        const scheduled = await dispatchDueTldrs(NOW, { now: () => NOW });
+        const scheduled = await dispatchDueTldrs(NOW, {
+          ...readyHook().deps,
+          now: () => NOW,
+        });
         assert.equal(scheduled.started, 0);
         assert.ok(
           (
@@ -533,7 +565,10 @@ describe("TLDR generation, history, and acknowledgements", () => {
     );
     await AppDataSource.getRepository(AIModel).update({ id: model.id }, { configJson: "{}" });
 
-    const dispatch = await dispatchDueTldrs(NOW, { now: () => NOW });
+    const dispatch = await dispatchDueTldrs(NOW, {
+      ...readyHook().deps,
+      now: () => NOW,
+    });
     await assert.rejects(dispatch.completions[0], /connected active AI Model/);
     const settings = await AppDataSource.getRepository(TldrSettings).findOneByOrFail({
       companyId: company.id,

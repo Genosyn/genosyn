@@ -50,7 +50,9 @@ import { Todo } from "../db/entities/Todo.js";
 import { TodoComment } from "../db/entities/TodoComment.js";
 import { TldrDismissal } from "../db/entities/TldrDismissal.js";
 import { TldrQuestion } from "../db/entities/TldrQuestion.js";
+import { TldrQuestionAction } from "../db/entities/TldrQuestionAction.js";
 import { TldrQuestionMessage } from "../db/entities/TldrQuestionMessage.js";
+import { TldrStandingQuestion } from "../db/entities/TldrStandingQuestion.js";
 import { User } from "../db/entities/User.js";
 import { Vendor } from "../db/entities/Vendor.js";
 import { WebAuthnCredential } from "../db/entities/WebAuthnCredential.js";
@@ -175,6 +177,8 @@ export async function deleteUserCascade(args: { userId: string }): Promise<Delet
     // only the departed Member's name comes off the question.
     await m.update(TldrQuestion, { createdByUserId: userId }, { createdByUserId: null });
     await m.update(TldrQuestionMessage, { createdByUserId: userId }, { createdByUserId: null });
+    await m.update(TldrStandingQuestion, { createdByUserId: userId }, { createdByUserId: null });
+    await m.update(TldrQuestionAction, { completedByUserId: userId }, { completedByUserId: null });
 
     await m.update(Todo, { assigneeUserId: userId }, { assigneeUserId: null });
     await m.update(Todo, { reviewerUserId: userId }, { reviewerUserId: null });

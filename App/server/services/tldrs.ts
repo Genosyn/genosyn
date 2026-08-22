@@ -151,6 +151,12 @@ type SubmittedTldr = { title: string; summary: string; body: string };
 export type TldrServiceDependencies = {
   runRestricted?: typeof runRestrictedEmployeeAgent;
   now?: () => Date;
+  /**
+   * Kicks off the standing-question pass once a brief is readable. Injectable
+   * because it is fire-and-forget model work: a test that wants to assert on
+   * generation should not be racing several agent turns it did not ask for.
+   */
+  onTldrReady?: (tldr: Tldr) => void;
 };
 
 function clean(value: string, cap: number): string {
@@ -871,6 +877,20 @@ async function settleFailed(tldr: Tldr, error: unknown, now: Date): Promise<void
   });
 }
 
+/**
+ * Production's `onTldrReady`. Imported lazily so `tldrs` and
+ * `tldrStandingQuestions` can each reach the other without a module cycle at
+ * load time — the standing pass needs `MAX_QUESTIONS_PER_TLDR` and the turn
+ * runner, which reach back here for `TldrEmployeeSnapshot`.
+ */
+function defaultOnTldrReady(tldr: Tldr): void {
+  void import("./tldrStandingQuestions.js")
+    .then(({ scheduleStandingQuestions }) => scheduleStandingQuestions(tldr.id))
+    .catch((error: unknown) => {
+      console.error(`[tldr:standing] could not start the pass for ${tldr.id}`, error);
+    });
+}
+
 async function generateClaimedTldr(
   claim: ClaimedTldr,
   dependencies: TldrServiceDependencies = {},
@@ -891,7 +911,13 @@ async function generateClaimedTldr(
       return null;
     }
     const submission = await authorTldr(claim.tldr, claim.employee, sources, dependencies);
-    return settleReady(claim.tldr, submission, sources.stats, now);
+    const ready = await settleReady(claim.tldr, submission, sources.stats, now);
+    // Deliberately after the brief is readable and deliberately not awaited.
+    // The standing questions are minutes of model work that belong behind the
+    // brief, not in front of the request that asked for one; `standingAnsweredAt`
+    // is what makes them survive this process dying mid-pass.
+    (dependencies.onTldrReady ?? defaultOnTldrReady)(ready);
+    return ready;
   } catch (error) {
     await settleFailed(claim.tldr, error, now);
     throw error;

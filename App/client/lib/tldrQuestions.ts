@@ -17,7 +17,37 @@ export type TldrQuestionMessage = {
   /** `working` is a persisted in-flight turn, not a local spinner. */
   status: "working" | "ok" | "skipped" | "error" | null;
   actions: MessageAction[];
+  /** Set when this turn came from pressing a suggested action. */
+  actionId: string | null;
   createdByUserId: string | null;
+  createdAt: string;
+};
+
+/** What a suggested action creates. Decides its icon and who may press it. */
+export type TldrActionKind = "routine" | "todo" | "project" | "decision" | "other";
+
+export type TldrActionStatus = "proposed" | "running" | "done" | "dismissed";
+
+/**
+ * One button the AI Employee attached to its own answer.
+ *
+ * `label` is the button and `intent` is the sentence shown beside it. Both are
+ * displayed before anything runs, because pressing sends exactly those two
+ * strings back as this Member's own instruction — under this Member's own
+ * access, never the employee's.
+ */
+export type TldrSuggestedAction = {
+  id: string;
+  questionId: string;
+  messageId: string;
+  kind: TldrActionKind;
+  label: string;
+  intent: string;
+  status: TldrActionStatus;
+  runMessageId: string | null;
+  completedByUserId: string | null;
+  /** False when this Member's own authority cannot reach what the button does. */
+  runnable: boolean;
   createdAt: string;
 };
 
@@ -25,11 +55,14 @@ export type TldrQuestion = {
   id: string;
   tldrId: string;
   prompt: string;
+  /** `standing` cards were answered automatically when the briefing landed. */
+  origin: "member" | "standing";
   employee: TldrEmployeeSnapshot;
   createdByUserId: string | null;
   createdAt: string;
   /** Oldest first, with the seeded prompt row excluded — the header shows it. */
   messages: TldrQuestionMessage[];
+  suggestedActions: TldrSuggestedAction[];
 };
 
 export type TldrQuestionsResponse = {
@@ -90,7 +123,35 @@ export const tldrQuestionsApi = {
 
   remove: (companyId: string, tldrId: string, questionId: string) =>
     api.del<{ ok: true }>(`${base(companyId, tldrId)}/${questionId}`),
+
+  /**
+   * Press a suggested action. Same stream and same turn as sending a
+   * follow-up: the employee wrote the sentence, the Member read it and pressed,
+   * and the server replays it as that Member's own instruction.
+   */
+  runAction: (
+    companyId: string,
+    tldrId: string,
+    questionId: string,
+    actionId: string,
+    onEvent: TldrQuestionStreamHandler,
+    signal?: AbortSignal,
+  ) =>
+    api.stream(
+      `${base(companyId, tldrId)}/${questionId}/actions/${actionId}/run`,
+      {},
+      onEvent,
+      { signal },
+    ),
+
+  dismissAction: (companyId: string, tldrId: string, questionId: string, actionId: string) =>
+    api.del<{ ok: true }>(`${base(companyId, tldrId)}/${questionId}/actions/${actionId}`),
 };
+
+/** Buttons still worth showing. Dismissed suggestions leave the card quietly. */
+export function visibleActions(question: TldrQuestion): TldrSuggestedAction[] {
+  return question.suggestedActions.filter((action) => action.status !== "dismissed");
+}
 
 /**
  * Replace a message by id, or append it when this panel hasn't seen it yet.

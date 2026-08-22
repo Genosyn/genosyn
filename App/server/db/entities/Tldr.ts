@@ -69,6 +69,18 @@ export class Tldr {
   @Column({ type: dateTimeColumnType, nullable: true })
   finishedAt!: Date | null;
 
+  /**
+   * When this brief finished answering the company's standing questions.
+   *
+   * The durable cursor for that pass, not a decoration: a brief goes ready,
+   * then its standing questions are answered one model call at a time, and a
+   * restart in between would otherwise leave a brief permanently missing the
+   * cards it was supposed to carry. Null means "still owed"; a company with no
+   * standing questions is stamped immediately so it is never a sweep candidate.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  standingAnsweredAt!: Date | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

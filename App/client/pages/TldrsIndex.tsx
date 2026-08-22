@@ -429,8 +429,9 @@ function TldrCard({
     : null;
   const body = item.body.trim();
   const summary = item.summary.trim();
-  // Discussion happens here, beside the briefing being discussed — opening it
-  // used to mean leaving the page for the employee's own chat window.
+  // Whether the "ask another question" composer is showing. The answers
+  // themselves are not behind this — a standing question's card is the point of
+  // the briefing carrying it, so it renders without anybody opening anything.
   const [discussing, setDiscussing] = React.useState(openDiscussion);
 
   return (
@@ -467,26 +468,17 @@ function TldrCard({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
-          {/* Shown without a writer too, whenever cards exist: deleting the
-              AI Employee stops new questions, but the answers a teammate
-              already read stay theirs to reopen and remove. */}
-          {(employee.id || item.questionCount > 0) && !discussing && (
+          {/* Only the empty case. Once a briefing carries cards they render
+              under it with their own "ask something else" affordance, and two
+              buttons for one thing is one button too many. */}
+          {employee.id && item.questionCount === 0 && !discussing && (
             <Button
               size="sm"
               variant="secondary"
               onClick={() => setDiscussing(true)}
-              title={
-                employee.id
-                  ? `Ask ${employee.name || "the AI Employee"} about this briefing, here on this page`
-                  : "Read the questions already asked about this briefing"
-              }
+              title={`Ask ${employee.name || "the AI Employee"} about this briefing, here on this page`}
             >
-              <MessageSquare size={14} /> {employee.id ? "Discuss" : "Questions"}
-              {item.questionCount > 0 && (
-                <span className="tabular-nums text-slate-400 dark:text-slate-500">
-                  {item.questionCount}
-                </span>
-              )}
+              <MessageSquare size={14} /> Ask a question
             </Button>
           )}
           {item.triggerKind === "manual" && (

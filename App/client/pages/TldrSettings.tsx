@@ -1,14 +1,21 @@
 import React from "react";
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
   Bot,
   CalendarClock,
   Check,
   Clock3,
   Info,
+  ListChecks,
+  MessagesSquare,
+  Plus,
   Save,
   ShieldCheck,
   Sparkles,
+  Trash2,
+  Zap,
 } from "lucide-react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
 
@@ -22,16 +29,56 @@ import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/components/ui/Toast";
 import { clsx } from "@/components/ui/clsx";
 import { formatRelative } from "@/components/decisions/relative";
+import { Input } from "@/components/ui/Input";
 import {
   api,
+  MAX_STANDING_QUESTIONS,
   type Employee,
   type TldrCadence,
   type TldrGenerateResponse,
   type TldrSettings,
+  type TldrStandingQuestion,
 } from "@/lib/api";
+import { TLDR_QUESTION_PRESETS, TLDR_QUESTION_PROMPT_MAX_CHARS } from "@/lib/tldrQuestions";
 import type { TldrsOutletContext } from "@/pages/TldrsLayout";
 
-type Draft = Pick<TldrSettings, "enabled" | "cadence" | "employeeId">;
+/**
+ * One standing question while it is being edited.
+ *
+ * `id` is null for a row that has never been saved. Keeping a stable local
+ * `key` beside it is what lets React keep focus in a text field the Member is
+ * typing into while its neighbours reorder around it.
+ */
+type QuestionDraft = { key: string; id: string | null; prompt: string; enabled: boolean };
+
+type Draft = Pick<TldrSettings, "enabled" | "cadence" | "employeeId"> & {
+  questions: QuestionDraft[];
+};
+
+let questionKeySeq = 0;
+function nextQuestionKey(): string {
+  questionKeySeq += 1;
+  return `q-${questionKeySeq}`;
+}
+
+function toQuestionDrafts(questions: TldrStandingQuestion[]): QuestionDraft[] {
+  return questions.map((question) => ({
+    key: nextQuestionKey(),
+    id: question.id,
+    prompt: question.prompt,
+    enabled: question.enabled,
+  }));
+}
+
+function sameQuestions(saved: TldrStandingQuestion[], draft: QuestionDraft[]): boolean {
+  if (saved.length !== draft.length) return false;
+  return saved.every(
+    (question, index) =>
+      question.id === draft[index].id &&
+      question.prompt === draft[index].prompt &&
+      question.enabled === draft[index].enabled,
+  );
+}
 
 const CADENCES: Array<{
   value: TldrCadence;
@@ -66,6 +113,7 @@ function toDraft(settings: TldrSettings): Draft {
     enabled: settings.enabled,
     cadence: settings.cadence,
     employeeId: settings.employeeId,
+    questions: toQuestionDrafts(settings.questions ?? []),
   };
 }
 
@@ -87,7 +135,8 @@ export default function TldrSettingsPage() {
     draft &&
     (settings.enabled !== draft.enabled ||
       settings.cadence !== draft.cadence ||
-      settings.employeeId !== draft.employeeId),
+      settings.employeeId !== draft.employeeId ||
+      !sameQuestions(settings.questions ?? [], draft.questions)),
   );
   dirtyRef.current = dirty;
 
@@ -127,7 +176,22 @@ export default function TldrSettingsPage() {
     setSaving(true);
     setSaveError(null);
     try {
-      await api.put(`/api/companies/${company.id}/tldrs/settings`, draft);
+      // The local `key` is React bookkeeping and the body schema is strict, so
+      // the list is mapped down to what the server actually accepts. Blank
+      // rows are dropped rather than rejected — an empty question somebody
+      // added and thought better of is not a validation error.
+      await api.put(`/api/companies/${company.id}/tldrs/settings`, {
+        enabled: draft.enabled,
+        cadence: draft.cadence,
+        employeeId: draft.employeeId,
+        questions: draft.questions
+          .filter((question) => question.prompt.trim().length > 0)
+          .map((question) => ({
+            id: question.id,
+            prompt: question.prompt.trim(),
+            enabled: question.enabled,
+          })),
+      });
       const fresh = await api.get<TldrSettings>(`/api/companies/${company.id}/tldrs/settings`);
       setSettings(fresh);
       setDraft(toDraft(fresh));
@@ -373,6 +437,15 @@ export default function TldrSettingsPage() {
                 </div>
               </div>
 
+              <StandingQuestions
+                questions={draft.questions}
+                canManage={canManage}
+                employeeName={selectedEmployee?.name ?? null}
+                onChange={(questions) =>
+                  setDraft((current) => (current ? { ...current, questions } : current))
+                }
+              />
+
               <FormError message={saveError} />
 
               {canManage && (
@@ -488,6 +561,206 @@ export default function TldrSettingsPage() {
             )}
           </aside>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The standing-question editor.
+ *
+ * A list, not a form per row: these are read and reordered far more often than
+ * they are written, and one Save covering the whole schedule is what makes
+ * "add two questions and move one up" a single decision. Toggling a question
+ * off keeps its wording, which is what people actually want when a question
+ * stops being useful for a while.
+ */
+function StandingQuestions({
+  questions,
+  canManage,
+  employeeName,
+  onChange,
+}: {
+  questions: QuestionDraft[];
+  canManage: boolean;
+  employeeName: string | null;
+  onChange: (questions: QuestionDraft[]) => void;
+}) {
+  const atCap = questions.length >= MAX_STANDING_QUESTIONS;
+  const asked = new Set(questions.map((question) => question.prompt.trim().toLowerCase()));
+  const presets = TLDR_QUESTION_PRESETS.filter((preset) => !asked.has(preset.toLowerCase()));
+
+  function add(prompt: string) {
+    if (atCap) return;
+    onChange([
+      ...questions,
+      { key: nextQuestionKey(), id: null, prompt, enabled: true },
+    ]);
+  }
+
+  function update(key: string, patch: Partial<QuestionDraft>) {
+    onChange(questions.map((q) => (q.key === key ? { ...q, ...patch } : q)));
+  }
+
+  function move(index: number, delta: number) {
+    const target = index + delta;
+    if (target < 0 || target >= questions.length) return;
+    const next = [...questions];
+    const [row] = next.splice(index, 1);
+    next.splice(target, 0, row);
+    onChange(next);
+  }
+
+  return (
+    <div>
+      <div className="mb-3 flex items-start gap-2">
+        <ListChecks size={15} className="mt-0.5 shrink-0 text-slate-400" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-slate-800 dark:text-slate-200">
+            Questions to answer
+          </div>
+          <div className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+            After each briefing is posted, {employeeName || "the briefing AI Employee"} answers
+            these and adds each answer as its own card underneath — with one-click actions where
+            there is something worth doing.
+          </div>
+        </div>
+      </div>
+
+      {questions.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-200 px-4 py-5 text-center dark:border-slate-700">
+          <span className="mx-auto flex h-9 w-9 items-center justify-center rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300">
+            <MessagesSquare size={17} />
+          </span>
+          <p className="mt-2.5 text-xs font-medium text-slate-700 dark:text-slate-300">
+            No standing questions yet
+          </p>
+          <p className="mx-auto mt-1 max-w-md text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+            {canManage
+              ? "Add the questions you would ask anyway. Every briefing answers them for you, so the answer is already there when you read it."
+              : "An owner or admin can add the questions every briefing should answer."}
+          </p>
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {questions.map((question, index) => (
+            <li
+              key={question.key}
+              className={clsx(
+                "flex items-center gap-2 rounded-xl border px-2.5 py-2 transition",
+                question.enabled
+                  ? "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
+                  : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50",
+              )}
+            >
+              <div className="flex shrink-0 flex-col">
+                <button
+                  type="button"
+                  disabled={!canManage || index === 0}
+                  onClick={() => move(index, -1)}
+                  aria-label={`Move “${question.prompt || "this question"}” earlier`}
+                  className="rounded p-0.5 text-slate-300 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent dark:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                >
+                  <ArrowUp size={12} />
+                </button>
+                <button
+                  type="button"
+                  disabled={!canManage || index === questions.length - 1}
+                  onClick={() => move(index, 1)}
+                  aria-label={`Move “${question.prompt || "this question"}” later`}
+                  className="rounded p-0.5 text-slate-300 transition hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent dark:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                >
+                  <ArrowDown size={12} />
+                </button>
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <Input
+                  value={question.prompt}
+                  disabled={!canManage}
+                  maxLength={TLDR_QUESTION_PROMPT_MAX_CHARS}
+                  placeholder="What should we stop doing?"
+                  aria-label={`Standing question ${index + 1}`}
+                  onChange={(event) => update(question.key, { prompt: event.target.value })}
+                  className={clsx(
+                    "h-9 border-transparent bg-transparent shadow-none focus:border-violet-400 focus:ring-violet-100 dark:focus:ring-violet-900/40",
+                    !question.enabled && "text-slate-400 dark:text-slate-500",
+                  )}
+                />
+              </div>
+
+              <button
+                type="button"
+                role="switch"
+                aria-checked={question.enabled}
+                aria-label={`Answer “${question.prompt || "this question"}” on every briefing`}
+                disabled={!canManage}
+                onClick={() => update(question.key, { enabled: !question.enabled })}
+                title={
+                  question.enabled
+                    ? "Answered on every briefing"
+                    : "Paused — kept here, but not answered"
+                }
+                className={clsx(
+                  "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  question.enabled
+                    ? "bg-violet-600 dark:bg-violet-500"
+                    : "bg-slate-300 dark:bg-slate-700",
+                )}
+              >
+                <span
+                  className={clsx(
+                    "inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+                    question.enabled ? "translate-x-[1.15rem]" : "translate-x-0.5",
+                  )}
+                />
+              </button>
+
+              <button
+                type="button"
+                disabled={!canManage}
+                onClick={() => onChange(questions.filter((q) => q.key !== question.key))}
+                aria-label={`Remove “${question.prompt || "this question"}”`}
+                className="shrink-0 rounded-md p-1 text-slate-300 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:text-slate-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+              >
+                <Trash2 size={13} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {canManage && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <Button size="sm" variant="secondary" disabled={atCap} onClick={() => add("")}>
+            <Plus size={13} /> Add a question
+          </Button>
+          {!atCap &&
+            presets.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => add(preset)}
+                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-violet-500/30 dark:hover:bg-violet-500/10 dark:hover:text-violet-300"
+              >
+                <Plus size={10} className="mr-1 inline align-[-1px]" />
+                {preset}
+              </button>
+            ))}
+          {atCap && (
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              That is all {MAX_STANDING_QUESTIONS} standing questions. Remove one to add another.
+            </span>
+          )}
+        </div>
+      )}
+
+      {questions.some((question) => question.enabled && question.prompt.trim()) && (
+        <p className="mt-2.5 flex items-start gap-1.5 text-[11px] leading-4 text-slate-400 dark:text-slate-500">
+          <Zap size={12} className="mt-px shrink-0" />
+          Answering is discussion-only, exactly like the briefing itself. Nothing happens until
+          somebody presses a button on a card or replies to one.
+        </p>
       )}
     </div>
   );

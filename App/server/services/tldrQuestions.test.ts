@@ -113,20 +113,36 @@ function recorder() {
 type RestrictedSeam = NonNullable<TldrQuestionTurnArgs["runRestricted"]>;
 type ChatSeam = NonNullable<TldrQuestionTurnArgs["runChat"]>;
 
+/**
+ * The restricted seam, called more than once per ask.
+ *
+ * A card's opening answer is turn one; proposing the buttons that hang off it
+ * is turn two. `inspect` fires for every call with its index, so a test can say
+ * which turn it means instead of silently asserting about whichever ran last —
+ * which is exactly the mistake that made these assertions pass for the wrong
+ * reason once a second turn existed.
+ */
 const answeringAgent =
   (
     reply = "Ship fewer things, finish more of them.",
-    inspect?: (prompt: string, system: string, toolNames: string[]) => void,
-  ): RestrictedSeam =>
-  async (params) => {
+    inspect?: (prompt: string, system: string, toolNames: string[], turn: number) => void,
+  ): RestrictedSeam => {
+  let turn = 0;
+  return async (params) => {
     inspect?.(
       JSON.stringify(params.messages),
       params.system,
       params.tools.map((tool) => tool.name),
+      turn,
     );
+    turn += 1;
     params.callbacks?.onText?.(reply);
     return { status: "ok", finalText: reply, steps: 1 };
   };
+};
+
+/** The index of the opening-answer turn, for readability at the call sites. */
+const ANSWER_TURN = 0;
 
 const replyingChat =
   (
@@ -229,7 +245,7 @@ describe("asking a question about a TLDR", () => {
 
   test("answers with no tools at all, so a card can never become a way to act", async () => {
     const f = await fixture();
-    let toolNames: string[] | null = null;
+    const turns: string[][] = [];
 
     await runTldrQuestionTurn({
       companyId: f.company.id,
@@ -239,11 +255,15 @@ describe("asking a question about a TLDR", () => {
       requesterSessionVersion: 1,
       callbacks: recorder().callbacks,
       runRestricted: answeringAgent("Stop the weekly status meeting.", (_p, _s, names) => {
-        toolNames = names;
+        turns.push(names);
       }),
     });
 
-    assert.deepEqual(toolNames, []);
+    assert.deepEqual(turns[ANSWER_TURN], []);
+    // Turn two proposes the card's buttons. It is restricted too, and its only
+    // tool is a submission sink — so neither half of an ask can act.
+    assert.deepEqual(turns[1], ["submit_actions"]);
+    assert.equal(turns.length, 2, "an ask is exactly two restricted turns");
   });
 
   test("hands the briefing over as untrusted reference data, never as a discussion link", async () => {
@@ -258,7 +278,8 @@ describe("asking a question about a TLDR", () => {
       userId: f.owner.id,
       requesterSessionVersion: 1,
       callbacks: recorder().callbacks,
-      runRestricted: answeringAgent("Deployment fragility.", (p, s) => {
+      runRestricted: answeringAgent("Deployment fragility.", (p, s, _names, turn) => {
+        if (turn !== ANSWER_TURN) return;
         prompt = p;
         system = s;
       }),

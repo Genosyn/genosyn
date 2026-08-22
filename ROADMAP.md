@@ -108,10 +108,16 @@ don't re-litigate them.
     employee chat. The chosen AI
     Employee runs through the restricted model seam with only the structured
     submission tool and no action-capable tools, so content being summarized
-    cannot turn the recap into an action. A question card asked about a TLDR
-    answers on that same restricted seam, so asking is not a route around it;
-    only a follow-up a Member deliberately sends carries tools, and it carries
-    that Member's own access rather than the employee's. Reading is personal:
+    cannot turn the recap into an action. A question card answers on that same
+    restricted seam whether a Member asked it or a standing question produced
+    it, so neither asking nor configuring is a route around it; working out
+    which buttons an answer deserves is a second restricted turn whose only
+    tool is likewise a submission sink. Only a follow-up a Member deliberately
+    sends — or a button they press after reading the sentence printed on it —
+    carries tools, and it carries that Member's own access rather than the
+    employee's. A button never widens what its presser could already do, and
+    nothing hidden rides along with one: what is authorized is exactly what was
+    shown. Reading is personal:
     one Member dismissing a TLDR hides it only for them and never deletes the
     company's preserved history or hides it from somebody else. Question cards
     are not personal — like the briefing, they belong to the company.
@@ -146,9 +152,16 @@ don't re-litigate them.
   bounded period. Generated on a fixed
   cadence by a chosen AI Employee, preserved in history, and dismissed
   separately by each Member.
-- **Question card** — one question a Member asked about a TLDR (`TldrQuestion`),
-  answered beside the briefing rather than inside it, with its own
-  company-visible conversation.
+- **Question card** — one question answered about a TLDR (`TldrQuestion`),
+  beside the briefing rather than inside it, with its own company-visible
+  conversation. Either a Member asked it, or a standing question produced it.
+- **Standing question** — a question the company configured once at TLDR
+  settings (`TldrStandingQuestion`) that every new briefing answers
+  automatically, posting each answer as its own card beneath the brief.
+- **Suggested action** — a one-click next step an AI Employee attached to its
+  own answer (`TldrQuestionAction`). Pressing it sends the sentence the Member
+  read back to the employee as that Member's own instruction, under that
+  Member's own authority.
 - **Integration** — a connector type (Stripe, Gmail, GitHub, …). Static
   catalog defined in `server/integrations/providers/<name>.ts`.
 - **Connection** — one authenticated account inside an Integration. DB row
@@ -235,7 +248,7 @@ genosyn/
 - **Approvals + audit:** `Approval` (kind: routine | lightning_payment | …),
   `AuditEvent`, `Notification`
 - **TLDRs (M45):** `TldrSettings`, `Tldr`, `TldrDismissal`, `TldrQuestion`,
-  `TldrQuestionMessage`
+  `TldrQuestionMessage`, `TldrStandingQuestion`, `TldrQuestionAction`
 - **Email (transactional sends):** `EmailProvider`, `EmailLog`
 - **Email client (M25):** `MailAccount`, `MailThread`, `MailMessage`,
   `MailLabel`, `MailRule`, `MailHandover`, `MailChatMessage`,
@@ -2609,6 +2622,31 @@ summarizer another route to act.
       persisted before the model starts, so a dropped stream or a restart
       resolves to a real answer instead of a permanent spinner. A removed
       writer leaves existing cards readable and refuses new questions.
+- [x] **Standing questions, answered before anybody asks.** A company
+      configures up to eight `TldrStandingQuestion` rows at TLDR settings —
+      ordered, individually pausable, saved with the schedule in one write.
+      The moment a briefing goes ready it hands off to a background pass that
+      answers each one on the same restricted, zero-tool seam and posts it as
+      its own card beneath the brief, so the answers are waiting rather than
+      being something a human has to remember to ask for. `Tldr.standingAnsweredAt`
+      is the durable cursor: claimed before the first model turn, so a restart
+      mid-pass resumes through a bounded heartbeat sweep instead of answering
+      the first question twice, and questions added today never back-fill
+      briefings already read.
+- [x] **Answers carry buttons, and a button is not a privilege.** A second
+      restricted turn — one submission sink, no other tools — turns a finished
+      answer into at most three `TldrQuestionAction` rows. Each stores the
+      button label and the whole sentence of what pressing it asks for, and
+      both are shown before anything runs, because the model wrote them after
+      reading untrusted source data: the guarantee is not that a proposal is
+      trustworthy, it is that what a Member authorizes is exactly what they
+      read. Pressing replays that sentence through the ordinary discuss seam
+      under the pressing Member's own authority; `routine` actions are refused
+      at the route for anyone but an owner or admin, not merely greyed out. The
+      claim is guarded so two Members pressing at once produce one turn, a
+      failed turn returns the button to the shelf, and a restart mid-press
+      releases it rather than leaving it unpressable. Proposing never risks the
+      answer — it is already saved when the second turn runs.
 
 ## V1 backlog (post-MVP)
 

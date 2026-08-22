@@ -30,6 +30,11 @@ import {
   resetTldrSchedulesAfterRestore,
   sweepTldrSchedules,
 } from "./tldrs.js";
+import { releaseInterruptedTldrQuestionActions } from "./tldrQuestionActions.js";
+import {
+  retireStaleStandingClaims,
+  sweepPendingStandingQuestions,
+} from "./tldrStandingQuestions.js";
 
 /**
  * Heartbeat-based routine scheduler.
@@ -468,6 +473,30 @@ async function tick(): Promise<void> {
       await dispatchDueTldrs(now).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR dispatch failed:", err);
+      });
+
+      // Phase 6 — finish the standing questions a brief is still owed. The
+      // pass normally runs behind its own generation; this only picks up
+      // briefs whose process died before it could, and gives up on ones too
+      // old to be worth answering rather than re-scanning them forever.
+      //
+      // The sweep hands off rather than waiting: a pass is several model turns
+      // per brief, and this tick holds the scheduler lease for as long as its
+      // body runs. The two awaits here are a bounded SELECT and a single
+      // UPDATE. Same reason a button left mid-press is released from here —
+      // one guarded UPDATE, so a replica that died without a peer restarting
+      // does not leave its buttons stuck until one does.
+      await sweepPendingStandingQuestions(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] TLDR standing question sweep failed:", err);
+      });
+      await retireStaleStandingClaims(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] TLDR standing question retirement failed:", err);
+      });
+      await releaseInterruptedTldrQuestionActions(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] TLDR suggested action release failed:", err);
       });
     });
   } finally {

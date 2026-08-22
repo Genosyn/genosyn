@@ -76,6 +76,12 @@ const REGISTRY: Record<string, Mapping> = {
   // would fan a company-wide refetch on each keystroke of a streamed reply.
   // The panel's own SSE stream and follow-poll own that.
   TldrQuestion: { kind: "tldr_question", company: "direct", scopeFk: "tldrId" },
+  // A suggested action is low-frequency card state, not transcript: it is
+  // written once when an answer lands and again if somebody presses it. Live
+  // sync is what stops two Members both pressing "Stop it now".
+  TldrQuestionAction: { kind: "tldr_question", company: "direct", scopeFk: "tldrId" },
+  // The standing-question list is TLDR policy, so it rides the settings kind.
+  TldrStandingQuestion: { kind: "tldr", company: "direct" },
   Handoff: { kind: "handoff", company: "direct" },
   JournalEntry: {
     kind: "journal",

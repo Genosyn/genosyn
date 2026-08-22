@@ -94,6 +94,8 @@ code, UI copy, commits, and docs.
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
 | **Member browser** (a Chrome a human connected from their own computer — `MemberBrowser`) | Connection, Browser Connection, Device |
 | **Decision** (a question an AI Employee stacked for a human to answer — `Decision`) | Approval, Question, Ask, Escalation |
+| **Standing question** (a question configured once at TLDR settings that every briefing answers — `TldrStandingQuestion`) | Preset, Template question, Default question |
+| **Suggested action** (a one-click next step an AI Employee attached to its own answer — `TldrQuestionAction`) | Quick action, Command, Shortcut |
 | **Repository** (a version-controlled workspace — code, strategy docs, policies; `Repository`) | Code Repository, Repo, Codebase |
 | **Work session** (one request to an AI Employee to do work in a Repository — `RepositoryWorkSession`) | Job, Task, Agent run |
 | **Grant** (an AI employee's access to a resource — a Connection, Note, Chart, Repo, …) | Permission, Attachment, Binding |

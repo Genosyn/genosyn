@@ -11,7 +11,12 @@ import { Company } from "../db/entities/Company.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Tldr } from "../db/entities/Tldr.js";
 import { TldrQuestion } from "../db/entities/TldrQuestion.js";
+import {
+  TldrQuestionAction,
+  type TldrActionKind,
+} from "../db/entities/TldrQuestionAction.js";
 import { TldrQuestionMessage } from "../db/entities/TldrQuestionMessage.js";
+import { TldrStandingQuestion } from "../db/entities/TldrStandingQuestion.js";
 import { User } from "../db/entities/User.js";
 import { errorHandler } from "../middleware/error.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
@@ -378,5 +383,277 @@ describe("TLDR question cards", () => {
       "/tldrs",
     );
     assert.equal(list.body.items[0].questionCount, 1);
+  });
+});
+
+describe("standing questions on TLDR settings", () => {
+  test("an admin saves the list with the schedule and reads it back", async () => {
+    const saved = await call<{ questions: Array<{ id: string; prompt: string; enabled: boolean }> }>(
+      "PUT",
+      "/tldrs/settings",
+      {
+        enabled: false,
+        cadence: "daily",
+        employeeId: employee.id,
+        questions: [
+          { prompt: "What should we stop doing?", enabled: true },
+          { prompt: "What needs a decision from me?", enabled: false },
+        ],
+      },
+    );
+    assert.equal(saved.status, 200);
+    assert.deepEqual(
+      saved.body.questions.map((q) => [q.prompt, q.enabled]),
+      [
+        ["What should we stop doing?", true],
+        ["What needs a decision from me?", false],
+      ],
+    );
+
+    const fetched = await call<{ questions: Array<{ id: string; prompt: string }> }>(
+      "GET",
+      "/tldrs/settings",
+    );
+    assert.deepEqual(
+      fetched.body.questions.map((q) => q.prompt),
+      ["What should we stop doing?", "What needs a decision from me?"],
+    );
+  });
+
+  test("omitting the field leaves an existing list alone", async () => {
+    await call("PUT", "/tldrs/settings", {
+      enabled: false,
+      cadence: "daily",
+      employeeId: employee.id,
+      questions: [{ prompt: "What should we stop doing?", enabled: true }],
+    });
+    // An older client saving only a cadence must not wipe questions it has
+    // never heard of.
+    const saved = await call<{ questions: unknown[]; cadence: string }>("PUT", "/tldrs/settings", {
+      enabled: false,
+      cadence: "weekly",
+      employeeId: employee.id,
+    });
+    assert.equal(saved.body.cadence, "weekly");
+    assert.equal(saved.body.questions.length, 1);
+  });
+
+  test("rejects an over-long question, too many of them, and an unknown field", async () => {
+    const base = { enabled: false, cadence: "daily", employeeId: employee.id };
+    assert.equal(
+      (
+        await call("PUT", "/tldrs/settings", {
+          ...base,
+          questions: [{ prompt: "x".repeat(501), enabled: true }],
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await call("PUT", "/tldrs/settings", {
+          ...base,
+          questions: Array.from({ length: 9 }, (_, index) => ({
+            prompt: `Question ${index}`,
+            enabled: true,
+          })),
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await call("PUT", "/tldrs/settings", {
+          ...base,
+          questions: [{ prompt: "Fine", enabled: true, surprise: true }],
+        })
+      ).status,
+      400,
+    );
+    assert.equal(await AppDataSource.getRepository(TldrStandingQuestion).count(), 0);
+  });
+
+  test("a plain Member may read the list but not change it", async () => {
+    await call("PUT", "/tldrs/settings", {
+      enabled: false,
+      cadence: "daily",
+      employeeId: employee.id,
+      questions: [{ prompt: "What should we stop doing?", enabled: true }],
+    });
+    actingUserId = member.id;
+    const read = await call<{ questions: unknown[] }>("GET", "/tldrs/settings");
+    assert.equal(read.status, 200);
+    assert.equal(read.body.questions.length, 1);
+    assert.equal(
+      (
+        await call("PUT", "/tldrs/settings", {
+          enabled: false,
+          cadence: "daily",
+          employeeId: employee.id,
+          questions: [],
+        })
+      ).status,
+      403,
+    );
+    assert.equal(await AppDataSource.getRepository(TldrStandingQuestion).count(), 1);
+  });
+});
+
+describe("suggested actions on a card", () => {
+  /** A card with one proposed button, without going through a model. */
+  async function cardWithAction(kind: TldrActionKind = "todo"): Promise<{
+    tldr: Tldr;
+    question: TldrQuestion;
+    action: TldrQuestionAction;
+  }> {
+    const tldr = await readyTldr();
+    const question = await insert(TldrQuestion, {
+      companyId: company.id,
+      tldrId: tldr.id,
+      employeeId: employee.id,
+      prompt: "What should we stop doing?",
+      origin: "standing",
+      standingQuestionId: null,
+      promptMessageId: null,
+      createdByUserId: null,
+    });
+    const message = await insert(TldrQuestionMessage, {
+      companyId: company.id,
+      tldrId: tldr.id,
+      questionId: question.id,
+      role: "assistant",
+      employeeId: employee.id,
+      modelId: null,
+      content: "Stop the nightly scrape.",
+      status: "ok",
+      actionsJson: "",
+      actionId: null,
+      createdByUserId: null,
+    });
+    const action = await insert(TldrQuestionAction, {
+      companyId: company.id,
+      tldrId: tldr.id,
+      questionId: question.id,
+      messageId: message.id,
+      kind,
+      label: "Pause it",
+      intent: "Pause the Nightly Scrape Routine.",
+      position: 0,
+      status: "proposed",
+      runMessageId: null,
+      completedByUserId: null,
+    });
+    return { tldr, question, action };
+  }
+
+  test("the card list carries each button and whether this Member may press it", async () => {
+    const { tldr, action } = await cardWithAction("routine");
+    actingUserId = member.id;
+    const listed = await call<{
+      questions: Array<{
+        origin: string;
+        suggestedActions: Array<{ id: string; label: string; intent: string; runnable: boolean }>;
+      }>;
+    }>("GET", `/tldrs/${tldr.id}/questions`);
+    assert.equal(listed.status, 200);
+    assert.equal(listed.body.questions[0].origin, "standing");
+    assert.deepEqual(listed.body.questions[0].suggestedActions, [
+      {
+        id: action.id,
+        questionId: action.questionId,
+        messageId: action.messageId,
+        kind: "routine",
+        label: "Pause it",
+        intent: "Pause the Nightly Scrape Routine.",
+        status: "proposed",
+        runMessageId: null,
+        completedByUserId: null,
+        runnable: false,
+        createdAt: action.createdAt.toISOString(),
+      },
+    ]);
+  });
+
+  test("a plain Member is refused a Routine button at the route, not only in the UI", async () => {
+    const { tldr, question, action } = await cardWithAction("routine");
+    actingUserId = member.id;
+    const pressed = await stream(
+      `/tldrs/${tldr.id}/questions/${question.id}/actions/${action.id}/run`,
+      {},
+    );
+    assert.deepEqual(
+      pressed.events.map(([name]) => name),
+      ["error", "done"],
+    );
+    assert.match(String(pressed.events[0][1].message), /owner or admin/);
+    const untouched = await AppDataSource.getRepository(TldrQuestionAction).findOneByOrFail({
+      id: action.id,
+    });
+    assert.equal(untouched.status, "proposed", "a refused press must not claim the button");
+  });
+
+  test("a button already carried out refuses a second press", async () => {
+    const { tldr, question, action } = await cardWithAction();
+    await AppDataSource.getRepository(TldrQuestionAction).update(
+      { id: action.id },
+      { status: "done" },
+    );
+    const pressed = await stream(
+      `/tldrs/${tldr.id}/questions/${question.id}/actions/${action.id}/run`,
+      {},
+    );
+    assert.match(String(pressed.events[0][1].message), /already been carried out/);
+  });
+
+  test("a button on another company's briefing is not found", async () => {
+    const { question, action } = await cardWithAction();
+    const foreign = await readyTldr(otherCompany.id);
+    const pressed = await stream(
+      `/tldrs/${foreign.id}/questions/${question.id}/actions/${action.id}/run`,
+      {},
+      otherCompany.id,
+    );
+    assert.match(String(pressed.events[0][1].message), /not found/);
+  });
+
+  test("dismissing clears the button for the company without deleting the record", async () => {
+    const { tldr, question, action } = await cardWithAction();
+    actingUserId = member.id;
+    const dismissed = await call(
+      "DELETE",
+      `/tldrs/${tldr.id}/questions/${question.id}/actions/${action.id}`,
+    );
+    assert.equal(dismissed.status, 200);
+    const row = await AppDataSource.getRepository(TldrQuestionAction).findOneByOrFail({
+      id: action.id,
+    });
+    assert.equal(row.status, "dismissed");
+
+    const listed = await call<{ questions: Array<{ suggestedActions: unknown[] }> }>(
+      "GET",
+      `/tldrs/${tldr.id}/questions`,
+    );
+    // Still serialized — the client is what hides a dismissed suggestion, so a
+    // reopened card can still say the employee suggested it.
+    assert.equal(listed.body.questions[0].suggestedActions.length, 1);
+  });
+
+  test("rejects a non-uuid action id and an extra body field at the zod boundary", async () => {
+    const { tldr, question, action } = await cardWithAction();
+    assert.equal(
+      (await call("DELETE", `/tldrs/${tldr.id}/questions/${question.id}/actions/not-a-uuid`))
+        .status,
+      400,
+    );
+    assert.equal(
+      (
+        await call(
+          "POST",
+          `/tldrs/${tldr.id}/questions/${question.id}/actions/${action.id}/run`,
+          { surprise: true },
+        )
+      ).status,
+      400,
+    );
   });
 });
