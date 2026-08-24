@@ -50,6 +50,7 @@ import {
   runLogNeedsPolling,
   timeAgo,
   timeUntil,
+  visibleBrowserRecordings,
 } from "../components/routines/RunViews";
 import { cronHuman, cronIsReadable } from "../lib/cron";
 import { RoutinesContext } from "./RoutinesLayout";
@@ -625,6 +626,7 @@ function RunsTab({
   const [loadingLog, setLoadingLog] = React.useState(false);
   const [logLoadError, setLogLoadError] = React.useState(false);
   const { toast } = useToast();
+  const recordings = visibleBrowserRecordings(log?.browserRecordings);
 
   const loadRuns = React.useCallback(async () => {
     try {
@@ -791,8 +793,7 @@ function RunsTab({
         </aside>
         <div
           className={
-            "grid min-w-0 flex-1 gap-3 " +
-            ((log?.browserRecordings?.length ?? 0) > 0 ? "xl:grid-cols-2" : "")
+            "grid min-w-0 flex-1 gap-3 " + (recordings.length > 0 ? "xl:grid-cols-2" : "")
           }
         >
           <RunLogPane
@@ -801,11 +802,11 @@ function RunsTab({
             placeholder={logLoadError ? "Couldn’t load the log. Retrying…" : "(empty log)"}
             className="h-full max-h-[60vh] min-h-[400px]"
           />
-          {(log?.browserRecordings?.length ?? 0) > 0 && activeId && (
+          {recordings.length > 0 && activeId && (
             <RunBrowserRecordingsPane
               companyId={company.id}
               runId={activeId}
-              recordings={log?.browserRecordings ?? []}
+              recordings={recordings}
               className="min-h-[400px] max-h-[60vh]"
             />
           )}

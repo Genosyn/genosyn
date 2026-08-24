@@ -186,6 +186,19 @@ function recordingStatusLabel(recording: RunBrowserRecording): string {
 }
 
 /**
+ * The recordings worth giving screen space to. A `failed` session saved no
+ * video at all, and a panel whose only content is "there is no video here"
+ * adds nothing beside a Run log that already says what happened. `restricted`
+ * stays — that video exists and was deliberately withheld, which the Member
+ * should be told rather than left to read as an absence.
+ */
+export function visibleBrowserRecordings(
+  recordings: RunBrowserRecording[] | null | undefined,
+): RunBrowserRecording[] {
+  return (recordings ?? []).filter((recording) => recording.status !== "failed");
+}
+
+/**
  * Saved visual browser evidence for a Run. Browser-enabled work can delegate,
  * so the selector handles several independent BrowserSessions without making
  * the common one-recording case feel like an artifact manager.
@@ -193,7 +206,7 @@ function recordingStatusLabel(recording: RunBrowserRecording): string {
 export function RunBrowserRecordingsPane({
   companyId,
   runId,
-  recordings,
+  recordings: allRecordings,
   className = "min-h-[360px] max-h-[60vh]",
 }: {
   companyId: string;
@@ -201,6 +214,9 @@ export function RunBrowserRecordingsPane({
   recordings: RunBrowserRecording[];
   className?: string;
 }) {
+  // Filtered here as well as at the call sites, so a Run whose only browser
+  // session failed renders nothing at all instead of an empty player.
+  const recordings = React.useMemo(() => visibleBrowserRecordings(allRecordings), [allRecordings]);
   const [selectedId, setSelectedId] = React.useState(recordings[0]?.id ?? "");
   const [playbackErrorId, setPlaybackErrorId] = React.useState<string | null>(null);
 
@@ -348,6 +364,8 @@ export function RunBrowserRecordingsPane({
             body="This recording contains protected browser data or is not available to this Member. The Run log remains available."
           />
         ) : (
+          // Defensive only: `failed` sessions never reach the pane, so this
+          // catches a status this build doesn't know about yet.
           <RecordingState
             icon={<AlertTriangle size={24} />}
             title="Recording unavailable"
@@ -404,6 +422,7 @@ export function RunLiveModal({
 
   const status: RunStatus = log?.status ?? initialRun.status;
   const isTerminal = status !== "running";
+  const recordings = visibleBrowserRecordings(log?.browserRecordings);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -489,8 +508,7 @@ export function RunLiveModal({
         </div>
         <div
           className={
-            "grid min-w-0 flex-1 gap-3 " +
-            ((log?.browserRecordings?.length ?? 0) > 0 ? "xl:grid-cols-2" : "")
+            "grid min-w-0 flex-1 gap-3 " + (recordings.length > 0 ? "xl:grid-cols-2" : "")
           }
         >
           <RunLogPane
@@ -500,11 +518,11 @@ export function RunLiveModal({
             placeholder={log === null ? "Starting…" : "Waiting for output…"}
             className="max-h-[60vh] min-h-[360px]"
           />
-          {(log?.browserRecordings?.length ?? 0) > 0 && (
+          {recordings.length > 0 && (
             <RunBrowserRecordingsPane
               companyId={company.id}
               runId={initialRun.id}
-              recordings={log?.browserRecordings ?? []}
+              recordings={recordings}
             />
           )}
         </div>
