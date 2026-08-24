@@ -365,7 +365,7 @@ export default function BaseDetail({ company }: { company: Company }) {
   const { base, tables } = detail;
 
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Base header */}
         <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-6 py-3 dark:bg-slate-900 dark:border-slate-700">
@@ -421,7 +421,7 @@ export default function BaseDetail({ company }: { company: Company }) {
         </div>
 
         {/* Grid */}
-        <div className="min-h-0 flex-1 overflow-auto bg-slate-50 dark:bg-slate-950">
+        <div className="min-h-0 flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950">
           {!currentTable ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-500 dark:text-slate-400">
               This base has no active tables. Add one or restore an archived table
@@ -806,9 +806,10 @@ function Grid({
   const someSelected = selectedIds.size > 0 && !allSelected;
 
   return (
-    <div className="flex min-h-full flex-col">
-      {/* View tabs */}
-      <div className="border-b border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+    <div className="flex h-full min-h-0 flex-col">
+      {/* View tabs + toolbar: outside the scrollport, so scrolling the grid
+          sideways never drags them off-screen. */}
+      <div className="shrink-0 border-b border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
         <ViewTabs
           views={views.map((v) => ({ id: v.id, name: v.name }))}
           activeViewId={activeViewId}
@@ -851,13 +852,18 @@ function Grid({
         </div>
       </div>
 
-      <div className="flex-1 p-4">
-        <div className="inline-block min-w-full">
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-            <table className="w-full border-collapse text-sm">
+      <div className="min-h-0 flex-1 p-4">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          {/* The grid's only scrollport, both axes. Sticky cells anchor to it,
+              which is why the card's overflow-hidden sits on the parent and not
+              here. Borders are separated rather than collapsed: a collapsed
+              table paints cell borders itself and drops them off sticky cells
+              mid-scroll. */}
+          <div className="min-h-0 flex-1 overflow-auto">
+            <table className="w-full border-separate border-spacing-0 text-sm">
               <thead>
                 <tr>
-                  <th className="sticky left-0 top-0 z-10 w-10 border-b border-r border-slate-200 bg-slate-50 px-0 py-0 dark:border-slate-700 dark:bg-slate-900">
+                  <th className="sticky left-0 top-0 z-30 w-10 border-b border-r border-slate-200 bg-slate-50 px-0 py-0 dark:border-slate-700 dark:bg-slate-900">
                     <SelectAllCell
                       allSelected={allSelected}
                       someSelected={someSelected}
@@ -877,7 +883,7 @@ function Grid({
                       onDelete={() => deleteField(f)}
                     />
                   ))}
-                  <th className="border-b border-slate-200 bg-slate-50 px-1 py-1 dark:border-slate-700 dark:bg-slate-900">
+                  <th className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 px-1 py-1 dark:border-slate-700 dark:bg-slate-900">
                     <AddFieldButton onAdd={addField} />
                   </th>
                 </tr>
@@ -914,17 +920,17 @@ function Grid({
                 </tr>
               </tbody>
             </table>
-          </div>
 
-          {records.length === 0 ? (
-            <div className="mt-4 rounded-md border border-dashed border-slate-200 bg-white p-6 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-              This table is empty. Click <span className="font-semibold">Add row</span> above to start.
-            </div>
-          ) : visibleRecords.length === 0 ? (
-            <div className="mt-4 rounded-md border border-dashed border-slate-200 bg-white p-6 text-center text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-              No rows match the current filters in this view.
-            </div>
-          ) : null}
+            {records.length === 0 ? (
+              <div className="sticky left-0 p-6 text-center text-xs text-slate-500 dark:text-slate-400">
+                This table is empty. Click <span className="font-semibold">Add row</span> above to start.
+              </div>
+            ) : visibleRecords.length === 0 ? (
+              <div className="sticky left-0 p-6 text-center text-xs text-slate-500 dark:text-slate-400">
+                No rows match the current filters in this view.
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -1184,7 +1190,7 @@ function Row({
   return (
     <tr
       className={clsx(
-        "group border-t border-slate-100 dark:border-slate-800",
+        "group",
         selected
           ? "bg-indigo-50/60 dark:bg-indigo-500/10"
           : "hover:bg-indigo-50/20 dark:hover:bg-indigo-500/5",
@@ -1192,7 +1198,8 @@ function Row({
     >
       <td
         className={clsx(
-          "sticky left-0 z-10 w-10 border-r border-slate-200 px-0 text-center text-[11px] text-slate-400 dark:border-slate-700 dark:text-slate-500",
+          "sticky left-0 z-10 w-10 border-r border-r-slate-200 px-0 text-center text-[11px] text-slate-400 dark:border-r-slate-700 dark:text-slate-500",
+          index > 1 && "border-t border-t-slate-100 dark:border-t-slate-800",
           selected
             ? "bg-indigo-50/60 dark:bg-indigo-500/10"
             : "bg-white group-hover:bg-indigo-50/20 dark:bg-slate-900",
@@ -1235,6 +1242,7 @@ function Row({
             key={f.id}
             className={clsx(
               "relative h-9 min-w-[140px] border-r border-slate-100 px-0 align-middle dark:border-slate-800",
+              index > 1 && "border-t",
               editing && "ring-2 ring-inset ring-indigo-400",
             )}
             onClick={() => {
@@ -1277,7 +1285,12 @@ function Row({
           </td>
         );
       })}
-      <td className="border-l border-slate-100 px-1 align-middle dark:border-slate-800">
+      <td
+        className={clsx(
+          "border-slate-100 px-1 align-middle dark:border-slate-800",
+          index > 1 && "border-t",
+        )}
+      >
         <div className="flex h-9 items-center justify-center gap-1">
           <button
             onClick={onExpand}
@@ -1327,7 +1340,7 @@ function FieldHeader({
   })();
 
   return (
-    <th className="min-w-[140px] border-b border-r border-slate-200 bg-slate-50 px-0 text-left align-middle dark:border-slate-700 dark:bg-slate-900">
+    <th className="sticky top-0 z-20 min-w-[140px] border-b border-r border-slate-200 bg-slate-50 px-0 text-left align-middle dark:border-slate-700 dark:bg-slate-900">
       <Menu
         width={280}
         align="left"
