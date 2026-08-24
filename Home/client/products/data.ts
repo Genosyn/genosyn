@@ -708,10 +708,10 @@ export const PRODUCTS: ProductDef[] = [
     description:
       "Self-hosted visual automation: DAGs of triggers, branches, delays, and integration nodes on a canvas — webhooks, cron, and an Ask-AI-employee node.",
     intro:
-      "Pipelines are deterministic glue: company-scoped DAGs of typed nodes that fire manually, on a secret-token webhook, or on cron. Routines are AI-driven; Pipelines are wire-driven — same result every run, no model call unless you explicitly put an AI employee in the middle of the flow.",
+      "Pipelines are deterministic glue: company-scoped DAGs of typed nodes that fire manually, on a schedule, on a secret-token webhook, on an inbound email, or on a new task. Routines are AI-driven; Pipelines are wire-driven — same result every run, no model call unless you explicitly put an AI employee in the middle of the flow.",
     checks: [
-      "14 node types across 4 families",
-      "Manual, webhook, and cron triggers",
+      "17 node types across 4 families",
+      "Manual, schedule, webhook, email, and task triggers",
       "20 Integrations callable as nodes",
       "Every run logged and auditable",
     ],
@@ -723,8 +723,8 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         icon: "webhook",
-        title: "Three ways to fire",
-        body: "A manual Run-now button, incoming webhooks with unique secret URLs, or a 5-field cron schedule on a 30-second heartbeat that advances before firing, so slow runs can't double-fire.",
+        title: "Five ways to fire",
+        body: "A manual Run-now button, a 5-field cron schedule, an incoming webhook with its own secret URL, an inbound email on a connected Gmail mailbox, or a new task added to a Project. The scheduler runs on a 30-second heartbeat that advances before firing, so slow runs can't double-fire.",
       },
       {
         icon: "boxes",
@@ -776,7 +776,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "What can trigger a pipeline?",
-        a: "Three trigger types: Manual (a Run-now button), Webhook (each node gets a unique secret URL and the POST body becomes the trigger payload), and Schedule (standard 5-field cron on a 30-second heartbeat). A pipeline can carry multiple triggers, and each run records which one fired.",
+        a: "Five trigger types: Manual (a Run-now button), Schedule (standard 5-field cron on a 30-second heartbeat), Webhook (each node gets a unique secret URL and the POST body becomes the trigger payload), Email received (a new inbound message in a connected Gmail inbox), and Task created (a new task added to any Project). The email trigger takes an optional comma-separated Mailboxes list — leave it empty to watch every connected mailbox — plus sender, subject, and attachment filters; the task trigger narrows by Project, priority, or title. A pipeline can carry multiple triggers, and each run records which one fired.",
       },
       {
         q: "Can a pipeline talk to my other tools?",
