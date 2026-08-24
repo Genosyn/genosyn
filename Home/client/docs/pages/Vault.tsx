@@ -241,8 +241,8 @@ export function Vault() {
       </P>
       <P>
         During authenticator enrollment, <Code>browser_prepare_vault_totp</Code> first binds an
-        AI-created Login to the exact origin and withholds screenshots and recordings before the
-        secret appears. <Code>browser_save_vault_totp</Code> then reads the selected same-origin
+        AI-created Login to the exact origin and redacts screenshots and model-visible page text
+        before the secret appears. <Code>browser_save_vault_totp</Code> then reads the selected same-origin
         setup key, authenticator QR image, or containing element. Genosyn validates and encrypts it
         server-side. Later,{" "}
         <Code>browser_fill_vault</Code> with the <Code>totp</Code> field generates and fills a

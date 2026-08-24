@@ -11,6 +11,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import express from "express";
 
 import { config } from "../../config.js";
+import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { ApiKey } from "../db/entities/ApiKey.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
@@ -179,7 +180,26 @@ async function fixture() {
     acceptBrowserRecordingFrame(session.id, Buffer.from(`frame-${session.id}`).toString("base64"));
     await finishBrowserRecording(session);
   }
-  return { owner, member, company, run, appSession, memberSession };
+  return { owner, member, company, employee, run, appSession, memberSession };
+}
+
+/** A plain Member of the company — no admin role, no Member browser. */
+async function addPlainMember(companyId: string, label: string): Promise<User> {
+  const user = await insert(User, {
+    email: `recording-${label}-${randomUUID()}@example.com`,
+    name: label,
+    passwordHash: "x",
+    sessionVersion: 0,
+  });
+  await insert(Membership, { companyId, userId: user.id, role: "member" });
+  return user;
+}
+
+async function recordingIds(companyId: string, runId: string): Promise<string[]> {
+  const response = await fetch(`${runPath(companyId, runId)}/log`);
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as { browserRecordings: Array<{ id: string }> };
+  return body.browserRecordings.map(({ id }) => id);
 }
 
 function runPath(companyId: string, runId: string): string {
@@ -230,6 +250,71 @@ describe("Routine browser recording authorization", () => {
       (await fetch(`${runPath(company.id, run.id)}/browser-recordings/${appSession.id}`)).status,
       404,
     );
+  });
+
+  test("gives the AI Employee's human manager the App recording without an admin role", async () => {
+    const { company, employee, run, appSession, memberSession } = await fixture();
+    const manager = await addPlainMember(company.id, "manager");
+    const bystander = await addPlainMember(company.id, "bystander");
+    await AppDataSource.getRepository(AIEmployee).update(
+      { id: employee.id },
+      { reportsToUserId: manager.id },
+    );
+
+    actingUserId = manager.id;
+    assert.deepEqual(await recordingIds(company.id, run.id), [appSession.id]);
+    assert.equal(
+      (await fetch(`${runPath(company.id, run.id)}/browser-recordings/${appSession.id}`)).status,
+      200,
+    );
+    // A Member browser is the owner's own computer, so the org chart buys no
+    // access to it.
+    assert.equal(
+      (await fetch(`${runPath(company.id, run.id)}/browser-recordings/${memberSession.id}`)).status,
+      404,
+    );
+
+    // Being a Member of the company is not itself oversight.
+    actingUserId = bystander.id;
+    assert.deepEqual(await recordingIds(company.id, run.id), []);
+  });
+
+  test("follows the reporting line up through an AI manager to the human above it", async () => {
+    const { company, employee, run, appSession } = await fixture();
+    const manager = await addPlainMember(company.id, "skip-level");
+    const lead = await insert(AIEmployee, {
+      companyId: company.id,
+      name: "Browser Lead",
+      slug: `lead-${randomUUID()}`,
+      role: "Lead",
+      reportsToUserId: manager.id,
+    });
+    await AppDataSource.getRepository(AIEmployee).update(
+      { id: employee.id },
+      { reportsToEmployeeId: lead.id },
+    );
+
+    actingUserId = manager.id;
+    assert.deepEqual(await recordingIds(company.id, run.id), [appSession.id]);
+  });
+
+  test("stops walking a reporting line that loops back on itself", async () => {
+    const { company, employee, run } = await fixture();
+    const stranger = await addPlainMember(company.id, "stranger");
+    const lead = await insert(AIEmployee, {
+      companyId: company.id,
+      name: "Circular Lead",
+      slug: `circular-${randomUUID()}`,
+      role: "Lead",
+      reportsToEmployeeId: employee.id,
+    });
+    await AppDataSource.getRepository(AIEmployee).update(
+      { id: employee.id },
+      { reportsToEmployeeId: lead.id },
+    );
+
+    actingUserId = stranger.id;
+    assert.deepEqual(await recordingIds(company.id, run.id), []);
   });
 
   test("serves seekable ranges and attachment downloads from the private file", async () => {

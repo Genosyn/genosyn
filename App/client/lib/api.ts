@@ -558,12 +558,7 @@ export type Run = {
   /** Occurrences missed during downtime that this run stands in for. */
   missedSlots?: number;
 };
-export type RunBrowserRecordingStatus =
-  | "recording"
-  | "finalizing"
-  | "ready"
-  | "failed"
-  | "restricted";
+export type RunBrowserRecordingStatus = "recording" | "finalizing" | "ready" | "failed";
 export type RunBrowserRecording = {
   /** BrowserSession id; one Run may have several when it delegates browser work. */
   id: string;

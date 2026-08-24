@@ -140,7 +140,7 @@ export function Browser() {
           },
           {
             term: "browser_prepare_vault_totp",
-            def: "Arm an AI-created Login for TOTP enrollment before asking the site to reveal its setup key or QR. Screenshots and recordings are restricted immediately.",
+            def: "Arm an AI-created Login for TOTP enrollment before asking the site to reveal its setup key or QR. Screenshots and model-visible page text are redacted immediately.",
           },
           {
             term: "browser_save_vault_totp",
@@ -258,7 +258,8 @@ export function Browser() {
       <P>
         If the site offers TOTP during signup, the employee first calls{" "}
         <Code>browser_prepare_vault_totp</Code> on its AI-created Login, then asks the site to reveal
-        enrollment. This immediately withholds screenshots and recordings. The employee then calls{" "}
+        enrollment. This immediately redacts screenshots and model-visible page text. The employee
+        then calls{" "}
         <Code>browser_save_vault_totp</Code> on the same-origin setup key, authenticator QR image, or
         containing element. Genosyn validates and encrypts the setup server-side; neither the setup
         key nor a generated code appears in model output. A Member can also paste a shown Base32 key
@@ -333,12 +334,13 @@ export function Browser() {
         opens the browser. Parallel delegated browser work produces separate recordings, and none of
         them contain page audio.
       </P>
-      <Callout kind="warn" title="Password-field sessions are withheld">
-        Visual recording can capture everything rendered in the browser viewport. A recording from
-        Genosyn&apos;s browser is therefore limited to company owners and admins, while a Member
-        browser recording is limited to that browser&apos;s exact owner. If the session observes a
-        password field, Genosyn withholds its whole recording instead of offering playback or a
-        download. The redacted structural snapshot remains available to the AI Employee.
+      <Callout kind="warn" title="A recording shows the whole screen">
+        Visual recording captures everything rendered in the browser viewport, including a login
+        form mid-sign-in and a TOTP enrollment page mid-reveal. Nothing is cut out of it, so a
+        recording is limited to the people accountable for that work: for Genosyn&apos;s browser,
+        company owners and admins plus the Member the AI Employee reports to; for a Member browser,
+        that browser&apos;s exact owner and nobody else. What the <em>AI Employee</em> sees is
+        separate and stays redacted — screenshots and page text scrub Vault values either way.
       </Callout>
 
       <H2 id="persistence">What persists</H2>

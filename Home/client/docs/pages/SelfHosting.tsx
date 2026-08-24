@@ -219,8 +219,7 @@ export function SelfHosting() {
         six-hour Run at the recording bitrate. If an encoder stops before the browser session ends,
         Genosyn marks the recording unavailable rather than publishing a truncated video. These
         files never enter an AI Employee&apos;s working tree. Genosyn keeps them with the Run
-        history and removes them when the owning Routine or company is deleted; a session that
-        observes a password field has its recording withheld entirely.
+        history and removes them when the owning Routine or company is deleted.
       </P>
       <Callout kind="info" title="Source installs need ffmpeg and ffprobe">
         The standard Docker image includes <Code>ffmpeg</Code> for encoding browser recordings and{" "}

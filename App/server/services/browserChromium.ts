@@ -1226,19 +1226,21 @@ export async function releasePage(
 ): Promise<void> {
   const r = runtimes.get(sessionId);
   if (!r) return;
-  // Last chance to fail closed while the page still exists. A navigation can
-  // reveal a password field after the final browser RPC and before teardown.
+  // Last chance to scan while the page still exists. A navigation can reveal a
+  // password field after the final browser RPC and before teardown, and later
+  // screenshots must stay redacted when it does.
   const { flushBrowserRecordingFrameScans, observeRuntimePasswordValues } =
     await import("./browserSessions.js");
-  const { browserRecordingDemand, freezeBrowserRecording, restrictBrowserRecording } =
-    await import("./browserRecordings.js");
+  const { browserRecordingDemand, freezeBrowserRecording } = await import(
+    "./browserRecordings.js"
+  );
   const finalScanRequired = browserRecordingDemand(sessionId);
   freezeBrowserRecording(sessionId);
   await flushBrowserRecordingFrameScans(sessionId);
   await observeRuntimePasswordValues(sessionId, {
     failClosedIfUnavailable: finalScanRequired,
-  }).catch(async () => {
-    if (finalScanRequired) await restrictBrowserRecording(sessionId).catch(() => undefined);
+  }).catch(() => {
+    // Redaction bookkeeping only; teardown still finalizes the recording.
   });
   runtimes.delete(sessionId);
   if (r.idleTimer) clearTimeout(r.idleTimer);

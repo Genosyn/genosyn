@@ -340,11 +340,13 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         capture is in progress, then updates when the file is ready.
       </P>
       <Callout kind="warn" title="Recordings follow the Browser access boundary">
-        A recording made in Genosyn&apos;s browser is available only to company owners and admins. A
-        recording made in a <DocLink to="/docs/member-browsers">Member browser</DocLink> is
-        available only to that browser&apos;s exact owner, regardless of company role. If a browser
-        session observes a password field, Genosyn withholds the entire recording rather than
-        keeping a playable copy that could expose sensitive input.
+        A recording made in Genosyn&apos;s browser is available to company owners and admins, and to
+        the Member the AI Employee reports to — supervising an employee&apos;s work should not
+        require the admin role over everything else. Where that employee reports to another AI
+        Employee, the line is followed upward to the first human on it. A recording made in a{" "}
+        <DocLink to="/docs/member-browsers">Member browser</DocLink> is available only to that
+        browser&apos;s exact owner, regardless of company role or org chart. Recordings are kept
+        whole: the video shows whatever the page rendered, sign-in screens included.
       </Callout>
       <UL>
         <LI>

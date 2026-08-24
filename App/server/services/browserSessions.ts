@@ -28,7 +28,6 @@ import {
   freezeBrowserRecording,
   markBrowserRecordingRunFinalizing,
   pauseBrowserRecording,
-  restrictBrowserRecording,
 } from "./browserRecordings.js";
 import { BROWSER_WINDOW_HEIGHT, BROWSER_WINDOW_WIDTH } from "./browserProfile.js";
 
@@ -69,8 +68,8 @@ type SensitiveObservationKind = "password-present" | "password-value" | "active-
 const sensitiveValueListeners = new Set<
   (sessionId: string, value: string, kind: SensitiveObservationKind) => void | Promise<void>
 >();
-const recordingFrameInspectors = new Set<
-  (sessionId: string, jpegBase64: string) => boolean | Promise<boolean>
+const recordingFrameObservers = new Set<
+  (sessionId: string, jpegBase64: string) => void | Promise<void>
 >();
 let passwordObservationRuntime: (sessionId: string) => unknown = getRuntime;
 let beforeBrowserSessionSaveForTests: (() => Promise<void>) | null = null;
@@ -364,14 +363,16 @@ export function registerBrowserSensitiveValueListener(
 }
 
 /**
- * Inspect the exact JPEG bytes before a Routine recording accepts them.
- * Returning false, throwing, or rejecting withholds the entire recording.
+ * Inspect the exact JPEG bytes a Routine recording is about to accept. Used to
+ * notice a credential ceremony in the pixels and taint the session so later
+ * screenshots and model-visible text are redacted. It cannot veto the frame:
+ * the recording itself is always kept.
  */
-export function registerBrowserRecordingFrameInspector(
-  inspector: (sessionId: string, jpegBase64: string) => boolean | Promise<boolean>,
+export function registerBrowserRecordingFrameObserver(
+  observer: (sessionId: string, jpegBase64: string) => void | Promise<void>,
 ): () => void {
-  recordingFrameInspectors.add(inspector);
-  return () => recordingFrameInspectors.delete(inspector);
+  recordingFrameObservers.add(observer);
+  return () => recordingFrameObservers.delete(observer);
 }
 
 /**
@@ -683,7 +684,7 @@ export async function closeBrowserSession(
       failClosedIfUnavailable: finalScanRequired,
     });
   } catch {
-    if (row.runId) await restrictBrowserRecording(sessionId).catch(() => undefined);
+    // Redaction bookkeeping only; the recording is finalized either way.
   }
   const wasOpen = row.status !== "closed" && row.status !== "expired";
   if (wasOpen) {
@@ -841,7 +842,8 @@ export async function notifyPageSwapped(sessionId: string): Promise<void> {
   if (wasCasting && shouldScreencast(state)) {
     if (browserRecordingDemand(sessionId)) {
       // Prove the context-level observer reached the adopted popup before page
-      // scripts, then scan it before its first JPEG can enter the recorder.
+      // scripts, so a credential it renders is redacted from the employee's
+      // own view from the first frame.
       await observeRuntimePasswordValues(sessionId, {
         failClosedIfUnavailable: true,
       });
@@ -897,32 +899,20 @@ function startRecordingFrameScan(state: SessionState): void {
   state.pendingRecordingFrame = null;
   state.lastRecordingFrameScanAt = Date.now();
   const task = (async () => {
+    // The scan still runs on every queued frame: it is what keeps a password
+    // or Vault value out of model-visible page text and out of screenshots.
+    // It no longer decides whether the frame is recorded — a Run recording is
+    // kept whole for the humans allowed to watch it.
     try {
-      const verified = await observeRuntimePasswordValues(state.id, {
-        discardIfUnavailable: true,
-      });
-      // A JPEG whose document could not be inspected is never written. This
-      // is the safe navigation race: discard the unverified frame rather than
-      // withholding already-verified video from the whole Run. Terminal scans
-      // remain fail closed, and the sticky observer still withholds a real
-      // password even if it appears and disappears between frames.
-      if (!verified) return;
+      await observeRuntimePasswordValues(state.id, { discardIfUnavailable: true });
     } catch {
-      await restrictBrowserRecording(state.id).catch(() => undefined);
-      return;
+      // Redaction is best effort; it never costs the Run its video.
     }
-    for (const inspect of recordingFrameInspectors) {
+    for (const observe of recordingFrameObservers) {
       try {
-        if (!(await inspect(state.id, frame.data))) {
-          await restrictBrowserRecording(state.id).catch(() => undefined);
-          return;
-        }
+        await observe(state.id, frame.data);
       } catch {
-        // A frame that cannot be classified never reaches ffmpeg. Withhold
-        // the whole recording because an earlier accepted frame may belong to
-        // the same sensitive ceremony.
-        await restrictBrowserRecording(state.id).catch(() => undefined);
-        return;
+        // A frame that cannot be classified is still recorded.
       }
     }
     if (frame.navigationGeneration === state.recordingNavigationGeneration) {
@@ -1400,7 +1390,6 @@ async function historyFromViewer(
 }
 
 async function reportPasswordPresence(sessionId: string): Promise<void> {
-  await restrictBrowserRecording(sessionId).catch(() => undefined);
   for (const listener of sensitiveValueListeners) {
     try {
       await listener(sessionId, "", "password-present");
@@ -1730,8 +1719,16 @@ async function collectPasswordCdpTargets(
 }
 
 type PasswordObservationOptions = {
+  /**
+   * A page this scan could not read is treated as a page that showed a
+   * password, so redaction stays on for the rest of the session. Used at
+   * terminal boundaries, where there is no later scan to correct the guess.
+   */
   failClosedIfUnavailable?: boolean;
-  /** Drop an unverified screencast frame instead of classifying navigation as sensitive. */
+  /**
+   * The caller is a screencast frame, not a boundary: try once instead of
+   * retrying, and never escalate an unreadable page to a password sighting.
+   */
   discardIfUnavailable?: boolean;
 };
 
@@ -1762,12 +1759,7 @@ export async function observeRuntimePasswordValues(
       }
     | null
     | undefined;
-  if (!page) {
-    if (opts?.failClosedIfUnavailable && !opts.discardIfUnavailable) {
-      await restrictBrowserRecording(sessionId).catch(() => undefined);
-    }
-    return false;
-  }
+  if (!page) return false;
   let fullyObserved = true;
   const installInCurrentDocuments = !passwordTaintInstalledPages.has(page as object);
   if (installInCurrentDocuments) {
@@ -1896,11 +1888,9 @@ export async function observeRuntimePasswordValues(
       passwordTaintInstalledPages.add(page as object);
     } catch {
       // A current scan alone cannot prove that a password did not render and
-      // disappear between screencast frames. Without the navigation-persistent
-      // observer, withhold any Run recording while retaining ordinary browser
-      // behavior and the best-effort model-output scan below.
+      // disappear between screencast frames. Report the gap so callers can
+      // fail closed on redaction, and fall back to the model-output scan below.
       fullyObserved = false;
-      await restrictBrowserRecording(sessionId).catch(() => undefined);
     }
   }
   let frames: ReturnType<typeof page.frames>;
@@ -1908,25 +1898,20 @@ export async function observeRuntimePasswordValues(
     frames = page.frames();
   } catch {
     if (opts?.failClosedIfUnavailable && !opts.discardIfUnavailable) {
-      // Losing the ability to inspect the final page is privacy-relevant at a
-      // terminal boundary. Per-frame callers instead discard that JPEG.
-      await restrictBrowserRecording(sessionId).catch(() => undefined);
+      // Losing the ability to inspect the final page at a terminal boundary
+      // means assuming a credential was on screen, so every later screenshot
+      // and page snapshot stays redacted.
       for (const listener of sensitiveValueListeners) {
         try {
           await listener(sessionId, "", "password-present");
         } catch {
-          // Recording/redaction remains auxiliary to browser teardown.
+          // Redaction remains auxiliary to browser teardown.
         }
       }
     }
     return false;
   }
-  if (frames.length === 0) {
-    if (opts?.failClosedIfUnavailable && !opts.discardIfUnavailable) {
-      await restrictBrowserRecording(sessionId).catch(() => undefined);
-    }
-    return false;
-  }
+  if (frames.length === 0) return false;
   const observations = await Promise.all(
     frames.map(async (frame) => {
       const attempts = opts?.discardIfUnavailable ? 1 : 8;
@@ -2103,7 +2088,7 @@ export async function finalizeBrowserRecordingsForRun(runId: string): Promise<st
             failClosedIfUnavailable: finalScanRequired.has(row.id),
           });
         } catch {
-          await restrictBrowserRecording(row.id).catch(() => undefined);
+          // Redaction bookkeeping only; the recording still finalizes below.
         }
         try {
           await finishBrowserRecording(row);

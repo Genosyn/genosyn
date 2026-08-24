@@ -84,7 +84,7 @@ const Run = z
 const BrowserRecording = z
   .object({
     id: z.string().uuid().describe("BrowserSession id."),
-    status: z.enum(["recording", "finalizing", "ready", "failed", "restricted"]),
+    status: z.enum(["recording", "finalizing", "ready", "failed"]),
     startedAt: z.string().datetime().nullable(),
     finishedAt: z.string().datetime().nullable(),
     mimeType: z.literal("video/mp4"),
@@ -100,8 +100,9 @@ const RunLog = z
     browserRecordings: z
       .array(BrowserRecording)
       .describe(
-        "Recordings visible to this browser user. App-browser videos require admin access; " +
-          "Member-browser videos are visible only to that browser's exact owner. Empty for API keys.",
+        "Recordings visible to this browser user. App-browser videos go to company admins and " +
+          "to the Member the AI Employee reports to; Member-browser videos are visible only to " +
+          "that browser's exact owner. Empty for API keys.",
       ),
   })
   .openapi("RunLog");
@@ -441,9 +442,10 @@ registry.registerPath({
   path: "/api/companies/{cid}/runs/{runId}/browser-recordings",
   summary: "List browser recordings for a Run",
   description:
-    "Returns only recordings this signed-in Member may see. Genosyn-browser recordings " +
-    "require an owner or admin role; a Member-browser recording is visible only to that " +
-    "browser's exact owner. API keys cannot access recording metadata.",
+    "Returns only recordings this signed-in Member may see. A Genosyn-browser recording " +
+    "requires an owner or admin role, or being the Member at the top of that AI Employee's " +
+    "reporting line; a Member-browser recording is visible only to that browser's exact " +
+    "owner. API keys cannot access recording metadata.",
   tags: ["Routines"],
   security: [{ cookieAuth: [] }],
   request: {
@@ -486,9 +488,9 @@ registry.registerPath({
   summary: "Play or download one browser recording",
   description:
     "Streams a finished silent MP4. Byte ranges are supported for seeking. The same " +
-    "owner/admin and exact Member-browser-owner boundaries as the metadata endpoint apply; " +
-    "unauthorized recordings return 404 so their existence is not disclosed. API keys cannot " +
-    "access recording bytes.",
+    "owner/admin, reporting-line, and exact Member-browser-owner boundaries as the metadata " +
+    "endpoint apply; unauthorized recordings return 404 so their existence is not disclosed. " +
+    "API keys cannot access recording bytes.",
   tags: ["Routines"],
   security: [{ cookieAuth: [] }],
   request: {

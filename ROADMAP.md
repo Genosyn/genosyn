@@ -2897,16 +2897,21 @@ of the original V1 backlog has shipped — what remains is mostly
         browser. Capture is per session, so parallel delegated browser work
         produces separate MP4s instead of overwriting the parent Run's view.
         Files are finalized with the Run/session lifecycle. Startup recovery
-        promotes only partials that reached a clean, privacy-scanned finalizing state;
-        abrupt active captures are discarded rather than assumed safe, and
-        cleanup follows the owning Run. The bytes stay App-private under
-        `.private/browser-recordings/<company-id>/<run-id>/`. Recordings from
-        Genosyn's browser are admin-only, Member-browser recordings are
-        exact-owner-only and require an explicit unattended-recording consent,
-        and any session that observes a password field has its recording
-        withheld entirely. The Runs UI surfaces every available recording
-        beside its Run log, with the same behavior documented at `/docs/browser`
-        and `/docs/routines`.
+        promotes any partial ffprobe can still read and discards only torn
+        bytes, and cleanup follows the owning Run. The bytes stay App-private
+        under `.private/browser-recordings/<company-id>/<run-id>/`. A recording
+        is never withheld: it is kept whole and access is the boundary instead.
+        Recordings from Genosyn's browser go to company admins **and to the
+        Member the AI Employee reports to** (`services/reportingLine.ts` walks
+        `reportsToEmployeeId` upward to the first `reportsToUserId` human), so
+        supervising an employee does not require the admin role over everything
+        else. Member-browser recordings stay exact-owner-only — that is
+        someone's own computer, not company equipment — and still require an
+        explicit unattended-recording consent. The password/Vault observers are
+        retained, but they now only redact what the *AI Employee* sees
+        (screenshots, page text, error strings); they no longer delete video.
+        The Runs UI surfaces every available recording beside its Run log, with
+        the same behavior documented at `/docs/browser` and `/docs/routines`.
   - [x] **Member browsers.** A Member connects a Chrome running on their
         own computer and a granted employee drives that instead of the
         container's Chromium. A zero-dependency Node bridge

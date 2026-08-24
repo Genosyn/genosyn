@@ -221,10 +221,10 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
         When a scheduled Run actually opens this browser, Genosyn automatically stores a silent
         visual MP4 on the server with that Run&apos;s logs. A Run that never uses the browser
         creates no recording, and parallel delegated browser sessions create separate recordings.
-        Only this browser&apos;s exact owner can play or download them. If a session observes a
-        password field, Genosyn withholds its entire recording instead of keeping a playable copy.
-        Turning on <Strong>Let scheduled Routines use this browser</Strong> is also consent to that
-        recording behavior. After upgrading from a release that predates browser recordings, an
+        Only this browser&apos;s exact owner can play or download them — not company admins, and
+        not the AI Employee&apos;s manager. A recording shows whatever the page rendered, sign-in
+        screens included. Turning on <Strong>Let scheduled Routines use this browser</Strong> is
+        also consent to that recording behavior. After upgrading from a release that predates browser recordings, an
         existing unattended-use choice appears off once; review this notice and turn it on again to
         confirm.
       </Callout>

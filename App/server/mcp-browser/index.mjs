@@ -1101,7 +1101,7 @@ const TOOLS = [
   {
     name: "browser_prepare_vault_totp",
     description:
-      "Protect TOTP enrollment for an AI-created Vault Login before asking the website to reveal its setup key or QR. This must be the first step: after it succeeds, reveal enrollment and call browser_save_vault_totp on the bound setup key, QR image, or container. Screenshots and the Browser recording stay withheld from this point. Available only in the App-owned Browser.",
+      "Protect TOTP enrollment for an AI-created Vault Login before asking the website to reveal its setup key or QR. This must be the first step: after it succeeds, reveal enrollment and call browser_save_vault_totp on the bound setup key, QR image, or container. Screenshots and model-visible page text stay redacted from this point. Available only in the App-owned Browser.",
     inputSchema: {
       type: "object",
       properties: {

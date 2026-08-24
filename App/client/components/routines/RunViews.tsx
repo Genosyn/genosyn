@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, Ban, Download, Loader2, Lock, RotateCcw, Video } from "lucide-react";
+import { AlertTriangle, Ban, Download, Loader2, RotateCcw, Video } from "lucide-react";
 import { api, Company, Routine, Run, RunBrowserRecording, RunLog, RunStatus } from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
@@ -181,16 +181,13 @@ function recordingStatusLabel(recording: RunBrowserRecording): string {
   if (recording.status === "recording") return "Recording";
   if (recording.status === "finalizing") return "Finalizing";
   if (recording.status === "failed") return "Failed";
-  if (recording.status === "restricted") return "Withheld";
   return "Ready";
 }
 
 /**
  * The recordings worth giving screen space to. A `failed` session saved no
  * video at all, and a panel whose only content is "there is no video here"
- * adds nothing beside a Run log that already says what happened. `restricted`
- * stays — that video exists and was deliberately withheld, which the Member
- * should be told rather than left to read as an absence.
+ * adds nothing beside a Run log that already says what happened.
  */
 export function visibleBrowserRecordings(
   recordings: RunBrowserRecording[] | null | undefined,
@@ -356,12 +353,6 @@ export function RunBrowserRecordingsPane({
                 ? "Playback will be available after this browser session finishes."
                 : "The Run has finished. Genosyn is preparing the video for playback."
             }
-          />
-        ) : selected.status === "restricted" ? (
-          <RecordingState
-            icon={<Lock size={24} />}
-            title="Recording withheld"
-            body="This recording contains protected browser data or is not available to this Member. The Run log remains available."
           />
         ) : (
           // Defensive only: `failed` sessions never reach the pane, so this

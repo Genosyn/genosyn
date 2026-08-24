@@ -11,7 +11,7 @@ import {
   browserRecordingsCompanyDir,
 } from "./paths.js";
 
-export type BrowserRecordingStatus = "recording" | "finalizing" | "ready" | "failed" | "restricted";
+export type BrowserRecordingStatus = "recording" | "finalizing" | "ready" | "failed";
 
 export type BrowserRecordingInfo = {
   id: string;
@@ -77,8 +77,11 @@ const STDERR_LIMIT = 4_096;
 const activeRecordings = new Map<string, ActiveRecording>();
 const beginPromises = new Map<string, Promise<BrowserRecordingInfo | null>>();
 const beginScopes = new Map<string, Pick<BrowserSession, "companyId" | "runId">>();
-const restrictionPromises = new Map<string, Promise<void>>();
-const restrictedSessionIds = new Set<string>();
+// Sessions whose capture is being thrown away because the Run, Routine, or
+// Company that owns it is going away. This is cancellation, not privacy: a
+// recording is never withheld from the humans allowed to watch it.
+const abandonPromises = new Map<string, Promise<void>>();
+const abandonedSessionIds = new Set<string>();
 const frozenSessionIds = new Set<string>();
 // Deletion tombstones intentionally live until process restart. Company and
 // Run ids are immutable UUIDs, so retaining the tiny keys closes the window
@@ -202,7 +205,8 @@ function recordingPaths(session: Pick<BrowserSession, "id" | "companyId" | "runI
   finalPath: string;
   partPath: string;
   metadataPath: string;
-  restrictedPath: string;
+  /** Written by builds that withheld recordings. Only ever removed now. */
+  legacyRestrictedMarkerPath: string;
 } {
   if (!session.runId) throw new Error("Browser recording requires a Run");
   assertSafeId(session.companyId);
@@ -213,28 +217,12 @@ function recordingPaths(session: Pick<BrowserSession, "id" | "companyId" | "runI
     directory: browserRecordingRunDir(session.companyId, session.runId),
     finalPath,
     partPath: `${finalPath}.part`,
-    restrictedPath: `${finalPath}.restricted`,
+    legacyRestrictedMarkerPath: `${finalPath}.restricted`,
     metadataPath: path.join(
       browserRecordingRunDir(session.companyId, session.runId),
       `${session.id}.json`,
     ),
   };
-}
-
-async function hasRestrictedMarker(session: BrowserSession): Promise<boolean> {
-  try {
-    await fs.access(recordingPaths(session).restrictedPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function writeRestrictedMarker(session: BrowserSession): Promise<void> {
-  const paths = recordingPaths(session);
-  await ensurePrivateDirectory(paths.directory);
-  await fs.writeFile(paths.restrictedPath, "restricted\n", { mode: 0o600 });
-  await fs.chmod(paths.restrictedPath, 0o600).catch(() => undefined);
 }
 
 function baseInfo(
@@ -271,22 +259,22 @@ async function writeMetadata(session: BrowserSession, info: BrowserRecordingInfo
 
 async function readMetadata(session: BrowserSession): Promise<PersistedRecording | null> {
   try {
+    // `status` is read as a plain string: a file on disk may have been written
+    // by a build whose union differs from this one's.
     const value = JSON.parse(
       await fs.readFile(recordingPaths(session).metadataPath, "utf8"),
-    ) as Partial<PersistedRecording>;
-    const statuses: BrowserRecordingStatus[] = [
-      "recording",
-      "finalizing",
-      "ready",
-      "failed",
-      "restricted",
-    ];
-    if (value.id !== session.id || !statuses.includes(value.status as BrowserRecordingStatus)) {
+    ) as Partial<Omit<PersistedRecording, "status">> & { status?: string };
+    const statuses: BrowserRecordingStatus[] = ["recording", "finalizing", "ready", "failed"];
+    // Builds that withheld recordings deleted the bytes before writing this
+    // status, so there is nothing left to publish — report the honest terminal
+    // state instead of a status this build no longer has.
+    const status = value.status === "restricted" ? "failed" : value.status;
+    if (value.id !== session.id || !statuses.includes(status as BrowserRecordingStatus)) {
       return null;
     }
     return baseInfo(
       session,
-      value.status as BrowserRecordingStatus,
+      status as BrowserRecordingStatus,
       typeof value.startedAt === "string" ? value.startedAt : null,
       typeof value.finishedAt === "string" ? value.finishedAt : null,
       typeof value.sizeBytes === "number" && value.sizeBytes >= 0 ? value.sizeBytes : 0,
@@ -309,6 +297,7 @@ async function removeFiles(paths: ReturnType<typeof recordingPaths>): Promise<vo
   await Promise.all([
     fs.rm(paths.finalPath, { force: true }),
     fs.rm(paths.partPath, { force: true }),
+    fs.rm(paths.legacyRestrictedMarkerPath, { force: true }),
   ]);
 }
 
@@ -499,7 +488,7 @@ export function browserRecordingProcessStateForTests(): { frozen: number; active
 /** Clear process-local state between isolated service tests. */
 export async function resetBrowserRecordingsForTests(): Promise<void> {
   await Promise.all([...beginPromises.values()].map((promise) => promise.catch(() => null)));
-  await Promise.all([...restrictionPromises.values()].map((promise) => promise.catch(() => null)));
+  await Promise.all([...abandonPromises.values()].map((promise) => promise.catch(() => null)));
   await Promise.all(
     [...activeRecordings.values()].map(async (active) => {
       if (active.timer) clearInterval(active.timer);
@@ -509,8 +498,8 @@ export async function resetBrowserRecordingsForTests(): Promise<void> {
   activeRecordings.clear();
   beginPromises.clear();
   beginScopes.clear();
-  restrictionPromises.clear();
-  restrictedSessionIds.clear();
+  abandonPromises.clear();
+  abandonedSessionIds.clear();
   frozenSessionIds.clear();
   deletingCompanyIds.clear();
   deletingEmployeeIds.clear();
@@ -533,7 +522,7 @@ async function beginImpl(
 ): Promise<BrowserRecordingInfo | null> {
   if (
     !session.runId ||
-    restrictedSessionIds.has(session.id) ||
+    abandonedSessionIds.has(session.id) ||
     frozenSessionIds.has(session.id) ||
     deletionBlocked(session, allowFinalizingRun)
   ) {
@@ -546,7 +535,7 @@ async function beginImpl(
   });
   if (
     !currentSession ||
-    restrictedSessionIds.has(session.id) ||
+    abandonedSessionIds.has(session.id) ||
     frozenSessionIds.has(session.id) ||
     deletionBlocked(session, allowFinalizingRun)
   ) {
@@ -554,21 +543,9 @@ async function beginImpl(
   }
   session = currentSession;
   if (!session.runId) return null;
-  if (await hasRestrictedMarker(session)) {
-    restrictedSessionIds.add(session.id);
-    return baseInfo(
-      session,
-      "restricted",
-      session.startedAt?.toISOString() ?? null,
-      session.closedAt?.toISOString() ?? null,
-    );
-  }
   const existing = await readMetadata(session);
-  if (existing) {
-    if (existing.status === "restricted") restrictedSessionIds.add(session.id);
-    // Do not retry-spawn an unavailable encoder on every browser action.
-    return existing;
-  }
+  // Do not retry-spawn an unavailable encoder on every browser action.
+  if (existing) return existing;
   const run = await AppDataSource.getRepository(Run).findOne({
     where: { id: session.runId },
     select: { id: true, status: true },
@@ -576,7 +553,7 @@ async function beginImpl(
   if (
     !run ||
     run.status !== "running" ||
-    restrictedSessionIds.has(session.id) ||
+    abandonedSessionIds.has(session.id) ||
     frozenSessionIds.has(session.id) ||
     deletionBlocked(session, allowFinalizingRun)
   ) {
@@ -602,7 +579,7 @@ async function beginImpl(
     });
     if (
       !runStillRunning ||
-      restrictedSessionIds.has(session.id) ||
+      abandonedSessionIds.has(session.id) ||
       frozenSessionIds.has(session.id) ||
       deletionBlocked(session, allowFinalizingRun)
     ) {
@@ -684,7 +661,7 @@ export function clearBrowserRecordingFreeze(sessionId: string): void {
 /** Accept one JPEG from the existing CDP screencast. */
 export function acceptBrowserRecordingFrame(sessionId: string, base64Jpeg: string): void {
   const active = activeRecordings.get(sessionId);
-  if (!active || active.status !== "recording" || restrictedSessionIds.has(sessionId)) return;
+  if (!active || active.status !== "recording" || abandonedSessionIds.has(sessionId)) return;
   try {
     const frame = Buffer.from(base64Jpeg, "base64");
     if (frame.length === 0 || frame.length > MAX_JPEG_BYTES) return;
@@ -704,30 +681,29 @@ export function pauseBrowserRecording(sessionId: string): void {
 }
 
 /**
- * Withhold an entire recording once a password field or sensitive value is
- * observed. The in-memory flag is set before the first await so no later CDP
- * frame can enter the encoder while deletion is in progress.
+ * Throw away a capture whose owning Run, Routine, or Company is being deleted.
+ * The in-memory flag is set before the first await so no later CDP frame can
+ * enter the encoder while deletion is in progress.
  */
-async function restrictImpl(sessionId: string): Promise<void> {
+async function abandonImpl(sessionId: string): Promise<void> {
   let active = activeRecordings.get(sessionId);
   const session =
     active?.session ??
     (await AppDataSource.getRepository(BrowserSession).findOneBy({ id: sessionId }));
   if (!session?.runId) {
-    restrictedSessionIds.delete(sessionId);
+    abandonedSessionIds.delete(sessionId);
     frozenSessionIds.delete(sessionId);
     return;
   }
-  const restricted = baseInfo(
+  const abandoned = baseInfo(
     session,
-    "restricted",
+    "failed",
     active?.startedAt ?? session.startedAt?.toISOString() ?? null,
     new Date().toISOString(),
   );
-  // The marker is the crash-safe source of truth. Persist it before waiting
-  // for a pending spawn or ffmpeg shutdown; recovery checks it before `.part`.
-  await writeRestrictedMarker(session).catch(() => undefined);
-  await writeMetadata(session, restricted).catch(() => undefined);
+  // Persist before waiting for a pending spawn or ffmpeg shutdown, so a crash
+  // mid-teardown still leaves a terminal status behind the deleted bytes.
+  await writeMetadata(session, abandoned).catch(() => undefined);
   await beginPromises.get(sessionId)?.catch(() => undefined);
   active = activeRecordings.get(sessionId);
   if (active?.timer) clearInterval(active.timer);
@@ -741,18 +717,18 @@ async function restrictImpl(sessionId: string): Promise<void> {
   }
   const paths = recordingPaths(session);
   await removeFiles(paths).catch(() => undefined);
-  await writeMetadata(session, restricted).catch(() => undefined);
+  await writeMetadata(session, abandoned).catch(() => undefined);
   if (activeRecordings.get(sessionId) === active) activeRecordings.delete(sessionId);
 }
 
-export function restrictBrowserRecording(sessionId: string): Promise<void> {
-  // Synchronous and fail closed: both frame intake and a racing begin observe
-  // this before any DB, encoder, or filesystem work can yield.
-  restrictedSessionIds.add(sessionId);
-  const existing = restrictionPromises.get(sessionId);
+function abandonBrowserRecording(sessionId: string): Promise<void> {
+  // Synchronous: both frame intake and a racing begin observe this before any
+  // DB, encoder, or filesystem work can yield.
+  abandonedSessionIds.add(sessionId);
+  const existing = abandonPromises.get(sessionId);
   if (existing) return existing;
-  const promise = restrictImpl(sessionId).finally(() => restrictionPromises.delete(sessionId));
-  restrictionPromises.set(sessionId, promise);
+  const promise = abandonImpl(sessionId).finally(() => abandonPromises.delete(sessionId));
+  abandonPromises.set(sessionId, promise);
   return promise;
 }
 
@@ -774,16 +750,11 @@ async function finishActive(active: ActiveRecording): Promise<BrowserRecordingFi
         warning: "ffmpeg could not finish the browser recording",
       }),
     );
-    if (restrictedSessionIds.has(session.id)) {
+    if (abandonedSessionIds.has(session.id)) {
       await removeFiles(paths).catch(() => undefined);
-      const restricted = baseInfo(
-        session,
-        "restricted",
-        active.startedAt,
-        new Date().toISOString(),
-      );
-      await writeMetadata(session, restricted).catch(() => undefined);
-      return { recording: restricted, warning: null };
+      const abandoned = baseInfo(session, "failed", active.startedAt, new Date().toISOString());
+      await writeMetadata(session, abandoned).catch(() => undefined);
+      return { recording: abandoned, warning: null };
     }
     const partSize = await statSize(paths.partPath);
     if (result.ok && active.frameCount > 0 && partSize > 0) {
@@ -831,8 +802,8 @@ export async function finishBrowserRecording(
   session: BrowserSession,
 ): Promise<BrowserRecordingFinishResult> {
   await beginPromises.get(session.id)?.catch(() => undefined);
-  if (restrictedSessionIds.has(session.id)) {
-    await restrictBrowserRecording(session.id);
+  if (abandonedSessionIds.has(session.id)) {
+    await abandonBrowserRecording(session.id);
     frozenSessionIds.delete(session.id);
     return { recording: await readMetadata(session), warning: null };
   }
@@ -845,36 +816,13 @@ export async function finishBrowserRecording(
 async function recoverOneUnsafe(session: BrowserSession): Promise<BrowserRecordingInfo | null> {
   const existing = await readMetadata(session);
   const paths = recordingPaths(session);
-  if ((await hasRestrictedMarker(session)) || existing?.status === "restricted") {
-    restrictedSessionIds.add(session.id);
-    await removeFiles(paths).catch(() => undefined);
-    const restricted = baseInfo(
-      session,
-      "restricted",
-      existing?.startedAt ?? session.startedAt?.toISOString() ?? null,
-      existing?.finishedAt ?? new Date().toISOString(),
-    );
-    await writeMetadata(session, restricted).catch(() => undefined);
-    return restricted;
-  }
+  await fs.rm(paths.legacyRestrictedMarkerPath, { force: true }).catch(() => undefined);
   const active = activeRecordings.get(session.id);
   if (active) return (await finishActive(active)).recording;
+  // Every frame that reached ffmpeg was already cleared for playback, so an
+  // interrupted capture is a question of file integrity, not of whether the
+  // bytes may be shown. Publish whatever survived and is playable.
   const finalSize = await statSize(paths.finalPath);
-  // `recording` means the process died before a freeze + clean final privacy
-  // scan. Neither a partial nor a renamed file from that state is safe to
-  // publish. Only `finalizing` is a durable attestation that intake stopped
-  // and the last scan completed.
-  if (finalSize > 0 && existing?.status !== "ready" && existing?.status !== "finalizing") {
-    await removeFiles(paths).catch(() => undefined);
-    const failed = baseInfo(
-      session,
-      "failed",
-      existing?.startedAt ?? session.startedAt?.toISOString() ?? null,
-      new Date().toISOString(),
-    );
-    await writeMetadata(session, failed).catch(() => undefined);
-    return failed;
-  }
   if (finalSize > 0) {
     const ready = baseInfo(
       session,
@@ -889,17 +837,6 @@ async function recoverOneUnsafe(session: BrowserSession): Promise<BrowserRecordi
   }
   const partSize = await statSize(paths.partPath);
   if (partSize > 0) {
-    if (existing?.status !== "finalizing") {
-      await fs.rm(paths.partPath, { force: true }).catch(() => undefined);
-      const failed = baseInfo(
-        session,
-        "failed",
-        existing?.startedAt ?? session.startedAt?.toISOString() ?? null,
-        new Date().toISOString(),
-      );
-      await writeMetadata(session, failed).catch(() => undefined);
-      return failed;
-    }
     if (!(await partialValidator(paths.partPath).catch(() => false))) {
       await fs.rm(paths.partPath, { force: true }).catch(() => undefined);
       const failed = baseInfo(
@@ -944,11 +881,10 @@ async function recoverOne(session: BrowserSession): Promise<BrowserRecordingInfo
     const paths = recordingPaths(session);
     // A rename may have succeeded before a later chmod/metadata operation
     // failed. Preserve that valid final file so listing (or the next boot) can
-    // still surface it as ready; otherwise remove an unverified partial and
-    // converge the metadata to a terminal failure.
+    // still surface it as ready; otherwise remove the leftovers and converge
+    // the metadata to a terminal failure.
     const finalSize = await statSize(paths.finalPath);
-    const existing = await readMetadata(session);
-    if (finalSize > 0 && (existing?.status === "ready" || existing?.status === "finalizing")) {
+    if (finalSize > 0) {
       const ready = baseInfo(
         session,
         "ready",
@@ -992,11 +928,11 @@ export async function listBrowserRecordingsForRun(runId: string): Promise<Browse
   const terminal = run !== null && run.status !== "running";
   const infos = await Promise.all(
     sessions.map(async (session) => {
-      if (restrictedSessionIds.has(session.id) || (await hasRestrictedMarker(session))) {
+      if (abandonedSessionIds.has(session.id)) {
         const persisted = await readMetadata(session);
         return baseInfo(
           session,
-          "restricted",
+          "failed",
           persisted?.startedAt ?? session.startedAt?.toISOString() ?? null,
           persisted?.finishedAt ?? session.closedAt?.toISOString() ?? null,
         );
@@ -1005,17 +941,10 @@ export async function listBrowserRecordingsForRun(runId: string): Promise<Browse
       if (active) {
         if (terminal) {
           // A terminal Run must never retain a process-local encoder. This can
-          // only happen after an exceptional finalizer/CAS race; fail closed
-          // instead of polling `recording` forever or finishing without the
-          // terminal privacy scan that would attest its bytes.
-          await restrictBrowserRecording(session.id).catch(() => undefined);
-          const persisted = await readMetadata(session);
-          return baseInfo(
-            session,
-            "restricted",
-            persisted?.startedAt ?? active.startedAt,
-            persisted?.finishedAt ?? new Date().toISOString(),
-          );
+          // only happen after an exceptional finalizer/CAS race; terminalize it
+          // here rather than polling `recording` forever.
+          const finished = await finishActive(active).catch(() => null);
+          return finished?.recording ?? (await readMetadata(session));
         }
         return baseInfo(session, active.status, active.startedAt, null);
       }
@@ -1073,7 +1002,7 @@ async function quiesceRecordings(matches: (scope: RecordingScope) => boolean): P
     }
     await Promise.all(
       actives.map(async (active) => {
-        restrictedSessionIds.add(active.session.id);
+        abandonedSessionIds.add(active.session.id);
         if (active.timer) clearInterval(active.timer);
         active.timer = null;
         active.status = "finalizing";
@@ -1092,7 +1021,7 @@ async function quiesceRecordings(matches: (scope: RecordingScope) => boolean): P
 
 async function closeRecordingSessions(sessions: BrowserSession[]): Promise<void> {
   if (sessions.length === 0) return;
-  for (const session of sessions) restrictedSessionIds.add(session.id);
+  for (const session of sessions) abandonedSessionIds.add(session.id);
   const { closeBrowserSession } = await import("./browserSessions.js");
   await Promise.all(
     sessions.map((session) => closeBrowserSession(session.id, "manual").catch(() => undefined)),
@@ -1112,7 +1041,7 @@ export async function deleteBrowserRecordingsForRunIds(runIds: string[]): Promis
   });
   await closeRecordingSessions(sessions);
   await Promise.all(
-    [...restrictionPromises.values()].map((promise) => promise.catch(() => undefined)),
+    [...abandonPromises.values()].map((promise) => promise.catch(() => undefined)),
   );
   const runIdSet = new Set(uniqueRunIds);
   await quiesceRecordings((scope) => scope.runId !== null && runIdSet.has(scope.runId));
@@ -1135,7 +1064,7 @@ export async function deleteBrowserRecordingsForRunIds(runIds: string[]): Promis
     }),
   );
   await repo.delete({ runId: In(uniqueRunIds) });
-  for (const session of [...sessions, ...lateSessions]) restrictedSessionIds.delete(session.id);
+  for (const session of [...sessions, ...lateSessions]) abandonedSessionIds.delete(session.id);
   for (const session of [...sessions, ...lateSessions]) frozenSessionIds.delete(session.id);
 }
 
@@ -1145,7 +1074,7 @@ export async function deleteBrowserRecordingsForCompany(companyId: string): Prom
   const sessions = await repo.findBy({ companyId });
   await closeRecordingSessions(sessions);
   await Promise.all(
-    [...restrictionPromises.values()].map((promise) => promise.catch(() => undefined)),
+    [...abandonPromises.values()].map((promise) => promise.catch(() => undefined)),
   );
   await quiesceRecordings((scope) => scope.companyId === companyId);
   const lateSessions = await repo.findBy({ companyId });
@@ -1155,6 +1084,6 @@ export async function deleteBrowserRecordingsForCompany(companyId: string): Prom
   await quiesceRecordings((scope) => scope.companyId === companyId);
   await fs.rm(browserRecordingsCompanyDir(companyId), { recursive: true, force: true });
   await repo.delete({ companyId });
-  for (const session of [...sessions, ...lateSessions]) restrictedSessionIds.delete(session.id);
+  for (const session of [...sessions, ...lateSessions]) abandonedSessionIds.delete(session.id);
   for (const session of [...sessions, ...lateSessions]) frozenSessionIds.delete(session.id);
 }

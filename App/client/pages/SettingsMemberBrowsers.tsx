@@ -393,8 +393,9 @@ function BrowserDetail({
           Routines run on a schedule with nobody watching. If this computer is asleep when one
           fires, the Run fails rather than quietly moving to a different browser. When a scheduled
           Run actually uses this browser, Genosyn stores a silent visual recording on the server
-          with its Run logs; only you can view it. Sessions that observe a password field have their
-          recording withheld, and a Run that never opens the browser creates no recording.
+          with its Run logs; only you can view it — not company admins, and not the AI Employee&apos;s
+          manager. The recording captures whatever the page renders, password screens included. A
+          Run that never opens the browser creates no recording.
         </p>
       </div>
 

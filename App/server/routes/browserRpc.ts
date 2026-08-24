@@ -11,7 +11,7 @@ import {
   beginBrowserRpcActivity,
   markSessionLive,
   observeRuntimePasswordValues,
-  registerBrowserRecordingFrameInspector,
+  registerBrowserRecordingFrameObserver,
   registerBrowserSessionCleanup,
   registerBrowserSensitiveValueListener,
 } from "../services/browserSessions.js";
@@ -65,7 +65,6 @@ import {
 } from "../services/browserAccess.js";
 import { memberBrowserUrlAllowed } from "../services/memberBrowsers.js";
 import { parseAllowList, urlAllowed } from "../services/browserHostPolicy.js";
-import { restrictBrowserRecording } from "../services/browserRecordings.js";
 
 /**
  * Internal HTTP surface called by the stripped-down `browser` MCP child.
@@ -834,6 +833,11 @@ function assertVaultTotpSubmitTarget(args: {
   );
 }
 
+/**
+ * Track a Vault secret so every later screenshot, page snapshot, and error
+ * string for this session is scrubbed of it. The Run recording is not touched:
+ * it stays whole for the humans authorized to watch it.
+ */
 async function rememberVaultSensitiveValue(sessionId: string, value: string): Promise<void> {
   taintVaultSession(sessionId);
   if (value) {
@@ -854,9 +858,6 @@ async function rememberVaultSensitiveValue(sessionId: string, value: string): Pr
       values.set(value, Date.now());
     }
   }
-  // Recording is all-or-nothing. This await completes before a sensitive
-  // action, but encoder/filesystem failure remains auxiliary to browser work.
-  await restrictBrowserRecording(sessionId).catch(() => undefined);
 }
 
 async function rememberTotpSetupValue(sessionId: string, setupKey: string): Promise<void> {
@@ -920,7 +921,7 @@ export function observeBrowserSensitiveValue(
 ): Promise<void> {
   if (kind === "password-present") {
     taintVaultSession(sessionId);
-    return restrictBrowserRecording(sessionId).catch(() => undefined);
+    return Promise.resolve();
   }
   if (kind === "password-value" || vaultTaintedSessions.has(sessionId)) {
     return rememberVaultSensitiveValue(sessionId, value);
@@ -980,7 +981,7 @@ export function redactVaultSensitiveText(sessionId: string, text: string): strin
   const codes = vaultTotpCodesBySession.get(sessionId);
   if ([...(codes?.values() ?? [])].some((expiresAt) => expiresAt + 120_000 > now)) {
     // Pages can reflect one code across separate spans, accessibility nodes,
-    // or punctuation variants. Until it expires, withholding the complete
+    // or punctuation variants. Until it expires, holding back the complete
     // model-visible text is the only representation-independent boundary.
     return "[redacted while the current Vault one-time code could be reflected by the page]";
   }
@@ -1058,17 +1059,13 @@ export async function sanitizeVaultBrowserNavigationMetadata(
 
 registerBrowserNavigationMetadataSanitizer(sanitizeVaultBrowserNavigationMetadata);
 
-registerBrowserRecordingFrameInspector(async (sessionId, jpegBase64) => {
-  // Inspect the exact bytes that would enter ffmpeg. Any QR is withheld: a
-  // benign first symbol must not be able to hide a second authenticator QR
-  // from a single-result decoder. Enrollment preparation independently
-  // withholds the whole recording before the website reveals its secret.
+registerBrowserRecordingFrameObserver(async (sessionId) => {
+  // A TOTP setup key can appear in the pixels a beat before any RPC reports
+  // it. Notice it here so the session is tainted — and every later screenshot
+  // and page snapshot redacted — from this frame onward.
   const page = getRuntime(sessionId)?.page as Page | undefined;
   if (!page) throw new Error("The Browser page was unavailable for credential-frame inspection");
   await observeRuntimeTotpEnrollment(page, sessionId);
-  if (vaultTotpArmedSessions.has(sessionId)) return false;
-  const decoded = await decodeQrFromImage(Buffer.from(jpegBase64, "base64"));
-  return decoded === null;
 });
 
 type VaultTargetDescriptor = {
@@ -1467,7 +1464,7 @@ async function observeRuntimeTotpEnrollment(page: Page, sessionId: string): Prom
   for (const observation of observations) {
     if (observation === null) {
       // A frame that cannot be inspected is not evidence that enrollment
-      // secrets are absent. Withholding is reversible only by ending the
+      // secrets are absent. Redaction is reversible only by ending the
       // BrowserSession, while leaking a setup key is not.
       await armVaultTotpSession(sessionId);
       continue;
@@ -2449,7 +2446,7 @@ browserRpcRouter.post(
       assertVaultBrowserPolicy(employee, page.url());
       const origin = new URL(page.url()).origin;
       // Arm before the website is asked to reveal enrollment. From this point
-      // onward screenshots and the entire Routine recording stay withheld.
+      // onward screenshots and model-visible page text stay redacted.
       await armVaultTotpSession(session.id);
       vaultTotpCaptureBindings.set(session.id, {
         companyId: session.companyId,
@@ -2461,7 +2458,7 @@ browserRpcRouter.post(
       res.json({
         ok: true,
         message:
-          "TOTP enrollment is protected. Reveal the website's setup key or QR code, then save it to this Vault login.",
+          "TOTP enrollment is protected: screenshots and page text are redacted from here on. Reveal the website's setup key or QR code, then save it to this Vault login.",
       });
     } catch (error) {
       if (error instanceof VaultError) {

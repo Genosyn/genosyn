@@ -34,7 +34,6 @@ import {
   markBrowserRecordingRoutineDeleting,
   recoverBrowserRecordingsForRun,
   resetBrowserRecordingsForTests,
-  restrictBrowserRecording,
   setBrowserRecordingEncoderFactoryForTests,
   setBrowserRecordingFfmpegExecutableForTests,
   setBrowserRecordingPartialValidatorForTests,
@@ -51,7 +50,7 @@ import {
   markSessionLive,
   observeRuntimePasswordValues,
   queueBrowserRecordingFrameForTests,
-  registerBrowserRecordingFrameInspector,
+  registerBrowserRecordingFrameObserver,
   registerBrowserSensitiveValueListener,
   resetBrowserRpcActivityForTests,
   passwordTaintScriptForTests,
@@ -171,7 +170,7 @@ function fileEncoderFactory(
 async function writeRecordingMetadata(
   session: BrowserSession,
   finalPath: string,
-  status: "recording" | "finalizing" | "ready" | "failed",
+  status: "recording" | "finalizing" | "ready" | "failed" | "restricted",
 ): Promise<void> {
   await fs.writeFile(
     path.join(path.dirname(finalPath), `${session.id}.json`),
@@ -435,10 +434,15 @@ describe("Routine browser recordings", () => {
     assert.equal(consoleMessages.includes("SECRET:probe:CHAL"), false);
   });
 
-  test("withholds a password rendered inside declarative closed shadow DOM", async () => {
+  test("reports a password rendered inside declarative closed shadow DOM", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
+    acceptBrowserRecordingFrame(session.id, Buffer.from("login-page-frame").toString("base64"));
+    const kinds: string[] = [];
+    const unregister = registerBrowserSensitiveValueListener((_id, _value, kind) => {
+      kinds.push(kind);
+    });
     installPasswordRuntime(
       () => ({ passwordPresent: false, passwordValues: [], activeInputValue: null }),
       {
@@ -469,11 +473,21 @@ describe("Routine browser recordings", () => {
       },
     );
 
-    await observeRuntimePasswordValues(session.id, { failClosedIfUnavailable: true });
-    await finishBrowserRecording(session);
+    try {
+      await observeRuntimePasswordValues(session.id, { failClosedIfUnavailable: true });
+      await finishBrowserRecording(session);
+    } finally {
+      unregister();
+    }
 
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
-    await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
+    // The password is what makes later screenshots and page text redacted. It
+    // is not a reason to take the Run's video away from the humans watching.
+    assert.ok(kinds.includes("password-present"));
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
+    assert.equal(
+      await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
+      "login-page-frame",
+    );
   });
 
   test("ignores an inert password input stored in template content", async () => {
@@ -630,16 +644,14 @@ describe("Routine browser recordings", () => {
     );
   });
 
-  test("withholds the entire recording and deletes final and partial bytes", async () => {
+  test("Run deletion discards an in-flight capture instead of publishing it", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
-    acceptBrowserRecordingFrame(session.id, Buffer.from("sensitive-frame").toString("base64"));
+    acceptBrowserRecordingFrame(session.id, Buffer.from("doomed-frame").toString("base64"));
 
-    await restrictBrowserRecording(session.id);
-    const finished = await finishBrowserRecording(session);
+    await deleteBrowserRecordingsForRunIds([run.id]);
 
-    assert.equal(finished.recording?.status, "restricted");
     assert.equal(browserRecordingDemand(session.id), false);
     const finalPath = browserRecordingFile(company.id, run.id, session.id);
     await assert.rejects(fs.stat(finalPath), /ENOENT/);
@@ -719,7 +731,7 @@ describe("Routine browser recordings", () => {
     await assert.rejects(fs.stat(`${finalPath}.part`), /ENOENT/);
   });
 
-  test("never promotes an unverified partial from an abruptly stopped active recording", async () => {
+  test("promotes a playable partial from an abruptly stopped active recording", async () => {
     const { company, run, session } = await fixture();
     const finalPath = browserRecordingFile(company.id, run.id, session.id);
     await fs.mkdir(path.dirname(finalPath), { recursive: true, mode: 0o700 });
@@ -729,25 +741,27 @@ describe("Routine browser recordings", () => {
 
     await recoverBrowserRecordingsForRun(run.id);
 
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "failed");
-    await assert.rejects(fs.stat(finalPath), /ENOENT/);
+    // A crash mid-capture is a question of file integrity, not of permission:
+    // every frame that reached ffmpeg was always going to be played back.
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
+    assert.equal(await fs.readFile(finalPath, "utf8"), "otherwise-valid-video");
     await assert.rejects(fs.stat(`${finalPath}.part`), /ENOENT/);
   });
 
-  test("never publishes final bytes whose durable metadata is failed", async () => {
+  test("publishes surviving final bytes whose last metadata write said failed", async () => {
     const { company, run, session } = await fixture();
     const finalPath = browserRecordingFile(company.id, run.id, session.id);
     await fs.mkdir(path.dirname(finalPath), { recursive: true, mode: 0o700 });
-    await fs.writeFile(finalPath, "unattested-final", { mode: 0o600 });
+    await fs.writeFile(finalPath, "torn-write-final", { mode: 0o600 });
     await writeRecordingMetadata(session, finalPath, "failed");
 
     await recoverBrowserRecordingsForRun(run.id);
 
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "failed");
-    await assert.rejects(fs.stat(finalPath), /ENOENT/);
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
+    assert.equal(await fs.readFile(finalPath, "utf8"), "torn-write-final");
   });
 
-  test("never synthesizes ready metadata for an unattested final file", async () => {
+  test("publishes a final file that lost its metadata", async () => {
     const { company, run, session } = await fixture();
     const finalPath = browserRecordingFile(company.id, run.id, session.id);
     await fs.mkdir(path.dirname(finalPath), { recursive: true, mode: 0o700 });
@@ -755,22 +769,24 @@ describe("Routine browser recordings", () => {
 
     await recoverBrowserRecordingsForRun(run.id);
 
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "failed");
-    await assert.rejects(fs.stat(finalPath), /ENOENT/);
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
+    assert.equal(await fs.readFile(finalPath, "utf8"), "metadata-less-final");
   });
 
-  test("never promotes a partial once fail-closed restriction has begun", async () => {
+  test("converges a recording an older build withheld onto a terminal failure", async () => {
     const { company, run, session } = await fixture();
     const finalPath = browserRecordingFile(company.id, run.id, session.id);
     await fs.mkdir(path.dirname(finalPath), { recursive: true, mode: 0o700 });
-    await fs.writeFile(`${finalPath}.part`, "sensitive-fragment", { mode: 0o600 });
+    await writeRecordingMetadata(session, finalPath, "restricted");
     await fs.writeFile(`${finalPath}.restricted`, "restricted\n", { mode: 0o600 });
 
     await recoverBrowserRecordingsForRun(run.id);
 
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
-    await assert.rejects(fs.stat(finalPath), /ENOENT/);
-    await assert.rejects(fs.stat(`${finalPath}.part`), /ENOENT/);
+    // Withholding builds deleted the bytes before writing that status, so
+    // there is nothing to un-withhold — say the video is gone and drop the
+    // marker that used to guard it.
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "failed");
+    await assert.rejects(fs.stat(`${finalPath}.restricted`), /ENOENT/);
   });
 
   test("Run deletion closes and removes recording sessions and artifacts", async () => {
@@ -905,11 +921,11 @@ describe("Routine browser recordings", () => {
     assert.equal(warnings.join("\n").includes(tempDir), false);
   });
 
-  test("withholds bytes and settles the encoder when the final page scan fails", async () => {
+  test("keeps captured bytes and settles the encoder when the final page scan fails", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
-    acceptBrowserRecordingFrame(session.id, Buffer.from("unverified-frame").toString("base64"));
+    acceptBrowserRecordingFrame(session.id, Buffer.from("unscanned-frame").toString("base64"));
     setPasswordObservationRuntimeForTests(() => ({
       page: {
         frames: () => {
@@ -917,11 +933,10 @@ describe("Routine browser recordings", () => {
         },
       },
     }));
-    const unregister = registerBrowserSensitiveValueListener(
-      async (observedSessionId, _value, kind) => {
-        if (kind === "password-present") await restrictBrowserRecording(observedSessionId);
-      },
-    );
+    const kinds: string[] = [];
+    const unregister = registerBrowserSensitiveValueListener((_id, _value, kind) => {
+      kinds.push(kind);
+    });
     try {
       await finalizeBrowserRecordingsForRun(run.id);
     } finally {
@@ -929,12 +944,18 @@ describe("Routine browser recordings", () => {
       setPasswordObservationRuntimeForTests(null);
     }
 
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
+    // An unscannable terminal page still fails closed for redaction — later
+    // screenshots stay scrubbed — but the video the Run already earned stands.
+    assert.ok(kinds.includes("password-present"));
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
     assert.deepEqual(browserRecordingProcessStateForTests(), { frozen: 0, active: 0 });
-    await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
+    assert.equal(
+      await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
+      "unscanned-frame",
+    );
   });
 
-  test("scans each queued recorder frame and withholds transient password UI", async () => {
+  test("scans each queued recorder frame and still records transient password UI", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
@@ -943,29 +964,41 @@ describe("Routine browser recordings", () => {
       passwordValues: [],
       activeInputValue: null,
     }));
+    const kinds: string[] = [];
+    const unregister = registerBrowserSensitiveValueListener((_id, _value, kind) => {
+      kinds.push(kind);
+    });
 
     queueBrowserRecordingFrameForTests(
       session.id,
       Buffer.from("password-page-frame").toString("base64"),
     );
-    await flushBrowserRecordingFrameScans(session.id);
-    setPasswordObservationRuntimeForTests(null);
+    try {
+      await flushBrowserRecordingFrameScans(session.id);
+    } finally {
+      unregister();
+      setPasswordObservationRuntimeForTests(null);
+    }
     await finishBrowserRecording(session);
 
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
-    await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
+    assert.ok(kinds.includes("password-present"));
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
+    assert.equal(
+      await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
+      "password-page-frame",
+    );
   });
 
-  test("withholds exact recorder bytes rejected by a credential-frame inspector", async () => {
+  test("shows a credential-frame observer the exact bytes without letting it veto them", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     installCleanPasswordRuntime();
     await beginBrowserRecording(session);
     const frame = Buffer.from("authenticator-qr-frame").toString("base64");
     let inspected = "";
-    const unregister = registerBrowserRecordingFrameInspector((_sessionId, jpegBase64) => {
+    const unregister = registerBrowserRecordingFrameObserver((_sessionId, jpegBase64) => {
       inspected = jpegBase64;
-      return false;
+      throw new Error("this observer refuses the frame");
     });
     try {
       queueBrowserRecordingFrameForTests(session.id, frame);
@@ -976,14 +1009,21 @@ describe("Routine browser recordings", () => {
     }
 
     assert.equal(inspected, frame);
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
-    await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
+    assert.equal(
+      await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
+      "authenticator-qr-frame",
+    );
   });
 
   test("persists a sticky password taint before the old document is destroyed", async () => {
     const { company, run, session } = await fixture();
     const oldDocument = installCleanPasswordRuntime();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
+    const kinds: string[] = [];
+    const unregister = registerBrowserSensitiveValueListener((_id, _value, kind) => {
+      kinds.push(kind);
+    });
 
     // Install the init script and Node binding before recording begins. The
     // callback models the old document observing a transient password field.
@@ -993,15 +1033,23 @@ describe("Routine browser recordings", () => {
     await oldDocument.reportPassword();
 
     // A later scan sees a different, clean document. The process-level taint
-    // must still win and prevent publication of bytes from the old one.
+    // must still win, so redaction keeps applying to the whole session.
     installCleanPasswordRuntime();
-    await finalizeBrowserRecordingsForRun(run.id);
+    try {
+      await finalizeBrowserRecordingsForRun(run.id);
+    } finally {
+      unregister();
+    }
 
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
-    await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
+    assert.ok(kinds.includes("password-present"));
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
+    assert.equal(
+      await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
+      "old-document-frame",
+    );
   });
 
-  test("drops an old-document frame when navigation wins its privacy scan", async () => {
+  test("drops an old-document frame when navigation wins its scan", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
@@ -1033,7 +1081,7 @@ describe("Routine browser recordings", () => {
     await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
   });
 
-  test("drops a current-generation frame when navigation destroys its scan", async () => {
+  test("records a current-generation frame even when its scan cannot run", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
@@ -1043,18 +1091,17 @@ describe("Routine browser recordings", () => {
 
     queueBrowserRecordingFrameForTests(
       session.id,
-      Buffer.from("unsafe-current-frame").toString("base64"),
+      Buffer.from("unscanned-current-frame").toString("base64"),
     );
     await flushBrowserRecordingFrameScans(session.id);
     assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "recording");
 
-    // The next stable frame is scanned and saved normally. The unverified JPEG
-    // must not be present in the published bytes, and a terminal scan remains
-    // mandatory before the recording becomes Ready.
+    // A frame the scanner could not read is still this browser's real screen.
+    // Record it, and keep recording once the next document scans cleanly.
     installCleanPasswordRuntime();
     queueBrowserRecordingFrameForTests(
       session.id,
-      Buffer.from("verified-current-frame").toString("base64"),
+      Buffer.from("scanned-current-frame").toString("base64"),
     );
     await new Promise((resolve) => setTimeout(resolve, 300));
     await flushBrowserRecordingFrameScans(session.id);
@@ -1064,22 +1111,24 @@ describe("Routine browser recordings", () => {
     const contents = (
       await fs.readFile(browserRecordingFile(company.id, run.id, session.id))
     ).toString();
-    assert.ok(contents.length >= "verified-current-frame".length);
-    assert.equal(contents.replaceAll("verified-current-frame", ""), "");
-    assert.equal(contents.includes("unsafe-current-frame"), false);
+    assert.ok(contents.includes("unscanned-current-frame"));
+    assert.ok(contents.includes("scanned-current-frame"));
   });
 
-  test("fails an active recording closed when direct browser teardown cannot scan", async () => {
+  test("publishes an active recording when direct browser teardown cannot scan", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
-    acceptBrowserRecordingFrame(session.id, Buffer.from("unverified-frame").toString("base64"));
+    acceptBrowserRecordingFrame(session.id, Buffer.from("unscanned-frame").toString("base64"));
     setPasswordObservationRuntimeForTests(() => null);
 
     await closeBrowserSession(session.id, "manual");
 
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
-    await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
+    assert.equal(
+      await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
+      "unscanned-frame",
+    );
   });
 
   test("orphan recovery drains authorized browser activity before terminalizing", async () => {
@@ -1157,19 +1206,22 @@ describe("Routine browser recordings", () => {
     assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "failed");
   });
 
-  test("terminal listing fails a leftover process-local encoder closed", async () => {
+  test("terminal listing finalizes a leftover process-local encoder", async () => {
     const { company, run, session } = await fixture();
     setBrowserRecordingEncoderFactoryForTests(fileEncoderFactory([]));
     await beginBrowserRecording(session);
-    acceptBrowserRecordingFrame(session.id, Buffer.from("unattested-frame").toString("base64"));
+    acceptBrowserRecordingFrame(session.id, Buffer.from("leftover-frame").toString("base64"));
     await AppDataSource.getRepository(Run).update(
       { id: run.id },
       { status: "failed", finishedAt: new Date() },
     );
 
-    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "restricted");
+    assert.equal((await listBrowserRecordingsForRun(run.id))[0]?.status, "ready");
     assert.equal(browserRecordingDemand(session.id), false);
-    await assert.rejects(fs.stat(browserRecordingFile(company.id, run.id, session.id)), /ENOENT/);
+    assert.equal(
+      await fs.readFile(browserRecordingFile(company.id, run.id, session.id), "utf8"),
+      "leftover-frame",
+    );
   });
 
   test("company deletion waits for an encoder still starting before removing its tree", async () => {
