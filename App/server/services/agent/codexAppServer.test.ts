@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { CodexAppServer } from "./codexAppServer.js";
+import { CodexAppServer, type CodexAppServerOptions } from "./codexAppServer.js";
 
 const FAKE_SERVER = String.raw`
 import readline from "node:readline";
@@ -89,31 +89,27 @@ lines.on("line", (line) => {
 `;
 
 test("Codex app-server transport performs the handshake and streams notifications", async () => {
-  await withFakeServer(async ({ entrypoint, home, cwd }) => {
+  await withFakeServer(async ({ start }) => {
     const notifications: string[] = [];
-    const server = await CodexAppServer.start({
-      entrypoint,
-      cwd,
-      env: { PATH: process.env.PATH, CODEX_HOME: home, HOME: home },
-    });
+    const server = await start();
     const stop = server.onNotification((method) => notifications.push(method));
     const echoed = await server.request<{ value: number }>("echo", { value: 42 });
     assert.deepEqual(echoed, { value: 42 });
     await server.request("notifyMe");
-    await new Promise((resolve) => setImmediate(resolve));
+    // The notification is a second line on the child's stdout, so it can land
+    // in a later read than the response we just awaited. Waiting for it beats
+    // assuming one turn of the loop is enough — under a loaded machine it is
+    // not, and this assertion was the flake that hung the suite.
+    await waitUntil(() => notifications.length > 0, "the fake/ready notification");
     assert.deepEqual(notifications, ["fake/ready"]);
     stop();
-    await server.close();
   });
 });
 
 test("Codex app-server routes dynamic calls and fails closed on other requests", async () => {
-  await withFakeServer(async ({ entrypoint, home, cwd }) => {
+  await withFakeServer(async ({ start }) => {
     const seen: string[] = [];
-    const server = await CodexAppServer.start({
-      entrypoint,
-      cwd,
-      env: { PATH: process.env.PATH, CODEX_HOME: home, HOME: home },
+    const server = await start({
       onServerRequest: async (method, params) => {
         seen.push(method);
         if (method !== "item/tool/call") throw new Error("denied");
@@ -129,43 +125,66 @@ test("Codex app-server routes dynamic calls and fails closed on other requests",
     const denied = await server.request<{ denied: boolean; errorCode: number }>("triggerDenied");
     assert.deepEqual(denied, { denied: true, errorCode: -32000 });
     assert.deepEqual(seen, ["item/tool/call", "item/fileChange/requestApproval"]);
-    await server.close();
   });
 });
 
 test("protocol failures terminate a child that would otherwise stay alive", async () => {
-  await withFakeServer(async ({ entrypoint, home, cwd }) => {
-    const server = await CodexAppServer.start({
-      entrypoint,
-      cwd,
-      env: { PATH: process.env.PATH, CODEX_HOME: home, HOME: home },
-    });
+  await withFakeServer(async ({ start }) => {
+    const server = await start();
     await assert.rejects(server.request("badJsonHang"), /emitted invalid JSON/);
-    await server.close();
   });
 });
 
 test("the stderr summary keeps the last thing Codex said, not the first", async () => {
-  await withFakeServer(async ({ entrypoint, home, cwd }) => {
-    const server = await CodexAppServer.start({
-      entrypoint,
-      cwd,
-      env: { PATH: process.env.PATH, CODEX_HOME: home, HOME: home },
-    });
+  await withFakeServer(async ({ start }) => {
+    const server = await start();
     await server.request("floodStderr");
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitUntil(
+      () => server.stderrSummary().includes("oauth token exchange transport failure"),
+      "the trailing stderr diagnostic",
+    );
     const summary = server.stderrSummary();
     assert.ok(
       summary.includes("oauth token exchange transport failure is_connect=true"),
       `expected the trailing diagnostic, got: ${summary.slice(0, 120)}…`,
     );
     assert.ok(summary.length <= 1_000);
-    await server.close();
   });
 });
 
+/** Poll until `condition` holds, so a test never depends on how many turns of
+ * the event loop a child's stdout happens to take. */
+async function waitUntil(
+  condition: () => boolean,
+  what: string,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+/**
+ * Run a test body against a throwaway fake app-server on disk.
+ *
+ * Servers are started through the injected `start` so this owns their
+ * lifecycle. That ownership is the point: a `CodexAppServer` holds a spawned
+ * child with piped stdio, and those pipes keep *this* process alive. Started
+ * inside the body and closed on the last line, a single failed assertion skips
+ * the close, leaks the child, and the test process then never exits — so
+ * `npm test` stops dead instead of reporting a failure, and the run sits there
+ * until CI's job timeout. Closing in `finally` turns that back into an
+ * ordinary red test.
+ */
 async function withFakeServer(
-  run: (paths: { entrypoint: string; home: string; cwd: string }) => Promise<void>,
+  run: (ctx: {
+    entrypoint: string;
+    home: string;
+    cwd: string;
+    start: (overrides?: Partial<CodexAppServerOptions>) => Promise<CodexAppServer>;
+  }) => Promise<void>,
 ): Promise<void> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "genosyn-codex-test-"));
   const home = path.join(root, "home");
@@ -174,9 +193,25 @@ async function withFakeServer(
   await fs.mkdir(home, { mode: 0o700 });
   await fs.mkdir(cwd, { mode: 0o700 });
   await fs.writeFile(entrypoint, FAKE_SERVER, { mode: 0o600 });
+  const started: CodexAppServer[] = [];
+  const start = async (
+    overrides: Partial<CodexAppServerOptions> = {},
+  ): Promise<CodexAppServer> => {
+    const server = await CodexAppServer.start({
+      entrypoint,
+      cwd,
+      env: { PATH: process.env.PATH, CODEX_HOME: home, HOME: home },
+      ...overrides,
+    });
+    started.push(server);
+    return server;
+  };
   try {
-    await run({ entrypoint, home, cwd });
+    await run({ entrypoint, home, cwd, start });
   } finally {
+    for (const server of started) {
+      await server.close().catch(() => undefined);
+    }
     await fs.rm(root, { recursive: true, force: true });
   }
 }
