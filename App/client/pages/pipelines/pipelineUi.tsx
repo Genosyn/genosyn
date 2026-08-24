@@ -3,6 +3,7 @@ import {
   BookOpen,
   CalendarClock,
   Clock,
+  Code2,
   Database,
   FolderPlus,
   Globe,
@@ -47,6 +48,7 @@ export const PIPELINE_ICON_MAP: Record<string, LucideIcon> = {
   Variable,
   Split,
   Clock,
+  Code2,
   Plug,
   Workflow,
 };

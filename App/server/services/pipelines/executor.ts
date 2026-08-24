@@ -23,9 +23,9 @@ import {
  * inputs were never reached are skipped.
  *
  * Execution is bounded by a depth limit to prevent accidental cycles from
- * looping forever; the heartbeat can recover if the run row is stuck in
- * 'running' beyond a timeout, but in practice the executor commits final
- * status synchronously.
+ * looping forever. The executor commits final status synchronously; a row
+ * left 'running' by a dead process is failed by the heartbeat's stale-run
+ * sweep (see sweepStaleRuns in services/pipelines/index.ts).
  */
 
 const MAX_NODES_PER_RUN = 200;
@@ -166,18 +166,25 @@ export async function runPipeline(args: RunPipelineArgs): Promise<PipelineRun> {
   }
 
   log.line(`\n[${new Date().toISOString()}] pipeline finished — ${count} step(s)`);
-  // Stamp lastRunAt on the pipeline row.
-  args.pipeline.lastRunAt = new Date();
-  await pipelineRepo.save(args.pipeline);
-  await recordAudit({
-    companyId: args.pipeline.companyId,
-    actorKind: triggerKindToActor(args.triggerKind),
-    action: `pipeline.run.${args.triggerKind}`,
-    targetType: "pipeline",
-    targetId: args.pipeline.id,
-    targetLabel: args.pipeline.name,
-    metadata: { triggerNodeId: args.triggerNodeId, steps: count },
-  });
+  try {
+    // Stamp lastRunAt on the pipeline row. Bookkeeping must never leave the
+    // run row stuck in 'running' — a failed save here (or a pipeline deleted
+    // mid-run) still falls through to the terminal write below.
+    args.pipeline.lastRunAt = new Date();
+    await pipelineRepo.save(args.pipeline);
+    await recordAudit({
+      companyId: args.pipeline.companyId,
+      actorKind: triggerKindToActor(args.triggerKind),
+      action: `pipeline.run.${args.triggerKind}`,
+      targetType: "pipeline",
+      targetId: args.pipeline.id,
+      targetLabel: args.pipeline.name,
+      metadata: { triggerNodeId: args.triggerNodeId, steps: count },
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[pipelines] post-run bookkeeping failed for ${args.pipeline.id}:`, err);
+  }
   return finish(run, "completed", null, log, env.nodeOutputs);
 }
 
@@ -212,9 +219,16 @@ async function finish(
 ): Promise<PipelineRun> {
   run.finishedAt = new Date();
   run.status = status;
-  run.errorMessage = errorMessage;
+  // Clamp so a handler cannot bloat the row with a runaway error string.
+  run.errorMessage = errorMessage === null ? null : errorMessage.slice(0, 16_384);
   run.logContent = log.value();
-  run.outputJson = JSON.stringify(outputs);
+  try {
+    run.outputJson = JSON.stringify(outputs);
+  } catch {
+    // A handler smuggled something non-JSON-safe (cycle, BigInt) into its
+    // outputs — the terminal status write still matters more than the data.
+    run.outputJson = '{"error":"outputs were not JSON-serializable"}';
+  }
   return AppDataSource.getRepository(PipelineRun).save(run);
 }
 

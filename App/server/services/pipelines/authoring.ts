@@ -356,6 +356,21 @@ async function checkNode(
       return null;
     }
 
+    /**
+     * Categorically human-authored — not a rule still to be written. The
+     * step's JavaScript runs with company authority (`genosyn.base` reaches
+     * every Base, `axios` reaches the network), and no save-time intersection
+     * can bound what source code will do at run time: the Grants this module
+     * checks are named in config, and a code step has no config to name them
+     * in. An employee authoring one would be the exact laundering device the
+     * docblock above describes.
+     */
+    case "logic.code":
+      return refusal(
+        node,
+        "A Run JavaScript step runs with company-wide authority, which your Grants cannot bound. Ask a human to add or edit it in the Pipelines builder.",
+      );
+
     default:
       // An unknown type never reaches here — `validateGraph` rejects it first —
       // but fail closed rather than waving through whatever comes next.

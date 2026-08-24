@@ -940,6 +940,13 @@ the reply.
       handed a Webhook trigger's URL. Listing and reading stay open, minus
       the webhook secret. Writes carry the `admin` interactive-Member
       policy, matching the human route
+- [x] `logic.code` — Run JavaScript step: Member-authored source runs in a
+      per-step worker thread (hard time + memory bounds) with a
+      `genosyn.base` record SDK (create / query / update / delete,
+      field-name or field-id keyed) and an axios-style HTTP client routed
+      through the outbound-URL guard. The step carries company-wide
+      authority, so employee authoring treats it as beyond any employee's
+      Grants
 
 ### M11 — Notes (Notion-style) ✅
 

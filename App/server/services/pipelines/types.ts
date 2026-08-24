@@ -35,6 +35,7 @@ export type PipelineNodeKind =
   | "logic.set"
   | "logic.branch"
   | "logic.delay"
+  | "logic.code"
   // Integrations
   | "integration.invoke";
 

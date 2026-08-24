@@ -1639,7 +1639,14 @@ export type BaseGrant = {
 // ───────────────────────── Pipelines (n8n-style automation) ──────────────────
 
 export type PipelineNodeFamily = "trigger" | "action" | "logic" | "integration";
-export type PipelineNodeFieldType = "text" | "longtext" | "number" | "boolean" | "select" | "code";
+export type PipelineNodeFieldType =
+  | "text"
+  | "longtext"
+  | "number"
+  | "boolean"
+  | "select"
+  | "code"
+  | "javascript";
 
 export type PipelineNodeField = {
   key: string;

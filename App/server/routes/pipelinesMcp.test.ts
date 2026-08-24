@@ -372,6 +372,23 @@ describe("a pipeline cannot launder access its author does not have", () => {
     assert.equal(await AppDataSource.getRepository(Pipeline).count(), 0);
   });
 
+  test("a Run JavaScript step is human-only, whatever the code says", async () => {
+    // No Grant intersection can bound arbitrary source, so even a harmless
+    // one-liner is refused — the authority lives in the step type, not the
+    // code it happens to carry today.
+    const response = await tool<PipelineBody>("create_pipeline", {
+      name: "Code smuggling",
+      graph: graphOf(
+        { id: "t", type: "trigger.manual" },
+        { id: "code", type: "logic.code", config: { code: "return 1;" } },
+      ),
+    });
+    assert.equal(response.status, 403, JSON.stringify(response.body));
+    assert.equal(response.body.refusedSteps?.[0]?.nodeId, "code");
+    assert.match(response.body.refusedSteps?.[0]?.reason ?? "", /company-wide authority/);
+    assert.equal(await AppDataSource.getRepository(Pipeline).count(), 0);
+  });
+
   test("a private channel step needs the employee to be in that channel", async () => {
     const channel = await insert(Channel, {
       companyId: company.id,

@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
-import { IsNull, LessThanOrEqual, Not } from "typeorm";
+import { IsNull, LessThan, LessThanOrEqual, Not } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
 import { Pipeline } from "../../db/entities/Pipeline.js";
+import { PipelineRun } from "../../db/entities/PipelineRun.js";
 import { runPipeline } from "./executor.js";
 import { PipelineGraph, PipelineNode, PipelineNodeKind } from "./types.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
@@ -199,6 +200,30 @@ export async function fireManually(
   });
 }
 
+/**
+ * A run executes in memory, so a row still 'running' hours later means its
+ * process died (deploy, crash) without reaching the terminal write. The
+ * cutoff is generous because in a horizontally scaled install another
+ * process may legitimately hold a slow run — six hours is far beyond any
+ * real run, and the sweep runs under the scheduler lease.
+ */
+const STALE_RUN_CUTOFF_MS = 6 * 60 * 60 * 1000;
+
+async function sweepStaleRuns(now: Date): Promise<void> {
+  const repo = AppDataSource.getRepository(PipelineRun);
+  const cutoff = new Date(now.getTime() - STALE_RUN_CUTOFF_MS);
+  const stale = await repo.find({
+    where: { status: "running", startedAt: LessThan(cutoff) },
+    take: 100,
+  });
+  for (const run of stale) {
+    run.status = "failed";
+    run.finishedAt = now;
+    run.errorMessage = "Run was interrupted (the server stopped before it finished)";
+    await repo.save(run);
+  }
+}
+
 async function tickPipelines(): Promise<void> {
   if (ticking) return;
   ticking = true;
@@ -206,6 +231,7 @@ async function tickPipelines(): Promise<void> {
     await withSchedulerLease("pipelines", PIPELINE_HEARTBEAT_INTERVAL_MS * 3, async () => {
       const repo = AppDataSource.getRepository(Pipeline);
       const now = new Date();
+      await sweepStaleRuns(now);
       const due = await repo.find({
         where: {
           enabled: true,

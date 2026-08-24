@@ -16,7 +16,19 @@ import { PipelineNodeKind } from "./types.js";
 
 export type NodeFamily = "trigger" | "action" | "logic" | "integration";
 
-export type NodeFieldType = "text" | "longtext" | "number" | "boolean" | "select" | "code";
+/**
+ * `code` is a JSON-object field (the editor validates it as JSON);
+ * `javascript` is free-form source the editor renders as a tall monospace
+ * textarea with no JSON validation.
+ */
+export type NodeFieldType =
+  | "text"
+  | "longtext"
+  | "number"
+  | "boolean"
+  | "select"
+  | "code"
+  | "javascript";
 
 export type NodeField = {
   key: string;
@@ -384,6 +396,39 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
         type: "number",
         default: 5,
         required: true,
+      },
+    ],
+  },
+  {
+    type: "logic.code",
+    family: "logic",
+    label: "Run JavaScript",
+    icon: "Code2",
+    description:
+      "Run JavaScript with a Base record SDK and an axios-style HTTP client. The returned value becomes this step's output.",
+    fields: [
+      {
+        key: "code",
+        label: "JavaScript",
+        type: "javascript",
+        required: true,
+        default: [
+          "// input        → the trigger payload",
+          "// steps        → outputs of earlier steps, keyed by step id",
+          "// genosyn.base → create, query, update, and delete Base records",
+          "// axios        → HTTP client: axios.get(url), axios.post(url, data), …",
+          "// Return a value to make it this step's output.",
+          'return { greeting: `Hello ${input.name ?? "world"}` };',
+          "",
+        ].join("\n"),
+        hint: "The source runs exactly as written — read pipeline data through the input and steps globals rather than {{templates}}.",
+      },
+      {
+        key: "timeoutSeconds",
+        label: "Timeout (seconds)",
+        type: "number",
+        default: 10,
+        hint: "The step fails if the code runs longer than this. 1–60 seconds.",
       },
     ],
   },

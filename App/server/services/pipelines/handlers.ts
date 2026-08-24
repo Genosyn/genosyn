@@ -21,6 +21,7 @@ import { assertIntegrationAllowed, getProvider } from "../../integrations/index.
 import { unrestrictedCapabilityGate } from "../connectionCapabilities.js";
 import { makeAdSpendLedger } from "../adSpend.js";
 import type { IntegrationConfig, IntegrationRuntimeContext } from "../../integrations/types.js";
+import { executePipelineCode } from "./codeRuntime.js";
 import { PipelineNodeKind, NodeContext, NodeResult } from "./types.js";
 
 /**
@@ -367,6 +368,22 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
     }
     ctx.log(`delayed ${seconds}s`);
     return { outputs: { seconds } };
+  },
+
+  "logic.code": async (ctx) => {
+    // The source runs verbatim: read it from the raw node config, not the
+    // template-resolved copy, so `{{` inside JavaScript is never rewritten.
+    // Pipeline data reaches the code through the input/steps globals instead.
+    const code = String(ctx.node.config?.code ?? "").trim();
+    if (!code) throw new Error("code is required");
+    const outputs = await executePipelineCode({
+      code,
+      timeoutSeconds: ctx.config.timeoutSeconds,
+      companyId: ctx.companyId,
+      env: ctx.env,
+      log: ctx.log,
+    });
+    return { outputs };
   },
 
   // ───── Integrations ────────────────────────────────────────────────────

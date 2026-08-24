@@ -8360,6 +8360,8 @@ const PIPELINE_AUTHORING_NOTES: Partial<Record<PipelineNodeKind, string>> = {
   "action.createBaseRecord": "Needs your own Grant on the Base.",
   "action.sendMessage": "A private channel needs you to be a member of it. DMs are refused.",
   "action.createTodo": "Needs edit access to the Project.",
+  "logic.code":
+    "Human-only: the JavaScript runs with company-wide authority, which your Grants cannot bound. A human adds or edits this step in the Pipelines builder.",
 };
 
 const pipelineNodeTypesSchema = z.object({ connectionId: z.string().uuid().optional() }).strict();

@@ -9,6 +9,7 @@ import {
   OL,
   P,
   PageHeader,
+  Pre,
   Strong,
   UL,
 } from "@/docs/Prose";
@@ -114,7 +115,7 @@ export function Pipelines() {
           },
           {
             term: "Transform or decide",
-            def: "Make an HTTP request, set named values, branch with If / else, or pause for up to 60 seconds.",
+            def: "Run JavaScript, make an HTTP request, set named values, branch with If / else, or pause for up to 60 seconds.",
           },
           {
             term: "Use a Connection",
@@ -148,6 +149,103 @@ export function Pipelines() {
         <LI>
           Branch paths are labelled <Code>true</Code> and <Code>false</Code> on the canvas and in
           Flow settings.
+        </LI>
+      </UL>
+
+      <H2 id="code">Run JavaScript</H2>
+      <P>
+        The <Strong>Run JavaScript</Strong> step runs the code you write, exactly as written, with
+        a chosen timeout (1–60 seconds, 10 by default). Whatever the code returns becomes the
+        step&apos;s output: return an object to give later steps named fields, and read it like any
+        other step with <Code>{"{{<reference-id>.field}}"}</Code>. A thrown error fails the Run
+        with that message in the log. Because the code carries company-wide authority, only a
+        human can add or edit this step — an AI employee authoring a Pipeline is refused it.
+      </P>
+      <Pre lang="javascript">{`// Look up a lead, call an external API, and keep a score in a Base.
+const [lead] = await genosyn.base.queryRecords("crm", "leads", {
+  where: { Email: input.email },
+});
+const res = await axios.get("https://api.example.com/score", {
+  params: { email: input.email },
+});
+if (lead) {
+  await genosyn.base.updateRecord("crm", "leads", lead.id, { Score: res.data.score });
+} else {
+  await genosyn.base.createRecord("crm", "leads", {
+    Email: input.email,
+    Score: res.data.score,
+  });
+}
+return { score: res.data.score };`}</Pre>
+      <P>The code sees a small, fixed set of globals:</P>
+      <KeyList
+        rows={[
+          {
+            term: "input",
+            def: (
+              <>
+                The trigger payload — a copy of the same data as <Code>trigger.payload</Code>.
+                Double-brace references are not rewritten inside code; read data from these globals
+                instead.
+              </>
+            ),
+          },
+          {
+            term: "steps",
+            def: (
+              <>
+                Outputs of earlier steps, keyed by reference id: <Code>steps.n_abc123.field</Code>.
+              </>
+            ),
+          },
+          {
+            term: "genosyn.base",
+            def: (
+              <>
+                <DocLink to="/docs/bases">Base</DocLink> records: <Code>listBases()</Code>,{" "}
+                <Code>listTables(base)</Code>, <Code>getTable(base, table)</Code>,{" "}
+                <Code>createRecord(base, table, values)</Code>,{" "}
+                <Code>getRecord(base, table, id)</Code>,{" "}
+                <Code>{"queryRecords(base, table, { where, limit, offset, order })"}</Code>,{" "}
+                <Code>countRecords(base, table)</Code>,{" "}
+                <Code>updateRecord(base, table, id, values)</Code>, and{" "}
+                <Code>deleteRecord(base, table, id)</Code>. Bases and tables are addressed by slug;
+                cells accept the column name or field id. Setting a cell to <Code>null</Code>{" "}
+                clears it.
+              </>
+            ),
+          },
+          {
+            term: "axios",
+            def: (
+              <>
+                An axios-style HTTP client: <Code>axios.get(url, config)</Code>,{" "}
+                <Code>axios.post(url, data)</Code>, <Code>put</Code>, <Code>patch</Code>,{" "}
+                <Code>delete</Code>. Responses come back as{" "}
+                <Code>{"{ status, headers, data }"}</Code> with JSON parsed automatically, and
+                non-2xx statuses throw with <Code>error.response</Code> attached.
+              </>
+            ),
+          },
+          {
+            term: "console + sleep",
+            def: (
+              <>
+                <Code>console.log(…)</Code> writes to the Run log; <Code>sleep(ms)</Code> pauses
+                within the step&apos;s time budget.
+              </>
+            ),
+          },
+        ]}
+      />
+      <UL>
+        <LI>
+          Everything is scoped to your company, and requests follow the same private-network
+          protections as the HTTP request step.
+        </LI>
+        <LI>
+          Limits per step: 50 HTTP requests with responses up to 2&nbsp;MB, 200 Base operations
+          with up to 500 records per query, and a returned value up to 256&nbsp;KB of JSON.
         </LI>
       </UL>
 
@@ -232,7 +330,8 @@ export function Pipelines() {
         up work it could already carry out itself. A step writing into a Base it holds no Grant on,
         posting into a private channel it was never added to, adding tasks to a restricted Project,
         or calling a Connection it was not granted is refused, and the employee is told which step
-        and why.
+        and why. The <Strong>Run JavaScript</Strong> step is refused outright: its code runs with
+        company-wide authority that no Grant can bound, so only a human can add or edit one.
       </P>
       <P>
         The check covers the <Strong>whole</Strong> Pipeline, not just the step being edited — a

@@ -484,7 +484,7 @@ function FieldEditor({
     );
   }
 
-  if (field.type === "longtext" || field.type === "code") {
+  if (field.type === "longtext" || field.type === "code" || field.type === "javascript") {
     const text = typeof normalized === "string" ? normalized : JSON.stringify(normalized);
     const jsonValid = field.type !== "code" || !text.trim() || isJsonObject(text);
     return (
@@ -494,10 +494,10 @@ function FieldEditor({
           value={text}
           onChange={(event) => onChange(event.target.value)}
           placeholder={field.placeholder}
-          rows={field.type === "code" ? 6 : 4}
+          rows={field.type === "javascript" ? 14 : field.type === "code" ? 6 : 4}
           className={
             "min-h-0 font-normal " +
-            (field.type === "code" ? "font-mono text-xs " : "") +
+            (field.type === "code" || field.type === "javascript" ? "font-mono text-xs " : "") +
             (!jsonValid ? "border-rose-400 focus:border-rose-500 focus:ring-rose-100" : "")
           }
         />
@@ -780,11 +780,27 @@ function TemplateHelp({ node }: { node: PipelineNode }) {
         {isTrigger ? "Data this trigger provides" : "Use data from earlier steps"}
       </div>
       <p className="mt-1.5">
-        Insert trigger data with{" "}
-        <code className="rounded bg-white px-1 py-0.5 font-mono text-[10px] dark:bg-slate-950">
-          {triggerExample}
-        </code>
-        .
+        {node.type === "logic.code" ? (
+          <>
+            The code reads trigger data through{" "}
+            <code className="rounded bg-white px-1 py-0.5 font-mono text-[10px] dark:bg-slate-950">
+              input
+            </code>{" "}
+            and earlier steps through{" "}
+            <code className="rounded bg-white px-1 py-0.5 font-mono text-[10px] dark:bg-slate-950">
+              steps
+            </code>
+            .
+          </>
+        ) : (
+          <>
+            Insert trigger data with{" "}
+            <code className="rounded bg-white px-1 py-0.5 font-mono text-[10px] dark:bg-slate-950">
+              {triggerExample}
+            </code>
+            .
+          </>
+        )}
         {!isTrigger && (
           <>
             {" "}
