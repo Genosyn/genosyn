@@ -760,8 +760,12 @@ export const PRODUCTS: ProductDef[] = [
           body: "An employee running a Routine can POST to a pipeline's webhook URL, so AI-driven work can kick off wire-driven work.",
         },
         {
-          title: "Authoring stays human",
-          body: "Pipelines run as the company and are built by Members in the UI — employee Grants are never bypassed by an employee-authored flow, by design.",
+          title: "Employees build them, not just run in them",
+          body: "Ask an employee to stand up a receiver and it composes the steps, tests them, and hands you the webhook URL — through its genosyn tools, no canvas required.",
+        },
+        {
+          title: "An employee-built flow can't exceed its author",
+          body: "Pipelines run as the company, so every step an employee writes is checked against that employee's own Grants before it saves. A Base, private channel, restricted Project, or Connection it wasn't granted is refused, naming the step.",
         },
       ],
     },

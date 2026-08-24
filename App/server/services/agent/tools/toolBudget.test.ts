@@ -104,8 +104,19 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * claim Finance cannot automate the next invoice. The extra 80 characters
  * still leave more than 3,200 for the returned schemas inside the 8,000-char
  * result envelope.
+ *
+ * Raised to 4,840 for the ten `pipelines` tools, the largest single jump here
+ * and the one with the least room to argue it down. Pipelines were the only
+ * shipped primitive with no MCP surface at all, so there is no partial
+ * discovery to fall back on: an employee that misses these does not get a
+ * worse tool, it concludes the product cannot do the thing and says so. That
+ * is not hypothetical — it is the report this family was built from. The names
+ * also have to appear in full because the vocabulary a model reaches for here
+ * ("webhook receiver", "automation", "zapier") matches none of them lexically,
+ * which is exactly the case the footer backstops. 4,840 still leaves more than
+ * 3,100 characters for the six returned schemas inside the 8,000-char cap.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 4_720;
+const DOMAIN_FOOTER_CHARS_MAX = 4_840;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

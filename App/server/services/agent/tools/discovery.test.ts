@@ -206,6 +206,17 @@ const RECALL_CASES: Array<{ query: string; expect: string }> = [
   // Deliberately a deferred orientation tool: `list_employees` is resident, so
   // it is never a find_tools hit — asserting on it would test nothing.
   { query: "what departments are there", expect: "list_teams" },
+  // Pipelines answer to the vocabulary of the thing being built, never to the
+  // word "pipeline" — which in this product an operator is at least as likely
+  // to mean about sales. These are the phrasings that returned nothing at all
+  // before the family existed.
+  { query: "set up a webhook receiver", expect: "create_pipeline" },
+  { query: "automate this without an AI in the loop", expect: "create_pipeline" },
+  { query: "what automations do we have", expect: "list_pipelines" },
+  { query: "the step library for automations", expect: "list_pipeline_node_types" },
+  { query: "did the webhook arrive", expect: "list_pipeline_runs" },
+  { query: "why did the automation fail", expect: "get_pipeline_run" },
+  { query: "our webhook url leaked", expect: "rotate_pipeline_webhook_token" },
 ];
 
 describe("find_tools recall", () => {

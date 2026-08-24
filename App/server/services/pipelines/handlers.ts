@@ -93,9 +93,11 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
   /**
    * Deliberately bypasses `Project.accessMode` — a pipeline runs as the
    * company, not as a person, so there is no principal to check. The gate is
-   * upstream: a member with access wired this node to this project when they
-   * built the pipeline. Without this note the missing check reads as the bug
-   * the access feature just fixed everywhere else.
+   * upstream, on whoever wired this step to this project: a Member with
+   * access, or an AI employee whose own project access was checked when it
+   * saved the graph (`services/pipelines/authoring.ts`). Without this note the
+   * missing check reads as the bug the access feature just fixed everywhere
+   * else.
    */
   "action.createTodo": async (ctx) => {
     const projectSlug = String(ctx.config.projectSlug ?? "").trim();
@@ -394,12 +396,19 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
       setConfig(next) {
         refreshed = next;
       },
-      // A pipeline node is authored by a human in the UI and cannot be
-      // created or edited from the MCP surface, so there is no employee to
-      // authorize and no employee grant to bypass. Opt in explicitly rather
-      // than leaving this undefined: providers deny when no gate is supplied,
-      // which is what stops a future context builder un-gating a tool by
-      // simply forgetting about it.
+      // A Run has no principal: it is the company acting, so there is no
+      // employee here to authorize and no employee grant to consult. What
+      // makes that safe is the check on the *author*. A human authoring in
+      // the builder is owner/admin; an AI employee authoring through the MCP
+      // tools must already hold the Connection grant AND the strongest
+      // capability the Connection can be asked for
+      // (`assertUnrestrictedConnectionUse`, called from
+      // `services/pipelines/authoring.ts`), so nothing this gate waves
+      // through exceeds what the author could already do directly.
+      //
+      // Opt in explicitly rather than leaving this undefined: providers deny
+      // when no gate is supplied, which is what stops a future context
+      // builder un-gating a tool by simply forgetting about it.
       assertCapability: unrestrictedCapabilityGate(),
       // Bind the ads ledger so deterministic no-AI budget rules ("pause
       // everything at the monthly cap") can run through a pipeline. Hard

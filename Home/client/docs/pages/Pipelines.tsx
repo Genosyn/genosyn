@@ -161,7 +161,7 @@ export function Pipelines() {
         rows={[
           {
             term: "Email received",
-            def: "Starts for genuinely new inbound messages in a connected Gmail inbox. Filter by sender, subject, or whether the message has attachments. Connecting an inbox does not replay historical mail into Pipelines.",
+            def: "Starts for genuinely new inbound messages in a connected Gmail inbox. Name the mailboxes to watch, or leave that empty for all of them, and filter by sender, subject, or whether the message has attachments. Connecting an inbox does not replay historical mail into Pipelines.",
           },
           {
             term: "Task created",
@@ -172,7 +172,8 @@ export function Pipelines() {
       <P>
         Email data is available under <Code>trigger.payload.message</Code>, including{" "}
         <Code>from</Code>, <Code>subject</Code>, <Code>bodyText</Code>,{" "}
-        <Code>hasAttachments</Code>, and <Code>receivedAt</Code>. Task data is available under{" "}
+        <Code>hasAttachments</Code>, <Code>accountAddress</Code> (the mailbox it arrived in), and{" "}
+        <Code>receivedAt</Code>. Task data is available under{" "}
         <Code>trigger.payload.task</Code>, with its Project under{" "}
         <Code>trigger.payload.project</Code>. For example, use{" "}
         <Code>{"{{trigger.payload.task.title}}"}</Code> in a later message or task title.
@@ -209,6 +210,60 @@ export function Pipelines() {
         Run now is always recorded as <Strong>Started by a Member</Strong>, even when the Pipeline
         normally starts from a schedule, webhook, or company event. Automatic Runs are labelled
         with the schedule, webhook, or event that started them.
+      </P>
+
+      <H2 id="ai">How AI employees use it</H2>
+      <P>
+        AI employees build and maintain Pipelines through the built-in <Code>genosyn</Code> MCP
+        server, not just run inside them. <Code>list_pipeline_node_types</Code> returns the step
+        library with every config key; <Code>create_pipeline</Code> and{" "}
+        <Code>update_pipeline</Code> write the steps and the connections between them;{" "}
+        <Code>run_pipeline</Code> fires a test and hands back the log so the employee can fix what
+        broke; <Code>list_pipeline_runs</Code> and <Code>get_pipeline_run</Code> answer &quot;did
+        it work&quot; afterwards. <Code>rotate_pipeline_webhook_token</Code> issues a fresh webhook
+        URL. Ask one to &quot;stand up a receiver for our marketing events&quot; and it can build
+        the whole thing, test it, and hand you the URL.
+      </P>
+      <P>
+        Every step an employee writes is checked against <Strong>its own</Strong> access before the
+        Pipeline is saved. A Pipeline runs as the company, so this is what keeps that from becoming
+        a way around{" "}
+        <DocLink to="/docs/employees">the Grants you gave the employee</DocLink>: it can only wire
+        up work it could already carry out itself. A step writing into a Base it holds no Grant on,
+        posting into a private channel it was never added to, adding tasks to a restricted Project,
+        or calling a Connection it was not granted is refused, and the employee is told which step
+        and why.
+      </P>
+      <P>
+        The check covers the <Strong>whole</Strong> Pipeline, not just the step being edited — a
+        step reads <Code>{"{{other-step.field}}"}</Code> when it runs, so changing the step feeding
+        a Connection changes what that Connection does. The practical consequence: once you add a
+        step in the builder that an employee could not have written, that Pipeline&apos;s steps
+        become yours. The employee can still see what it does and whether its Runs are passing,
+        but it cannot change it, run it, delete it, read a Run&apos;s payload and outputs, or be
+        handed its webhook URL.
+      </P>
+      <P>
+        Two triggers need more than the usual, because left unscoped both of them watch things the
+        employee may not be allowed to see. <Strong>Email received</Strong> must name the
+        mailboxes, and the employee needs read access on each — empty means every mailbox,
+        including ones connected months later. <Strong>Task created</Strong> must name a Project
+        the employee can read. In both cases a human can still leave the scope empty in the
+        builder; the Pipeline then runs exactly as it always has.
+      </P>
+      <Callout kind="info" title="Grants are checked when the Pipeline is written.">
+        Like a Member who builds one and later loses access, an employee&apos;s Pipeline keeps
+        running after a Grant is withdrawn — the Run has no principal to re-check. Open the
+        Pipeline and pause or delete it if that is not what you want. The company audit log records
+        which employee wrote it, and when. A webhook URL it was given also stays valid — if you add
+        a step beyond its reach, rotate the URL from the trigger&apos;s panel.
+      </Callout>
+      <P>
+        A Member chatting with an employee delegates their own authority, so the same
+        owner-or-admin rule as the Pipelines page applies: anyone can ask an employee to read
+        Pipelines and Runs, but creating, editing, deleting, running, or rotating a webhook needs
+        an owner or admin driving the conversation. An employee working on its own —
+        a <DocLink to="/docs/routines">Routine</DocLink> Run — is bound by its Grants instead.
       </P>
 
       <H2 id="pipeline-or-routine">Pipeline or Routine?</H2>

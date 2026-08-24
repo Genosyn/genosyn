@@ -6,9 +6,12 @@ import { PipelineNodeKind } from "./types.js";
  *   - the per-node config form (shapes the right-side panel)
  *   - validation hints in the executor
  *
- * Adding a node here is one of three steps; the other two are a runtime in
- * handlers.ts and (optionally) deriving more graph metadata onto the
- * Pipeline row in services/pipelines/index.ts.
+ * Adding a node here is one of several steps; the others are a runtime in
+ * handlers.ts, an authoring rule in authoring.ts (its `default` case refuses
+ * an unknown type, so an employee cannot use a node nobody has reasoned about
+ * — but a human still can), any JSON-object config keys in validate.ts, and
+ * (optionally) deriving more graph metadata onto the Pipeline row in
+ * services/pipelines/index.ts.
  */
 
 export type NodeFamily = "trigger" | "action" | "logic" | "integration";
@@ -93,6 +96,13 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     description:
       "Start when a new inbound email reaches a connected Gmail inbox. Historical mail imported during setup is ignored.",
     fields: [
+      {
+        key: "mailboxes",
+        label: "Mailboxes",
+        type: "text",
+        placeholder: "billing@acme.com, support@acme.com",
+        hint: "Optional. Comma-separated addresses, or leave empty to watch every connected mailbox.",
+      },
       {
         key: "fromContains",
         label: "Sender contains",

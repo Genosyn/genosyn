@@ -57,7 +57,7 @@ export function ToolDiscovery() {
       <H2 id="catalogue">The catalogue</H2>
       <P>
         Everything else — mail, finance, revenue, Bases, Notes, Resources, charts, dashboards,
-        workspace channels, handoffs, and every{" "}
+        workspace channels, handoffs, <DocLink to="/docs/pipelines">Pipelines</DocLink>, and every{" "}
         <DocLink to="/docs/integrations">Integration</DocLink> tool — lives in the catalogue. The
         employee calls <Code>find_tools</Code> with what it is trying to do (&quot;record a
         payment&quot;, &quot;reply to that email&quot;, &quot;read a spreadsheet&quot;) and gets

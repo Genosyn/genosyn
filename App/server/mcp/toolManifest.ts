@@ -429,6 +429,88 @@ const LINKED_REVENUE_IMPORT_MAPPING_PROPERTY = {
   additionalProperties: false,
 } as const;
 
+/**
+ * The persisted shape of a Pipeline's steps, shared by `create_pipeline` and
+ * `update_pipeline`.
+ *
+ * `nodes` and `edges` are what the column actually stores and what
+ * `get_pipeline` hands back, so the wire names stay as they are; the prose
+ * calls them steps and connections, which is what the builder calls them.
+ *
+ * `x`/`y` are optional here and required in the row: the coordinates exist for
+ * the builder's canvas and nothing reads them at run time, so the server lays
+ * out whatever arrives without them rather than making an author invent a
+ * layout for a canvas it cannot see.
+ */
+const PIPELINE_GRAPH_PROPERTY = {
+  type: "object",
+  description:
+    "The whole pipeline: its steps and the connections between them. REPLACES what is there — send every step you want to keep. Call list_pipeline_node_types for the step types and their config keys.",
+  properties: {
+    nodes: {
+      type: "array",
+      maxItems: 100,
+      description: "Every step, including the trigger. At least one trigger step is required.",
+      items: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            description:
+              "Your own id for this step, unique within the pipeline and free of dots — later steps read its outputs as {{this-id.field}}.",
+          },
+          type: {
+            type: "string",
+            description:
+              "A step type from list_pipeline_node_types, e.g. 'trigger.webhook', 'action.createBaseRecord', 'logic.branch'.",
+          },
+          label: { type: "string", description: "Optional. Overrides the step's default name." },
+          config: {
+            type: "object",
+            description:
+              "This step type's settings, keyed exactly as list_pipeline_node_types reports them. Values may contain {{trigger.payload.x}} or {{other-step-id.field}} templates, resolved when the step runs.",
+          },
+          x: {
+            type: "number",
+            description: "Optional canvas position; laid out for you if omitted.",
+          },
+          y: {
+            type: "number",
+            description: "Optional canvas position; laid out for you if omitted.",
+          },
+        },
+        required: ["id", "type"],
+        additionalProperties: false,
+      },
+    },
+    edges: {
+      type: "array",
+      maxItems: 200,
+      description: "Which step runs after which. A step with nothing pointing at it never runs.",
+      items: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            description: "Your own id for this connection, unique in the pipeline.",
+          },
+          fromNodeId: { type: "string", description: "Step id this leaves." },
+          toNodeId: { type: "string", description: "Step id this arrives at." },
+          fromHandle: {
+            type: "string",
+            description:
+              "Which output it leaves on. Defaults to 'out'; an If / else step uses 'true' or 'false'.",
+          },
+        },
+        required: ["id", "fromNodeId", "toNodeId"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["nodes", "edges"],
+  additionalProperties: false,
+} as const;
+
 export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_meetings",
@@ -719,6 +801,182 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
       },
       required: ["routineId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_pipelines",
+    description:
+      "List the company's Pipelines. A Pipeline is deterministic automation: one trigger wired to a series of steps that run the same way every time, with no model in the loop unless a step asks for one. Reach for a Pipeline when the same input should always follow the same path (a webhook that files rows into a Base, a nightly digest) and for a Routine when the work needs judgement. Each row carries the id, slug, whether it is enabled, its trigger summary, step count, schedule, and last Run — call `get_pipeline` for the steps themselves.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_pipeline",
+    description:
+      "Read one Pipeline in full: every step, how the steps are connected, the live webhook URL for any Webhook trigger, and anything still unfinished about it. Identify it by `id`, `slug`, or exact name. Read this before `update_pipeline` — the graph is replaced whole on every save, so editing means fetching what is there, changing it, and sending all of it back. A pipeline containing steps beyond your own access comes back with `authoring.canEdit: false`, no webhook URL, and `config: null` on every step — a step's settings can hold credentials, and the URL alone would let you fire steps you are not allowed to run. You still see which steps it has and in what order.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pipelineId: {
+          type: "string",
+          description: "The pipeline's `id` UUID, its `slug`, or its exact name.",
+        },
+      },
+      required: ["pipelineId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_pipeline_node_types",
+    description:
+      "The step library: every kind of trigger and step a Pipeline can use, with each one's config keys, which of them are required, their defaults, and the handles its outgoing connections can leave on. Call this before writing a graph for the first time — a step type or config key you invent is refused at save time, and this is the only list of the real ones. Pass `connectionId` to also get the actions available on one of your granted Connections, for an `integration.invoke` step.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: {
+          type: "string",
+          description:
+            "Optional. A Connection id you hold a grant on; the reply then also lists that Connection's actions and their argument schemas.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_pipeline",
+    description:
+      "Create a Pipeline. Give it `startWith` for a one-trigger skeleton you fill in later, or `graph` to write the whole thing at once. Every step you add is checked against your own access before it is saved: a Pipeline runs as the company, so you may only wire up work you could already do yourself, and a step over a Base, Project, channel, mailbox or Connection you were not granted is refused with the reason. Steps whose required config is still empty do not block the save — they come back as `issues` for you to finish.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description:
+            "Short name describing the result, e.g. 'File marketing webhook events'. Must be unique in the company.",
+        },
+        description: {
+          type: "string",
+          description: "Optional. When this should run and what a good result looks like.",
+        },
+        startWith: {
+          type: "string",
+          enum: ["manual", "schedule", "webhook", "emailReceived", "todoCreated"],
+          description:
+            "Which trigger to start from when you are not passing `graph`. Defaults to 'manual'. Ignored when `graph` is given.",
+        },
+        graph: PIPELINE_GRAPH_PROPERTY,
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_pipeline",
+    description:
+      "Change a Pipeline's name, description, enabled state, or steps. Passing `graph` REPLACES every step and connection, so fetch the current one with `get_pipeline` and send it back with your edits rather than sending only the part you changed. Never build a second pipeline to work around an outdated one — edit it in place, or pause it with `enabled: false`. Every change requires that you could have built the whole pipeline yourself: once it holds a step beyond your own access, it is a human's to change.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pipelineId: {
+          type: "string",
+          description: "The pipeline's `id` UUID, its `slug`, or its exact name.",
+        },
+        name: { type: "string", description: "New name. Must stay unique in the company." },
+        description: { type: "string" },
+        enabled: {
+          type: "boolean",
+          description:
+            "false pauses the pipeline — schedules stop firing, webhooks stop being accepted, and Run history is kept. true resumes it.",
+        },
+        graph: PIPELINE_GRAPH_PROPERTY,
+      },
+      required: ["pipelineId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_pipeline",
+    description:
+      "Delete a Pipeline and its Run history. Use sparingly — prefer `update_pipeline` with `enabled: false` for automation that might come back, since deleting also retires any webhook URL you handed out. Only a Pipeline you could have built yourself.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pipelineId: {
+          type: "string",
+          description: "The pipeline's `id` UUID, its `slug`, or its exact name.",
+        },
+      },
+      required: ["pipelineId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "run_pipeline",
+    description:
+      "Run a Pipeline now, the same as a Member pressing Run now, and wait for it to finish. This is how you test one you just built: pass a representative `payload` and the reply tells you which step failed and why. You can only run a pipeline you could have built yourself — firing one executes its steps as the company. Steps that already ran are not rolled back when a later one fails, so test with data you are willing to have written. Returns the Run's status plus its log; `get_pipeline_run` has the same detail later.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pipelineId: {
+          type: "string",
+          description: "The pipeline's `id` UUID, its `slug`, or its exact name.",
+        },
+        payload: {
+          type: "object",
+          description:
+            "Optional. Stands in for the trigger's data — steps read it as {{trigger.payload.<key>}}. Use the shape the real trigger would deliver.",
+        },
+      },
+      required: ["pipelineId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_pipeline_runs",
+    description:
+      "The last 50 Runs of one Pipeline, newest first, with each Run's status, what triggered it, and the error that ended it. Use this to answer 'is it working' — a webhook caller gets no reply body, so its Run history is the only record that anything arrived.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pipelineId: {
+          type: "string",
+          description: "The pipeline's `id` UUID, its `slug`, or its exact name.",
+        },
+      },
+      required: ["pipelineId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_pipeline_run",
+    description:
+      "One Run in full: the trigger payload it received, the step-by-step log, each step's outputs, and the error that stopped it. This is where you look when `list_pipeline_runs` shows a failure. Logs are capped at 256 KB and the reply says when one was truncated.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        runId: { type: "string", description: "The Run's `id` from `list_pipeline_runs`." },
+      },
+      required: ["runId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "rotate_pipeline_webhook_token",
+    description:
+      "Issue a fresh secret for one Webhook trigger and return the new URL. The URL is the only credential the sender presents, so rotate it if it was posted somewhere it should not have been. The old URL stops working immediately — hand the new one to the sender before anything they send is dropped.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pipelineId: {
+          type: "string",
+          description: "The pipeline's `id` UUID, its `slug`, or its exact name.",
+        },
+        nodeId: {
+          type: "string",
+          description: "The Webhook trigger step's `id`, from `get_pipeline`.",
+        },
+      },
+      required: ["pipelineId", "nodeId"],
       additionalProperties: false,
     },
   },

@@ -97,6 +97,25 @@ import {
   parseDecisionOptions,
 } from "../services/decisions.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
+import { Pipeline } from "../db/entities/Pipeline.js";
+import { PipelineRun } from "../db/entities/PipelineRun.js";
+import {
+  fireManually,
+  parseGraph,
+  preserveWebhookTokens,
+  regenerateWebhookToken,
+  serializeGraph,
+  syncScheduleFields,
+} from "../services/pipelines/index.js";
+import { CATALOG_BY_TYPE, NODE_CATALOG } from "../services/pipelines/catalog.js";
+import { refusedNodes } from "../services/pipelines/authoring.js";
+import { withLaidOutNodes } from "../services/pipelines/layout.js";
+import { validateGraph } from "../services/pipelines/validate.js";
+import { graphForStarter } from "../services/pipelines/starters.js";
+import { PIPELINE_LOG_MAX_BYTES } from "../services/pipelines/log.js";
+import type { PipelineGraph, PipelineNodeKind } from "../services/pipelines/types.js";
+import { getPublicUrl } from "../services/publicUrl.js";
+import { getProvider } from "../integrations/index.js";
 import { validateParentTodo } from "./projects.js";
 import { ProjectActor, hasProjectAccess, listAccessibleProjectIds } from "../services/projects.js";
 import {
@@ -8030,6 +8049,794 @@ mcpInternalRouter.post(
       "Deleted via the built-in MCP tool.",
     );
     res.json({ ok: true });
+  },
+);
+
+// ----- Pipelines -----
+
+/**
+ * Pipelines are the other automation primitive beside Routines: a trigger
+ * wired to deterministic steps, no model in the loop unless a step asks for
+ * one. The human surface is owner/admin-only for every mutation
+ * (`routes/pipelines.ts`), which is why the write tools here carry the
+ * `admin` interactive-Member policy — a Member driving a turn gets exactly the
+ * authority they have in the browser.
+ *
+ * The authority question an employee-authority turn raises instead is answered
+ * in `services/pipelines/authoring.ts`: a run has no principal, so every step
+ * is intersected with the authoring employee's own Grants before it is saved.
+ */
+
+type PipelineLookup =
+  | { ok: true; pipeline: Pipeline }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Resolve a pipeline from an id, a slug, or its exact name — the same widened
+ * handle `resolveRoutine` accepts, and for the same reason: a listing the
+ * model read half of should not dead-end the next call.
+ */
+async function resolvePipeline(companyId: string, ref: string): Promise<PipelineLookup> {
+  const repo = AppDataSource.getRepository(Pipeline);
+  const handle = ref.trim();
+  if (!handle) return { ok: false, status: 400, error: "pipelineId is required" };
+
+  // `id` is a uuid column: on Postgres a non-uuid handle raises rather than
+  // matching nothing, so a name with a space in it would 500 instead of
+  // falling through to the slug and name lookups these tools advertise.
+  // `resolveRoutine` guards the same way, for the same reason.
+  const direct =
+    (UUID_RE.test(handle) ? await repo.findOneBy({ id: handle, companyId }) : null) ??
+    (await repo.findOneBy({ slug: handle, companyId }));
+  if (direct) return { ok: true, pipeline: direct };
+
+  const byName = await repo
+    .createQueryBuilder("p")
+    .where("p.companyId = :companyId", { companyId })
+    .andWhere("LOWER(p.name) = LOWER(:name)", { name: handle })
+    .orderBy("p.createdAt", "ASC")
+    .getMany();
+  if (byName.length === 1) return { ok: true, pipeline: byName[0] };
+  if (byName.length > 1) {
+    return {
+      ok: false,
+      status: 409,
+      error: `"${handle}" matches ${byName.length} pipelines: ${byName
+        .map((p) => `${p.slug} (${p.id})`)
+        .join(", ")}. Pass the id.`,
+    };
+  }
+
+  const known = await repo.find({ where: { companyId }, order: { createdAt: "ASC" }, take: 25 });
+  const hint = known.length
+    ? ` Pipelines here: ${known.map((p) => `${p.slug} (${p.id})`).join(", ")}.`
+    : "";
+  return { ok: false, status: 404, error: `No pipeline matches "${handle}".${hint}` };
+}
+
+/**
+ * The stored graph, or an empty one when the column cannot be parsed.
+ *
+ * Only for *display*. Never hand this to an authority check: an unreadable
+ * graph reduces to zero steps, zero steps produce zero refusals, and the gate
+ * would wave through the one pipeline nobody can account for. Gates use
+ * {@link pipelineGraphOrRefuse}.
+ */
+function displayGraph(pipeline: Pipeline): { graph: PipelineGraph; readable: boolean } {
+  try {
+    return { graph: parseGraph(pipeline.graphJson), readable: true };
+  } catch {
+    return { graph: { nodes: [], edges: [] }, readable: false };
+  }
+}
+
+/**
+ * The stored graph for an authority decision, or null after writing a 409.
+ * Callers read `const graph = pipelineGraphOrRefuse(res, pipeline); if (!graph) return;`.
+ */
+function pipelineGraphOrRefuse(res: Response, pipeline: Pipeline): PipelineGraph | null {
+  const { graph, readable } = displayGraph(pipeline);
+  if (readable) return graph;
+  res.status(409).json({
+    error: `The steps stored on "${pipeline.name}" cannot be read, so nothing can be decided about them. A human needs to repair or delete it in the Pipelines builder.`,
+  });
+  return null;
+}
+
+function pipelineWebhookUrls(
+  pipeline: Pipeline,
+  graph: PipelineGraph,
+): Array<{
+  nodeId: string;
+  url: string;
+}> {
+  const base = getPublicUrl().replace(/\/+$/, "");
+  const urls: Array<{ nodeId: string; url: string }> = [];
+  for (const node of graph.nodes) {
+    if (node.type !== "trigger.webhook") continue;
+    const token = String(node.config?.token ?? "");
+    if (!token) continue;
+    urls.push({ nodeId: node.id, url: `${base}/api/webhooks/pipelines/${pipeline.id}/${token}` });
+  }
+  return urls;
+}
+
+function pipelineTriggerSummary(graph: PipelineGraph): string[] {
+  return graph.nodes
+    .filter((node) => node.type.startsWith("trigger."))
+    .map((node) => node.label?.trim() || CATALOG_BY_TYPE.get(node.type)?.label || node.type);
+}
+
+/**
+ * A listing row. Deliberately without the graph: a company's pipelines can
+ * carry a lot of config between them, and a listing that gets clipped loses
+ * the ids that are the only way back to any of it.
+ */
+function serializePipelineSummary(pipeline: Pipeline) {
+  // A graph we cannot read is reported as zero steps, not a failed listing —
+  // the row's identity is what a listing exists to preserve.
+  const { graph } = displayGraph(pipeline);
+  return {
+    id: pipeline.id,
+    slug: pipeline.slug,
+    name: pipeline.name,
+    description: pipeline.description,
+    enabled: pipeline.enabled,
+    triggers: pipelineTriggerSummary(graph),
+    stepCount: graph.nodes.filter((node) => !node.type.startsWith("trigger.")).length,
+    cronExpr: pipeline.cronExpr,
+    nextRunAt: pipeline.nextRunAt?.toISOString() ?? null,
+    lastRunAt: pipeline.lastRunAt?.toISOString() ?? null,
+  };
+}
+
+/**
+ * One pipeline in full.
+ *
+ * `authorized` is whether the reading employee could have built this pipeline
+ * itself. When it could not, the shape is still returned — which steps there
+ * are, in what order, so the employee can say what the company automates — but
+ * every step's settings are withheld.
+ *
+ * Withholding all of them, rather than the Webhook token alone, is deliberate.
+ * A step's config is free-form by design: `logic.http` carries a `headers`
+ * object and `integration.invoke` an `args` object, both authored as raw JSON,
+ * and an admin's "sync to the vendor API" step is exactly where a bearer token
+ * lives. Every employee can author a `logic.http` step, so reading one of
+ * those is reading a credential it can immediately replay. There is no list of
+ * which keys are safe, and a list would be wrong the first time someone put a
+ * password somewhere new.
+ */
+function serializePipeline(pipeline: Pipeline, authorized: boolean) {
+  const { graph, readable } = displayGraph(pipeline);
+  // Corruption and a lack of access both withhold, but for different reasons,
+  // and telling someone they lack access to an unreadable row sends them to
+  // ask for a Grant that would not help.
+  const withheldBecause = readable
+    ? "This pipeline has steps you could not write yourself, so you cannot change, run, or delete it, read its Runs in detail, or see its step settings — a step's settings can hold credentials."
+    : "The steps stored on this pipeline are not readable, so nothing can be decided about them.";
+  const visibleGraph = authorized
+    ? graph
+    : {
+        ...graph,
+        nodes: graph.nodes.map(({ config: _config, ...node }) => ({
+          ...node,
+          config: null,
+          configWithheld: true,
+        })),
+      };
+  return {
+    ...serializePipelineSummary(pipeline),
+    graph: visibleGraph,
+    webhookUrls: authorized ? pipelineWebhookUrls(pipeline, graph) : [],
+    authoring: authorized
+      ? undefined
+      : {
+          canEdit: false,
+          reason: `${withheldBecause} Ask an owner or admin to look at it in the Pipelines builder.`,
+        },
+  };
+}
+
+/** What is still wrong with a stored pipeline, for the `issues` key. */
+function storedPipelineIssues(pipeline: Pipeline) {
+  const { graph, readable } = displayGraph(pipeline);
+  return readable
+    ? validateGraph(graph)
+    : [
+        {
+          severity: "error" as const,
+          message:
+            "The steps stored on this pipeline are not readable JSON. A human needs to repair or delete it in the Pipelines builder.",
+        },
+      ];
+}
+
+function serializePipelineRunSummary(run: PipelineRun) {
+  return {
+    id: run.id,
+    pipelineId: run.pipelineId,
+    status: run.status,
+    triggerKind: run.triggerKind,
+    triggerNodeId: run.triggerNodeId,
+    startedAt: run.startedAt.toISOString(),
+    finishedAt: run.finishedAt?.toISOString() ?? null,
+    errorMessage: run.errorMessage,
+  };
+}
+
+/** Which steps in `graph` this employee could not have written itself. */
+function pipelineRefusals(req: McpRequest, graph: PipelineGraph) {
+  return refusedNodes(graph, {
+    employee: req.mcpEmployee!,
+    companyId: req.mcpCompany!.id,
+    projectAccess: (project, required) => hasDelegatedProjectAccess(req, project, required),
+  });
+}
+
+/**
+ * The one predicate behind every pipeline gate: could this employee have built
+ * this graph itself?
+ *
+ * Used for reads that would disclose a webhook URL as well as for writes,
+ * because holding that URL is equivalent to holding the run button.
+ */
+async function canAuthorWholeGraph(req: McpRequest, graph: PipelineGraph): Promise<boolean> {
+  return (await pipelineRefusals(req, graph)).length === 0;
+}
+
+/**
+ * Refuse unless this employee may author every step in `graph`. Writes its own
+ * 403 naming each step and why, so callers read
+ * `if (!(await requirePipelineAuthority(...))) return;`.
+ */
+async function requirePipelineAuthority(
+  req: McpRequest,
+  res: Response,
+  graph: PipelineGraph,
+  action: string,
+): Promise<boolean> {
+  const refusals = await pipelineRefusals(req, graph);
+  if (refusals.length === 0) return true;
+  res.status(403).json({
+    error:
+      `A Pipeline runs as the company, so you can only ${action} one you could have built yourself. ` +
+      `${refusals.length} step(s) are beyond your access. Ask an owner or admin to do this in the Pipelines builder.`,
+    refusedSteps: refusals,
+  });
+  return false;
+}
+
+mcpInternalRouter.post("/tools/list_pipelines", async (req: McpRequest, res) => {
+  const co = req.mcpCompany!;
+  const rows = await AppDataSource.getRepository(Pipeline).find({
+    where: { companyId: co.id },
+    order: { createdAt: "ASC" },
+  });
+  res.json({
+    pipelines: rows.map(serializePipelineSummary),
+    note: "Call get_pipeline for one pipeline's steps, webhook URL, and anything unfinished.",
+  });
+});
+
+const pipelineRefSchema = z.object({ pipelineId: z.string().min(1).max(200) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_pipeline",
+  validateBody(pipelineRefSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof pipelineRefSchema>;
+    const found = await resolvePipeline(req.mcpCompany!.id, body.pipelineId);
+    if (!found.ok) return res.status(found.status).json({ error: found.error });
+    const { graph, readable } = displayGraph(found.pipeline);
+    // An unreadable graph is nobody's to act on, so it is never "authorized".
+    const authorized = readable && (await canAuthorWholeGraph(req, graph));
+    res.json({
+      pipeline: serializePipeline(found.pipeline, authorized),
+      issues: storedPipelineIssues(found.pipeline),
+    });
+  },
+);
+
+/**
+ * Where an employee's own rule is stricter than the catalog's form.
+ *
+ * The catalog describes the builder's form, which a human fills in with human
+ * authority, so it calls a Project optional where an employee must name one.
+ * Saying so here costs one line each and saves a refused write that reads, to
+ * the model, like the field it was told was optional being required after all.
+ */
+const PIPELINE_AUTHORING_NOTES: Partial<Record<PipelineNodeKind, string>> = {
+  "trigger.todoCreated":
+    "You must name a Project you can read. Left empty this watches every Project, including restricted ones.",
+  "trigger.emailReceived":
+    "You must name the mailboxes in `mailboxes` and hold read access on each. Left empty this delivers every inbound email in the company, including mailboxes connected later.",
+  "action.askEmployee":
+    "Only pointable at yourself. Running a teammate's turn is not something you can do directly.",
+  "action.journalNote":
+    "Only pointable at yourself. A journal is rendered back to its owner as their own memory.",
+  "integration.invoke":
+    "Needs your own grant on the Connection, plus the strongest access it can be asked for. `toolName` must be a literal action name, never a template.",
+  "action.createBaseRecord": "Needs your own Grant on the Base.",
+  "action.sendMessage": "A private channel needs you to be a member of it. DMs are refused.",
+  "action.createTodo": "Needs edit access to the Project.",
+};
+
+const pipelineNodeTypesSchema = z.object({ connectionId: z.string().uuid().optional() }).strict();
+
+mcpInternalRouter.post(
+  "/tools/list_pipeline_node_types",
+  validateBody(pipelineNodeTypesSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof pipelineNodeTypesSchema>;
+    const stepTypes = NODE_CATALOG.map((entry) => ({
+      authoringNote: PIPELINE_AUTHORING_NOTES[entry.type],
+      type: entry.type,
+      family: entry.family,
+      label: entry.label,
+      description: entry.description,
+      outputs: entry.outputs ?? ["out"],
+      config: entry.fields.map((field) => ({
+        key: field.key,
+        label: field.label,
+        type: field.type,
+        required: field.required ?? false,
+        default: field.default,
+        options: field.options?.map((option) => option.value),
+        hint: field.hint,
+      })),
+    }));
+
+    // Connection actions are resolved through the employee's own Grant, so an
+    // ungranted connection id reads as "not yours" rather than leaking that it
+    // exists. Same shape the pipelines catalog route serves the builder.
+    let connectionActions: unknown = undefined;
+    if (body.connectionId) {
+      const pair = await getGrantWithConnection(req.mcpEmployee!.id, body.connectionId);
+      if (!pair || pair.connection.companyId !== req.mcpCompany!.id) {
+        return res.status(403).json({
+          error:
+            "No grant: you do not have access to that Connection. Ask an owner or admin to grant it under Settings → Integrations.",
+        });
+      }
+      const provider = getProvider(pair.connection.provider);
+      connectionActions = {
+        connectionId: pair.connection.id,
+        provider: pair.connection.provider,
+        label: pair.connection.label,
+        actions: (provider?.tools ?? []).map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+        })),
+      };
+    }
+
+    res.json({
+      stepTypes,
+      connection: connectionActions,
+      templates:
+        "Any config value may contain {{trigger.payload.<key>}} or {{<step-id>.<output>}}; " +
+        "a value that is exactly one token keeps its type, a value with text around it becomes a string.",
+    });
+  },
+);
+
+const pipelineGraphSchema = z
+  .object({
+    nodes: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(80),
+            type: z.string().min(1).max(80),
+            label: z.string().max(120).optional(),
+            x: z.number().optional(),
+            y: z.number().optional(),
+            config: z.record(z.unknown()).default({}),
+          })
+          .strict(),
+      )
+      .max(100),
+    edges: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(80),
+            fromNodeId: z.string().min(1).max(80),
+            toNodeId: z.string().min(1).max(80),
+            fromHandle: z.string().max(40).optional(),
+          })
+          .strict(),
+      )
+      .max(200),
+  })
+  .strict();
+
+const createPipelineSchema = z
+  .object({
+    name: z.string().min(1).max(80),
+    description: z.string().max(500).optional(),
+    startWith: z.enum(["manual", "schedule", "webhook", "emailReceived", "todoCreated"]).optional(),
+    graph: pipelineGraphSchema.optional(),
+  })
+  .strict();
+
+async function uniquePipelineSlug(companyId: string, base: string): Promise<string> {
+  const repo = AppDataSource.getRepository(Pipeline);
+  const root = base || "pipeline";
+  let slug = root;
+  let n = 1;
+  while (await repo.findOneBy({ companyId, slug })) {
+    n += 1;
+    slug = `${root}-${n}`;
+  }
+  return slug;
+}
+
+async function pipelineNameTaken(
+  companyId: string,
+  name: string,
+  excludeId?: string,
+): Promise<boolean> {
+  const qb = AppDataSource.getRepository(Pipeline)
+    .createQueryBuilder("p")
+    .where("p.companyId = :companyId", { companyId })
+    .andWhere("LOWER(p.name) = LOWER(:name)", { name: name.trim() });
+  if (excludeId) qb.andWhere("p.id != :excludeId", { excludeId });
+  return (await qb.getOne()) !== null;
+}
+
+/**
+ * Structural defects block the write; "needs setup" does not.
+ * Writes its own 400 and returns the warnings to hand back on success.
+ */
+function pipelineGraphIssues(
+  res: Response,
+  graph: PipelineGraph,
+): { ok: true; warnings: ReturnType<typeof validateGraph> } | { ok: false } {
+  const issues = validateGraph(graph);
+  const errors = issues.filter((issue) => issue.severity === "error");
+  if (errors.length > 0) {
+    res.status(400).json({
+      error: `The pipeline has ${errors.length} problem(s) that would stop it running. Fix these and save again.`,
+      problems: errors,
+    });
+    return { ok: false };
+  }
+  return { ok: true, warnings: issues };
+}
+
+mcpInternalRouter.post(
+  "/tools/create_pipeline",
+  validateBody(createPipelineSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createPipelineSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+
+    if (await pipelineNameTaken(co.id, body.name)) {
+      return res.status(409).json({ error: `A pipeline named "${body.name}" already exists` });
+    }
+    // The starter builds an unscoped task trigger, and an unscoped one watches
+    // Projects you may not be able to read — so this one enum value could only
+    // ever come back refused. Say so where it can be acted on.
+    if (!body.graph && body.startWith === "todoCreated") {
+      return res.status(400).json({
+        error:
+          "A task trigger has to name the Project it watches, which `startWith` cannot do. Pass `graph` with a trigger.todoCreated step whose config sets `projectSlug` to a Project you can read.",
+      });
+    }
+
+    const graph = body.graph
+      ? withLaidOutNodes(body.graph)
+      : graphForStarter(body.startWith ?? "manual");
+    const checked = pipelineGraphIssues(res, graph);
+    if (!checked.ok) return;
+    if (!(await requirePipelineAuthority(req, res, graph, "build"))) return;
+
+    const repo = AppDataSource.getRepository(Pipeline);
+    const pipeline = repo.create({
+      companyId: co.id,
+      name: body.name,
+      slug: await uniquePipelineSlug(co.id, toSlug(body.name)),
+      description: body.description ?? "",
+      enabled: true,
+      graphJson: serializeGraph(graph),
+      cronExpr: null,
+      nextRunAt: null,
+      lastRunAt: null,
+      // The row's `createdById` is a human user id. An employee-authored
+      // pipeline has none; the audit row below is what records the author.
+      createdById: null,
+    });
+    syncScheduleFields(pipeline);
+    await repo.save(pipeline);
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "pipeline.create",
+      targetType: "pipeline",
+      targetId: pipeline.id,
+      targetLabel: pipeline.name,
+      metadata: { via: "mcp", steps: graph.nodes.length },
+    });
+    res.json({ pipeline: serializePipeline(pipeline, true), issues: checked.warnings });
+  },
+);
+
+const updatePipelineSchema = z
+  .object({
+    pipelineId: z.string().min(1).max(200),
+    name: z.string().min(1).max(80).optional(),
+    description: z.string().max(500).optional(),
+    enabled: z.boolean().optional(),
+    graph: pipelineGraphSchema.optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_pipeline",
+  validateBody(updatePipelineSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updatePipelineSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const found = await resolvePipeline(co.id, body.pipelineId);
+    if (!found.ok) return res.status(found.status).json({ error: found.error });
+    const { pipeline } = found;
+
+    if (body.name !== undefined && (await pipelineNameTaken(co.id, body.name, pipeline.id))) {
+      return res.status(409).json({ error: `A pipeline named "${body.name}" already exists` });
+    }
+
+    const storedGraph = pipelineGraphOrRefuse(res, pipeline);
+    if (!storedGraph) return;
+    let warnings = validateGraph(storedGraph);
+
+    // The pipeline as it stands, before anything about it changes. Renaming
+    // and pausing look harmless next to rewriting the steps, but pausing the
+    // billing automation is not harmless, and drawing the line at "which
+    // fields are safe" invites an argument on every new field. One rule
+    // instead: an employee may change a pipeline it could have built.
+    if (!(await requirePipelineAuthority(req, res, storedGraph, "change"))) return;
+    if (body.graph !== undefined) {
+      const graph = withLaidOutNodes(body.graph);
+      // Before anything else: a Webhook step that kept its id keeps its
+      // secret. Otherwise an edit about something else silently retires a URL
+      // somebody else is already posting to.
+      preserveWebhookTokens(graph, storedGraph);
+      const checked = pipelineGraphIssues(res, graph);
+      if (!checked.ok) return;
+      if (!(await requirePipelineAuthority(req, res, graph, "build"))) return;
+      warnings = checked.warnings;
+      pipeline.graphJson = serializeGraph(graph);
+    }
+    if (body.name !== undefined) pipeline.name = body.name;
+    if (body.description !== undefined) pipeline.description = body.description;
+    if (body.enabled !== undefined) pipeline.enabled = body.enabled;
+    syncScheduleFields(pipeline);
+    await AppDataSource.getRepository(Pipeline).save(pipeline);
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "pipeline.update",
+      targetType: "pipeline",
+      targetId: pipeline.id,
+      targetLabel: pipeline.name,
+      metadata: { via: "mcp", fields: Object.keys(body).filter((key) => key !== "pipelineId") },
+    });
+    res.json({ pipeline: serializePipeline(pipeline, true), issues: warnings });
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/delete_pipeline",
+  validateBody(pipelineRefSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof pipelineRefSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const found = await resolvePipeline(co.id, body.pipelineId);
+    if (!found.ok) return res.status(found.status).json({ error: found.error });
+    const { pipeline } = found;
+    const graph = pipelineGraphOrRefuse(res, pipeline);
+    if (!graph) return;
+    if (!(await requirePipelineAuthority(req, res, graph, "delete"))) return;
+
+    await AppDataSource.getRepository(PipelineRun).delete({ pipelineId: pipeline.id });
+    await deleteTagAssignments("pipeline", pipeline.id);
+    await AppDataSource.getRepository(Pipeline).delete({ id: pipeline.id });
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "pipeline.delete",
+      targetType: "pipeline",
+      targetId: pipeline.id,
+      targetLabel: pipeline.name,
+      metadata: { via: "mcp" },
+    });
+    res.json({ ok: true });
+  },
+);
+
+const runPipelineSchema = z
+  .object({
+    pipelineId: z.string().min(1).max(200),
+    payload: z.record(z.unknown()).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/run_pipeline",
+  validateBody(runPipelineSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof runPipelineSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const found = await resolvePipeline(co.id, body.pipelineId);
+    if (!found.ok) return res.status(found.status).json({ error: found.error });
+    const { pipeline } = found;
+    if (!pipeline.enabled) {
+      return res.status(409).json({
+        error: "That pipeline is paused. Resume it with update_pipeline { enabled: true } first.",
+      });
+    }
+    // Firing a pipeline executes its steps with company authority. Pressing
+    // the button on someone else's pipeline is the same escalation as writing
+    // the step, so it answers to the same predicate.
+    const graph = pipelineGraphOrRefuse(res, pipeline);
+    if (!graph) return;
+    if (!(await requirePipelineAuthority(req, res, graph, "run"))) return;
+
+    let run: PipelineRun;
+    try {
+      run = await fireManually(pipeline, body.payload ?? {});
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "pipeline.run.manual",
+      targetType: "pipeline",
+      targetId: pipeline.id,
+      targetLabel: pipeline.name,
+      metadata: { via: "mcp", runId: run.id, status: run.status },
+    });
+    // The log comes back with the Run because the caller is almost always
+    // testing something it just built, and a second round trip to read why it
+    // failed is a round trip spent not fixing it.
+    res.json({
+      run: { ...serializePipelineRunSummary(run), logContent: run.logContent ?? "" },
+    });
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_pipeline_runs",
+  validateBody(pipelineRefSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof pipelineRefSchema>;
+    const found = await resolvePipeline(req.mcpCompany!.id, body.pipelineId);
+    if (!found.ok) return res.status(found.status).json({ error: found.error });
+    const runs = await AppDataSource.getRepository(PipelineRun).find({
+      where: { pipelineId: found.pipeline.id },
+      order: { startedAt: "DESC" },
+      take: 50,
+    });
+    // Statuses and timings of a pipeline you cannot author are fine to read —
+    // "is the billing automation healthy" is a reasonable question. The error
+    // text is not: a failing step quotes the value that failed it.
+    const stored = displayGraph(found.pipeline);
+    const authorized = stored.readable && (await canAuthorWholeGraph(req, stored.graph));
+    res.json({
+      pipeline: { id: found.pipeline.id, slug: found.pipeline.slug, name: found.pipeline.name },
+      runs: runs.map((run) => {
+        const summary = serializePipelineRunSummary(run);
+        return authorized ? summary : { ...summary, errorMessage: null };
+      }),
+    });
+  },
+);
+
+const pipelineRunRefSchema = z.object({ runId: z.string().min(1).max(200) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_pipeline_run",
+  validateBody(pipelineRunRefSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof pipelineRunRefSchema>;
+    if (!UUID_RE.test(body.runId)) return res.status(404).json({ error: "Run not found" });
+    const run = await AppDataSource.getRepository(PipelineRun).findOneBy({ id: body.runId });
+    // Scope through the pipeline: PipelineRun has no companyId of its own, so
+    // this is what keeps one company's run ids out of another's replies.
+    const pipeline = run
+      ? await AppDataSource.getRepository(Pipeline).findOneBy({
+          id: run.pipelineId,
+          companyId: req.mcpCompany!.id,
+        })
+      : null;
+    if (!run || !pipeline) return res.status(404).json({ error: "Run not found" });
+
+    // A Run carries whatever flowed through it: the inbound email an Email
+    // trigger delivered, the Base rows a step wrote, the Connection reply a
+    // step received. Reading it is reading all of that, so it answers to the
+    // same predicate as authoring the steps that produced it.
+    const graph = pipelineGraphOrRefuse(res, pipeline);
+    if (!graph) return;
+    if (!(await requirePipelineAuthority(req, res, graph, "read Runs of"))) return;
+
+    let input: unknown = run.inputJson;
+    let outputs: unknown = run.outputJson;
+    try {
+      input = JSON.parse(run.inputJson);
+      outputs = JSON.parse(run.outputJson);
+    } catch {
+      /* hand back the raw text rather than failing the read */
+    }
+    res.json({
+      run: {
+        ...serializePipelineRunSummary(run),
+        pipelineName: pipeline.name,
+        payload: input,
+        stepOutputs: outputs,
+        logContent: run.logContent ?? "",
+        truncated: Buffer.byteLength(run.logContent ?? "", "utf8") >= PIPELINE_LOG_MAX_BYTES,
+      },
+    });
+  },
+);
+
+const rotateWebhookSchema = z
+  .object({
+    pipelineId: z.string().min(1).max(200),
+    nodeId: z.string().min(1).max(80),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/rotate_pipeline_webhook_token",
+  validateBody(rotateWebhookSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof rotateWebhookSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const found = await resolvePipeline(co.id, body.pipelineId);
+    if (!found.ok) return res.status(found.status).json({ error: found.error });
+    const { pipeline } = found;
+
+    const graph = pipelineGraphOrRefuse(res, pipeline);
+    if (!graph) return;
+    // Rotating hands back a live URL for this pipeline, so it needs the same
+    // authority as running one.
+    if (!(await requirePipelineAuthority(req, res, graph, "hold the webhook URL for"))) return;
+    try {
+      regenerateWebhookToken(graph, body.nodeId);
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+    pipeline.graphJson = serializeGraph(graph);
+    syncScheduleFields(pipeline);
+    await AppDataSource.getRepository(Pipeline).save(pipeline);
+
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "pipeline.webhook.rotate",
+      targetType: "pipeline",
+      targetId: pipeline.id,
+      targetLabel: pipeline.name,
+      metadata: { via: "mcp", nodeId: body.nodeId },
+    });
+    res.json({
+      webhookUrls: pipelineWebhookUrls(pipeline, displayGraph(pipeline).graph),
+      note: "The previous URL stopped working the moment this returned.",
+    });
   },
 );
 

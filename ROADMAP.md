@@ -916,6 +916,30 @@ the reply.
       resource pickers fed by live company data, an Integration-step
       action picker from the catalog's `integrationTools`, and a docs
       page at `/docs/pipelines`
+- [x] MCP tools — list_pipelines, get_pipeline, list_pipeline_node_types,
+      create_pipeline, update_pipeline, delete_pipeline, run_pipeline,
+      list_pipeline_runs, get_pipeline_run, rotate_pipeline_webhook_token.
+      AI Employees author Pipelines, not just run inside them: the step
+      library is served as JSON, graphs are structurally validated before
+      the write (unknown step type, invalid cron, dangling connection,
+      wrong branch handle) instead of failing mid-run, and canvas
+      coordinates are laid out server-side so an author never invents them
+- [x] Employee authoring authority (`services/pipelines/authoring.ts`) —
+      a Pipeline runs as the company, so every step an employee writes is
+      intersected with that employee's own Grants at save time: Base
+      grant, Project access, private-channel membership, Connection grant
+      plus the strongest capability the Connection can be asked for, and
+      and named mailboxes plus read on each for the email trigger — which
+      gained a `mailboxes` scope so that answer stays true when a mailbox
+      is connected later. The predicate
+      is whole-graph rather than per-edit — a step reads
+      `{{other-step.field}}` at run time, so an untouched Connection step
+      is still steerable from upstream — and it also guards everything
+      that *acts on* a graph: every write (including rename and pause),
+      running, deleting, reading a Run's payload and outputs, and being
+      handed a Webhook trigger's URL. Listing and reading stay open, minus
+      the webhook secret. Writes carry the `admin` interactive-Member
+      policy, matching the human route
 
 ### M11 — Notes (Notion-style) ✅
 

@@ -9,7 +9,11 @@
  * Adding a new node type:
  *   1. Add an entry to `NODE_CATALOG` in catalog.ts (icon, label, defaults).
  *   2. Implement the runtime in handlers.ts under the same `type` key.
- *   3. (Frontend) the editor reads NODE_CATALOG via `/api/.../pipelines/catalog`.
+ *   3. Decide what an AI employee must hold to author it, in authoring.ts.
+ *      Its `default` case refuses anything unlisted, so skipping this makes
+ *      the node human-only rather than unguarded.
+ *   4. If any config key holds a JSON object, list it in validate.ts.
+ *   5. (Frontend) the editor reads NODE_CATALOG via `/api/.../pipelines/catalog`.
  */
 
 export type PipelineNodeKind =

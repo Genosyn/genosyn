@@ -95,7 +95,7 @@ export const CHAT_PRODUCT_REFERENCES: readonly ChatProductReference[] = [
     path: "/pipelines",
     description: "Predictable step-by-step automation",
     keywords: ["pipeline", "automation", "workflow", "flow", "n8n"],
-    toolHints: [],
+    toolHints: ["list_pipelines", "get_pipeline", "create_pipeline", "list_pipeline_runs"],
   },
   {
     key: "skills",

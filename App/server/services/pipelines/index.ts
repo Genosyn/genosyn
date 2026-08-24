@@ -1,5 +1,3 @@
-import parser from "cron-parser";
-import cron from "node-cron";
 import crypto from "node:crypto";
 import { IsNull, LessThanOrEqual, Not } from "typeorm";
 import { AppDataSource } from "../../db/datasource.js";
@@ -8,6 +6,7 @@ import { runPipeline } from "./executor.js";
 import { PipelineGraph, PipelineNode, PipelineNodeKind } from "./types.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
 import { constantTimeEqual } from "../../lib/constantTime.js";
+import { isSchedulableCron, nextRunFor } from "./cron.js";
 
 /**
  * Public pipeline service surface. Glues the executor to the rest of the app:
@@ -59,19 +58,6 @@ export function isTriggerKind(kind: PipelineNodeKind): boolean {
 }
 
 /**
- * Compute the next fire time for a cron expression. Returns null on parse
- * error so callers can clear the schedule cleanly.
- */
-function nextRunFor(cronExpr: string, from: Date = new Date()): Date | null {
-  try {
-    const interval = parser.parseExpression(cronExpr, { currentDate: from });
-    return interval.next().toDate();
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Walk the graph and:
  *   - pick the earliest cron expression among Schedule trigger nodes
  *   - assign a fresh token to any Webhook trigger missing one
@@ -85,7 +71,7 @@ export function syncScheduleFields(pipeline: Pipeline): void {
     if (node.type !== "trigger.schedule") continue;
     const expr = String((node.config?.cronExpr as string) ?? "").trim();
     if (!expr) continue;
-    if (!cron.validate(expr)) continue;
+    if (!isSchedulableCron(expr)) continue;
     cronExprs.push(expr);
   }
   pipeline.graphJson = serializeGraph(graph);
@@ -108,6 +94,35 @@ export function syncScheduleFields(pipeline: Pipeline): void {
   }
   pipeline.cronExpr = bestExpr;
   pipeline.nextRunAt = bestNext;
+}
+
+/**
+ * Carry each Webhook trigger's existing secret across a whole-graph replace.
+ *
+ * The graph is replaced entire on every save, and `ensureWebhookTokens` mints
+ * a fresh secret for any Webhook step that arrives without one. For the
+ * builder that is invisible — it round-trips the token it was given. For an
+ * author composing JSON it is a trap with no warning attached: rebuild the
+ * step without echoing 48 hex characters back and the URL a third party is
+ * already posting to dies, silently, on an edit about something else.
+ *
+ * So a step that keeps its id keeps its secret unless the caller sent a
+ * different one. Rotation stays an explicit act — `regenerateWebhookToken` —
+ * which says out loud that the old URL just stopped working.
+ */
+export function preserveWebhookTokens(next: PipelineGraph, previous: PipelineGraph): void {
+  const before = new Map(
+    previous.nodes
+      .filter((node) => node.type === "trigger.webhook")
+      .map((node) => [node.id, String(node.config?.token ?? "")]),
+  );
+  for (const node of next.nodes) {
+    if (node.type !== "trigger.webhook") continue;
+    const config = (node.config = (node.config ?? {}) as Record<string, unknown>);
+    if (typeof config.token === "string" && config.token.trim()) continue;
+    const kept = before.get(node.id);
+    if (kept) config.token = kept;
+  }
 }
 
 export function ensureWebhookTokens(graph: PipelineGraph): void {

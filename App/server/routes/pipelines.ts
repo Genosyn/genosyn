@@ -13,6 +13,7 @@ import {
 import { toSlug } from "../lib/slug.js";
 import {
   parseGraph,
+  preserveWebhookTokens,
   serializeGraph,
   syncScheduleFields,
   fireManually,
@@ -224,7 +225,12 @@ pipelinesRouter.patch("/pipelines/:idOrSlug", validateBody(patchSchema), async (
   if (body.graph !== undefined) {
     // Cast the validated graph back to the wider PipelineGraph type — zod's
     // string `type` is what the executor will interpret at run time.
-    p.graphJson = serializeGraph(body.graph as unknown as PipelineGraph);
+    const graph = body.graph as unknown as PipelineGraph;
+    // The builder round-trips each Webhook token, so this is a no-op there.
+    // An API-key caller replacing the graph without echoing one would
+    // otherwise retire a live URL without being told.
+    preserveWebhookTokens(graph, parseGraph(p.graphJson));
+    p.graphJson = serializeGraph(graph);
   }
   syncScheduleFields(p);
   await AppDataSource.getRepository(Pipeline).save(p);

@@ -1,9 +1,11 @@
 import { AppDataSource } from "../../db/datasource.js";
+import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { Pipeline } from "../../db/entities/Pipeline.js";
 import { Project } from "../../db/entities/Project.js";
 import { Todo } from "../../db/entities/Todo.js";
 import { runPipeline } from "./executor.js";
+import { parseAddressList } from "./config.js";
 import { parseGraph } from "./index.js";
 import type { PipelineEventContext, PipelineNode } from "./types.js";
 
@@ -15,6 +17,7 @@ type EmailReceivedPayload = {
     id: string;
     threadId: string;
     accountId: string;
+    accountAddress: string;
     from: { name: string; email: string };
     to: string[];
     cc: string[];
@@ -128,6 +131,11 @@ export async function dispatchEmailReceived(
   const message = await AppDataSource.getRepository(MailMessage).findOneBy({ id: messageId });
   if (!message) return;
   const attachments = parseArray(message.attachmentsJson);
+  // The address, not just the id: it is what the Mailboxes filter matches on
+  // and what a step's template can put in a message a human will read.
+  const account = await AppDataSource.getRepository(MailAccount).findOneBy({
+    id: message.accountId,
+  });
   await dispatchPipelineEvent(
     {
       companyId: message.companyId,
@@ -138,6 +146,7 @@ export async function dispatchEmailReceived(
           id: message.id,
           threadId: message.threadId,
           accountId: message.accountId,
+          accountAddress: account?.address ?? "",
           from: { name: message.fromName, email: message.fromEmail },
           to: splitAddresses(message.toEmails),
           cc: splitAddresses(message.ccEmails),
@@ -203,6 +212,13 @@ export async function dispatchTodoCreated(
 function matchesEvent(node: PipelineNode, event: PipelineEvent): boolean {
   if (event.triggerType === "trigger.emailReceived") {
     const message = event.payload.message;
+    // A mailbox scope narrows the trigger to named accounts. Empty means every
+    // one, which is what it has always meant in the builder — but an AI
+    // employee has to name them (see services/pipelines/authoring.ts).
+    const mailboxes = parseAddressList(node.config.mailboxes);
+    if (mailboxes.length > 0 && !mailboxes.includes(message.accountAddress.toLowerCase())) {
+      return false;
+    }
     const sender = `${message.from.name} ${message.from.email}`.toLowerCase();
     if (!containsFilter(sender, node.config.fromContains)) return false;
     if (!containsFilter(message.subject, node.config.subjectContains)) return false;

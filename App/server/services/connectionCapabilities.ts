@@ -53,9 +53,15 @@ export function makeConnectionCapabilityGate(args: {
 
 /**
  * A gate for call paths that have no AI employee to authorize — today the
- * Pipelines runner, whose nodes are authored by a human in the UI and cannot
- * be created or edited from the MCP surface. There is no employee grant to
- * consult and no employee to constrain, so these calls pass.
+ * Pipelines runner, which runs as the company rather than as anyone. There is
+ * no employee grant to consult and no employee to constrain, so these calls
+ * pass.
+ *
+ * What keeps that from being a hole is that the *author* was checked instead.
+ * A human authoring in the builder is owner/admin. An AI employee authoring
+ * through the MCP tools has to clear
+ * {@link assertUnrestrictedConnectionUse} for the Connection first, which is
+ * this gate's ceiling asked in advance.
  *
  * This exists so that path opts in *explicitly*. Providers deny when no gate
  * is supplied, which means a new context builder cannot un-gate a tool by
@@ -105,4 +111,33 @@ async function assertMailCapability(
       `No grant: this needs the "${required}" access level on ${account.address}; yours is "${grant.accessLevel}". Ask a human to raise it under Email → Settings → AI access.`,
     );
   }
+}
+
+/**
+ * Assert that `employeeId` may drive `connection` at the full strength
+ * {@link unrestrictedCapabilityGate} would give it.
+ *
+ * The gate above answers a capability *at the moment a tool asks for it*, from
+ * inside the provider. Some call paths cannot do that, because the call
+ * happens later and with nobody attached — a Pipeline step is the case that
+ * matters: it runs as the company and says yes to everything. Letting an AI
+ * Employee author such a step is safe only if the employee could already have
+ * made every call the step might make, so the question moves forward to
+ * authoring time and asks for the *maximum* rather than the actual: hold
+ * `mail.send` and no gmail tool the runner later waves through can exceed you.
+ *
+ * Asking for the ceiling rather than enumerating tools is the point. A new
+ * capability-gated tool on an existing provider is covered the day it ships,
+ * with nobody remembering to come back here. A whole new capability family is
+ * not — add its ceiling below when you add the family, the same way
+ * `makeConnectionCapabilityGate` fails closed on a name it was never taught.
+ */
+export async function assertUnrestrictedConnectionUse(
+  connection: IntegrationConnection,
+  employeeId: string,
+): Promise<void> {
+  // `mail.*` is the only capability family today. `assertMailCapability`
+  // returns early for a connection with no mailbox behind it, so this is a
+  // no-op for every other provider rather than a guess about them.
+  await assertMailCapability(connection, employeeId, "send");
 }

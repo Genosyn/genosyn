@@ -22,6 +22,13 @@ const MEMBER_TOOLS = [
   "list_skills",
   "list_routines",
   "get_routine",
+  // Reading a Pipeline is member-level on the human route too — every Member
+  // may open Pipelines and inspect a Run. Writing one is not; see ADMIN_TOOLS.
+  "list_pipelines",
+  "get_pipeline",
+  "list_pipeline_node_types",
+  "list_pipeline_runs",
+  "get_pipeline_run",
   "create_project",
   "list_bases",
   "get_base",
@@ -247,6 +254,16 @@ const ADMIN_TOOLS = [
   "create_routine",
   "update_routine",
   "delete_routine",
+  // Every mutation on the human Pipelines route requires the admin company
+  // role (`routes/pipelines.ts`), and a Pipeline runs as the company once
+  // saved — so a delegated Member gets exactly the authority they already
+  // have in the builder. `run_pipeline` sits here with the writers because
+  // firing one executes company-authority steps, not because it edits.
+  "create_pipeline",
+  "update_pipeline",
+  "delete_pipeline",
+  "run_pipeline",
+  "rotate_pipeline_webhook_token",
   // Memory and Journal can contain material learned under broader Grants.
   // Until entries carry resource provenance, regular delegated Members do not
   // receive them through an AI Employee.
