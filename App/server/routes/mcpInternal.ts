@@ -125,6 +125,8 @@ import {
 } from "../services/integrations.js";
 import {
   buildLinkOptionsFor,
+  createBaseRecordRow,
+  deleteBaseRecordWithContents,
   deleteBaseTableWithContents,
   findBaseByName,
   findBaseTableByName,
@@ -135,6 +137,7 @@ import {
   hydrateRecordAttachments,
   hydrateRecordComments,
   listGrantedBasesForEmployee,
+  mergeBaseRecordData,
   seedBaseFromTemplate,
   uniqueBaseSlug,
   uniqueTableSlug,
@@ -9672,18 +9675,7 @@ mcpInternalRouter.post(
     if (!b) return;
     const t = await loadActiveGrantedTable(res, b, body.tableSlug);
     if (!t) return;
-    const repo = AppDataSource.getRepository(BaseRecord);
-    const last = await repo.findOne({
-      where: { tableId: t.id },
-      order: { sortOrder: "DESC" },
-    });
-    const saved = await repo.save(
-      repo.create({
-        tableId: t.id,
-        dataJson: JSON.stringify(body.data ?? {}),
-        sortOrder: (last?.sortOrder ?? 0) + 1000,
-      }),
-    );
+    const saved = await createBaseRecordRow(t.id, body.data ?? {});
     await recordAudit({
       companyId: co.id,
       actorEmployeeId: self.id,
@@ -9725,11 +9717,10 @@ mcpInternalRouter.post(
     const repo = AppDataSource.getRepository(BaseRecord);
     const r = await repo.findOneBy({ id: body.rowId, tableId: t.id });
     if (!r) return res.status(404).json({ error: "Row not found" });
-    const data: Record<string, unknown> = JSON.parse(r.dataJson || "{}");
-    for (const [k, v] of Object.entries(body.data)) {
-      if (v === null || v === undefined || v === "") delete data[k];
-      else data[k] = v;
-    }
+    const data = mergeBaseRecordData(
+      JSON.parse(r.dataJson || "{}") as Record<string, unknown>,
+      body.data,
+    );
     r.dataJson = JSON.stringify(data);
     await repo.save(r);
     await recordAudit({
@@ -9767,7 +9758,7 @@ mcpInternalRouter.post(
     const repo = AppDataSource.getRepository(BaseRecord);
     const r = await repo.findOneBy({ id: body.rowId, tableId: t.id });
     if (!r) return res.status(404).json({ error: "Row not found" });
-    await repo.delete({ id: r.id });
+    await deleteBaseRecordWithContents(r, co.id);
     await recordAudit({
       companyId: co.id,
       actorEmployeeId: self.id,

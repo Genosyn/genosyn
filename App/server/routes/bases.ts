@@ -19,6 +19,8 @@ import { toSlug } from "../lib/slug.js";
 import { chatWithEmployee } from "../services/chat.js";
 import {
   buildLinkOptionsFor,
+  createBaseRecordRow,
+  deleteBaseRecordWithContents,
   deleteBaseTableWithContents,
   deleteGrantsForBase,
   ensureDefaultView,
@@ -27,6 +29,8 @@ import {
   grantBaseAccess,
   hydrateField,
   hydrateRecord,
+  mergeBaseRecordData,
+  UUID_RE,
   hydrateRecordAttachments,
   hydrateRecordComments,
   hydrateView,
@@ -626,17 +630,7 @@ basesRouter.post(
     if (!t) return res.status(404).json({ error: "Table not found" });
     const body = req.body as z.infer<typeof createRowSchema>;
 
-    const last = await AppDataSource.getRepository(BaseRecord).findOne({
-      where: { tableId: t.id },
-      order: { sortOrder: "DESC" },
-    });
-    const saved = await AppDataSource.getRepository(BaseRecord).save(
-      AppDataSource.getRepository(BaseRecord).create({
-        tableId: t.id,
-        dataJson: JSON.stringify(body.data ?? {}),
-        sortOrder: (last?.sortOrder ?? 0) + 1000,
-      }),
-    );
+    const saved = await createBaseRecordRow(t.id, body.data ?? {});
     res.json(hydrateRecord(saved));
   },
 );
@@ -658,6 +652,10 @@ basesRouter.patch(
     if (!b) return res.status(404).json({ error: "Base not found" });
     const t = await loadTable(b.id, req.params.tableId);
     if (!t) return res.status(404).json({ error: "Table not found" });
+    // Non-uuid ids read as "not found" instead of a Postgres type error.
+    if (!UUID_RE.test(req.params.rowId)) {
+      return res.status(404).json({ error: "Row not found" });
+    }
     const r = await AppDataSource.getRepository(BaseRecord).findOneBy({
       id: req.params.rowId,
       tableId: t.id,
@@ -665,20 +663,11 @@ basesRouter.patch(
     if (!r) return res.status(404).json({ error: "Row not found" });
     const body = req.body as z.infer<typeof patchRowSchema>;
 
-    const data: Record<string, unknown> = JSON.parse(r.dataJson || "{}");
-    if (body.data !== undefined) {
-      for (const [k, v] of Object.entries(body.data)) {
-        if (v === null || v === undefined || v === "") delete data[k];
-        else data[k] = v;
-      }
-    }
-    if (body.fieldId) {
-      if (body.value === null || body.value === undefined || body.value === "") {
-        delete data[body.fieldId];
-      } else {
-        data[body.fieldId] = body.value;
-      }
-    }
+    const data = mergeBaseRecordData(
+      JSON.parse(r.dataJson || "{}") as Record<string, unknown>,
+      body.data ?? {},
+    );
+    if (body.fieldId) mergeBaseRecordData(data, { [body.fieldId]: body.value });
     r.dataJson = JSON.stringify(data);
     if (body.sortOrder !== undefined) r.sortOrder = body.sortOrder;
     await AppDataSource.getRepository(BaseRecord).save(r);
@@ -692,25 +681,16 @@ basesRouter.delete("/bases/:baseSlug/tables/:tableId/rows/:rowId", async (req, r
   if (!b) return res.status(404).json({ error: "Base not found" });
   const t = await loadTable(b.id, req.params.tableId);
   if (!t) return res.status(404).json({ error: "Table not found" });
+  // Non-uuid ids read as "not found" instead of a Postgres type error.
+  if (!UUID_RE.test(req.params.rowId)) {
+    return res.status(404).json({ error: "Row not found" });
+  }
   const r = await AppDataSource.getRepository(BaseRecord).findOneBy({
     id: req.params.rowId,
     tableId: t.id,
   });
   if (!r) return res.status(404).json({ error: "Row not found" });
-  // Drop file bytes for any attachments before deleting the rows so the
-  // join table doesn't accumulate orphan blobs on disk.
-  const attachments = await AppDataSource.getRepository(BaseRecordAttachment).find({
-    where: { recordId: r.id },
-  });
-  if (attachments.length) {
-    const co = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
-    if (co) {
-      for (const a of attachments) await deleteBaseAttachmentBytes(a, co.slug);
-    }
-  }
-  await AppDataSource.getRepository(BaseRecordAttachment).delete({ recordId: r.id });
-  await AppDataSource.getRepository(BaseRecordComment).delete({ recordId: r.id });
-  await AppDataSource.getRepository(BaseRecord).delete({ id: r.id });
+  await deleteBaseRecordWithContents(r, cid);
   res.json({ ok: true });
 });
 

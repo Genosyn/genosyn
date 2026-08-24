@@ -4,11 +4,13 @@ import { Base } from "../../db/entities/Base.js";
 import { BaseTable } from "../../db/entities/BaseTable.js";
 import { BaseField } from "../../db/entities/BaseField.js";
 import { BaseRecord } from "../../db/entities/BaseRecord.js";
-import { BaseRecordComment } from "../../db/entities/BaseRecordComment.js";
-import { BaseRecordAttachment } from "../../db/entities/BaseRecordAttachment.js";
-import { Company } from "../../db/entities/Company.js";
-import { hydrateField } from "../bases.js";
-import { deleteBaseAttachmentBytes } from "../baseRecordUploads.js";
+import {
+  createBaseRecordRow,
+  deleteBaseRecordWithContents,
+  hydrateField,
+  mergeBaseRecordData,
+  UUID_RE,
+} from "../bases.js";
 
 /**
  * The `genosyn` SDK handed to `logic.code` steps: Base record CRUD scoped to
@@ -54,9 +56,6 @@ export type CodeSdkContext = {
 };
 
 type LoadedTable = { base: Base; table: BaseTable; fields: BaseField[] };
-
-/** Guards the id fallback — Postgres errors on comparing a uuid column to a plain slug. */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function makeCodeSdk(ctx: CodeSdkContext) {
   let remainingOps = MAX_BASE_OPS_PER_STEP;
@@ -209,18 +208,7 @@ export function makeCodeSdk(ctx: CodeSdkContext) {
         if (value === null || value === undefined || value === "") continue;
         data[resolveField(loaded.fields, key).id] = value;
       }
-      const repo = AppDataSource.getRepository(BaseRecord);
-      const last = await repo.findOne({
-        where: { tableId: loaded.table.id },
-        order: { sortOrder: "DESC" },
-      });
-      const saved = await repo.save(
-        repo.create({
-          tableId: loaded.table.id,
-          dataJson: JSON.stringify(data),
-          sortOrder: (last?.sortOrder ?? 0) + 1000,
-        }),
-      );
+      const saved = await createBaseRecordRow(loaded.table.id, data);
       ctx.log(`base: created record ${saved.id} in ${loaded.base.slug}/${loaded.table.slug}`);
       return toSdkRecord(saved, loaded.fields);
     },
@@ -306,15 +294,13 @@ export function makeCodeSdk(ctx: CodeSdkContext) {
       const loaded = await loadTable(baseSlug, tableSlug);
       const record = await loadRecord(loaded, recordId);
       const input = assertPlainObject(values, "values");
-      const data = parseData(record);
+      // Resolve field names to storage ids before the shared merge applies the
+      // null / undefined / "" clears-the-cell semantics.
+      const updates: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(input)) {
-        const fieldId = resolveField(loaded.fields, key).id;
-        if (value === null || value === undefined || value === "") {
-          delete data[fieldId];
-        } else {
-          data[fieldId] = value;
-        }
+        updates[resolveField(loaded.fields, key).id] = value;
       }
+      const data = mergeBaseRecordData(parseData(record), updates);
       record.dataJson = JSON.stringify(data);
       const saved = await AppDataSource.getRepository(BaseRecord).save(record);
       ctx.log(`base: updated record ${saved.id} in ${loaded.base.slug}/${loaded.table.slug}`);
@@ -325,24 +311,7 @@ export function makeCodeSdk(ctx: CodeSdkContext) {
       begin();
       const loaded = await loadTable(baseSlug, tableSlug);
       const record = await loadRecord(loaded, recordId);
-      // Mirror the Member HTTP route: drop attachment bytes before the rows
-      // so blobs on disk don't orphan, then comments, then the record.
-      const attachments = await AppDataSource.getRepository(BaseRecordAttachment).find({
-        where: { recordId: record.id },
-      });
-      if (attachments.length) {
-        const company = await AppDataSource.getRepository(Company).findOneBy({
-          id: ctx.companyId,
-        });
-        if (company) {
-          for (const attachment of attachments) {
-            await deleteBaseAttachmentBytes(attachment, company.slug);
-          }
-        }
-      }
-      await AppDataSource.getRepository(BaseRecordAttachment).delete({ recordId: record.id });
-      await AppDataSource.getRepository(BaseRecordComment).delete({ recordId: record.id });
-      await AppDataSource.getRepository(BaseRecord).delete({ id: record.id });
+      await deleteBaseRecordWithContents(record, ctx.companyId);
       ctx.log(`base: deleted record ${record.id} from ${loaded.base.slug}/${loaded.table.slug}`);
       return true;
     },

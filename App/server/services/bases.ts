@@ -13,6 +13,7 @@ import { BaseRecord } from "../db/entities/BaseRecord.js";
 import { BaseRecordComment } from "../db/entities/BaseRecordComment.js";
 import { BaseRecordAttachment } from "../db/entities/BaseRecordAttachment.js";
 import { BaseView } from "../db/entities/BaseView.js";
+import { Company } from "../db/entities/Company.js";
 import { EmployeeBaseGrant } from "../db/entities/EmployeeBaseGrant.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { User } from "../db/entities/User.js";
@@ -378,6 +379,80 @@ export async function buildLinkOptionsFor(
     byTable[r.tableId].push({ id: r.id, label, tableId: r.tableId });
   }
   return byTable;
+}
+
+/**
+ * Guards uuid-PK lookups fed by request input. Postgres raises a type error
+ * (22P02) when a uuid column is compared to a plain string, where "not found"
+ * is the right answer; SQLite happily compares and returns nothing.
+ */
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Append a row to a table. New rows land after the current last row with the
+ * sparse +1000 sort order the grid relies on for cheap manual reordering.
+ * Every write path (HTTP route, MCP tool, code SDK) creates rows here so the
+ * append semantics cannot drift.
+ */
+export async function createBaseRecordRow(
+  tableId: string,
+  data: Record<string, unknown>,
+): Promise<BaseRecord> {
+  const repo = AppDataSource.getRepository(BaseRecord);
+  const last = await repo.findOne({
+    where: { tableId },
+    order: { sortOrder: "DESC" },
+  });
+  return repo.save(
+    repo.create({
+      tableId,
+      dataJson: JSON.stringify(data),
+      sortOrder: (last?.sortOrder ?? 0) + 1000,
+    }),
+  );
+}
+
+/**
+ * Merge a cell-update payload into a record's parsed data, in place. Setting a
+ * key to null / undefined / "" deletes the cell instead of storing an empty
+ * value — the shared write semantics across every Base write path. Returns
+ * `data` for call-site convenience.
+ */
+export function mergeBaseRecordData(
+  data: Record<string, unknown>,
+  updates: Record<string, unknown>,
+): Record<string, unknown> {
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === null || value === undefined || value === "") delete data[key];
+    else data[key] = value;
+  }
+  return data;
+}
+
+/**
+ * Permanently remove a record and its row-owned children: attachment bytes on
+ * disk first (so blobs don't orphan), then attachment rows, comment rows, and
+ * finally the record. The Member HTTP route, the MCP tool, and the code SDK
+ * all delete through here so no path can leave comments or files behind.
+ */
+export async function deleteBaseRecordWithContents(
+  record: BaseRecord,
+  companyId: string,
+): Promise<void> {
+  const attachments = await AppDataSource.getRepository(BaseRecordAttachment).find({
+    where: { recordId: record.id },
+  });
+  if (attachments.length) {
+    const company = await AppDataSource.getRepository(Company).findOneBy({ id: companyId });
+    if (company) {
+      for (const attachment of attachments) {
+        await deleteBaseAttachmentBytes(attachment, company.slug);
+      }
+    }
+  }
+  await AppDataSource.getRepository(BaseRecordAttachment).delete({ recordId: record.id });
+  await AppDataSource.getRepository(BaseRecordComment).delete({ recordId: record.id });
+  await AppDataSource.getRepository(BaseRecord).delete({ id: record.id });
 }
 
 /**
