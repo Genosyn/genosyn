@@ -204,14 +204,27 @@ export async function fetchUrlAsText(url: string): Promise<{ title: string; text
  * CommonJS-only and contains a debug branch that reads a built-in test
  * PDF when imported as `require('pdf-parse')` from CJS — to
  * avoid that we go straight at the inner module.
+ *
+ * The copy into a standalone `Uint8Array` is load-bearing. `pdf-parse` vendors
+ * pdf.js 1.10, which passes the array we hand it down to the parser and then
+ * works on it with textbook `TypedArray` assumptions. A Node `Buffer` violates
+ * those: small ones are views into a shared 8 KiB allocation pool, so they
+ * carry a non-zero `byteOffset` over an oversized backing `ArrayBuffer`, and
+ * `Buffer#slice` returns a view where `Uint8Array#slice` returns a copy. Hand
+ * one straight to the parser and extraction fails with "Invalid PDF structure"
+ * on a perfectly valid document — not every time, but depending on where in
+ * the pool the bytes landed and what else the process had allocated, which is
+ * what made it look like a concurrency bug. `new Uint8Array(buf)` gives the
+ * parser bytes it owns outright: offset zero, exact length, standard
+ * semantics.
  */
 export async function pdfBufferToText(buf: Buffer): Promise<string> {
   const require = createRequire(import.meta.url);
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const pdfParse = require("pdf-parse/lib/pdf-parse.js") as (
-    data: Buffer,
+    data: Uint8Array,
   ) => Promise<{ text: string }>;
-  const out = await pdfParse(buf);
+  const out = await pdfParse(new Uint8Array(buf));
   return out.text ?? "";
 }
 
