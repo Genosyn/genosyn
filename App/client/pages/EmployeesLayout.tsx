@@ -10,8 +10,9 @@ import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
  * Sidebar for `/c/:slug/employees` (index) and `/c/:slug/employees/new`.
- * The per-employee detail tree lives under a sibling route with its own
- * sidebar — that way neither layout has to juggle two sidebar modes.
+ * The per-employee detail tree lives under a sibling route that renders no
+ * sidebar at all — a selected employee is Chat plus Settings, so keeping the
+ * routes siblings means this layout never has to un-render its own roster.
  */
 export default function EmployeesLayout({ company }: { company: Company }) {
   const navigate = useNavigate();

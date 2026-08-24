@@ -2679,6 +2679,44 @@ summarizer another route to act.
       releases it rather than leaving it unpressable. Proposing never risks the
       answer — it is already saved when the second turn runs.
 
+### M46 — The employee page is Chat and Settings ✅
+
+The per-employee sidebar had grown to nine entries — Chat, Skills, Routines,
+Journal, Handoffs, Memory, Connections, MCP, Settings — and opening a teammate
+looked like opening a filing cabinet. Eight of the nine were things you set up
+once and rarely revisit; only Chat is what you came for. So the rail is gone.
+
+- [x] **Two destinations.** `/employees/:empSlug` renders no sidebar at all.
+      `EmployeeHeader` — the back link, the avatar, the name, and a Chat /
+      Settings switch — is rendered by both the chat and the Settings page, so
+      the bar never moves between them. Chat keeps its own conversation rail
+      and folds its thread title into that one header instead of stacking a
+      second bar under it.
+- [x] **Everything else lives under Settings**, grouped so twelve entries stay
+      scannable: **Employee** (General, Soul, Model, Memory), **Work** (Skills,
+      Routines, Journal, Handoffs), **Access** (Connections, MCP, Browser,
+      Integrations). Journal / Handoffs / Memory / Connections / MCP became
+      children of the `settings` route; each sub-page titles itself, which is
+      what lets Handoffs, MCP and Connections keep the primary action they hang
+      off `TopBar.right`.
+- [x] **Skills, Routines and Integrations stay company-level** and say so — a
+      corner arrow marks the three entries that leave the employee, and each
+      carries a tooltip for where it actually lands, since Skills and Routines
+      filter to this employee and the Integrations catalog does not.
+- [x] **Old URLs keep answering.** `/employees/:empSlug/{journal,handoffs,
+      memory,connections,mcp}` redirect to their `settings/` home, query string
+      intact, as siblings of the existing Skills / Routines redirects. Inbound
+      deep links from Inbox, the chat action pills and Repository access were
+      repointed; the mail draft author's routine chip, dead since M23, now
+      resolves too.
+- [x] **Delete employee** moved from the sidebar footer to a danger zone at the
+      bottom of Settings → General — past everything you might have opened the
+      page to change, rather than one click from Chat.
+- [x] On a phone the settings nav collapses to a horizontally scrollable row of
+      pills that scrolls the entry you are on into view, and the header wraps a
+      wide action onto its own line so the Chat / Settings switch — the only
+      way off Chat — is never the thing that overflows.
+
 ## V1 backlog (post-MVP)
 
 Items here are not on the active milestone path but worth picking up. Most

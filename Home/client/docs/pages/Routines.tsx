@@ -46,8 +46,8 @@ export function Routines() {
       </P>
       <P>
         Clicking a routine opens its detail page: <Strong>Overview</Strong>, <Strong>Brief</Strong>,{" "}
-        <Strong>Runs</Strong>, and <Strong>Settings</Strong>. Each AI employee still links to their
-        own slice of that list — same page, filtered to them.
+        <Strong>Runs</Strong>, and <Strong>Settings</Strong>. Each AI employee links to their own
+        slice of that list from <Strong>Settings → Routines</Strong> — same page, filtered to them.
       </P>
 
       <H2 id="anatomy">Anatomy</H2>
@@ -303,8 +303,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <UL>
         <LI>
-          You can only pin a model that <Strong>belongs to that employee</Strong>. Register it on
-          the employee&apos;s Models tab first.
+          You can only pin a model that <Strong>belongs to that employee</Strong>. Register it at
+          the employee&apos;s <Strong>Settings → Model</Strong> first.
         </LI>
         <LI>
           A pin only affects this routine&apos;s <Strong>Runs</Strong>. Dedicated employee Chat has

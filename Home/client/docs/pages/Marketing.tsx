@@ -53,8 +53,8 @@ export function Marketing() {
         </LI>
         <LI>
           Under <Strong>Marketing → AI access</Strong>, grant the Performance Marketer{" "}
-          <Code>operate</Code>. Grant each ad account separately from the employee&apos;s
-          Connections tab; the two grants are deliberately independent.
+          <Code>operate</Code>. Grant each ad account separately from the employee&apos;s{" "}
+          <Strong>Settings → Connections</Strong>; the two grants are deliberately independent.
         </LI>
         <LI>
           Create or publish the platform Campaign through the granted native Connection, a guarded
@@ -308,7 +308,7 @@ export function Marketing() {
         </LI>
         <LI>
           Grant the employee your ads Connections (and Google Analytics for attribution) from the
-          employee&apos;s Connections tab.
+          employee&apos;s <Strong>Settings → Connections</Strong>.
         </LI>
         <LI>
           The template ships three Routines: a <Strong>daily pacing check</Strong> (flags
@@ -351,8 +351,9 @@ export function Marketing() {
       <H2 id="guarded-mcp">Guarded MCP tools</H2>
       <P>
         If you connect an external ads MCP server instead (Meta ships a hosted one), its write tools
-        bypass Genosyn&apos;s spend guardrails — so guard them: on the employee&apos;s MCP server
-        config, list patterns like <Code>ads_create_*, ads_update_*</Code> under{" "}
+        bypass Genosyn&apos;s spend guardrails — so guard them: at the employee&apos;s{" "}
+        <Strong>Settings → MCP</Strong>, open that server&apos;s config and list patterns like{" "}
+        <Code>ads_create_*, ads_update_*</Code> under{" "}
         <Strong>Guarded tools</Strong>. Matching calls queue in the Approvals inbox and run
         server-side only after a human approves.
       </P>

@@ -199,6 +199,14 @@ export function Employees() {
       </P>
 
       <H2 id="surfaces">Surfaces inside the app</H2>
+      <P>
+        An AI Employee is two places: <Strong>Chat</Strong> and <Strong>Settings</Strong>. The
+        switch between them sits at the top right of the employee&apos;s header, next to their name.
+        Everything you configure or inspect about an employee lives under Settings, grouped as{" "}
+        <Strong>Employee</Strong> (General, Soul, Model, Memory), <Strong>Work</Strong> (Skills,
+        Routines, Journal, Handoffs), and <Strong>Access</Strong> (Connections, MCP, Browser,
+        Integrations).
+      </P>
       <UL>
         <LI>
           <Strong>Chat.</Strong> Free-form conversations with the employee. Messages persist; action
@@ -236,26 +244,48 @@ export function Employees() {
           <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
-          <Strong>Workspace.</Strong> File editor scoped to the employee&apos;s directory — read
-          what they wrote, edit it, drop in fixtures.
+          <Strong>Settings → Soul.</Strong> The employee&apos;s constitution. Markdown, ⌘S to save.
         </LI>
         <LI>
-          <Strong>Soul.</Strong> The employee&apos;s constitution, under Settings. Markdown, ⌘S to
-          save.
+          <Strong>Settings → Model.</Strong> The AI Model this employee thinks with — see{" "}
+          <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
-          <Strong>Skills / Routines.</Strong> Not employee tabs anymore — they live in the top-level
-          AI → <DocLink to="/docs/skills">Skills</DocLink> and AI →{" "}
-          <DocLink to="/docs/routines">Routines</DocLink> sections. Each sidebar link opens that
-          list filtered to this employee.
+          <Strong>Settings → Memory.</Strong> Durable facts and preferences injected into every
+          conversation and routine run. Unlike the free-form Soul, each item is one short fact you
+          can add, edit, or delete on its own.
         </LI>
         <LI>
-          <Strong>Connections.</Strong> The list of{" "}
+          <Strong>Settings → Skills / Routines.</Strong> These are company-wide sections, not
+          per-employee ones: they live at AI → <DocLink to="/docs/skills">Skills</DocLink> and AI →{" "}
+          <DocLink to="/docs/routines">Routines</DocLink>. The two entries under Settings open those
+          lists filtered to this employee, and are marked with a corner arrow to say so.
+        </LI>
+        <LI>
+          <Strong>Settings → Journal.</Strong> Append-only diary the employee writes about their own
+          work via the built-in MCP server. Routine runs land here automatically, and the last seven
+          days are injected into every chat and routine run.
+        </LI>
+        <LI>
+          <Strong>Settings → Handoffs.</Strong> Work this employee has delegated to another, and
+          work delegated to them.
+        </LI>
+        <LI>
+          <Strong>Settings → Connections.</Strong> The list of{" "}
           <DocLink to="/docs/integrations">Grants</DocLink> this employee holds.
         </LI>
         <LI>
-          <Strong>Journal.</Strong> Append-only diary the employee writes about their own work via
-          the built-in MCP server.
+          <Strong>Settings → MCP.</Strong> Extra Model Context Protocol servers this employee can
+          use, plus the external endpoint that lets another MCP client reach Genosyn as this
+          employee.
+        </LI>
+        <LI>
+          <Strong>Settings → Browser.</Strong> Whether this employee may drive a browser — see{" "}
+          <DocLink to="/docs/browser">Browser</DocLink>.
+        </LI>
+        <LI>
+          <Strong>Settings → General.</Strong> Name, role, slug, profile picture, org chart — and,
+          at the bottom, deleting the employee.
         </LI>
       </UL>
 

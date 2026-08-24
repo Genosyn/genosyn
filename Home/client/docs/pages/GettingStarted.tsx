@@ -347,7 +347,7 @@ export function GettingStarted() {
         When hiring from <Strong>AI → Employees</Strong> instead, the same Launch plan appears after
         the Soul review and can be skipped the same way. Skipping creates no Routines, Connections,
         or Grants. All of that work can be done later from <Strong>AI → Routines</Strong>, the
-        employee&apos;s <Strong>Connections</Strong> page, and{" "}
+        employee&apos;s <Strong>Settings → Connections</Strong>, and{" "}
         <Strong>Settings → Integrations</Strong>. See{" "}
         <DocLink to="/docs/employees">AI Employees</DocLink> for the full lifecycle.
       </P>

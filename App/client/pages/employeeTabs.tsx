@@ -1,22 +1,28 @@
 import React from "react";
-import { NavLink, Outlet, useNavigate, useOutletContext } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
+  ArrowUpRight,
+  Boxes,
   BrainCircuit,
   Brain,
+  Calendar,
   Camera,
   Check,
   Copy,
   Edit3,
   ExternalLink,
   Globe,
+  Handshake,
   Loader2,
   BookText,
   Plug,
+  PlugZap,
   Plus,
   Sparkles,
   Trash2,
   Unplug,
   UserRound,
+  Wrench,
   X,
 } from "lucide-react";
 import {
@@ -52,10 +58,11 @@ import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 
 /**
- * The individual employee sub-pages. Previously these were tabs on
- * EmployeeDetail.tsx — now each is a route rendered inside EmployeeLayout
- * via <Outlet context>. The logic inside each component is mostly a
- * straight lift of the old tab bodies.
+ * The individual employee sub-pages. These were tabs on EmployeeDetail.tsx,
+ * then routes in the employee sidebar; now every one of them is a route under
+ * `SettingsPage`, reached through the single Settings entry on the employee
+ * header. The logic inside each component is mostly a straight lift of the
+ * old tab bodies.
  */
 
 function useCtx(): EmployeeOutletCtx {
@@ -63,9 +70,9 @@ function useCtx(): EmployeeOutletCtx {
 }
 
 /**
- * SoulCard — the Soul editor. Used inline on the employee Settings page
- * (no longer has its own sidebar entry; Soul sits with the rest of the
- * per-employee settings). Round-trips the Soul body against
+ * SoulCard — the Soul editor, rendered by the Soul page under employee
+ * Settings alongside everything else you configure about them. Round-trips
+ * the Soul body against
  * `AIEmployee.soulBody` via `/api/.../employees/:eid/soul`.
  */
 function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
@@ -145,68 +152,186 @@ const PROVIDER_DEFAULTS: Record<Provider, { label: string; model: string; authMo
 const OPENAI_SUBSCRIPTION_DEFAULT_MODEL = "gpt-5.6-terra";
 
 /**
- * Employee Settings. Soul + Model used to share one scroll-heavy page; now
- * each is its own sub-route with a small side nav. New per-employee setting
- * surfaces (permissions, memory retention, notifications) slot in as extra
- * sidebar entries rather than another stacked card.
+ * Employee Settings — now the only door off the employee page besides Chat.
+ * It used to hold four setting surfaces beside a nine-entry sidebar; the
+ * sidebar is gone and everything that was on it lives here, grouped so the
+ * list stays scannable: who they are, the work they do, what they can reach.
+ *
+ * Each sub-route titles itself with its own `TopBar`, so this frame renders
+ * the nav and nothing else — that is what lets Journal, Handoffs and MCP keep
+ * the primary action they hang off `TopBar.right`.
  */
 export function SettingsPage() {
+  const ctx = useCtx();
+  return (
+    <div className="flex flex-col gap-6 md:flex-row">
+      <SettingsSideNav company={ctx.company} emp={ctx.emp} />
+      <div className="min-w-0 flex-1">
+        <Outlet context={ctx} />
+      </div>
+    </div>
+  );
+}
+
+type SettingsNavEntry = {
+  to: string;
+  icon: React.ReactNode;
+  label: string;
+  /**
+   * Set when the entry leaves the employee for a company-wide section. The
+   * text is the tooltip, because where you land differs per entry — Skills and
+   * Routines filter to this employee, Integrations does not.
+   */
+  away?: string;
+};
+
+/**
+ * Skills and Routines stay company-level sections — "what is scheduled around
+ * here?" is not a per-employee question — so their entries link out to those
+ * lists filtered to this employee, and say so with a corner arrow rather than
+ * pretending to be a settings pane.
+ */
+function settingsNavGroups(company: Company, emp: Employee): { title: string; items: SettingsNavEntry[] }[] {
+  return [
+    {
+      title: "Employee",
+      items: [
+        { to: "general", icon: <UserRound size={14} />, label: "General" },
+        { to: "soul", icon: <Sparkles size={14} />, label: "Soul" },
+        { to: "model", icon: <BrainCircuit size={14} />, label: "Model" },
+        { to: "memory", icon: <Brain size={14} />, label: "Memory" },
+      ],
+    },
+    {
+      title: "Work",
+      items: [
+        {
+          to: `/c/${company.slug}/skills?employee=${emp.slug}`,
+          icon: <Wrench size={14} />,
+          label: "Skills",
+          away: "Opens the company Skills list, filtered to this employee",
+        },
+        {
+          to: `/c/${company.slug}/routines?employee=${emp.slug}`,
+          icon: <Calendar size={14} />,
+          label: "Routines",
+          away: "Opens the company Routines list, filtered to this employee",
+        },
+        { to: "journal", icon: <BookText size={14} />, label: "Journal" },
+        { to: "handoffs", icon: <Handshake size={14} />, label: "Handoffs" },
+      ],
+    },
+    {
+      title: "Access",
+      items: [
+        { to: "connections", icon: <PlugZap size={14} />, label: "Connections" },
+        { to: "mcp", icon: <Plug size={14} />, label: "MCP" },
+        { to: "browser", icon: <Globe size={14} />, label: "Browser" },
+        {
+          to: `/c/${company.slug}/employees/integrations`,
+          icon: <Boxes size={14} />,
+          label: "Integrations",
+          away: "Opens the company-wide Integrations catalog",
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * Grouped rail on desktop; on a phone the groups collapse into one
+ * horizontally scrollable row of pills, because a twelve-entry column and the
+ * content beside it cannot both have a phone's width.
+ */
+function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) {
+  const groups = settingsNavGroups(company, emp);
+  const { pathname } = useLocation();
+  const scroller = React.useRef<HTMLElement | null>(null);
+
+  // Twelve pills do not fit on a phone, so the one you are actually on is
+  // usually off-screen when you arrive. Bring it into view — but only while
+  // the pill row is really laid out: at desktop widths it is `display:none`,
+  // and asking a box-less element to scroll into view still drags the whole
+  // page down past the header.
+  React.useEffect(() => {
+    const row = scroller.current;
+    if (!row || !row.offsetParent) return;
+    const active = row.querySelector('[aria-current="page"]');
+    if (!(active instanceof HTMLElement)) return;
+    row.scrollTo({ left: active.offsetLeft - (row.clientWidth - active.offsetWidth) / 2 });
+  }, [pathname]);
+
   return (
     <>
-      <TopBar title="Settings" />
-      <div className="flex gap-6">
-        <SettingsSideNav />
-        <div className="min-w-0 flex-1">
-          <Outlet context={useCtx()} />
-        </div>
-      </div>
+      <nav
+        ref={scroller}
+        aria-label="Employee settings"
+        className="-mx-8 flex gap-1 overflow-x-auto px-8 pb-1 md:hidden"
+      >
+        {groups.flatMap((g) => g.items).map((item) => (
+          <SettingsNavItem key={item.to} item={item} pill />
+        ))}
+      </nav>
+      <nav aria-label="Employee settings" className="hidden w-48 shrink-0 md:block">
+        {groups.map((group) => (
+          <div key={group.title} className="mb-4 last:mb-0">
+            <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+              {group.title}
+            </div>
+            <ul className="flex flex-col gap-0.5">
+              {group.items.map((item) => (
+                <SettingsNavItem key={item.to} item={item} />
+              ))}
+            </ul>
+          </div>
+        ))}
+      </nav>
     </>
   );
 }
 
-function SettingsSideNav() {
-  return (
-    <nav className="w-44 shrink-0">
-      <ul className="flex flex-col gap-0.5">
-        <SettingsNavItem to="general" icon={<UserRound size={14} />} label="General" />
-        <SettingsNavItem to="soul" icon={<Sparkles size={14} />} label="Soul" />
-        <SettingsNavItem to="model" icon={<BrainCircuit size={14} />} label="Model" />
-        <SettingsNavItem to="browser" icon={<Globe size={14} />} label="Browser" />
-      </ul>
-    </nav>
+function SettingsNavItem({ item, pill }: { item: SettingsNavEntry; pill?: boolean }) {
+  const body = (
+    <>
+      {item.icon}
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {item.away && <ArrowUpRight size={12} className="shrink-0 opacity-50" />}
+    </>
   );
-}
+  const className = ({ isActive }: { isActive: boolean }) =>
+    (pill
+      ? "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs "
+      : "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm ") +
+    (isActive && !item.away
+      ? pill
+        ? "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300"
+        : "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+      : pill
+        ? "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800");
 
-function SettingsNavItem({
-  to,
-  icon,
-  label,
-}: {
-  to: string;
-  icon: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <li>
-      <NavLink
-        to={to}
-        className={({ isActive }) =>
-          "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm " +
-          (isActive
-            ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
-            : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800")
-        }
-      >
-        {icon}
-        {label}
-      </NavLink>
-    </li>
+  const link = (
+    <NavLink
+      to={item.to}
+      end={!item.away}
+      title={item.away}
+      className={className}
+    >
+      {body}
+    </NavLink>
   );
+
+  return pill ? link : <li>{link}</li>;
 }
 
 export function SoulSettingsPage() {
   const { company, emp } = useCtx();
-  return <SoulCard company={company} emp={emp} />;
+  return (
+    <>
+      <TopBar title="Soul" />
+      <SoulCard company={company} emp={emp} />
+    </>
+  );
 }
 
 /**
@@ -218,17 +343,78 @@ export function SoulSettingsPage() {
 export function GeneralSettingsPage() {
   const { company, emp } = useCtx();
   return (
-    <div className="flex flex-col gap-4">
-      <EmployeeAvatarCard company={company} emp={emp} />
-      <EmployeeBasicsCard company={company} emp={emp} />
-      <EmployeeOrgCard company={company} emp={emp} />
-    </div>
+    <>
+      <TopBar title="General" />
+      <div className="flex flex-col gap-4">
+        <EmployeeAvatarCard company={company} emp={emp} />
+        <EmployeeBasicsCard company={company} emp={emp} />
+        <EmployeeOrgCard company={company} emp={emp} />
+        <EmployeeDangerZoneCard company={company} emp={emp} />
+      </div>
+    </>
   );
 }
 
 export function BrowserSettingsPage() {
   const { company, emp } = useCtx();
-  return <EmployeeBrowserAccessCard company={company} emp={emp} />;
+  return (
+    <>
+      <TopBar title="Browser" />
+      <EmployeeBrowserAccessCard company={company} emp={emp} />
+    </>
+  );
+}
+
+/**
+ * Firing an employee used to hang off the bottom of their sidebar. With the
+ * sidebar gone it belongs at the far end of General — past everything you
+ * might have opened this page to change — rather than one click from Chat.
+ */
+function EmployeeDangerZoneCard({ company, emp }: { company: Company; emp: Employee }) {
+  const navigate = useNavigate();
+  const dialog = useDialog();
+  const { toast } = useToast();
+  const [deleting, setDeleting] = React.useState(false);
+
+  async function remove() {
+    const ok = await dialog.confirm({
+      title: `Fire ${emp.name}?`,
+      message:
+        "Their workspace on disk, conversations, routines, and skills will be removed.",
+      confirmLabel: "Delete employee",
+      variant: "danger",
+    });
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await api.del(`/api/companies/${company.id}/employees/${emp.id}`);
+      navigate(`/c/${company.slug}/employees`);
+    } catch (err) {
+      toast((err as Error).message, "error");
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardBody>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              Delete employee
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              Removes {emp.name}, their workspace on disk, conversations, routines, and skills.
+              This cannot be undone.
+            </p>
+          </div>
+          <Button variant="danger" size="sm" disabled={deleting} onClick={remove}>
+            <Trash2 size={12} /> {deleting ? "Deleting…" : "Delete employee"}
+          </Button>
+        </div>
+      </CardBody>
+    </Card>
+  );
 }
 
 function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) {
@@ -394,8 +580,8 @@ function EmployeeAvatarCard({ company, emp }: { company: Company; emp: Employee 
             Profile picture
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            Shown in the sidebar, employee list, and workspace chat. PNG, JPEG, GIF, or WebP up to
-            5&nbsp;MB.
+            Shown on their chat header, the employee list, and workspace chat. PNG, JPEG, GIF, or
+            WebP up to 5&nbsp;MB.
           </div>
         </div>
         <FormError message={error} />
@@ -736,7 +922,12 @@ function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Em
 
 export function ModelSettingsPage() {
   const { company, emp } = useCtx();
-  return <EmployeeModelSection company={company} emp={emp} />;
+  return (
+    <>
+      <TopBar title="Model" />
+      <EmployeeModelSection company={company} emp={emp} />
+    </>
+  );
 }
 
 /**
@@ -2433,7 +2624,7 @@ export function McpPage() {
 }
 
 /**
- * Read-only panel on the MCP tab showing the employee's external MCP endpoint.
+ * Read-only panel on Settings → MCP showing the employee's external MCP endpoint.
  * An outside harness (Claude Desktop, Cursor, a custom agent) points its
  * Streamable-HTTP MCP client at this URL and authenticates with a Genosyn API
  * key to drive this employee's built-in `genosyn` tools from outside the app.

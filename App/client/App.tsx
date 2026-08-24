@@ -403,23 +403,25 @@ function CompanyRoutes({
             <Route path="new" element={<EmployeeNew company={company} />} />
           </Route>
 
-          {/* Selected-employee section — sidebar = employee sub-nav */}
+          {/* Selected-employee section — no sidebar. An employee is two places:
+            the conversation, and Settings, which holds everything else you can
+            configure or inspect about them. */}
           <Route
             path="employees/:empSlug"
             element={<EmployeeLayout company={company} currentUserId={me.id} />}
           >
             <Route index element={<Navigate to="chat" replace />} />
             <Route path="chat" element={<EmployeeChat />} />
-            <Route path="journal" element={<JournalPage />} />
-            <Route path="handoffs" element={<HandoffsPage />} />
-            <Route path="memory" element={<MemoryPage />} />
-            <Route path="connections" element={<EmployeeConnections />} />
-            <Route path="mcp" element={<McpPage />} />
             <Route path="settings" element={<SettingsPage />}>
               <Route index element={<Navigate to="general" replace />} />
               <Route path="general" element={<GeneralSettingsPage />} />
               <Route path="soul" element={<SoulSettingsPage />} />
               <Route path="model" element={<ModelSettingsPage />} />
+              <Route path="memory" element={<MemoryPage />} />
+              <Route path="journal" element={<JournalPage />} />
+              <Route path="handoffs" element={<HandoffsPage />} />
+              <Route path="connections" element={<EmployeeConnections />} />
+              <Route path="mcp" element={<McpPage />} />
               <Route path="browser" element={<BrowserSettingsPage />} />
             </Route>
           </Route>
@@ -720,6 +722,19 @@ function CompanyRoutes({
             element={<EmployeeSkillsRedirect companySlug={company.slug} />}
           />
 
+          {/* Legacy redirects: the employee sub-nav collapsed into Settings.
+            Declared as siblings rather than children so the redirect fires
+            without mounting EmployeeLayout (which fetches the whole roster).
+            The company catch-all below is a silent bounce to Home, so a stale
+            bookmark without one of these fails invisibly. */}
+          {EMPLOYEE_SETTINGS_MOVED.map((tab) => (
+            <Route
+              key={tab}
+              path={`employees/:empSlug/${tab}`}
+              element={<EmployeeSettingsRedirect companySlug={company.slug} tab={tab} />}
+            />
+          ))}
+
           {/* Legacy redirects: Profile moved to Account; Backup moved to Admin. */}
           <Route
             path="settings/profile"
@@ -778,6 +793,38 @@ function EmployeeRoutinesRedirect({ companySlug }: { companySlug: string }) {
   if (empSlug && !params.has("routine")) params.set("employee", empSlug);
   const qs = params.toString();
   return <Navigate to={`/c/${companySlug}/routines${qs ? `?${qs}` : ""}`} replace />;
+}
+
+/**
+ * The pages that used to sit beside Chat in the employee sidebar and now live
+ * under Settings. Kept as a list because both the routes and their redirects
+ * are generated from it.
+ */
+const EMPLOYEE_SETTINGS_MOVED = [
+  "journal",
+  "handoffs",
+  "memory",
+  "connections",
+  "mcp",
+] as const;
+
+/**
+ * The employee sidebar collapsed into Chat + Settings, so the five surfaces
+ * that used to have their own top-level entry now answer at
+ * `/employees/:empSlug/settings/<tab>`. Any query string rides along.
+ */
+function EmployeeSettingsRedirect({
+  companySlug,
+  tab,
+}: {
+  companySlug: string;
+  tab: string;
+}) {
+  const { empSlug } = useParams();
+  const { search } = useLocation();
+  return (
+    <Navigate to={`/c/${companySlug}/employees/${empSlug}/settings/${tab}${search}`} replace />
+  );
 }
 
 /**

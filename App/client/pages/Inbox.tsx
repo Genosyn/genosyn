@@ -206,7 +206,7 @@ export default function Inbox({ company }: { company: Company }) {
                   />
                   <div className="min-w-0 flex-1">
                     <Link
-                      to={`/c/${company.slug}/employees/${g.employee.slug}/journal`}
+                      to={`/c/${company.slug}/employees/${g.employee.slug}/settings/journal`}
                       className="truncate font-medium text-slate-900 hover:underline dark:text-slate-100"
                     >
                       {g.employee.name}

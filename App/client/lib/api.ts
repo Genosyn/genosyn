@@ -781,7 +781,7 @@ export type JournalEntry = {
 /**
  * A durable "memory item" — a short fact or preference that is injected
  * into every chat turn and routine run for this employee. Editable by
- * humans (via the Memory tab) and by the AI itself (via MCP).
+ * humans (at Settings → Memory) and by the AI itself (via MCP).
  */
 export type MemoryItem = {
   id: string;

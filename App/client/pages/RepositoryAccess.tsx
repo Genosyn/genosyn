@@ -268,7 +268,7 @@ export default function RepositoryAccess() {
                       </Link>
                       {!grant.employee.pullRequestReady && grant.accessLevel === "write" && (
                         <Link
-                          to={`/c/${company.slug}/employees/${grant.employee.slug}/connections`}
+                          to={`/c/${company.slug}/employees/${grant.employee.slug}/settings/connections`}
                           className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                           aria-label={`Manage ${grant.employee.name}'s Connections`}
                           title="Grant a GitHub Connection"

@@ -30,8 +30,10 @@ import {
   AIModel,
   ChatAttachment,
   ChatContextUsage,
+  Company,
   ConversationMessage,
   ConversationSummary,
+  Employee,
   MessageAction,
 } from "../lib/api";
 import { describeContextUsage } from "../lib/chatContextUsage";
@@ -45,6 +47,7 @@ import {
 import { type ComposerModelOverride, resolveComposerModelId } from "../lib/composerModel";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { ChatMarkdown } from "../components/ChatMarkdown";
+import { EmployeeHeader } from "../components/EmployeeHeader";
 import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { BrowserLivePanel } from "../components/BrowserLivePanel";
@@ -549,8 +552,8 @@ export default function EmployeeChat() {
 
       <section className="flex min-w-0 flex-1 flex-col">
         <ChatHeader
-          empName={emp.name}
-          empRole={emp.role}
+          company={company}
+          emp={emp}
           convTitle={activeConv?.title ?? null}
           onNew={handleNewClick}
           browserTarget={
@@ -911,44 +914,45 @@ function ConversationRow({
 
 // ───────────────────────────── ChatHeader ─────────────────────────────
 
+/**
+ * The chat's slice of the shared employee header: identity, the Chat /
+ * Settings switch, and the way back to the roster all come from
+ * `EmployeeHeader`, so the bar is in the same place on both sides. Chat only
+ * adds what is genuinely per-thread — the conversation title and the browser
+ * this thread drives.
+ */
 function ChatHeader({
-  empName,
-  empRole,
+  company,
+  emp,
   convTitle,
   onNew,
   browserTarget,
 }: {
-  empName: string;
-  empRole: string;
+  company: Company;
+  emp: Employee;
   convTitle: string | null;
   onNew: () => void;
   browserTarget?: React.ReactNode;
 }) {
   return (
-    <header className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-6">
-      <Avatar name={empName} size={36} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {empName}
-          </div>
-          <div className="hidden truncate text-xs text-slate-500 dark:text-slate-400 sm:block">
-            {empRole}
-          </div>
-        </div>
-        <div className="truncate text-[11px] text-slate-400 dark:text-slate-500">
-          {convTitle ?? "New conversation"}
-        </div>
-      </div>
-      {browserTarget}
-      <button
-        onClick={onNew}
-        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 md:hidden dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-        aria-label="New conversation"
-      >
-        <MessageSquarePlus size={13} /> New
-      </button>
-    </header>
+    <EmployeeHeader
+      company={company}
+      emp={emp}
+      active="chat"
+      subtitle={convTitle ?? "New conversation"}
+      actions={
+        <>
+          {browserTarget}
+          <button
+            onClick={onNew}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 md:hidden dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            aria-label="New conversation"
+          >
+            <MessageSquarePlus size={13} /> New
+          </button>
+        </>
+      }
+    />
   );
 }
 
@@ -2017,7 +2021,7 @@ function hrefForAction(a: MessageAction, companySlug: string, employeeSlug: stri
     return `/c/${companySlug}/routines?employee=${employeeSlug}`;
   }
   if (a.action === "journal.create" || a.action.startsWith("journal.")) {
-    return `/c/${companySlug}/employees/${employeeSlug}/journal`;
+    return `/c/${companySlug}/employees/${employeeSlug}/settings/journal`;
   }
   if (a.action.startsWith("project.") || a.action.startsWith("todo.")) {
     return `/c/${companySlug}/tasks`;

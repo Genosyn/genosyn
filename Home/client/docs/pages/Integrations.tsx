@@ -170,7 +170,8 @@ export function Integrations() {
         </LI>
         <LI>
           AI Employees, Skills, Routines, and Pipelines show the full catalog because they can use
-          any granted Connection.
+          any granted Connection. On a single employee that catalog is one entry down in{" "}
+          <Strong>Settings → Integrations</Strong>.
         </LI>
       </UL>
       <P>
@@ -232,7 +233,7 @@ export function Integrations() {
 
       <H3 id="external-mcp-url">Get the endpoint URL</H3>
       <P>
-        Open the employee&apos;s <Code>MCP servers</Code> tab. The{" "}
+        Open the employee, then <Strong>Settings → MCP</Strong>. The{" "}
         <Strong>Connect an external harness</Strong> panel at the top shows a copyable URL:
       </P>
       <Pre lang="text">{`https://<your-genosyn-host>/api/companies/<company-id>/employees/<employee-id>/mcp/connect`}</Pre>
@@ -332,8 +333,8 @@ export function Integrations() {
       <H2 id="grants-and-revocation">Grants & revocation</H2>
       <UL>
         <LI>
-          <Strong>Add a grant</Strong> on the employee&apos;s Connections page. The MCP tool list
-          updates on the next run.
+          <Strong>Add a grant</Strong> at the employee&apos;s{" "}
+          <Strong>Settings → Connections</Strong>. The MCP tool list updates on the next run.
         </LI>
         <LI>
           <Strong>Revoke a grant</Strong> the same place. The next routine won&apos;t see the tools.

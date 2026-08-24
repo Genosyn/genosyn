@@ -70,8 +70,8 @@ import { resolveReconnectTarget } from "../lib/integrationReconnect";
  *   - "Available" — the static catalog. Click to add a connection
  *     (API-key → modal; OAuth → popup).
  *
- * AI employees gain access to a connection via a Grant, managed on the
- * per-employee Connections tab.
+ * AI employees gain access to a connection via a Grant, managed at the
+ * employee's Settings → Connections.
  */
 
 const ICONS: Record<string, LucideIcon> = {

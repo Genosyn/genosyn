@@ -111,7 +111,7 @@ export function DraftAuthorLine({
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
           {author.kind === "employee" && author.routine ? (
             <Link
-              to={`/c/${companySlug}/employees/${author.employee.slug}/routines/${author.routine.slug}`}
+              to={`/c/${companySlug}/routines/${author.employee.slug}/${author.routine.slug}`}
               className="inline-flex items-center gap-1 text-indigo-600 hover:underline dark:text-indigo-400"
             >
               <CalendarClock size={11} /> {author.routine.name}

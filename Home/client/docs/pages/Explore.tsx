@@ -189,7 +189,8 @@ export function Explore() {
         Open the <Code>Share</Code> menu on any Chart or Dashboard to change a teammate&apos;s
         level, revoke a grant, or invite an employee who didn&apos;t default to access. Manage a
         database Connection Grant from <Code>Build with AI</Code>, the Connection&apos;s{" "}
-        <Code>Manage access</Code> view, or the employee&apos;s <Code>Connections</Code> tab.
+        <Code>Manage access</Code> view, or the employee&apos;s{" "}
+        <Strong>Settings → Connections</Strong>.
       </P>
 
       <H3 id="mcp-tools">MCP tools</H3>

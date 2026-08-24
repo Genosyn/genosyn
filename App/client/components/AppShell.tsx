@@ -42,10 +42,10 @@ import { useTheme, Theme } from "./Theme";
  *
  * Sections live in the ⌘K command palette, opened from the top nav's section
  * pill or from anywhere by keyboard (see `CommandPalette`). The
- * sidebar is context-specific: the roster on the Employees section, an
- * employee's sub-nav (Chat / Skills / Journal / Settings / …) once one is
- * selected, the roster-as-filter on Routines, or Settings sub-pages on the
- * Settings section. Each page renders `<ContextualLayout sidebar={...}>{main}</>`
+ * sidebar is context-specific: the roster on the Employees section, the
+ * roster-as-filter on Routines, or Settings sub-pages on the Settings section.
+ * A selected employee has no rail at all — that page is Chat plus Settings and
+ * nothing else. Each page renders `<ContextualLayout sidebar={...}>{main}</>`
  * so the sidebar can change route-by-route without remounting the shell.
  */
 
@@ -452,9 +452,16 @@ function ThemeToggle() {
  */
 export function ContextualLayout({
   sidebar,
+  integrations = true,
   children,
 }: {
   sidebar?: React.ReactNode;
+  /**
+   * Product sections get an "Integrations" rail entry for free. A page that
+   * deliberately renders no sidebar at all (the AI Employee page) opts out, so
+   * the freebie doesn't resurrect a one-item rail beside it.
+   */
+  integrations?: boolean;
   children: React.ReactNode;
 }) {
   const location = useLocation();
@@ -462,7 +469,7 @@ export function ContextualLayout({
   const sectionKey = activeSection(location.pathname);
   const integrationScope = productIntegrationScope(sectionKey);
   const integrationLink =
-    companySlug && integrationScope ? (
+    integrations && companySlug && integrationScope ? (
       <SidebarLink
         to={`/c/${companySlug}/${sectionKey as ProductIntegrationKey}/integrations`}
         icon={<Plug size={14} />}

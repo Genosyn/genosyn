@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { api, ConnectionGrant, IntegrationCatalogEntry, IntegrationConnection } from "../lib/api";
+import { TopBar } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
@@ -30,11 +31,11 @@ import type { EmployeeOutletCtx } from "./EmployeeLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
- * Per-employee Connections tab. Shows the integration Connections the
- * employee has been granted — i.e. the third-party data sources they can
- * reach via MCP tools on their next spawn. Adding a grant picks from the
- * company's existing Connections; creating new Connections is the
- * AI Employees product Integrations page.
+ * The employee's Connections page, at Settings → Connections. Shows the
+ * integration Connections the employee has been granted — i.e. the
+ * third-party data sources they can reach via MCP tools on their next spawn.
+ * Adding a grant picks from the company's existing Connections; creating new
+ * Connections is the AI Employees product Integrations page.
  */
 
 const ICONS: Record<string, LucideIcon> = {
@@ -134,19 +135,20 @@ export function EmployeeConnections() {
   );
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold">Connections</h2>
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Third-party accounts {emp.name} can reach through MCP tools on their next spawn.
-            </p>
-          </div>
-          <Button size="sm" onClick={() => setPicker(true)} disabled={pool.length === 0}>
-            <Plug size={12} /> Grant access
+    <>
+      <TopBar
+        title="Connections"
+        right={
+          <Button onClick={() => setPicker(true)} disabled={pool.length === 0}>
+            <Plug size={14} /> Grant access
           </Button>
-        </div>
+        }
+      />
+      <Card>
+      <CardHeader>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Third-party accounts {emp.name} can reach through MCP tools on their next spawn.
+        </p>
       </CardHeader>
       <CardBody>
         {grants === null ? (
@@ -205,6 +207,7 @@ export function EmployeeConnections() {
           </ul>
         )}
       </CardBody>
+      </Card>
 
       <GrantPickerModal
         open={picker}
@@ -225,7 +228,7 @@ export function EmployeeConnections() {
         options={grantable}
         catalog={catalog}
       />
-    </Card>
+    </>
   );
 }
 
