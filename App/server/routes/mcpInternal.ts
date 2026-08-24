@@ -74,6 +74,7 @@ import { XmlParseError } from "../services/docxXml.js";
 import { readDocx } from "../services/docxRead.js";
 import { DocxEditError, editDocx, type DocxOperation } from "../services/docxEdit.js";
 import { createDocx, MAX_MARKDOWN_CHARS } from "../services/docxCreate.js";
+import { DocxRenderError, docxToPdf } from "../services/docxToPdf.js";
 import { Meeting } from "../db/entities/Meeting.js";
 import { grantedCalendarIds, hasCalendarAccess } from "../services/meetings/grants.js";
 import { startNotetaker } from "../services/meetings/recorder.js";
@@ -209,6 +210,7 @@ import { Note } from "../db/entities/Note.js";
 import { Notebook } from "../db/entities/Notebook.js";
 import { EmployeeNoteGrant } from "../db/entities/EmployeeNoteGrant.js";
 import { Resource } from "../db/entities/Resource.js";
+import type { ResourceSourceKind } from "../db/entities/Resource.js";
 import {
   EmployeeSigningGrant,
   SIGNING_ACCESS_RANK,
@@ -222,13 +224,16 @@ import {
   RESOURCE_BODY_TEXT_CAP,
   deleteGrantsForResource,
   deleteResourceBytes,
+  extractResourceText,
   fetchUrlAsText,
   hasResourceAccess,
+  inferSourceKindFromFilename,
   listAccessibleResourceIds,
   summarize,
   trimBodyText,
   uniqueResourceSlug,
   upsertResourceGrant,
+  writeResourceBytes,
 } from "../services/resources.js";
 import {
   SigningConflictError,
@@ -12597,10 +12602,12 @@ mcpInternalRouter.post(
 
 const createResourceSchema = z
   .object({
-    sourceKind: z.enum(["text", "url"]),
+    sourceKind: z.enum(["text", "url", "file"]),
     title: z.string().min(1).max(200).optional(),
     url: z.string().url().max(2000).optional(),
     body: z.string().max(RESOURCE_BODY_TEXT_CAP).optional(),
+    attachmentId: z.string().uuid().optional(),
+    filename: z.string().min(1).max(200).optional(),
     summary: z.string().max(2000).optional(),
     tags: z.string().max(500).optional(),
   })
@@ -12617,11 +12624,55 @@ mcpInternalRouter.post(
     let title = body.title?.trim() ?? "";
     let bodyText = "";
     let sourceUrl: string | null = null;
+    let sourceFilename: string | null = null;
+    let storageKey: string | null = null;
+    let sourceKind: ResourceSourceKind = body.sourceKind === "file" ? "text" : body.sourceKind;
     let status: "ready" | "failed" = "ready";
     let errorMessage = "";
     let bytes = 0;
 
-    if (body.sourceKind === "url") {
+    if (body.sourceKind === "file") {
+      if (!body.attachmentId) {
+        return res
+          .status(400)
+          .json({ error: "`attachmentId` is required when sourceKind is 'file'" });
+      }
+      if (!(await delegatedMemberCanUseAttachment(req, body.attachmentId))) {
+        return res.status(404).json({ error: "Attachment not found" });
+      }
+      const resolved = await resolveAttachmentFile(body.attachmentId, co.id);
+      if (!resolved) return res.status(404).json({ error: "Attachment not found" });
+
+      sourceFilename = (body.filename ?? resolved.row.filename).slice(0, 200);
+      sourceKind = inferSourceKindFromFilename(sourceFilename);
+      if (sourceKind === "video") {
+        return res.status(400).json({
+          error:
+            "Video Resources need a transcript, which is a human upload for now. File the transcript with sourceKind 'text' instead.",
+        });
+      }
+      const fileBytes = await fs.promises.readFile(resolved.absPath);
+      let written: { storageKey: string; absPath: string };
+      try {
+        written = await writeResourceBytes(co.slug, sourceFilename, fileBytes);
+      } catch (err) {
+        return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+      storageKey = written.storageKey;
+      bytes = fileBytes.length;
+      const extracted = await extractResourceText(written.absPath, sourceFilename, sourceKind);
+      bodyText = extracted.bodyText;
+      status = extracted.status;
+      errorMessage = extracted.errorMessage;
+      title =
+        title ||
+        sourceFilename
+          .replace(/\.[^.]+$/, "")
+          .replace(/[-_]+/g, " ")
+          .trim()
+          .slice(0, 200) ||
+        "Untitled";
+    } else if (body.sourceKind === "url") {
       if (!body.url) {
         return res.status(400).json({ error: "`url` is required when sourceKind is 'url'" });
       }
@@ -12654,10 +12705,10 @@ mcpInternalRouter.post(
       companyId: co.id,
       title,
       slug,
-      sourceKind: body.sourceKind,
+      sourceKind,
       sourceUrl,
-      sourceFilename: null,
-      storageKey: null,
+      sourceFilename,
+      storageKey,
       summary,
       bodyText,
       tags: (body.tags ?? "").trim(),
@@ -12667,7 +12718,15 @@ mcpInternalRouter.post(
       createdById: null,
       createdByEmployeeId: self.id,
     });
-    await repo.save(row);
+    try {
+      await repo.save(row);
+    } catch (error) {
+      // The bytes went to disk before the row existed, so a failed save would
+      // otherwise leave a file nothing points at — the same cleanup
+      // `recordAttachmentBytes` does for the attachment store.
+      if (storageKey) await deleteResourceBytes(storageKey, co.slug);
+      throw error;
+    }
     if (body.tags) {
       await replaceResourceTagNames(co.id, "resource", row.id, body.tags);
       row.tags = body.tags.trim();
@@ -12694,15 +12753,38 @@ mcpInternalRouter.post(
       targetType: "resource",
       targetId: row.id,
       targetLabel: row.title,
-      metadata: { via: "mcp", sourceKind: row.sourceKind, status: row.status },
+      metadata: {
+        via: "mcp",
+        sourceKind: row.sourceKind,
+        status: row.status,
+        ...(body.sourceKind === "file"
+          ? { fromAttachmentId: body.attachmentId, sourceFilename }
+          : {}),
+      },
     });
     await journal(
       self.id,
       `${self.name} created resource "${row.title}"`,
-      `Slug: \`${row.slug}\`. Created via the built-in MCP tool.`,
+      body.sourceKind === "file"
+        ? `Slug: \`${row.slug}\`. Filed from the file "${sourceFilename}" ` +
+            `(${row.sourceKind}, ${bytes} bytes) via the built-in MCP tool.`
+        : `Slug: \`${row.slug}\`. Created via the built-in MCP tool.`,
     );
 
-    res.json({ resource: serializeResource(row, { includeBody: true }) });
+    // A file whose text would not come out is still a file worth keeping —
+    // a scanned contract is the ordinary case — but the employee must not
+    // report it as indexed. Signing reads the bytes, not the body, so the row
+    // is still usable for exactly the errand that most often brings us here.
+    const note =
+      row.status === "failed" && row.storageKey
+        ? "The file is stored and can be used for signing, but no text could be extracted from it " +
+          `(${row.errorMessage}). Nobody will find it by searching Resources — say so, and describe ` +
+          "it in the summary if you know what it contains."
+        : undefined;
+    res.json({
+      resource: serializeResource(row, { includeBody: true }),
+      ...(note ? { note } : {}),
+    });
   },
 );
 
@@ -14541,6 +14623,121 @@ mcpInternalRouter.post(
         mimeType: row.mimeType,
         sizeBytes: Number(row.sizeBytes),
       },
+    });
+  },
+);
+
+const convertToPdfSchema = z
+  .object({
+    attachmentId: z.string().uuid(),
+    outputFilename: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+
+/** Give the converted file the source's name with a `.pdf` on the end. */
+function convertedPdfName(original: string, override?: string): string {
+  if (override) return /\.pdf$/i.test(override) ? override : `${override}.pdf`;
+  return `${original.replace(/\.(docx|docm|dotx|dotm)$/i, "")}.pdf`;
+}
+
+/**
+ * Convert a Word document to PDF and stage the result as a chat attachment.
+ *
+ * This is the step that used to require a human. Everything downstream of a
+ * contract wants a PDF — signing takes a PDF Resource and nothing else, and
+ * the overlay tools work on pages — so an NDA that arrived as a `.docx` sent
+ * the employee back to a teammate to open Word and re-save it. Now the whole
+ * errand runs in one turn: read the mail attachment, convert it, file it as a
+ * Resource, prepare the signing request for a Member to review.
+ *
+ * Warnings ride along with the result rather than being logged and forgotten.
+ * Someone is about to sign what comes out of here, so "the running footer is
+ * not repeated" is something the employee must be able to say out loud.
+ */
+mcpInternalRouter.post(
+  "/tools/convert_to_pdf",
+  validateBody(convertToPdfSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof convertToPdfSchema>;
+    if (!(await delegatedMemberCanUseAttachment(req, body.attachmentId))) {
+      return res.status(404).json({ error: "Attachment not found" });
+    }
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const token = req.mcpToken!;
+    const loaded = await loadAttachmentDocxBytes(body.attachmentId, co.id);
+    if ("error" in loaded) {
+      return res.status(loaded.status).json({ error: loaded.error });
+    }
+    if (/\.pdf$/i.test(loaded.row.filename) || loaded.row.mimeType === "application/pdf") {
+      return res.status(400).json({
+        error: `"${loaded.row.filename}" is already a PDF — use it as it is.`,
+      });
+    }
+
+    const outputName = convertedPdfName(loaded.row.filename, body.outputFilename);
+    let converted;
+    try {
+      converted = await docxToPdf(loaded.bytes, {
+        title: outputName.replace(/\.pdf$/i, ""),
+      });
+    } catch (err) {
+      if (err instanceof DocxRenderError) {
+        return res.status(err.status).json({ error: err.message });
+      }
+      const failure = docxToolFailure(err);
+      if (!failure) throw err;
+      return res.status(failure.status).json({ error: failure.error });
+    }
+
+    const oversized = docxTooLarge(converted.bytes);
+    if (oversized) return res.status(oversized.status).json({ error: oversized.error });
+
+    const row = await recordAttachmentBytes({
+      companyId: co.id,
+      companySlug: co.slug,
+      filename: outputName,
+      mimeType: "application/pdf",
+      bytes: converted.bytes,
+      uploadedByUserId: null,
+    });
+    stageAttachmentForToken(token, row.id);
+    await recordAudit({
+      companyId: co.id,
+      actorEmployeeId: self.id,
+      action: "docx.convert_to_pdf",
+      targetType: "attachment",
+      targetId: row.id,
+      targetLabel: outputName,
+      metadata: {
+        via: "mcp",
+        sourceAttachmentId: body.attachmentId,
+        sourceFilename: loaded.row.filename,
+        sizeBytes: converted.bytes.length,
+        warnings: converted.warnings.length,
+      },
+    });
+    await journal(
+      self.id,
+      `${self.name} converted "${loaded.row.filename}" to PDF`,
+      `Produced "${outputName}" — ${converted.paragraphCount} paragraph(s), ` +
+        `${converted.tableCount} table(s), ${converted.imageCount} image(s).` +
+        (converted.warnings.length > 0 ? ` Warnings: ${converted.warnings.join(" ")}` : ""),
+    );
+    return res.json({
+      attachment: {
+        id: row.id,
+        filename: row.filename,
+        mimeType: row.mimeType,
+        sizeBytes: Number(row.sizeBytes),
+      },
+      paragraphCount: converted.paragraphCount,
+      tableCount: converted.tableCount,
+      imageCount: converted.imageCount,
+      warnings: converted.warnings,
+      note:
+        "This is a rendition, not a re-save from Word: pagination can differ and anything listed " +
+        "in `warnings` did not carry over. Read it before anyone signs it.",
     });
   },
 );

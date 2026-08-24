@@ -1,8 +1,6 @@
 import path from "node:path";
 import { Router } from "express";
 import { z } from "zod";
-import { looksLikeWordDocument } from "../services/docxPackage.js";
-import { docxBufferToText } from "../services/docxRead.js";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Resource } from "../db/entities/Resource.js";
@@ -23,14 +21,12 @@ import {
   RESOURCE_MAX_BYTES,
   deleteGrantsForResource,
   deleteResourceBytes,
-  epubFileToText,
   fetchUrlAsText,
   grantResourceToAllEmployees,
-  htmlToText,
+  extractResourceText,
   inferSourceKindFromFilename,
   resourceUploadMiddleware,
   listDirectResourceGrants,
-  pdfBufferToText,
   resolveResourceFile,
   summarize,
   trimBodyText,
@@ -42,7 +38,6 @@ import {
   exportResource,
   isExportFormat,
 } from "../services/resourceExport.js";
-import fs from "node:fs";
 import { Tag } from "../db/entities/Tag.js";
 import {
   deleteTagAssignments,
@@ -317,43 +312,11 @@ resourcesRouter.post(
       (req.body as Record<string, string>)?.title ?? titleHint ?? "Untitled"
     ).slice(0, 200);
 
-    let bodyText = "";
-    let status: "ready" | "failed" = "ready";
-    let errorMessage = "";
-
-    try {
-      if (sourceKind === "pdf") {
-        const buf = await fs.promises.readFile(file.path);
-        const text = await pdfBufferToText(buf);
-        bodyText = trimBodyText(text);
-      } else if (sourceKind === "epub") {
-        const text = await epubFileToText(file.path);
-        bodyText = trimBodyText(text);
-      } else if (sourceKind === "video") {
-        // Accept the upload but flag it — ASR is deliberately out of v1.
-        status = "failed";
-        errorMessage =
-          "Video transcripts aren't supported yet. Upload a transcript as text or paste the URL of one.";
-      } else if (looksLikeWordDocument("", file.originalname)) {
-        // A Word document infers as `text`, and decoding a zip as UTF-8 filled
-        // `bodyText` with mojibake that search then happily matched against.
-        const buf = await fs.promises.readFile(file.path);
-        bodyText = trimBodyText(await docxBufferToText(buf));
-      } else {
-        // text / .txt / .md / .html — read as utf8.
-        const buf = await fs.promises.readFile(file.path);
-        const ext = path.extname(file.originalname).toLowerCase();
-        const raw = buf.toString("utf8");
-        if (ext === ".html" || ext === ".htm") {
-          bodyText = trimBodyText(htmlToText(raw).text);
-        } else {
-          bodyText = trimBodyText(raw);
-        }
-      }
-    } catch (err) {
-      status = "failed";
-      errorMessage = err instanceof Error ? err.message : String(err);
-    }
+    const { bodyText, status, errorMessage } = await extractResourceText(
+      file.path,
+      file.originalname,
+      sourceKind,
+    );
 
     const summary = (req.body as Record<string, string>)?.summary;
     const tags = (req.body as Record<string, string>)?.tags ?? "";

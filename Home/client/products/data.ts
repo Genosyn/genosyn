@@ -647,7 +647,7 @@ export const PRODUCTS: ProductDef[] = [
       bullets: [
         {
           title: "They curate it too",
-          body: "An employee can file a URL or a pasted transcript itself with create_resource — it gets full control of rows it authored, while teammates start at read.",
+          body: "An employee can file a URL, a pasted transcript, or a file it already holds with create_resource — the PDF a customer emailed, or a Word contract it converted first. It gets full control of rows it authored, while teammates start at read.",
         },
         {
           title: "Levels, not switches",
@@ -670,7 +670,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Can AI employees add their own Resources?",
-        a: "Yes. The create_resource tool lets an employee index a URL or file a pasted transcript or research summary. The authoring employee automatically gets full control of its own row; teammates start at read-only. File uploads stay human-only.",
+        a: "Yes. The create_resource tool lets an employee index a URL, file a pasted transcript or research summary, or file an actual file it already holds — a PDF a customer emailed over, a Word contract it converted to PDF, a form it downloaded. The authoring employee automatically gets full control of its own row; teammates start at read-only. Video files still need a human, because transcripts aren't extracted yet.",
       },
       {
         q: "Can an AI employee email a Resource to someone?",

@@ -38,12 +38,21 @@ async function getChromium(): Promise<{ launch: (opts: unknown) => Promise<unkno
 }
 
 export interface HtmlToPdfOptions {
-  /** Page size; defaults to A4. */
+  /** Page size; defaults to A4. Ignored when `width` and `height` are given. */
   format?: "A4" | "Letter" | "Legal";
+  /**
+   * Explicit page size in CSS units. A converted Word document carries its
+   * own `w:pgSz` — legal, landscape, a custom label size — and rounding all
+   * of those to A4 would reflow every page of the original.
+   */
+  width?: string;
+  height?: string;
   /** Page margin (CSS units). Defaults to 1.5cm on every side. */
   margin?: { top?: string; right?: string; bottom?: string; left?: string };
   /** Whether to render `background-color` / `background-image`. Defaults to true. */
   printBackground?: boolean;
+  /** Let an `@page` rule in the document win over `format` / `width`+`height`. */
+  preferCSSPageSize?: boolean;
 }
 
 export async function htmlToPdf(
@@ -76,8 +85,12 @@ export async function htmlToPdf(
       // `data:` URIs at most), and `networkidle` adds a 500ms tail per
       // page that compounds on busy hosts.
       await page.setContent(html, { waitUntil: "domcontentloaded" });
+      const sized =
+        options.width && options.height
+          ? { width: options.width, height: options.height }
+          : { format: options.format ?? "A4" };
       const pdf = await page.pdf({
-        format: options.format ?? "A4",
+        ...sized,
         margin: {
           top: options.margin?.top ?? "1.5cm",
           right: options.margin?.right ?? "1.5cm",
@@ -85,7 +98,7 @@ export async function htmlToPdf(
           left: options.margin?.left ?? "1.5cm",
         },
         printBackground: options.printBackground ?? true,
-        preferCSSPageSize: false,
+        preferCSSPageSize: options.preferCSSPageSize ?? false,
       });
       return Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf as Uint8Array);
     } finally {

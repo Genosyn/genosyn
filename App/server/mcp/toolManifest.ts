@@ -49,7 +49,7 @@ const MAIL_ATTACHMENTS_PROPERTY = {
   type: "array",
   maxItems: 10,
   description:
-    "Optional files to attach. Give each item exactly one of `attachmentId` (a chat attachment — a file you produced this turn with fill_pdf_form / edit_docx / create_docx / send_chat_attachment, opened out of an email with read_mail_attachment, or that the teammate uploaded into this chat), `resourceSlug` (a Resource, from list_resources), or `invoiceSlug` (an invoice rendered as a PDF, from the finance tool's list_invoices — needs finance access). The server reads the bytes; do not paste base64. Total attachment size is capped around 3 MB.",
+    "Optional files to attach. Give each item exactly one of `attachmentId` (a chat attachment — a file you produced this turn with fill_pdf_form / edit_docx / create_docx / convert_to_pdf / send_chat_attachment, opened out of an email with read_mail_attachment, or that the teammate uploaded into this chat), `resourceSlug` (a Resource, from list_resources), or `invoiceSlug` (an invoice rendered as a PDF, from the finance tool's list_invoices — needs finance access). The server reads the bytes; do not paste base64. Total attachment size is capped around 3 MB.",
   items: {
     type: "object",
     properties: {
@@ -2069,18 +2069,20 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_resource",
     description:
-      "Add a new Resource that the team can study. Use this to capture an external URL the team should index, or to paste in a long-form note that's better filed as a Resource than a Note (e.g. a transcript, a primer, a research summary). Pass `sourceKind: 'url'` with `url` to fetch + extract a page; pass `sourceKind: 'text'` with `title` and `body` (markdown) to file a paste. The author gets `delete` access automatically (full control); teammates start at `read`. URL fetches that fail still create the row with `status: 'failed'` so a human can fix it. PDF/EPUB uploads are humans-only — use the React UI for those.",
+      "Add a new Resource that the team can study. Three sources. `sourceKind: 'url'` with `url` fetches and extracts a page. `sourceKind: 'text'` with `title` and `body` (markdown) files a paste — a transcript, a primer, a research summary. `sourceKind: 'file'` with `attachmentId` files an actual file: a PDF, EPUB, Word document, or text file that a teammate uploaded, that arrived on an email (open it with `read_mail_attachment`), that you downloaded with `download_web_file`, or that you produced this turn with `convert_to_pdf` / `create_docx`. Filing a PDF this way is what a signing request needs — `draft_signature_envelope` takes a PDF Resource and nothing else, so the whole errand is `read_mail_attachment` → `convert_to_pdf` → `create_resource` → `draft_signature_envelope`, and no human has to re-upload anything. The author gets `delete` access automatically (full control); teammates start at `read`. URL fetches that fail still create the row with `status: 'failed'` so a human can fix it. Video files still need a human — file the transcript as text instead.",
     inputSchema: {
       type: "object",
       properties: {
         sourceKind: {
           type: "string",
-          enum: ["text", "url"],
-          description: "'text' for a paste, 'url' to fetch and extract.",
+          enum: ["text", "url", "file"],
+          description:
+            "'text' for a paste, 'url' to fetch and extract, 'file' to file the bytes of a chat attachment.",
         },
         title: {
           type: "string",
-          description: "Required for `text`; optional for `url` (defaults to the page title).",
+          description:
+            "Required for `text`; optional for `url` (defaults to the page title) and `file` (defaults to the filename).",
         },
         url: {
           type: "string",
@@ -2089,6 +2091,16 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         body: {
           type: "string",
           description: "Markdown content. Required when sourceKind is 'text'.",
+        },
+        attachmentId: {
+          type: "string",
+          description:
+            "Id of the chat attachment to file. Required when sourceKind is 'file'. The kind of Resource follows the filename's extension — `.pdf` becomes a PDF Resource that signing can use.",
+        },
+        filename: {
+          type: "string",
+          description:
+            "Optional filename to store it under, when the attachment's own name is unhelpful. Keep the extension — it decides what kind of Resource this becomes.",
         },
         summary: {
           type: "string",
@@ -2249,7 +2261,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "draft_signature_envelope",
     description:
-      "Prepare a draft signature envelope from an existing PDF Resource you can read. Add recipients and normalized field placements (0–1 page coordinates) for a Member to review. This copies the immutable source PDF into signing storage; it does not email anyone. Needs both `draft` signing access and read access to the Resource. You may prepare fields, but only the named external recipient may consent to or complete a signature.",
+      "Prepare a draft signature envelope from an existing PDF Resource you can read. Add recipients and normalized field placements (0–1 page coordinates) for a Member to review. This copies the immutable source PDF into signing storage; it does not email anyone. Needs both `draft` signing access and read access to the Resource. If the document you were given is not a PDF Resource yet — a Word contract on an email, say — convert it with `convert_to_pdf` and file it with `create_resource` (`sourceKind: 'file'`) first. You may prepare fields, but only the named external recipient may consent to or complete a signature.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2858,6 +2870,28 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
       },
       required: ["attachmentId", "operations"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "convert_to_pdf",
+    description:
+      "Convert a Word document (.docx / .docm / .dotx / .dotm) to PDF and hand the result back as a chat attachment. Use it whenever what you have is a Word file and what the next step needs is a PDF: `draft_signature_envelope` takes a PDF Resource and nothing else, `read_pdf_layout` / `overlay_pdf_text` work on pages, and most counterparties expect a contract as a PDF. The usual chain out of an inbox is `read_mail_attachment` → `convert_to_pdf` → `create_resource` with `sourceKind: 'file'` → `draft_signature_envelope`. The result is a faithful rendition, not a re-save from Word: headings, numbered clauses, tables, images, fonts and page size carry across, but pagination can differ and anything that could not be carried comes back in `warnings` — running headers and footers, tracked changes, footnotes. Read the warnings before anyone signs the output. To change the document before converting it, run `edit_docx` first; the returned `attachmentId` also goes straight onto `create_mail_draft` / `send_mail` or to a teammate with `send_chat_attachment`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        attachmentId: {
+          type: "string",
+          description:
+            "Id of the source Word document — a chat upload, an email attachment opened with read_mail_attachment, a file from download_web_file, or one you produced with create_docx / edit_docx.",
+        },
+        outputFilename: {
+          type: "string",
+          description:
+            "Filename for the PDF; defaults to the source's name with a `.pdf` extension.",
+        },
+      },
+      required: ["attachmentId"],
       additionalProperties: false,
     },
   },

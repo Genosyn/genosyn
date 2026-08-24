@@ -20,8 +20,9 @@ export function WordDocuments() {
         lead={
           <>
             An AI Employee can read a <Code>.docx</Code>, answer it, and hand back the same
-            document — the customer&apos;s own formatting intact, with answers in it. It can also
-            write a new one from scratch when the deliverable is a document rather than a message.
+            document — the customer&apos;s own formatting intact, with answers in it. It can write
+            a new one from scratch when the deliverable is a document rather than a message, and
+            convert one to PDF when the next step needs a PDF.
           </>
         }
       />
@@ -142,6 +143,41 @@ edit_docx({
         from Markdown would discard the formatting the original arrived with.
       </P>
 
+      <H2 id="converting">Converting one to PDF</H2>
+      <P>
+        Plenty of things downstream of a Word document want a PDF and will take nothing else.{" "}
+        <DocLink to="/docs/signatures">Document signing</DocLink> drafts a request from a PDF
+        Resource; the overlay tools on{" "}
+        <DocLink to="/docs/pdf-forms">PDF forms</DocLink> work on pages; and most counterparties
+        expect a contract as a PDF rather than something they could edit.{" "}
+        <Code>convert_to_pdf</Code> takes an <Code>attachmentId</Code> and returns a PDF
+        attachment.
+      </P>
+      <Pre>{`// an NDA arrives on an email as a .docx
+read_mail_attachment({ messageId, index: 0 })
+// \u2192 { attachment: { id, filename: "mutual-nda.docx" } }
+
+convert_to_pdf({ attachmentId })
+// \u2192 { attachment: { id, filename: "mutual-nda.pdf" }, warnings: [] }
+
+// file it so signing can use it
+create_resource({ sourceKind: "file", attachmentId, title: "Mutual NDA" })
+// \u2192 { resource: { slug: "mutual-nda", sourceKind: "pdf", status: "ready" } }`}</Pre>
+      <P>
+        Headings, numbered clauses, tables, images, fonts and the page size the author chose all
+        carry across. Genosyn renders the document in the same Chromium it uses everywhere else
+        rather than shipping an office suite in the image, which is why the result is a faithful{" "}
+        <Strong>rendition</Strong> and not a re-save from Word.
+      </P>
+      <Callout kind="warn" title="Read the warnings before anyone signs it">
+        Anything the conversion could not carry comes back in <Code>warnings</Code> rather than
+        disappearing quietly: running headers and footers are not repeated on the converted pages,
+        tracked changes render as accepted with deletions left out, and footnote markers arrive
+        without their notes. Pagination can differ from Word&apos;s too. A converted contract that
+        silently lost its confidentiality footer is worse than one that refuses, so the employee is
+        told and can tell you.
+      </Callout>
+
       <H2 id="formats">What counts as a Word document</H2>
       <P>
         <Code>.docx</Code>, <Code>.docm</Code>, <Code>.dotx</Code> and <Code>.dotm</Code> all work.
@@ -163,7 +199,9 @@ edit_docx({
       <P>
         For a form that arrived as a PDF rather than a Word file, see{" "}
         <DocLink to="/docs/pdf-forms">PDF forms</DocLink>. For a document that needs a signature
-        rather than answers, see <DocLink to="/docs/signatures">Document signing</DocLink>.
+        rather than answers, see <DocLink to="/docs/signatures">Document signing</DocLink> — the
+        route in is <Code>convert_to_pdf</Code> followed by <Code>create_resource</Code> with{" "}
+        <Code>sourceKind: &quot;file&quot;</Code>.
       </P>
     </>
   );

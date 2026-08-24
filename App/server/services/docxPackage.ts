@@ -234,6 +234,36 @@ export class DocxPackage {
     return value;
   }
 
+  /**
+   * Read a part as raw bytes, under the same ceilings `text` enforces.
+   *
+   * Rendering needs this and reading does not: an embedded logo or signature
+   * block is a `word/media/*` entry, and a PDF that dropped it would be a
+   * different document from the one the sender attached. Bytes are not cached
+   * — an image is read once, inlined, and never wanted again, so holding it
+   * would only raise the memory ceiling for no reuse.
+   */
+  async binary(part: string): Promise<Buffer | null> {
+    const entry = this.zip.file(part);
+    if (!entry) return null;
+    const declared = this.declaredSize(part);
+    if (declared !== null) {
+      if (declared > MAX_PART_BYTES) this.refuseOversized(part, declared);
+      if (this.decompressedBytes + declared > MAX_TOTAL_PART_BYTES) {
+        throw new DocxError(
+          "This document expands to more data than the tools will hold in memory.",
+        );
+      }
+    }
+    const buffer = await entry.async("nodebuffer");
+    if (buffer.length > MAX_PART_BYTES) this.refuseOversized(part, buffer.length);
+    this.decompressedBytes += buffer.length;
+    if (this.decompressedBytes > MAX_TOTAL_PART_BYTES) {
+      throw new DocxError("This document expands to more data than the tools will hold in memory.");
+    }
+    return buffer;
+  }
+
   /** Read a part that must exist, e.g. the body. */
   async requireText(part: string): Promise<string> {
     const value = await this.text(part);

@@ -17,6 +17,8 @@ import { Company } from "../db/entities/Company.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { safeFetchBuffer } from "../lib/outboundUrl.js";
 import { companyDir, ensureDir } from "./paths.js";
+import { docxBufferToText } from "./docxRead.js";
+import { looksLikeWordDocument } from "./docxPackage.js";
 
 /**
  * Resources — knowledge ingestion. The store is a flat per-company
@@ -274,6 +276,94 @@ export async function deleteResourceBytes(storageKey: string, companySlug: strin
   } catch {
     /* noop */
   }
+}
+
+/**
+ * Text out of an uploaded file, whichever kind it turned out to be.
+ *
+ * Both ingestion paths — a human dropping a file on the Resources page and an
+ * AI Employee filing one it converted or pulled off an email — land here, so
+ * a `.docx` cannot mean one thing on one route and something else on the
+ * other. A failure is data, not an exception: the row is still created with
+ * `status: 'failed'` and the reason on it, because a Resource whose text could
+ * not be extracted is still a file someone can open.
+ */
+export async function extractResourceText(
+  absPath: string,
+  filename: string,
+  sourceKind: ResourceSourceKind,
+): Promise<{ bodyText: string; status: "ready" | "failed"; errorMessage: string }> {
+  if (sourceKind === "video") {
+    // Accept the upload but flag it — ASR is deliberately out of v1.
+    return {
+      bodyText: "",
+      status: "failed",
+      errorMessage:
+        "Video transcripts aren't supported yet. Upload a transcript as text or paste the URL of one.",
+    };
+  }
+  try {
+    if (sourceKind === "pdf") {
+      const buf = await fs.promises.readFile(absPath);
+      return {
+        bodyText: trimBodyText(await pdfBufferToText(buf)),
+        status: "ready",
+        errorMessage: "",
+      };
+    }
+    if (sourceKind === "epub") {
+      return {
+        bodyText: trimBodyText(await epubFileToText(absPath)),
+        status: "ready",
+        errorMessage: "",
+      };
+    }
+    if (looksLikeWordDocument("", filename)) {
+      // A Word document infers as `text`, and decoding a zip as UTF-8 filled
+      // `bodyText` with mojibake that search then happily matched against.
+      const buf = await fs.promises.readFile(absPath);
+      return {
+        bodyText: trimBodyText(await docxBufferToText(buf)),
+        status: "ready",
+        errorMessage: "",
+      };
+    }
+    // text / .txt / .md / .html — read as utf8.
+    const raw = (await fs.promises.readFile(absPath)).toString("utf8");
+    const ext = path.extname(filename).toLowerCase();
+    const bodyText =
+      ext === ".html" || ext === ".htm" ? trimBodyText(htmlToText(raw).text) : trimBodyText(raw);
+    return { bodyText, status: "ready", errorMessage: "" };
+  } catch (err) {
+    return {
+      bodyText: "",
+      status: "failed",
+      errorMessage: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * Write bytes already in hand into the company's resource store.
+ *
+ * The sibling of the multer path, for a caller that holds a buffer rather
+ * than a request: an AI Employee filing the PDF it just converted, or the
+ * bytes of an attachment a customer emailed in. Returns the storage key the
+ * `Resource` row carries and the absolute path extraction reads back.
+ */
+export async function writeResourceBytes(
+  companySlug: string,
+  filename: string,
+  bytes: Buffer,
+): Promise<{ storageKey: string; absPath: string }> {
+  if (bytes.length === 0) throw new Error("Cannot file an empty file as a Resource");
+  if (bytes.length > RESOURCE_MAX_BYTES) {
+    throw new Error(`File exceeds the ${RESOURCE_MAX_BYTES / (1024 * 1024)} MB cap`);
+  }
+  const storageKey = `${crypto.randomUUID()}${safeExt(filename)}`;
+  const absPath = path.join(resourcesRoot(companySlug), storageKey);
+  await fs.promises.writeFile(absPath, bytes);
+  return { storageKey, absPath };
 }
 
 export function inferSourceKindFromFilename(filename: string): ResourceSourceKind {

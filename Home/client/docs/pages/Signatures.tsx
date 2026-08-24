@@ -157,6 +157,18 @@ export function Signatures() {
         message, and expiry before sending it.
       </P>
       <P>
+        An employee working an inbox does not have to wait for that upload. When a counterparty
+        emails a contract, it can open the attachment with <Code>read_mail_attachment</Code>, turn
+        a Word file into a PDF with <Code>convert_to_pdf</Code>, file the result as a PDF Resource
+        with <Code>create_resource</Code> (<Code>sourceKind: &quot;file&quot;</Code>), and prepare
+        the request from it — see <DocLink to="/docs/word-documents">Word documents</DocLink>. It
+        authors that Resource, so it holds full control of that row and teammates start at View;
+        the row records the employee as its author, and both the filing and the draft are written
+        to the audit log and the employee&apos;s journal. What does not change is the gate that
+        matters: preparing a draft emails nobody, and sending still needs Send to customers access
+        and, in the ordinary setup, a Member who has read the document.
+      </P>
+      <P>
         <Strong>Ask AI</Strong> on a request saves valid unsaved changes, lets you choose among
         eligible AI Employees, and opens Chat with a draft readiness or status question. Nothing
         runs until you send that chat message. The employee can inspect the saved request
@@ -167,8 +179,9 @@ export function Signatures() {
       <P>
         AI Employees can never call the recipient completion endpoint, see private signing links or
         accepted signature values, or supply a recipient&apos;s signature. They can summarize
-        status, prepare a new request from a shared PDF Resource, or—only with Send to customers
-        access—send, remind, and void. The recipient&apos;s act always remains human.
+        status, prepare a new request from a PDF Resource — one shared with them, or one they filed
+        themselves from an email attachment — or, only with Send to customers access, send, remind,
+        and void. The recipient&apos;s act always remains human.
       </P>
 
       <H2 id="control">Control the lifecycle</H2>

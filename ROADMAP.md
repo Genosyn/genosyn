@@ -1293,9 +1293,9 @@ not write**, ingested once, queried on demand via the MCP surface.
       browser viewer and the EPUB reader can fetch the bytes); pass
       `?disposition=attachment` to force a download.
 - [x] MCP tools — read (any grant): `list_resources`,
-      `search_resources`, `get_resource`. `create_resource` (text or URL
-      — file uploads stay humans-only) is open to everyone and grants the
-      author `delete` on the row. `update_resource` requires `edit` or
+      `search_resources`, `get_resource`. `create_resource` (text, URL, or —
+      since M47 — a file the employee already holds; video still needs a human)
+      is open to everyone and grants the author `delete` on the row. `update_resource` requires `edit` or
       higher; `delete_resource` requires `delete`. Teammates start at
       `read` on rows they didn't author and humans promote them from the
       share modal.
@@ -2046,8 +2046,9 @@ Employee workflow in one company-scoped system.
       language, confirm before granting autonomous customer-contact access, make
       the AI handoff save first and let the Member choose an employee, and state
       its real boundary: AI can inspect saved configuration and evidence or
-      prepare a new request from a shared PDF Resource, but cannot read the
-      source PDF through signing tools, edit an existing draft, or sign. Keep
+      prepare a new request from a PDF Resource — shared with it, or since M47
+      filed by it from an email attachment — but cannot read the source PDF
+      through signing tools, edit an existing draft, or sign. Keep
       multi-signer field ownership obvious with recipient-specific colors and
       names, support direct pointer, touch and keyboard field resizing, and send
       clear company-branded invitation, reminder and completion emails.
@@ -2716,6 +2717,54 @@ once and rarely revisit; only Chat is what you came for. So the rail is gone.
       pills that scrolls the entry you are on into view, and the header wraps a
       wide action onto its own line so the Chat / Settings switch — the only
       way off Chat — is never the thing that overflows.
+
+### M47 — A document errand an employee can finish ✅
+
+An AI Employee could read a Word contract, quote it, and edit it, and still had
+to stop before doing anything with it. Signing takes a PDF Resource and nothing
+else, the PDF overlay tools work on pages, and filing a file as a Resource was a
+human's job — so "prepare this NDA for signature" came back as a request that a
+Member open Word, save as PDF, and upload the result. That is the whole errand
+minus the part the employee was hired for, and it is the report this milestone
+was built from.
+
+- [x] **`convert_to_pdf`.** A new `files` tool renders a `.docx` / `.docm` /
+      `.dotx` / `.dotm` to PDF and returns it as a chat attachment. Headings,
+      numbered clauses and their markers, tables, run formatting, embedded
+      images, the document's fonts and its own page size and margins all carry
+      across. `services/docxToPdf.ts` maps WordprocessingML onto HTML and prints
+      it through the Chromium the image already ships — deliberately not a
+      headless LibreOffice, which would cost roughly half a gigabyte of image
+      for one feature.
+- [x] **It says what it could not carry.** The result is a faithful rendition,
+      not a re-save from Word, and the difference is reported rather than
+      hidden: running headers and footers are not repeated, tracked changes
+      render as accepted with deletions left out, footnote markers arrive
+      without their notes, and pagination can differ. Each comes back in
+      `warnings`, because a converted contract that silently lost its
+      confidentiality footer is worse than one that refuses.
+- [x] **`create_resource` accepts a file.** `sourceKind: 'file'` with an
+      `attachmentId` files the bytes an employee already holds — a PDF a
+      customer emailed, a Word document it converted, a form it downloaded —
+      as a real Resource with its bytes on disk, its text extracted, and the
+      employee recorded as its author. This retires the "file uploads stay
+      humans-only" rule from M19 for everything except video, which still needs
+      a transcript. Both ingestion paths now share one extractor, so a `.docx`
+      cannot mean one thing on the human route and something else on the AI one.
+- [x] **The gates that matter did not move.** Filing a Resource is a write, not
+      an authority: the employee authors the row (full control of its own,
+      teammates at read), tenancy is checked against the attachment's company,
+      and the filing and the draft each write an `AuditEvent` and a
+      `JournalEntry`. Preparing a signature request still emails nobody, sending
+      still needs `send` on an `EmployeeSigningGrant`, and only the named
+      recipient can consent or sign. A PDF whose text will not extract — the
+      scanned-contract case — is still filed and still usable for signing, and
+      the tool says out loud that nobody will find it by searching.
+- [x] **Docs and tests.** Word documents and Document signing both document the
+      route in; the Resources copy no longer claims file uploads are a human's
+      job. The rendition is asserted on the HTML rather than the printed page,
+      and the whole errand — Word attachment to signing draft with no human
+      touching a file — is covered end to end.
 
 ## V1 backlog (post-MVP)
 

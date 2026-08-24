@@ -352,6 +352,7 @@ const ATTACHMENT_TOOLS = [
   "read_docx",
   "edit_docx",
   "create_docx",
+  "convert_to_pdf",
 ] as const;
 /**
  * Workspace chat has its own per-channel participant model. Each handler must

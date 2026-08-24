@@ -401,7 +401,8 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   },
   files: {
     label: "files",
-    blurb: "Send a file, work on PDF forms, and read, edit or write Word documents.",
+    blurb:
+      "Send a file, work on PDF forms, read, edit or write Word documents, and convert one to PDF.",
     tools: [
       "send_chat_attachment",
       "read_pdf_fields",
@@ -411,6 +412,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "read_docx",
       "edit_docx",
       "create_docx",
+      "convert_to_pdf",
     ],
   },
   web: {
@@ -1027,7 +1029,16 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   search_resources: ["knowledge", "library", "reference", "look up", "rag"],
   get_resource: ["knowledge", "library", "reference", "read"],
   export_resource: ["knowledge", "download", "export"],
-  create_resource: ["knowledge", "library", "ingest", "upload"],
+  create_resource: [
+    "knowledge",
+    "library",
+    "ingest",
+    "upload",
+    "file a document",
+    "add to resources",
+    "save the attachment",
+    "pdf resource",
+  ],
   update_resource: ["knowledge", "library"],
   delete_resource: ["knowledge", "library"],
 
@@ -1163,6 +1174,16 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
     "answer the questions",
     "find and replace",
     "redline",
+  ],
+  convert_to_pdf: [
+    "convert to pdf",
+    "word to pdf",
+    "docx to pdf",
+    "save as pdf",
+    "export as pdf",
+    "turn into a pdf",
+    "make it a pdf",
+    "pdf version",
   ],
   create_docx: [
     "docx",

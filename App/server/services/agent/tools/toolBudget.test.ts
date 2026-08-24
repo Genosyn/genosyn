@@ -115,8 +115,19 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * ("webhook receiver", "automation", "zapier") matches none of them lexically,
  * which is exactly the case the footer backstops. 4,840 still leaves more than
  * 3,100 characters for the six returned schemas inside the 8,000-char cap.
+ *
+ * Raised to 4,860 for `convert_to_pdf`, which extends the existing `files`
+ * domain and costs fifteen characters. It buys back the last step of the
+ * errand the Word tools were built for. An employee that reads a `.docx` NDA
+ * off an email and cannot turn it into a PDF stops at exactly the sentence
+ * M41 was meant to delete — "I can't do this, it's a Word document" — because
+ * signing takes a PDF Resource and nothing else. The name has to be in the
+ * footer in full: the model asks for this by the outcome ("save as PDF",
+ * "send them a PDF copy"), which matches no other tool in the catalogue
+ * lexically, and a miss here is indistinguishable to the employee from the
+ * product being unable to do it.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 4_840;
+const DOMAIN_FOOTER_CHARS_MAX = 4_860;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(
