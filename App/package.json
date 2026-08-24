@@ -13,7 +13,7 @@
     "start": "node dist/server/index.js",
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.clienttest.json --noEmit",
-    "test": "tsx --test \"server/**/*.test.ts\" \"client/**/*.test.ts\"",
+    "test": "tsx --test --import ./server/test/httpSetup.ts \"server/**/*.test.ts\" \"client/**/*.test.ts\"",
     "typeorm": "tsx ./node_modules/typeorm/cli.js",
     "migration:generate": "npm run typeorm -- migration:generate -d ormconfig.ts",
     "migration:create": "npm run typeorm -- migration:create",
