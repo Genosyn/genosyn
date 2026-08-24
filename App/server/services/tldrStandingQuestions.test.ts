@@ -78,6 +78,10 @@ async function fixture(): Promise<Fixture> {
     errorMessage: "",
     finishedAt: NOW,
     standingAnsweredAt: null,
+    // Pin the row's own clock to the fixture's: the sweep windows on
+    // `createdAt`, so a database-stamped value would leave these tests passing
+    // only while real time sat near NOW.
+    createdAt: NOW,
   });
   return { company, employee, owner, tldr };
 }
