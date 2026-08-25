@@ -19,6 +19,12 @@ export type MailAccount = {
   syncFinishedAt: string | null;
   backfilledAt: string | null;
   backfilledCount: number;
+  /** AI triage of newly-arrived mail. On unless a Member turned it off. */
+  aiAnalysisEnabled: boolean;
+  /** Null = "whichever granted employee is best placed", resolved per email. */
+  aiAnalysisEmployeeId: string | null;
+  /** Null inherits the employee's active model. */
+  aiAnalysisModelId: string | null;
   createdAt: string;
 };
 
@@ -302,6 +308,105 @@ export type MailAssistantRosterEntry = {
   models: MailAssistantModel[];
 };
 
+
+// ───────────────────────── AI analysis of inbound mail ─────────────────────────
+
+/**
+ * Categories are a closed set so the chip beside an email means the same thing
+ * every morning. Anything the server sends that this list does not know still
+ * renders — as a neutral chip — rather than crashing the thread.
+ */
+export const MAIL_ANALYSIS_CATEGORIES = [
+  "invoice_request",
+  "quote_request",
+  "payment",
+  "customer_support",
+  "sales_lead",
+  "scheduling",
+  "vendor",
+  "recruiting",
+  "marketing",
+  "notification",
+  "internal",
+  "personal",
+  "spam",
+  "other",
+] as const;
+
+export type MailAnalysisCategory = (typeof MAIL_ANALYSIS_CATEGORIES)[number];
+
+export type MailAnalysisLine = {
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+};
+
+/**
+ * One button an AI Employee attached to an email. `label` is the employee's
+ * words; every `target*` field is what the server checked at analysis time,
+ * and is what the UI shows underneath so the Member approves the verified
+ * thing rather than the claim about it.
+ */
+export type MailAnalysisAction = {
+  id: string;
+  kind:
+    | "draft_reply"
+    | "create_invoice"
+    | "create_estimate"
+    | "unsubscribe"
+    | "thread_action"
+    | "hand_over";
+  label: string;
+  bodyText?: string;
+  subject?: string;
+  customerName?: string;
+  currency?: string;
+  notes?: string;
+  lines?: MailAnalysisLine[];
+  action?: "markRead" | "star" | "archive" | "applyLabel";
+  labelName?: string;
+  employeeId?: string;
+  mode?: MailHandoverMode;
+  instruction?: string;
+  targetTo?: string;
+  targetHost?: string;
+  targetEmployeeName?: string;
+  targetTotalCents?: number;
+  executedAt?: string;
+};
+
+export type MailAnalysis = {
+  id: string;
+  threadId: string;
+  messageId: string;
+  status: "running" | "succeeded" | "failed";
+  employeeId: string | null;
+  modelId: string | null;
+  category: string;
+  summary: string;
+  actions: MailAnalysisAction[];
+  errorMessage: string;
+  createdAt: string;
+  finishedAt: string | null;
+};
+
+/** Who would read the next email to arrive, once every fallback has applied. */
+export type MailAnalysisReader = {
+  employeeId: string;
+  employeeName: string;
+  modelId: string;
+  modelLabel: string;
+  accessLevel: MailAccessLevel;
+};
+
+export type MailAnalysisSettings = {
+  enabled: boolean;
+  employeeId: string | null;
+  modelId: string | null;
+  roster: MailAssistantRosterEntry[];
+  resolved: MailAnalysisReader | null;
+};
+
 // ───────────────────────────── drafts review queue ─────────────────────────────
 
 /** Who wrote a draft inside Genosyn, resolved to names by the server. */
@@ -463,6 +568,7 @@ export const mailApi = {
       account: { id: string; address: string };
       messages: MailMessage[];
       handovers: MailHandover[];
+      analyses: MailAnalysis[];
     }>(`${base(cid)}/threads/${tid}`),
 
   threadAction: (
@@ -592,6 +698,29 @@ export const mailApi = {
   ) => api.post<{ handover: MailHandover }>(`${base(cid)}/threads/${tid}/handovers`, input),
   retryHandover: (cid: string, hid: string) =>
     api.post<{ ok: true }>(`${base(cid)}/handovers/${hid}/retry`, {}),
+
+
+  // ── AI analysis of inbound mail ──
+  analysisSettings: (cid: string, aid: string) =>
+    api.get<MailAnalysisSettings>(`${base(cid)}/accounts/${aid}/ai-analysis`),
+  patchAnalysisSettings: (
+    cid: string,
+    aid: string,
+    input: { enabled?: boolean; employeeId?: string | null; modelId?: string | null },
+  ) =>
+    api.patch<{ account: MailAccount; resolved: MailAnalysisReader | null }>(
+      `${base(cid)}/accounts/${aid}/ai-analysis`,
+      input,
+    ),
+  /** Read one message again — after a model outage, or a wrong first verdict. */
+  analyzeMessage: (cid: string, mid: string) =>
+    api.post<{ analysis: MailAnalysis }>(`${base(cid)}/messages/${mid}/analyze`, {}),
+  /** Press one of the buttons. Runs with the Member's own authority. */
+  runAnalysisAction: (cid: string, analysisId: string, actionId: string) =>
+    api.post<{ analysis: MailAnalysis; navigateTo: string | null; message: string }>(
+      `${base(cid)}/analyses/${analysisId}/actions/${encodeURIComponent(actionId)}`,
+      {},
+    ),
 
   grants: (cid: string, aid: string) =>
     api.get<{ direct: MailGrant[] }>(`${base(cid)}/accounts/${aid}/grants`),

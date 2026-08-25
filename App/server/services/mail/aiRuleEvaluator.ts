@@ -13,6 +13,7 @@ import { runRestrictedEmployeeAgent } from "../agent/runEmployee.js";
 import type { AgentTool } from "../agent/types.js";
 import { getActiveModel } from "../models.js";
 import { isModelConnected } from "../providers.js";
+import { attachmentNames, jsonBoundedString } from "./promptBounds.js";
 
 /** The model only sees this much of a newly-arrived message. */
 export const AI_RULE_BODY_CHARS = 24_000;
@@ -252,37 +253,4 @@ export function aiRuleUserPrompt(condition: MailRuleAiCondition, message: MailMe
     throw new Error("The bounded AI rule prompt exceeded its safety limit.");
   }
   return prompt;
-}
-
-function attachmentNames(json: string): string[] {
-  try {
-    const parsed = JSON.parse(json) as Array<{ filename?: unknown }>;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((item) =>
-        typeof item?.filename === "string"
-          ? jsonBoundedString(item.filename.slice(0, 200), 202)
-          : "",
-      )
-      .filter(Boolean)
-      .slice(0, 20);
-  } catch {
-    return [];
-  }
-}
-
-/** Bound the encoded JSON value, not just its source characters. */
-function jsonBoundedString(value: string, maxEncodedChars: number): string {
-  if (JSON.stringify(value).length <= maxEncodedChars) return value;
-  let low = 0;
-  let high = value.length;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (JSON.stringify(`${value.slice(0, middle)}…`).length <= maxEncodedChars) {
-      low = middle;
-    } else {
-      high = middle - 1;
-    }
-  }
-  return `${value.slice(0, low)}…`;
 }

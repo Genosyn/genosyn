@@ -716,6 +716,25 @@ sends system mail); this is the company's real inbox. Internal namespace is
       mid-thread" rule employee chat follows. A pick that doesn't belong to the
       employee now on the conversation falls back to their active model rather
       than failing the turn.
+- [x] **Every inbound email arrives triaged.** A `MailInboundAnalysis` row per
+      new message, written by the inbound automation queue before rules and
+      Pipelines run: a category from a closed vocabulary, one scannable
+      summary line, and up to four **action buttons** the email actually
+      earned — draft the reply (already written), raise the draft invoice or
+      estimate from line items read out of the mail, unsubscribe, triage the
+      thread, or hand it over. On by default per mailbox
+      (`MailAccount.aiAnalysisEnabled`), with an optional employee and pinned
+      model; unconfigured mailboxes borrow the granted employee with the
+      highest access, so a mailbox works the day it is connected.
+      The turn runs on `runRestrictedEmployeeAgent` with exactly one
+      submission tool, the same containment the AI rule condition uses. The
+      model never names a target — the thread and message come from the
+      server — and it cannot choose its own affordances: whether Unsubscribe
+      may even be offered is decided by the same RFC 8058 checks the click
+      will run. Buttons execute through the ordinary human routes with the
+      pressing Member's authority, show the server-verified fact beneath the
+      model-authored label, and are stamped executed so a reload can't re-arm
+      them.
 
 ### M38 — Web tools (search, read, download) ✅
 

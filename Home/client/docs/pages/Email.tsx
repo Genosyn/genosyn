@@ -227,6 +227,81 @@ export function Email() {
         one reveals an × to remove it.
       </P>
 
+      <H2 id="analysis">Every email arrives already triaged</H2>
+      <P>
+        You do not have to ask. As each email lands, an AI employee reads it once and puts a short
+        summary and a row of <Strong>action buttons</Strong> at the top of the thread — the next
+        steps that <em>this</em> email actually deserves. A customer asking to be billed gets{" "}
+        <Strong>Create the invoice</Strong>. Someone asking what it would cost gets{" "}
+        <Strong>Draft an estimate</Strong>. A newsletter you never signed up for gets{" "}
+        <Strong>Unsubscribe</Strong>. Anything that needs an answer gets{" "}
+        <Strong>Draft a reply</Strong>, with the reply already written.
+      </P>
+      <P>
+        The buttons vary because the reasoning does. There is no fixed list per sender and no rule
+        to write: the employee reads the email, decides what a person would do next, and offers up
+        to four things. Often the honest answer is none, and then you just get the one-line summary
+        and a category chip.
+      </P>
+      <P>What a button does when you press it:</P>
+      <UL>
+        <LI>
+          <Strong>Draft a reply</Strong> — saves a Gmail draft on the thread and puts it in the{" "}
+          <DocLink to="/docs/email#drafts">Drafts review queue</DocLink>. Nothing sends until you
+          send it.
+        </LI>
+        <LI>
+          <Strong>Create the invoice</Strong> / <Strong>Draft an estimate</Strong> — pulls the line
+          items out of the email, matches the sender to a customer (or creates one), and opens the{" "}
+          <DocLink to="/docs/finance">draft</DocLink> for you to check. Drafts carry no number and
+          post nothing to the ledger until you issue them.
+        </LI>
+        <LI>
+          <Strong>Unsubscribe</Strong> — sends the sender&apos;s own one-click unsubscribe request.
+          It is only ever offered when the email carries a verified, signed one-click header, so it
+          cannot become a link the email talked us into visiting.
+        </LI>
+        <LI>
+          <Strong>Archive</Strong>, <Strong>Star</Strong>, <Strong>Label</Strong> — ordinary triage
+          on the thread.
+        </LI>
+        <LI>
+          <Strong>Hand to an employee</Strong> — starts a{" "}
+          <DocLink to="/docs/email#hand-to-ai">handover</DocLink> with the instruction already
+          written.
+        </LI>
+      </UL>
+      <Callout kind="tip" title="Nothing runs by itself.">
+        Analysis only ever <em>proposes</em>. Buttons act with your access, not the
+        employee&apos;s — which is why an employee on <Strong>Draft</Strong> can offer to write a
+        reply you then send. What you see under each label is the fact the server checked, not the
+        employee&apos;s claim about it: the total an invoice adds up to, the host an unsubscribe
+        would talk to, the address a reply would go to. Buttons that consume something are marked
+        done once they run, so a reload cannot fire them twice.
+      </Callout>
+      <P>
+        Email is untrusted text, and it is treated that way. The employee reading it gets one
+        submission tool and nothing else — no repositories, no secrets, no browser, no company
+        tools — so an email that tries to give instructions is evidence about its sender, not a
+        command. It also cannot choose its own affordances: whether <Strong>Unsubscribe</Strong>
+        may be offered at all is decided by Genosyn before the employee ever sees the email.
+      </P>
+      <H3 id="analysis-settings">Choosing who reads, and turning it off</H3>
+      <P>
+        <Strong>Email → Settings → AI analysis</Strong> is on for every mailbox. Leave the employee
+        picker on <Strong>Choose automatically</Strong> and Genosyn uses whichever employee you have
+        granted the most access to — so a mailbox works the day you connect it. Pick one explicitly
+        when you want a particular voice on your replies, and pin one of their{" "}
+        <DocLink to="/docs/models">models</DocLink> when you want a particular brain. The card
+        always tells you who would read the next email to arrive, so an on switch never means
+        nothing is happening. Turn it off and new mail simply arrives plain.
+      </P>
+      <Callout kind="info" title="Read access categorises; Draft access can reply.">
+        An employee on <Strong>Read</Strong> can summarise and triage but will not offer to write a
+        reply. Raise them to <Strong>Draft</Strong> under{" "}
+        <DocLink to="/docs/email#access">AI access</DocLink> for that.
+      </Callout>
+
       <H2 id="assistant">AI chat on every email</H2>
       <P>
         Open any email and its <Strong>Ask AI</Strong> chat is already docked beside it. Type what

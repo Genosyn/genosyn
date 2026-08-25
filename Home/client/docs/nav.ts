@@ -201,7 +201,7 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/email",
         title: "Email",
         blurb:
-          "Connect Gmail, review AI-written drafts, and act on new mail with static filters or AI-judged rules.",
+          "Connect Gmail, get every new email triaged with one-click action buttons, review AI-written drafts, and automate the inbox with rules.",
       },
       {
         path: "/docs/meetings",

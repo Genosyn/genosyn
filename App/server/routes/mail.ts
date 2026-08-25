@@ -4,6 +4,7 @@ import { z } from "zod";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { MailChatMessage } from "../db/entities/MailChatMessage.js";
 import {
@@ -20,6 +21,7 @@ import { MailRule } from "../db/entities/MailRule.js";
 import { MailSavedSearch } from "../db/entities/MailSavedSearch.js";
 import { MailThread } from "../db/entities/MailThread.js";
 import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
+import { effectiveFinanceAccess } from "../middleware/financeAccess.js";
 import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { decryptConnectionConfig } from "../services/integrations.js";
@@ -51,6 +53,15 @@ import {
   createDraftSendBatch,
   getLatestDraftSendBatch,
 } from "../services/mail/draftSendQueue.js";
+import {
+  MailAnalysisAlreadyActed,
+  analysesForThread,
+  analyzeInboundMessage,
+  resolveAnalysisReader,
+  serializeAnalysis,
+} from "../services/mail/analysis.js";
+import { executeAnalysisAction } from "../services/mail/analysisActions.js";
+import { MailInboundAnalysis } from "../db/entities/MailInboundAnalysis.js";
 import { decodeHtmlEntities } from "../services/mail/gmailClient.js";
 import {
   MailAttachmentError,
@@ -58,11 +69,7 @@ import {
   summarizeMailAttachments,
 } from "../services/mail/attachments.js";
 import { stageAttachment } from "../services/mail/outbox.js";
-import {
-  recordAttachment,
-  resolveAttachmentFile,
-  uploadMiddleware,
-} from "../services/uploads.js";
+import { recordAttachment, resolveAttachmentFile, uploadMiddleware } from "../services/uploads.js";
 import {
   createMailHandover,
   handoverGrantError,
@@ -506,11 +513,13 @@ mailRouter.get("/mail/threads/:tid", async (req, res) => {
     order: { createdAt: "DESC" },
   });
   const employees = await employeesById(handovers.map((h) => h.employeeId));
+  const analyses = await analysesForThread(thread.companyId, thread.id);
   res.json({
     thread: serializeThread(thread),
     account: { id: account.id, address: account.address },
     messages: messages.map(serializeMessage),
     handovers: handovers.map((h) => serializeHandover(h, employees)),
+    analyses: analyses.map(serializeAnalysis),
   });
 });
 
@@ -1437,9 +1446,7 @@ mailRouter.get("/mail/accounts/:aid/assistant", async (req, res) => {
   // The employee the panel is talking to, and the brain their last answered
   // turn ran on — so reopening the panel resumes on the same model rather
   // than silently switching to whatever is active now.
-  const lastAnswered = [...messages]
-    .reverse()
-    .find((m) => m.role === "assistant" && m.employeeId);
+  const lastAnswered = [...messages].reverse().find((m) => m.role === "assistant" && m.employeeId);
   const modelId = lastAnswered?.employeeId
     ? await lastAssistantModelId(account.id, thread.id, lastAnswered.employeeId)
     : null;
@@ -1821,4 +1828,221 @@ mailRouter.get("/mail/accounts/:aid/grant-candidates", async (req, res) => {
       alreadyGranted: granted.has(e.id),
     })),
   });
+});
+
+// ───────────────────────── AI analysis of inbound mail ─────────────────────────
+//
+// Analysis itself runs off the inbound automation queue — see
+// `services/mail/analysis.ts`. These routes are the human side of it: the
+// mailbox setting, a manual re-read, and pressing one of the buttons. A
+// button always executes with the Member's own authority through the ordinary
+// services, never with the analysing employee's.
+
+async function loadAnalysis(
+  cid: string,
+  analysisId: string,
+): Promise<{ analysis: MailInboundAnalysis; account: MailAccount } | null> {
+  const analysis = await AppDataSource.getRepository(MailInboundAnalysis).findOneBy({
+    id: analysisId,
+    companyId: cid,
+  });
+  if (!analysis) return null;
+  const account = await loadAccount(cid, analysis.accountId);
+  if (!account) return null;
+  return { analysis, account };
+}
+
+/**
+ * The mailbox's triage setting, plus everything the pickers need and — the
+ * part a Member actually wants — who would read the next email that arrives.
+ * A setting page that shows a toggle but not its consequence is how "it's on,
+ * why is nothing happening?" happens.
+ */
+mailRouter.get("/mail/accounts/:aid/ai-analysis", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const account = await loadAccount(cid, req.params.aid as string);
+  if (!account) return res.status(404).json({ error: "Mail account not found" });
+  const [roster, reader] = await Promise.all([
+    assistantRoster(cid, account.id),
+    resolveAnalysisReader(account),
+  ]);
+  res.json({
+    enabled: account.aiAnalysisEnabled,
+    employeeId: account.aiAnalysisEmployeeId,
+    modelId: account.aiAnalysisModelId,
+    roster,
+    resolved: reader
+      ? {
+          employeeId: reader.employee.id,
+          employeeName: reader.employee.name,
+          modelId: reader.model.id,
+          modelLabel: reader.model.model,
+          accessLevel: reader.accessLevel,
+        }
+      : null,
+  });
+});
+
+const aiAnalysisSettingsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    employeeId: z.string().uuid().nullable().optional(),
+    modelId: z.string().uuid().nullable().optional(),
+  })
+  .strict();
+
+mailRouter.patch(
+  "/mail/accounts/:aid/ai-analysis",
+  validateBody(aiAnalysisSettingsSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const account = await loadAccount(cid, req.params.aid as string);
+    if (!account) return res.status(404).json({ error: "Mail account not found" });
+    const body = req.body as z.infer<typeof aiAnalysisSettingsSchema>;
+
+    if (body.employeeId) {
+      const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
+        id: body.employeeId,
+        companyId: cid,
+      });
+      if (!employee) return res.status(400).json({ error: "Unknown AI Employee" });
+      const grant = await AppDataSource.getRepository(EmployeeMailAccountGrant).findOneBy({
+        employeeId: employee.id,
+        accountId: account.id,
+      });
+      if (!grant) {
+        return res.status(400).json({
+          error: `${employee.name} has no access to ${account.address}. Grant it under AI access first.`,
+        });
+      }
+    }
+    // A pinned model must belong to whoever will actually be reading — the
+    // employee named in this same request when there is one, otherwise the
+    // one already on the row. Otherwise the pin is dead on arrival and the
+    // read quietly falls back to a different brain than the picker shows.
+    const modelOwnerId =
+      body.employeeId !== undefined ? body.employeeId : account.aiAnalysisEmployeeId;
+    if (body.modelId) {
+      if (!modelOwnerId) {
+        return res
+          .status(400)
+          .json({ error: "Choose an AI Employee before pinning one of their models." });
+      }
+      const model = await AppDataSource.getRepository(AIModel).findOneBy({
+        id: body.modelId,
+        employeeId: modelOwnerId,
+      });
+      if (!model) return res.status(400).json({ error: "That AI Model is not this employee's" });
+    }
+
+    if (body.enabled !== undefined) account.aiAnalysisEnabled = body.enabled;
+    if (body.employeeId !== undefined) {
+      account.aiAnalysisEmployeeId = body.employeeId;
+      // Changing who reads orphans a pin aimed at the previous employee.
+      if (body.modelId === undefined) account.aiAnalysisModelId = null;
+    }
+    if (body.modelId !== undefined) account.aiAnalysisModelId = body.modelId;
+    await AppDataSource.getRepository(MailAccount).save(account);
+
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "mail.analysis.settings",
+      targetType: "mail_account",
+      targetId: account.id,
+      targetLabel: account.address,
+      metadata: {
+        enabled: account.aiAnalysisEnabled,
+        employeeId: account.aiAnalysisEmployeeId,
+        modelId: account.aiAnalysisModelId,
+      },
+    });
+    const reader = await resolveAnalysisReader(account);
+    res.json({
+      account: serializeMailAccount(account),
+      resolved: reader
+        ? {
+            employeeId: reader.employee.id,
+            employeeName: reader.employee.name,
+            modelId: reader.model.id,
+            modelLabel: reader.model.model,
+            accessLevel: reader.accessLevel,
+          }
+        : null,
+    });
+  },
+);
+
+/**
+ * Read this message again on demand — after a model outage, after granting an
+ * employee access, or simply because the first verdict was wrong. Re-analysis
+ * replaces the row rather than adding a second set of buttons under the same
+ * email, which is why the entity keys on `messageId`.
+ */
+// Browser session only, like every other mail route that starts model work:
+// an API key scoped to the company should not be able to spend a mailbox's
+// model budget on demand by asking for re-reads.
+mailRouter.post("/mail/messages/:mid/analyze", requireBrowserSession, async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const message = await AppDataSource.getRepository(MailMessage).findOneBy({
+    id: req.params.mid as string,
+    companyId: cid,
+  });
+  if (!message) return res.status(404).json({ error: "Message not found" });
+  const account = await loadAccount(cid, message.accountId);
+  if (!account) return res.status(404).json({ error: "Mail account not found" });
+  if (!account.aiAnalysisEnabled) {
+    return res
+      .status(409)
+      .json({ error: "AI analysis is off for this mailbox. Turn it on in Email settings." });
+  }
+  const reader = await resolveAnalysisReader(account);
+  if (!reader) {
+    return res.status(409).json({
+      error:
+        "No AI Employee with a connected model has access to this mailbox. Grant one under AI access.",
+    });
+  }
+  try {
+    const analysis = await analyzeInboundMessage(account, message);
+    if (!analysis) {
+      return res.status(409).json({ error: "This message cannot be analysed." });
+    }
+    res.json({ analysis: serializeAnalysis(analysis) });
+  } catch (err) {
+    if (err instanceof MailAnalysisAlreadyActed) {
+      return res.status(409).json({ error: err.message });
+    }
+    throw err;
+  }
+});
+
+mailRouter.post("/mail/analyses/:id/actions/:actionId", requireBrowserSession, async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const found = await loadAnalysis(cid, req.params.id as string);
+  if (!found) return res.status(404).json({ error: "Analysis not found" });
+  try {
+    const result = await executeAnalysisAction(
+      found.account,
+      found.analysis,
+      req.params.actionId as string,
+      {
+        userId: req.userId!,
+        sessionVersion: req.session!.sessionVersion!,
+        financeAccess: effectiveFinanceAccess(req),
+      },
+    );
+    res.json({
+      analysis: serializeAnalysis(result.analysis),
+      navigateTo: result.navigateTo,
+      message: result.message,
+    });
+  } catch (err) {
+    // Both a refused button (`MailAnalysisActionError`) and a downstream
+    // failure (Gmail, the finance ledger) are the Member's to see and retry,
+    // so both answer 400 with the real reason rather than a 500.
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "The action could not be completed",
+    });
+  }
 });

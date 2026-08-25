@@ -98,6 +98,27 @@ export class MailAccount {
   @Column({ type: "int", default: 0 })
   backfilledCount!: number;
 
+  /**
+   * Whether an AI Employee reads each newly-arrived message and proposes
+   * one-click next steps for it. On by default: a mailbox nobody configured
+   * should still arrive useful, and the buttons never act on their own.
+   */
+  @Column({ type: "boolean", default: true })
+  aiAnalysisEnabled!: boolean;
+
+  /**
+   * The AI Employee that reads inbound mail here. Null means "whichever
+   * granted employee is best placed today" — resolved per message, so the
+   * mailbox keeps working after the chosen employee is deleted or loses its
+   * model rather than going quietly dark.
+   */
+  @Column({ type: "varchar", nullable: true })
+  aiAnalysisEmployeeId!: string | null;
+
+  /** Pinned brain for the read. Null inherits the employee's active model. */
+  @Column({ type: "varchar", nullable: true })
+  aiAnalysisModelId!: string | null;
+
   @Column({ type: "varchar", nullable: true })
   createdByUserId!: string | null;
 

@@ -125,6 +125,7 @@ import { MailHandover } from "./entities/MailHandover.js";
 import { MailSavedSearch } from "./entities/MailSavedSearch.js";
 import { MailChatMessage } from "./entities/MailChatMessage.js";
 import { MailDraftSendBatch } from "./entities/MailDraftSendBatch.js";
+import { MailInboundAnalysis } from "./entities/MailInboundAnalysis.js";
 import { MailInboundAutomation } from "./entities/MailInboundAutomation.js";
 import { EmployeeMailAccountGrant } from "./entities/EmployeeMailAccountGrant.js";
 import { AdSpendEvent } from "./entities/AdSpendEvent.js";
@@ -321,6 +322,7 @@ const entities = [
   MailChatMessage,
   MailDraftSendBatch,
   MailInboundAutomation,
+  MailInboundAnalysis,
   EmployeeMailAccountGrant,
   // Revenue (M32) — contacts, deals, activities, outbound, signals.
   Contact,

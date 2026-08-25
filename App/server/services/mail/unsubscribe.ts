@@ -38,6 +38,36 @@ export async function unsubscribeFromMessage(
   message: MailMessage,
   dependencies: MailUnsubscribeDependencies = {},
 ): Promise<MailUnsubscribeResult> {
+  const target = await resolveOneClickUnsubscribe(account, message, dependencies);
+
+  const init: RequestInit = {
+    method: "POST",
+    headers: {
+      accept: "text/plain, text/html;q=0.5, */*;q=0.1",
+      "content-type": "application/x-www-form-urlencoded",
+      "user-agent": "Genosyn mail rules",
+    },
+    body: ONE_CLICK_UNSUBSCRIBE_BODY,
+  };
+  const response = await (dependencies.post ?? postOneClick)(target, init);
+  if (!response.ok) {
+    throw new Error(`The one-click unsubscribe endpoint returned HTTP ${response.status}.`);
+  }
+  return { host: new URL(response.url || target.toString()).hostname, status: response.status };
+}
+
+/**
+ * Everything that has to hold before Genosyn will speak to an unsubscribe
+ * endpoint, with the URL as the reward. Split out of
+ * {@link unsubscribeFromMessage} so a caller that only wants to know whether
+ * the button is *offerable* runs the identical checks rather than a looser
+ * copy of them — see {@link oneClickUnsubscribeAvailable}.
+ */
+async function resolveOneClickUnsubscribe(
+  account: MailAccount,
+  message: MailMessage,
+  dependencies: MailUnsubscribeDependencies = {},
+): Promise<URL> {
   if (message.accountId !== account.id) {
     throw new Error("The unsubscribe message does not belong to this mailbox.");
   }
@@ -69,21 +99,29 @@ export async function unsubscribeFromMessage(
       "This email does not provide a DKIM-authenticated one-click unsubscribe method.",
     );
   }
+  return target;
+}
 
-  const init: RequestInit = {
-    method: "POST",
-    headers: {
-      accept: "text/plain, text/html;q=0.5, */*;q=0.1",
-      "content-type": "application/x-www-form-urlencoded",
-      "user-agent": "Genosyn mail rules",
-    },
-    body: ONE_CLICK_UNSUBSCRIBE_BODY,
-  };
-  const response = await (dependencies.post ?? postOneClick)(target, init);
-  if (!response.ok) {
-    throw new Error(`The one-click unsubscribe endpoint returned HTTP ${response.status}.`);
+/**
+ * Can this exact message be unsubscribed from safely?
+ *
+ * AI analysis asks this before it is allowed to offer an Unsubscribe button,
+ * so the affordance is decided by the same checks the click will run — never
+ * by the model's reading of the email, which is the attacker's text. Any
+ * failure, including a Gmail outage, answers no: a button that errors when
+ * pressed is worse than no button.
+ */
+export async function oneClickUnsubscribeAvailable(
+  account: MailAccount,
+  message: MailMessage,
+  dependencies: MailUnsubscribeDependencies = {},
+): Promise<{ available: boolean; host: string }> {
+  try {
+    const target = await resolveOneClickUnsubscribe(account, message, dependencies);
+    return { available: true, host: target.hostname };
+  } catch {
+    return { available: false, host: "" };
   }
-  return { host: new URL(response.url || target.toString()).hostname, status: response.status };
 }
 
 type GmailDkimResult = {

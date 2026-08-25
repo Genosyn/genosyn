@@ -6,6 +6,7 @@ import { MailInboundAutomation } from "../../db/entities/MailInboundAutomation.j
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { dispatchEmailReceived } from "../pipelines/events.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
+import { analyzeInboundMessage } from "./analysis.js";
 import { runRulesForNewMessage } from "./rules.js";
 
 const DISCOVERY_INTERVAL_MS = 5_000;
@@ -41,6 +42,27 @@ const runDefaultEffects: MailAutomationEffectRunner = async (
   assertRunnable,
   beforeEffect,
 ) => {
+  // AI triage goes first, and is deliberately NOT fenced by `beforeEffect`.
+  //
+  // `rules.ts` takes the opposite line for its own model call, marking effects
+  // started so a pause cannot bill for the same decision twice. The trade is
+  // different here. Triage writes only its own row, keyed by this message, so
+  // re-reading is free of consequence beyond the model call itself — whereas
+  // fencing it would turn a pause mid-read into a *failed* automation, and the
+  // unique replay guard means this message would then never get its rules or
+  // its Pipelines at all. One duplicate read is the cheaper side of that.
+  //
+  // Going first also means the buttons a human wants are ready before a rule's
+  // handover or a Pipeline that may run for hours.
+  await assertRunnable();
+  await analyzeInboundMessage(account, message).catch((error) => {
+    // Triage is an enrichment. A mailbox whose model is down still gets its
+    // rules and its Pipelines; the analysis row already recorded the failure.
+    // eslint-disable-next-line no-console
+    console.error(`[mail] AI analysis for message ${message.id} failed:`, error);
+  });
+
+  await assertRunnable();
   await runRulesForNewMessage(account, message.id, assertRunnable, beforeEffect);
   await assertRunnable();
   await dispatchEmailReceived(message.id, { failOnRejected: true, beforeEffect });

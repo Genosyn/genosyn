@@ -22,6 +22,7 @@ import {
 } from "../lib/mail";
 import { mailReconnectHref } from "../lib/integrationReconnect";
 import { errorMessage } from "../lib/errors";
+import { MailAnalysisSettingsCard } from "./MailAnalysisSettings";
 import { MailOutletCtx } from "./MailLayout";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
@@ -33,8 +34,9 @@ import { Spinner } from "../components/ui/Spinner";
 
 /**
  * Email settings: the mailbox account (sync status, pause/resume,
- * disconnect), a way to connect additional mailboxes, and the AI-access
- * panel — which employees can act on this inbox and at what level.
+ * disconnect), AI analysis of newly-arrived mail, a way to connect additional
+ * mailboxes, and the AI-access panel — which employees can act on this inbox
+ * and at what level.
  */
 
 const LEVEL_HINT: Record<MailAccessLevel, string> = {
@@ -236,6 +238,9 @@ export default function MailSettings() {
           </Button>
         </div>
       </section>
+
+      {/* AI analysis of newly-arrived mail */}
+      <MailAnalysisSettingsCard companyId={company.id} accountId={account.id} />
 
       {/* AI access */}
       <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">

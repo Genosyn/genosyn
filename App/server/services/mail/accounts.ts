@@ -196,6 +196,12 @@ export type MailAccountDTO = {
   syncFinishedAt: string | null;
   backfilledAt: string | null;
   backfilledCount: number;
+  /** AI triage of newly-arrived mail — on unless a Member turned it off. */
+  aiAnalysisEnabled: boolean;
+  /** Null means "whichever granted employee is best placed", resolved per message. */
+  aiAnalysisEmployeeId: string | null;
+  /** Null inherits the employee's active model. */
+  aiAnalysisModelId: string | null;
   createdAt: string;
 };
 
@@ -213,6 +219,9 @@ export function serializeMailAccount(a: MailAccount): MailAccountDTO {
     syncFinishedAt: a.syncFinishedAt ? a.syncFinishedAt.toISOString() : null,
     backfilledAt: a.backfilledAt ? a.backfilledAt.toISOString() : null,
     backfilledCount: a.backfilledCount,
+    aiAnalysisEnabled: a.aiAnalysisEnabled,
+    aiAnalysisEmployeeId: a.aiAnalysisEmployeeId,
+    aiAnalysisModelId: a.aiAnalysisModelId,
     createdAt: a.createdAt.toISOString(),
   };
 }

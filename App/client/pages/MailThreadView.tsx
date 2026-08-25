@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import {
   MailAccessLevel,
+  MailAnalysis,
   MailGrant,
   MailHandover,
   MailHandoverMode,
@@ -29,6 +30,7 @@ import {
   mailApi,
   shortMailDate,
 } from "../lib/mail";
+import { MailAnalysisCard } from "./MailAnalysisCard";
 import { MailOutletCtx } from "./MailLayout";
 import { MailAssistant } from "./MailAssistant";
 import { Button } from "../components/ui/Button";
@@ -157,6 +159,7 @@ export default function MailThreadView() {
   const [thread, setThread] = React.useState<MailThread | null>(null);
   const [messages, setMessages] = React.useState<MailMessage[]>([]);
   const [handovers, setHandovers] = React.useState<MailHandover[]>([]);
+  const [analyses, setAnalyses] = React.useState<MailAnalysis[]>([]);
   const [notFound, setNotFound] = React.useState(false);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
@@ -170,6 +173,7 @@ export default function MailThreadView() {
       setMessages(res.messages);
       setHandovers(res.handovers);
       setLoadError(null);
+      setAnalyses(res.analyses ?? []);
       setExpanded((prev) => {
         if (prev.size > 0) return prev;
         const next = new Set<string>();
@@ -192,6 +196,7 @@ export default function MailThreadView() {
     setThread(null);
     setNotFound(false);
     setLoadError(null);
+    setAnalyses([]);
     setExpanded(new Set());
     void load();
   }, [load]);
@@ -249,6 +254,8 @@ export default function MailThreadView() {
       onError: () => setThread(snapshot),
     });
   };
+
+  const latestAnalysis = analyses.length > 0 ? analyses[analyses.length - 1] : null;
 
   const focusedDraftId = [...messages].reverse().find((message) => message.isDraft)?.id;
 
@@ -358,6 +365,19 @@ export default function MailThreadView() {
 
           {/* A refresh that failed after the thread was already on screen */}
           <FormError message={loadError} className="mb-3" />
+
+          {/* What the AI made of the newest inbound message. Only the latest
+              is shown: triage is about the email that just landed, and a
+              stack of verdicts for a long thread is scroll, not signal. */}
+          {latestAnalysis && (
+            <MailAnalysisCard
+              key={latestAnalysis.id}
+              analysis={latestAnalysis}
+              companyId={company.id}
+              companySlug={company.slug}
+              onChanged={load}
+            />
+          )}
 
           {/* Handover timeline */}
           {handovers.length > 0 && (
