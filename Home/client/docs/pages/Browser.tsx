@@ -317,6 +317,13 @@ export function Browser() {
         torn down while someone is watching.
       </P>
       <P>
+        The panel keeps whatever you last did to it. Collapse it to a rail, or hide it with the{" "}
+        <Strong>×</Strong> in its header, and it stays that way through a reload and through coming
+        back to the thread later — a reload is not a request to reopen a browser you sent away.
+        Hiding one session does not hide the next: when the employee opens a browser again, the
+        panel comes back.
+      </P>
+      <P>
         Taking over also unlocks the <Strong>address bar</Strong> above the page, along with back,
         forward and reload. Type a URL and press Enter to go somewhere the employee did not — useful
         when a sign-in bounces you to a settings page the model never opened. <Code>Ctrl</Code>/

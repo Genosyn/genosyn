@@ -475,7 +475,14 @@ export function Repositories() {
       <P>
         If an employee starts work while you are reading the thread, the panel opens itself — the
         same behaviour as the <DocLink to="/docs/browser">live browser view</DocLink>. Coming back
-        to an old conversation does not reopen its sessions; click the link when you want one.
+        to an old conversation does not reopen a session you never looked at; click the link when
+        you want one.
+      </P>
+      <P>
+        What the panel <em>is</em> showing stays put. Reloading the page, or leaving the thread and
+        coming back to it tomorrow, restores the session you had open and the rail you had wound it
+        down to. Only <Strong>Hide repository work</Strong> puts it away — and then it stays away
+        until the employee starts something new or you click another link.
       </P>
       <Callout kind="warn" title="Starting work is not the same as shipping it.">
         Nothing changes about who decides. A session started from chat lands on its own branch and

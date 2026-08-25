@@ -21,6 +21,11 @@ import type { RepositoryWorkTarget } from "./repositoryWorkLink";
  *   - **Nothing is swapped out from under the reader.** New work arriving
  *     while an earlier session is open leaves the open one alone — its link is
  *     in the transcript when they want it.
+ *   - **A reload is not a dismissal.** The panel a thread was left showing
+ *     comes back with it, because someone halfway through a diff pressing F5
+ *     did not ask for the diff to go away. The state travels in on the
+ *     `thread` event rather than being read here, so this stays a pure
+ *     reducer and the storage it comes from stays somebody else's problem.
  *   - **A click always shows the work.** Collapsed is part of this state
  *     rather than the panel's own, because chat cancels the link's navigation
  *     before the panel ever sees the click: a collapsed panel that stayed
@@ -37,6 +42,12 @@ export type RepositoryWorkPanelState = {
   offered: string[];
 };
 
+/**
+ * The part of the state worth outliving the page: everything except which
+ * thread it belongs to, which the store keys by anyway.
+ */
+export type RepositoryWorkPanelMemory = Omit<RepositoryWorkPanelState, "conversationId">;
+
 export const initialRepositoryWorkPanelState: RepositoryWorkPanelState = {
   conversationId: null,
   open: null,
@@ -45,8 +56,16 @@ export const initialRepositoryWorkPanelState: RepositoryWorkPanelState = {
 };
 
 export type RepositoryWorkPanelEvent =
-  /** The chat switched threads (or to no thread at all). */
-  | { type: "thread"; conversationId: string | null }
+  /**
+   * The chat switched threads (or to no thread at all). `remembered` is what
+   * that thread's panel was last left showing, where the reader has been in
+   * it before; leaving it out opens the thread with a closed panel.
+   */
+  | {
+      type: "thread";
+      conversationId: string | null;
+      remembered?: RepositoryWorkPanelMemory | null;
+    }
   /**
    * The work sessions currently linked in the visible transcript, oldest
    * first. `live` is false for the transcript as it first loads and true once
@@ -76,7 +95,20 @@ export function repositoryWorkPanelReducer(
   switch (event.type) {
     case "thread": {
       if (event.conversationId === state.conversationId) return state;
-      return { conversationId: event.conversationId, open: null, collapsed: false, offered: [] };
+      const remembered = event.remembered ?? null;
+      const open = remembered?.open ?? null;
+      return {
+        conversationId: event.conversationId,
+        open,
+        // A remembered rail only means anything while something is on it.
+        // Restoring `collapsed` onto a closed panel would leave the next
+        // session in this thread born wound down, which is the same thing
+        // `close` already refuses to do.
+        collapsed: open ? Boolean(remembered?.collapsed) : false,
+        // Copied, not aliased: the caller's array came out of storage and the
+        // reducer treats its own as immutable.
+        offered: remembered ? [...remembered.offered] : [],
+      };
     }
     case "transcript": {
       const fresh = event.targets.filter((target) => !state.offered.includes(target.sessionId));
@@ -119,4 +151,11 @@ export function repositoryWorkPanelReducer(
     default:
       return state;
   }
+}
+
+/** The part of this state to write down for the next page load. */
+export function repositoryWorkPanelMemory(
+  state: RepositoryWorkPanelState,
+): RepositoryWorkPanelMemory {
+  return { open: state.open, collapsed: state.collapsed, offered: state.offered };
 }

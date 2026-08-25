@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import type { RepositoryWorkTarget } from "./repositoryWorkLink";
 import {
   initialRepositoryWorkPanelState,
+  repositoryWorkPanelMemory,
   repositoryWorkPanelReducer as reduce,
   sameWorkTarget,
   type RepositoryWorkPanelEvent,
@@ -342,6 +343,145 @@ describe("closing", () => {
     );
     assert.equal(state.conversationId, "conv-1");
     assert.deepEqual(state.offered, ["session-a"]);
+  });
+});
+
+describe("coming back to a thread after a reload", () => {
+  test("puts the reader back in front of what they were reading", () => {
+    const state = run([
+      {
+        type: "thread",
+        conversationId: "conv-1",
+        remembered: { open: A, collapsed: false, offered: ["session-a"] },
+      },
+      // The transcript loads again from scratch, and must not disturb it.
+      { type: "transcript", targets: [A], live: false },
+    ]);
+    assert.deepEqual(state.open, A);
+  });
+
+  test("a rail is still a rail", () => {
+    const state = run([
+      {
+        type: "thread",
+        conversationId: "conv-1",
+        remembered: { open: A, collapsed: true, offered: ["session-a"] },
+      },
+    ]);
+    assert.equal(state.collapsed, true);
+    assert.deepEqual(state.open, A);
+  });
+
+  test("a panel sent away before the reload stays away", () => {
+    // Dismissing is remembered as "closed, and this one has been offered" —
+    // so the transcript arriving again, live or not, is not news.
+    const state = run([
+      {
+        type: "thread",
+        conversationId: "conv-1",
+        remembered: { open: null, collapsed: false, offered: ["session-a"] },
+      },
+      { type: "transcript", targets: [A], live: false },
+      { type: "transcript", targets: [A], live: true },
+    ]);
+    assert.equal(state.open, null);
+  });
+
+  test("does not restore a rail with nothing on it", () => {
+    // A remembered `collapsed` outliving the panel it belonged to would open
+    // the thread's next session wound down, which `close` already refuses.
+    const state = run([
+      {
+        type: "thread",
+        conversationId: "conv-1",
+        remembered: { open: null, collapsed: true, offered: [] },
+      },
+      { type: "transcript", targets: [A], live: true },
+    ]);
+    assert.deepEqual(state.open, A);
+    assert.equal(state.collapsed, false);
+  });
+
+  test("work that started while the page was gone is history by the time it loads", () => {
+    const state = run([
+      {
+        type: "thread",
+        conversationId: "conv-1",
+        remembered: { open: null, collapsed: false, offered: ["session-a"] },
+      },
+      { type: "transcript", targets: [A, B], live: false },
+      { type: "transcript", targets: [A, B], live: true },
+    ]);
+    assert.equal(state.open, null, "nothing springs a diff on someone mid-load");
+    assert.deepEqual(state.offered, ["session-a", "session-b"], "but its link is recorded");
+  });
+
+  test("remembering nothing opens the thread the way it always did", () => {
+    const state = run([{ type: "thread", conversationId: "conv-1", remembered: null }]);
+    assert.deepEqual(state, {
+      conversationId: "conv-1",
+      open: null,
+      collapsed: false,
+      offered: [],
+    });
+  });
+
+  test("a thread already open ignores what was written down for it", () => {
+    // The reducer holds the live state; re-reading storage over the top of it
+    // would undo whatever the reader has done since.
+    const before = run(
+      [
+        { type: "open", target: B },
+        { type: "collapse", collapsed: true },
+      ],
+      inThread("conv-1"),
+    );
+    assert.equal(
+      reduce(before, {
+        type: "thread",
+        conversationId: "conv-1",
+        remembered: { open: A, collapsed: false, offered: [] },
+      }),
+      before,
+    );
+  });
+
+  test("does not hold on to the array it was handed", () => {
+    const remembered = { open: null, collapsed: false, offered: ["session-a"] };
+    const state = run([{ type: "thread", conversationId: "conv-1", remembered }]);
+    reduce(state, { type: "transcript", targets: [B], live: true });
+    assert.deepEqual(remembered.offered, ["session-a"], "storage's array is not the reducer's");
+  });
+});
+
+describe("what gets written down", () => {
+  test("is the state without the thread it belongs to", () => {
+    const state = run(
+      [
+        { type: "open", target: A },
+        { type: "collapse", collapsed: true },
+      ],
+      inThread("conv-1"),
+    );
+    assert.deepEqual(repositoryWorkPanelMemory(state), {
+      open: A,
+      collapsed: true,
+      offered: ["session-a"],
+    });
+  });
+
+  test("round-trips back into the thread it came from", () => {
+    const before = run(
+      [
+        { type: "transcript", targets: [A], live: true },
+        { type: "collapse", collapsed: true },
+      ],
+      inThread("conv-1"),
+    );
+    const after = run([
+      { type: "thread", conversationId: "conv-1", remembered: repositoryWorkPanelMemory(before) },
+    ]);
+    assert.deepEqual(after, before);
   });
 });
 

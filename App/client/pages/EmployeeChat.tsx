@@ -63,8 +63,14 @@ import {
 } from "../lib/repositoryWorkLink";
 import {
   initialRepositoryWorkPanelState,
+  repositoryWorkPanelMemory,
   repositoryWorkPanelReducer,
 } from "../lib/repositoryWorkPanel";
+import {
+  chatPanelMemoryStorage,
+  readChatPanelMemory,
+  writeChatPanelMemory,
+} from "../lib/chatPanelMemory";
 import { ChatBrowserTarget } from "../components/ChatBrowserTarget";
 import {
   ChatResourceReference,
@@ -514,8 +520,31 @@ export default function EmployeeChat() {
     // straight back would otherwise find the ref still holding this id, read
     // as "already loaded", and greet the reader with an old session.
     hydratedConvId.current = undefined;
-    dispatchWorkPanel({ type: "thread", conversationId: activeConvId });
+    dispatchWorkPanel({
+      type: "thread",
+      conversationId: activeConvId,
+      // The panel this thread was left showing comes back with it. A reload
+      // in the middle of reviewing a diff used to lose the diff, and the only
+      // way back was to scroll the transcript for the link again.
+      remembered: readChatPanelMemory(chatPanelMemoryStorage(), activeConvId).work ?? null,
+    });
   }, [activeConvId]);
+
+  // …and every click that moves the panel is written down against the thread
+  // it moved in, so the next load has something to come back to. Keyed off
+  // the state's own conversation rather than the active one: they differ for
+  // the render between switching threads and the dispatch above landing, and
+  // writing one thread's panel under another's id is how a reader ends up
+  // reopening a diff from a conversation they were not in.
+  React.useEffect(() => {
+    const memory = repositoryWorkPanelMemory(workPanel);
+    // A thread that has never had a panel in it has nothing to come back to,
+    // and the store only remembers so many threads: writing "closed, nothing
+    // offered" for every thread merely opened would push the ones that do
+    // hold something off the end.
+    if (!memory.open && memory.offered.length === 0) return;
+    writeChatPanelMemory(chatPanelMemoryStorage(), workPanel.conversationId, { work: memory });
+  }, [workPanel]);
 
   // History is recorded, not reopened: a thread you come back to should not
   // pop a panel onto a diff that was reviewed last week. Once the thread is
