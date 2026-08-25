@@ -16,6 +16,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { api, Customer, Employee, Member, formatMoney } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import {
@@ -31,8 +32,7 @@ import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import {
   CONTACT_LIFECYCLE_STAGES,
   ContactFlagPills,
@@ -129,8 +129,8 @@ export default function RevenueContactDetail() {
   const params = useParams();
   const contactId = params.contactId ?? params.id ?? "";
   const navigate = useNavigate();
-  const { background } = useToast();
   const dialog = useDialog();
+  const background = useBackgroundAction();
 
   const base = `/c/${company.slug}/revenue`;
   const contactsUrl = `${base}/contacts`;
@@ -153,7 +153,7 @@ export default function RevenueContactDetail() {
 
   const load = React.useCallback(() => {
     reload().catch((err: unknown) => {
-      setLoadError(err instanceof Error ? err.message : "Something went wrong");
+      setLoadError(errorMessage(err));
     });
   }, [reload]);
 
@@ -223,12 +223,8 @@ export default function RevenueContactDetail() {
           { doNotContact: next },
         ),
       {
-        loading: next ? "Marking do not contact…" : "Allowing contact…",
-        success: next ? "Marked do not contact" : "Contact allowed again",
-        error: (err) =>
-          `Couldn’t update this contact: ${
-            err instanceof Error ? err.message : "Unknown error"
-          }. The change was undone.`,
+        title: "Couldn’t update this contact",
+        error: (err) => `${errorMessage(err)} The change was undone.`,
         onError: () => patchContact({ doNotContact: before }),
       },
     );
@@ -256,12 +252,8 @@ export default function RevenueContactDetail() {
           }`,
         ),
       {
-        loading: archived ? "Archiving contact…" : "Restoring contact…",
-        success: archived ? "Contact archived" : "Contact restored",
-        error: (err) =>
-          `Couldn’t update this contact: ${
-            err instanceof Error ? err.message : "Unknown error"
-          }. The change was undone.`,
+        title: "Couldn’t update this contact",
+        error: (err) => `${errorMessage(err)} The change was undone.`,
         onSuccess: () => load(),
         onError: () => patchContact({ archivedAt: before }),
       },
@@ -666,7 +658,6 @@ function EditContactModal({
   onPatch: (patch: Partial<RevenueContact>) => void;
   onDone: () => void;
 }) {
-  const { background } = useToast();
   const [name, setName] = React.useState(contact.name);
   const [email, setEmail] = React.useState(contact.email);
   const [phone, setPhone] = React.useState(contact.phone);
@@ -729,33 +720,23 @@ function EditContactModal({
       ownerEmployeeId: contact.ownerEmployeeId,
     };
     onPatch({ ...body });
-    background(
-      () =>
-        api.patch<RevenueContact>(
-          `/api/companies/${companyId}/revenue/contacts/${contact.id}`,
-          body,
-        ),
-      {
-        loading: "Saving contact…",
-        success: "Contact saved",
-        error: () => "The contact was not saved. Your changes were undone.",
-        onSuccess: (saved) => {
-          setSaving(false);
-          onPatch(saved);
-          onDone();
-        },
-        onError: (err) => {
-          setSaving(false);
-          onPatch(before);
-          const message = err instanceof Error ? err.message : "Unknown error";
-          setError(
-            /already exists/i.test(message)
-              ? `${trimmedEmail || "That address"} already belongs to another contact in this company. Open that record instead of pointing two rows at one address.`
-              : message,
-          );
-        },
-      },
-    );
+    api
+      .patch<RevenueContact>(`/api/companies/${companyId}/revenue/contacts/${contact.id}`, body)
+      .then((saved) => {
+        setSaving(false);
+        onPatch(saved);
+        onDone();
+      })
+      .catch((err: unknown) => {
+        setSaving(false);
+        onPatch(before);
+        const message = errorMessage(err);
+        setError(
+          /already exists/i.test(message)
+            ? `${trimmedEmail || "That address"} already belongs to another contact in this company. Open that record instead of pointing two rows at one address.`
+            : message,
+        );
+      });
   }
 
   return (
@@ -878,7 +859,6 @@ function EnrollModal({
   onClose: () => void;
   onEnrolled: () => void;
 }) {
-  const { background } = useToast();
   const [sequences, setSequences] = React.useState<SequenceSummary[] | null>(null);
   const [selected, setSelected] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
@@ -896,7 +876,7 @@ function EnrollModal({
       .catch((err: unknown) => {
         if (cancelled) return;
         setSequences([]);
-        setError(err instanceof Error ? err.message : "Couldn't load sequences");
+        setError(errorMessage(err, "Couldn’t load sequences"));
       });
     return () => {
       cancelled = true;
@@ -911,35 +891,25 @@ function EnrollModal({
     }
     setError(null);
     setSaving(true);
-    background(
-      () =>
-        api.post<BulkEnrollResult>(
-          `/api/companies/${companyId}/revenue/sequences/${selected}/enroll`,
-          { contactIds: [contact.id] },
-        ),
-      {
-        loading: "Enrolling contact…",
-        success: (result) => (result.enrolled > 0 ? "Added to the sequence" : null),
-        error: (err) =>
-          `Couldn’t enrol this contact: ${
-            err instanceof Error ? err.message : "Unknown error"
-          }`,
-        onSuccess: (result) => {
-          setSaving(false);
-          if (result.enrolled > 0) {
-            onEnrolled();
-            return;
-          }
-          const reason = result.skipped[0]?.reason;
-          setError(
-            reason
-              ? SKIP_MESSAGES[reason]
-              : "Nothing was enrolled, and the server gave no reason.",
-          );
-        },
-        onError: () => setSaving(false),
-      },
-    );
+    api
+      .post<BulkEnrollResult>(`/api/companies/${companyId}/revenue/sequences/${selected}/enroll`, {
+        contactIds: [contact.id],
+      })
+      .then((result) => {
+        setSaving(false);
+        if (result.enrolled > 0) {
+          onEnrolled();
+          return;
+        }
+        const reason = result.skipped[0]?.reason;
+        setError(
+          reason ? SKIP_MESSAGES[reason] : "Nothing was enrolled, and the server gave no reason.",
+        );
+      })
+      .catch((err: unknown) => {
+        setSaving(false);
+        setError(`Couldn’t enrol this contact: ${errorMessage(err)}`);
+      });
   }
 
   const blocked =

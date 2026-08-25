@@ -12,8 +12,8 @@ import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { EmptyState } from "../components/ui/EmptyState";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
+import { errorMessage } from "../lib/errors";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
 
@@ -37,18 +37,20 @@ function ApiKeysCard({ company }: { company: Company }) {
   const [rows, setRows] = React.useState<ApiKey[] | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [justCreated, setJustCreated] = React.useState<ApiKeyCreated | null>(null);
-  const { toast, background } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const background = useBackgroundAction();
   const dialog = useDialog();
 
   const reload = React.useCallback(async () => {
     try {
       const list = await api.get<ApiKey[]>(`/api/companies/${company.id}/api-keys`);
       setRows(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the API keys"));
       setRows([]);
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -84,7 +86,9 @@ function ApiKeysCard({ company }: { company: Company }) {
           </div>
         </CardHeader>
         <CardBody>
-          {rows === null ? (
+          {loadError ? (
+            <FormError message={loadError} />
+          ) : rows === null ? (
             <Spinner />
           ) : rows.length === 0 ? (
             <EmptyState
@@ -109,12 +113,8 @@ function ApiKeysCard({ company }: { company: Company }) {
                     const originalIndex = rows.findIndex((item) => item.id === k.id);
                     setRows((current) => current?.filter((item) => item.id !== k.id) ?? current);
                     background(() => api.del(`/api/companies/${company.id}/api-keys/${k.id}`), {
-                      loading: "Revoking API key…",
-                      success: "API key revoked",
-                      error: (error) =>
-                        `Couldn\u2019t revoke the API key: ${
-                          error instanceof Error ? error.message : "Unknown error"
-                        }. It has been restored.`,
+                      title: "Couldn’t revoke the API key",
+                      error: (error) => `${errorMessage(error)} It has been restored.`,
                       onError: () => {
                         setRows((current) => {
                           if (!current || current.some((item) => item.id === k.id)) {
@@ -300,10 +300,13 @@ function NewKeyTokenModal({
   onClose: () => void;
 }) {
   const [copied, setCopied] = React.useState(false);
-  const { toast } = useToast();
+  const [copyError, setCopyError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (created) setCopied(false);
+    if (created) {
+      setCopied(false);
+      setCopyError(null);
+    }
   }, [created]);
 
   if (!created) return null;
@@ -328,18 +331,19 @@ function NewKeyTokenModal({
               variant="secondary"
               size="sm"
               onClick={async () => {
+                setCopyError(null);
                 const ok = await copyToClipboard(created.token);
                 if (ok) {
                   setCopied(true);
-                  toast("Copied to clipboard", "success");
                 } else {
-                  toast("Could not access clipboard — copy manually", "error");
+                  setCopyError("Could not access the clipboard — copy the token manually.");
                 }
               }}
             >
               {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? "Copied" : "Copy"}
             </Button>
           </div>
+          <FormError message={copyError} className="mt-2" />
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">

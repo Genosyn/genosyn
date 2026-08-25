@@ -30,12 +30,13 @@ import {
   NotebookGrantCandidate,
   NotebookGrantsResponse,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { NotesContext } from "./NotesLayout";
 import { clsx } from "../components/ui/clsx";
@@ -71,7 +72,6 @@ export default function NotebookDetail({ company }: { company: Company }) {
   const { notebookSlug } = useParams<{ notebookSlug: string }>();
   const { notebooks, notes, refresh } = useOutletContext<NotesContext>();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [query, setQuery] = React.useState("");
   const [creating, setCreating] = React.useState(false);
@@ -128,7 +128,7 @@ export default function NotebookDetail({ company }: { company: Company }) {
       await refresh();
       navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t create the page" });
     } finally {
       setCreating(false);
     }
@@ -147,7 +147,7 @@ export default function NotebookDetail({ company }: { company: Company }) {
       );
       await refresh();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t rename the notebook" });
     } finally {
       setBusy(false);
     }
@@ -165,7 +165,7 @@ export default function NotebookDetail({ company }: { company: Company }) {
       );
       await refresh();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t change the icon" });
     } finally {
       setBusy(false);
     }
@@ -199,7 +199,7 @@ export default function NotebookDetail({ company }: { company: Company }) {
       await refresh();
       navigate(`/c/${company.slug}/notes`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the notebook" });
     } finally {
       setBusy(false);
     }
@@ -577,9 +577,10 @@ function NotebookShareModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [grants, setGrants] = React.useState<NotebookGrantsResponse | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [busy, setBusy] = React.useState<string | null>(null);
 
@@ -589,18 +590,22 @@ function NotebookShareModal({
         `/api/companies/${company.id}/notebooks/${notebook.slug}/grants`,
       );
       setGrants(data);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the shares"));
     }
-  }, [company.id, notebook.slug, toast]);
+  }, [company.id, notebook.slug]);
 
   React.useEffect(() => {
-    if (open) reload();
+    if (!open) return;
+    setError(null);
+    reload();
   }, [open, reload]);
 
   async function changeLevel(grant: NotebookGrant, next: NoteAccessLevel) {
     if (grant.accessLevel === next) return;
     setBusy(grant.id);
+    setError(null);
     try {
       await api.patch(
         `/api/companies/${company.id}/notebooks/${notebook.slug}/grants/${grant.id}`,
@@ -608,7 +613,7 @@ function NotebookShareModal({
       );
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(null);
     }
@@ -624,13 +629,14 @@ function NotebookShareModal({
     });
     if (!ok) return;
     setBusy(grant.id);
+    setError(null);
     try {
       await api.del(
         `/api/companies/${company.id}/notebooks/${notebook.slug}/grants/${grant.id}`,
       );
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(null);
     }
@@ -638,7 +644,9 @@ function NotebookShareModal({
 
   return (
     <Modal open={open} onClose={onClose} title={`Share ${notebook.title || "notebook"}`}>
-      {!grants ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : !grants ? (
         <Spinner />
       ) : (
         <div className="flex flex-col gap-4">
@@ -666,6 +674,8 @@ function NotebookShareModal({
               ))}
             </div>
           )}
+
+          <FormError message={error} />
 
           <div className="flex items-center justify-between">
             <button
@@ -809,8 +819,9 @@ function AddGrantModal({
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }) {
-  const { toast } = useToast();
   const [candidates, setCandidates] = React.useState<NotebookGrantCandidate[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
   const [picked, setPicked] = React.useState<string | null>(null);
   const [level, setLevel] = React.useState<NoteAccessLevel>("write");
   const [busy, setBusy] = React.useState(false);
@@ -819,17 +830,20 @@ function AddGrantModal({
     if (!open) return;
     setPicked(null);
     setLevel("write");
+    setLoadError(null);
+    setError(null);
     api
       .get<NotebookGrantCandidate[]>(
         `/api/companies/${company.id}/notebooks/${notebook.slug}/grant-candidates`,
       )
       .then(setCandidates)
-      .catch((err) => toast((err as Error).message, "error"));
-  }, [open, company.id, notebook.slug, toast]);
+      .catch((err: unknown) => setLoadError(errorMessage(err, "Could not load the AI employees")));
+  }, [open, company.id, notebook.slug]);
 
   async function submit() {
     if (!picked) return;
     setBusy(true);
+    setError(null);
     try {
       await api.post(
         `/api/companies/${company.id}/notebooks/${notebook.slug}/grants`,
@@ -837,7 +851,7 @@ function AddGrantModal({
       );
       await onAdded();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -847,7 +861,9 @@ function AddGrantModal({
 
   return (
     <Modal open={open} onClose={onClose} title="Share notebook with an AI employee">
-      {candidates === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : candidates === null ? (
         <Spinner />
       ) : available.length === 0 ? (
         <div className="text-sm text-slate-500 dark:text-slate-400">
@@ -939,6 +955,8 @@ function AddGrantModal({
             This access cascades — every page in the notebook (including
             new ones added later) inherits the same level.
           </div>
+
+          <FormError message={error} />
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>

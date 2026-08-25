@@ -1,5 +1,6 @@
 import React from "react";
 import { Button } from "../ui/Button";
+import { FormError } from "../ui/FormError";
 import { Modal } from "../ui/Modal";
 
 type Props = {
@@ -8,6 +9,7 @@ type Props = {
   description: string;
   submitLabel: string;
   saving: boolean;
+  error?: string | null;
   onClose: () => void;
   onSubmit: (details: { title: string; description: string }) => void;
 };
@@ -18,6 +20,7 @@ export function ExploreDashboardDetailsModal({
   description,
   submitLabel,
   saving,
+  error,
   onClose,
   onSubmit,
 }: Props) {
@@ -65,6 +68,7 @@ export function ExploreDashboardDetailsModal({
             className="mt-1 w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
           />
         </label>
+        <FormError message={error} />
         <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
           <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             Cancel

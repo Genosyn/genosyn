@@ -2,14 +2,15 @@ import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { Download, Lock, Plus, Trash2, Unlock } from "lucide-react";
 import { AccountingPeriod, api } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /**
@@ -24,7 +25,7 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinancePeriods() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
 
   const [periods, setPeriods] = React.useState<AccountingPeriod[] | null>(null);
@@ -60,12 +61,8 @@ export default function FinancePeriods() {
     background(
       () => api.post<AccountingPeriod>(`/api/companies/${company.id}/periods/${p.id}/close`),
       {
-        loading: "Closing accounting period…",
-        success: "Accounting period closed",
-        error: (error) =>
-          `Couldn\u2019t close the period: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. It remains open.`,
+        title: "Couldn’t close the period",
+        error: (error) => `${errorMessage(error)} It remains open.`,
         onSuccess: (updated) => {
           setPeriods(
             (current) =>
@@ -98,12 +95,8 @@ export default function FinancePeriods() {
     background(
       () => api.post<AccountingPeriod>(`/api/companies/${company.id}/periods/${p.id}/reopen`),
       {
-        loading: "Re-opening accounting period…",
-        success: "Accounting period re-opened",
-        error: (error) =>
-          `Couldn\u2019t re-open the period: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. It remains closed.`,
+        title: "Couldn’t re-open the period",
+        error: (error) => `${errorMessage(error)} It remains closed.`,
         onSuccess: (updated) => {
           setPeriods(
             (current) =>
@@ -127,12 +120,8 @@ export default function FinancePeriods() {
     const originalIndex = periods?.findIndex((item) => item.id === p.id) ?? -1;
     setPeriods((current) => current?.filter((item) => item.id !== p.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/periods/${p.id}`), {
-      loading: "Deleting accounting period…",
-      success: "Accounting period deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the period: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the period",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setPeriods((current) => {
           if (!current || current.some((item) => item.id === p.id)) return current;
@@ -317,7 +306,6 @@ function NewPeriodModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
   const now = new Date();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
@@ -327,10 +315,12 @@ function NewPeriodModal({
   const [startDate, setStartDate] = React.useState(monthStart.toISOString().slice(0, 10));
   const [endDate, setEndDate] = React.useState(monthEnd.toISOString().slice(0, 10));
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
       await api.post(`/api/companies/${companyId}/periods`, {
         name: name.trim(),
@@ -339,7 +329,7 @@ function NewPeriodModal({
       });
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -371,6 +361,7 @@ function NewPeriodModal({
             required
           />
         </div>
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel

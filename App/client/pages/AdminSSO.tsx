@@ -13,9 +13,10 @@ import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { clsx } from "../components/ui/clsx";
+import { errorMessage } from "../lib/errors";
 
 /**
  * Admin → SSO. Instance-wide single sign-on — disabled by default. Operators
@@ -61,7 +62,10 @@ export function AdminSSO() {
   const [saving, setSaving] = React.useState(false);
   const [checking, setChecking] = React.useState(false);
   const [resetting, setResetting] = React.useState(false);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
+  const [copyNotice, setCopyNotice] = React.useState<string | null>(null);
   const dialog = useDialog();
 
   const reload = React.useCallback(async () => {
@@ -69,10 +73,11 @@ export function AdminSSO() {
       const d = await api.get<SsoSettings>("/api/admin/sso");
       setData(d);
       setDraft(seedDraft(d));
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the SSO settings"));
     }
-  }, [toast]);
+  }, []);
 
   React.useEffect(() => {
     reload();
@@ -84,7 +89,7 @@ export function AdminSSO() {
         <TopBar title="SSO" />
         <Card>
           <CardBody>
-            <Spinner />
+            {loadError ? <FormError message={loadError} /> : <Spinner />}
           </CardBody>
         </Card>
       </>
@@ -102,6 +107,8 @@ export function AdminSSO() {
 
   const save = async () => {
     setSaving(true);
+    setError(null);
+    setNotice(null);
     try {
       const next = await api.put<SsoSettings>("/api/admin/sso", {
         enabled: draft.enabled,
@@ -114,29 +121,30 @@ export function AdminSSO() {
       });
       setData(next);
       setDraft(seedDraft(next));
-      toast(next.enabled ? "SSO enabled" : "SSO settings saved", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
   };
 
   const checkIssuer = async () => {
+    setError(null);
+    setNotice(null);
     const issuer =
       draft.provider === "google"
         ? "https://accounts.google.com"
         : draft.issuer.trim();
     if (!issuer) {
-      toast("Enter the issuer URL first", "error");
+      setError("Enter the issuer URL first");
       return;
     }
     setChecking(true);
     try {
       await api.post<SsoIssuerCheck>("/api/admin/sso/test", { issuer });
-      toast("Issuer looks good — discovery document found", "success");
+      setNotice("Issuer looks good — discovery document found");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setChecking(false);
     }
@@ -152,24 +160,29 @@ export function AdminSSO() {
     });
     if (!ok) return;
     setResetting(true);
+    setError(null);
+    setNotice(null);
     try {
       const next = await api.del<SsoSettings>("/api/admin/sso");
       setData(next);
       setDraft(seedDraft(next));
-      toast("SSO reset to the disabled default", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t reset SSO" });
     } finally {
       setResetting(false);
     }
   };
 
   const copyCallback = async () => {
+    setCopyNotice(null);
     try {
       await navigator.clipboard.writeText(data.callbackUrl);
-      toast("Callback URL copied", "success");
-    } catch {
-      toast("Could not copy — select and copy it manually", "error");
+      setCopyNotice("Callback URL copied");
+    } catch (err) {
+      void dialog.error(err, {
+        title: "Couldn’t copy the callback URL",
+        message: "Select the URL and copy it manually.",
+      });
     }
   };
 
@@ -185,6 +198,7 @@ export function AdminSSO() {
       />
 
       <div className="flex flex-col gap-4">
+        <FormError message={loadError} />
         <StatusBanner data={data} />
 
         <Card>
@@ -364,6 +378,9 @@ export function AdminSSO() {
                 account (or have been invited); unknown emails are refused.
               </p>
 
+              <FormError message={error} />
+              <FormSuccess message={notice} />
+
               <div className="flex items-center justify-between pt-1">
                 <Button
                   type="button"
@@ -409,6 +426,7 @@ export function AdminSSO() {
                 <Copy size={14} /> Copy
               </Button>
             </div>
+            <FormSuccess message={copyNotice} className="mt-2" />
           </CardBody>
         </Card>
       </div>

@@ -3,7 +3,9 @@ import { Select } from "@/components/ui/Select";
 import { Check, X } from "lucide-react";
 import { api } from "../lib/api";
 import { Modal } from "../components/ui/Modal";
-import { useToast } from "../components/ui/Toast";
+import { useBackgroundAction } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
+import { errorMessage } from "../lib/errors";
 import { Avatar } from "../components/ui/Avatar";
 import { useLiveRefetch } from "../components/CompanySocket";
 
@@ -60,11 +62,13 @@ export function ExploreShareModal({
   slug: string;
   rowTitle: string;
 }) {
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const [grants, setGrants] = React.useState<Grant[]>([]);
   const [candidates, setCandidates] = React.useState<Candidate[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [addError, setAddError] = React.useState<string | null>(null);
 
   const base = `/api/companies/${companyId}/explore/${kind === "chart" ? "charts" : "dashboards"}/${slug}`;
 
@@ -78,27 +82,38 @@ export function ExploreShareModal({
       ]);
       setGrants(g.direct);
       setCandidates(cs);
+      setLoadError(null);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setLoadError(errorMessage(err, "Could not load who has access"));
     } finally {
       setLoading(false);
     }
-  }, [open, base, toast]);
+  }, [open, base]);
 
   React.useEffect(() => {
     reload();
   }, [reload]);
 
+  // The banners live in component state now, so clear them on close rather
+  // than letting a stale failure greet the next person who opens the modal.
+  React.useEffect(() => {
+    if (!open) {
+      setLoadError(null);
+      setAddError(null);
+    }
+  }, [open]);
+
   useLiveRefetch("grant", reload);
 
   async function add(employeeId: string, accessLevel: AccessLevel) {
     setBusy(true);
+    setAddError(null);
     try {
       await api.post<Grant>(`${base}/grants`, { employeeId, accessLevel });
       await reload();
       onChanged?.();
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setAddError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -110,11 +125,8 @@ export function ExploreShareModal({
       current.map((item) => (item.id === grant.id ? { ...item, accessLevel: next } : item)),
     );
     background(() => api.patch(`${base}/grants/${grant.id}`, { accessLevel: next }), {
-      loading: "Updating share access…",
-      error: (error) =>
-        `Couldn\u2019t update access: ${
-          error instanceof Error ? error.message : String(error)
-        }. The change was undone.`,
+      title: "Couldn’t update access",
+      error: (error) => `${errorMessage(error)} The change was undone.`,
       onSuccess: () => onChanged?.(),
       onError: () => {
         setGrants((current) => current.map((item) => (item.id === grant.id ? grant : item)));
@@ -128,12 +140,8 @@ export function ExploreShareModal({
     const originalIndex = grants.findIndex((item) => item.id === grantId);
     setGrants((current) => current.filter((item) => item.id !== grantId));
     background(() => api.del(`${base}/grants/${grantId}`), {
-      loading: "Removing share access…",
-      success: "Share access removed",
-      error: (error) =>
-        `Couldn\u2019t remove access: ${
-          error instanceof Error ? error.message : String(error)
-        }. The grant has been restored.`,
+      title: "Couldn’t remove access",
+      error: (error) => `${errorMessage(error)} The grant has been restored.`,
       onSuccess: () => onChanged?.(),
       onError: () => {
         setGrants((current) => {
@@ -167,7 +175,9 @@ export function ExploreShareModal({
 
         <div>
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Has access</h3>
-          {loading ? (
+          {loadError ? (
+            <FormError message={loadError} className="mt-2" />
+          ) : loading ? (
             <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">Loading…</p>
           ) : grants.length === 0 ? (
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
@@ -217,6 +227,7 @@ export function ExploreShareModal({
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
             Add an employee
           </h3>
+          <FormError message={addError} className="mt-2" />
           {ungranted.length === 0 ? (
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
               Every AI employee in this company already has access.

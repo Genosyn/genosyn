@@ -16,8 +16,10 @@ import {
   TrendingUp,
 } from "lucide-react";
 
-import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
 import { api, type Employee, type IntegrationConnection } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import {
   formatMarketingMoney,
   formatMarketingMultiple,
@@ -113,18 +115,21 @@ const emptySnapshot = {
 export function MarketingCampaignDetailPage() {
   const { company } = useOutletContext<MarketingOutletCtx>();
   const { campaignId } = useParams();
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [detail, setDetail] = React.useState<Detail | null>(null);
   const [error, setError] = React.useState("");
   const [windowDays, setWindowDays] = React.useState(30);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [connections, setConnections] = React.useState<IntegrationConnection[]>([]);
+  const [optionsError, setOptionsError] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState<CampaignDraft | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const [briefError, setBriefError] = React.useState<string | null>(null);
   const [recording, setRecording] = React.useState(false);
   const [snapshot, setSnapshot] = React.useState(emptySnapshot);
   const [showSnapshotForm, setShowSnapshotForm] = React.useState(false);
+  const [snapshotError, setSnapshotError] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     const result = await api.get<Detail>(
@@ -148,35 +153,35 @@ export function MarketingCampaignDetailPage() {
         setEmployees(employeeRows);
         setConnections(connectionRows);
       })
-      .catch((err: Error) => toast(err.message, "error"));
-  }, [company.id, toast]);
-
-  async function patchCampaign(body: Record<string, unknown>, message: string) {
-    try {
-      await api.patch(
-        `/api/companies/${company.id}/marketing/campaigns/${campaignId}`,
-        body,
+      .catch((err: unknown) =>
+        setOptionsError(errorMessage(err, "Could not load AI Employees and Connections")),
       );
-      await load();
-      toast(message, "success");
-      return true;
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not update Campaign", "error");
-      return false;
-    }
+  }, [company.id]);
+
+  async function patchCampaign(body: Record<string, unknown>) {
+    await api.patch(`/api/companies/${company.id}/marketing/campaigns/${campaignId}`, body);
+    await load();
   }
 
   async function saveBrief(event: React.FormEvent) {
     event.preventDefault();
     if (!draft) return;
     setSaving(true);
-    if (await patchCampaign(draftToPayload(draft), "Brief saved")) setEditing(false);
-    setSaving(false);
+    setBriefError(null);
+    try {
+      await patchCampaign(draftToPayload(draft));
+      setEditing(false);
+    } catch (err) {
+      setBriefError(errorMessage(err, "Could not save the brief"));
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function recordSnapshot(event: React.FormEvent) {
     event.preventDefault();
     setRecording(true);
+    setSnapshotError(null);
     try {
       await api.post(`/api/companies/${company.id}/marketing/performance`, {
         campaignId,
@@ -193,9 +198,8 @@ export function MarketingCampaignDetailPage() {
       setSnapshot(emptySnapshot);
       setShowSnapshotForm(false);
       await load();
-      toast("Performance recorded", "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not record performance", "error");
+      setSnapshotError(errorMessage(err, "Could not record performance"));
     } finally {
       setRecording(false);
     }
@@ -236,7 +240,11 @@ export function MarketingCampaignDetailPage() {
             {campaign.externalCampaignId
               ? `Platform id ${campaign.externalCampaignId}`
               : "Not linked to a platform Campaign yet"}
-            {owner ? ` · Owned by ${owner.name}` : " · No owning AI Employee"}
+            {campaign.ownerEmployeeId
+              ? owner
+                ? ` · Owned by ${owner.name}`
+                : " · Owner unavailable"
+              : " · No owning AI Employee"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -245,9 +253,13 @@ export function MarketingCampaignDetailPage() {
             <button
               key={action.value}
               className={action.primary ? primaryButton : secondaryButton}
-              onClick={() =>
-                patchCampaign({ status: action.value }, `Campaign marked ${action.value}`)
-              }
+              onClick={async () => {
+                try {
+                  await patchCampaign({ status: action.value });
+                } catch (err) {
+                  void dialog.error(err, { title: "Couldn’t change the Campaign status" });
+                }
+              }}
             >
               {action.icon} {action.label}
             </button>
@@ -255,6 +267,7 @@ export function MarketingCampaignDetailPage() {
           <button
             className={secondaryButton}
             onClick={() => {
+              setBriefError(null);
               setDraft(campaignToDraft(campaign));
               setEditing((value) => !value);
             }}
@@ -263,6 +276,10 @@ export function MarketingCampaignDetailPage() {
           </button>
         </div>
       </div>
+
+      {/* The AI Employees and Connections load runs on mount, long before the
+          brief form is opened, so its failure belongs on the page itself. */}
+      <FormError message={optionsError} className="mb-6" />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricTile
@@ -324,6 +341,7 @@ export function MarketingCampaignDetailPage() {
             employees={employees}
             connections={connections}
           />
+          <FormError message={briefError} className="mt-5" />
           <div className="mt-5 flex justify-end gap-2">
             <button type="button" className={secondaryButton} onClick={() => setEditing(false)}>
               Cancel
@@ -347,7 +365,10 @@ export function MarketingCampaignDetailPage() {
             </div>
             <button
               className={secondaryButton}
-              onClick={() => setShowSnapshotForm((value) => !value)}
+              onClick={() => {
+                setSnapshotError(null);
+                setShowSnapshotForm((value) => !value);
+              }}
             >
               <Plus size={14} /> Record readout
             </button>
@@ -450,6 +471,7 @@ export function MarketingCampaignDetailPage() {
                 history and stops counting. A period that overlaps a different existing window is
                 refused, because the two would count the same spend twice.
               </p>
+              <FormError message={snapshotError} className="mt-4" />
               <div className="mt-4 flex justify-end gap-2">
                 <button
                   type="button"

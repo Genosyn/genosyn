@@ -11,9 +11,10 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { api, Company, Notification, NotificationKind } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "./ui/Avatar";
 import { useCompanySocketSubscription } from "./CompanySocket";
-import { useToast } from "./ui/Toast";
+import { useBackgroundAction } from "./ui/Dialog";
 import { useNavigationGuard } from "./NavigationGuard";
 
 /**
@@ -26,7 +27,7 @@ import { useNavigationGuard } from "./NavigationGuard";
 export function NotificationsPanel({ company, meId }: { company: Company; meId: string }) {
   const navigate = useNavigate();
   const navigationGuard = useNavigationGuard();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const [open, setOpen] = React.useState(false);
   const [count, setCount] = React.useState(0);
   const [items, setItems] = React.useState<Notification[]>([]);
@@ -39,8 +40,8 @@ export function NotificationsPanel({ company, meId }: { company: Company; meId: 
       );
       setCount(r.count);
     } catch {
-      // Stale count is preferable to a UI error toast — the panel will
-      // recompute the next time the user opens it.
+      // Stale count is preferable to interrupting the user — the panel will
+      // recompute the next time it is opened.
     }
   }, [company.id]);
 
@@ -107,11 +108,8 @@ export function NotificationsPanel({ company, meId }: { company: Company; meId: 
             notificationId: n.id,
           }),
         {
-          loading: "Marking notification read…",
-          error: (error) =>
-            `Couldn\u2019t mark the notification read: ${
-              error instanceof Error ? error.message : "Unknown error"
-            }. It will be reconciled on refresh.`,
+          title: "Couldn’t mark the notification read",
+          error: (error) => `${errorMessage(error)} It will be reconciled on refresh.`,
           onError: () => {
             void refreshCount();
             void refreshList();
@@ -127,12 +125,8 @@ export function NotificationsPanel({ company, meId }: { company: Company; meId: 
     setItems((rows) => rows.map((r) => (r.readAt ? r : { ...r, readAt: now })));
     setCount(0);
     background(() => api.post(`/api/companies/${company.id}/notifications/mark-all-read`), {
-      loading: "Marking notifications read…",
-      success: "Notifications marked read",
-      error: (error) =>
-        `Couldn\u2019t mark notifications read: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. The list has been refreshed.`,
+      title: "Couldn’t mark notifications read",
+      error: (error) => `${errorMessage(error)} The list has been refreshed.`,
       onError: () => {
         void refreshCount();
         void refreshList();

@@ -9,13 +9,13 @@ import {
   InvoiceListItem,
   InvoiceStatus,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Menu, MenuItem } from "../components/ui/Menu";
-import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type StatusFilter = "all" | InvoiceStatus | "overdue" | "written_off" | "credited";
@@ -48,7 +48,7 @@ const STATUS_BADGE: Record<StatusFilter, string> = {
  */
 export default function FinanceInvoices() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const navigate = useNavigate();
   const [invoices, setInvoices] = React.useState<InvoiceListItem[] | null>(null);
@@ -76,12 +76,8 @@ export default function FinanceInvoices() {
     const originalIndex = invoices?.findIndex((item) => item.id === inv.id) ?? -1;
     setInvoices((current) => current?.filter((item) => item.id !== inv.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/invoices/${inv.slug}`), {
-      loading: "Deleting invoice draft…",
-      success: "Invoice draft deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the invoice: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the invoice",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setInvoices((current) => {
           if (!current || current.some((item) => item.id === inv.id)) return current;
@@ -98,10 +94,9 @@ export default function FinanceInvoices() {
       const draft = await api.post<Invoice>(
         `/api/companies/${company.id}/invoices/${inv.slug}/duplicate`,
       );
-      toast("Invoice duplicated as draft", "success");
       navigate(`/c/${company.slug}/finance/invoices/${draft.slug}/edit`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t duplicate the invoice" });
     }
   }
 
@@ -123,12 +118,8 @@ export default function FinanceInvoices() {
       (current) => current?.map((item) => (item.id === inv.id ? optimistic : item)) ?? current,
     );
     background(() => api.post<Invoice>(`/api/companies/${company.id}/invoices/${inv.slug}/void`), {
-      loading: "Voiding invoice…",
-      success: "Invoice voided",
-      error: (error) =>
-        `Couldn\u2019t void the invoice: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. The change was undone.`,
+      title: "Couldn’t void the invoice",
+      error: (error) => `${errorMessage(error)} The change was undone.`,
       onSuccess: (updated) => {
         setInvoices(
           (current) =>

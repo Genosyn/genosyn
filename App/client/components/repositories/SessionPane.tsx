@@ -43,6 +43,7 @@ import {
   RepositoryWorkSessionDiff,
   RepositoryWorkSessionTurn,
 } from "../../lib/api";
+import { errorMessage } from "../../lib/errors";
 
 /**
  * One work session, everywhere it is shown.
@@ -96,7 +97,6 @@ export function SessionPane({
   canReachRemote,
   checkoutBranch,
   dialog,
-  toast,
   onChanged,
   onGone,
   layout = "page",
@@ -112,7 +112,6 @@ export function SessionPane({
   canReachRemote: boolean;
   checkoutBranch: string | null;
   dialog: ReturnType<typeof useDialog>;
-  toast: (message: string, kind?: "success" | "error") => void;
   onChanged: () => Promise<void>;
   onGone: () => void;
   layout?: SessionPaneLayout;
@@ -135,9 +134,9 @@ export function SessionPane({
   const [detailError, setDetailError] = React.useState<string | null>(null);
   const [diffError, setDiffError] = React.useState<string | null>(null);
   /**
-   * The last action's failure, kept on the page rather than only in a toast.
-   * A toast that says a pull request could not be opened is gone by the time
-   * someone has finished reading it, and these messages are instructions.
+   * The last action's failure, kept on the page until it is dismissed. A
+   * message saying a pull request could not be opened is an instruction, not
+   * a notice — it has to stay put while someone acts on it.
    */
   const [failure, setFailure] = React.useState<string | null>(null);
   const transcriptEnd = React.useRef<HTMLDivElement | null>(null);
@@ -274,9 +273,7 @@ export function SessionPane({
     try {
       await work();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setFailure(message);
-      toast(message, "error");
+      setFailure(errorMessage(err));
     } finally {
       setActing(false);
     }
@@ -285,7 +282,7 @@ export function SessionPane({
   async function send() {
     const text = instruction.trim();
     if (!text) {
-      toast("Say what should change.", "error");
+      setFailure("Say what should change.");
       return;
     }
     setSending(true);
@@ -299,11 +296,9 @@ export function SessionPane({
       setDetail(next);
       await onChanged();
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      // The banner, not only a toast: this is the one action whose failure
+      // The banner keeps this on screen: this is the one action whose failure
       // message people need while they retype the instruction.
-      setFailure(message);
-      toast(message, "error");
+      setFailure(errorMessage(err));
     } finally {
       setSending(false);
     }
@@ -324,7 +319,6 @@ export function SessionPane({
       await api.post(`${base}/sessions/${sessionId}/publish`, { push });
       await reload();
       await onChanged();
-      toast(push ? "Accepted and sent" : `Accepted into ${target}`, "success");
     });
   }
 
@@ -338,18 +332,9 @@ export function SessionPane({
     });
     if (!ok) return;
     await run(async () => {
-      const updated = await api.post<RepositoryWorkSession>(
-        `${base}/sessions/${sessionId}/pull-request`,
-        {},
-      );
+      await api.post(`${base}/sessions/${sessionId}/pull-request`, {});
       await reload();
       await onChanged();
-      toast(
-        updated.pullRequestNumber
-          ? `Pull request #${updated.pullRequestNumber} is ${isUpdate ? "up to date" : "open"}`
-          : "Pull request opened",
-        "success",
-      );
     });
   }
 
@@ -367,7 +352,6 @@ export function SessionPane({
       await api.post(`${base}/sessions/${sessionId}/discard`);
       await reload();
       await onChanged();
-      toast("Work thrown away", "success");
     });
   }
 
@@ -375,12 +359,13 @@ export function SessionPane({
     const next = (renaming ?? "").trim();
     setRenaming(null);
     if (!next || next === session?.title) return;
+    setFailure(null);
     try {
       await api.patch(`${base}/sessions/${sessionId}`, { title: next });
       await reload();
       await onChanged();
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setFailure(errorMessage(err));
     }
   }
 

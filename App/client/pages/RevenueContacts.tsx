@@ -21,8 +21,8 @@ import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
-import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
+import { errorMessage } from "../lib/errors";
 import { RevenueOutletCtx } from "./RevenueLayout";
 
 /**
@@ -235,7 +235,7 @@ export function ownerLabel(
 export default function RevenueContacts() {
   const { company } = useOutletContext<RevenueOutletCtx>();
   const navigate = useNavigate();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
 
   // `null` is the loading state — there is no separate loading flag. `total`
@@ -356,12 +356,8 @@ export default function RevenueContacts() {
           }`,
         ),
       {
-        loading: archived ? "Archiving contact…" : "Restoring contact…",
-        success: archived ? "Contact archived" : "Contact restored",
-        error: (error) =>
-          `Couldn’t update ${before.name}: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The change was undone.`,
+        title: `Couldn’t update ${before.name}`,
+        error: (error) => `${errorMessage(error)} The change was undone.`,
         onSuccess: () => load(),
         onError: () => {
           setRows((current) => {
@@ -396,12 +392,8 @@ export default function RevenueContacts() {
           { doNotContact: next },
         ),
       {
-        loading: next ? "Marking do not contact…" : "Allowing contact…",
-        success: next ? "Marked do not contact" : "Contact allowed again",
-        error: (error) =>
-          `Couldn’t update ${contact.name}: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The change was undone.`,
+        title: `Couldn’t update ${contact.name}`,
+        error: (error) => `${errorMessage(error)} The change was undone.`,
         onError: () => patchRow(contact.id, { doNotContact: contact.doNotContact }),
       },
     );
@@ -761,7 +753,6 @@ function NewContactModal({
   onClose: () => void;
   onCreated: (contact: RevenueContact) => void;
 }) {
-  const { background } = useToast();
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [title, setTitle] = React.useState("");
@@ -773,7 +764,7 @@ function NewContactModal({
   const [error, setError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     const trimmedName = name.trim();
     if (!trimmedName) {
@@ -795,30 +786,24 @@ function NewContactModal({
 
     setError(null);
     setSaving(true);
-    background(
-      () =>
-        api.post<RevenueContact>(`/api/companies/${companyId}/revenue/contacts`, body),
-      {
-        loading: "Creating contact…",
-        success: (contact) => `${contact.name} added`,
-        error: () => "The contact was not created.",
-        onSuccess: (contact) => {
-          setSaving(false);
-          onCreated(contact);
-        },
-        onError: (err) => {
-          setSaving(false);
-          const message = err instanceof Error ? err.message : "Unknown error";
-          // `api` throws a bare Error, so the 409 is recognised by the message
-          // the service writes. Anything else is reported verbatim.
-          setError(
-            /already exists/i.test(message)
-              ? `${trimmedEmail || "That address"} is already on a contact in this company. Search for it in the list and open that record instead of creating a second one.`
-              : message,
-          );
-        },
-      },
-    );
+    try {
+      const contact = await api.post<RevenueContact>(
+        `/api/companies/${companyId}/revenue/contacts`,
+        body,
+      );
+      onCreated(contact);
+    } catch (err) {
+      const message = errorMessage(err);
+      // `api` throws a bare Error, so the 409 is recognised by the message
+      // the service writes. Anything else is reported verbatim.
+      setError(
+        /already exists/i.test(message)
+          ? `${trimmedEmail || "That address"} is already on a contact in this company. Search for it in the list and open that record instead of creating a second one.`
+          : message,
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

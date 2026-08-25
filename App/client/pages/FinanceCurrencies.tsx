@@ -9,8 +9,9 @@ import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
+import { errorMessage } from "../lib/errors";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /**
@@ -23,8 +24,8 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinanceCurrencies() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { background } = useToast();
   const dialog = useDialog();
+  const background = useBackgroundAction();
 
   const [settings, setSettings] = React.useState<CompanyFinanceSettings | null>(null);
   const [currencies, setCurrencies] = React.useState<Currency[] | null>(null);
@@ -63,12 +64,8 @@ export default function FinanceCurrencies() {
           homeCurrency: code,
         }),
       {
-        loading: "Changing home currency…",
-        success: `Home currency set to ${code}`,
-        error: (error) =>
-          `Couldn\u2019t change the home currency: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The previous currency has been restored.`,
+        title: "Couldn’t change the home currency",
+        error: (error) => `${errorMessage(error)} The previous currency has been restored.`,
         onSuccess: setSettings,
         onError: () => setSettings(previous),
       },
@@ -85,12 +82,8 @@ export default function FinanceCurrencies() {
     const originalIndex = currencies?.findIndex((item) => item.id === c.id) ?? -1;
     setCurrencies((current) => current?.filter((item) => item.id !== c.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/currencies/${c.id}`), {
-      loading: "Deleting currency…",
-      success: "Currency deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the currency: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the currency",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setCurrencies((current) => {
           if (!current || current.some((item) => item.id === c.id)) return current;
@@ -112,12 +105,8 @@ export default function FinanceCurrencies() {
     const originalIndex = rates?.findIndex((item) => item.id === r.id) ?? -1;
     setRates((current) => current?.filter((item) => item.id !== r.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/exchange-rates/${r.id}`), {
-      loading: "Deleting exchange rate…",
-      success: "Exchange rate deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the exchange rate: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the exchange rate",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setRates((current) => {
           if (!current || current.some((item) => item.id === r.id)) return current;
@@ -318,7 +307,6 @@ function RateModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
   const [from, setFrom] = React.useState(
     currencies.find((c) => c.code !== homeCurrency)?.code ?? "EUR",
   );
@@ -327,10 +315,12 @@ function RateModal({
   const [rate, setRate] = React.useState("1.0");
   const [source, setSource] = React.useState("manual");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
       await api.post(`/api/companies/${companyId}/exchange-rates`, {
         fromCurrency: from,
@@ -341,7 +331,7 @@ function RateModal({
       });
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -386,6 +376,7 @@ function RateModal({
           onChange={(e) => setSource(e.target.value)}
           placeholder="manual / ECB / bank"
         />
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
@@ -408,16 +399,17 @@ function AddCurrencyModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
   const [code, setCode] = React.useState("");
   const [name, setName] = React.useState("");
   const [symbol, setSymbol] = React.useState("");
   const [decimalPlaces, setDecimalPlaces] = React.useState("2");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
       await api.post(`/api/companies/${companyId}/currencies`, {
         code: code.trim().toUpperCase(),
@@ -427,7 +419,7 @@ function AddCurrencyModal({
       });
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -459,6 +451,7 @@ function AddCurrencyModal({
             inputMode="numeric"
           />
         </div>
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel

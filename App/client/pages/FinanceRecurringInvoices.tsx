@@ -7,12 +7,13 @@ import {
   RecurringInvoiceListItem,
   RecurringInvoiceStatus,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { describeCron } from "../lib/schedule";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type StatusFilter = "all" | RecurringInvoiceStatus;
@@ -47,9 +48,9 @@ function formatRelative(iso: string | null): string {
  */
 export default function FinanceRecurringInvoices() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
   const navigate = useNavigate();
   const [rows, setRows] = React.useState<RecurringInvoiceListItem[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<StatusFilter>("all");
 
   const reload = React.useCallback(() => {
@@ -57,12 +58,15 @@ export default function FinanceRecurringInvoices() {
       .get<RecurringInvoiceListItem[]>(
         `/api/companies/${company.id}/recurring-invoices`,
       )
-      .then(setRows)
-      .catch((err: Error) => {
-        toast(err.message, "error");
+      .then((list) => {
+        setRows(list);
+        setLoadError(null);
+      })
+      .catch((err: unknown) => {
+        setLoadError(errorMessage(err, "Could not load the recurring invoices"));
         setRows([]);
       });
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -140,7 +144,9 @@ export default function FinanceRecurringInvoices() {
         ))}
       </div>
 
-      {filtered === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : filtered === null ? (
         <div className="flex justify-center p-16">
           <Spinner size={20} />
         </div>

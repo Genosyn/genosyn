@@ -54,17 +54,18 @@ import {
   TodoRecurrence,
   TodoStatus,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { useTasks } from "./TasksLayout";
 import { clsx } from "../components/ui/clsx";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
@@ -802,7 +803,7 @@ function SubtaskCountChip({ stats }: { stats: ChildStats }) {
 export default function ProjectDetail({ company, me }: { company: Company; me: Me }) {
   const { pSlug } = useParams();
   const navigate = useNavigate();
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const { reload: reloadProjects } = useTasks();
 
@@ -832,10 +833,12 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
       const d = await api.get<ProjectTodos>(`/api/companies/${company.id}/projects/${pSlug}/todos`);
       setData(d);
     } catch (err) {
-      toast((err as Error).message, "error");
+      // Nothing of this project survives the failure — we bounce back to the
+      // task list, so the message has to travel with us in the modal.
+      void dialog.error(err, { title: "Couldn’t open the project" });
       navigate(`/c/${company.slug}/tasks`);
     }
-  }, [company.id, company.slug, pSlug, navigate, toast]);
+  }, [company.id, company.slug, pSlug, navigate, dialog]);
 
   React.useEffect(() => {
     reload();
@@ -919,11 +922,8 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
     );
 
     background(() => api.patch<Todo>(`/api/companies/${company.id}/todos/${t.id}`, patch), {
-      loading: "Saving todo…",
-      error: (error) =>
-        `Couldn\u2019t save the todo: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. The change was undone.`,
+      title: "Couldn’t save the todo",
+      error: (error) => `${errorMessage(error)} The change was undone.`,
       onSuccess: (updated) => {
         if (todoMutationSeq.current.get(t.id) === seq) {
           setData((current) =>
@@ -939,14 +939,9 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
         }
         const becameDone =
           patch.status === "done" && t.status !== "done" && t.recurrence !== "none";
-        if (becameDone) {
-          void reload().then(() => {
-            toast(
-              `Next occurrence scheduled (${RECURRENCE_LABEL[t.recurrence].toLowerCase()}).`,
-              "success",
-            );
-          });
-        }
+        // The refetch is the confirmation: the next occurrence shows up as a
+        // new row in the list the user is looking at.
+        if (becameDone) void reload();
         void reloadProjects();
       },
       onError: () => {
@@ -987,12 +982,8 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
     if (peekId === t.id) setPeekId(null);
 
     background(() => api.del(`/api/companies/${company.id}/todos/${t.id}`), {
-      loading: "Deleting todo…",
-      success: "Todo deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the todo: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the todo",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onSuccess: () => void reloadProjects(),
       onError: () => {
         setData((current) =>
@@ -1475,12 +1466,13 @@ function NewTodoRow({
   const [status, setStatus] = React.useState<TodoStatus>("todo");
   const [recurrence, setRecurrence] = React.useState<TodoRecurrence>("none");
   const [busy, setBusy] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
     setBusy(true);
+    setError(null);
     try {
       const t = await api.post<Todo>(`/api/companies/${companyId}/projects/${projectSlug}/todos`, {
         title: title.trim(),
@@ -1501,46 +1493,46 @@ function NewTodoRow({
       setRecurrence("none");
       inputRef.current?.focus();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <form
-      onSubmit={submit}
-      className="flex items-center gap-2 border-b border-slate-200 bg-white px-6 py-2 dark:bg-slate-900 dark:border-slate-700"
-    >
-      <Plus size={14} className="text-slate-400 dark:text-slate-500" />
-      <input
-        ref={inputRef}
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="Add a todo… (c)"
-        className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
-      />
-      <StatusPicker value={status} onChange={setStatus} />
-      <PriorityPicker value={priority} onChange={setPriority} />
-      <RecurrencePicker value={recurrence} onChange={setRecurrence} />
-      <AssigneePicker
-        value={assignee}
-        employees={employees}
-        members={members}
-        onChange={setAssignee}
-      />
-      <AssigneePicker
-        value={reviewer}
-        employees={employees}
-        members={members}
-        onChange={setReviewer}
-        role="reviewer"
-        compact
-      />
-      <Button type="submit" size="sm" disabled={!title.trim() || busy}>
-        {busy ? "…" : "Add"}
-      </Button>
-    </form>
+    <div className="border-b border-slate-200 bg-white dark:bg-slate-900 dark:border-slate-700">
+      <form onSubmit={submit} className="flex items-center gap-2 px-6 py-2">
+        <Plus size={14} className="text-slate-400 dark:text-slate-500" />
+        <input
+          ref={inputRef}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Add a todo… (c)"
+          className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
+        />
+        <StatusPicker value={status} onChange={setStatus} />
+        <PriorityPicker value={priority} onChange={setPriority} />
+        <RecurrencePicker value={recurrence} onChange={setRecurrence} />
+        <AssigneePicker
+          value={assignee}
+          employees={employees}
+          members={members}
+          onChange={setAssignee}
+        />
+        <AssigneePicker
+          value={reviewer}
+          employees={employees}
+          members={members}
+          onChange={setReviewer}
+          role="reviewer"
+          compact
+        />
+        <Button type="submit" size="sm" disabled={!title.trim() || busy}>
+          {busy ? "…" : "Add"}
+        </Button>
+      </form>
+      <FormError message={error} className="mx-6 mb-2" />
+    </div>
   );
 }
 
@@ -2357,7 +2349,7 @@ function SubtasksSection({
 }) {
   const [title, setTitle] = React.useState("");
   const [busy, setBusy] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   const done = subtasks.filter((t) => t.status === "done" || t.status === "cancelled").length;
 
@@ -2366,6 +2358,7 @@ function SubtasksSection({
     const trimmed = title.trim();
     if (!trimmed) return;
     setBusy(true);
+    setError(null);
     try {
       // Assignee intentionally omitted — the server defaults it to the
       // creator, which is the right owner for a step you just wrote down.
@@ -2376,7 +2369,7 @@ function SubtasksSection({
       onCreated(t);
       setTitle("");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -2447,20 +2440,23 @@ function SubtasksSection({
       )}
 
       {canEdit && (
-        <form onSubmit={add} className="mt-2 flex items-center gap-2">
-          <Plus size={14} className="shrink-0 text-slate-400 dark:text-slate-500" />
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Add a subtask…"
-            className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
-          />
-          {title.trim() && (
-            <Button type="submit" size="sm" disabled={busy}>
-              {busy ? "…" : "Add"}
-            </Button>
-          )}
-        </form>
+        <>
+          <FormError message={error} className="mt-2" />
+          <form onSubmit={add} className="mt-2 flex items-center gap-2">
+            <Plus size={14} className="shrink-0 text-slate-400 dark:text-slate-500" />
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Add a subtask…"
+              className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none dark:text-slate-100"
+            />
+            {title.trim() && (
+              <Button type="submit" size="sm" disabled={busy}>
+                {busy ? "…" : "Add"}
+              </Button>
+            )}
+          </form>
+        </>
       )}
       {!canEdit && subtasks.length === 0 && (
         <p className="text-sm text-slate-400 dark:text-slate-500">No subtasks.</p>
@@ -2672,11 +2668,12 @@ function ProjectGeneralTab({
   onDeleted: () => void;
 }) {
   const [busy, setBusy] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
   const dialog = useDialog();
 
   async function save() {
     setBusy(true);
+    setError(null);
     try {
       await api.patch(`/api/companies/${company.id}/projects/${project.slug}`, {
         name,
@@ -2686,13 +2683,14 @@ function ProjectGeneralTab({
       await onSaved();
       onClose();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
   }
 
   async function remove() {
+    setError(null);
     const ok = await dialog.confirm({
       title: `Delete "${project.name}"?`,
       message: "The project and all of its todos will be permanently removed.",
@@ -2705,7 +2703,7 @@ function ProjectGeneralTab({
       await api.del(`/api/companies/${company.id}/projects/${project.slug}`);
       onDeleted();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -2743,6 +2741,7 @@ function ProjectGeneralTab({
           className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 disabled:opacity-60 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100"
         />
       </div>
+      <FormError message={error} />
       <div className="mt-2 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
         {canEdit ? (
           <Button variant="danger" onClick={remove} disabled={busy}>
@@ -2797,11 +2796,13 @@ function ProjectAccessTab({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [access, setAccess] = React.useState<ProjectAccessResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  // Every control on this tab writes straight through, so they share one
+  // banner rather than each growing an error slot of its own.
+  const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [addPick, setAddPick] = React.useState("");
   const [addLevel, setAddLevel] = React.useState<ProjectAccessLevel>("write");
@@ -2814,7 +2815,7 @@ function ProjectAccessTab({
     try {
       setAccess(await api.get<ProjectAccessResponse>(`${base}/access`));
     } catch (err) {
-      setLoadError((err as Error).message);
+      setLoadError(errorMessage(err, "Could not load who has access"));
     } finally {
       setLoading(false);
     }
@@ -2827,6 +2828,7 @@ function ProjectAccessTab({
   async function setMode(next: ProjectAccessMode) {
     if (!access || access.accessMode === next) return;
     setBusy(true);
+    setError(null);
     try {
       await api.patch(base, { accessMode: next });
       // Flipping to restricted seeds the acting user with "Can edit" server
@@ -2834,7 +2836,7 @@ function ProjectAccessTab({
       await reloadAccess();
       await onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -2844,6 +2846,7 @@ function ProjectAccessTab({
     if (!addPick) return;
     const [kind, id] = addPick.split(":");
     setBusy(true);
+    setError(null);
     try {
       await api.post<ProjectMember>(`${base}/access`, {
         memberKind: kind === "ai" ? "ai" : "user",
@@ -2853,7 +2856,7 @@ function ProjectAccessTab({
       setAddPick("");
       await reloadAccess();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -2862,17 +2865,19 @@ function ProjectAccessTab({
   async function changeLevel(m: ProjectMember, next: ProjectAccessLevel) {
     if (m.accessLevel === next) return;
     setBusy(true);
+    setError(null);
     try {
       await api.patch(`${base}/access/${m.id}`, { accessLevel: next });
       await reloadAccess();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
   }
 
   async function removeMember(m: ProjectMember) {
+    setError(null);
     const isMe = m.memberKind === "user" && m.userId === me.id;
     if (isMe) {
       const ok = await dialog.confirm({
@@ -2895,7 +2900,7 @@ function ProjectAccessTab({
       }
       await reloadAccess();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -2937,6 +2942,7 @@ function ProjectAccessTab({
 
   return (
     <div className="flex flex-col gap-5">
+      <FormError message={error} />
       <div className="flex flex-col gap-2">
         <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
           Who can open this project
@@ -3159,8 +3165,9 @@ function CommentThread({
   companySlug: string;
   canEdit: boolean;
 }) {
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const [comments, setComments] = React.useState<TodoComment[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [body, setBody] = React.useState("");
   const [mentionId, setMentionId] = React.useState<string | null>(null);
   const scrollerRef = React.useRef<HTMLDivElement>(null);
@@ -3179,14 +3186,16 @@ function CommentThread({
         `/api/companies/${companyId}/todos/${todo.id}/comments`,
       );
       setComments(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the discussion"));
       setComments([]);
     }
-  }, [companyId, todo.id, toast]);
+  }, [companyId, todo.id]);
 
   React.useEffect(() => {
     setComments(null);
+    setLoadError(null);
     setBody("");
     setMentionId(null);
     load();
@@ -3240,11 +3249,8 @@ function CommentThread({
           mentionEmployeeId: withMention ? mentionId : null,
         }),
       {
-        loading: withMention ? "Posting and asking AI…" : "Posting comment…",
-        error: (error) =>
-          `Couldn\u2019t post the comment: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. Your text has been restored.`,
+        title: "Couldn’t post the comment",
+        error: (error) => `${errorMessage(error)} Your text has been restored.`,
         onSuccess: (created) => {
           setComments((current) => [
             ...(current ?? []).filter((comment) => comment.id !== optimisticId),
@@ -3291,11 +3297,8 @@ function CommentThread({
     const originalIndex = comments?.findIndex((comment) => comment.id === c.id) ?? -1;
     setComments((current) => current?.filter((comment) => comment.id !== c.id) ?? current);
     background(() => api.del(`/api/companies/${companyId}/comments/${c.id}`), {
-      loading: "Deleting comment…",
-      error: (error) =>
-        `Couldn\u2019t delete the comment: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the comment",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setComments((current) => {
           if (!current || current.some((comment) => comment.id === c.id)) return current;
@@ -3322,7 +3325,9 @@ function CommentThread({
       </div>
 
       <div ref={scrollerRef} className="flex flex-col gap-3">
-        {comments === null ? (
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : comments === null ? (
           <div className="flex justify-center py-4">
             <Spinner size={14} />
           </div>

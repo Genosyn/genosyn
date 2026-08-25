@@ -1,12 +1,14 @@
 import React from "react";
 import { Check, Globe, Megaphone, Plug, ShieldCheck, X, Zap } from "lucide-react";
 import { api, Approval, ApprovalKind, ApprovalStatus, Company } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { useLiveRefetch } from "../components/CompanySocket";
 
 /**
@@ -36,7 +38,6 @@ type ApprovalCopy = {
   subtitle: string;
   Icon: typeof ShieldCheck;
   iconClass: string;
-  approvedToast: string;
 };
 
 function copyFor(a: Approval): ApprovalCopy {
@@ -47,18 +48,16 @@ function copyFor(a: Approval): ApprovalCopy {
         subtitle: a.summary ?? "Send a Lightning payment",
         Icon: Zap,
         iconClass: "text-amber-500",
-        approvedToast: "Approved — sending payment",
       };
     case "browser_action":
+      // Browser actions don't run server-side — the model re-fires via
+      // browser_resume once the row flips to approved. The re-fire is
+      // bound to the approved page and runs once.
       return {
         title: a.title ?? "Browser submit",
         subtitle: a.summary ?? "AI employee wants to submit a form",
         Icon: Globe,
         iconClass: "text-indigo-500",
-        // Browser actions don't run server-side — the model re-fires via
-        // browser_resume once the row flips to approved. The re-fire is
-        // bound to the approved page and runs once.
-        approvedToast: "Approved — the AI can resume this browser action",
       };
     case "mcp_tool":
       return {
@@ -66,7 +65,6 @@ function copyFor(a: Approval): ApprovalCopy {
         subtitle: a.summary ?? "AI employee wants to run a guarded tool",
         Icon: Plug,
         iconClass: "text-sky-600",
-        approvedToast: "Approved — running the tool call",
       };
     case "ad_spend":
       return {
@@ -74,7 +72,6 @@ function copyFor(a: Approval): ApprovalCopy {
         subtitle: a.summary ?? "AI employee wants to change ad spend",
         Icon: Megaphone,
         iconClass: "text-rose-500",
-        approvedToast: "Approved — applying the change",
       };
     case "routine":
     default:
@@ -83,14 +80,15 @@ function copyFor(a: Approval): ApprovalCopy {
         subtitle: "Run scheduled routine",
         Icon: ShieldCheck,
         iconClass: "text-amber-600",
-        approvedToast: "Approved — running now",
       };
   }
 }
 
 export default function Approvals({ company }: { company: Company }) {
   const [rows, setRows] = React.useState<Approval[] | null>(null);
-  const { toast, background } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const dialog = useDialog();
+  const background = useBackgroundAction();
   const base = `/api/companies/${company.id}/approvals`;
   const canDecide = company.role === "owner" || company.role === "admin";
 
@@ -102,8 +100,9 @@ export default function Approvals({ company }: { company: Company }) {
     try {
       const list = await api.get<Approval[]>(base);
       setRows(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load approvals"));
       setRows([]);
     }
   }
@@ -132,24 +131,15 @@ export default function Approvals({ company }: { company: Company }) {
     background(
       () => api.post<Approval & { executeError?: string }>(`${base}/${row.id}/${action}`),
       {
-        loading: action === "approve" ? "Approving request…" : "Rejecting request…",
-        success: (updated) =>
-          action === "approve" && updated.executeError
-            ? null
-            : action === "approve"
-              ? copyFor(row).approvedToast
-              : "Rejected",
-        error: (error) =>
-          `Couldn\u2019t record the decision: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The approval is pending again.`,
+        title: "Couldn’t record the decision",
+        error: (error) => `${errorMessage(error)} The approval is pending again.`,
         onSuccess: (updated) => {
           setRows(
             (current) =>
               current?.map((item) => (item.id === updated.id ? updated : item)) ?? current,
           );
           if (action === "approve" && updated.executeError) {
-            toast(`Approved, but execute failed: ${updated.executeError}`, "error");
+            void dialog.error(updated.executeError, { title: "Approved, but the action failed" });
           }
         },
         onError: () => {
@@ -179,7 +169,9 @@ export default function Approvals({ company }: { company: Company }) {
   return (
     <div className="page-shell p-8">
       <TopBar title="Approvals" />
-      {rows === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : rows === null ? (
         <Spinner />
       ) : rows.length === 0 ? (
         <EmptyState

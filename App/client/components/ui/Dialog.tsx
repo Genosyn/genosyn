@@ -2,6 +2,7 @@ import React from "react";
 import { X, AlertTriangle } from "lucide-react";
 import { Button } from "./Button";
 import { clsx } from "./clsx";
+import { errorMessage } from "../../lib/errors";
 
 /**
  * Promise-returning confirm/prompt/alert dialogs that replace the browser
@@ -13,6 +14,13 @@ import { clsx } from "./clsx";
  *   if (!(await dialog.confirm({ title: "Delete?", variant: "danger" }))) return;
  *   const name = await dialog.prompt({ title: "Rename", defaultValue: cur });
  *   await dialog.alert({ title: "Heads up", message: "..." });
+ *   dialog.error(err, { title: "Couldn’t archive the thread" });
+ *
+ * `error` is the fallback error surface for an action with no form to put
+ * the message in — a row button, a menu item, an optimistic update that
+ * had to roll back. When the failure belongs to a form the user is looking
+ * at, render a `<FormError>` inside that form instead: a modal over a form
+ * hides the fields the person has to fix.
  */
 
 type ConfirmOpts = {
@@ -44,10 +52,23 @@ type AlertOpts = {
   variant?: "default" | "danger";
 };
 
+type ErrorOpts = {
+  /** Headline for the modal. Say what failed, not that something failed. */
+  title?: string;
+  /** Overrides the message read off the thrown value. */
+  message?: string;
+  confirmLabel?: string;
+};
+
 type DialogApi = {
   confirm: (opts: ConfirmOpts) => Promise<boolean>;
   prompt: (opts: PromptOpts) => Promise<string | null>;
   alert: (opts: AlertOpts) => Promise<void>;
+  /**
+   * Show a failure in a modal. Resolves when it is dismissed; most callers
+   * fire it from a `catch` and ignore the promise.
+   */
+  error: (error: unknown, opts?: ErrorOpts) => Promise<void>;
 };
 
 type Request =
@@ -61,6 +82,49 @@ export function useDialog(): DialogApi {
   const ctx = React.useContext(DialogContext);
   if (!ctx) throw new Error("useDialog must be used inside <DialogProvider>");
   return ctx;
+}
+
+type BackgroundOptions<T> = {
+  /** Headline for the error modal. Say what failed. */
+  title?: string;
+  /** Message for the error modal; defaults to the thrown value's own. */
+  error?: string | ((error: unknown) => string);
+  onSuccess?: (result: T) => void;
+  /** Undo the optimistic update here. Runs before the modal opens. */
+  onError?: (error: unknown) => void;
+};
+
+/**
+ * Fire an action the user is not waiting on — the optimistic half of a
+ * click that already updated the screen. Nothing is shown while it runs or
+ * when it succeeds; a failure runs `onError` (put the rollback there) and
+ * then opens the error modal, so the row snapping back has an explanation
+ * attached to it.
+ *
+ *   const background = useBackgroundAction();
+ *   background(() => api.del(url), {
+ *     title: "Couldn’t delete the tag",
+ *     onError: () => setTags(previous),
+ *   });
+ */
+export function useBackgroundAction() {
+  const dialog = useDialog();
+  return React.useCallback(
+    <T,>(action: () => Promise<T>, options: BackgroundOptions<T> = {}) => {
+      void Promise.resolve()
+        .then(action)
+        .then((result) => {
+          options.onSuccess?.(result);
+        })
+        .catch((error: unknown) => {
+          options.onError?.(error);
+          const message =
+            typeof options.error === "function" ? options.error(error) : options.error;
+          void dialog.error(error, { title: options.title, message });
+        });
+    },
+    [dialog],
+  );
 }
 
 export function DialogProvider({ children }: { children: React.ReactNode }) {
@@ -79,6 +143,19 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
       alert: (opts) =>
         new Promise<void>((resolve) => {
           setCurrent({ kind: "alert", opts, resolve });
+        }),
+      error: (error, opts) =>
+        new Promise<void>((resolve) => {
+          setCurrent({
+            kind: "alert",
+            opts: {
+              title: opts?.title ?? "Something went wrong",
+              message: opts?.message ?? errorMessage(error),
+              confirmLabel: opts?.confirmLabel ?? "Close",
+              variant: "danger",
+            },
+            resolve,
+          });
         }),
     }),
     [],
@@ -218,7 +295,7 @@ function DialogShell({
               </div>
             )}
             {request.kind === "alert" && request.opts.message !== undefined && (
-              <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+              <div className="mt-1 max-h-[50vh] overflow-y-auto whitespace-pre-wrap break-words text-sm text-slate-600 dark:text-slate-300">
                 {request.opts.message}
               </div>
             )}

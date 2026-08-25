@@ -16,10 +16,11 @@ import {
 } from "lucide-react";
 import { ExploreShareModal } from "./ExploreShareModal";
 import { api, Company } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Select } from "../components/ui/Select";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { useExplore } from "./ExploreLayout";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
@@ -103,12 +104,12 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
   const isNew = slug === "new";
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const { reload: reloadIndex } = useExplore();
 
   const [connections, setConnections] = React.useState<ConnectionRow[] | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [connectionId, setConnectionId] = React.useState("");
@@ -119,6 +120,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
   const [runError, setRunError] = React.useState<string | null>(null);
   const [running, setRunning] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [dirty, setDirty] = React.useState(false);
   const [sharing, setSharing] = React.useState(false);
   const [chartId, setChartId] = React.useState<string | null>(null);
@@ -154,6 +156,8 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
     ranOnceRef.current = false;
     setResult(null);
     setSuggestion(null);
+    setLoadError(null);
+    setSaveError(null);
     if (isNew) {
       setChartId(null);
       setLoading(false);
@@ -177,9 +181,8 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
         setVizConfig(c.vizConfig);
         setDirty(false);
       })
-      .catch(() => {
-        toast("Chart not found", "error");
-        navigate(`/c/${company.slug}/explore`, { replace: true });
+      .catch((err: unknown) => {
+        setLoadError(errorMessage(err, "Chart not found"));
       })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -245,11 +248,11 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
 
   async function runSql(sqlOverride = sql, connectionOverride = connectionId) {
     if (!connectionOverride) {
-      toast("Pick a connection first", "error");
+      setRunError("Pick a connection first");
       return;
     }
     if (!sqlOverride.trim()) {
-      toast("SQL is empty", "error");
+      setRunError("SQL is empty");
       return;
     }
     setRunning(true);
@@ -262,7 +265,7 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
       setResult(r);
       setSuggestion(suggestExploreVisualization(r));
     } catch (err) {
-      setRunError((err as Error).message);
+      setRunError(errorMessage(err));
       setResult(null);
       setSuggestion(null);
     } finally {
@@ -306,16 +309,17 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
   }
 
   async function save() {
+    setSaveError(null);
     if (!title.trim()) {
-      toast("Chart needs a title", "error");
+      setSaveError("Chart needs a title");
       return;
     }
     if (!connectionId) {
-      toast("Pick a connection first", "error");
+      setSaveError("Pick a connection first");
       return;
     }
     if (!sql.trim()) {
-      toast("SQL is empty", "error");
+      setSaveError("SQL is empty");
       return;
     }
     setSaving(true);
@@ -333,7 +337,6 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
         navigate(`/c/${company.slug}/explore/charts/${created.slug}`, {
           replace: true,
         });
-        toast("Chart saved", "success");
       } else {
         await api.patch<ChartDTO>(`/api/companies/${company.id}/explore/charts/${slug}`, {
           title,
@@ -345,10 +348,9 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
         });
         setDirty(false);
         await reloadIndex();
-        toast("Saved", "success");
       }
     } catch (err) {
-      toast((err as Error).message, "error");
+      setSaveError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -368,8 +370,16 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
       await reloadIndex();
       navigate(`/c/${company.slug}/explore`, { replace: true });
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the chart" });
     }
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex h-full items-start justify-center px-6 pt-14">
+        <FormError message={loadError} className="w-full max-w-md" />
+      </div>
+    );
   }
 
   if (loading || connections === null) {
@@ -445,6 +455,8 @@ export default function ExploreChartDetail({ company }: { company: Company }) {
           </Button>
         </div>
       </div>
+
+      <FormError message={saveError} className="mx-3 mt-3 sm:mx-6" />
 
       {chartId && (
         <div className="border-b border-slate-200 bg-white px-6 py-2 dark:border-slate-700 dark:bg-slate-950">

@@ -10,7 +10,7 @@
  * insecure-context allow-list still permits.
  *
  * Returns `true` on a successful copy, `false` otherwise — callers decide
- * whether to toast / log / surface a manual fallback. We deliberately never
+ * whether to show a message, log it, or offer a manual fallback. We never
  * throw: a copy button that fails to copy is a UX nuisance, not an exception.
  */
 export async function copyToClipboard(text: string): Promise<boolean> {

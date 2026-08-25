@@ -8,13 +8,14 @@ import {
   formatMoney,
   parseMoneyToCents,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -27,7 +28,6 @@ const STATUS_BADGE: Record<string, string> = {
 export default function FinanceCreditNoteDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const { creditSlug } = useParams();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [credit, setCredit] = React.useState<CreditNoteDetail | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -68,7 +68,7 @@ export default function FinanceCreditNoteDetail() {
         ),
       );
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t unapply the credit" });
     }
   }
 
@@ -87,7 +87,7 @@ export default function FinanceCreditNoteDetail() {
         ),
       );
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t reverse the refund" });
     }
   }
 
@@ -108,7 +108,7 @@ export default function FinanceCreditNoteDetail() {
         ),
       );
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t void the credit note" });
     }
   }
 
@@ -346,16 +346,17 @@ function RefundModal({
   onClose: () => void;
   onSaved: (fresh: CreditNoteDetail) => void;
 }) {
-  const { toast } = useToast();
   const [amount, setAmount] = React.useState((maxCents / 100).toFixed(2));
   const [method, setMethod] = React.useState("bank_transfer");
   const [reference, setReference] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function submit() {
+    setError(null);
     const amountCents = parseMoneyToCents(amount);
     if (amountCents <= 0) {
-      toast("Enter a positive amount", "error");
+      setError("Enter a positive amount");
       return;
     }
     setBusy(true);
@@ -366,7 +367,7 @@ function RefundModal({
       );
       onSaved(fresh);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -391,6 +392,7 @@ function RefundModal({
           value={reference}
           onChange={(e) => setReference(e.target.value)}
         />
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
@@ -419,19 +421,20 @@ function ApplyCreditModal({
   onClose: () => void;
   onSaved: (fresh: CreditNoteDetail) => void;
 }) {
-  const { toast } = useToast();
   const [invoiceSlug, setInvoiceSlug] = React.useState("");
   const [amount, setAmount] = React.useState((maxCents / 100).toFixed(2));
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function submit() {
+    setError(null);
     const amountCents = parseMoneyToCents(amount);
     if (!invoiceSlug.trim()) {
-      toast("Enter the invoice number to apply to", "error");
+      setError("Enter the invoice number to apply to");
       return;
     }
     if (amountCents <= 0) {
-      toast("Enter a positive amount", "error");
+      setError("Enter a positive amount");
       return;
     }
     setBusy(true);
@@ -442,7 +445,7 @@ function ApplyCreditModal({
       );
       onSaved(fresh);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -467,6 +470,7 @@ function ApplyCreditModal({
           Capped at the credit&apos;s open balance and the invoice&apos;s outstanding
           balance, whichever is smaller.
         </p>
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel

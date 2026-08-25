@@ -18,10 +18,11 @@ import { useLiveRefetch } from "@/components/CompanySocket";
 import { TldrQuestions } from "@/components/tldrs/TldrQuestions";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
+import { useBackgroundAction } from "@/components/ui/Dialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Spinner } from "@/components/ui/Spinner";
-import { useToast } from "@/components/ui/Toast";
 import { api, type TldrItem, type TldrListResponse, type TldrSettings } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 import { formatRelative } from "@/components/decisions/relative";
 import type { TldrsOutletContext } from "@/pages/TldrsLayout";
 
@@ -30,7 +31,7 @@ type PageData = { list: TldrListResponse; settings: TldrSettings };
 
 export default function TldrsIndex() {
   const { company } = useOutletContext<TldrsOutletContext>();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const [data, setData] = React.useState<PageData | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [filter, setFilter] = React.useState<Filter>("unread");
@@ -89,12 +90,8 @@ export default function TldrsIndex() {
     });
 
     background(() => api.post(`/api/companies/${company.id}/tldrs/${item.id}/dismiss`), {
-      loading: "Dismissing TLDR…",
-      success: "TLDR dismissed",
-      error: (err) =>
-        `Couldn’t dismiss the TLDR: ${
-          err instanceof Error ? err.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t dismiss the TLDR",
+      error: (err) => `${errorMessage(err)} It has been restored.`,
       onError: () => {
         setData((current) => {
           if (!current) return current;

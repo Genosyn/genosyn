@@ -17,11 +17,10 @@ import { api, type TwoFactorStatus } from "../lib/api";
 import { TopBar } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
-import { FormError } from "../components/ui/FormError";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 
 type TotpSetup = {
   credentialId: string;
@@ -49,18 +48,23 @@ function formatDate(value: string): string {
  * inside whichever modal produced them so nobody has to hunt for it.
  */
 function RecoveryCodes({ codes }: { codes: string[] }) {
-  const { toast } = useToast();
+  const [copyNotice, setCopyNotice] = React.useState<string | null>(null);
+  const [copyError, setCopyError] = React.useState<string | null>(null);
 
   async function copy() {
+    setCopyNotice(null);
+    setCopyError(null);
     try {
       await navigator.clipboard.writeText(codes.join("\n"));
-      toast("Recovery codes copied", "success");
+      setCopyNotice("Recovery codes copied");
     } catch {
-      toast("Your browser could not copy the recovery codes", "error");
+      setCopyError("Your browser could not copy the recovery codes");
     }
   }
 
   function download() {
+    setCopyNotice(null);
+    setCopyError(null);
     const contents = [
       "Genosyn recovery codes",
       "Each code can be used once. Store these somewhere safe.",
@@ -97,6 +101,8 @@ function RecoveryCodes({ codes }: { codes: string[] }) {
           <Download size={14} /> Download
         </Button>
       </div>
+      <FormSuccess message={copyNotice} className="mt-3" />
+      <FormError message={copyError} className="mt-3" />
     </div>
   );
 }
@@ -218,7 +224,6 @@ function AddAuthenticatorModal({
   const [recoveryCodes, setRecoveryCodes] = React.useState<string[]>([]);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const { toast } = useToast();
 
   React.useEffect(() => {
     if (!open) return;
@@ -265,7 +270,6 @@ function AddAuthenticatorModal({
     try {
       const result = await api.post<EnrollmentResult>("/api/auth/two-factor/totp/verify", { code });
       onEnrolled(result.status);
-      toast("Authenticator app added", "success");
       if (result.recoveryCodes.length > 0) {
         setRecoveryCodes(result.recoveryCodes);
         setSetup(null);
@@ -397,7 +401,6 @@ function AddWebAuthnModal({
   const [recoveryCodes, setRecoveryCodes] = React.useState<string[]>([]);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const { toast } = useToast();
   const isSecurityKey = kind === "security_key";
 
   React.useEffect(() => {
@@ -432,7 +435,6 @@ function AddWebAuthnModal({
         response,
       });
       onEnrolled(result.status);
-      toast(isSecurityKey ? "Security key added" : "Passkey added", "success");
       if (result.recoveryCodes.length > 0) {
         setRecoveryCodes(result.recoveryCodes);
         setPassword("");
@@ -545,7 +547,6 @@ export function AccountSecurity() {
   const [regenerating, setRegenerating] = React.useState(false);
   const [disabling, setDisabling] = React.useState(false);
   const [newCodes, setNewCodes] = React.useState<string[]>([]);
-  const { toast } = useToast();
   const supportsWebAuthn = browserSupportsWebAuthn();
 
   const load = React.useCallback(async () => {
@@ -567,10 +568,6 @@ export function AccountSecurity() {
         ? `/api/auth/two-factor/totp/${removing.id}/remove`
         : `/api/auth/two-factor/webauthn/${removing.id}/remove`;
     setStatus(await api.post<TwoFactorStatus>(path, { currentPassword: password }));
-    toast(
-      removing.kind === "totp" ? "Authenticator app removed" : "Credential removed",
-      "success",
-    );
     setRemoving(null);
   }
 
@@ -580,7 +577,6 @@ export function AccountSecurity() {
     });
     setStatus(result.status);
     setNewCodes(result.recoveryCodes);
-    toast("Recovery codes regenerated", "success");
   }
 
   function closeRegenerate() {
@@ -596,7 +592,6 @@ export function AccountSecurity() {
     );
     setDisabling(false);
     setNewCodes([]);
-    toast("Two-factor authentication turned off", "success");
   }
 
   return (

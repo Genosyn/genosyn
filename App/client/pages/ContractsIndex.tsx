@@ -13,7 +13,6 @@ import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { ContractUploadModal } from "../components/ContractUploadModal";
@@ -29,7 +28,6 @@ import { useLiveRefetch } from "../components/CompanySocket";
  */
 export default function ContractsIndex() {
   const { company } = useOutletContext<CustomersOutletCtx>();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [contracts, setContracts] = React.useState<CustomerContract[] | null>(null);
   const [customers, setCustomers] = React.useState<Customer[]>([]);
@@ -73,7 +71,7 @@ export default function ContractsIndex() {
       await api.del(`/api/companies/${company.id}/contracts/${c.id}`);
       reload();
     } catch (e) {
-      toast((e as Error).message, "error");
+      void dialog.error(e, { title: "Couldn’t delete the contract" });
     }
   }
 

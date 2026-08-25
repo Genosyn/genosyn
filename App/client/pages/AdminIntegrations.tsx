@@ -13,9 +13,10 @@ import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { clsx } from "../components/ui/clsx";
+import { errorMessage } from "../lib/errors";
 
 /**
  * Admin → Integrations. Register each provider's OAuth client **once** for the
@@ -39,15 +40,16 @@ const LABEL_CLASS = "mb-1 block text-xs font-medium text-slate-600 dark:text-sla
 
 export function AdminIntegrations() {
   const [apps, setApps] = React.useState<OauthAppDescriptor[] | null>(null);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
       setApps(await api.get<OauthAppDescriptor[]>("/api/admin/oauth-apps"));
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the OAuth apps"));
     }
-  }, [toast]);
+  }, []);
 
   React.useEffect(() => {
     void reload();
@@ -57,9 +59,13 @@ export function AdminIntegrations() {
     return (
       <>
         <TopBar title="Integrations" />
-        <div className="flex justify-center py-16">
-          <Spinner />
-        </div>
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : (
+          <div className="flex justify-center py-16">
+            <Spinner />
+          </div>
+        )}
       </>
     );
   }
@@ -78,6 +84,7 @@ export function AdminIntegrations() {
       />
 
       <div className="flex flex-col gap-4">
+        <FormError message={loadError} />
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <div className="flex items-start gap-3">
             <ShieldCheck
@@ -123,7 +130,7 @@ function OauthAppCard({
   const [saving, setSaving] = React.useState(false);
   const [clearing, setClearing] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
   const dialog = useDialog();
 
   // Re-seed when a sibling card's save returns a fresh list for every app.
@@ -137,6 +144,7 @@ function OauthAppCard({
 
   const save = async () => {
     setSaving(true);
+    setError(null);
     try {
       const next = await api.put<OauthAppDescriptor[]>(`/api/admin/oauth-apps/${app.app}`, {
         clientId: clientId.trim(),
@@ -144,9 +152,8 @@ function OauthAppCard({
       });
       onChanged(next);
       setClientSecret("");
-      toast(`${app.label} OAuth app saved`, "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -162,11 +169,11 @@ function OauthAppCard({
     });
     if (!ok) return;
     setClearing(true);
+    setError(null);
     try {
       onChanged(await api.del<OauthAppDescriptor[]>(`/api/admin/oauth-apps/${app.app}`));
-      toast(`${app.label} OAuth app removed`, "info");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setClearing(false);
     }
@@ -177,8 +184,11 @@ function OauthAppCard({
       await navigator.clipboard.writeText(app.redirectUri);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      toast("Couldn’t copy — select the URI and copy it manually", "error");
+    } catch (err) {
+      void dialog.error(err, {
+        title: "Couldn’t copy the redirect URI",
+        message: "Select the URI and copy it manually.",
+      });
     }
   };
 
@@ -284,6 +294,8 @@ function OauthAppCard({
               />
             </div>
           </div>
+
+          <FormError message={error} />
 
           <div className="flex flex-wrap items-center gap-3">
             <Button type="submit" disabled={!dirty || !canSave || saving}>

@@ -4,8 +4,10 @@ import { ArrowUpRight, FolderGit2, GitBranch, Plus, Search, Users } from "lucide
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
 import { api, Company, Repository, RepositoryTestResult } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { RepoFormModal } from "./RepositoryForm";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -18,9 +20,10 @@ import { useLiveRefetch } from "../components/CompanySocket";
  */
 export default function RepositoriesIndex({ company }: { company: Company }) {
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const dialog = useDialog();
   const { reload: reloadSidebar } = useRepositoriesContext();
   const [items, setItems] = React.useState<Repository[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [showNew, setShowNew] = React.useState(false);
   const [query, setQuery] = React.useState("");
 
@@ -28,11 +31,12 @@ export default function RepositoriesIndex({ company }: { company: Company }) {
     try {
       const rows = await api.get<Repository[]>(`/api/companies/${company.id}/repositories`);
       setItems(rows);
+      setLoadError(null);
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not load repositories", "error");
+      setLoadError(errorMessage(err, "Could not load repositories"));
       setItems([]);
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -46,12 +50,13 @@ export default function RepositoriesIndex({ company }: { company: Company }) {
         const result = await api.post<RepositoryTestResult>(
           `/api/companies/${company.id}/repositories/${row.slug}/test`,
         );
-        toast(
-          result.ok ? `${row.name} is reachable` : `${row.name}: ${result.message}`,
-          result.ok ? "success" : "error",
-        );
+        // Reachable needs no announcement — the row's badge flips to
+        // "Connected" once the list is re-read below.
+        if (!result.ok) {
+          void dialog.error(result.message, { title: `Couldn’t reach ${row.name}` });
+        }
       } catch (err) {
-        toast(err instanceof Error ? err.message : String(err), "error");
+        void dialog.error(err, { title: `Couldn’t check ${row.name}` });
       } finally {
         // The badge on the row it just landed on is driven by the stored
         // result, so the list has to be re-read either way.
@@ -59,7 +64,7 @@ export default function RepositoriesIndex({ company }: { company: Company }) {
         void reloadSidebar();
       }
     },
-    [company.id, reload, reloadSidebar, toast],
+    [company.id, dialog, reload, reloadSidebar],
   );
 
   const filtered = React.useMemo(() => {
@@ -115,7 +120,9 @@ export default function RepositoriesIndex({ company }: { company: Company }) {
             </div>
           )}
 
-          {items === null ? (
+          {loadError ? (
+            <FormError message={loadError} className="mt-8" />
+          ) : items === null ? (
             <div className="mt-10 flex h-32 items-center justify-center">
               <Spinner size={20} />
             </div>

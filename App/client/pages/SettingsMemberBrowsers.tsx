@@ -3,17 +3,18 @@ import { useOutletContext } from "react-router-dom";
 import { Check, Copy, Laptop, Plus, Trash2, Unplug } from "lucide-react";
 
 import { api, type Employee, type MemberBrowser, type MemberBrowserGrantee } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Checkbox } from "../components/ui/Checkbox";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 
 /**
@@ -35,9 +36,9 @@ export function SettingsMemberBrowsers() {
 }
 
 export function MemberBrowsersPage({ companyId }: { companyId: string }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [browsers, setBrowsers] = React.useState<MemberBrowser[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [pairing, setPairing] = React.useState<{ browser: MemberBrowser; code: string } | null>(
     null,
@@ -46,11 +47,12 @@ export function MemberBrowsersPage({ companyId }: { companyId: string }) {
   const reload = React.useCallback(async () => {
     try {
       setBrowsers(await api.get<MemberBrowser[]>(`/api/companies/${companyId}/member-browsers`));
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load your browsers"));
       setBrowsers([]);
     }
-  }, [companyId, toast]);
+  }, [companyId]);
 
   React.useEffect(() => {
     void reload();
@@ -87,10 +89,9 @@ export function MemberBrowsersPage({ companyId }: { companyId: string }) {
     if (!ok) return;
     try {
       await api.del(`/api/companies/${companyId}/member-browsers/${browser.id}`);
-      toast(`${browser.name} disconnected`, "success");
       void reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: `Couldn’t disconnect ${browser.name}` });
     }
   }
 
@@ -103,7 +104,7 @@ export function MemberBrowsersPage({ companyId }: { companyId: string }) {
       setPairing({ browser, code: pairingCode });
       void reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t create a new pairing code" });
     }
   }
 
@@ -125,7 +126,9 @@ export function MemberBrowsersPage({ companyId }: { companyId: string }) {
           </Button>
         </CardHeader>
         <CardBody>
-          {browsers === null ? (
+          {loadError ? (
+            <FormError message={loadError} />
+          ) : browsers === null ? (
             <div className="flex justify-center py-8">
               <Spinner />
             </div>
@@ -265,12 +268,13 @@ function BrowserDetail({
   browser: MemberBrowser;
   onChanged: () => void | Promise<void>;
 }) {
-  const { toast } = useToast();
   const [allowedHosts, setAllowedHosts] = React.useState(browser.allowedHosts ?? "");
   const [approvalRequired, setApprovalRequired] = React.useState(browser.approvalRequired);
   const [allowUnattended, setAllowUnattended] = React.useState(browser.allowUnattended);
   const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [grantees, setGrantees] = React.useState<MemberBrowserGrantee[] | null>(null);
+  const [grantsError, setGrantsError] = React.useState<string | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [picking, setPicking] = React.useState("");
 
@@ -286,11 +290,12 @@ function BrowserDetail({
       ]);
       setGrantees(granted);
       setEmployees(all);
+      setGrantsError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setGrantsError(errorMessage(err, "Could not load the AI Employees"));
       setGrantees([]);
     }
-  }, [companyId, browser.id, toast]);
+  }, [companyId, browser.id]);
 
   React.useEffect(() => {
     void reloadGrants();
@@ -306,6 +311,7 @@ function BrowserDetail({
 
   async function patch(body: Record<string, unknown>) {
     setSaving(true);
+    setSaveError(null);
     try {
       const updated = await api.patch<MemberBrowser>(
         `/api/companies/${companyId}/member-browsers/${browser.id}`,
@@ -316,7 +322,7 @@ function BrowserDetail({
       setAllowUnattended(updated.allowUnattended);
       void onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setSaveError(errorMessage(err));
       await onChanged();
     } finally {
       setSaving(false);
@@ -359,6 +365,8 @@ function BrowserDetail({
           </Button>
         )}
       </div>
+
+      <FormError message={saveError} />
 
       <div className="flex flex-col gap-2">
         {browser.routineRecordingConsentRequired && (
@@ -407,7 +415,7 @@ function BrowserDetail({
           <div className="py-3">
             <Spinner size={16} />
           </div>
-        ) : grantees.length === 0 ? (
+        ) : grantees.length === 0 && !grantsError ? (
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             None yet. Nobody can use this browser until you grant it.
           </p>
@@ -424,13 +432,14 @@ function BrowserDetail({
                   aria-label={`Remove ${g.name}`}
                   className="text-slate-400 hover:text-rose-500"
                   onClick={async () => {
+                    setGrantsError(null);
                     try {
                       await api.del(
                         `/api/companies/${companyId}/member-browsers/${browser.id}/grants/${g.employeeId}`,
                       );
                       void reloadGrants();
                     } catch (err) {
-                      toast((err as Error).message, "error");
+                      setGrantsError(errorMessage(err));
                     }
                   }}
                 >
@@ -440,6 +449,7 @@ function BrowserDetail({
             ))}
           </ul>
         )}
+        <FormError message={grantsError} className="mt-1.5" />
         {ungranted.length > 0 && (
           <div className="mt-2 flex items-center gap-2">
             <Select
@@ -460,6 +470,7 @@ function BrowserDetail({
               variant="secondary"
               disabled={!picking}
               onClick={async () => {
+                setGrantsError(null);
                 try {
                   await api.post(
                     `/api/companies/${companyId}/member-browsers/${browser.id}/grants`,
@@ -468,7 +479,7 @@ function BrowserDetail({
                   setPicking("");
                   void reloadGrants();
                 } catch (err) {
-                  toast((err as Error).message, "error");
+                  setGrantsError(errorMessage(err));
                 }
               }}
             >
@@ -492,21 +503,23 @@ function CreateModal({
   onClose: () => void;
   onCreated: (browser: MemberBrowser, code: string) => void;
 }) {
-  const { toast } = useToast();
   const [name, setName] = React.useState("");
   const [allowedHosts, setAllowedHosts] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (open) {
       setName("");
       setAllowedHosts("");
+      setError(null);
     }
   }, [open]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
       const created = await api.post<MemberBrowser>(`/api/companies/${companyId}/member-browsers`, {
         name: name.trim(),
@@ -514,7 +527,7 @@ function CreateModal({
       });
       onCreated(created, created.pairingCode ?? "");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -542,6 +555,7 @@ function CreateModal({
           One host pattern per line. You can change this later, but the browser opens nothing until
           the list has something in it.
         </p>
+        <FormError message={error} />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel

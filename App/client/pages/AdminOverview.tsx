@@ -20,11 +20,12 @@ import {
   Users,
 } from "lucide-react";
 import { api, InstanceCheck, InstanceHealthReport, InstanceSeverity } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
 import type { AdminOutletCtx } from "./AdminLayout";
 
@@ -88,19 +89,20 @@ export function AdminOverview() {
   const { company } = useOutletContext<AdminOutletCtx>();
   const [report, setReport] = React.useState<InstanceHealthReport | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const base = `/c/${company.slug}/admin`;
 
   const reload = React.useCallback(async () => {
     setLoading(true);
     try {
       setReport(await api.get<InstanceHealthReport>("/api/admin/instance-health"));
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the instance report"));
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   React.useEffect(() => {
     reload();
@@ -110,11 +112,15 @@ export function AdminOverview() {
     return (
       <>
         <TopBar title="Overview" />
-        <Card>
-          <CardBody>
-            <Spinner />
-          </CardBody>
-        </Card>
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : (
+          <Card>
+            <CardBody>
+              <Spinner />
+            </CardBody>
+          </Card>
+        )}
       </>
     );
   }
@@ -154,6 +160,9 @@ export function AdminOverview() {
       />
 
       <div className="flex flex-col gap-4">
+        {/* A failed Refresh leaves the last good report on screen — say why. */}
+        <FormError message={loadError} />
+
         {/* Instance health hero */}
         <Card className={clsx("border", status.ring)}>
           <CardBody className="flex items-center gap-4">

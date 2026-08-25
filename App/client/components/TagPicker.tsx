@@ -1,8 +1,10 @@
 import React from "react";
 import { Check, Plus, Tag, X } from "lucide-react";
 import { api, CompanyTag, TaggableResourceType } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Spinner } from "./ui/Spinner";
-import { useToast } from "./ui/Toast";
+import { FormError } from "./ui/FormError";
+import { useBackgroundAction } from "./ui/Dialog";
 import { getTagColorOption, TagColorDot } from "./TagColorPicker";
 
 export function TagChips({ tags, limit }: { tags: CompanyTag[]; limit?: number }) {
@@ -79,7 +81,8 @@ export function TagPicker({
   const [saving, setSaving] = React.useState(false);
   const [displayValue, setDisplayValue] = React.useState(value);
   const rootRef = React.useRef<HTMLDivElement>(null);
-  const { toast, background } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
+  const background = useBackgroundAction();
 
   React.useEffect(() => {
     if (!saving) setDisplayValue(value);
@@ -88,11 +91,12 @@ export function TagPicker({
   const load = React.useCallback(async () => {
     try {
       setAvailable(await api.get<CompanyTag[]>(`/api/companies/${companyId}/tags`));
+      setError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err, "Could not load the tags"));
       setAvailable([]);
     }
-  }, [companyId, toast]);
+  }, [companyId]);
 
   React.useEffect(() => {
     if (open && available === null) load();
@@ -112,11 +116,8 @@ export function TagPicker({
     setDisplayValue(next);
     setSaving(true);
     background(() => Promise.resolve(onChange(next)).finally(() => setSaving(false)), {
-      loading: "Updating tags…",
-      error: (error) =>
-        `Couldn\u2019t update the tags: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. The change was undone.`,
+      title: "Couldn’t update the tags",
+      error: (error) => `${errorMessage(error)} The change was undone.`,
       onError: () => setDisplayValue(previous),
     });
   }
@@ -125,6 +126,7 @@ export function TagPicker({
     const name = query.trim().replace(/\s+/g, " ");
     if (!name || saving) return;
     setSaving(true);
+    setError(null);
     try {
       const created = await api.post<CompanyTag>(`/api/companies/${companyId}/tags`, { name });
       setAvailable((current) => {
@@ -138,7 +140,7 @@ export function TagPicker({
       }
       setQuery("");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err, "Could not create the tag"));
     } finally {
       setSaving(false);
     }
@@ -200,6 +202,7 @@ export function TagPicker({
               className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:border-indigo-700 dark:focus:ring-indigo-900/30"
             />
           </div>
+          {error && <FormError message={error} className="m-2" />}
           <div className="max-h-56 overflow-y-auto p-1">
             {available === null ? (
               <div className="flex justify-center p-4">
@@ -297,19 +300,21 @@ export function AsyncResourceTagPicker({
   label?: string;
 }) {
   const [tags, setTags] = React.useState<CompanyTag[] | null>(null);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     setTags(null);
+    setError(null);
     api
       .get<CompanyTag[]>(`/api/companies/${companyId}/tags/resources/${resourceType}/${resourceId}`)
       .then(setTags)
-      .catch((err) => {
-        toast((err as Error).message, "error");
+      .catch((err: unknown) => {
+        setError(errorMessage(err, "Could not load the tags"));
         setTags([]);
       });
-  }, [companyId, resourceId, resourceType, toast]);
+  }, [companyId, resourceId, resourceType]);
 
+  if (error) return <FormError message={error} />;
   if (tags === null) {
     return (
       <div className="h-9 rounded-lg bg-slate-100 dark:bg-slate-800" aria-label="Loading tags" />

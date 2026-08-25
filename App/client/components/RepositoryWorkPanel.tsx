@@ -16,7 +16,6 @@ import {
 import { SIDE_PANEL_MIN_SIDE_BY_SIDE_VIEWPORT } from "./ui/sidePanelWidth";
 import { Spinner } from "./ui/Spinner";
 import { useDialog } from "./ui/Dialog";
-import { useToast } from "./ui/Toast";
 
 /**
  * A Repository work session, docked beside the conversation that started it.
@@ -78,7 +77,6 @@ export function RepositoryWorkPanel({
   const [repositories, setRepositories] = React.useState<Repository[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [checkoutBranch, setCheckoutBranch] = React.useState<string | null>(null);
-  const { toast } = useToast();
   const dialog = useDialog();
 
   const load = React.useCallback(async () => {
@@ -258,7 +256,6 @@ export function RepositoryWorkPanel({
             canReachRemote={companyRole === "owner" || companyRole === "admin"}
             checkoutBranch={checkoutBranch}
             dialog={dialog}
-            toast={toast}
             onChanged={onChanged}
             onGone={onClose}
           />

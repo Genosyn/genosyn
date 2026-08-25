@@ -4,21 +4,22 @@ import { useOutletContext } from "react-router-dom";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { api, CompanyFinanceSettings } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const MAX_CC_EMAILS = 25;
 
 export default function FinanceSettings() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
   const [settings, setSettings] = React.useState<CompanyFinanceSettings | null>(
     null,
   );
   const [emails, setEmails] = React.useState<string[]>([""]);
   const [loadError, setLoadError] = React.useState("");
+  const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
@@ -54,6 +55,7 @@ export default function FinanceSettings() {
       return value ? [value] : [];
     });
     setBusy(true);
+    setError(null);
     try {
       const fresh = await api.patch<CompanyFinanceSettings>(
         `/api/companies/${company.id}/finance-settings`,
@@ -61,9 +63,8 @@ export default function FinanceSettings() {
       );
       setSettings(fresh);
       setEmails(fresh.invoiceCcEmails.length > 0 ? fresh.invoiceCcEmails : [""]);
-      toast("Invoice email settings saved", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -164,6 +165,8 @@ export default function FinanceSettings() {
             one-off Cc recipients added during a resend.
           </p>
         </div>
+
+        <FormError message={error} className="mt-6" />
 
         <div className="mt-6 flex justify-end gap-2">
           <Button

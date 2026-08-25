@@ -7,7 +7,7 @@ import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
 import {
   RunLiveModal,
   RunStatusChip,
@@ -57,7 +57,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
     routine: RoutineWithMeta;
     run: Run;
   } | null>(null);
-  const { toast } = useToast();
+  const dialog = useDialog();
   const navigate = useNavigate();
   const handledDeepLinkRef = React.useRef(false);
 
@@ -76,7 +76,9 @@ export default function RoutinesIndex({ company }: { company: Company }) {
     const runId = searchParams.get("run");
     const target = routines.find((r) => r.id === routineId);
     if (!target || !target.employee) {
-      toast("That routine no longer exists.", "error");
+      void dialog.error("That routine no longer exists.", {
+        title: "Couldn’t open that routine",
+      });
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -101,7 +103,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
       const run = await api.post<Run>(`/api/companies/${company.id}/routines/${r.id}/run`);
       setActiveRun({ routine: r, run });
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t start the run" });
     }
   }
 

@@ -43,10 +43,10 @@ import { DecisionCard } from "../components/decisions/DecisionCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
 import { Button, buttonClassName } from "../components/ui/Button";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { useCompanySocketSubscription, useLiveRefetch } from "../components/CompanySocket";
 import { SetupBanner } from "../components/SetupBanner";
+import { errorMessage } from "../lib/errors";
 import { enablePush, pushSupported } from "../lib/push";
 import { clsx } from "../components/ui/clsx";
 
@@ -68,7 +68,7 @@ const PUSH_PROMPT_DISMISSED_KEY = "genosyn.pushPromptDismissed";
 
 export default function HomePage({ company, me }: { company: Company; me: Me }) {
   const [data, setData] = React.useState<HomeData | null>(null);
-  const { background } = useToast();
+  const background = useBackgroundAction();
 
   const reload = React.useCallback(async () => {
     try {
@@ -118,12 +118,8 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     );
 
     background(() => api.post(`/api/companies/${company.id}/tldrs/${item.id}/dismiss`), {
-      loading: "Dismissing TLDR…",
-      success: "TLDR dismissed",
-      error: (err) =>
-        `Couldn’t dismiss the TLDR: ${
-          err instanceof Error ? err.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t dismiss the TLDR",
+      error: (err) => `${errorMessage(err)} It has been restored.`,
       onSuccess: () => void reload(),
       onError: () => {
         setData((current) => {
@@ -275,7 +271,7 @@ function Greeting({ me, company }: { me: Me; company: Company }) {
 // ───────────────────────── push prompt ───────────────────────────────────────
 
 function PushPromptBanner() {
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [visible, setVisible] = React.useState(
     () =>
       pushSupported() &&
@@ -289,10 +285,11 @@ function PushPromptBanner() {
     setBusy(true);
     try {
       await enablePush();
-      toast("Push notifications enabled on this device.", "success");
       setVisible(false);
     } catch (err) {
-      toast((err as Error).message, "error");
+      // The banner removes itself once permission is denied, so the failure
+      // has nowhere on the page left to sit — say it in the modal instead.
+      void dialog.error(err, { title: "Couldn’t enable push notifications" });
       if (Notification.permission === "denied") setVisible(false);
     } finally {
       setBusy(false);
@@ -517,7 +514,6 @@ function FailedRoutinesAlert({
   /** Refetch Home data after a run is rerun or dismissed so the panel updates. */
   onChanged: () => Promise<void> | void;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   // Which row is mid-request, and which of its two buttons owns the spinner.
   const [busy, setBusy] = React.useState<{ runId: string; action: "rerun" | "dismiss" } | null>(
@@ -530,7 +526,7 @@ function FailedRoutinesAlert({
       await api.post(`/api/companies/${company.id}/runs/${runId}/dismiss`);
       await onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t dismiss the failure" });
     } finally {
       setBusy(null);
     }
@@ -563,10 +559,9 @@ function FailedRoutinesAlert({
     try {
       await api.post(`/api/companies/${company.id}/routines/${r.routineId}/run`);
       await api.post(`/api/companies/${company.id}/runs/${r.runId}/dismiss`);
-      toast(`${r.routineName} is running again`, "success");
       await onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: `Couldn’t run ${r.routineName} again` });
     } finally {
       setBusy(null);
     }

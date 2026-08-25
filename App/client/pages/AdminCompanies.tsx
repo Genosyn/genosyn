@@ -2,12 +2,13 @@ import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { Bot, ExternalLink, RefreshCw, Search, Trash2, Users } from "lucide-react";
 import { AdminCompanyRow, api } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import type { AdminOutletCtx } from "./AdminLayout";
 
@@ -25,7 +26,6 @@ export function AdminCompanies() {
   const [error, setError] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
-  const { toast } = useToast();
   const dialog = useDialog();
 
   const reload = React.useCallback(async () => {
@@ -36,12 +36,11 @@ export function AdminCompanies() {
     } catch (err) {
       // Keep any previously-loaded rows on screen; surface the failure as its
       // own state instead of masquerading as an empty instance.
-      setError((err as Error).message);
-      toast((err as Error).message, "error");
+      setError(errorMessage(err, "Could not load companies"));
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   React.useEffect(() => {
     reload();
@@ -61,7 +60,6 @@ export function AdminCompanies() {
     setDeletingId(c.id);
     try {
       await api.del(`/api/admin/companies/${c.id}`);
-      toast(`Deleted ${c.name}`, "success");
       if (isCurrent) {
         // We just deleted the company backing this URL. A soft navigate would
         // land on the parent's still-stale companies array and resolve right
@@ -75,7 +73,7 @@ export function AdminCompanies() {
       onCompaniesChanged();
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: `Couldn’t delete ${c.name}` });
     } finally {
       setDeletingId(null);
     }
@@ -124,6 +122,10 @@ export function AdminCompanies() {
             </span>
           )}
         </div>
+
+        {/* A refresh that failed on top of a list already on screen: the
+          EmptyState below only covers the first load. */}
+        {error && rows !== null && <FormError message={error} />}
 
         {error && rows === null ? (
           <EmptyState

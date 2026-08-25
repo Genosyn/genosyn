@@ -11,13 +11,14 @@ import {
   Product,
   TaxRate,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type LineRow = {
@@ -65,7 +66,6 @@ function lineRowFromExisting(l: {
 export default function FinanceEstimateNew() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const { estimateSlug } = useParams();
   const isEdit = Boolean(estimateSlug);
 
@@ -89,6 +89,7 @@ export default function FinanceEstimateNew() {
   const [footer, setFooter] = React.useState("");
   const [lines, setLines] = React.useState<LineRow[]>([emptyLine()]);
   const [busy, setBusy] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     (async () => {
@@ -205,6 +206,7 @@ export default function FinanceEstimateNew() {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!canSave) return;
+    setSaveError(null);
     setBusy(true);
     try {
       const lineDrafts: EstimateLineDraft[] = lines
@@ -238,7 +240,7 @@ export default function FinanceEstimateNew() {
             );
       navigate(`/c/${company.slug}/finance/estimates/${est.slug}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setSaveError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -352,6 +354,8 @@ export default function FinanceEstimateNew() {
           </Button>
         </div>
       </div>
+
+      <FormError message={saveError} className="mb-4" />
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">

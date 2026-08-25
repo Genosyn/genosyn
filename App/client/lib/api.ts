@@ -17,7 +17,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
  *
  * Parsing before checking `res.ok` is what this replaces: a 502 from a proxy,
  * a 413, or any unhandled 500 answers with an HTML page, `JSON.parse` threw on
- * it, and the SyntaxError became the toast — so every infrastructure failure
+ * it, and the SyntaxError became the message — so every infrastructure failure
  * in the product surfaced as `Unexpected token '<'`. The status is always
  * worth more than that.
  */

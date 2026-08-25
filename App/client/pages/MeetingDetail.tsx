@@ -20,9 +20,11 @@ import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Panel, ProviderChip, StatusChip } from "../components/meetings/MeetingChips";
+import { errorMessage } from "../lib/errors";
 import {
   formatDuration,
   formatOffset,
@@ -45,10 +47,11 @@ import type { MeetingsOutletCtx } from "./MeetingsLayout";
 export default function MeetingDetail() {
   const { company } = useOutletContext<MeetingsOutletCtx>();
   const { meetingId } = useParams<{ meetingId: string }>();
-  const { toast } = useToast();
+  const dialog = useDialog();
 
   const [data, setData] = React.useState<MeetingDetailPayload | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [startingNotetaker, setStartingNotetaker] = React.useState(false);
   const [stoppingNotetaker, setStoppingNotetaker] = React.useState(false);
@@ -62,7 +65,7 @@ export default function MeetingDetail() {
     meetingsApi
       .meeting(company.id, meetingId)
       .then(setData)
-      .catch((err) => setError((err as Error).message));
+      .catch((err: unknown) => setError(errorMessage(err)));
   }, [company.id, meetingId]);
 
   React.useEffect(() => {
@@ -95,12 +98,12 @@ export default function MeetingDetail() {
   const upload = async (file: File) => {
     if (!meetingId) return;
     setBusy(true);
+    setNotice(null);
     try {
       await meetingsApi.uploadRecording(company.id, meetingId, file);
-      toast("Recording uploaded — transcribing now.", "success");
       reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t upload the recording" });
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -110,12 +113,12 @@ export default function MeetingDetail() {
   const rerun = async () => {
     if (!meetingId) return;
     setBusy(true);
+    setNotice(null);
     try {
       await meetingsApi.process(company.id, meetingId);
-      toast("Reprocessed.", "success");
       reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t re-run the write-up" });
     } finally {
       setBusy(false);
     }
@@ -124,17 +127,15 @@ export default function MeetingDetail() {
   const relink = async () => {
     if (!meetingId) return;
     setBusy(true);
+    setNotice(null);
     try {
       const { result } = await meetingsApi.link(company.id, meetingId);
-      toast(
-        result.matched > 0
-          ? `Linked to ${result.matched} contact${result.matched === 1 ? "" : "s"}.`
-          : "No attendee matched an existing Contact.",
-        result.matched > 0 ? "success" : "info",
-      );
+      // A match rewrites the attendee list in place; a miss leaves the page
+      // exactly as it was, so that is the one outcome worth saying out loud.
+      if (result.matched === 0) setNotice("No attendee matched an existing Contact.");
       reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t re-link the attendees" });
     } finally {
       setBusy(false);
     }
@@ -143,6 +144,7 @@ export default function MeetingDetail() {
   const startNotetaker = async () => {
     if (!meetingId) return;
     setStartingNotetaker(true);
+    setNotice(null);
     setData((current) =>
       current
         ? {
@@ -153,12 +155,8 @@ export default function MeetingDetail() {
     );
     try {
       await meetingsApi.startNotetaker(company.id, meetingId);
-      toast(
-        "The notetaker is joining Google Meet. Recording and transcription will continue here.",
-        "success",
-      );
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t start the notetaker" });
     } finally {
       setStartingNotetaker(false);
       reload();
@@ -168,16 +166,13 @@ export default function MeetingDetail() {
   const stopNotetaker = async () => {
     if (!meetingId) return;
     setStoppingNotetaker(true);
+    setNotice(null);
     try {
       await meetingsApi.stopNotetaker(company.id, meetingId);
-      toast(
-        "The notetaker is leaving. Any audio captured so far will still be processed.",
-        "success",
-      );
       reload();
     } catch (err) {
       setStoppingNotetaker(false);
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t stop the notetaker" });
       reload();
     }
   };
@@ -312,6 +307,7 @@ export default function MeetingDetail() {
         </div>
       </div>
 
+      <FormSuccess message={notice} className="mb-4" />
       {meeting.statusMessage && meeting.status === "failed" && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           {meeting.statusMessage}
@@ -520,24 +516,27 @@ function PasteTranscriptModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
   const [text, setText] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (open) setText("");
+    if (open) {
+      setText("");
+      setError(null);
+    }
   }, [open]);
 
   const submit = async () => {
     if (!text.trim()) return;
     setSaving(true);
+    setError(null);
     try {
       await meetingsApi.pasteTranscript(companyId, meetingId, text);
-      toast("Transcript saved — writing it up now.", "success");
       onSaved();
       onClose();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -558,6 +557,7 @@ function PasteTranscriptModal({
           }
           onChange={(e) => setText(e.target.value)}
         />
+        <FormError message={error} />
         <div className="flex justify-end gap-2">
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel
@@ -592,12 +592,17 @@ function AddAttendeesModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
   const [value, setValue] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (open) setValue("");
+    if (open) {
+      setValue("");
+      setError(null);
+      setNotice(null);
+    }
   }, [open]);
 
   const emails = parseEmailList(value);
@@ -605,18 +610,20 @@ function AddAttendeesModal({
   const submit = async () => {
     if (emails.length === 0) return;
     setSaving(true);
+    setError(null);
+    setNotice(null);
     try {
       const result = await meetingsApi.addAttendees(companyId, meetingId, emails);
-      toast(
-        result.added > 0
-          ? `Added ${result.added} attendee${result.added === 1 ? "" : "s"}.`
-          : "Everyone on that list was already here.",
-        result.added > 0 ? "success" : "info",
-      );
       onSaved();
+      if (result.added === 0) {
+        // Nobody new, so the attendee list behind this modal looks identical.
+        // Stay open and say why rather than closing onto an unchanged page.
+        setNotice("Everyone on that list was already here.");
+        return;
+      }
       onClose();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -637,6 +644,8 @@ function AddAttendeesModal({
           call on their timeline; anyone who is not is simply recorded as having been here — Genosyn
           never creates a Contact on its own.
         </p>
+        <FormError message={error} />
+        <FormSuccess message={notice} />
         <div className="flex justify-end gap-2">
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel

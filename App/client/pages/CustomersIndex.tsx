@@ -12,11 +12,11 @@ import {
   Users,
 } from "lucide-react";
 import { api, Customer, formatMoney } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { CustomersOutletCtx } from "./CustomersLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -30,7 +30,7 @@ import { useLiveRefetch } from "../components/CompanySocket";
 export default function CustomersIndex() {
   const { company } = useOutletContext<CustomersOutletCtx>();
   const navigate = useNavigate();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const [customers, setCustomers] = React.useState<Customer[] | null>(null);
   const [loadError, setLoadError] = React.useState(false);
@@ -71,12 +71,8 @@ export default function CustomersIndex() {
           archived,
         }),
       {
-        loading: archived ? "Archiving customer…" : "Restoring customer…",
-        success: archived ? "Customer archived" : "Customer restored",
-        error: (error) =>
-          `Couldn\u2019t update the customer: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The change was undone.`,
+        title: "Couldn’t update the customer",
+        error: (error) => `${errorMessage(error)} The change was undone.`,
         onSuccess: () => void reload(),
         onError: () => {
           setCustomers((current) => {
@@ -104,12 +100,8 @@ export default function CustomersIndex() {
     const originalIndex = customers?.findIndex((item) => item.id === c.id) ?? -1;
     setCustomers((current) => current?.filter((item) => item.id !== c.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/customers/${c.slug}`), {
-      loading: "Deleting customer…",
-      success: "Customer deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the customer: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the customer",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setCustomers((current) => {
           if (!current || current.some((item) => item.id === c.id)) return current;

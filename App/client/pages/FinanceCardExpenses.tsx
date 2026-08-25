@@ -13,24 +13,28 @@ import {
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
-import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
+import { errorMessage } from "../lib/errors";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 export default function FinanceCardExpenses() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast, background } = useToast();
   const dialog = useDialog();
+  const background = useBackgroundAction();
   const [feeds, setFeeds] = React.useState<CardFeed[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [accounts, setAccounts] = React.useState<Account[]>([]);
   const [activeFeedId, setActiveFeedId] = React.useState("");
   const [transactions, setTransactions] = React.useState<CardTransaction[] | null>(null);
+  const [transactionsError, setTransactionsError] = React.useState<string | null>(null);
   const [showNewFeed, setShowNewFeed] = React.useState(false);
   const [syncing, setSyncing] = React.useState(false);
+  const [syncNotice, setSyncNotice] = React.useState<string | null>(null);
   const [rowBusy, setRowBusy] = React.useState<string | null>(null);
 
   const reloadFeeds = React.useCallback(async () => {
@@ -40,6 +44,7 @@ export default function FinanceCardExpenses() {
     ]);
     setFeeds(nextFeeds);
     setAccounts(nextAccounts);
+    setLoadError(null);
     setActiveFeedId((current) => {
       if (current && nextFeeds.some((feed) => feed.id === current)) {
         return current;
@@ -51,6 +56,7 @@ export default function FinanceCardExpenses() {
   const reloadTransactions = React.useCallback(async () => {
     if (!activeFeedId) {
       setTransactions([]);
+      setTransactionsError(null);
       return;
     }
     setTransactions(
@@ -58,25 +64,29 @@ export default function FinanceCardExpenses() {
         `/api/companies/${company.id}/card-transactions?feedId=${encodeURIComponent(activeFeedId)}`,
       ),
     );
+    setTransactionsError(null);
   }, [activeFeedId, company.id]);
 
   React.useEffect(() => {
-    reloadFeeds().catch((err: Error) => {
+    reloadFeeds().catch((err: unknown) => {
       setFeeds([]);
-      toast(err.message, "error");
+      setLoadError(errorMessage(err, "Could not load the card feeds"));
     });
-  }, [reloadFeeds, toast]);
+  }, [reloadFeeds]);
 
   useLiveRefetch("cardexpense", reloadFeeds);
 
   React.useEffect(() => {
-    reloadTransactions().catch((err: Error) => {
+    reloadTransactions().catch((err: unknown) => {
       setTransactions([]);
-      toast(err.message, "error");
+      setTransactionsError(errorMessage(err, "Could not load the card transactions"));
     });
-  }, [reloadTransactions, toast]);
+  }, [reloadTransactions]);
 
   useLiveRefetch("cardexpense", reloadTransactions);
+
+  // The sync summary belongs to one feed — drop it when the selection moves.
+  React.useEffect(() => setSyncNotice(null), [activeFeedId]);
 
   const activeFeed = feeds?.find((feed) => feed.id === activeFeedId) ?? null;
   const expenseAccounts = accounts.filter(
@@ -87,19 +97,19 @@ export default function FinanceCardExpenses() {
   async function syncFeed() {
     if (!activeFeed) return;
     setSyncing(true);
+    setSyncNotice(null);
     try {
       const result = await api.post<CardSyncResult>(
         `/api/companies/${company.id}/card-feeds/${activeFeed.id}/sync`,
       );
-      toast(
+      setSyncNotice(
         `Imported ${result.inserted}, posted ${result.posted}${
           result.failed ? `, ${result.failed} need attention` : ""
         }`,
-        result.failed ? "info" : "success",
       );
       await Promise.all([reloadFeeds(), reloadTransactions()]);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t sync the card feed" });
     } finally {
       setSyncing(false);
     }
@@ -119,12 +129,8 @@ export default function FinanceCardExpenses() {
           { expenseAccountId },
         ),
       {
-        loading: "Reclassifying expense…",
-        success: "Expense reclassified with an audit entry",
-        error: (error) =>
-          `Couldn\u2019t reclassify the expense: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The previous category has been restored.`,
+        title: "Couldn’t reclassify the expense",
+        error: (error) => `${errorMessage(error)} The previous category has been restored.`,
         onSuccess: (updated) => {
           setTransactions(
             (current) =>
@@ -145,10 +151,9 @@ export default function FinanceCardExpenses() {
     setRowBusy(transaction.id);
     try {
       await api.post(`/api/companies/${company.id}/card-transactions/${transaction.id}/retry`);
-      toast("Accounting entry posted", "success");
       await reloadTransactions();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t post the accounting entry" });
     } finally {
       setRowBusy(null);
     }
@@ -168,7 +173,7 @@ export default function FinanceCardExpenses() {
       await api.del(`/api/companies/${company.id}/card-feeds/${activeFeed.id}`);
       await reloadFeeds();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the card feed" });
     }
   }
 
@@ -198,7 +203,9 @@ export default function FinanceCardExpenses() {
         </Button>
       </div>
 
-      {feeds === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : feeds === null ? (
         <div className="flex justify-center p-16">
           <Spinner size={20} />
         </div>
@@ -243,6 +250,8 @@ export default function FinanceCardExpenses() {
             )}
           </div>
 
+          <FormSuccess message={syncNotice} className="mb-4" />
+
           {activeFeed && (
             <div className="mb-4 grid gap-3 sm:grid-cols-3">
               <MappingCard
@@ -260,7 +269,9 @@ export default function FinanceCardExpenses() {
             </div>
           )}
 
-          {transactions === null ? (
+          {transactionsError ? (
+            <FormError message={transactionsError} />
+          ) : transactions === null ? (
             <div className="flex justify-center p-16">
               <Spinner size={20} />
             </div>
@@ -415,7 +426,6 @@ function NewCardFeedModal({
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }) {
-  const { toast } = useToast();
   const [connections, setConnections] = React.useState<IntegrationConnection[] | null>(null);
   const [name, setName] = React.useState("Brex corporate card");
   const [connectionId, setConnectionId] = React.useState("");
@@ -429,6 +439,7 @@ function NewCardFeedModal({
     accounts.find((account) => account.code === "1100")?.id ?? "",
   );
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     api
@@ -444,6 +455,7 @@ function NewCardFeedModal({
   async function save(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
+    setError(null);
     try {
       await api.post(`/api/companies/${companyId}/card-feeds`, {
         name,
@@ -454,7 +466,7 @@ function NewCardFeedModal({
       });
       await onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -536,6 +548,7 @@ function NewCardFeedModal({
             </option>
           ))}
         </Select>
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel

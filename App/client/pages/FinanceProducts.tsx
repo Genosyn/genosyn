@@ -2,6 +2,7 @@ import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { Archive, ArchiveRestore, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, formatMoney, parseMoneyToCents, Product, TaxRate } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -10,8 +11,8 @@ import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -24,7 +25,7 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinanceProducts() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const [products, setProducts] = React.useState<Product[] | null>(null);
   const [taxRates, setTaxRates] = React.useState<TaxRate[]>([]);
@@ -61,12 +62,8 @@ export default function FinanceProducts() {
           archived,
         }),
       {
-        loading: archived ? "Archiving product…" : "Restoring product…",
-        success: archived ? "Product archived" : "Product restored",
-        error: (error) =>
-          `Couldn\u2019t update the product: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The change was undone.`,
+        title: "Couldn’t update the product",
+        error: (error) => `${errorMessage(error)} The change was undone.`,
         onSuccess: () => void reload(),
         onError: () => {
           setProducts((current) => {
@@ -94,12 +91,8 @@ export default function FinanceProducts() {
     const originalIndex = products?.findIndex((item) => item.id === p.id) ?? -1;
     setProducts((current) => current?.filter((item) => item.id !== p.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/products/${p.slug}`), {
-      loading: "Deleting product…",
-      success: "Product deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the product: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the product",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setProducts((current) => {
           if (!current || current.some((item) => item.id === p.id)) return current;
@@ -289,7 +282,6 @@ function ProductEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
   const [name, setName] = React.useState(product?.name ?? "");
   const [description, setDescription] = React.useState(product?.description ?? "");
   const [priceText, setPriceText] = React.useState(
@@ -298,10 +290,12 @@ function ProductEditor({
   const [currency, setCurrency] = React.useState(product?.currency ?? "USD");
   const [defaultTaxRateId, setDefaultTaxRateId] = React.useState(product?.defaultTaxRateId ?? "");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
       const body = {
         name: name.trim(),
@@ -317,7 +311,7 @@ function ProductEditor({
       }
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -375,6 +369,7 @@ function ProductEditor({
             ))}
           </Select>
         </div>
+        <FormError message={error} className="sm:col-span-2" />
         <div className="sm:col-span-2 flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel

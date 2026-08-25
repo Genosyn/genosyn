@@ -13,9 +13,10 @@ import { Link, useNavigate, useOutletContext, useParams } from "react-router-dom
 import { Breadcrumbs } from "@/components/AppShell";
 import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
+import { FormError } from "@/components/ui/FormError";
 import { Spinner } from "@/components/ui/Spinner";
-import { useToast } from "@/components/ui/Toast";
 import { api, type Company, type Pipeline, type PipelineGraph, type PipelineNode } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 import type { PipelinesContext } from "@/pages/PipelinesLayout";
 import { PipelineCanvas } from "@/pages/pipelines/PipelineCanvas";
 import { PipelineNodePanel } from "@/pages/pipelines/PipelineNodePanel";
@@ -42,7 +43,6 @@ export default function PipelineDetail({ company }: { company: Company }) {
     refresh: refreshList,
   } = useOutletContext<PipelinesContext>();
   const resources = usePipelineResources(company.id);
-  const { toast } = useToast();
   const dialog = useDialog();
 
   const [pipeline, setPipeline] = React.useState<Pipeline | null>(null);
@@ -54,6 +54,7 @@ export default function PipelineDetail({ company }: { company: Company }) {
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [running, setRunning] = React.useState(false);
   const [tab, setTab] = React.useState<"builder" | "runs">("builder");
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
@@ -70,7 +71,7 @@ export default function PipelineDetail({ company }: { company: Company }) {
       setEnabled(result.enabled);
       setDirty(false);
     } catch (err) {
-      setLoadError((err as Error).message);
+      setLoadError(errorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -189,7 +190,6 @@ export default function PipelineDetail({ company }: { company: Company }) {
       edges: graph.edges.filter((edge) => edge.fromNodeId !== id && edge.toNodeId !== id),
     });
     if (selectedNodeId === id) setSelectedNodeId(null);
-    toast("Step removed. Save to keep this change.", "info");
   }
 
   function setConnection(fromId: string, handle: string, toId: string | null) {
@@ -219,6 +219,7 @@ export default function PipelineDetail({ company }: { company: Company }) {
   async function save(): Promise<boolean> {
     if (!pipeline || !graph || !name.trim()) return false;
     setSaving(true);
+    setSaveError(null);
     try {
       const updated = await api.patch<Pipeline>(
         `/api/companies/${company.id}/pipelines/${pipeline.id}`,
@@ -236,7 +237,6 @@ export default function PipelineDetail({ company }: { company: Company }) {
       setEnabled(updated.enabled);
       setDirty(false);
       await refreshList();
-      toast("Pipeline saved", "success");
       if (updated.slug !== pSlug) {
         navigate(`/c/${company.slug}/pipelines/${updated.slug}`, {
           replace: true,
@@ -244,7 +244,7 @@ export default function PipelineDetail({ company }: { company: Company }) {
       }
       return true;
     } catch (err) {
-      toast((err as Error).message, "error");
+      setSaveError(errorMessage(err));
       return false;
     } finally {
       setSaving(false);
@@ -269,22 +269,14 @@ export default function PipelineDetail({ company }: { company: Company }) {
     setRunning(true);
     try {
       if (dirty && !(await save())) return;
-      const result = await api.post<{
-        status: string;
-        errorMessage: string | null;
-      }>(`/api/companies/${company.id}/pipelines/${pipeline.id}/run`, {});
-      if (result.status === "completed") {
-        toast("Test run succeeded", "success");
-      } else if (result.status === "failed") {
-        toast(`Test run failed: ${result.errorMessage ?? "No error message"}`, "error");
-      } else {
-        toast(`Test run ${result.status}`, "info");
-      }
+      // The run's own outcome needs no message here: Run history opens on the
+      // run that just finished, and a failed one leads with why it failed.
+      await api.post(`/api/companies/${company.id}/pipelines/${pipeline.id}/run`, {});
       await load();
       await refreshList();
       setTab("runs");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t run the pipeline" });
     } finally {
       setRunning(false);
     }
@@ -304,7 +296,7 @@ export default function PipelineDetail({ company }: { company: Company }) {
       await refreshList();
       navigate(`/c/${company.slug}/pipelines`, { replace: true });
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the pipeline" });
     }
   }
 
@@ -453,6 +445,8 @@ export default function PipelineDetail({ company }: { company: Company }) {
             </button>
           </div>
         </div>
+
+        <FormError message={saveError} className="mt-3" />
 
         <div className="mt-3 flex items-center gap-1" role="tablist" aria-label="Pipeline views">
           <TabButton active={tab === "builder"} icon={Workflow} onClick={() => setTab("builder")}>

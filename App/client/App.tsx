@@ -3,7 +3,6 @@ import { Navigate, Route, Routes, useLocation, useParams } from "react-router-do
 import { api, Company, Me } from "./lib/api";
 import { AppShell } from "./components/AppShell";
 import { Spinner } from "./components/ui/Spinner";
-import { ToastProvider } from "./components/ui/Toast";
 import { DialogProvider } from "./components/ui/Dialog";
 import { ThemeProvider } from "./components/Theme";
 import { ChatSessionsProvider } from "./lib/chatSessions";
@@ -228,54 +227,52 @@ export default function App() {
 
   return (
     <ThemeProvider>
-      <ToastProvider>
-        <DialogProvider>
-          {isPublicSigning ? (
-            <Routes>
-              <Route path="/sign/:token" element={<PublicSigning />} />
-            </Routes>
-          ) : auth.status === "loading" ? (
-            <div className="flex h-full items-center justify-center">
-              <Spinner size={24} />
-            </div>
-          ) : auth.status === "anon" ? (
-            <Routes>
-              <Route path="/login" element={<Login onAuth={refresh} />} />
-              <Route path="/signup" element={<Signup onAuth={refresh} />} />
-              <Route path="/forgot" element={<Forgot />} />
-              <Route path="/reset/:token" element={<Reset />} />
-              <Route
-                path="/verify-email/:token"
-                element={<VerifyEmailLink onVerified={refresh} />}
-              />
-              <Route path="/invite/:token" element={<Navigate to="/login" replace />} />
-              <Route path="*" element={<Navigate to="/login" replace />} />
-            </Routes>
-          ) : (
-            <Routes>
-              <Route
-                path="/verify-email/:token"
-                element={<VerifyEmailLink onVerified={refresh} />}
-              />
-              <Route
-                path="*"
-                element={
-                  auth.me.emailVerificationRequired ? (
-                    <VerifyEmailRequired email={auth.me.email} />
-                  ) : (
-                    <AuthedRoutes
-                      me={auth.me}
-                      companies={auth.companies}
-                      onChanged={refresh}
-                      onCompaniesChanged={refreshAuthenticatedState}
-                    />
-                  )
-                }
-              />
-            </Routes>
-          )}
-        </DialogProvider>
-      </ToastProvider>
+      <DialogProvider>
+        {isPublicSigning ? (
+          <Routes>
+            <Route path="/sign/:token" element={<PublicSigning />} />
+          </Routes>
+        ) : auth.status === "loading" ? (
+          <div className="flex h-full items-center justify-center">
+            <Spinner size={24} />
+          </div>
+        ) : auth.status === "anon" ? (
+          <Routes>
+            <Route path="/login" element={<Login onAuth={refresh} />} />
+            <Route path="/signup" element={<Signup onAuth={refresh} />} />
+            <Route path="/forgot" element={<Forgot />} />
+            <Route path="/reset/:token" element={<Reset />} />
+            <Route
+              path="/verify-email/:token"
+              element={<VerifyEmailLink onVerified={refresh} />}
+            />
+            <Route path="/invite/:token" element={<Navigate to="/login" replace />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        ) : (
+          <Routes>
+            <Route
+              path="/verify-email/:token"
+              element={<VerifyEmailLink onVerified={refresh} />}
+            />
+            <Route
+              path="*"
+              element={
+                auth.me.emailVerificationRequired ? (
+                  <VerifyEmailRequired email={auth.me.email} />
+                ) : (
+                  <AuthedRoutes
+                    me={auth.me}
+                    companies={auth.companies}
+                    onChanged={refresh}
+                    onCompaniesChanged={refreshAuthenticatedState}
+                  />
+                )
+              }
+            />
+          </Routes>
+        )}
+      </DialogProvider>
     </ThemeProvider>
   );
 }

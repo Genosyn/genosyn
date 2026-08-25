@@ -21,14 +21,15 @@ import {
   shortMailDate,
 } from "../lib/mail";
 import { mailReconnectHref } from "../lib/integrationReconnect";
+import { errorMessage } from "../lib/errors";
 import { MailOutletCtx } from "./MailLayout";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 
 /**
  * Email settings: the mailbox account (sync status, pause/resume,
@@ -45,11 +46,12 @@ const LEVEL_HINT: Record<MailAccessLevel, string> = {
 export default function MailSettings() {
   const { company, account, accounts, refresh, syncing, syncNow } =
     useOutletContext<MailOutletCtx>();
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const navigate = useNavigate();
 
   const [grants, setGrants] = React.useState<MailGrant[] | null>(null);
+  const [grantsError, setGrantsError] = React.useState<string | null>(null);
   const [candidates, setCandidates] = React.useState<MailGrantCandidate[]>([]);
   const [addOpen, setAddOpen] = React.useState(false);
   const [connectOpen, setConnectOpen] = React.useState(false);
@@ -72,8 +74,11 @@ export default function MailSettings() {
 
   React.useEffect(() => {
     setGrants(null);
-    loadGrants().catch((err) => toast((err as Error).message, "error"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setGrantsError(null);
+    loadGrants().catch((err: unknown) => {
+      setGrantsError(errorMessage(err, "Could not load the AI access list"));
+      setGrants([]);
+    });
   }, [loadGrants]);
 
   const togglePause = () => {
@@ -90,12 +95,8 @@ export default function MailSettings() {
       });
     };
     background(() => mailApi.patchAccount(company.id, accountId, next), {
-      loading: next === "active" ? "Resuming sync…" : "Pausing sync…",
-      success: next === "active" ? "Sync resumed" : "Sync paused",
-      error: (error) =>
-        `Couldn\u2019t update sync: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. The change was undone.`,
+      title: "Couldn’t update sync",
+      error: (error) => `${errorMessage(error)} The change was undone.`,
       onSuccess: () => {
         clearPending();
         void refresh();
@@ -114,11 +115,10 @@ export default function MailSettings() {
     if (!ok) return;
     try {
       await mailApi.deleteAccount(company.id, account.id);
-      toast("Mailbox disconnected", "info");
       await refresh();
       navigate(`/c/${company.slug}/mail`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t disconnect the mailbox" });
     }
   };
 
@@ -129,11 +129,8 @@ export default function MailSettings() {
         current,
     );
     background(() => mailApi.patchGrant(company.id, account.id, grant.id, level), {
-      loading: "Updating AI access…",
-      error: (error) =>
-        `Couldn\u2019t update AI access: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. The change was undone.`,
+      title: "Couldn’t update AI access",
+      error: (error) => `${errorMessage(error)} The change was undone.`,
       onSuccess: ({ grant: updated }) => {
         setGrants(
           (current) => current?.map((item) => (item.id === updated.id ? updated : item)) ?? current,
@@ -151,12 +148,8 @@ export default function MailSettings() {
     const originalIndex = grants?.findIndex((item) => item.id === grant.id) ?? -1;
     setGrants((current) => current?.filter((item) => item.id !== grant.id) ?? current);
     background(() => mailApi.deleteGrant(company.id, account.id, grant.id), {
-      loading: "Revoking AI access…",
-      success: "Access revoked",
-      error: (error) =>
-        `Couldn\u2019t revoke AI access: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. The grant has been restored.`,
+      title: "Couldn’t revoke AI access",
+      error: (error) => `${errorMessage(error)} The grant has been restored.`,
       onSuccess: () => void loadGrants(),
       onError: () => {
         setGrants((current) => {
@@ -258,7 +251,9 @@ export default function MailSettings() {
           always have full access; this only governs AI.
         </p>
 
-        {grants === null ? (
+        {grantsError ? (
+          <FormError message={grantsError} />
+        ) : grants === null ? (
           <div className="flex justify-center py-6">
             <Spinner size={18} />
           </div>
@@ -386,23 +381,23 @@ function GrantModal({
   onClose: () => void;
   onGranted: () => Promise<void>;
 }) {
-  const { toast } = useToast();
   const available = candidates.filter((c) => !c.alreadyGranted);
   const [employeeId, setEmployeeId] = React.useState(available[0]?.id ?? "");
   const [level, setLevel] = React.useState<MailAccessLevel>("draft");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   const submit = async () => {
     setBusy(true);
+    setError(null);
     try {
       await mailApi.createGrant(companyId, accountId, {
         employeeId,
         accessLevel: level,
       });
-      toast("Access granted", "success");
       await onGranted();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -437,6 +432,7 @@ function GrantModal({
             <option value="send">Send — can send mail</option>
           </Select>
           <p className="text-xs text-slate-500 dark:text-slate-400">{LEVEL_HINT[level]}.</p>
+          <FormError message={error} />
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={onClose} disabled={busy}>
               Cancel
@@ -460,16 +456,15 @@ function ConnectModal({
   onClose: () => void;
   onConnected: () => Promise<void>;
 }) {
-  const { toast } = useToast();
   const [candidates, setCandidates] = React.useState<MailConnectCandidate[] | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     mailApi
       .connectCandidates(companyId)
       .then((res) => setCandidates(res.candidates))
-      .catch((err) => toast((err as Error).message, "error"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      .catch((err: unknown) => setError(errorMessage(err, "Could not load the connections")));
   }, [companyId]);
 
   const usable = (candidates ?? []).filter((c) => c.hasGmailScope && !c.linkedAccountId);
@@ -477,9 +472,13 @@ function ConnectModal({
   return (
     <Modal open onClose={onClose} title="Connect a mailbox">
       {candidates === null ? (
-        <div className="flex justify-center py-6">
-          <Spinner size={18} />
-        </div>
+        error ? (
+          <FormError message={error} />
+        ) : (
+          <div className="flex justify-center py-6">
+            <Spinner size={18} />
+          </div>
+        )
       ) : usable.length === 0 ? (
         <p className="text-sm text-slate-500 dark:text-slate-400">
           No unlinked Gmail-capable Google connections. Add one with the Gmail scope under Email →
@@ -487,6 +486,7 @@ function ConnectModal({
         </p>
       ) : (
         <div className="space-y-2">
+          <FormError message={error} />
           {usable.map((c) => (
             <div
               key={c.connectionId}
@@ -500,12 +500,12 @@ function ConnectModal({
                 disabled={busy !== null}
                 onClick={async () => {
                   setBusy(c.connectionId);
+                  setError(null);
                   try {
                     await mailApi.connectAccount(companyId, c.connectionId);
-                    toast("Mailbox connected", "success");
                     await onConnected();
                   } catch (err) {
-                    toast((err as Error).message, "error");
+                    setError(errorMessage(err));
                   } finally {
                     setBusy(null);
                   }

@@ -19,13 +19,13 @@ import {
   RecurringInvoice,
   RecurringInvoiceStatus,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { describeCron } from "../lib/schedule";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -48,7 +48,6 @@ export default function FinanceRecurringInvoiceDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const { recurringSlug } = useParams();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [ri, setRi] = React.useState<RecurringInvoice | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -63,7 +62,7 @@ export default function FinanceRecurringInvoiceDetail() {
       setRi(fresh);
       setLoadError(null);
     } catch (err) {
-      setLoadError((err as Error).message);
+      setLoadError(errorMessage(err, "Could not load the recurring invoice"));
     }
   }, [company.id, recurringSlug]);
 
@@ -83,7 +82,7 @@ export default function FinanceRecurringInvoiceDetail() {
       );
       setRi(updated);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t update the schedule" });
     } finally {
       setBusy(false);
     }
@@ -99,19 +98,16 @@ export default function FinanceRecurringInvoiceDetail() {
         emailStatus: "sent" | "skipped" | "failed" | "not_attempted";
         emailError: string;
       }>(`/api/companies/${company.id}/recurring-invoices/${ri.slug}/run-now`);
+      // The header, the schedule rows, and the "Latest run" panel all move
+      // when a run lands — only the email half needs saying out loud.
       setRi(result.recurringInvoice);
       if (result.emailStatus === "failed") {
-        toast(`Invoice generated, but email failed: ${result.emailError}`, "error");
-      } else {
-        toast(
-          ri.autoSend
-            ? `Generated invoice ${result.invoice.number || "(draft)"} and sent.`
-            : `Generated draft invoice ${result.invoice.slug}.`,
-          "success",
-        );
+        void dialog.error(result.emailError, {
+          title: "Invoice generated, but the email failed",
+        });
       }
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t run the schedule" });
     } finally {
       setBusy(false);
     }
@@ -124,12 +120,11 @@ export default function FinanceRecurringInvoiceDetail() {
       const copy = await api.post<RecurringInvoice>(
         `/api/companies/${company.id}/recurring-invoices/${ri.slug}/duplicate`,
       );
-      toast(`Duplicated as "${copy.name}" — paused so you can review it.`, "success");
       navigate(
         `/c/${company.slug}/finance/recurring-invoices/${copy.slug}`,
       );
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t duplicate the schedule" });
       setBusy(false);
     }
   }
@@ -164,7 +159,7 @@ export default function FinanceRecurringInvoiceDetail() {
       );
       navigate(`/c/${company.slug}/finance/recurring-invoices`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the schedule" });
       setBusy(false);
     }
   }

@@ -20,7 +20,6 @@ import { Input } from "../components/ui/Input";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { clsx } from "../components/ui/clsx";
-import { useToast } from "../components/ui/Toast";
 import { AuthShell } from "./Login";
 import { EmailStep } from "./onboarding/EmailStep";
 import { EmployeeStep } from "./onboarding/EmployeeStep";
@@ -148,7 +147,6 @@ export function CompanyOnboarding({ company }: { company: Company }) {
   const [selectedTemplateId, setSelectedTemplateId] = React.useState<string | null>(
     requestedTemplateId,
   );
-  const { toast } = useToast();
 
   const rawStep = searchParams.get("step");
   const step: OnboardingStep = ALL_STEPS.includes(rawStep as OnboardingStep)
@@ -199,12 +197,11 @@ export function CompanyOnboarding({ company }: { company: Company }) {
         setEmployees([]);
         setSelectedEmployee(null);
         setLoadError((err as Error).message);
-        toast((err as Error).message, "error");
       });
     return () => {
       cancelled = true;
     };
-  }, [company.id, requestedEmployeeId, reloadToken, toast]);
+  }, [company.id, requestedEmployeeId, reloadToken]);
 
   const needsEmployee = step !== "intro" && step !== "employee" && selectedEmployee === null;
 

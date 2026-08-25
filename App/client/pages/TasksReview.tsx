@@ -11,10 +11,12 @@ import {
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { api, Company, ReviewItem } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
+import { useBackgroundAction } from "../components/ui/Dialog";
 import { useTasks } from "./TasksLayout";
 import { clsx } from "../components/ui/clsx";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -26,19 +28,21 @@ import { useLiveRefetch } from "../components/CompanySocket";
  * done, push back → in_progress). No modals, no navigation required.
  */
 export default function TasksReview({ company }: { company: Company }) {
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const { reload: reloadSidebar } = useTasks();
   const [items, setItems] = React.useState<ReviewItem[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
       const d = await api.get<{ todos: ReviewItem[] }>(`/api/companies/${company.id}/reviews`);
       setItems(d.todos);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the review queue"));
       setItems([]);
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -51,12 +55,8 @@ export default function TasksReview({ company }: { company: Company }) {
     setItems((list) => (list ? list.filter((item) => item.id !== t.id) : list));
 
     background(() => api.patch(`/api/companies/${company.id}/todos/${t.id}`, { status }), {
-      loading: status === "done" ? "Approving todo…" : "Sending todo back…",
-      success: status === "done" ? "Approved and marked done" : "Sent back for more work",
-      error: (error) =>
-        `Couldn\u2019t update the todo: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been returned to the review queue.`,
+      title: "Couldn’t update the todo",
+      error: (error) => `${errorMessage(error)} It has been returned to the review queue.`,
       onSuccess: () => void reloadSidebar(),
       onError: () => {
         setItems((list) => {
@@ -91,7 +91,9 @@ export default function TasksReview({ company }: { company: Company }) {
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        {items === null ? (
+        {loadError ? (
+          <FormError message={loadError} className="mx-auto max-w-3xl" />
+        ) : items === null ? (
           <div className="flex justify-center py-12">
             <Spinner />
           </div>

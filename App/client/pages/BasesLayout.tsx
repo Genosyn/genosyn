@@ -28,7 +28,6 @@ import { Spinner } from "../components/ui/Spinner";
 import { BaseIcon, baseAccent } from "../components/BaseIcons";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
 import { useLiveRefetch } from "../components/CompanySocket";
 
@@ -52,7 +51,6 @@ export function useBases(): BasesContextValue {
 export default function BasesLayout({ company }: { company: Company }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [bases, setBases] = React.useState<BaseT[] | null>(null);
   const [activeDetail, setActiveDetail] = React.useState<BaseDetailT | null>(
@@ -153,7 +151,7 @@ export default function BasesLayout({ company }: { company: Company }) {
       await reload();
       navigate(`/c/${company.slug}/bases/${base.slug}/${t.slug}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t create the table" });
     }
   }
 
@@ -171,7 +169,7 @@ export default function BasesLayout({ company }: { company: Company }) {
       );
       await reloadActive();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t rename the table" });
     }
   }
 
@@ -206,9 +204,8 @@ export default function BasesLayout({ company }: { company: Company }) {
           navigate(`/c/${company.slug}/bases/${base.slug}`, { replace: true });
         }
       }
-      toast(`Deleted ${t.name}`, "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the table" });
     }
   }
 
@@ -236,9 +233,12 @@ export default function BasesLayout({ company }: { company: Company }) {
           { replace: true },
         );
       }
-      toast(`${archived ? "Archived" : "Restored"} ${table.name}`, "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, {
+        title: archived
+          ? "Couldn’t archive the table"
+          : "Couldn’t restore the table",
+      });
     }
   }
 

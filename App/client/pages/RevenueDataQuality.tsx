@@ -22,12 +22,11 @@ import type {
 } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
-import { useDialog } from "../components/ui/Dialog";
-import { FormError } from "../components/ui/FormError";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { RevenueOutletCtx } from "./RevenueLayout";
 
 type ResourceType = "account" | "contact" | "deal" | "partnership";
@@ -329,7 +328,7 @@ function actionBody(
 
 export default function RevenueDataQuality() {
   const { company } = useOutletContext<RevenueOutletCtx>();
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const base = `/api/companies/${company.id}/revenue`;
   const sectionUrl = `/c/${company.slug}/revenue`;
@@ -364,6 +363,7 @@ export default function RevenueDataQuality() {
     Record<string, { resourceType: ResourceType; resourceId: string }>
   >({});
   const [exporting, setExporting] = React.useState<(typeof EXPORTS)[number] | null>(null);
+  const [exportNotice, setExportNotice] = React.useState<string | null>(null);
   const [historyCoverage, setHistoryCoverage] =
     React.useState<RevenueDealHistoryCoveragePage | null>(null);
   const [selectedHistoryDealIds, setSelectedHistoryDealIds] = React.useState<string[]>([]);
@@ -462,10 +462,9 @@ export default function RevenueDataQuality() {
     );
   }, [reload]);
 
-  function runMaintenance(label: string, action: () => Promise<unknown>, success: string) {
+  function runMaintenance(title: string, action: () => Promise<unknown>) {
     background(action, {
-      loading: label,
-      success,
+      title,
       onSuccess: () => void reload(),
     });
   }
@@ -498,6 +497,7 @@ export default function RevenueDataQuality() {
   async function downloadSnapshot(resource: (typeof EXPORTS)[number]) {
     setExporting(resource);
     setError(null);
+    setExportNotice(null);
     try {
       let cursor: string | null = null;
       const rows: Array<Record<string, unknown>> = [];
@@ -525,7 +525,8 @@ export default function RevenueDataQuality() {
       link.download = `revenue-${resource}-${new Date().toISOString().slice(0, 10)}.csv`;
       link.click();
       URL.revokeObjectURL(url);
-      toast(`Exported ${rows.length} ${resource.replaceAll("_", " ")} rows.`, "success");
+      // The file leaves the page silently, so this is the only confirmation.
+      setExportNotice(`Exported ${rows.length} ${resource.replaceAll("_", " ")} rows.`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -587,7 +588,6 @@ export default function RevenueDataQuality() {
           resolutions: mergeResolutions,
         },
       );
-      toast(`${mergePreview.source.label} was merged and archived.`, "success");
       setMergeCandidate(null);
       setMergePreview(null);
       await reload();
@@ -662,10 +662,6 @@ export default function RevenueDataQuality() {
           if (detail.operation.status === "failed") {
             throw new Error(detail.summary.error || "The bulk job failed");
           }
-          toast(
-            `Bulk job ${detail.operation.status}: ${detail.summary.result?.applied ?? 0} applied, ${detail.summary.result?.failed ?? 0} failed.`,
-            detail.operation.status === "completed" ? "success" : "info",
-          );
           await reload();
           return;
         }
@@ -688,13 +684,10 @@ export default function RevenueDataQuality() {
       variant: "danger",
     });
     if (!confirmed) return;
-    runMaintenance(
-      "Checking and undoing operation…",
-      () =>
-        api.post(`${base}/operations/${operation.id}/undo`, {
-          confirm: "UNDO",
-        }),
-      "Revenue operation undone.",
+    runMaintenance("Couldn’t undo the Revenue operation", () =>
+      api.post(`${base}/operations/${operation.id}/undo`, {
+        confirm: "UNDO",
+      }),
     );
   }
 
@@ -709,12 +702,7 @@ export default function RevenueDataQuality() {
       setHistoryPreview(result);
       if (dryRun) {
         setHistoryPreviewPayload(historyJson);
-        toast(
-          `Previewed ${result.accepted} accepted and ${result.rejected + result.conflicting} rejected or conflicting events.`,
-          "success",
-        );
       } else {
-        toast(`Imported ${result.imported} historical Deal events.`, "success");
         await reload();
       }
     } catch (cause) {
@@ -748,10 +736,6 @@ export default function RevenueDataQuality() {
       );
       setActivityBackfillPreview(result);
       setActivityBackfillPreviewSelection(historySelectionKey(dealIds));
-      toast(
-        `Previewed ${result.reviewedActivities} Activities across ${result.selectedDeals} Deals.`,
-        "success",
-      );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -766,17 +750,13 @@ export default function RevenueDataQuality() {
     }
     setError(null);
     try {
-      const result = await api.post<RevenueDealHistoryActivityBackfillSummary>(
+      await api.post<RevenueDealHistoryActivityBackfillSummary>(
         `${base}/deal-history/activity-backfill`,
         {
           dealIds: [...selectedHistoryDealIds].sort(),
           idempotencyKey: crypto.randomUUID(),
           confirm: "BACKFILL",
         },
-      );
-      toast(
-        `Backfilled ${result.imported} historical events; ${result.failed} failed validation.`,
-        result.failed > 0 ? "info" : "success",
       );
       setSelectedHistoryDealIds([]);
       setActivityBackfillPreview(null);
@@ -815,16 +795,12 @@ export default function RevenueDataQuality() {
     setCommercialSubmitting(true);
     setError(null);
     try {
-      const result = await api.post<{ proposed: number; ambiguousAccounts: number }>(
+      await api.post<{ proposed: number; ambiguousAccounts: number }>(
         `${base}/enrichment/commercial-values/propose-from-finance`,
         {
           dealIds,
           confirm: "PROPOSE",
         },
-      );
-      toast(
-        `Created ${result.proposed} reviewable commercial-value proposals.`,
-        result.ambiguousAccounts > 0 ? "info" : "success",
       );
       setSelectedCommercialDealIds([]);
       await reload();
@@ -851,10 +827,6 @@ export default function RevenueDataQuality() {
         dealIds,
         confirm: "PROPOSE",
       });
-      toast(
-        `Created ${result.proposed} reviewable Stripe proposal${result.proposed === 1 ? "" : "s"} from ${result.reviewedCustomers} customer${result.reviewedCustomers === 1 ? "" : "s"}.`,
-        result.errors.length > 0 || result.ambiguousAccounts > 0 ? "info" : "success",
-      );
       if (result.errors.length > 0) {
         setError(
           `${result.errors.length} Stripe lookup${result.errors.length === 1 ? "" : "s"} failed. Successful proposals remain available for review.`,
@@ -903,10 +875,8 @@ export default function RevenueDataQuality() {
           icon={<ScanSearch size={16} />}
           label="Scan duplicates"
           onClick={() =>
-            runMaintenance(
-              "Scanning Revenue records…",
-              () => api.post(`${base}/duplicates/scan`, { confirm: "SCAN" }),
-              "Duplicate candidates refreshed.",
+            runMaintenance("Couldn’t scan for duplicates", () =>
+              api.post(`${base}/duplicates/scan`, { confirm: "SCAN" }),
             )
           }
         />
@@ -914,26 +884,17 @@ export default function RevenueDataQuality() {
           icon={<ShieldCheck size={16} />}
           label="Propose Account domains"
           onClick={() =>
-            runMaintenance(
-              "Checking verified domains…",
-              () =>
-                api.post(`${base}/enrichment/domains/propose`, {
-                  followWebsiteRedirects: true,
-                }),
-              "Canonical-domain proposals refreshed.",
+            runMaintenance("Couldn’t propose Account domains", () =>
+              api.post(`${base}/enrichment/domains/propose`, {
+                followWebsiteRedirects: true,
+              }),
             )
           }
         />
         <MaintenanceButton
           icon={<FileSearch size={16} />}
           label="Scan mail attachments"
-          onClick={() =>
-            runMaintenance(
-              "Scanning captured mail…",
-              scanAllMailAttachments,
-              "Revenue document candidates refreshed.",
-            )
-          }
+          onClick={() => runMaintenance("Couldn’t scan mail attachments", scanAllMailAttachments)}
         />
       </div>
 
@@ -1341,13 +1302,10 @@ export default function RevenueDataQuality() {
                     size="sm"
                     variant="ghost"
                     onClick={() =>
-                      runMaintenance(
-                        "Dismissing candidate…",
-                        () =>
-                          api.post(`${base}/duplicates/${candidate.id}/dismiss`, {
-                            confirm: "DISMISS",
-                          }),
-                        "Candidate dismissed.",
+                      runMaintenance("Couldn’t dismiss the candidate", () =>
+                        api.post(`${base}/duplicates/${candidate.id}/dismiss`, {
+                          confirm: "DISMISS",
+                        }),
                       )
                     }
                   >
@@ -1472,9 +1430,8 @@ export default function RevenueDataQuality() {
               }))}
               onDecision={(id, decision) =>
                 runMaintenance(
-                  `${decision === "accept" ? "Accepting" : "Rejecting"} evidence…`,
+                  `Couldn’t ${decision === "accept" ? "accept" : "reject"} the evidence`,
                   () => reviewEvidence(id, decision),
-                  `Evidence ${decision === "accept" ? "accepted" : "rejected"}.`,
                 )
               }
             />
@@ -1543,15 +1500,12 @@ export default function RevenueDataQuality() {
                         size="sm"
                         disabled={!selected.resourceId}
                         onClick={() =>
-                          runMaintenance(
-                            "Capturing attachment…",
-                            () =>
-                              api.post(`${base}/document-capture/candidates/${row.id}/review`, {
-                                decision: "accept",
-                                resourceType: selected.resourceType,
-                                resourceId: selected.resourceId,
-                              }),
-                            "Attachment captured.",
+                          runMaintenance("Couldn’t capture the attachment", () =>
+                            api.post(`${base}/document-capture/candidates/${row.id}/review`, {
+                              decision: "accept",
+                              resourceType: selected.resourceType,
+                              resourceId: selected.resourceId,
+                            }),
                           )
                         }
                       >
@@ -1561,13 +1515,10 @@ export default function RevenueDataQuality() {
                         size="sm"
                         variant="ghost"
                         onClick={() =>
-                          runMaintenance(
-                            "Rejecting attachment…",
-                            () =>
-                              api.post(`${base}/document-capture/candidates/${row.id}/review`, {
-                                decision: "reject",
-                              }),
-                            "Attachment rejected.",
+                          runMaintenance("Couldn’t reject the attachment", () =>
+                            api.post(`${base}/document-capture/candidates/${row.id}/review`, {
+                              decision: "reject",
+                            }),
                           )
                         }
                       >
@@ -1781,6 +1732,7 @@ export default function RevenueDataQuality() {
               </button>
             ))}
           </div>
+          <FormSuccess message={exportNotice} className="mt-3" />
         </Section>
       </div>
 

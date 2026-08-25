@@ -23,14 +23,15 @@ import {
   EmailProviderField,
   EmailProviderKind,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { EmptyState } from "../components/ui/EmptyState";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -101,11 +102,11 @@ export function SettingsEmail() {
 
 export function SettingsEmailProviders() {
   const { company, me } = useCtx();
-  const { toast } = useToast();
   const dialog = useDialog();
 
   const [catalog, setCatalog] = React.useState<EmailProviderCatalogEntry[] | null>(null);
   const [providers, setProviders] = React.useState<EmailProvider[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState<EmailProviderCatalogEntry | null>(null);
   const [editing, setEditing] = React.useState<EmailProvider | null>(null);
   const [busyId, setBusyId] = React.useState<string | null>(null);
@@ -121,12 +122,13 @@ export function SettingsEmailProviders() {
       ]);
       setCatalog(cat);
       setProviders(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the email providers"));
       setCatalog([]);
       setProviders([]);
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -138,10 +140,9 @@ export function SettingsEmailProviders() {
     setBusyId(p.id);
     try {
       await api.post(`/api/companies/${company.id}/email/providers/${p.id}/default`);
-      toast(`${p.name} is now the default sender`, "success");
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t set the default sender" });
     } finally {
       setBusyId(null);
     }
@@ -159,10 +160,9 @@ export function SettingsEmailProviders() {
     setBusyId(p.id);
     try {
       await api.del(`/api/companies/${company.id}/email/providers/${p.id}`);
-      toast("Provider deleted", "success");
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the provider" });
     } finally {
       setBusyId(null);
     }
@@ -180,7 +180,9 @@ export function SettingsEmailProviders() {
             </p>
           </CardHeader>
           <CardBody>
-            {providers === null ? (
+            {loadError ? (
+              <FormError message={loadError} />
+            ) : providers === null ? (
               <Spinner />
             ) : providers.length === 0 ? (
               <EmptyState
@@ -413,9 +415,9 @@ function ProviderModal({
   onSaved: () => void;
 }) {
   const isEdit = !!existing;
-  const { toast } = useToast();
   const [state, setState] = React.useState<ProviderFormState>(() => initialState(entry, existing));
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const [testBusy, setTestBusy] = React.useState(false);
   const [testTo, setTestTo] = React.useState(defaultTo);
   const [testResult, setTestResult] = React.useState<
@@ -427,6 +429,7 @@ function ProviderModal({
       setState(initialState(entry, existing));
       setTestTo(defaultTo);
       setTestResult(null);
+      setError(null);
     }
   }, [open, entry, existing, defaultTo]);
 
@@ -440,6 +443,7 @@ function ProviderModal({
     e.preventDefault();
     if (!entry) return;
     setBusy(true);
+    setError(null);
     try {
       const rawConfig = serializeFields(entry.fields, state.fields);
       if (isEdit && existing) {
@@ -458,7 +462,6 @@ function ProviderModal({
             enabled: state.enabled,
           },
         );
-        toast("Provider updated", "success");
       } else {
         await api.post<EmailProvider>(`/api/companies/${companyId}/email/providers`, {
           name: state.name.trim(),
@@ -468,11 +471,10 @@ function ProviderModal({
           rawConfig,
           isDefault: state.isDefault,
         });
-        toast(`${entry.name} added`, "success");
       }
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -507,7 +509,7 @@ function ProviderModal({
         });
       }
     } catch (err) {
-      setTestResult({ ok: false, error: (err as Error).message });
+      setTestResult({ ok: false, error: errorMessage(err) });
     } finally {
       setTestBusy(false);
     }
@@ -636,6 +638,8 @@ function ProviderModal({
             </div>
           )}
         </div>
+
+        <FormError message={error} />
 
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
@@ -829,13 +833,16 @@ function TestModal({
   onClose: () => void;
   onTested: () => void;
 }) {
-  const { toast } = useToast();
   const [to, setTo] = React.useState(defaultTo);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (open) {
       setTo(defaultTo);
+      setError(null);
+      setNotice(null);
     }
   }, [open, defaultTo]);
 
@@ -845,6 +852,8 @@ function TestModal({
     e.preventDefault();
     if (!provider) return;
     setBusy(true);
+    setError(null);
+    setNotice(null);
     try {
       const resp = await fetch(`/api/companies/${companyId}/email/providers/${provider.id}/test`, {
         method: "POST",
@@ -855,14 +864,13 @@ function TestModal({
       const text = await resp.text();
       const data = text ? JSON.parse(text) : null;
       if (resp.ok && data?.ok) {
-        toast("Test email sent", "success");
+        setNotice(`Test email sent to ${to.trim()}`);
         onTested();
-        onClose();
       } else {
-        toast(data?.error ?? "Test failed", "error");
+        setError(data?.error ?? "Test failed");
       }
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -882,9 +890,11 @@ function TestModal({
           onChange={(e) => setTo(e.target.value)}
           required
         />
+        <FormError message={error} />
+        <FormSuccess message={notice} />
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
-            Cancel
+            {notice ? "Close" : "Cancel"}
           </Button>
           <Button type="submit" disabled={busy || !to.trim()}>
             {busy ? "Sending…" : "Send test"}

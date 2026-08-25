@@ -21,12 +21,13 @@ import {
   formatMoney,
   Invoice,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
+import { FormSuccess } from "../components/ui/FormError";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -50,11 +51,11 @@ export default function FinanceEstimateDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const { estimateSlug } = useParams();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [estimate, setEstimate] = React.useState<Estimate | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [sendNotice, setSendNotice] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     if (!estimateSlug) return;
@@ -65,7 +66,7 @@ export default function FinanceEstimateDetail() {
       setEstimate(est);
       setLoadError(null);
     } catch (err) {
-      setLoadError((err as Error).message);
+      setLoadError(errorMessage(err, "Could not load the estimate"));
     }
   }, [company.id, estimateSlug]);
 
@@ -86,9 +87,8 @@ export default function FinanceEstimateDetail() {
       navigate(`/c/${company.slug}/finance/estimates/${fresh.slug}`, {
         replace: true,
       });
-      toast(`Issued as ${fresh.number}`, "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t issue the estimate" });
     } finally {
       setBusy(false);
     }
@@ -96,6 +96,10 @@ export default function FinanceEstimateDetail() {
 
   async function send() {
     if (!estimate) return;
+    // Issuing a draft repaints the badge, the action row and the Activity list;
+    // a resend leaves the page byte-identical, so only that path earns a notice.
+    const wasDraft = estimate.status === "draft";
+    setSendNotice(null);
     setBusy(true);
     try {
       const result = await api.post<{
@@ -109,21 +113,20 @@ export default function FinanceEstimateDetail() {
           { replace: true },
         );
       }
-      if (result.send.status === "sent") {
-        toast("Estimate emailed to customer", "success");
-      } else if (result.send.status === "skipped") {
-        toast(
-          "No email transport configured — set one in Settings → Email",
-          "info",
-        );
-      } else {
-        toast(
-          `Email failed: ${result.send.errorMessage || "unknown"}`,
-          "error",
-        );
+      if (result.send.status === "skipped") {
+        void dialog.error("Set one in Settings → Email, then send again.", {
+          title: "No email transport configured",
+        });
+      } else if (result.send.status !== "sent") {
+        void dialog.error(result.send.errorMessage || "Unknown error", {
+          title: "Couldn’t email the estimate",
+        });
+      } else if (!wasDraft) {
+        const to = result.estimate.customer?.email || "the customer";
+        setSendNotice(`Estimate emailed to ${to} at ${new Date().toLocaleTimeString()}.`);
       }
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t send the estimate" });
     } finally {
       setBusy(false);
     }
@@ -131,15 +134,15 @@ export default function FinanceEstimateDetail() {
 
   async function accept() {
     if (!estimate) return;
+    setSendNotice(null);
     setBusy(true);
     try {
       const fresh = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/accept`,
       );
       setEstimate(fresh);
-      toast("Estimate marked as accepted", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t mark the estimate as accepted" });
     } finally {
       setBusy(false);
     }
@@ -154,15 +157,15 @@ export default function FinanceEstimateDetail() {
       confirmLabel: "Mark declined",
     });
     if (!ok) return;
+    setSendNotice(null);
     setBusy(true);
     try {
       const fresh = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/decline`,
       );
       setEstimate(fresh);
-      toast("Estimate marked as declined", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t mark the estimate as declined" });
     } finally {
       setBusy(false);
     }
@@ -177,6 +180,7 @@ export default function FinanceEstimateDetail() {
       confirmLabel: "Convert",
     });
     if (!ok) return;
+    setSendNotice(null);
     setBusy(true);
     try {
       const result = await api.post<{ estimate: Estimate; invoice: Invoice }>(
@@ -184,12 +188,11 @@ export default function FinanceEstimateDetail() {
         {},
       );
       setEstimate(result.estimate);
-      toast(`Invoiced as ${result.invoice.number}`, "success");
       navigate(
         `/c/${company.slug}/finance/invoices/${result.invoice.slug}`,
       );
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t convert the estimate" });
       setBusy(false);
     }
   }
@@ -204,15 +207,15 @@ export default function FinanceEstimateDetail() {
       confirmLabel: "Void",
     });
     if (!ok) return;
+    setSendNotice(null);
     setBusy(true);
     try {
       const fresh = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/void`,
       );
       setEstimate(fresh);
-      toast("Estimate voided", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t void the estimate" });
     } finally {
       setBusy(false);
     }
@@ -225,10 +228,9 @@ export default function FinanceEstimateDetail() {
       const draft = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${estimate.slug}/duplicate`,
       );
-      toast("Estimate duplicated as draft", "success");
       navigate(`/c/${company.slug}/finance/estimates/${draft.slug}/edit`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t duplicate the estimate" });
       setBusy(false);
     }
   }
@@ -248,7 +250,7 @@ export default function FinanceEstimateDetail() {
       );
       navigate(`/c/${company.slug}/finance/estimates`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the draft" });
       setBusy(false);
     }
   }
@@ -445,6 +447,8 @@ export default function FinanceEstimateDetail() {
           </Menu>
         </div>
       </div>
+
+      <FormSuccess message={sendNotice} className="mb-4" />
 
       {isConverted && estimate.invoice && (
         <div className="mb-4 rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm dark:border-violet-500/30 dark:bg-violet-500/10">

@@ -2,9 +2,11 @@ import React from "react";
 import { Bot, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Users } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
+import { useDialog } from "@/components/ui/Dialog";
+import { FormError } from "@/components/ui/FormError";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
-import { useToast } from "@/components/ui/Toast";
+import { errorMessage } from "@/lib/errors";
 import {
   vaultApi,
   type VaultEmployeeAccessLevel,
@@ -17,7 +19,7 @@ import {
 } from "@/lib/vault";
 
 export function VaultAccessPanel({ companyId, item }: { companyId: string; item: VaultItem }) {
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [memberAccess, setMemberAccess] = React.useState<VaultMemberAccess[] | null>(null);
   const [memberCandidates, setMemberCandidates] = React.useState<VaultMemberCandidate[]>([]);
   const [employeeGrants, setEmployeeGrants] = React.useState<VaultEmployeeGrant[] | null>(null);
@@ -28,6 +30,8 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
   const [employeeLevel, setEmployeeLevel] = React.useState<VaultEmployeeAccessLevel>("use");
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [memberError, setMemberError] = React.useState<string | null>(null);
+  const [employeeError, setEmployeeError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     setError(null);
@@ -43,19 +47,19 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
       setEmployeeGrants(grants);
       setEmployeeCandidates(employees);
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "Vault access could not be loaded.";
-      setError(message);
+      setError(errorMessage(cause, "Vault access could not be loaded."));
       setMemberAccess([]);
       setEmployeeGrants([]);
-      toast(message, "error");
     }
-  }, [companyId, item.id, toast]);
+  }, [companyId, item.id]);
 
   React.useEffect(() => {
     setMemberAccess(null);
     setEmployeeGrants(null);
     setMemberPick("");
     setEmployeePick("");
+    setMemberError(null);
+    setEmployeeError(null);
     void reload();
   }, [reload]);
 
@@ -71,14 +75,14 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
   async function addMember() {
     if (!memberPick || busy) return;
     setBusy("member:add");
+    setMemberError(null);
     try {
       await vaultApi.createMemberAccess(companyId, item.id, memberPick, memberLevel);
       setMemberPick("");
       setMemberLevel("view");
       await reload();
-      toast("Member access added", "success");
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "Member access could not be added.", "error");
+      setMemberError(errorMessage(cause, "Member access could not be added."));
     } finally {
       setBusy(null);
     }
@@ -90,12 +94,8 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
     try {
       await vaultApi.updateMemberAccess(companyId, item.id, row.id, accessLevel);
       await reload();
-      toast("Member access updated", "success");
     } catch (cause) {
-      toast(
-        cause instanceof Error ? cause.message : "Member access could not be updated.",
-        "error",
-      );
+      void dialog.error(cause, { title: "Couldn’t update the Member’s access" });
     } finally {
       setBusy(null);
     }
@@ -107,12 +107,8 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
     try {
       await vaultApi.deleteMemberAccess(companyId, item.id, row.id);
       await reload();
-      toast("Member access removed", "success");
     } catch (cause) {
-      toast(
-        cause instanceof Error ? cause.message : "Member access could not be removed.",
-        "error",
-      );
+      void dialog.error(cause, { title: "Couldn’t remove the Member’s access" });
     } finally {
       setBusy(null);
     }
@@ -121,14 +117,14 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
   async function addEmployee() {
     if (!employeePick || busy) return;
     setBusy("employee:add");
+    setEmployeeError(null);
     try {
       await vaultApi.createEmployeeGrant(companyId, item.id, employeePick, employeeLevel);
       setEmployeePick("");
       setEmployeeLevel("use");
       await reload();
-      toast("AI Employee Grant added", "success");
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "The Grant could not be added.", "error");
+      setEmployeeError(errorMessage(cause, "The Grant could not be added."));
     } finally {
       setBusy(null);
     }
@@ -140,9 +136,8 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
     try {
       await vaultApi.updateEmployeeGrant(companyId, item.id, row.id, accessLevel);
       await reload();
-      toast("AI Employee Grant updated", "success");
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "The Grant could not be updated.", "error");
+      void dialog.error(cause, { title: "Couldn’t update the Grant" });
     } finally {
       setBusy(null);
     }
@@ -154,9 +149,8 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
     try {
       await vaultApi.deleteEmployeeGrant(companyId, item.id, row.id);
       await reload();
-      toast("AI Employee Grant removed", "success");
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "The Grant could not be removed.", "error");
+      void dialog.error(cause, { title: "Couldn’t remove the Grant" });
     } finally {
       setBusy(null);
     }
@@ -267,41 +261,44 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
           </ul>
         )}
         {item.canShare && (
-          <div className="flex flex-col gap-2 border-t border-slate-100 p-4 sm:flex-row sm:items-end dark:border-slate-800">
-            <Select
-              label="Add a Member"
-              value={memberPick}
-              disabled={busy !== null || availableMembers.length === 0}
-              onChange={(event) => setMemberPick(event.target.value)}
-              containerClassName="min-w-0 flex-1"
-            >
-              <option value="">
-                {availableMembers.length ? "Choose a Member…" : "No more Members to add"}
-              </option>
-              {availableMembers.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name}
-                  {candidate.email ? ` — ${candidate.email}` : ""}
+          <div className="border-t border-slate-100 p-4 dark:border-slate-800">
+            <FormError message={memberError} className="mb-3" />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <Select
+                label="Add a Member"
+                value={memberPick}
+                disabled={busy !== null || availableMembers.length === 0}
+                onChange={(event) => setMemberPick(event.target.value)}
+                containerClassName="min-w-0 flex-1"
+              >
+                <option value="">
+                  {availableMembers.length ? "Choose a Member…" : "No more Members to add"}
                 </option>
-              ))}
-            </Select>
-            <Select
-              label="Access"
-              value={memberLevel}
-              disabled={busy !== null || availableMembers.length === 0}
-              onChange={(event) => setMemberLevel(event.target.value as VaultMemberAccessLevel)}
-              containerClassName="w-full sm:w-28"
-            >
-              <option value="view">View</option>
-              <option value="edit">Edit</option>
-            </Select>
-            <Button
-              size="sm"
-              disabled={busy !== null || !memberPick}
-              onClick={() => void addMember()}
-            >
-              <Plus size={13} /> Add
-            </Button>
+                {availableMembers.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name}
+                    {candidate.email ? ` — ${candidate.email}` : ""}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                label="Access"
+                value={memberLevel}
+                disabled={busy !== null || availableMembers.length === 0}
+                onChange={(event) => setMemberLevel(event.target.value as VaultMemberAccessLevel)}
+                containerClassName="w-full sm:w-28"
+              >
+                <option value="view">View</option>
+                <option value="edit">Edit</option>
+              </Select>
+              <Button
+                size="sm"
+                disabled={busy !== null || !memberPick}
+                onClick={() => void addMember()}
+              >
+                <Plus size={13} /> Add
+              </Button>
+            </div>
           </div>
         )}
       </AccessSection>
@@ -383,42 +380,47 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
           </ul>
         )}
         {item.canShare && (
-          <div className="flex flex-col gap-2 border-t border-slate-100 p-4 sm:flex-row sm:items-end dark:border-slate-800">
-            <Select
-              label="Grant to an AI Employee"
-              value={employeePick}
-              disabled={busy !== null || availableEmployees.length === 0}
-              onChange={(event) => setEmployeePick(event.target.value)}
-              containerClassName="min-w-0 flex-1"
-            >
-              <option value="">
-                {availableEmployees.length
-                  ? "Choose an AI Employee…"
-                  : "No more AI Employees to add"}
-              </option>
-              {availableEmployees.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name} — {candidate.role}
+          <div className="border-t border-slate-100 p-4 dark:border-slate-800">
+            <FormError message={employeeError} className="mb-3" />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <Select
+                label="Grant to an AI Employee"
+                value={employeePick}
+                disabled={busy !== null || availableEmployees.length === 0}
+                onChange={(event) => setEmployeePick(event.target.value)}
+                containerClassName="min-w-0 flex-1"
+              >
+                <option value="">
+                  {availableEmployees.length
+                    ? "Choose an AI Employee…"
+                    : "No more AI Employees to add"}
                 </option>
-              ))}
-            </Select>
-            <Select
-              label="Grant"
-              value={employeeLevel}
-              disabled={busy !== null || availableEmployees.length === 0}
-              onChange={(event) => setEmployeeLevel(event.target.value as VaultEmployeeAccessLevel)}
-              containerClassName="w-full sm:w-28"
-            >
-              <option value="use">Use</option>
-              <option value="manage">Manage</option>
-            </Select>
-            <Button
-              size="sm"
-              disabled={busy !== null || !employeePick}
-              onClick={() => void addEmployee()}
-            >
-              <Plus size={13} /> Add
-            </Button>
+                {availableEmployees.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name} — {candidate.role}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                label="Grant"
+                value={employeeLevel}
+                disabled={busy !== null || availableEmployees.length === 0}
+                onChange={(event) =>
+                  setEmployeeLevel(event.target.value as VaultEmployeeAccessLevel)
+                }
+                containerClassName="w-full sm:w-28"
+              >
+                <option value="use">Use</option>
+                <option value="manage">Manage</option>
+              </Select>
+              <Button
+                size="sm"
+                disabled={busy !== null || !employeePick}
+                onClick={() => void addEmployee()}
+              >
+                <Plus size={13} /> Add
+              </Button>
+            </div>
           </div>
         )}
       </AccessSection>

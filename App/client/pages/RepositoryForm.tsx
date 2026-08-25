@@ -5,7 +5,7 @@ import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import {
   api,
   Company,
@@ -14,6 +14,7 @@ import {
   RepositoryKind,
   RepositoryOrigin,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 
 /**
  * Shared form fields + create modal for a Repository. The detail page
@@ -337,34 +338,36 @@ export function RepoFormModal({
   onClose: () => void;
   onSaved: (row: Repository) => void;
 }) {
-  const { toast } = useToast();
   const [form, setForm] = React.useState<RepoFormState>(emptyRepoForm());
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (open) {
       setForm(emptyRepoForm());
       setBusy(false);
+      setError(null);
     }
   }, [open]);
 
   async function submit() {
+    setError(null);
     if (!form.name.trim()) {
-      toast("Give the repository a name.", "error");
+      setError("Give the repository a name.");
       return;
     }
     // A local repository has nothing to clone from and nothing to authenticate
     // to, so none of the remote checks apply to it.
     if (form.origin === "remote" && !form.gitUrl.trim()) {
-      toast("Add a clone URL.", "error");
+      setError("Add a clone URL.");
       return;
     }
     if (form.origin === "remote" && form.authMode === "https" && !form.token.trim()) {
-      toast("HTTPS auth needs a token or password.", "error");
+      setError("HTTPS auth needs a token or password.");
       return;
     }
     if (form.origin === "remote" && form.authMode === "ssh" && !form.sshKey.trim()) {
-      toast("SSH auth needs a private key.", "error");
+      setError("SSH auth needs a private key.");
       return;
     }
     setBusy(true);
@@ -373,10 +376,9 @@ export function RepoFormModal({
         `/api/companies/${company.id}/repositories`,
         repoCreatePayload(form),
       );
-      toast("Repository added", "success");
       onSaved(row);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -385,6 +387,7 @@ export function RepoFormModal({
   return (
     <Modal open={open} onClose={onClose} title="Add repository" size="lg">
       <RepoFormFields form={form} setForm={setForm} mode="create" />
+      <FormError message={error} className="mt-5" />
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="secondary" onClick={onClose} disabled={busy}>
           Cancel

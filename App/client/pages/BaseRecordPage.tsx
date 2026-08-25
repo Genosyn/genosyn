@@ -2,11 +2,12 @@ import React from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { api, BaseTableContent, Company } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { useBases } from "./BasesLayout";
 import {
@@ -26,12 +27,13 @@ import {
 export default function BaseRecordPage({ company }: { company: Company }) {
   const { baseSlug, tableSlug, recordId } = useParams();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const { activeDetail } = useBases();
 
   const [content, setContent] = React.useState<BaseTableContent | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [contentError, setContentError] = React.useState<string | null>(null);
+  const [fieldError, setFieldError] = React.useState<string | null>(null);
 
   // `activeDetail` may belong to the previous base during nav — only trust it
   // once the slug matches the URL, same rule as BaseDetail.
@@ -55,13 +57,14 @@ export default function BaseRecordPage({ company }: { company: Company }) {
           `/api/companies/${company.id}/bases/${detail.base.slug}/tables/${table.id}/rows`,
         );
         setContent(d);
+        setContentError(null);
       } catch (err) {
-        toast((err as Error).message, "error");
+        setContentError(errorMessage(err, "Could not load this record"));
       } finally {
         if (!silent) setLoading(false);
       }
     },
-    [company.id, detail, table, toast],
+    [company.id, detail, table],
   );
 
   React.useEffect(() => {
@@ -87,6 +90,24 @@ export default function BaseRecordPage({ company }: { company: Company }) {
     : `/c/${company.slug}/bases/${base.slug}`;
   const record = content?.records.find((r) => r.id === recordId) ?? null;
 
+  // Only a load that left nothing on screen earns the whole pane. A refetch
+  // that failed over a record already loaded — the live-refetch above, or the
+  // re-read after a saved cell — keeps the record mounted and says so in the
+  // banner further down instead of unmounting the fields, files and comments.
+  if (contentError && !content) {
+    return (
+      <div className="flex min-h-[60vh] flex-1 flex-col items-center justify-center gap-3 p-6">
+        <FormError message={contentError} className="max-w-md" />
+        <Link
+          to={tableUrl}
+          className="flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          <ArrowLeft size={14} /> Back to {table?.name ?? base.name}
+        </Link>
+      </div>
+    );
+  }
+
   if (!table || !content || !record) {
     return (
       <div className="flex min-h-[60vh] flex-1 flex-col items-center justify-center gap-3">
@@ -107,11 +128,12 @@ export default function BaseRecordPage({ company }: { company: Company }) {
   const title = recordTitle(content.fields, record);
 
   async function patchCell(fieldId: string, value: unknown) {
+    setFieldError(null);
     try {
       await api.patch(baseUrl, { fieldId, value });
       await loadContent(true);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setFieldError(errorMessage(err));
     }
   }
 
@@ -126,10 +148,9 @@ export default function BaseRecordPage({ company }: { company: Company }) {
     if (!ok) return;
     try {
       await api.del(baseUrl);
-      toast("Record deleted", "success");
       navigate(tableUrl);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the record" });
     }
   }
 
@@ -164,12 +185,23 @@ export default function BaseRecordPage({ company }: { company: Company }) {
         </div>
       </div>
 
+      {/* A refetch that failed on top of a record already on screen. The
+          record itself is still the last good copy, so say that rather than
+          implying the edit that triggered the re-read was lost. */}
+      {contentError && (
+        <FormError
+          message={`${contentError} This record may be out of date.`}
+          className="mx-6 mt-6"
+        />
+      )}
+
       {/* Body — fields on the left, files + comments on the right. */}
       <div className="page-shell grid gap-6 p-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
           <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Fields
           </div>
+          <FormError message={fieldError} className="mb-3" />
           <RecordFieldsGrid
             fields={content.fields}
             record={record}

@@ -5,8 +5,8 @@ import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
-import { useToast } from "@/components/ui/Toast";
 import { copyToClipboard } from "@/lib/clipboard";
+import { errorMessage } from "@/lib/errors";
 import {
   generateVaultPassword,
   scheduleVaultClipboardClear,
@@ -32,7 +32,6 @@ export function VaultItemEditor({
   onClose: () => void;
   onSaved: (item: VaultItem) => void | Promise<void>;
 }) {
-  const { toast } = useToast();
   const [persistedItem, setPersistedItem] = React.useState<VaultItem | undefined>(item);
   const editing = !!persistedItem;
   const [type, setType] = React.useState<VaultItemType>(item?.type ?? "login");
@@ -84,15 +83,12 @@ export function VaultItemEditor({
 
   async function copyGeneratedSecret() {
     if (!secret) return;
+    setError(null);
     if (await copyToClipboard(secret)) {
       setCopied(true);
       scheduleVaultClipboardClear(secret);
-      toast(
-        "Generated password copied. Clipboard will clear after 30 seconds when supported.",
-        "success",
-      );
     } else {
-      toast("Could not access the clipboard", "error");
+      setError("Could not access the clipboard");
     }
   }
 
@@ -131,9 +127,8 @@ export function VaultItemEditor({
         setPersistedItem(saved);
       }
       await onSaved(saved);
-      toast(currentItem ? "Vault item updated" : "Vault item created", "success");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The Vault item could not be saved.");
+      setError(errorMessage(cause, "The Vault item could not be saved."));
     } finally {
       setBusy(false);
     }

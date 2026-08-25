@@ -34,8 +34,8 @@ import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
 import { Textarea } from "@/components/ui/Textarea";
-import { useToast } from "@/components/ui/Toast";
 import { api, type Customer, type Employee } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 import {
   SIGNATURE_FIELD_LABELS,
   SIGNATURE_STATUS_LABELS,
@@ -102,66 +102,12 @@ function freshRecipient(order: number): DraftRecipient {
   };
 }
 
-function deliveryFeedback(
-  recipients: SignatureRecipient[],
-  action: "send" | "remind",
-): { message: string; kind: "success" | "error" | "info" } {
-  const failed = recipients.filter((recipient) => recipient.lastDeliveryStatus === "failed");
-  if (failed.length) {
-    const details = failed
-      .map((recipient) =>
-        recipient.lastDeliveryError
-          ? `${recipient.name}: ${recipient.lastDeliveryError}`
-          : recipient.name,
-      )
-      .join("; ");
-    return {
-      message: `${action === "send" ? "Envelope started" : "Reminder created"}, but email delivery failed — ${details}`,
-      kind: "error",
-    };
-  }
-
-  const skipped = recipients.filter((recipient) => recipient.lastDeliveryStatus === "skipped");
-  if (skipped.length) {
-    const consoleOnly = skipped.every(
-      (recipient) =>
-        !recipient.lastDeliveryError ||
-        recipient.lastDeliveryError.toLowerCase().includes("no email provider"),
-    );
-    return {
-      message: consoleOnly
-        ? "No email transport is configured. The private signing link was logged to the server console for development."
-        : `${action === "send" ? "Envelope started" : "Reminder created"}, but email delivery was skipped for ${skipped.map((recipient) => recipient.name).join(", ")}.`,
-      kind: "info",
-    };
-  }
-
-  if (
-    recipients.length &&
-    recipients.every((recipient) => recipient.lastDeliveryStatus === "sent")
-  ) {
-    return {
-      message: action === "send" ? "Signing invitation delivered" : "Reminder delivered",
-      kind: "success",
-    };
-  }
-
-  return {
-    message:
-      action === "send"
-        ? "Envelope started. Invitations will follow the selected signing order."
-        : "Reminder queued; delivery has not been confirmed yet.",
-    kind: "info",
-  };
-}
-
 export default function SignatureDetail() {
   const { company } = useOutletContext<SignatureOutletContext>();
   const { envelopeId = "" } = useParams<{ envelopeId: string }>();
   const navigate = useNavigate();
   const dialog = useDialog();
   const navigationGuard = useNavigationGuard();
-  const { toast } = useToast();
   const [detail, setDetail] = React.useState<SignatureEnvelopeDetail | null>(null);
   const [customers, setCustomers] = React.useState<Customer[]>([]);
   const [recipients, setRecipients] = React.useState<DraftRecipient[]>([]);
@@ -184,11 +130,7 @@ export default function SignatureDetail() {
   const autosaveRef = React.useRef<(() => Promise<void>) | null>(null);
   const saveInFlightRef = React.useRef<Promise<SignatureDraftSaveResult | null> | null>(null);
   const saveDraftRef = React.useRef<
-    | ((options?: {
-        quiet?: boolean;
-        autosave?: boolean;
-      }) => Promise<SignatureDraftSaveResult | null>)
-    | null
+    ((options?: { autosave?: boolean }) => Promise<SignatureDraftSaveResult | null>) | null
   >(null);
   const navigationGuardBusyRef = React.useRef(false);
   const sendReviewBusyRef = React.useRef(false);
@@ -342,13 +284,14 @@ export default function SignatureDetail() {
 
   function addField(pageNumber: number, x: number, y: number) {
     if (sendDispatchingRef.current) return;
+    setError(null);
     if (
       !selectedRecipientId ||
       !recipients.some(
         (recipient) => recipient.id === selectedRecipientId && recipient.role === "signer",
       )
     ) {
-      toast("Choose a signer before placing a field.", "error");
+      setError("Choose a signer before placing a field.");
       return;
     }
     const size = defaultFieldSize(fieldTool);
@@ -414,7 +357,7 @@ export default function SignatureDetail() {
   }
 
   async function persistDraft(
-    options: { quiet?: boolean; autosave?: boolean } = {},
+    options: { autosave?: boolean } = {},
   ): Promise<SignatureDraftSaveResult | null> {
     if (!detail) return null;
     const routeGeneration = routeGenerationRef.current;
@@ -458,9 +401,6 @@ export default function SignatureDetail() {
         setSelectedFieldId(persistedSelectedField?.id ?? null);
         dirtyRef.current = false;
         setDirty(false);
-        if (!options.quiet) toast("Draft saved", "success");
-      } else if (!options.autosave) {
-        toast("Your newest edit is still waiting to save.", "info");
       }
       return { detail: next, current: saveIsCurrent };
     } catch (cause) {
@@ -474,7 +414,7 @@ export default function SignatureDetail() {
   }
 
   async function saveDraft(
-    options: { quiet?: boolean; autosave?: boolean } = {},
+    options: { autosave?: boolean } = {},
   ): Promise<SignatureDraftSaveResult | null> {
     if (saveInFlightRef.current) return saveInFlightRef.current;
     const request = persistDraft(options);
@@ -490,7 +430,7 @@ export default function SignatureDetail() {
 
   async function flushDraftBeforeNavigation(): Promise<boolean> {
     while (dirtyRef.current || saveInFlightRef.current) {
-      const result = await saveDraftRef.current?.({ quiet: true });
+      const result = await saveDraftRef.current?.();
       if (!result) return false;
       if (result.current && !dirtyRef.current) return true;
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
@@ -604,7 +544,7 @@ export default function SignatureDetail() {
   }, [isDraft]);
 
   autosaveRef.current = async () => {
-    await saveDraft({ quiet: true, autosave: true });
+    await saveDraft({ autosave: true });
   };
 
   async function currentDraftForSend(routeGeneration: number): Promise<{
@@ -616,7 +556,7 @@ export default function SignatureDetail() {
 
       let savedDetail = latestSavedDetailRef.current;
       if (dirtyRef.current || saveInFlightRef.current) {
-        const saved = await saveDraftRef.current?.({ quiet: true });
+        const saved = await saveDraftRef.current?.();
         if (!saved || routeGeneration !== routeGenerationRef.current) return null;
         savedDetail = saved.detail;
         if (!saved.current) {
@@ -705,10 +645,10 @@ export default function SignatureDetail() {
           },
         );
         if (!reviewIsCurrent) {
-          toast(
-            "The request changed while you were reviewing it. Review the latest saved version before sending.",
-            "info",
-          );
+          await dialog.alert({
+            title: "The request changed while you were reviewing it",
+            message: "Review the latest saved version before sending.",
+          });
           continue;
         }
 
@@ -721,15 +661,10 @@ export default function SignatureDetail() {
         setDetail(result);
         setRecipients(result.recipients);
         setFields(result.fields);
-        const attempted = result.recipients.filter(
-          (recipient) => recipient.role === "signer" && recipient.lastDeliveredAt,
-        );
-        const feedback = deliveryFeedback(attempted, "send");
-        toast(feedback.message, feedback.kind);
         return;
       }
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "The request could not be sent.", "error");
+      setError(errorMessage(cause, "The request could not be sent."));
     } finally {
       sendDispatchingRef.current = false;
       setSendDispatching(false);
@@ -747,10 +682,9 @@ export default function SignatureDetail() {
     setActing(true);
     try {
       const result = normalizeEnvelopeDetail(await api.post<unknown>(`${base}/duplicate`));
-      toast("Draft duplicated", "success");
       navigate(`${routeBase}/${result.envelope.id}`);
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "Could not duplicate the envelope.", "error");
+      void dialog.error(cause, { title: "Couldn’t duplicate the envelope" });
     } finally {
       setActing(false);
     }
@@ -768,10 +702,9 @@ export default function SignatureDetail() {
     setActing(true);
     try {
       await api.post(`${base}/void`, { reason });
-      toast("Envelope voided", "success");
       await load();
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "Could not void the envelope.", "error");
+      void dialog.error(cause, { title: "Couldn’t void the envelope" });
     } finally {
       setActing(false);
     }
@@ -791,7 +724,6 @@ export default function SignatureDetail() {
     setActing(true);
     try {
       await api.del(base);
-      toast("Draft deleted", "success");
       navigate(routeBase);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The draft could not be deleted.");
@@ -822,7 +754,7 @@ export default function SignatureDetail() {
     try {
       const saved =
         isDraft && dirtyRef.current
-          ? await saveDraft({ quiet: true })
+          ? await saveDraft()
           : detail
             ? { detail, current: true }
             : null;
@@ -862,7 +794,7 @@ export default function SignatureDetail() {
       setAiCandidates(candidates);
       setSelectedAiEmployeeId(candidates[0].employee.id);
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "Could not open AI help.", "error");
+      void dialog.error(cause, { title: "Couldn’t open AI help" });
     } finally {
       setPreparingAiHandoff(false);
     }
@@ -984,7 +916,6 @@ export default function SignatureDetail() {
               onClick={() => {
                 if (sendDispatchingRef.current) return;
                 applyDetail(remoteDraft);
-                toast("Latest draft loaded", "success");
               }}
             >
               Reload latest
@@ -998,7 +929,6 @@ export default function SignatureDetail() {
                   if (sendDispatchingRef.current) return;
                   expectedUpdatedAtRef.current = remoteDraft.envelope.updatedAt;
                   setRemoteDraft(null);
-                  toast("Your local changes will replace the latest draft when saved.", "info");
                 }}
               >
                 Keep my changes
@@ -1090,14 +1020,8 @@ export default function SignatureDetail() {
               setDetail(result);
               setRecipients(result.recipients);
               setFields(result.fields);
-              const refreshed = result.recipients.find((item) => item.id === recipient.id);
-              const feedback = deliveryFeedback(refreshed ? [refreshed] : [], "remind");
-              toast(feedback.message, feedback.kind);
             } catch (cause) {
-              toast(
-                cause instanceof Error ? cause.message : "Could not send the reminder.",
-                "error",
-              );
+              void dialog.error(cause, { title: "Couldn’t send the reminder" });
             } finally {
               setActing(false);
             }

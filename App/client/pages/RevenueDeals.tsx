@@ -18,8 +18,7 @@ import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { RevenueOutletCtx } from "./RevenueLayout";
 import type { RevenueClassification } from "../lib/revenue";
 
@@ -297,7 +296,7 @@ export function ownerIdsFromKey(key: string): {
 export default function RevenueDeals() {
   const { company } = useOutletContext<RevenueOutletCtx>();
   const navigate = useNavigate();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
 
   const base = `/api/companies/${company.id}/revenue`;
@@ -438,10 +437,8 @@ export default function RevenueDeals() {
           lostReason,
         }),
       {
-        loading: `Moving to ${target.name}…`,
-        success: `${deal.title} → ${target.name}`,
-        error: (err) =>
-          `Couldn’t move the deal: ${errText(err)}. The card was put back.`,
+        title: "Couldn’t move the deal",
+        error: (err) => `${errText(err)} The card was put back.`,
         onSuccess: () => reload(),
         onError: () => setBoard(snapshot),
       },

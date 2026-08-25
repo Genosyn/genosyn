@@ -4,16 +4,18 @@ import { Bot, Eye, ShieldCheck, Sparkles } from "lucide-react";
 
 import { Select } from "@/components/ui/Select";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
-import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
 import { api } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import type { MarketingGrantRow } from "../lib/marketing";
 import type { MarketingOutletCtx } from "./MarketingLayout";
-import { LoadingPage, PageHeader, cardClass, inputClass } from "./MarketingShared";
+import { ErrorPage, LoadingPage, PageHeader, cardClass, inputClass } from "./MarketingShared";
 
 export function MarketingAiAccessPage() {
   const { company } = useOutletContext<MarketingOutletCtx>();
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [rows, setRows] = React.useState<MarketingGrantRow[] | null>(null);
+  const [loadError, setLoadError] = React.useState("");
 
   const load = React.useCallback(async () => {
     const result = await api.get<{ rows: MarketingGrantRow[] }>(
@@ -23,8 +25,8 @@ export function MarketingAiAccessPage() {
   }, [company.id]);
 
   React.useEffect(() => {
-    load().catch((err: Error) => toast(err.message, "error"));
-  }, [load, toast]);
+    load().catch((err: unknown) => setLoadError(errorMessage(err, "Could not load AI access")));
+  }, [load]);
 
   async function setAccess(row: MarketingGrantRow, accessLevel: string) {
     try {
@@ -37,12 +39,12 @@ export function MarketingAiAccessPage() {
         );
       }
       await load();
-      toast("Marketing access updated", "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not update access", "error");
+      void dialog.error(err, { title: "Couldn’t update Marketing access" });
     }
   }
 
+  if (loadError) return <ErrorPage message={loadError} />;
   if (!rows) return <LoadingPage />;
 
   return (

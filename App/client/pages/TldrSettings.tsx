@@ -23,10 +23,9 @@ import { Breadcrumbs } from "@/components/AppShell";
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
-import { FormError } from "@/components/ui/FormError";
+import { FormError, FormSuccess } from "@/components/ui/FormError";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
-import { useToast } from "@/components/ui/Toast";
 import { clsx } from "@/components/ui/clsx";
 import { formatRelative } from "@/components/decisions/relative";
 import { Input } from "@/components/ui/Input";
@@ -39,6 +38,7 @@ import {
   type TldrSettings,
   type TldrStandingQuestion,
 } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 import { TLDR_QUESTION_PRESETS, TLDR_QUESTION_PROMPT_MAX_CHARS } from "@/lib/tldrQuestions";
 import type { TldrsOutletContext } from "@/pages/TldrsLayout";
 
@@ -120,12 +120,12 @@ function toDraft(settings: TldrSettings): Draft {
 export default function TldrSettingsPage() {
   const { company } = useOutletContext<TldrsOutletContext>();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const [settings, setSettings] = React.useState<TldrSettings | null>(null);
   const [employees, setEmployees] = React.useState<Employee[] | null>(null);
   const [draft, setDraft] = React.useState<Draft | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [generateNotice, setGenerateNotice] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [generating, setGenerating] = React.useState(false);
   const dirtyRef = React.useRef(false);
@@ -151,7 +151,7 @@ export default function TldrSettingsPage() {
       setEmployees(roster);
       if (!dirtyRef.current) setDraft(toDraft(nextSettings));
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : "Could not load TLDR settings.");
+      setLoadError(errorMessage(err, "Could not load TLDR settings."));
     }
   }, [company.id]);
 
@@ -171,10 +171,11 @@ export default function TldrSettingsPage() {
   const canManage = company.role !== "member";
   const base = `/c/${company.slug}/tldrs`;
 
-  async function persistDraft(showSuccess = true): Promise<boolean> {
+  async function persistDraft(): Promise<boolean> {
     if (!draft || (draft.enabled && !draft.employeeId)) return false;
     setSaving(true);
     setSaveError(null);
+    setGenerateNotice(null);
     try {
       // The local `key` is React bookkeeping and the body schema is strict, so
       // the list is mapped down to what the server actually accepts. Blank
@@ -195,10 +196,9 @@ export default function TldrSettingsPage() {
       const fresh = await api.get<TldrSettings>(`/api/companies/${company.id}/tldrs/settings`);
       setSettings(fresh);
       setDraft(toDraft(fresh));
-      if (showSuccess) toast("TLDR schedule saved", "success");
       return true;
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Could not save TLDR settings.");
+      setSaveError(errorMessage(err, "Could not save TLDR settings."));
       return false;
     } finally {
       setSaving(false);
@@ -207,7 +207,8 @@ export default function TldrSettingsPage() {
 
   async function generateNow() {
     if (!draft?.employeeId || !canManage) return;
-    if (dirty && !(await persistDraft(false))) return;
+    setGenerateNotice(null);
+    if (dirty && !(await persistDraft())) return;
     setGenerating(true);
     setSaveError(null);
     try {
@@ -215,14 +216,15 @@ export default function TldrSettingsPage() {
         `/api/companies/${company.id}/tldrs/generate`,
       );
       if (result.status === "empty") {
-        toast("There is no new company activity to summarize yet.", "info");
+        // Nothing else on screen moves when there was nothing to summarize,
+        // so the aside says so next to the button that was pressed.
+        setGenerateNotice("There is no new company activity to summarize yet.");
         await reload();
         return;
       }
-      toast("TLDR created", "success");
       navigate(`${base}#tldr-${result.tldr.id}`);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Could not generate a TLDR.");
+      setSaveError(errorMessage(err, "Could not generate a TLDR."));
     } finally {
       setGenerating(false);
     }
@@ -482,14 +484,17 @@ export default function TldrSettingsPage() {
                 first.
               </p>
               {canManage ? (
-                <Button
-                  className="mt-4 w-full"
-                  onClick={() => void generateNow()}
-                  disabled={saving || generating || !draft.employeeId}
-                >
-                  {generating ? <Spinner size={14} /> : <Sparkles size={14} />}
-                  {generating ? "Generating…" : "Generate now"}
-                </Button>
+                <>
+                  <Button
+                    className="mt-4 w-full"
+                    onClick={() => void generateNow()}
+                    disabled={saving || generating || !draft.employeeId}
+                  >
+                    {generating ? <Spinner size={14} /> : <Sparkles size={14} />}
+                    {generating ? "Generating…" : "Generate now"}
+                  </Button>
+                  <FormSuccess message={generateNotice} className="mt-3" />
+                </>
               ) : (
                 <p className="mt-3 text-[11px] text-slate-500 dark:text-slate-400">
                   Ask a company owner or admin to generate one manually.

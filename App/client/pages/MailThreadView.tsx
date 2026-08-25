@@ -32,7 +32,7 @@ import {
 import { MailOutletCtx } from "./MailLayout";
 import { MailAssistant } from "./MailAssistant";
 import { Button } from "../components/ui/Button";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Menu, MenuHeader, MenuItem } from "../components/ui/Menu";
@@ -40,9 +40,9 @@ import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
 import { allAttachmentIndexes, draftEditorIsDirty, withoutAttachment } from "../lib/draftEditor";
+import { errorMessage } from "../lib/errors";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { clsx } from "../components/ui/clsx";
 
@@ -141,7 +141,7 @@ function applyThreadAction(
 export default function MailThreadView() {
   const { company, account, labels, changeTick, openCompose } = useOutletContext<MailOutletCtx>();
   const { threadId } = useParams();
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const navigate = useNavigate();
 
   const forward = React.useCallback(
@@ -158,6 +158,7 @@ export default function MailThreadView() {
   const [messages, setMessages] = React.useState<MailMessage[]>([]);
   const [handovers, setHandovers] = React.useState<MailHandover[]>([]);
   const [notFound, setNotFound] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
   const [handOpen, setHandOpen] = React.useState(false);
 
@@ -168,6 +169,7 @@ export default function MailThreadView() {
       setThread(res.thread);
       setMessages(res.messages);
       setHandovers(res.handovers);
+      setLoadError(null);
       setExpanded((prev) => {
         if (prev.size > 0) return prev;
         const next = new Set<string>();
@@ -180,15 +182,16 @@ export default function MailThreadView() {
         return next;
       });
     } catch (err) {
-      if ((err as Error).message.includes("not found")) setNotFound(true);
-      else toast((err as Error).message, "error");
+      const message = errorMessage(err, "Could not load the thread");
+      if (message.includes("not found")) setNotFound(true);
+      else setLoadError(message);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company.id, threadId]);
 
   React.useEffect(() => {
     setThread(null);
     setNotFound(false);
+    setLoadError(null);
     setExpanded(new Set());
     void load();
   }, [load]);
@@ -220,8 +223,8 @@ export default function MailThreadView() {
   }
   if (!thread) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner size={22} />
+      <div className="flex h-full items-center justify-center px-6">
+        {loadError ? <FormError message={loadError} /> : <Spinner size={22} />}
       </div>
     );
   }
@@ -238,12 +241,8 @@ export default function MailThreadView() {
     if (action === "trash") navigate(base);
 
     background(() => mailApi.threadAction(company.id, thread.id, action, opts), {
-      loading: "Updating email…",
-      success: action === "trash" ? "Moved to trash" : undefined,
-      error: (error) =>
-        `Couldn\u2019t update the email: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. The change was undone.`,
+      title: "Couldn’t update the email",
+      error: (error) => `${errorMessage(error)} The change was undone.`,
       onSuccess: ({ thread: updated }) => {
         if (updated) setThread(updated);
       },
@@ -356,6 +355,9 @@ export default function MailThreadView() {
               ))}
             </div>
           )}
+
+          {/* A refresh that failed after the thread was already on screen */}
+          <FormError message={loadError} className="mb-3" />
 
           {/* Handover timeline */}
           {handovers.length > 0 && (
@@ -591,7 +593,7 @@ function DraftCard({
   accountId: string;
   onChanged: () => Promise<void>;
 }) {
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const [editing, setEditing] = React.useState(false);
   const [to, setTo] = React.useState(draft.toEmails);
@@ -657,17 +659,10 @@ function DraftCard({
         return mailApi.sendDraft(companyId, id);
       },
       {
-        loading: "Sending draft…",
-        success: "Sent",
-        error: (sendError) =>
-          `Couldn\u2019t send the draft: ${
-            sendError instanceof Error ? sendError.message : "Unknown error"
-          }. It has been restored.`,
+        title: "Couldn’t send the draft",
+        error: (sendError) => `${errorMessage(sendError)} It has been restored.`,
         onSuccess: () => void onChanged(),
-        onError: (sendError) => {
-          setHidden(false);
-          setError(sendError instanceof Error ? sendError.message : "Could not send draft");
-        },
+        onError: () => setHidden(false),
       },
     );
   };
@@ -706,12 +701,8 @@ function DraftCard({
                 if (!ok) return;
                 setHidden(true);
                 background(() => mailApi.discardDraft(companyId, draft.id), {
-                  loading: "Discarding draft…",
-                  success: "Draft discarded",
-                  error: (discardError) =>
-                    `Couldn\u2019t discard the draft: ${
-                      discardError instanceof Error ? discardError.message : "Unknown error"
-                    }. It has been restored.`,
+                  title: "Couldn’t discard the draft",
+                  error: (discardError) => `${errorMessage(discardError)} It has been restored.`,
                   onSuccess: () => void onChanged(),
                   onError: () => setHidden(false),
                 });
@@ -802,11 +793,10 @@ function DraftCard({
                 setError(null);
                 try {
                   await save();
-                  toast("Draft saved", "success");
                   setEditing(false);
                   await onChanged();
                 } catch (err) {
-                  setError((err as Error).message);
+                  setError(errorMessage(err));
                 } finally {
                   setBusy(null);
                 }
@@ -839,7 +829,6 @@ function ReplyComposer({
   onSent: () => Promise<void>;
   onDraftSaved: () => Promise<void>;
 }) {
-  const { background } = useToast();
   const [open, setOpen] = React.useState(false);
   const [replyAll, setReplyAll] = React.useState(false);
   const [recipients, setRecipients] = React.useState<{ to: string; cc: string } | null>(null);
@@ -898,29 +887,21 @@ function ReplyComposer({
     };
     setBody("");
     setOpen(false);
-    background(
-      () =>
-        kind === "send"
-          ? mailApi.send(companyId, accountId, input)
-          : mailApi.createDraft(companyId, accountId, input),
-      {
-        loading: kind === "send" ? "Sending reply…" : "Saving draft…",
-        success: kind === "send" ? "Sent" : "Draft saved",
-        error: (submitError) =>
-          `${kind === "send" ? "Couldn\u2019t send the reply" : "Couldn\u2019t save the draft"}: ${
-            submitError instanceof Error ? submitError.message : "Unknown error"
-          }. Your message has been restored.`,
-        onSuccess: () => {
-          attach.clear();
-          void (kind === "send" ? onSent() : onDraftSaved());
-        },
-        onError: (submitError) => {
-          setError(submitError instanceof Error ? submitError.message : "Request failed");
-          setBody((current) => current || submittedBody);
-          setOpen(true);
-        },
-      },
-    );
+    const request =
+      kind === "send"
+        ? mailApi.send(companyId, accountId, input)
+        : mailApi.createDraft(companyId, accountId, input);
+    request
+      .then(() => {
+        attach.clear();
+        void (kind === "send" ? onSent() : onDraftSaved());
+      })
+      .catch((submitError: unknown) => {
+        const failure = kind === "send" ? "Couldn’t send the reply" : "Couldn’t save the draft";
+        setError(`${failure}: ${errorMessage(submitError, "Request failed")}`);
+        setBody((current) => current || submittedBody);
+        setOpen(true);
+      });
   };
 
   return (
@@ -996,7 +977,7 @@ function HandoverCard({
   companyId: string;
   onChanged: () => Promise<void>;
 }) {
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [showResult, setShowResult] = React.useState(false);
   const statusStyle: Record<MailHandover["status"], string> = {
     pending: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
@@ -1033,10 +1014,9 @@ function HandoverCard({
             onClick={async () => {
               try {
                 await mailApi.retryHandover(companyId, handover.id);
-                toast("Retrying", "info");
                 await onChanged();
               } catch (err) {
-                toast((err as Error).message, "error");
+                void dialog.error(err, { title: "Couldn’t retry the handover" });
               }
             }}
           >
@@ -1078,7 +1058,6 @@ function HandToAiModal({
   threadId: string;
   onCreated: () => Promise<void>;
 }) {
-  const { toast } = useToast();
   const [grants, setGrants] = React.useState<MailGrant[] | null>(null);
   const [employeeId, setEmployeeId] = React.useState("");
   const [mode, setMode] = React.useState<MailHandoverMode>("draft");
@@ -1101,7 +1080,7 @@ function HandToAiModal({
         setGrants(res.direct);
         setEmployeeId(res.direct[0]?.employeeId ?? "");
       })
-      .catch((err) => setError((err as Error).message));
+      .catch((err: unknown) => setError(errorMessage(err)));
   }, [open, companyId, accountId]);
 
   const selected = grants?.find((g) => g.employeeId === employeeId) ?? null;
@@ -1130,11 +1109,10 @@ function HandToAiModal({
         instruction,
         mode,
       });
-      toast("Handed to AI — you'll be notified when it finishes", "success");
       onClose();
       await onCreated();
     } catch (err) {
-      setError((err as Error).message);
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }

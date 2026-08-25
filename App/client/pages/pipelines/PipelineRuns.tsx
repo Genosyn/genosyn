@@ -2,6 +2,7 @@ import React from "react";
 import {
   ArrowLeft,
   Braces,
+  Check,
   CheckCircle2,
   Clipboard,
   FileText,
@@ -11,9 +12,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
-import { useToast } from "@/components/ui/Toast";
+import { useDialog } from "@/components/ui/Dialog";
+import { FormError } from "@/components/ui/FormError";
 import { api, type Company, type PipelineRunDetail, type PipelineRunSummary } from "@/lib/api";
 import { copyToClipboard } from "@/lib/clipboard";
+import { errorMessage } from "@/lib/errors";
 import {
   RUN_STATUS_META,
   TRIGGER_KIND_LABEL,
@@ -38,7 +41,7 @@ export function PipelineRuns({
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [detail, setDetail] = React.useState<PipelineRunDetail | null>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
-  const { toast } = useToast();
+  const [detailError, setDetailError] = React.useState<string | null>(null);
 
   const loadRuns = React.useCallback(
     async (quiet = false) => {
@@ -73,6 +76,7 @@ export function PipelineRuns({
 
   React.useEffect(() => {
     let cancelled = false;
+    setDetailError(null);
     if (!selectedId) {
       setDetail(null);
       return;
@@ -84,8 +88,8 @@ export function PipelineRuns({
       .then((result) => {
         if (!cancelled) setDetail(result);
       })
-      .catch((err) => {
-        if (!cancelled) toast((err as Error).message, "error");
+      .catch((err: unknown) => {
+        if (!cancelled) setDetailError(errorMessage(err, "Could not load this run"));
       })
       .finally(() => {
         if (!cancelled) setDetailLoading(false);
@@ -93,7 +97,7 @@ export function PipelineRuns({
     return () => {
       cancelled = true;
     };
-  }, [company.id, selectedId, toast]);
+  }, [company.id, selectedId]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-slate-50 dark:bg-slate-900 lg:flex-row">
@@ -196,6 +200,8 @@ export function PipelineRuns({
           <div className="flex h-full min-h-64 items-center justify-center">
             <Spinner size={22} />
           </div>
+        ) : detailError ? (
+          <FormError message={detailError} />
         ) : detail ? (
           <RunDetail detail={detail} />
         ) : runs.length > 0 ? (
@@ -296,7 +302,11 @@ function DataSection({
   dark?: boolean;
   footer?: string;
 }) {
-  const { toast } = useToast();
+  const dialog = useDialog();
+  // Remember what was copied, not just that something was: the check mark
+  // then clears itself as soon as another run puts different text on screen.
+  const [copiedValue, setCopiedValue] = React.useState<string | null>(null);
+  const copied = copiedValue === value;
   return (
     <details
       className="group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm open:pb-0 dark:border-slate-800 dark:bg-slate-950"
@@ -317,14 +327,19 @@ function DataSection({
           onClick={async (event) => {
             event.preventDefault();
             event.stopPropagation();
-            const ok = await copyToClipboard(value);
-            toast(ok ? `${title} copied` : "Could not access clipboard", ok ? "success" : "error");
+            if (!(await copyToClipboard(value))) {
+              void dialog.error("Could not access the clipboard.", {
+                title: `Couldn’t copy the ${title.toLowerCase()}`,
+              });
+              return;
+            }
+            setCopiedValue(value);
           }}
           className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          title={`Copy ${title.toLowerCase()}`}
-          aria-label={`Copy ${title.toLowerCase()}`}
+          title={copied ? `${title} copied` : `Copy ${title.toLowerCase()}`}
+          aria-label={copied ? `${title} copied` : `Copy ${title.toLowerCase()}`}
         >
-          <Clipboard size={14} />
+          {copied ? <Check size={14} /> : <Clipboard size={14} />}
         </button>
       </summary>
       <pre

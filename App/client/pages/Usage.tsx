@@ -7,7 +7,8 @@ import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
+import { errorMessage } from "../lib/errors";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 
 /**
@@ -27,7 +28,7 @@ export default function Usage() {
   const { company } = useOutletContext<SettingsOutletCtx>();
   const [days, setDays] = React.useState(30);
   const [summary, setSummary] = React.useState<UsageSummary | null>(null);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
@@ -35,13 +36,15 @@ export default function Usage() {
         `/api/companies/${company.id}/usage?days=${days}`,
       );
       setSummary(s);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load usage"));
     }
-  }, [company.id, days, toast]);
+  }, [company.id, days]);
 
   React.useEffect(() => {
     setSummary(null);
+    setLoadError(null);
     reload();
   }, [reload]);
 
@@ -65,7 +68,9 @@ export default function Usage() {
       <p className="mb-6 text-xs text-slate-500 dark:text-slate-400">
         Measured from routine runs. Token counts and dollar costs aren&apos;t tracked yet.
       </p>
-      {summary === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : summary === null ? (
         <Spinner />
       ) : summary.totals.runs === 0 ? (
         <EmptyState

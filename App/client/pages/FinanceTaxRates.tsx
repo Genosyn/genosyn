@@ -2,14 +2,15 @@ import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
 import { api, TaxRate } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /**
@@ -21,7 +22,7 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinanceTaxRates() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const [rates, setRates] = React.useState<TaxRate[] | null>(null);
   const [editing, setEditing] = React.useState<TaxRate | "new" | null>(null);
@@ -48,12 +49,8 @@ export default function FinanceTaxRates() {
     const originalIndex = rates?.findIndex((item) => item.id === t.id) ?? -1;
     setRates((current) => current?.filter((item) => item.id !== t.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/tax-rates/${t.id}`), {
-      loading: "Deleting tax rate…",
-      success: "Tax rate deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the tax rate: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the tax rate",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setRates((current) => {
           if (!current || current.some((item) => item.id === t.id)) return current;
@@ -165,15 +162,16 @@ function TaxRateEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
   const [name, setName] = React.useState(rate?.name ?? "");
   const [ratePercent, setRatePercent] = React.useState(rate ? String(rate.ratePercent) : "");
   const [inclusive, setInclusive] = React.useState(rate?.inclusive ?? false);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
       const body = {
         name: name.trim(),
@@ -187,7 +185,7 @@ function TaxRateEditor({
       }
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -225,6 +223,7 @@ function TaxRateEditor({
             </span>
           </span>
         </label>
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel

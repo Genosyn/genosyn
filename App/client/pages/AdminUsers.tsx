@@ -14,10 +14,11 @@ import { Avatar, adminUserAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
+import { errorMessage } from "../lib/errors";
 import type { AdminOutletCtx } from "./AdminLayout";
 
 /**
@@ -36,7 +37,6 @@ export function AdminUsers() {
   const [query, setQuery] = React.useState("");
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [promotingId, setPromotingId] = React.useState<string | null>(null);
-  const { toast } = useToast();
   const dialog = useDialog();
 
   const reload = React.useCallback(async () => {
@@ -47,12 +47,11 @@ export function AdminUsers() {
     } catch (err) {
       // Keep any previously-loaded rows on screen; surface the failure as its
       // own state instead of masquerading as an empty instance.
-      setError((err as Error).message);
-      toast((err as Error).message, "error");
+      setError(errorMessage(err, "Could not load users"));
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   React.useEffect(() => {
     reload();
@@ -70,10 +69,9 @@ export function AdminUsers() {
     setDeletingId(u.id);
     try {
       await api.del(`/api/admin/users/${u.id}`);
-      toast(`Deleted ${u.email}`, "success");
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: `Couldn’t delete ${u.name || u.email}` });
     } finally {
       setDeletingId(null);
     }
@@ -95,15 +93,13 @@ export function AdminUsers() {
       await api.patch(`/api/admin/users/${u.id}/master-admin`, {
         isMasterAdmin: next,
       });
-      toast(
-        next
-          ? `${u.name || u.email} is now a master admin`
-          : `Revoked master admin from ${u.name || u.email}`,
-        "success",
-      );
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, {
+        title: next
+          ? `Couldn’t make ${u.name || u.email} a master admin`
+          : `Couldn’t revoke master admin from ${u.name || u.email}`,
+      });
     } finally {
       setPromotingId(null);
     }
@@ -150,6 +146,10 @@ export function AdminUsers() {
             </span>
           )}
         </div>
+
+        {/* A refresh that fails with rows already on screen keeps them there,
+            so the failure needs its own line above the list. */}
+        {error && rows !== null && <FormError message={error} />}
 
         {error && rows === null ? (
           <EmptyState

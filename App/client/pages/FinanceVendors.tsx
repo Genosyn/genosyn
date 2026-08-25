@@ -9,9 +9,10 @@ import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
+import { errorMessage } from "../lib/errors";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /**
@@ -23,7 +24,7 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinanceVendors() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const [vendors, setVendors] = React.useState<Vendor[] | null>(null);
   const [showArchived, setShowArchived] = React.useState(false);
@@ -57,12 +58,8 @@ export default function FinanceVendors() {
           archived,
         }),
       {
-        loading: archived ? "Archiving vendor…" : "Restoring vendor…",
-        success: archived ? "Vendor archived" : "Vendor restored",
-        error: (error) =>
-          `Couldn\u2019t update the vendor: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The change was undone.`,
+        title: "Couldn’t update the vendor",
+        error: (error) => `${errorMessage(error)} The change was undone.`,
         onSuccess: () => void reload(),
         onError: () => {
           setVendors((current) => {
@@ -90,12 +87,8 @@ export default function FinanceVendors() {
     const originalIndex = vendors?.findIndex((item) => item.id === v.id) ?? -1;
     setVendors((current) => current?.filter((item) => item.id !== v.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/vendors/${v.slug}`), {
-      loading: "Deleting vendor…",
-      success: "Vendor deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the vendor: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the vendor",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setVendors((current) => {
           if (!current || current.some((item) => item.id === v.id)) return current;
@@ -285,7 +278,6 @@ function VendorEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
   const [name, setName] = React.useState(vendor?.name ?? "");
   const [email, setEmail] = React.useState(vendor?.email ?? "");
   const [phone, setPhone] = React.useState(vendor?.phone ?? "");
@@ -294,10 +286,12 @@ function VendorEditor({
   const [address, setAddress] = React.useState(vendor?.address ?? "");
   const [notes, setNotes] = React.useState(vendor?.notes ?? "");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
       const body = {
         name: name.trim(),
@@ -315,7 +309,7 @@ function VendorEditor({
       }
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -367,6 +361,7 @@ function VendorEditor({
             rows={2}
           />
         </div>
+        <FormError message={error} className="sm:col-span-2" />
         <div className="sm:col-span-2 flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel

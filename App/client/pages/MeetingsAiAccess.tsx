@@ -3,12 +3,14 @@ import { Link, useOutletContext } from "react-router-dom";
 import { Bot, Trash2 } from "lucide-react";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
+import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Panel } from "../components/meetings/MeetingChips";
 import { api, type Employee } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { meetingsApi, type CalendarAccount, type CalendarGrant } from "../lib/meetings";
 import type { MeetingsOutletCtx } from "./MeetingsLayout";
 
@@ -26,7 +28,7 @@ const ACCESS_LABELS: Record<"read" | "record", string> = {
  */
 export default function MeetingsAiAccess() {
   const { company } = useOutletContext<MeetingsOutletCtx>();
-  const { toast } = useToast();
+  const dialog = useDialog();
 
   const [grants, setGrants] = React.useState<CalendarGrant[] | null>(null);
   const [calendars, setCalendars] = React.useState<CalendarAccount[]>([]);
@@ -37,6 +39,7 @@ export default function MeetingsAiAccess() {
   const [pickCalendar, setPickCalendar] = React.useState("");
   const [pickLevel, setPickLevel] = React.useState<"read" | "record">("read");
   const [saving, setSaving] = React.useState(false);
+  const [grantError, setGrantError] = React.useState<string | null>(null);
 
   const canManage = company.role !== "member";
 
@@ -52,7 +55,7 @@ export default function MeetingsAiAccess() {
         setCalendars(calendarResult.calendars);
         setEmployees(employeeList);
       })
-      .catch((err) => setError((err as Error).message));
+      .catch((err: unknown) => setError(errorMessage(err)));
   }, [company.id]);
 
   React.useEffect(() => {
@@ -63,6 +66,7 @@ export default function MeetingsAiAccess() {
 
   const addGrant = async () => {
     if (!pickEmployee || !pickCalendar) return;
+    setGrantError(null);
     setSaving(true);
     try {
       const result = await meetingsApi.grant(company.id, {
@@ -72,9 +76,8 @@ export default function MeetingsAiAccess() {
       });
       setGrants(result.grants);
       setPickEmployee("");
-      toast("Access granted.", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setGrantError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -87,9 +90,8 @@ export default function MeetingsAiAccess() {
         accountId: grant.accountId,
       });
       setGrants(result.grants);
-      toast("Access revoked.", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t revoke access" });
     }
   };
 
@@ -185,6 +187,7 @@ export default function MeetingsAiAccess() {
                   <Bot size={14} /> {saving ? "Granting…" : "Grant"}
                 </Button>
               </div>
+              <FormError message={grantError} className="mt-2" />
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                 {ACCESS_LABELS[pickLevel]}
               </p>

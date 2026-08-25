@@ -3,17 +3,17 @@ import { Select } from "@/components/ui/Select";
 import { useOutletContext } from "react-router-dom";
 import { Pencil, Trash2 } from "lucide-react";
 import { api, Company, FinanceAccess, Member, Secret } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
-import { FormError } from "../components/ui/FormError";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Avatar, memberAvatarUrl } from "../components/ui/Avatar";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { EmptyState } from "../components/ui/EmptyState";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -48,7 +48,6 @@ export function SettingsCompany() {
   const [requireTwoFactor, setRequireTwoFactor] = React.useState(company.requireTwoFactor);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const { toast } = useToast();
 
   React.useEffect(() => {
     setName(company.name);
@@ -121,9 +120,8 @@ export function SettingsCompany() {
                   return;
                 }
                 onCompaniesChanged();
-                toast("Company updated", "success");
               } catch (err) {
-                setError((err as Error).message);
+                setError(errorMessage(err));
               } finally {
                 setSaving(false);
               }
@@ -214,7 +212,6 @@ function DangerZoneCard() {
   const [confirmText, setConfirmText] = React.useState("");
   const [deleting, setDeleting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const { toast } = useToast();
 
   // Only the owner can hard-delete. Admins/members get nothing — the row
   // would otherwise be a footgun for someone with limited authority.
@@ -229,13 +226,12 @@ function DangerZoneCard() {
       // The current company is gone — bounce to the company switcher in
       // AppShell. We refresh first so the dropdown reflects the new list.
       onCompaniesChanged();
-      toast(`Deleted ${company.name}`, "success");
       // Pick a destination that won't 404. The shell's redirect logic
       // sends users with no companies to /onboarding; users with at least
       // one will be re-routed to that company's home.
       window.location.assign("/");
     } catch (err) {
-      setError((err as Error).message);
+      setError(errorMessage(err));
       setDeleting(false);
     }
   }
@@ -313,7 +309,7 @@ export function SettingsMembers() {
   const [members, setMembers] = React.useState<Member[] | null>(null);
   const [inviteEmail, setInviteEmail] = React.useState("");
   const [inviteError, setInviteError] = React.useState<string | null>(null);
-  const { toast } = useToast();
+  const [inviteNotice, setInviteNotice] = React.useState<string | null>(null);
   const dialog = useDialog();
   const canManage = company.role === "owner" || company.role === "admin";
 
@@ -321,9 +317,8 @@ export function SettingsMembers() {
     try {
       await api.patch(`/api/companies/${company.id}/members/${member.userId}`, { role });
       await reload();
-      toast(`${member.name ?? member.email ?? "Member"} is now ${role}`, "success");
     } catch (error) {
-      toast((error as Error).message, "error");
+      await dialog.error(error, { title: "Couldn’t change the role" });
     }
   }
 
@@ -333,9 +328,8 @@ export function SettingsMembers() {
         financeAccess,
       });
       await reload();
-      toast("Finance access updated", "success");
     } catch (error) {
-      toast((error as Error).message, "error");
+      await dialog.error(error, { title: "Couldn’t change finance access" });
     }
   }
 
@@ -357,9 +351,10 @@ export function SettingsMembers() {
         return;
       }
       await reload();
-      toast("Member removed", "success");
     } catch (error) {
-      toast((error as Error).message, "error");
+      await dialog.error(error, {
+        title: self ? "Couldn’t leave the company" : "Couldn’t remove the member",
+      });
     }
   }
 
@@ -464,18 +459,20 @@ export function SettingsMembers() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 setInviteError(null);
+                setInviteNotice(null);
                 try {
                   await api.post(`/api/companies/${company.id}/invitations`, {
                     email: inviteEmail,
                   });
                   setInviteEmail("");
-                  toast("Invite sent", "success");
+                  setInviteNotice("Invite sent");
                 } catch (err) {
-                  setInviteError((err as Error).message);
+                  setInviteError(errorMessage(err));
                 }
               }}
             >
               <FormError message={inviteError} />
+              <FormSuccess message={inviteNotice} />
               <div className="flex items-end gap-3">
                 <div className="flex-1">
                   <Input
@@ -516,18 +513,19 @@ function SecretsCard({ company }: { company: Company }) {
   const [rows, setRows] = React.useState<Secret[] | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [editing, setEditing] = React.useState<Secret | null>(null);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const dialog = useDialog();
 
   const reload = React.useCallback(async () => {
     try {
       const list = await api.get<Secret[]>(`/api/companies/${company.id}/secrets`);
       setRows(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the secrets"));
       setRows([]);
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -551,7 +549,9 @@ function SecretsCard({ company }: { company: Company }) {
         </div>
       </CardHeader>
       <CardBody>
-        {rows === null ? (
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : rows === null ? (
           <Spinner />
         ) : rows.length === 0 ? (
           <EmptyState
@@ -596,7 +596,7 @@ function SecretsCard({ company }: { company: Company }) {
                         await api.del(`/api/companies/${company.id}/secrets/${s.id}`);
                         await reload();
                       } catch (err) {
-                        toast((err as Error).message, "error");
+                        await dialog.error(err, { title: `Couldn’t delete ${s.name}` });
                       }
                     }}
                   >
@@ -683,7 +683,7 @@ function SecretModal({
             }
             onSaved();
           } catch (err) {
-            setError((err as Error).message);
+            setError(errorMessage(err));
           } finally {
             setBusy(false);
           }

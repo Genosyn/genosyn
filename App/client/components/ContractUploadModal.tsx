@@ -2,11 +2,12 @@ import React from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { api, Company, Customer, CustomerContract } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "./ui/Button";
+import { FormError } from "./ui/FormError";
 import { Input } from "./ui/Input";
 import { Select } from "./ui/Select";
 import { Textarea } from "./ui/Textarea";
-import { useToast } from "./ui/Toast";
 
 /**
  * Upload a new signed contract or edit an existing one's metadata. Shared by
@@ -37,7 +38,6 @@ export function ContractUploadModal({
   /** Edit this contract's metadata instead of uploading a new file. */
   existing?: CustomerContract | null;
 }) {
-  const { toast } = useToast();
   const isEdit = Boolean(existing);
   const [file, setFile] = React.useState<File | null>(null);
   const [title, setTitle] = React.useState("");
@@ -45,10 +45,12 @@ export function ContractUploadModal({
   const [signedAt, setSignedAt] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   // Reseed the fields whenever the modal opens or its target changes.
   React.useEffect(() => {
     if (!open) return;
+    setError(null);
     setFile(null);
     setTitle(existing?.title ?? "");
     setCustomerId(lockedCustomerId ?? existing?.customerId ?? "");
@@ -58,8 +60,9 @@ export function ContractUploadModal({
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     if (!isEdit && !file) {
-      toast("Choose a file to upload", "error");
+      setError("Choose a file to upload");
       return;
     }
     setBusy(true);
@@ -90,7 +93,7 @@ export function ContractUploadModal({
       onSaved(saved);
       onClose();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -186,6 +189,8 @@ export function ContractUploadModal({
             className="min-h-[5rem]"
           />
         </div>
+
+        <FormError message={error} className="mx-5 mb-3 shrink-0" />
 
         <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 px-5 py-3 dark:border-slate-800">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>

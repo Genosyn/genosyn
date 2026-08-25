@@ -3,8 +3,10 @@ import { Link, useOutletContext } from "react-router-dom";
 import { Check, Images, Plus, Rocket, Search, X } from "lucide-react";
 
 import { Select } from "@/components/ui/Select";
-import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
 import { api } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import {
   marketingStatusLabel,
   MARKETING_CREATIVE_STATUS_OPTIONS,
@@ -40,11 +42,13 @@ const emptyDraft = {
 
 export function MarketingCreativePage() {
   const { company } = useOutletContext<MarketingOutletCtx>();
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [rows, setRows] = React.useState<MarketingCreative[] | null>(null);
   const [campaigns, setCampaigns] = React.useState<MarketingCampaign[]>([]);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [showForm, setShowForm] = React.useState(false);
   const [draft, setDraft] = React.useState(emptyDraft);
+  const [formError, setFormError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [status, setStatus] = React.useState("");
@@ -59,6 +63,7 @@ export function MarketingCreativePage() {
     ]);
     setRows(creativeRows.rows);
     setCampaigns(campaignRows.rows);
+    setLoadError(null);
     setDraft((value) => ({
       ...value,
       campaignId: value.campaignId || campaignRows.rows[0]?.id || "",
@@ -66,35 +71,46 @@ export function MarketingCreativePage() {
   }, [company.id]);
 
   React.useEffect(() => {
-    load().catch((err: Error) => toast(err.message, "error"));
-  }, [load, toast]);
+    load().catch((err: unknown) => {
+      setLoadError(errorMessage(err, "Could not load Creative"));
+      setRows([]);
+    });
+  }, [load]);
 
   async function createCreative(event: React.FormEvent) {
     event.preventDefault();
+    setFormError(null);
     setSaving(true);
     try {
       await api.post(`/api/companies/${company.id}/marketing/creatives`, {
         ...draft,
         status: "review",
       });
-      setDraft((value) => ({ ...emptyDraft, campaignId: value.campaignId }));
-      setShowForm(false);
-      await load();
-      toast("Creative submitted for review", "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not create Creative", "error");
+      setFormError(errorMessage(err, "Could not create Creative"));
+      return;
     } finally {
       setSaving(false);
     }
+    // The POST already succeeded, and closing the form takes `formError` off
+    // screen with it — so a failed refetch belongs in the page-level banner,
+    // and has to say plainly that the Creative itself was created.
+    setDraft((value) => ({ ...emptyDraft, campaignId: value.campaignId }));
+    setShowForm(false);
+    await load().catch((err: unknown) =>
+      setLoadError(
+        "The Creative was created, but the list could not be reloaded. Refresh to see it. " +
+          errorMessage(err),
+      ),
+    );
   }
 
-  async function patchCreative(id: string, body: Record<string, unknown>, message: string) {
+  async function patchCreative(id: string, body: Record<string, unknown>) {
     try {
       await api.patch(`/api/companies/${company.id}/marketing/creatives/${id}`, body);
       await load();
-      toast(message, "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not update Creative", "error");
+      void dialog.error(err, { title: "Couldn’t update the Creative" });
     }
   }
 
@@ -122,7 +138,11 @@ export function MarketingCreativePage() {
           <button
             className={primaryButton}
             disabled={campaigns.length === 0}
-            onClick={() => setShowForm((value) => !value)}
+            onClick={() => {
+              // A message from the last attempt must not greet a blank form.
+              setFormError(null);
+              setShowForm((value) => !value);
+            }}
           >
             <Plus size={15} /> New Creative
           </button>
@@ -235,6 +255,7 @@ export function MarketingCreativePage() {
               />
             </label>
           </div>
+          <FormError message={formError} className="mt-5" />
           <div className="mt-5 flex justify-end gap-2">
             <button type="button" className={secondaryButton} onClick={() => setShowForm(false)}>
               Cancel
@@ -287,7 +308,9 @@ export function MarketingCreativePage() {
         </div>
       )}
 
-      {visible.length === 0 ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : visible.length === 0 ? (
         <EmptyState
           icon={<Images size={19} />}
           title={rows.length === 0 ? "No Creative yet" : "Nothing matches those filters"}
@@ -364,11 +387,7 @@ export function MarketingCreativePage() {
                           onClick={() => {
                             const note = rejecting.note;
                             setRejecting(null);
-                            void patchCreative(
-                              row.id,
-                              { status: "rejected", reviewNote: note },
-                              "Creative rejected",
-                            );
+                            void patchCreative(row.id, { status: "rejected", reviewNote: note });
                           }}
                         >
                           Reject
@@ -384,9 +403,7 @@ export function MarketingCreativePage() {
                         <>
                           <button
                             className={primaryButton}
-                            onClick={() =>
-                              patchCreative(row.id, { status: "approved" }, "Creative approved")
-                            }
+                            onClick={() => patchCreative(row.id, { status: "approved" })}
                           >
                             <Check size={14} /> Approve
                           </button>
@@ -407,9 +424,7 @@ export function MarketingCreativePage() {
                               ? undefined
                               : "Creative can only go live under an active Campaign"
                           }
-                          onClick={() =>
-                            patchCreative(row.id, { status: "active" }, "Creative is live")
-                          }
+                          onClick={() => patchCreative(row.id, { status: "active" })}
                         >
                           <Rocket size={14} /> Mark active
                         </button>
@@ -417,9 +432,7 @@ export function MarketingCreativePage() {
                       {row.status === "active" && (
                         <button
                           className={secondaryButton}
-                          onClick={() =>
-                            patchCreative(row.id, { status: "retired" }, "Creative retired")
-                          }
+                          onClick={() => patchCreative(row.id, { status: "retired" })}
                         >
                           Retire
                         </button>
@@ -427,9 +440,7 @@ export function MarketingCreativePage() {
                       {(row.status === "rejected" || row.status === "retired") && (
                         <button
                           className={secondaryButton}
-                          onClick={() =>
-                            patchCreative(row.id, { status: "draft" }, "Creative back in draft")
-                          }
+                          onClick={() => patchCreative(row.id, { status: "draft" })}
                         >
                           Reopen as draft
                         </button>
@@ -437,9 +448,7 @@ export function MarketingCreativePage() {
                       {row.status === "draft" && (
                         <button
                           className={primaryButton}
-                          onClick={() =>
-                            patchCreative(row.id, { status: "review" }, "Creative submitted")
-                          }
+                          onClick={() => patchCreative(row.id, { status: "review" })}
                         >
                           Submit for review
                         </button>

@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Company } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import {
   ComposeInput,
   MailAccount,
@@ -35,6 +36,7 @@ import { AttachmentBar, useMailAttachments } from "../components/MailAttachments
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { useCompanySocketSubscription } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
+import { useDialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
@@ -42,7 +44,6 @@ import { Menu, MenuItem } from "../components/ui/Menu";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
 
 /**
  * Layout + sidebar for `/c/:slug/mail/*` — the Email section (M25).
@@ -85,13 +86,15 @@ const MAIL_COMMAND_VIEWS: Array<{ view: string; label: string; icon: LucideIcon 
 ];
 
 export default function MailLayout({ company }: { company: Company }) {
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [accounts, setAccounts] = React.useState<MailAccount[]>([]);
   const [activeId, setActiveId] = React.useState<string | null>(() =>
     localStorage.getItem(activeAccountKey(company.id)),
   );
   const [labels, setLabels] = React.useState<MailLabelInfo[]>([]);
+  const [labelError, setLabelError] = React.useState<string | null>(null);
   const [counts, setCounts] = React.useState<MailCounts>({
     inboxUnread: 0,
     drafts: 0,
@@ -108,7 +111,6 @@ export default function MailLayout({ company }: { company: Company }) {
   const [syncSubmittingAccountIds, setSyncSubmittingAccountIds] = React.useState<Set<string>>(
     () => new Set(),
   );
-  const syncPollFailures = React.useRef(0);
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [composeInit, setComposeInit] = React.useState<Partial<ComposeInput>>({});
   const [composeSession, setComposeSession] = React.useState(0);
@@ -149,7 +151,9 @@ export default function MailLayout({ company }: { company: Company }) {
       return;
     }
     if (account.status === "paused") {
-      toast("Resume this mailbox before syncing", "info");
+      void dialog.error("Resume this mailbox before syncing.", {
+        title: "Couldn’t sync this mailbox",
+      });
       return;
     }
     if (account.syncState === "queued" || account.syncState === "running") return;
@@ -158,11 +162,10 @@ export default function MailLayout({ company }: { company: Company }) {
     setSyncSubmittingAccountIds((current) => new Set(current).add(accountId));
     try {
       const { sync } = await mailApi.syncNow(company.id, account.id);
-      syncPollFailures.current = 0;
       setRequestedSync({ accountId: account.id, attemptId: sync.attemptId });
       void refreshAccounts().catch(() => {});
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t start the sync" });
     } finally {
       setSyncSubmittingAccountIds((current) => {
         const next = new Set(current);
@@ -170,7 +173,7 @@ export default function MailLayout({ company }: { company: Company }) {
         return next;
       });
     }
-  }, [account, company.id, refreshAccounts, requestedSync, syncSubmittingAccountIds, toast]);
+  }, [account, company.id, dialog, refreshAccounts, requestedSync, syncSubmittingAccountIds]);
 
   const pollingSyncAccountId =
     requestedSync?.accountId ??
@@ -184,19 +187,10 @@ export default function MailLayout({ company }: { company: Company }) {
   React.useEffect(() => {
     if (!pollingSyncAccountId) return;
     const interval = window.setInterval(() => {
-      void refreshAccounts()
-        .then(() => {
-          syncPollFailures.current = 0;
-        })
-        .catch(() => {
-          syncPollFailures.current += 1;
-          if (syncPollFailures.current === 3) {
-            toast("Sync is still running, but status updates are temporarily unavailable.", "info");
-          }
-        });
+      void refreshAccounts().catch(() => {});
     }, 2_000);
     return () => window.clearInterval(interval);
-  }, [pollingSyncAccountId, refreshAccounts, toast]);
+  }, [pollingSyncAccountId, refreshAccounts]);
 
   React.useEffect(() => {
     if (!requestedSync) return;
@@ -222,19 +216,20 @@ export default function MailLayout({ company }: { company: Company }) {
     if (syncedAccount.syncState === "queued" || syncedAccount.syncState === "running") return;
 
     setRequestedSync(null);
-    if (syncedAccount.syncState === "failed") {
-      if (syncedAccount.status === "paused") return;
-      toast(syncedAccount.statusMessage || "Mailbox sync failed", "error");
-    } else if (syncedAccount.syncState === "succeeded") {
-      toast("Inbox synced", "success");
+    // A finished sync needs no announcement — the counts and the thread list
+    // repaint from the same event. Only a failure has to be said out loud.
+    if (syncedAccount.syncState === "failed" && syncedAccount.status !== "paused") {
+      void dialog.error(syncedAccount.statusMessage, { title: "Mailbox sync failed" });
     }
-  }, [accounts, requestedSync, toast]);
+  }, [accounts, dialog, requestedSync]);
 
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLoadError(null);
       setLabels([]);
+      setLabelError(null);
       setCounts({ inboxUnread: 0, drafts: 0, starred: 0 });
       lastLabelRefreshAt.current = 0;
       try {
@@ -248,12 +243,12 @@ export default function MailLayout({ company }: { company: Company }) {
         // holding the entire Email section behind its spinner.
         setLoading(false);
         if (current) {
-          void refreshLabels(current.id).catch((err) => {
-            if (!cancelled) toast((err as Error).message, "error");
+          void refreshLabels(current.id).catch((err: unknown) => {
+            if (!cancelled) setLabelError(errorMessage(err, "Could not load the folders"));
           });
         }
       } catch (err) {
-        if (!cancelled) toast((err as Error).message, "error");
+        if (!cancelled) setLoadError(errorMessage(err, "Could not load your mailboxes"));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -296,6 +291,7 @@ export default function MailLayout({ company }: { company: Company }) {
     setActiveId(id);
     localStorage.setItem(activeAccountKey(company.id), id);
     setLabels([]);
+    setLabelError(null);
     setCounts({ inboxUnread: 0, drafts: 0, starred: 0 });
     lastLabelRefreshAt.current = 0;
     void refreshLabels(id).catch(() => {});
@@ -362,6 +358,16 @@ export default function MailLayout({ company }: { company: Company }) {
         <div className="flex h-full items-center justify-center">
           <Spinner size={24} />
         </div>
+      </ContextualLayout>
+    );
+  }
+
+  // A roster we could not read is not the same as a company with no mailbox —
+  // say so here rather than dropping the person into onboarding.
+  if (loadError) {
+    return (
+      <ContextualLayout>
+        <FormError message={loadError} className="m-6" />
       </ContextualLayout>
     );
   }
@@ -433,6 +439,7 @@ export default function MailLayout({ company }: { company: Company }) {
         </Button>
       </div>
       <nav className="flex-1 overflow-y-auto p-2">
+        <FormError message={labelError} className="mb-2" />
         <FolderLink
           base={base}
           view="inbox"
@@ -589,9 +596,10 @@ function MailOnboarding({
   company: Company;
   onConnected: () => Promise<void>;
 }) {
-  const { toast } = useToast();
   const [candidates, setCandidates] = React.useState<MailConnectCandidate[] | null>(null);
   const [connecting, setConnecting] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -600,8 +608,11 @@ function MailOnboarding({
       .then((res) => {
         if (!cancelled) setCandidates(res.candidates);
       })
-      .catch((err) => {
-        if (!cancelled) toast((err as Error).message, "error");
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setLoadError(errorMessage(err, "Could not load your Google connections"));
+          setCandidates([]);
+        }
       });
     return () => {
       cancelled = true;
@@ -611,12 +622,14 @@ function MailOnboarding({
 
   const connect = async (connectionId: string) => {
     setConnecting(connectionId);
+    setError(null);
     try {
       await mailApi.connectAccount(company.id, connectionId);
-      toast("Mailbox connected — first sync started", "success");
+      // No confirmation needed: onConnected swaps this whole screen for the
+      // mailbox, with the first sync already running in the sidebar.
       await onConnected();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setConnecting(null);
     }
@@ -637,7 +650,9 @@ function MailOnboarding({
         rules on everything that arrives. Changes sync both ways.
       </p>
 
-      {candidates === null ? (
+      {loadError ? (
+        <FormError message={loadError} className="mt-8" />
+      ) : candidates === null ? (
         <div className="mt-10 flex justify-center">
           <Spinner size={20} />
         </div>
@@ -646,6 +661,7 @@ function MailOnboarding({
           <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
             Pick a Google connection
           </div>
+          <FormError message={error} />
           {usable.map((c) => (
             <div
               key={c.connectionId}
@@ -717,7 +733,7 @@ function MailComposeModal({
   init: Partial<ComposeInput>;
   session: number;
 }) {
-  const { background } = useToast();
+  const dialog = useDialog();
   const navigate = useNavigate();
   const [to, setTo] = React.useState("");
   const [cc, setCc] = React.useState("");
@@ -767,39 +783,37 @@ function MailComposeModal({
       attachmentIds: attach.ids.length ? attach.ids : undefined,
     };
     const submittedSession = session;
+    const title = kind === "send" ? "Couldn’t send the message" : "Couldn’t save the draft";
     recovering.current = true;
     onClose();
-    background(
-      () =>
-        kind === "send"
-          ? mailApi.send(company.id, account.id, input)
-          : mailApi.createDraft(company.id, account.id, input),
-      {
-        loading: kind === "send" ? "Sending message…" : "Saving draft…",
-        success: kind === "send" ? "Sent" : "Draft saved",
-        error: (submitError) =>
-          `${kind === "send" ? "Couldn\u2019t send the message" : "Couldn\u2019t save the draft"}: ${
-            submitError instanceof Error ? submitError.message : "Unknown error"
-          }. ${
-            activeSession.current === submittedSession
-              ? "The composer has been restored."
-              : "Your newer draft is untouched."
-          }`,
-        onSuccess: (result) => {
-          if (activeSession.current !== submittedSession) return;
-          recovering.current = false;
-          clearAttach();
-          if (kind === "draft") {
-            navigate(`/c/${company.slug}/mail/t/${result.message.threadId}`);
-          }
-        },
-        onError: (submitError) => {
-          if (activeSession.current !== submittedSession) return;
-          setError(submitError instanceof Error ? submitError.message : "Request failed");
+    const submitted =
+      kind === "send"
+        ? mailApi.send(company.id, account.id, input)
+        : mailApi.createDraft(company.id, account.id, input);
+    void submitted
+      .then((result) => {
+        if (activeSession.current !== submittedSession) return;
+        recovering.current = false;
+        clearAttach();
+        if (kind === "draft") {
+          navigate(`/c/${company.slug}/mail/t/${result.message.threadId}`);
+        }
+      })
+      .catch((submitError: unknown) => {
+        // Still the same composer: reopen it with everything intact and put
+        // the reason above the Send button, not in a modal over the fields.
+        if (activeSession.current === submittedSession) {
+          setError(`${title}: ${errorMessage(submitError, "Request failed")}`);
           onReopen();
-        },
-      },
-    );
+          return;
+        }
+        // The person has moved on to a newer draft, so there is no form left
+        // to hold this and reopening would clobber what they are writing.
+        void dialog.error(submitError, {
+          title,
+          message: `${errorMessage(submitError)} Your newer draft is untouched.`,
+        });
+      });
   };
 
   return (

@@ -9,11 +9,12 @@ import {
   Send,
 } from "lucide-react";
 import { api, GlobalEmailTransport } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { clsx } from "../components/ui/clsx";
 import type { AdminOutletCtx } from "./AdminLayout";
@@ -69,7 +70,10 @@ export function AdminEmail() {
   const [testing, setTesting] = React.useState(false);
   const [resetting, setResetting] = React.useState(false);
   const [testTo, setTestTo] = React.useState(me.email);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [formError, setFormError] = React.useState<string | null>(null);
+  const [testError, setTestError] = React.useState<string | null>(null);
+  const [testNotice, setTestNotice] = React.useState<string | null>(null);
   const dialog = useDialog();
 
   const reload = React.useCallback(async () => {
@@ -79,10 +83,11 @@ export function AdminEmail() {
       );
       setData(d);
       setDraft(seedDraft(d));
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the email transport"));
     }
-  }, [toast]);
+  }, []);
 
   React.useEffect(() => {
     reload();
@@ -92,11 +97,15 @@ export function AdminEmail() {
     return (
       <>
         <TopBar title="Email transport" />
-        <Card>
-          <CardBody>
-            <Spinner />
-          </CardBody>
-        </Card>
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : (
+          <Card>
+            <CardBody>
+              <Spinner />
+            </CardBody>
+          </Card>
+        )}
       </>
     );
   }
@@ -110,14 +119,16 @@ export function AdminEmail() {
     draft.from !== data.from ||
     draft.pass !== "";
 
-  const buildPayload = () => {
+  // Reports the first invalid field through `onInvalid` so each caller can put
+  // the message in its own card — the form, or the test-email row.
+  const buildPayload = (onInvalid: (message: string) => void) => {
     const port = parseInt(draft.port, 10);
     if (!draft.host.trim()) {
-      toast("SMTP host is required", "error");
+      onInvalid("SMTP host is required");
       return null;
     }
     if (!Number.isFinite(port) || port < 1 || port > 65535) {
-      toast("Port must be a number between 1 and 65535", "error");
+      onInvalid("Port must be a number between 1 and 65535");
       return null;
     }
     return {
@@ -132,7 +143,8 @@ export function AdminEmail() {
   };
 
   const save = async () => {
-    const payload = buildPayload();
+    setFormError(null);
+    const payload = buildPayload(setFormError);
     if (!payload) return;
     setSaving(true);
     try {
@@ -142,19 +154,20 @@ export function AdminEmail() {
       );
       setData(next);
       setDraft(seedDraft(next));
-      toast("Email transport saved", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setFormError(errorMessage(err));
     } finally {
       setSaving(false);
     }
   };
 
   const sendTest = async () => {
-    const payload = buildPayload();
+    setTestError(null);
+    setTestNotice(null);
+    const payload = buildPayload(setTestError);
     if (!payload) return;
     if (!testTo.trim()) {
-      toast("Enter a recipient for the test email", "error");
+      setTestError("Enter a recipient for the test email");
       return;
     }
     setTesting(true);
@@ -163,9 +176,9 @@ export function AdminEmail() {
         ...payload,
         to: testTo.trim(),
       });
-      toast(`Test email sent to ${testTo.trim()}`, "success");
+      setTestNotice(`Test email sent to ${testTo.trim()}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setTestError(errorMessage(err));
     } finally {
       setTesting(false);
     }
@@ -189,9 +202,8 @@ export function AdminEmail() {
       );
       setData(next);
       setDraft(seedDraft(next));
-      toast("Reverted to the default transport", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t reset the email transport" });
     } finally {
       setResetting(false);
     }
@@ -209,6 +221,7 @@ export function AdminEmail() {
       />
 
       <div className="flex flex-col gap-4">
+        <FormError message={loadError} />
         <StatusBanner data={data} />
 
         <Card>
@@ -370,6 +383,8 @@ export function AdminEmail() {
                 </div>
               </div>
 
+              <FormError message={formError} />
+
               <div className="flex items-center justify-between pt-1">
                 <span className="text-xs text-slate-400 dark:text-slate-500">
                   Source: {SOURCE_LABEL[data.source]}
@@ -410,6 +425,8 @@ export function AdminEmail() {
                 {testing ? "Sending…" : "Send test"}
               </Button>
             </div>
+            <FormError message={testError} className="mt-3" />
+            <FormSuccess message={testNotice} className="mt-3" />
           </CardBody>
         </Card>
       </div>

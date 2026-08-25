@@ -2,12 +2,12 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, CheckCircle2, ExternalLink, Github, Lock, Globe } from "lucide-react";
 import { Button } from "../ui/Button";
+import { FormError } from "../ui/FormError";
 import { Input } from "../ui/Input";
 import { Modal } from "../ui/Modal";
 import { Select } from "../ui/Select";
 import { Spinner } from "../ui/Spinner";
 import { Textarea } from "../ui/Textarea";
-import { useToast } from "../ui/Toast";
 import {
   Company,
   Repository,
@@ -18,6 +18,7 @@ import {
   RepositoryGithubConnectionsResponse,
   api,
 } from "../../lib/api";
+import { errorMessage } from "../../lib/errors";
 
 /**
  * Give a Genosyn-only repository somewhere to live on the internet.
@@ -50,7 +51,6 @@ export function ConnectGithubModal({
   /** Fired once the repository has a remote, so the page behind can refresh. */
   onConnected: () => void;
 }) {
-  const { toast } = useToast();
   const [tab, setTab] = React.useState<Tab>("create");
   const [connections, setConnections] = React.useState<RepositoryGithubConnection[] | null>(null);
   const [connectionId, setConnectionId] = React.useState("");
@@ -63,6 +63,7 @@ export function ConnectGithubModal({
   const [token, setToken] = React.useState("");
   const [sshKey, setSshKey] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<{ gitUrl: string; htmlUrl: string | null } | null>(
     null,
   );
@@ -89,6 +90,12 @@ export function ConnectGithubModal({
     onClose();
   }
 
+  /** Each tab has its own fields, so neither inherits the other's failure. */
+  function selectTab(next: Tab) {
+    setTab(next);
+    setError(null);
+  }
+
   // A token and a PEM private key have no business outliving the modal that
   // asked for them; the reset below only runs on the way back in.
   React.useEffect(() => {
@@ -112,6 +119,7 @@ export function ConnectGithubModal({
     setToken("");
     setSshKey("");
     setBusy(false);
+    setError(null);
     setNameTaken(false);
     setResult(null);
     setConnections(null);
@@ -139,13 +147,14 @@ export function ConnectGithubModal({
   }
 
   async function createOnGithub() {
+    setError(null);
     const trimmedName = name.trim();
     if (!/^[A-Za-z0-9._-]+$/.test(trimmedName)) {
-      toast("Repository names can use letters, numbers, dot, dash, and underscore.", "error");
+      setError("Repository names can use letters, numbers, dot, dash, and underscore.");
       return;
     }
     if (owner.trim() && !/^[A-Za-z0-9-]+$/.test(owner.trim())) {
-      toast("An organisation name can use letters, numbers, and dashes.", "error");
+      setError("An organisation name can use letters, numbers, and dashes.");
       return;
     }
     setBusy(true);
@@ -161,32 +170,32 @@ export function ConnectGithubModal({
         },
       );
       finish({ gitUrl: response.gitUrl, htmlUrl: response.htmlUrl });
-      toast(response.pushed ? "Connected and pushed" : "Connected", "success");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       // Creating the repository can succeed and the push that follows can
       // still fail, and the remote is only stored after the push — so the
       // obvious retry hits GitHub's duplicate-name error forever. The empty
       // repository that was just made is exactly what the other tab wants.
       setNameTaken(/already exists/i.test(message));
-      toast(message, "error");
+      setError(message);
     } finally {
       setBusy(false);
     }
   }
 
   async function connectExisting() {
+    setError(null);
     const trimmed = gitUrl.trim();
     if (!/^(https?:\/\/|git@|ssh:\/\/)/.test(trimmed)) {
-      toast("Paste the repository's HTTPS or SSH URL.", "error");
+      setError("Paste the repository’s HTTPS or SSH URL.");
       return;
     }
     if (authMode === "https" && !token.trim()) {
-      toast("A token or password is needed to push over HTTPS.", "error");
+      setError("A token or password is needed to push over HTTPS.");
       return;
     }
     if (authMode === "ssh" && !sshKey.trim()) {
-      toast("A private key is needed to push over SSH.", "error");
+      setError("A private key is needed to push over SSH.");
       return;
     }
     setBusy(true);
@@ -205,9 +214,8 @@ export function ConnectGithubModal({
         },
       );
       finish({ gitUrl: response.gitUrl, htmlUrl: null });
-      toast(response.pushed ? "Connected and pushed" : "Connected", "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -227,12 +235,16 @@ export function ConnectGithubModal({
       ) : (
         <>
           <div className="mb-5 flex gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
-            <TabButton active={tab === "create"} onClick={() => setTab("create")} disabled={busy}>
+            <TabButton
+              active={tab === "create"}
+              onClick={() => selectTab("create")}
+              disabled={busy}
+            >
               Create it for me
             </TabButton>
             <TabButton
               active={tab === "existing"}
-              onClick={() => setTab("existing")}
+              onClick={() => selectTab("existing")}
               disabled={busy}
             >
               I already have one
@@ -311,7 +323,7 @@ export function ConnectGithubModal({
                     <button
                       type="button"
                       onClick={() => {
-                        setTab("existing");
+                        selectTab("existing");
                         setNameTaken(false);
                       }}
                       className="font-medium underline underline-offset-2"
@@ -327,6 +339,8 @@ export function ConnectGithubModal({
                   already committed here. Nothing is deleted, and the files stay editable in Genosyn
                   afterwards.
                 </p>
+
+                <FormError message={error} />
 
                 <div className="flex items-center justify-end gap-2">
                   {busy && (
@@ -415,6 +429,8 @@ export function ConnectGithubModal({
                   </p>
                 </div>
               )}
+
+              <FormError message={error} />
 
               <div className="flex items-center justify-end gap-2">
                 {busy && (

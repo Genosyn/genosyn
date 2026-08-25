@@ -3,12 +3,14 @@ import { Link, useOutletContext } from "react-router-dom";
 import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, Plus, RefreshCw } from "lucide-react";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
+import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Panel, ProviderChip } from "../components/meetings/MeetingChips";
+import { errorMessage } from "../lib/errors";
 import {
   formatClock,
   formatDayLabel,
@@ -52,7 +54,7 @@ function groupByDay(events: CalendarEvent[]): Array<{ day: Date; events: Calenda
 
 export default function MeetingsAgenda() {
   const { company } = useOutletContext<MeetingsOutletCtx>();
-  const { toast } = useToast();
+  const dialog = useDialog();
 
   const [offsetDays, setOffsetDays] = React.useState(0);
   const [events, setEvents] = React.useState<CalendarEvent[] | null>(null);
@@ -97,10 +99,9 @@ export default function MeetingsAgenda() {
     setSyncing(true);
     try {
       await Promise.all(calendars.map((row) => meetingsApi.syncCalendar(company.id, row.id)));
-      toast("Calendars synced.", "success");
       reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t sync the calendars" });
     } finally {
       setSyncing(false);
     }
@@ -306,31 +307,32 @@ function NewMeetingModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const { toast } = useToast();
   const [title, setTitle] = React.useState("");
   const [attendees, setAttendees] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (open) {
       setTitle("");
       setAttendees("");
+      setError(null);
     }
   }, [open]);
 
   const submit = async () => {
     if (!title.trim()) return;
     setSaving(true);
+    setError(null);
     try {
       await meetingsApi.createMeeting(companyId, {
         title: title.trim(),
         attendeeEmails: parseEmailList(attendees),
       });
-      toast("Meeting created.", "success");
       onCreated();
       onClose();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -357,6 +359,7 @@ function NewMeetingModal({
           already Contacts get the call on their timeline, and the assigned AI Employee writes it up.
           You can add attendees later too.
         </p>
+        <FormError message={error} />
         <div className="flex justify-end gap-2">
           <Button variant="secondary" size="sm" onClick={onClose}>
             Cancel

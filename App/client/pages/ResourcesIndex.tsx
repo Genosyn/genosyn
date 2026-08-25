@@ -30,9 +30,10 @@ import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { api, Company, CompanyTag, Resource, ResourceSourceKind } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { TagChips, TagFilterBar, TagPicker } from "../components/TagPicker";
 import { useLiveRefetch } from "../components/CompanySocket";
 
@@ -50,8 +51,8 @@ import { useLiveRefetch } from "../components/CompanySocket";
  */
 export default function ResourcesIndex({ company }: { company: Company }) {
   const navigate = useNavigate();
-  const { toast } = useToast();
   const [items, setItems] = React.useState<Resource[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [showNew, setShowNew] = React.useState(false);
   const [tab, setTab] = React.useState<NewResourceTab>("url");
   const [query, setQuery] = React.useState("");
@@ -71,14 +72,12 @@ export default function ResourcesIndex({ company }: { company: Company }) {
         `/api/companies/${company.id}/resources`,
       );
       setItems(rows);
+      setLoadError(null);
     } catch (err) {
-      toast(
-        err instanceof Error ? err.message : "Could not load resources",
-        "error",
-      );
+      setLoadError(errorMessage(err, "Could not load resources"));
       setItems([]);
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -246,7 +245,9 @@ export default function ResourcesIndex({ company }: { company: Company }) {
             </div>
           )}
 
-          {items === null ? (
+          {loadError ? (
+            <FormError message={loadError} className="mt-8" />
+          ) : items === null ? (
             <div className="mt-10 flex h-32 items-center justify-center">
               <Spinner size={20} />
             </div>
@@ -895,9 +896,9 @@ function NewResourceModal({
   onClose: () => void;
   onCreated: (row: Resource) => void;
 }) {
-  const { toast } = useToast();
   const [tab, setTab] = React.useState<NewResourceTab>(initialTab);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   // Shared fields
   const [title, setTitle] = React.useState("");
@@ -916,6 +917,7 @@ function NewResourceModal({
   React.useEffect(() => {
     if (!open) {
       setBusy(false);
+      setError(null);
       setTitle("");
       setTags([]);
       setUrl("");
@@ -929,6 +931,7 @@ function NewResourceModal({
 
   async function submit() {
     setBusy(true);
+    setError(null);
     try {
       let row: Resource;
       if (tab === "url") {
@@ -966,14 +969,12 @@ function NewResourceModal({
         }
         row = data as Resource;
       }
-      if (row.status === "failed") {
-        toast(`Saved, but ingestion failed: ${row.errorMessage}`, "error");
-      } else {
-        toast("Resource ingested", "success");
-      }
+      // A row that saved but failed to ingest needs no message here:
+      // onCreated navigates to its detail page, which leads with the
+      // "Ingestion failed" banner and the reason.
       onCreated(row);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1093,6 +1094,8 @@ function NewResourceModal({
         )}
 
         <TagPicker companyId={company.id} value={tags} onChange={setTags} />
+
+        <FormError message={error} />
 
         <div className="mt-2 flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose} disabled={busy}>

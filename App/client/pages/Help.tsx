@@ -6,7 +6,8 @@ import { ContextualLayout } from "@/components/AppShell";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Spinner } from "@/components/ui/Spinner";
-import { useToast } from "@/components/ui/Toast";
+import { useDialog } from "@/components/ui/Dialog";
+import { FormError } from "@/components/ui/FormError";
 import {
   api,
   type Company,
@@ -15,6 +16,7 @@ import {
   type ConversationSummary,
   type Employee,
 } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 
 const SUGGESTIONS = [
   "How do I create and schedule a Routine?",
@@ -24,18 +26,22 @@ const SUGGESTIONS = [
 ];
 
 export default function Help({ company }: { company: Company }) {
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [employees, setEmployees] = React.useState<Employee[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [conversations, setConversations] = React.useState<ConversationSummary[]>([]);
+  const [conversationsError, setConversationsError] = React.useState<string | null>(null);
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [loadedId, setLoadedId] = React.useState<string | null>(null);
   const [messages, setMessages] = React.useState<ConversationMessage[]>([]);
+  const [messagesError, setMessagesError] = React.useState<string | null>(null);
   const [loadingConversations, setLoadingConversations] = React.useState(false);
   const [loadingMessages, setLoadingMessages] = React.useState(false);
   const [input, setInput] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const [claimingLegacy, setClaimingLegacy] = React.useState(false);
+  const [claimError, setClaimError] = React.useState<string | null>(null);
   const [streamingReply, setStreamingReply] = React.useState("");
   const inputRef = React.useRef<HTMLTextAreaElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -59,19 +65,20 @@ export default function Help({ company }: { company: Company }) {
             null,
         );
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         if (cancelled) return;
         setEmployees([]);
-        toast((error as Error).message, "error");
+        setLoadError(errorMessage(error, "Could not load your AI Employees"));
       });
     return () => {
       cancelled = true;
     };
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     if (!selectedId) {
       setConversations([]);
+      setConversationsError(null);
       setActiveId(null);
       setLoadedId(null);
       setMessages([]);
@@ -79,6 +86,7 @@ export default function Help({ company }: { company: Company }) {
     }
     let cancelled = false;
     setLoadingConversations(true);
+    setConversationsError(null);
     setConversations([]);
     setActiveId(null);
     setLoadedId(null);
@@ -92,8 +100,10 @@ export default function Help({ company }: { company: Company }) {
         setConversations(list);
         setActiveId(list[0]?.id ?? null);
       })
-      .catch((error) => {
-        if (!cancelled) toast((error as Error).message, "error");
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setConversationsError(errorMessage(error, "Could not load the conversations"));
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingConversations(false);
@@ -101,12 +111,13 @@ export default function Help({ company }: { company: Company }) {
     return () => {
       cancelled = true;
     };
-  }, [company.id, selectedId, toast]);
+  }, [company.id, selectedId]);
 
   React.useEffect(() => {
     if (!selectedId || !activeId || loadedId === activeId) return;
     let cancelled = false;
     setLoadingMessages(true);
+    setMessagesError(null);
     api
       .get<ConversationDetail>(
         `/api/companies/${company.id}/employees/${selectedId}/conversations/${activeId}`,
@@ -116,8 +127,8 @@ export default function Help({ company }: { company: Company }) {
         setMessages(detail.messages);
         setLoadedId(activeId);
       })
-      .catch((error) => {
-        if (!cancelled) toast((error as Error).message, "error");
+      .catch((error: unknown) => {
+        if (!cancelled) setMessagesError(errorMessage(error, "Could not load the conversation"));
       })
       .finally(() => {
         if (!cancelled) setLoadingMessages(false);
@@ -125,7 +136,7 @@ export default function Help({ company }: { company: Company }) {
     return () => {
       cancelled = true;
     };
-  }, [activeId, company.id, loadedId, selectedId, toast]);
+  }, [activeId, company.id, loadedId, selectedId]);
 
   React.useEffect(() => {
     if (!scrollRef.current) return;
@@ -153,16 +164,21 @@ export default function Help({ company }: { company: Company }) {
       setActiveId(created.id);
       setLoadedId(created.id);
       setMessages([]);
+      // The detail effect returns early on `loadedId === activeId`, so it can
+      // never clear a previous conversation's load failure for us.
+      setMessagesError(null);
       window.setTimeout(() => inputRef.current?.focus(), 0);
       return created;
     } catch (error) {
-      toast((error as Error).message, "error");
+      void dialog.error(error, { title: "Couldn’t start a Help conversation" });
       return null;
     }
   }
 
   function selectConversation(id: string) {
     if (sending || claimingLegacy || id === activeId) return;
+    setClaimError(null);
+    setMessagesError(null);
     setActiveId(id);
     setLoadedId(null);
     setMessages([]);
@@ -171,6 +187,7 @@ export default function Help({ company }: { company: Company }) {
   async function claimLegacyConversation() {
     if (!selectedId || !activeId || claimingLegacy) return;
     setClaimingLegacy(true);
+    setClaimError(null);
     try {
       const base = `/api/companies/${company.id}/employees/${selectedId}/conversations/${activeId}`;
       const claimed = await api.post<ConversationSummary>(`${base}/claim`, {});
@@ -180,10 +197,9 @@ export default function Help({ company }: { company: Company }) {
       );
       setMessages(detail.messages);
       setLoadedId(activeId);
-      toast("Conversation claimed. You can continue it privately.", "success");
       window.setTimeout(() => inputRef.current?.focus(), 0);
     } catch (error) {
-      toast((error as Error).message, "error");
+      setClaimError(errorMessage(error, "Could not claim the conversation"));
     } finally {
       setClaimingLegacy(false);
     }
@@ -193,7 +209,8 @@ export default function Help({ company }: { company: Company }) {
     const content = input.trim();
     if (!content || !selectedId || !selected || sending) return;
     if (activeConversation?.legacyUnclaimed) {
-      toast("Claim this legacy conversation before continuing it.", "error");
+      // The banner above the thread owns this instruction — say it there.
+      setClaimError("Claim this legacy conversation before continuing it.");
       return;
     }
     let conversationId = activeId;
@@ -263,7 +280,7 @@ export default function Help({ company }: { company: Company }) {
         ]);
       }
     } catch (error) {
-      const detail = (error as Error).message || "Unknown error";
+      const detail = errorMessage(error, "Unknown error");
       setMessages((current) => [
         ...current,
         {
@@ -351,7 +368,9 @@ export default function Help({ company }: { company: Company }) {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-              {loadingConversations ? (
+              {conversationsError ? (
+                <FormError message={conversationsError} className="mt-2" />
+              ) : loadingConversations ? (
                 <div className="flex justify-center py-6">
                   <Spinner />
                 </div>
@@ -442,6 +461,10 @@ export default function Help({ company }: { company: Company }) {
                 )}
               </div>
             )}
+
+            {/* The sidebar that owns this list is `lg:flex` only, so the
+              narrow layout needs its own copy of the failure. */}
+            <FormError message={conversationsError} className="mt-3 lg:hidden" />
           </header>
 
           {activeConversation?.legacyUnclaimed && (
@@ -465,6 +488,13 @@ export default function Help({ company }: { company: Company }) {
                   {claimingLegacy ? "Claiming…" : "Claim conversation"}
                 </button>
               </div>
+              <FormError message={claimError} className="mx-auto mt-2 max-w-3xl" />
+            </div>
+          )}
+
+          {messagesError && (
+            <div className="border-b border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950 sm:px-6">
+              <FormError message={messagesError} className="mx-auto max-w-3xl" />
             </div>
           )}
 
@@ -472,7 +502,9 @@ export default function Help({ company }: { company: Company }) {
             ref={scrollRef}
             className="min-h-0 flex-1 overflow-y-auto bg-slate-50/50 px-4 py-6 dark:bg-slate-900/40 sm:px-8"
           >
-            {employees === null || loadingMessages ? (
+            {loadError ? (
+              <FormError message={loadError} className="mx-auto max-w-3xl" />
+            ) : employees === null || loadingMessages ? (
               <div className="flex h-full items-center justify-center">
                 <Spinner size={22} />
               </div>

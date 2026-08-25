@@ -19,10 +19,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
+import { FormError } from "@/components/ui/FormError";
 import { Modal } from "@/components/ui/Modal";
 import { Spinner } from "@/components/ui/Spinner";
-import { useToast } from "@/components/ui/Toast";
 import { copyToClipboard } from "@/lib/clipboard";
+import { errorMessage } from "@/lib/errors";
 import {
   safeVaultWebsiteUrl,
   scheduleVaultClipboardClear,
@@ -57,7 +58,6 @@ export function VaultItemDetail({
   onUpdated: (item: VaultItem) => void | Promise<void>;
   onDeleted: (item: VaultItem) => void | Promise<void>;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [detail, setDetail] = React.useState<VaultItem | null>(item);
   const [loading, setLoading] = React.useState(false);
@@ -101,10 +101,7 @@ export function VaultItemDetail({
       })
       .catch((cause: unknown) => {
         if (!active) return;
-        const message =
-          cause instanceof Error ? cause.message : "The Vault item could not be loaded.";
-        setError(message);
-        toast(message, "error");
+        setError(errorMessage(cause, "The Vault item could not be loaded."));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -112,7 +109,7 @@ export function VaultItemDetail({
     return () => {
       active = false;
     };
-  }, [companyId, hideSecret, hideTotpCode, item, toast]);
+  }, [companyId, hideSecret, hideTotpCode, item]);
 
   React.useEffect(() => {
     if (!revealExpiresAt) return;
@@ -147,7 +144,7 @@ export function VaultItemDetail({
       setRevealExpiresAt(Date.now() + SECRET_LIFETIME_SECONDS * 1_000);
       setSecondsLeft(SECRET_LIFETIME_SECONDS);
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "The value could not be revealed.", "error");
+      void dialog.error(cause, { title: "Couldn’t reveal the value" });
     } finally {
       setRevealing(false);
     }
@@ -161,10 +158,9 @@ export function VaultItemDetail({
       const copied = await copyToClipboard(secret);
       if (!copied) throw new Error("Could not access the clipboard");
       setCopiedField("secret");
-      toast("Copied. Clipboard will be cleared after 30 seconds when supported.", "success");
       scheduleVaultClipboardClear(secret, SECRET_LIFETIME_SECONDS * 1_000);
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "The value could not be copied.", "error");
+      void dialog.error(cause, { title: "Couldn’t copy the value" });
     } finally {
       setCopying(false);
     }
@@ -172,11 +168,10 @@ export function VaultItemDetail({
 
   async function copyMetadata(value: string, field: string) {
     if (!(await copyToClipboard(value))) {
-      toast("Could not access the clipboard", "error");
+      void dialog.error("Could not access the clipboard", { title: "Couldn’t copy" });
       return;
     }
     setCopiedField(field);
-    toast("Copied to clipboard", "success");
   }
 
   async function applyAuthenticatorUpdate(next: VaultItem) {
@@ -194,10 +189,7 @@ export function VaultItemDetail({
       setTotpExpiresAt(expiresAt);
       setTotpSecondsLeft(Math.max(0, Math.ceil((expiresAt - Date.now()) / 1_000)));
     } catch (cause) {
-      toast(
-        cause instanceof Error ? cause.message : "The authenticator code could not be shown.",
-        "error",
-      );
+      void dialog.error(cause, { title: "Couldn’t show the authenticator code" });
     } finally {
       setTotpBusy(null);
     }
@@ -215,15 +207,8 @@ export function VaultItemDetail({
         result.code,
         Math.max(0, Math.min(SECRET_LIFETIME_SECONDS * 1_000, expiresAt - Date.now())),
       );
-      toast(
-        "Authenticator code copied. Clipboard clearing is scheduled when supported.",
-        "success",
-      );
     } catch (cause) {
-      toast(
-        cause instanceof Error ? cause.message : "The authenticator code could not be copied.",
-        "error",
-      );
+      void dialog.error(cause, { title: "Couldn’t copy the authenticator code" });
     } finally {
       setTotpBusy(null);
     }
@@ -244,12 +229,8 @@ export function VaultItemDetail({
       const next = await vaultApi.deleteTotp(companyId, detail.id);
       hideTotpCode();
       await applyAuthenticatorUpdate(next);
-      toast("Authenticator removed from Vault", "success");
     } catch (cause) {
-      toast(
-        cause instanceof Error ? cause.message : "The authenticator could not be removed.",
-        "error",
-      );
+      void dialog.error(cause, { title: "Couldn’t remove the authenticator" });
     } finally {
       setTotpBusy(null);
     }
@@ -270,9 +251,8 @@ export function VaultItemDetail({
     try {
       const next = await vaultApi.deletePasskey(companyId, detail.id, passkey.id);
       await applyAuthenticatorUpdate(next);
-      toast("Passkey deleted from Vault", "success");
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "The passkey could not be deleted.", "error");
+      void dialog.error(cause, { title: "Couldn’t delete the passkey" });
     } finally {
       setPasskeyBusy(null);
     }
@@ -295,12 +275,8 @@ export function VaultItemDetail({
       await vaultApi.deleteItem(companyId, detail.id);
       hideSecret();
       await onDeleted(detail);
-      toast("Vault item deleted", "success");
     } catch (cause) {
-      toast(
-        cause instanceof Error ? cause.message : "The Vault item could not be deleted.",
-        "error",
-      );
+      void dialog.error(cause, { title: "Couldn’t delete the Vault item" });
     }
   }
 
@@ -368,11 +344,7 @@ export function VaultItemDetail({
             </div>
           </div>
 
-          {error && (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">
-              {error}
-            </div>
-          )}
+          <FormError message={error} />
 
           <section>
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">

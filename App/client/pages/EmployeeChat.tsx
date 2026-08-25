@@ -45,10 +45,11 @@ import {
   useEmployeeSession,
 } from "../lib/chatSessions";
 import { type ComposerModelOverride, resolveComposerModelId } from "../lib/composerModel";
+import { errorMessage } from "../lib/errors";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { ChatMarkdown } from "../components/ChatMarkdown";
 import { EmployeeHeader } from "../components/EmployeeHeader";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { BrowserLivePanel } from "../components/BrowserLivePanel";
 import {
@@ -85,7 +86,6 @@ import type { EmployeeOutletCtx } from "./EmployeeLayout";
 
 export default function EmployeeChat() {
   const { company, currentUserId, emp } = useOutletContext<EmployeeOutletCtx>();
-  const { toast } = useToast();
   const dialog = useDialog();
   const location = useLocation();
   const navigate = useNavigate();
@@ -124,6 +124,14 @@ export default function EmployeeChat() {
    */
   const [modelOverride, setModelOverride] = React.useState<ComposerModelOverride | null>(null);
   const [claimingLegacy, setClaimingLegacy] = React.useState(false);
+  /** A thread or conversation-list fetch that failed, shown in the transcript. */
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  /** Archived-thread fetch failure, shown inside the sidebar's archived section. */
+  const [archivedError, setArchivedError] = React.useState<string | null>(null);
+  /** Claim-banner failure, shown under the banner that owns the button. */
+  const [legacyError, setLegacyError] = React.useState<string | null>(null);
+  /** Send / upload failure, shown above the composer's input row. */
+  const [composerError, setComposerError] = React.useState<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   /**
    * Whether the reader is parked at the bottom of the thread. A long reply
@@ -256,17 +264,19 @@ export default function EmployeeChat() {
     params.delete("conversation");
     const query = params.toString();
     navigate(`${location.pathname}${query ? `?${query}` : ""}`, { replace: true });
-    actions
-      .selectConversation(company.id, emp.id, wanted)
-      .catch((err) => toast((err as Error).message, "error"));
-    // `toast` is stable for the life of the provider.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setLoadError(null);
+    actions.selectConversation(company.id, emp.id, wanted).catch((err: unknown) => {
+      setLoadError(errorMessage(err, "Could not open that conversation"));
+    });
   }, [actions, company.id, emp.id, location.pathname, location.search, navigate]);
 
   // Reset staged attachments when the active conversation changes — leaving
-  // them around would attach to the wrong thread on the next send.
+  // them around would attach to the wrong thread on the next send. The same
+  // goes for a failure message about the thread the reader just left.
   React.useEffect(() => {
     setPendingAttachments([]);
+    setComposerError(null);
+    setLegacyError(null);
   }, [activeConvId]);
 
   // A newly opened thread starts pinned to its newest message, whatever the
@@ -280,7 +290,10 @@ export default function EmployeeChat() {
   // `initEmployee` is a no-op once `convsLoaded` is true, so coming back to
   // this tab keeps whatever the user had selected.
   React.useEffect(() => {
-    actions.initEmployee(company.id, emp.id).catch((err) => toast((err as Error).message, "error"));
+    setLoadError(null);
+    actions.initEmployee(company.id, emp.id).catch((err: unknown) => {
+      setLoadError(errorMessage(err, "Could not load conversations"));
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp.id]);
 
@@ -308,9 +321,10 @@ export default function EmployeeChat() {
   React.useEffect(() => {
     if (!activeConvId) return;
     if (loadedConvId === activeConvId) return;
-    actions
-      .selectConversation(company.id, emp.id, activeConvId)
-      .catch((err) => toast((err as Error).message, "error"));
+    setLoadError(null);
+    actions.selectConversation(company.id, emp.id, activeConvId).catch((err: unknown) => {
+      setLoadError(errorMessage(err, "Could not load this conversation"));
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConvId, loadedConvId, emp.id]);
 
@@ -379,7 +393,7 @@ export default function EmployeeChat() {
       await actions.newConversation(company.id, emp.id);
       inputRef.current?.focus();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t start a new conversation" });
     }
   }
 
@@ -394,7 +408,7 @@ export default function EmployeeChat() {
     try {
       await actions.deleteConversation(company.id, emp.id, convId);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the conversation" });
     }
   }
 
@@ -402,7 +416,7 @@ export default function EmployeeChat() {
     try {
       await actions.archiveConversation(company.id, emp.id, convId);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t archive the conversation" });
     }
   }
 
@@ -410,28 +424,38 @@ export default function EmployeeChat() {
     try {
       await actions.unarchiveConversation(company.id, emp.id, convId);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t unarchive the conversation" });
     }
   }
 
   async function handleClaimLegacyConversation() {
     if (!activeConvId || claimingLegacy) return;
     setClaimingLegacy(true);
+    setLegacyError(null);
     try {
       await actions.claimConversation(company.id, emp.id, activeConvId);
-      await actions.refreshConversation(company.id, emp.id, activeConvId);
-      toast("Conversation claimed. You can continue it privately.", "success");
-      inputRef.current?.focus();
     } catch (err) {
-      toast((err as Error).message, "error");
+      // The claim banner still owns the screen here, so its FormError shows.
+      setLegacyError(errorMessage(err, "Could not claim this conversation"));
+      return;
     } finally {
       setClaimingLegacy(false);
     }
+    // The claim succeeded, which unmounts the banner and the message it holds.
+    // A failed refresh is a different failure and needs a surface that outlives
+    // the banner.
+    try {
+      await actions.refreshConversation(company.id, emp.id, activeConvId);
+    } catch (err) {
+      void dialog.error(err, { title: "Couldn’t refresh the conversation" });
+    }
+    inputRef.current?.focus();
   }
 
   async function send(messageOverride?: string) {
+    setComposerError(null);
     if (activeConv?.legacyUnclaimed) {
-      toast("Claim this legacy conversation before continuing it.", "error");
+      setLegacyError("Claim this legacy conversation before continuing it.");
       return;
     }
     const msg = (messageOverride ?? input).trim();
@@ -445,7 +469,7 @@ export default function EmployeeChat() {
       try {
         await actions.newConversation(company.id, emp.id);
       } catch (err) {
-        toast((err as Error).message, "error");
+        setComposerError(errorMessage(err, "Could not start a new conversation"));
       }
       inputRef.current?.focus();
       return;
@@ -460,7 +484,7 @@ export default function EmployeeChat() {
       modelId: selectedModelId,
     });
     if (err) {
-      toast(err, "error");
+      setComposerError(err);
       // Restore the chips so the human can retry without re-uploading.
       if (!messageOverride) setPendingAttachments(atts);
     }
@@ -468,6 +492,7 @@ export default function EmployeeChat() {
   }
 
   async function uploadAttachment(file: File): Promise<void> {
+    setComposerError(null);
     try {
       const a = await api.uploadFile<ChatAttachment>(
         `/api/companies/${company.id}/employees/${emp.id}/chat-attachments`,
@@ -475,7 +500,7 @@ export default function EmployeeChat() {
       );
       setPendingAttachments((prev) => [...prev, a]);
     } catch (err) {
-      toast(`Upload failed: ${(err as Error).message}`, "error");
+      setComposerError(`Upload failed: ${errorMessage(err)}`);
     }
   }
 
@@ -537,16 +562,18 @@ export default function EmployeeChat() {
         convs={convs}
         archivedConvs={session.archivedConvs}
         archivedLoaded={session.archivedLoaded}
+        archivedError={archivedError}
         activeId={activeConvId}
         onSelect={(id) => actions.update(emp.id, { activeConvId: id })}
         onDelete={handleDelete}
         onArchive={handleArchive}
         onUnarchive={handleUnarchive}
-        onLoadArchived={() =>
-          actions
-            .loadArchived(company.id, emp.id)
-            .catch((err) => toast((err as Error).message, "error"))
-        }
+        onLoadArchived={() => {
+          setArchivedError(null);
+          actions.loadArchived(company.id, emp.id).catch((err: unknown) => {
+            setArchivedError(errorMessage(err, "Could not load archived conversations"));
+          });
+        }}
         onNew={handleNewClick}
       />
 
@@ -590,6 +617,7 @@ export default function EmployeeChat() {
                 {claimingLegacy ? "Claiming…" : "Claim conversation"}
               </button>
             </div>
+            <FormError message={legacyError} className="mx-auto mt-2 max-w-3xl" />
           </div>
         )}
 
@@ -600,7 +628,9 @@ export default function EmployeeChat() {
             onClick={openWorkFromLink}
             className="flex-1 overflow-y-auto bg-slate-50/50 px-4 py-6 dark:bg-slate-900/40 sm:px-8"
           >
-            {isLoadingMessages ? (
+            {loadError ? (
+              <FormError message={loadError} className="mx-auto max-w-3xl" />
+            ) : isLoadingMessages ? (
               <MessageSkeleton />
             ) : visibleMessages.length === 0 &&
               !isActiveResponse &&
@@ -660,6 +690,7 @@ export default function EmployeeChat() {
             value={input}
             onChange={(v) => actions.update(emp.id, { input: v })}
             onSubmit={() => send()}
+            error={composerError}
             isResponding={sending}
             queuedCount={visibleQueuedMessages.length}
             empName={emp.name}
@@ -721,6 +752,7 @@ function ConversationList({
   convs,
   archivedConvs,
   archivedLoaded,
+  archivedError,
   activeId,
   onSelect,
   onDelete,
@@ -732,6 +764,7 @@ function ConversationList({
   convs: ConversationSummary[];
   archivedConvs: ConversationSummary[];
   archivedLoaded: boolean;
+  archivedError: string | null;
   activeId: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
@@ -818,7 +851,9 @@ function ConversationList({
             )}
           </button>
           {archivedOpen &&
-            (!archivedLoaded ? (
+            (archivedError ? (
+              <FormError message={archivedError} className="mx-1 mt-1" />
+            ) : !archivedLoaded ? (
               <div className="px-2 py-2 text-[11px] text-slate-400 dark:text-slate-500">
                 Loading…
               </div>
@@ -1403,6 +1438,7 @@ function Composer({
   value,
   onChange,
   onSubmit,
+  error,
   isResponding,
   queuedCount,
   empName,
@@ -1421,6 +1457,7 @@ function Composer({
   value: string;
   onChange: (v: string) => void;
   onSubmit: () => void;
+  error: string | null;
   isResponding: boolean;
   queuedCount: number;
   empName: string;
@@ -1531,6 +1568,7 @@ function Composer({
           ))}
         </div>
       )}
+      <FormError message={error} className="mb-2" />
       <div
         {...dragProps}
         className={

@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { Company, MessageAction } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import {
   ComposeInput,
   MailAccount,
@@ -35,10 +36,10 @@ import {
 import { ChatMarkdown } from "../components/ChatMarkdown";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
-import { useToast } from "../components/ui/Toast";
 import {
   ChatResourceReference,
   insertResourceReference,
@@ -138,11 +139,14 @@ export function MailAssistant({
   onClose,
   openCompose,
 }: Props) {
-  const { toast } = useToast();
+  const dialog = useDialog();
   const navigate = useNavigate();
   const [messages, setMessages] = React.useState<MailAssistantMessage[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [roster, setRoster] = React.useState<MailAssistantRosterEntry[]>([]);
   const [draft, setDraft] = React.useState("");
+  /** Failure of something started from the composer — a /new, an upload. */
+  const [composerError, setComposerError] = React.useState<string | null>(null);
   /** True only while this panel holds the live SSE stream for a turn. */
   const [streamOpen, setStreamOpen] = React.useState(false);
   /** True once following the persisted turn has fallen back to polling. */
@@ -183,6 +187,8 @@ export function MailAssistant({
   React.useEffect(() => {
     let cancelled = false;
     setMessages(null);
+    setLoadError(null);
+    setComposerError(null);
     setTarget(null);
     setDraft("");
     setMentionQuery(null);
@@ -217,8 +223,8 @@ export function MailAssistant({
         // reopening the panel doesn't quietly switch models mid-conversation.
         setModelId((cur) => cur ?? res.modelId);
       })
-      .catch((err) => {
-        if (!cancelled) toast((err as Error).message, "error");
+      .catch((err: unknown) => {
+        if (!cancelled) setLoadError(errorMessage(err, "Could not load this email’s chat"));
       });
     return () => {
       cancelled = true;
@@ -308,6 +314,7 @@ export function MailAssistant({
     async (text: string) => {
       const message = text.trim();
       if (!message || turnInFlight) return;
+      setComposerError(null);
       if (message === "/new") {
         try {
           await mailApi.assistantClear(company.id, account.id, threadId);
@@ -317,9 +324,8 @@ export function MailAssistant({
           setPending([]);
           setMentionQuery(null);
           setResourceQuery(null);
-          toast("New context started.", "success");
         } catch (err) {
-          toast((err as Error).message, "error");
+          setComposerError(errorMessage(err, "Could not start a new context"));
         }
         return;
       }
@@ -444,7 +450,6 @@ export function MailAssistant({
       pending,
       selectedModelId,
       scrollToBottom,
-      toast,
     ],
   );
 
@@ -455,19 +460,20 @@ export function MailAssistant({
    */
   const addFiles = React.useCallback(
     async (files: FileList | File[]) => {
+      setComposerError(null);
       for (const file of Array.from(files)) {
         setUploading((n) => n + 1);
         try {
           const attachment = await mailApi.assistantUpload(company.id, account.id, file);
           setPending((prev) => [...prev, attachment]);
         } catch (err) {
-          toast((err as Error).message, "error");
+          setComposerError(errorMessage(err, `Could not upload ${file.name}`));
         } finally {
           setUploading((n) => n - 1);
         }
       }
     },
-    [company.id, account.id, toast],
+    [company.id, account.id],
   );
 
   /**
@@ -499,7 +505,7 @@ export function MailAssistant({
       setMessages([]);
       setTarget(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t clear the conversation" });
     }
   };
 
@@ -660,7 +666,9 @@ export function MailAssistant({
 
       {/* Messages */}
       <div ref={scrollerRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
-        {messages === null ? (
+        {loadError && messages === null ? (
+          <FormError message={loadError} />
+        ) : messages === null ? (
           <div className="flex h-full items-center justify-center">
             <Spinner size={18} />
           </div>
@@ -774,6 +782,7 @@ export function MailAssistant({
             ))}
           </div>
         )}
+        <FormError message={composerError} className="mb-1.5" />
         <div className="flex items-end gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 focus-within:border-indigo-400 dark:border-slate-700 dark:bg-slate-900">
           <input
             ref={fileInputRef}
@@ -1224,7 +1233,6 @@ function SuggestionButtons({
   navigate: (to: string) => void;
   onExecuted: (updated: MailAssistantMessage) => void;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [busyId, setBusyId] = React.useState<string | null>(null);
 
@@ -1280,7 +1288,6 @@ function SuggestionButtons({
           });
           if (!ok) break;
           await mailApi.sendDraft(company.id, s.messageId!);
-          toast("Sent", "success");
           await markExecuted(s);
           break;
         }
@@ -1297,7 +1304,6 @@ function SuggestionButtons({
           await mailApi.threadAction(company.id, s.threadId!, s.action!, {
             labelName: s.labelName,
           });
-          toast("Done", "success");
           await markExecuted(s);
           break;
         }
@@ -1307,7 +1313,6 @@ function SuggestionButtons({
             instruction: s.instruction ?? "",
             mode: s.mode ?? "draft",
           });
-          toast("Handover started", "success");
           await markExecuted(s);
           break;
         case "create_rule":
@@ -1317,12 +1322,11 @@ function SuggestionButtons({
             conditions: s.rule!.conditions,
             actions: s.rule!.actions,
           });
-          toast("Rule created — see Automation → Rules", "success");
           await markExecuted(s);
           break;
       }
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t run that suggestion" });
     } finally {
       setBusyId(null);
     }

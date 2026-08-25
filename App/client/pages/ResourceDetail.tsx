@@ -34,8 +34,8 @@ import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import {
   api,
   Company,
@@ -45,6 +45,7 @@ import {
   ResourceGrantCandidate,
   ResourceGrantsResponse,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { ResourceTagPicker } from "../components/TagPicker";
 import { SourceKindIcon, formatBodyLength, formatBytes, timeAgo } from "./ResourcesIndex";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -62,10 +63,11 @@ import { useLiveRefetch } from "../components/CompanySocket";
 export default function ResourceDetail({ company }: { company: Company }) {
   const { slug } = useParams();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [row, setRow] = React.useState<Resource | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState(false);
   const [showShare, setShowShare] = React.useState(false);
   const [showRaw, setShowRaw] = React.useState(false);
@@ -76,17 +78,18 @@ export default function ResourceDetail({ company }: { company: Company }) {
   const reload = React.useCallback(async () => {
     if (!slug) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const r = await api.get<Resource>(`/api/companies/${company.id}/resources/${slug}`);
       setRow(r);
       setTitle(r.title);
       setBody(r.bodyText ?? "");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not load resource", "error");
+      setLoadError(errorMessage(err, "Could not load resource"));
     } finally {
       setLoading(false);
     }
-  }, [company.id, slug, toast]);
+  }, [company.id, slug]);
 
   React.useEffect(() => {
     reload();
@@ -110,6 +113,7 @@ export default function ResourceDetail({ company }: { company: Company }) {
 
   async function save() {
     if (!row) return;
+    setSaveError(null);
     try {
       const payload: Record<string, string> = {
         title: title.trim(),
@@ -122,14 +126,14 @@ export default function ResourceDetail({ company }: { company: Company }) {
       setRow(updated);
       setBody(updated.bodyText ?? "");
       setEditing(false);
-      toast("Saved", "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setSaveError(errorMessage(err));
     }
   }
 
   function cancelEdit() {
     if (!row) return;
+    setSaveError(null);
     setTitle(row.title);
     setBody(row.bodyText ?? "");
     setEditing(false);
@@ -147,10 +151,9 @@ export default function ResourceDetail({ company }: { company: Company }) {
     if (!ok) return;
     try {
       await api.del(`/api/companies/${company.id}/resources/${row.slug}`);
-      toast("Deleted", "success");
       navigate(`/c/${company.slug}/resources`);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      void dialog.error(err, { title: "Couldn’t delete the resource" });
     }
   }
 
@@ -158,6 +161,13 @@ export default function ResourceDetail({ company }: { company: Company }) {
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner size={20} />
+      </div>
+    );
+  }
+  if (loadError) {
+    return (
+      <div className="flex h-full items-start justify-center px-6 pt-14">
+        <FormError message={loadError} className="w-full max-w-md" />
       </div>
     );
   }
@@ -247,6 +257,8 @@ export default function ResourceDetail({ company }: { company: Company }) {
               )}
             </div>
           </header>
+
+          <FormError message={saveError} className="mb-4" />
 
           {/* Action bar */}
           <div className="mb-6 flex flex-wrap items-center gap-2">
@@ -459,7 +471,7 @@ function DownloadMenu({
 }) {
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState<string | null>(null);
-  const { toast } = useToast();
+  const dialog = useDialog();
   const disabled = !hasBody;
 
   async function download(format: "md" | "txt" | "html" | "pdf") {
@@ -491,7 +503,7 @@ function DownloadMenu({
       URL.revokeObjectURL(url);
       setOpen(false);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      void dialog.error(err, { title: "Couldn’t export the resource" });
     } finally {
       setBusy(null);
     }
@@ -944,13 +956,15 @@ function ShareModal({
   onClose: () => void;
   onChanged?: () => void;
 }) {
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const [grants, setGrants] = React.useState<ResourceGrant[]>([]);
   const [candidates, setCandidates] = React.useState<ResourceGrantCandidate[]>([]);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     if (!open) return;
+    setError(null);
     try {
       const [g, cs] = await Promise.all([
         api.get<ResourceGrantsResponse>(
@@ -963,9 +977,9 @@ function ShareModal({
       setGrants(g.direct);
       setCandidates(cs);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setError(errorMessage(err, "Could not load who has access"));
     }
-  }, [open, company.id, resource.slug, toast]);
+  }, [open, company.id, resource.slug]);
 
   React.useEffect(() => {
     reload();
@@ -973,6 +987,7 @@ function ShareModal({
 
   async function add(employeeId: string, accessLevel: ResourceAccessLevel) {
     setBusy(true);
+    setError(null);
     try {
       await api.post<ResourceGrant>(
         `/api/companies/${company.id}/resources/${resource.slug}/grants`,
@@ -981,7 +996,7 @@ function ShareModal({
       await reload();
       onChanged?.();
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -998,11 +1013,8 @@ function ShareModal({
           accessLevel: next,
         }),
       {
-        loading: "Updating resource access…",
-        error: (error) =>
-          `Couldn\u2019t update access: ${
-            error instanceof Error ? error.message : String(error)
-          }. The change was undone.`,
+        title: "Couldn’t update access",
+        error: (error) => `${errorMessage(error)} The change was undone.`,
         onSuccess: () => onChanged?.(),
         onError: () => {
           setGrants((current) => current.map((item) => (item.id === grant.id ? grant : item)));
@@ -1019,12 +1031,8 @@ function ShareModal({
     background(
       () => api.del(`/api/companies/${company.id}/resources/${resource.slug}/grants/${grantId}`),
       {
-        loading: "Removing resource access…",
-        success: "Resource access removed",
-        error: (error) =>
-          `Couldn\u2019t remove access: ${
-            error instanceof Error ? error.message : String(error)
-          }. The grant has been restored.`,
+        title: "Couldn’t remove access",
+        error: (error) => `${errorMessage(error)} The grant has been restored.`,
         onSuccess: () => onChanged?.(),
         onError: () => {
           setGrants((current) => {
@@ -1050,6 +1058,7 @@ function ShareModal({
           <span className="font-medium">Can delete</span> can also remove it. Authors keep full
           control of the rows they create.
         </p>
+        <FormError message={error} />
         <div>
           <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Has access</h3>
           {grants.length === 0 ? (

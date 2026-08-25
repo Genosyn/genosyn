@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
-import { useToast } from "@/components/ui/Toast";
 import { api, type Employee } from "@/lib/api";
 import type { SignatureAccessLevel, SignatureGrant } from "@/lib/signing";
 import type { SignatureOutletContext } from "@/pages/SignatureLayout";
@@ -64,7 +63,6 @@ function normalizeRows(value: unknown, fallbackEmployees: Employee[]): AccessRow
 
 export default function SignatureAiAccess() {
   const { company } = useOutletContext<SignatureOutletContext>();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [rows, setRows] = React.useState<AccessRow[] | null>(null);
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -107,14 +105,12 @@ export default function SignatureAiAccess() {
     try {
       if (!value) {
         if (row.grant) await api.del(`${base}/${row.employee.id}`);
-        toast("Signing access removed", "success");
       } else {
         await api.put(`${base}/${row.employee.id}`, { accessLevel: value });
-        toast(row.grant ? "Signing access updated" : "Signing access granted", "success");
       }
       await load();
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : "Access could not be updated.", "error");
+      void dialog.error(cause, { title: "Couldn’t update signing access" });
     } finally {
       setBusy(null);
     }

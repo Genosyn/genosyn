@@ -2,13 +2,14 @@ import React from "react";
 import { Link, useOutletContext, useParams } from "react-router-dom";
 import { ArrowLeft, Ban, Plus, Trash2, Undo2 } from "lucide-react";
 import { api, VendorCreditDetail, formatMoney, parseMoneyToCents } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -21,7 +22,6 @@ const STATUS_BADGE: Record<string, string> = {
 export default function FinanceVendorCreditDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const { creditSlug } = useParams();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [credit, setCredit] = React.useState<VendorCreditDetail | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -36,7 +36,7 @@ export default function FinanceVendorCreditDetail() {
       );
       setLoadError(null);
     } catch (err) {
-      setLoadError((err as Error).message);
+      setLoadError(errorMessage(err));
     }
   }, [company.id, creditSlug]);
 
@@ -51,7 +51,7 @@ export default function FinanceVendorCreditDetail() {
     try {
       setCredit(await api.del<VendorCreditDetail>(`/api/companies/${company.id}/vendor-credits/${credit.slug}/applications/${appId}`));
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t unapply the credit" });
     }
   }
 
@@ -61,7 +61,7 @@ export default function FinanceVendorCreditDetail() {
     try {
       setCredit(await api.del<VendorCreditDetail>(`/api/companies/${company.id}/vendor-refunds/${refundId}`));
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t reverse the refund" });
     }
   }
 
@@ -71,7 +71,7 @@ export default function FinanceVendorCreditDetail() {
     try {
       setCredit(await api.post<VendorCreditDetail>(`/api/companies/${company.id}/vendor-credits/${credit.slug}/void`, {}));
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t void the credit" });
     }
   }
 
@@ -190,19 +190,26 @@ export default function FinanceVendorCreditDetail() {
 }
 
 function VendorApplyModal({ companyId, creditSlug, currency, maxCents, onClose, onSaved }: { companyId: string; creditSlug: string; currency: string; maxCents: number; onClose: () => void; onSaved: (fresh: VendorCreditDetail) => void; }) {
-  const { toast } = useToast();
   const [billSlug, setBillSlug] = React.useState("");
   const [amount, setAmount] = React.useState((maxCents / 100).toFixed(2));
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   async function submit() {
+    setError(null);
     const amountCents = parseMoneyToCents(amount);
-    if (!billSlug.trim()) return toast("Enter the bill number", "error");
-    if (amountCents <= 0) return toast("Enter a positive amount", "error");
+    if (!billSlug.trim()) {
+      setError("Enter the bill number");
+      return;
+    }
+    if (amountCents <= 0) {
+      setError("Enter a positive amount");
+      return;
+    }
     setBusy(true);
     try {
       onSaved(await api.post<VendorCreditDetail>(`/api/companies/${companyId}/vendor-credits/${creditSlug}/apply`, { billSlug: billSlug.trim().toLowerCase(), amountCents }));
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -212,6 +219,7 @@ function VendorApplyModal({ companyId, creditSlug, currency, maxCents, onClose, 
       <div className="space-y-3">
         <Input label="Bill number" placeholder="ACME-BIL-0001" value={billSlug} onChange={(e) => setBillSlug(e.target.value)} />
         <Input label={`Amount (${currency})`} value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" />
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button onClick={submit} disabled={busy}>{busy ? "Applying…" : "Apply"}</Button>
@@ -222,18 +230,22 @@ function VendorApplyModal({ companyId, creditSlug, currency, maxCents, onClose, 
 }
 
 function VendorRefundModal({ companyId, creditSlug, currency, maxCents, onClose, onSaved }: { companyId: string; creditSlug: string; currency: string; maxCents: number; onClose: () => void; onSaved: (fresh: VendorCreditDetail) => void; }) {
-  const { toast } = useToast();
   const [amount, setAmount] = React.useState((maxCents / 100).toFixed(2));
   const [method, setMethod] = React.useState("bank_transfer");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   async function submit() {
+    setError(null);
     const amountCents = parseMoneyToCents(amount);
-    if (amountCents <= 0) return toast("Enter a positive amount", "error");
+    if (amountCents <= 0) {
+      setError("Enter a positive amount");
+      return;
+    }
     setBusy(true);
     try {
       onSaved(await api.post<VendorCreditDetail>(`/api/companies/${companyId}/vendor-credits/${creditSlug}/refund`, { amountCents, method: method.trim() || undefined }));
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -244,6 +256,7 @@ function VendorRefundModal({ companyId, creditSlug, currency, maxCents, onClose,
         <p className="text-sm text-slate-500 dark:text-slate-400">Cash the supplier paid you back against this credit. Posts DR Bank / CR Vendor Credits.</p>
         <Input label={`Amount (${currency})`} value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" />
         <Input label="Method" value={method} onChange={(e) => setMethod(e.target.value)} />
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button onClick={submit} disabled={busy}>{busy ? "Recording…" : "Record refund"}</Button>

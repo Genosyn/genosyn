@@ -3,15 +3,16 @@ import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { AlertTriangle, Database, Plus, Radio } from "lucide-react";
 import { api } from "../lib/api";
 import { cronHuman, cronIsReadable } from "../lib/cron";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
+import { useBackgroundAction } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { RevenueOutletCtx } from "./RevenueLayout";
 
 /**
@@ -165,7 +166,7 @@ export const LEAST_PRIVILEGE_NOTE =
 export default function RevenueSignals() {
   const { company } = useOutletContext<RevenueOutletCtx>();
   const navigate = useNavigate();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const [signals, setSignals] = React.useState<Signal[] | null>(null);
   const [connections, setConnections] = React.useState<SignalConnection[]>([]);
   const [loadError, setLoadError] = React.useState(false);
@@ -213,12 +214,8 @@ export default function RevenueSignals() {
         current?.map((item) => (item.id === signal.id ? { ...item, enabled } : item)) ?? current,
     );
     background(() => api.patch<Signal>(`${base}/signals/${signal.id}`, { enabled }), {
-      loading: enabled ? "Enabling signal…" : "Disabling signal…",
-      success: enabled ? "Signal enabled" : "Signal disabled",
-      error: (error) =>
-        `Couldn’t change the signal: ${
-          error instanceof Error ? error.message : String(error)
-        }. The switch was put back.`,
+      title: "Couldn’t change the signal",
+      error: (error) => `${errorMessage(error)} The switch was put back.`,
       onSuccess: () => void reload(),
       onError: () => {
         setSignals(

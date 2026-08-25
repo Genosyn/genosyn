@@ -7,10 +7,11 @@ import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Panel } from "../components/meetings/MeetingChips";
 import { api, type Employee } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import {
   meetingsApi,
   type CalendarAccount,
@@ -35,8 +36,7 @@ const AUTO_RECORD_LABELS: Record<CalendarAutoRecord, string> = {
  */
 export default function MeetingsCalendars() {
   const { company } = useOutletContext<MeetingsOutletCtx>();
-  const { toast } = useToast();
-  const { confirm } = useDialog();
+  const dialog = useDialog();
 
   const [calendars, setCalendars] = React.useState<CalendarAccount[] | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
@@ -56,7 +56,7 @@ export default function MeetingsCalendars() {
         setCalendars(calendarResult.calendars);
         setEmployees(employeeList);
       })
-      .catch((err) => setError((err as Error).message));
+      .catch((err: unknown) => setError(errorMessage(err)));
   }, [company.id]);
 
   React.useEffect(() => {
@@ -70,25 +70,24 @@ export default function MeetingsCalendars() {
       await meetingsApi.patchCalendar(company.id, id, body);
       reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t update the calendar" });
     }
   };
 
   const sync = async (id: string) => {
     setSyncingId(id);
     try {
-      const result = await meetingsApi.syncCalendar(company.id, id);
-      toast(`Synced ${result.upserted} event${result.upserted === 1 ? "" : "s"}.`, "success");
+      await meetingsApi.syncCalendar(company.id, id);
       reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t sync the calendar" });
     } finally {
       setSyncingId(null);
     }
   };
 
   const disconnect = async (row: CalendarAccount) => {
-    const ok = await confirm({
+    const ok = await dialog.confirm({
       title: "Disconnect this calendar?",
       message: `“${row.displayName || row.calendarId}” and its mirrored events, meetings and transcripts are removed. The Google Connection itself and any timeline entries already written stay.`,
       confirmLabel: "Disconnect",
@@ -97,10 +96,9 @@ export default function MeetingsCalendars() {
     if (!ok) return;
     try {
       await meetingsApi.deleteCalendar(company.id, row.id);
-      toast("Calendar disconnected.", "success");
       reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t disconnect the calendar" });
     }
   };
 
@@ -280,13 +278,14 @@ function ConnectModal({
   onClose: () => void;
   onConnected: () => void;
 }) {
-  const { toast } = useToast();
   const [connections, setConnections] = React.useState<CalendarCandidateConnection[]>([]);
   const [connectionId, setConnectionId] = React.useState("");
   const [available, setAvailable] = React.useState<ConnectableCalendar[] | null>(null);
   const [calendarId, setCalendarId] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [listError, setListError] = React.useState<string | null>(null);
+  const [connectionsError, setConnectionsError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
@@ -294,11 +293,15 @@ function ConnectModal({
     setCalendarId("");
     setAvailable(null);
     setListError(null);
+    setConnectionsError(null);
+    setError(null);
     meetingsApi
       .candidates(companyId)
       .then((result) => setConnections(result.connections))
-      .catch((err) => toast((err as Error).message, "error"));
-  }, [open, companyId, toast]);
+      .catch((err: unknown) =>
+        setConnectionsError(errorMessage(err, "Could not load the Google Connections")),
+      );
+  }, [open, companyId]);
 
   React.useEffect(() => {
     if (!connectionId) {
@@ -310,19 +313,19 @@ function ConnectModal({
     meetingsApi
       .connectable(companyId, connectionId)
       .then((result) => setAvailable(result.calendars))
-      .catch((err) => setListError((err as Error).message));
+      .catch((err: unknown) => setListError(errorMessage(err)));
   }, [connectionId, companyId]);
 
   const submit = async () => {
     if (!connectionId || !calendarId) return;
     setSaving(true);
+    setError(null);
     try {
       await meetingsApi.connectCalendar(companyId, { connectionId, calendarId });
-      toast("Calendar connected.", "success");
       onConnected();
       onClose();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -345,7 +348,9 @@ function ConnectModal({
           </Select>
         </label>
 
-        {connections.length === 0 && (
+        <FormError message={connectionsError} />
+
+        {!connectionsError && connections.length === 0 && (
           <p className="text-sm text-slate-500 dark:text-slate-400">
             No Google Connection yet. Add one under Settings → Integrations, ticking the Calendar
             scope.
@@ -385,6 +390,8 @@ function ConnectModal({
             )}
           </label>
         )}
+
+        <FormError message={error} />
 
         <div className="flex justify-end gap-2">
           <Button variant="secondary" size="sm" onClick={onClose}>

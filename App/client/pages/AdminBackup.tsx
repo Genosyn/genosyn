@@ -27,12 +27,13 @@ import {
 } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
+import { FormError } from "../components/ui/FormError";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
+import { errorMessage } from "../lib/errors";
 
 const FIELD_CLASS =
   "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900";
@@ -70,8 +71,10 @@ export function AdminBackup() {
   const [uploading, setUploading] = React.useState(false);
   const [restoringId, setRestoringId] = React.useState<string | null>(null);
   const [sendingId, setSendingId] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [scheduleError, setScheduleError] = React.useState<string | null>(null);
+  const [retentionError, setRetentionError] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
-  const { toast } = useToast();
   const dialog = useDialog();
 
   const reload = React.useCallback(async () => {
@@ -84,12 +87,13 @@ export function AdminBackup() {
       setRows(list);
       setSchedule(sched);
       setDestinations(dests);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the backups"));
       setRows([]);
       setDestinations([]);
     }
-  }, [toast]);
+  }, []);
 
   /**
    * Shared by both schedule cards — they PUT the same row. Saving enforces
@@ -114,24 +118,21 @@ export function AdminBackup() {
       );
       const okCount = results.filter((r) => r.ok).length;
       const failed = results.filter((r) => !r.ok);
-      if (failed.length === 0) {
-        toast(
-          okCount === 0
-            ? "No enabled destinations to send to"
-            : `Sent to ${okCount} destination${okCount === 1 ? "" : "s"}`,
-          okCount === 0 ? "info" : "success",
-        );
-      } else {
-        toast(
+      if (failed.length > 0) {
+        void dialog.error(
           `Sent to ${okCount}, failed ${failed.length}: ${failed
             .map((f) => `${f.destinationName} (${f.error ?? "error"})`)
             .join("; ")}`,
-          "error",
+          { title: "Couldn’t send to every destination" },
         );
+      } else if (okCount === 0) {
+        void dialog.error("No enabled destinations to send to.", {
+          title: "Couldn’t send the backup",
+        });
       }
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t send the backup" });
     } finally {
       setSendingId(null);
     }
@@ -145,10 +146,9 @@ export function AdminBackup() {
     setRunning(true);
     try {
       await api.post<Backup>("/api/backups");
-      toast("Backup created", "success");
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t create the backup" });
     } finally {
       setRunning(false);
     }
@@ -173,10 +173,9 @@ export function AdminBackup() {
         }
         throw new Error(msg);
       }
-      toast("Backup uploaded", "success");
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t upload the backup" });
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -195,10 +194,9 @@ export function AdminBackup() {
     setRestoringId(b.id);
     try {
       await api.post(`/api/backups/${b.id}/restore`);
-      toast("Restore complete — reloading", "success");
       setTimeout(() => window.location.reload(), 600);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t restore from the backup" });
       setRestoringId(null);
     }
   };
@@ -207,6 +205,8 @@ export function AdminBackup() {
     <>
       <TopBar title="Backups" />
       <div className="flex flex-col gap-4">
+        <FormError message={loadError} />
+
         <Card>
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
@@ -259,13 +259,14 @@ export function AdminBackup() {
         <ScheduleCard
           schedule={schedule}
           saving={savingSchedule}
+          error={scheduleError}
           onSave={async (patch) => {
             setSavingSchedule(true);
+            setScheduleError(null);
             try {
               await saveSchedule(patch);
-              toast("Schedule saved", "success");
             } catch (err) {
-              toast((err as Error).message, "error");
+              setScheduleError(errorMessage(err));
             } finally {
               setSavingSchedule(false);
             }
@@ -275,19 +276,14 @@ export function AdminBackup() {
         <RetentionCard
           schedule={schedule}
           saving={savingRetention}
+          error={retentionError}
           onSave={async (patch) => {
             setSavingRetention(true);
+            setRetentionError(null);
             try {
-              const next = await saveSchedule(patch);
-              const n = next.prunedNow ?? 0;
-              toast(
-                n > 0
-                  ? `Retention saved — deleted ${n} archive${n === 1 ? "" : "s"}`
-                  : "Retention saved",
-                "success",
-              );
+              await saveSchedule(patch);
             } catch (err) {
-              toast((err as Error).message, "error");
+              setRetentionError(errorMessage(err));
             } finally {
               setSavingRetention(false);
             }
@@ -372,7 +368,7 @@ export function AdminBackup() {
                             await api.del(`/api/backups/${b.id}`);
                             await reload();
                           } catch (err) {
-                            toast((err as Error).message, "error");
+                            void dialog.error(err, { title: "Couldn’t delete the backup" });
                           }
                         }}
                       >
@@ -397,7 +393,6 @@ function DestinationsCard({
   destinations: BackupDestination[] | null;
   onChanged: () => Promise<void>;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [modalOpen, setModalOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<BackupDestination | null>(null);
@@ -418,10 +413,12 @@ function DestinationsCard({
       const res = await api.post<{ ok: boolean; message: string }>(
         `/api/backup-destinations/${d.id}/test`,
       );
-      toast(res.message, res.ok ? "success" : "error");
+      if (!res.ok) {
+        void dialog.error(res.message, { title: `Couldn’t reach "${d.name}"` });
+      }
       await onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: `Couldn’t test "${d.name}"` });
     } finally {
       setBusyId(null);
     }
@@ -435,7 +432,7 @@ function DestinationsCard({
       });
       await onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: `Couldn’t update "${d.name}"` });
     } finally {
       setBusyId(null);
     }
@@ -455,7 +452,7 @@ function DestinationsCard({
       await api.del(`/api/backup-destinations/${d.id}`);
       await onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: `Couldn’t remove "${d.name}"` });
     } finally {
       setBusyId(null);
     }
@@ -623,7 +620,6 @@ function DestinationModal({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const { toast } = useToast();
   const [name, setName] = React.useState("");
   const [kind, setKind] = React.useState<BackupDestinationKind>("local");
   const [path, setPath] = React.useState("");
@@ -639,6 +635,7 @@ function DestinationModal({
   const [domain, setDomain] = React.useState("");
   const [encrypt, setEncrypt] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   // Re-seed the form whenever the modal opens for a new target.
   React.useEffect(() => {
@@ -658,6 +655,7 @@ function DestinationModal({
     setShare(editing?.share ?? "");
     setDomain(editing?.domain ?? "");
     setEncrypt(editing?.encrypt ?? true);
+    setError(null);
   }, [open, editing]);
 
   const isEdit = editing !== null;
@@ -665,6 +663,7 @@ function DestinationModal({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setError(null);
     try {
       // Only include secret fields when the operator actually typed one, so an
       // edit that leaves them blank keeps whatever is already stored.
@@ -695,15 +694,13 @@ function DestinationModal({
       }
       if (isEdit) {
         await api.put(`/api/backup-destinations/${editing.id}`, payload);
-        toast("Destination updated", "success");
       } else {
         payload.kind = kind;
         await api.post("/api/backup-destinations", payload);
-        toast("Destination added", "success");
       }
       await onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -965,6 +962,8 @@ function DestinationModal({
           </>
         )}
 
+        <FormError message={error} />
+
         <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
           <Button type="button" variant="secondary" size="sm" onClick={onClose}>
             Cancel
@@ -1000,10 +999,12 @@ const DAY_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Fri
 function ScheduleCard({
   schedule,
   saving,
+  error,
   onSave,
 }: {
   schedule: BackupSchedule | null;
   saving: boolean;
+  error: string | null;
   onSave: (patch: Partial<BackupSchedule>) => Promise<void>;
 }) {
   const [draft, setDraft] = React.useState<BackupSchedule | null>(schedule);
@@ -1149,6 +1150,8 @@ function ScheduleCard({
             )}
           </div>
 
+          <FormError message={error} />
+
           <div className="flex items-center justify-between pt-1 text-xs text-slate-500 dark:text-slate-400">
             <span>
               {schedule.lastRunAt
@@ -1175,10 +1178,12 @@ function ScheduleCard({
 function RetentionCard({
   schedule,
   saving,
+  error,
   onSave,
 }: {
   schedule: BackupSchedule | null;
   saving: boolean;
+  error: string | null;
   onSave: (patch: Partial<BackupSchedule>) => Promise<void>;
 }) {
   const [draft, setDraft] = React.useState<BackupSchedule | null>(schedule);
@@ -1263,6 +1268,8 @@ function RetentionCard({
             old it is. Archives you uploaded here are never deleted, and copies already delivered to
             off-box destinations stay on the remote.
           </p>
+
+          <FormError message={error} />
 
           <div className="flex items-center justify-between pt-1 text-xs text-slate-500 dark:text-slate-400">
             <span>

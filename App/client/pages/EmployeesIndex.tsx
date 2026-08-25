@@ -13,7 +13,6 @@ import {
 import { Menu } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { FormError } from "../components/ui/FormError";
-import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
 import { api, Company, Employee, Member, Team } from "../lib/api";
 import { useEmployees } from "./employeesContext";
@@ -549,7 +548,6 @@ function OrgEditForm({
   );
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const { toast } = useToast();
 
   const dirty =
     (teamId || null) !== (emp.teamId ?? null) ||
@@ -581,7 +579,6 @@ function OrgEditForm({
         `/api/companies/${company.id}/employees/${emp.id}`,
         patch,
       );
-      toast("Org chart updated", "success");
       window.dispatchEvent(new CustomEvent("genosyn:employee-updated"));
       await onSaved();
     } catch (err) {

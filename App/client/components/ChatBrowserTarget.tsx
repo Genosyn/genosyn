@@ -2,7 +2,7 @@ import React from "react";
 import { Check, ChevronDown, Laptop, MonitorPlay } from "lucide-react";
 
 import { api, type MemberBrowser } from "../lib/api";
-import { useToast } from "./ui/Toast";
+import { useDialog } from "./ui/Dialog";
 
 /**
  * Which browser this conversation's browser work runs in.
@@ -29,7 +29,7 @@ export function ChatBrowserTarget({
   browserEnabled: boolean;
   initialValue: string | null;
 }) {
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [browsers, setBrowsers] = React.useState<MemberBrowser[]>([]);
   const [open, setOpen] = React.useState(false);
   // The chat store does not carry this field through its detail refresh, so
@@ -87,7 +87,7 @@ export function ChatBrowserTarget({
       });
       setValue(next);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t switch the browser" });
     }
   }
 

@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { ContextualLayout } from "../components/AppShell";
 import { api, Company, Note, Notebook } from "../lib/api";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { clsx } from "../components/ui/clsx";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -34,7 +33,6 @@ export default function NotesLayout({ company }: { company: Company }) {
   const [showArchived, setShowArchived] = React.useState(false);
   const [filter, setFilter] = React.useState("");
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
 
   const refresh = React.useCallback(async () => {
@@ -68,10 +66,10 @@ export default function NotesLayout({ company }: { company: Company }) {
         await refresh();
         navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`);
       } catch (err) {
-        toast((err as Error).message, "error");
+        void dialog.error(err, { title: "Couldn’t create the page" });
       }
     },
-    [company.id, company.slug, navigate, refresh, toast],
+    [company.id, company.slug, dialog, navigate, refresh],
   );
 
   const createChild = React.useCallback(
@@ -84,10 +82,10 @@ export default function NotesLayout({ company }: { company: Company }) {
         await refresh();
         navigate(`/c/${company.slug}/notes/${notebook.slug}/${created.slug}`);
       } catch (err) {
-        toast((err as Error).message, "error");
+        void dialog.error(err, { title: "Couldn’t create the sub-page" });
       }
     },
-    [company.id, company.slug, navigate, refresh, toast],
+    [company.id, company.slug, dialog, navigate, refresh],
   );
 
   const createNotebook = React.useCallback(async () => {
@@ -106,9 +104,9 @@ export default function NotesLayout({ company }: { company: Company }) {
       await refresh();
       navigate(`/c/${company.slug}/notes/${created.slug}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t create the notebook" });
     }
-  }, [company.id, company.slug, dialog, navigate, refresh, toast]);
+  }, [company.id, company.slug, dialog, navigate, refresh]);
 
   return (
     <ContextualLayout

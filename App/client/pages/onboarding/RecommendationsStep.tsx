@@ -52,11 +52,11 @@ import {
 } from "../../lib/onboardingRecommendations";
 import { Button } from "../../components/ui/Button";
 import { Card, CardBody } from "../../components/ui/Card";
+import { useDialog } from "../../components/ui/Dialog";
 import { FormError } from "../../components/ui/FormError";
 import { Spinner } from "../../components/ui/Spinner";
 import { Textarea } from "../../components/ui/Textarea";
 import { clsx } from "../../components/ui/clsx";
-import { useToast } from "../../components/ui/Toast";
 import { ApiKeyModal, OauthOrServiceAccountModal } from "../SettingsIntegrations";
 
 const INTEGRATION_ICONS: Record<string, LucideIcon> = {
@@ -108,6 +108,7 @@ export function RecommendationsStep({
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [selectedRoutineIds, setSelectedRoutineIds] = React.useState<Set<string>>(new Set());
+  const [selectionError, setSelectionError] = React.useState<string | null>(null);
   const [addingRoutines, setAddingRoutines] = React.useState(false);
   const [grantingProvider, setGrantingProvider] = React.useState<string | null>(null);
   const [apiKeyEntry, setApiKeyEntry] = React.useState<OnboardingIntegrationRecommendation | null>(
@@ -124,7 +125,7 @@ export function RecommendationsStep({
   const missionDirty = React.useRef(false);
   const visionDirty = React.useRef(false);
   const loadGeneration = React.useRef(0);
-  const { toast } = useToast();
+  const dialog = useDialog();
 
   const endpoint = React.useMemo(() => {
     const base = `/api/companies/${company.id}/employees/${employee.id}/onboarding-recommendations`;
@@ -212,26 +213,31 @@ export function RecommendationsStep({
       } | null;
       if (!data || data.source !== "genosyn-oauth") return;
       if (data.ok) {
-        toast(data.title ?? "Connection added", "success");
         setOauthEntry(null);
         load().catch((err) => setError((err as Error).message));
       } else {
-        toast(data.detail ?? data.title ?? "Connection failed", "error");
+        void dialog.error(data.detail ?? data.title ?? "Connection failed", {
+          title: "Couldn’t add the Connection",
+        });
       }
     }
     window.addEventListener("message", handleOauthMessage);
     return () => window.removeEventListener("message", handleOauthMessage);
-  }, [load, toast]);
+  }, [dialog, load]);
 
   function toggleRoutine(id: string) {
+    const selected = selectedRoutineIds.has(id);
+    if (!selected && selectedRoutineIds.size >= MAX_ONBOARDING_ROUTINE_SELECTION) {
+      setSelectionError(`Choose up to ${MAX_ONBOARDING_ROUTINE_SELECTION} Routines at a time.`);
+      return;
+    }
+    setSelectionError(null);
     setSelectedRoutineIds((current) => {
       const next = new Set(current);
       if (next.has(id)) {
         next.delete(id);
-      } else if (next.size < MAX_ONBOARDING_ROUTINE_SELECTION) {
-        next.add(id);
       } else {
-        toast(`Choose up to ${MAX_ONBOARDING_ROUTINE_SELECTION} Routines at a time`, "error");
+        next.add(id);
       }
       return next;
     });
@@ -241,28 +247,21 @@ export function RecommendationsStep({
    * Create the selected Routines. Returns false when the write failed, so the
    * caller can keep the member on this step instead of advancing past an error.
    *
-   * The toast says "scheduled", not "ready": the server creates each Routine
-   * enabled with a live `nextRunAt`, and "ready" reads as staged rather than
-   * armed. This is the moment the product starts acting on its own, and it
-   * should not be the quietest one in the guide.
+   * The reload afterwards is the confirmation: every card the member picked
+   * flips to "Scheduled", which is what the server actually did — it creates
+   * each Routine enabled with a live `nextRunAt`, and "ready" would read as
+   * staged rather than armed. This is the moment the product starts acting on
+   * its own.
    */
   async function addSelectedRoutines(): Promise<boolean> {
     if (selectedRoutineIds.size === 0) return true;
     setAddingRoutines(true);
     setError(null);
+    setSelectionError(null);
     try {
-      const result = await api.post<CreateRecommendedRoutinesResponse>(
+      await api.post<CreateRecommendedRoutinesResponse>(
         `/api/companies/${company.id}/employees/${employee.id}/onboarding-recommendations/routines`,
         { recommendationIds: [...selectedRoutineIds] },
-      );
-      const created = result.created?.length ?? 0;
-      const existing = result.existing?.length ?? 0;
-      const total = created + existing;
-      toast(
-        total === 1
-          ? `1 Routine is now scheduled for ${employee.name}`
-          : `${total} Routines are now scheduled for ${employee.name}`,
-        "success",
       );
       await load();
       return true;
@@ -294,7 +293,6 @@ export function RecommendationsStep({
     setContextError(null);
     try {
       await api.patch<Company>(`/api/companies/${company.id}`, updates);
-      toast("Company direction saved", "success");
       missionDirty.current = false;
       visionDirty.current = false;
       await load({ resetContextDrafts: true });
@@ -316,10 +314,9 @@ export function RecommendationsStep({
       await api.post(`/api/companies/${company.id}/integrations/employees/${employee.id}/grants`, {
         connectionId: connection.id,
       });
-      toast(`${connection.label} granted to ${employee.name}`, "success");
       await load();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t grant the Connection" });
     } finally {
       setGrantingProvider(null);
     }
@@ -327,7 +324,9 @@ export function RecommendationsStep({
 
   function connect(integration: OnboardingIntegrationRecommendation) {
     if (!integration.enabled) {
-      toast(integration.disabledReason ?? "This Integration is unavailable", "error");
+      void dialog.error(integration.disabledReason ?? "This Integration is unavailable", {
+        title: `Couldn’t connect ${integration.name}`,
+      });
       return;
     }
     if (integration.oauth || integration.serviceAccount || integration.githubApp) {
@@ -500,6 +499,8 @@ export function RecommendationsStep({
             </div>
           )}
         </div>
+
+        <FormError message={selectionError} className="mb-3" />
 
         {plan.routines.length === 0 ? (
           <EmptyPanel

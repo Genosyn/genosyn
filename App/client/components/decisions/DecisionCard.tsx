@@ -1,11 +1,12 @@
 import React from "react";
 import { ChevronDown, ChevronUp, GitBranch, X } from "lucide-react";
 import { api, Company, Decision, DecisionOption, DecisionUrgency } from "../../lib/api";
+import { errorMessage } from "../../lib/errors";
 import { Avatar, employeeAvatarUrl } from "../ui/Avatar";
 import { Button } from "../ui/Button";
 import { ChatMarkdown } from "../ChatMarkdown";
+import { FormError } from "../ui/FormError";
 import { Spinner } from "../ui/Spinner";
-import { useToast } from "../ui/Toast";
 import { clsx } from "../ui/clsx";
 import { DecisionSourceLine } from "./DecisionSource";
 import { formatRelative } from "./relative";
@@ -54,8 +55,8 @@ export function DecisionCard({
   /** Called after the row leaves `pending`, so the owner can refetch. */
   onResolved: () => void;
 }) {
-  const { toast } = useToast();
   const [busy, setBusy] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
   const [open, setOpen] = React.useState(false);
   const [note, setNote] = React.useState("");
   const base = `/api/companies/${company.id}/decisions/${decision.id}`;
@@ -66,36 +67,31 @@ export function DecisionCard({
 
   async function choose(option: DecisionOption) {
     setBusy(option.id);
+    setError(null);
     try {
       await api.post(`${base}/decide`, {
         optionId: option.id,
         ...(note.trim() ? { note: note.trim() } : {}),
       });
-      // Never fold the label into a sentence — an option reads "Plausible" or
-      // "Don't send" as often as it reads "Send it", and both break the grammar.
-      //
-      // And never promise the work started: the session is kicked off after
-      // this responds, and on an install with no AI Model connected it never
-      // starts at all. The row itself reports what actually happened.
-      toast(
-        `${decision.employee?.name ?? "Your AI employee"} has your answer: ${option.label}`,
-        "success",
-      );
+      // Say nothing on the way out: `onResolved()` refetches and the row
+      // leaves the stack, which is the answer landing. Never promise the work
+      // started either — the session is kicked off after this responds, and on
+      // an install with no AI Model connected it never starts at all.
       onResolved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
       setBusy(null);
     }
   }
 
   async function dismiss() {
     setBusy("__dismiss");
+    setError(null);
     try {
       await api.post(`${base}/dismiss`, note.trim() ? { reason: note.trim() } : {});
-      toast("Dismissed — the employee was told nobody picked an option.", "success");
       onResolved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
       setBusy(null);
     }
   }
@@ -164,6 +160,8 @@ export function DecisionCard({
               className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
             />
           )}
+
+          <FormError message={error} className="mt-2" />
 
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             {decision.options.map((option) => (

@@ -22,12 +22,14 @@ import {
   LedgerEntry,
   LedgerReviewStatus,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
+import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type ReviewSummary = {
@@ -117,7 +119,7 @@ function TriCheckbox({
 
 export default function FinanceTransactions() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [searchParams, setSearchParams] = useSearchParams();
   const rawStatus = searchParams.get("status");
   const status: LedgerReviewStatus =
@@ -125,10 +127,12 @@ export default function FinanceTransactions() {
   const [rows, setRows] = React.useState<LedgerEntry[] | null>(null);
   const [accounts, setAccounts] = React.useState<Account[] | null>(null);
   const [summary, setSummary] = React.useState<ReviewSummary | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
   const [selected, setSelected] = React.useState<LedgerEntry | null>(null);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = React.useState(false);
+  const [bulkError, setBulkError] = React.useState<string | null>(null);
   const [confirmAction, setConfirmAction] = React.useState<"approve" | "delete" | null>(null);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [homeCurrency, setHomeCurrency] = React.useState("USD");
@@ -147,18 +151,20 @@ export default function FinanceTransactions() {
       setRows(entries);
       setAccounts(accountRows);
       setSummary(counts);
+      setLoadError(null);
       setSelected((current) =>
         current ? (entries.find((entry) => entry.id === current.id) ?? null) : null,
       );
     } catch (err) {
       setRows([]);
       setAccounts([]);
-      toast((err as Error).message || "Could not load transactions", "error");
+      setLoadError(errorMessage(err, "Could not load transactions"));
     }
-  }, [company.id, status, toast]);
+  }, [company.id, status]);
 
   React.useEffect(() => {
     setRows(null);
+    setLoadError(null);
     setSelectedIds(new Set());
     void reload();
   }, [reload]);
@@ -237,44 +243,51 @@ export default function FinanceTransactions() {
     setSelectedIds(new Set());
   }
 
+  function closeBulkModals() {
+    if (bulkBusy) return;
+    setConfirmAction(null);
+    setPickerOpen(false);
+    setBulkError(null);
+  }
+
+  // Approve, delete, and recategorize all run from a modal the user is looking
+  // at, so their failures belong inline above its buttons. Return fires
+  // straight from the selection bar and has no form to sit in.
+  function reportBulkFailure(action: LedgerBulkAction, message: string) {
+    if (action === "return") {
+      void dialog.error(message, { title: "Couldn’t return the transactions" });
+      return;
+    }
+    setBulkError(message);
+  }
+
   async function runBulk(action: LedgerBulkAction, toAccountId?: string) {
     const ids = selectedEntries.map((entry) => entry.id);
     if (ids.length === 0) return;
     setBulkBusy(true);
+    setBulkError(null);
     try {
       const result = await api.post<LedgerBulkResult>(
         `/api/companies/${company.id}/ledger-entries/bulk`,
         { action, ids, toAccountId },
       );
-      const okN = result.succeeded.length;
-      const skipN = result.skipped.length;
-      const verb =
-        action === "approve"
-          ? "Approved"
-          : action === "return"
-            ? "Returned"
-            : action === "delete"
-              ? "Deleted"
-              : "Recategorized";
-      if (okN > 0) {
-        toast(
-          `${verb} ${okN} transaction${okN === 1 ? "" : "s"}${
-            skipN ? ` · ${skipN} skipped` : ""
-          }`,
-          skipN ? "info" : "success",
+      if (result.succeeded.length === 0) {
+        // Nothing moved — hold the modal open with the reason instead of
+        // closing on a change that never happened.
+        reportBulkFailure(
+          action,
+          result.skipped.length
+            ? `Nothing changed — ${result.skipped[0].reason}`
+            : "Nothing to update",
         );
-      } else {
-        toast(
-          skipN ? `Nothing changed — ${result.skipped[0].reason}` : "Nothing to update",
-          "error",
-        );
+        return;
       }
       setConfirmAction(null);
       setPickerOpen(false);
       clearSelection();
       await reload();
     } catch (err) {
-      toast((err as Error).message || "Bulk action failed", "error");
+      reportBulkFailure(action, errorMessage(err, "Bulk action failed"));
     } finally {
       setBulkBusy(false);
     }
@@ -363,7 +376,9 @@ export default function FinanceTransactions() {
           </label>
         </div>
 
-        {rows === null || accounts === null ? (
+        {loadError ? (
+          <FormError message={loadError} className="m-4" />
+        ) : rows === null || accounts === null ? (
           <div className="flex justify-center p-16">
             <Spinner size={20} />
           </div>
@@ -520,7 +535,8 @@ export default function FinanceTransactions() {
           action={confirmAction}
           count={selectedCount}
           busy={bulkBusy}
-          onClose={() => (bulkBusy ? undefined : setConfirmAction(null))}
+          error={bulkError}
+          onClose={closeBulkModals}
           onConfirm={() => void runBulk(confirmAction)}
         />
       )}
@@ -530,7 +546,8 @@ export default function FinanceTransactions() {
           accounts={accounts}
           count={selectedCount}
           busy={bulkBusy}
-          onClose={() => (bulkBusy ? undefined : setPickerOpen(false))}
+          error={bulkError}
+          onClose={closeBulkModals}
           onApply={(accountId) => void runBulk("recategorize", accountId)}
         />
       )}
@@ -558,12 +575,14 @@ function BulkConfirmModal({
   action,
   count,
   busy,
+  error,
   onClose,
   onConfirm,
 }: {
   action: "approve" | "delete";
   count: number;
   busy: boolean;
+  error: string | null;
   onClose: () => void;
   onConfirm: () => void;
 }) {
@@ -590,6 +609,7 @@ function BulkConfirmModal({
           </>
         )}
       </p>
+      <FormError message={error} className="mt-4" />
       <div className="mt-6 flex justify-end gap-2">
         <Button variant="secondary" onClick={onClose} disabled={busy}>
           Cancel
@@ -613,12 +633,14 @@ function BulkCategoryModal({
   accounts,
   count,
   busy,
+  error,
   onClose,
   onApply,
 }: {
   accounts: Account[];
   count: number;
   busy: boolean;
+  error: string | null;
   onClose: () => void;
   onApply: (accountId: string) => void;
 }) {
@@ -699,6 +721,7 @@ function BulkCategoryModal({
           </div>
         )}
       </div>
+      <FormError message={error} className="mt-4" />
       <div className="mt-6 flex justify-end gap-2">
         <Button variant="secondary" onClick={onClose} disabled={busy}>
           Cancel
@@ -728,7 +751,6 @@ function TransactionReviewModal({
   onClose: () => void;
   onChanged: () => Promise<void>;
 }) {
-  const { toast } = useToast();
   const accountById = React.useMemo(
     () => new Map(accounts.map((account) => [account.id, account])),
     [accounts],
@@ -744,6 +766,7 @@ function TransactionReviewModal({
   );
   const [note, setNote] = React.useState(entry.reviewNote ?? "");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   const changes = entry.lines
     .filter((line) => categories[line.id] && categories[line.id] !== line.accountId)
@@ -751,20 +774,15 @@ function TransactionReviewModal({
 
   async function approve() {
     setBusy(true);
+    setError(null);
     try {
       await api.post(`/api/companies/${companyId}/ledger-entries/${entry.id}/approve`, {
         changes,
         note,
       });
-      toast(
-        changes.length > 0
-          ? "Transaction approved and category changes posted"
-          : "Transaction approved",
-        "success",
-      );
       await onChanged();
     } catch (err) {
-      toast((err as Error).message || "Could not approve transaction", "error");
+      setError(errorMessage(err, "Could not approve transaction"));
     } finally {
       setBusy(false);
     }
@@ -772,14 +790,14 @@ function TransactionReviewModal({
 
   async function returnToQueue() {
     setBusy(true);
+    setError(null);
     try {
       await api.post(`/api/companies/${companyId}/ledger-entries/${entry.id}/return`, {
         note,
       });
-      toast("Transaction returned to the AI review queue", "success");
       await onChanged();
     } catch (err) {
-      toast((err as Error).message || "Could not return transaction", "error");
+      setError(errorMessage(err, "Could not return transaction"));
     } finally {
       setBusy(false);
     }
@@ -912,6 +930,8 @@ function TransactionReviewModal({
           admins.
         </p>
       )}
+
+      <FormError message={error} className="mt-4" />
 
       <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
         <Button variant="secondary" onClick={onClose} disabled={busy}>

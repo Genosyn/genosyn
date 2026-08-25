@@ -2,15 +2,15 @@ import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { ShieldOff, Trash2, UserMinus } from "lucide-react";
 import { api } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { RevenueOutletCtx } from "./RevenueLayout";
 
 /**
@@ -81,7 +81,7 @@ function fmtDate(iso: string): string {
 
 export default function RevenueSuppressions() {
   const { company } = useOutletContext<RevenueOutletCtx>();
-  const { background, toast } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
 
   const [rows, setRows] = React.useState<Suppression[] | null>(null);
@@ -149,7 +149,6 @@ export default function RevenueSuppressions() {
       setNewEmail("");
       setNewNotes("");
       await reload();
-      toast(`${email} will never be mailed again`, "success");
     } catch (err) {
       setAddError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -177,12 +176,8 @@ export default function RevenueSuppressions() {
     setRows((current) => current?.filter((item) => item.id !== row.id) ?? current);
     setTotal((current) => Math.max(0, current - 1));
     background(() => api.del(`${base}/suppressions/${row.id}`), {
-      loading: "Removing from the suppression list…",
-      success: "Removed — this address can be mailed again",
-      error: (error) =>
-        `Couldn’t remove it: ${
-          error instanceof Error ? error.message : String(error)
-        }. The address is still suppressed.`,
+      title: `Couldn’t remove ${row.email} from the suppression list`,
+      error: (error) => `${errorMessage(error)} The address is still suppressed.`,
       onSuccess: () => void reload(),
       onError: () => {
         setTotal((current) => current + 1);

@@ -27,7 +27,6 @@ import { Textarea } from "../components/ui/Textarea";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { Breadcrumbs, TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { FormError } from "../components/ui/FormError";
 import { clsx } from "../components/ui/clsx";
 import { MarkdownEditor } from "../components/MarkdownEditor";
@@ -163,7 +162,6 @@ export default function EmployeeNew({ company }: { company: Company }) {
   const [finishError, setFinishError] = React.useState<string | null>(null);
   const navigate = useNavigate();
   const { companySlug } = useParams();
-  const { toast } = useToast();
 
   React.useEffect(() => {
     api
@@ -292,7 +290,6 @@ export default function EmployeeNew({ company }: { company: Company }) {
       await api.put(`/api/companies/${company.id}/employees/${emp.id}/soul`, {
         content: soul,
       });
-      toast(`${emp.name}'s Soul is ready`, "success");
       const next = new URLSearchParams({ step: "launch", employee: emp.id });
       if (selected) next.set("template", selected);
       setSearchParams(next, { replace: true });
@@ -310,7 +307,6 @@ export default function EmployeeNew({ company }: { company: Company }) {
 
   function finish() {
     if (!emp) return;
-    toast(`${emp.name} hired`, "success");
     navigate(`/c/${companySlug}/employees/${emp.slug}`);
   }
 

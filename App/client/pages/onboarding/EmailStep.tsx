@@ -5,7 +5,6 @@ import { MailAccount, MailConnectCandidate, MailGrant, mailApi } from "../../lib
 import { Button } from "../../components/ui/Button";
 import { FormError } from "../../components/ui/FormError";
 import { Spinner } from "../../components/ui/Spinner";
-import { useToast } from "../../components/ui/Toast";
 import { OauthOrServiceAccountModal } from "../SettingsIntegrations";
 import { Note, SkipLink, StepCard, StepFooter, StepHeading } from "./OnboardingFrame";
 
@@ -35,7 +34,6 @@ export function EmailStep({
   const [oauthOpen, setOauthOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const { toast } = useToast();
 
   const load = React.useCallback(async () => {
     setError(null);
@@ -83,7 +81,6 @@ export function EmailStep({
       const data = event.data as { source?: string; ok?: boolean; detail?: string } | null;
       if (!data || data.source !== "genosyn-oauth") return;
       if (data.ok) {
-        toast("Google connected", "success");
         setOauthOpen(false);
         setLoading(true);
         load()
@@ -95,7 +92,7 @@ export function EmailStep({
     }
     window.addEventListener("message", handleOauthMessage);
     return () => window.removeEventListener("message", handleOauthMessage);
-  }, [load, toast]);
+  }, [load]);
 
   const account = accounts[0] ?? null;
   const grant = grants.find((item) => item.employeeId === employee.id) ?? null;
@@ -114,7 +111,6 @@ export function EmailStep({
         employeeId: employee.id,
         accessLevel: "draft",
       });
-      toast(`Draft access granted to ${employee.name}`, "success");
       await load();
     } catch (err) {
       setError((err as Error).message);
@@ -133,7 +129,6 @@ export function EmailStep({
         employeeId: employee.id,
         accessLevel: "draft",
       });
-      toast(`Draft access granted to ${employee.name}`, "success");
       await load();
     } catch (err) {
       setError((err as Error).message);

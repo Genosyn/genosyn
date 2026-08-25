@@ -1,11 +1,12 @@
 import React from "react";
 import { api, Company, Decision, Me } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { DecisionCard } from "../components/decisions/DecisionCard";
 import { DecisionOutcome } from "../components/decisions/DecisionOutcome";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { clsx } from "../components/ui/clsx";
 
@@ -37,22 +38,21 @@ const FILTERS: { id: Filter; label: string }[] = [
 export default function Decisions({ company, me }: { company: Company; me: Me }) {
   const [rows, setRows] = React.useState<Decision[] | null>(null);
   const [filter, setFilter] = React.useState<Filter>("all");
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
       setRows(await api.get<Decision[]>(`/api/companies/${company.id}/decisions`));
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the decisions"));
       setRows([]);
     }
-    // `toast` is stable for the life of the provider; including it would churn
-    // the callback and re-subscribe the socket on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company.id]);
 
   React.useEffect(() => {
     setRows(null);
+    setLoadError(null);
     reload();
   }, [reload]);
 
@@ -70,7 +70,9 @@ export default function Decisions({ company, me }: { company: Company; me: Me })
   return (
     <div className="page-shell p-8">
       <TopBar title="Decisions" />
-      {rows === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : rows === null ? (
         <Spinner />
       ) : rows.length === 0 ? (
         <EmptyState

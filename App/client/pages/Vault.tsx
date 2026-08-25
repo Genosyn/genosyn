@@ -19,8 +19,8 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
-import { useToast } from "@/components/ui/Toast";
 import type { Company } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 import {
   filterVaultItems,
   safeVaultWebsiteUrl,
@@ -34,7 +34,6 @@ import { VaultItemDetail } from "@/pages/vault/VaultItemDetail";
 import { VaultItemEditor } from "@/pages/vault/VaultItemEditor";
 
 export default function Vault({ company }: { company: Company }) {
-  const { toast } = useToast();
   const [items, setItems] = React.useState<VaultItem[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
@@ -52,12 +51,10 @@ export default function Vault({ company }: { company: Company }) {
         current ? (next.find((candidate) => candidate.id === current.id) ?? null) : null,
       );
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "The Vault could not be loaded.";
-      setError(message);
+      setError(errorMessage(cause, "The Vault could not be loaded."));
       setItems([]);
-      toast(message, "error");
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     setItems(null);

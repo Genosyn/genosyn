@@ -12,17 +12,18 @@ import {
   X,
 } from "lucide-react";
 import { api, type Employee, type Member } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import type { FollowUpItem, FollowUpView, FollowUpViewFilters } from "../lib/revenue";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
+import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
 import { RevenueOutletCtx } from "./RevenueLayout";
 
 type QueueState = "all" | "overdue" | "today" | "upcoming";
@@ -57,7 +58,7 @@ function itemUrl(companySlug: string, item: FollowUpItem): string | null {
 
 export default function RevenueFollowUps() {
   const { company } = useOutletContext<RevenueOutletCtx>();
-  const { toast } = useToast();
+  const dialog = useDialog();
   const base = `/api/companies/${company.id}/revenue`;
   const sectionUrl = `/c/${company.slug}/revenue`;
   const [state, setState] = React.useState<QueueState>("all");
@@ -84,6 +85,7 @@ export default function RevenueFollowUps() {
   const [views, setViews] = React.useState<FollowUpView[]>([]);
   const [selectedViewId, setSelectedViewId] = React.useState("");
   const [viewName, setViewName] = React.useState("");
+  const [viewError, setViewError] = React.useState<string | null>(null);
   const [nextCursor, setNextCursor] = React.useState<string | null>(null);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = React.useState("complete");
@@ -103,6 +105,7 @@ export default function RevenueFollowUps() {
     applied: number;
     failed: number;
   } | null>(null);
+  const [bulkError, setBulkError] = React.useState<string | null>(null);
   const [rows, setRows] = React.useState<FollowUpItem[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
@@ -244,6 +247,7 @@ export default function RevenueFollowUps() {
 
   async function saveView() {
     if (!viewName.trim()) return;
+    setViewError(null);
     try {
       const view = await api.post<FollowUpView>(`${base}/follow-up-views`, {
         name: viewName.trim(),
@@ -253,21 +257,20 @@ export default function RevenueFollowUps() {
       setViews((current) => [...current, view]);
       setSelectedViewId(view.id);
       setViewName("");
-      toast("Follow-up view saved", "success");
     } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), "error");
+      setViewError(errorMessage(error));
     }
   }
 
   async function deleteSelectedView() {
     if (!selectedViewId) return;
+    setViewError(null);
     try {
       await api.del(`${base}/follow-up-views/${selectedViewId}`);
       setViews((current) => current.filter((view) => view.id !== selectedViewId));
       setSelectedViewId("");
-      toast("Follow-up view deleted", "success");
     } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), "error");
+      setViewError(errorMessage(error));
     }
   }
 
@@ -278,12 +281,8 @@ export default function RevenueFollowUps() {
     try {
       await api.patch(`${base}/follow-ups/${item.id}`, { taskStatus: "completed" });
       setRows((current) => current?.filter((row) => row.id !== item.id) ?? current);
-      toast(
-        item.recurrenceRule ? "Completed and scheduled the next follow-up" : "Follow-up completed",
-        "success",
-      );
     } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), "error");
+      void dialog.error(error, { title: "Couldn’t complete the follow-up" });
     }
   }
 
@@ -304,6 +303,7 @@ export default function RevenueFollowUps() {
 
   async function applyBulk(dryRun: boolean) {
     if (selected.size === 0) return;
+    setBulkError(null);
     const action =
       bulkAction === "complete" || bulkAction === "cancel"
         ? {
@@ -372,10 +372,6 @@ export default function RevenueFollowUps() {
             if (status === "failed") {
               throw new Error(detail.summary.error ?? "Bulk job failed");
             }
-            toast(
-              `Updated ${result.applied ?? 0} follow-ups; ${result.failed ?? 0} failed.`,
-              status === "partial" ? "error" : "success",
-            );
             setBulkPreview(null);
             await reload();
             return;
@@ -395,12 +391,8 @@ export default function RevenueFollowUps() {
         dryRun: true,
       });
       setBulkPreview(result);
-      toast(
-        `Previewed ${result.matched} follow-ups; ${result.failed} failed validation.`,
-        result.failed ? "error" : "success",
-      );
     } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), "error");
+      setBulkError(errorMessage(error));
     }
   }
 
@@ -409,10 +401,9 @@ export default function RevenueFollowUps() {
     try {
       await api.post(`${base}/bulk/jobs/${bulkJob.id}/undo`, { confirm: "UNDO" });
       setBulkJob((current) => (current ? { ...current, status: "rolled_back" } : current));
-      toast("Bulk Follow-up changes rolled back", "success");
       await reload();
     } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), "error");
+      void dialog.error(error, { title: "Couldn’t undo the bulk changes" });
     }
   }
 
@@ -483,6 +474,7 @@ export default function RevenueFollowUps() {
               <Trash2 size={14} /> Delete view
             </Button>
           )}
+          {viewError && <FormError message={viewError} className="w-full" />}
         </div>
         <Input
           value={q}
@@ -711,6 +703,7 @@ export default function RevenueFollowUps() {
               {bulkPreview.failed} failed
             </span>
           )}
+          {bulkError && <FormError message={bulkError} className="w-full" />}
         </div>
       )}
 

@@ -41,6 +41,7 @@ import {
   Team,
 } from "../lib/api";
 import { copyToClipboard } from "../lib/clipboard";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody } from "../components/ui/Card";
@@ -50,10 +51,9 @@ import { TopBar } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { Modal } from "../components/ui/Modal";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { Select } from "../components/ui/Select";
-import { FormError } from "../components/ui/FormError";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 
@@ -79,7 +79,7 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
   const [content, setContent] = React.useState<string | null>(null);
   const [saved, setSaved] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     api
@@ -95,16 +95,16 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
   const save = React.useCallback(async () => {
     if (content === null || saving) return;
     setSaving(true);
+    setError(null);
     try {
       await api.put(`/api/companies/${company.id}/employees/${emp.id}/soul`, { content });
       setSaved(content);
-      toast("Soul saved", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
-  }, [company.id, emp.id, content, saving, toast]);
+  }, [company.id, emp.id, content, saving]);
 
   return (
     <Card>
@@ -129,6 +129,7 @@ function SoulCard({ company, emp }: { company: Company; emp: Employee }) {
         ) : (
           <>
             <MarkdownEditor value={content} onChange={setContent} rows={16} onSave={save} />
+            <FormError message={error} />
             <div className="flex items-center gap-2">
               <Button onClick={save} disabled={saving || !dirty}>
                 {saving ? "Saving…" : "Save Soul"}
@@ -373,8 +374,8 @@ export function BrowserSettingsPage() {
 function EmployeeDangerZoneCard({ company, emp }: { company: Company; emp: Employee }) {
   const navigate = useNavigate();
   const dialog = useDialog();
-  const { toast } = useToast();
   const [deleting, setDeleting] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function remove() {
     const ok = await dialog.confirm({
@@ -385,12 +386,13 @@ function EmployeeDangerZoneCard({ company, emp }: { company: Company; emp: Emplo
       variant: "danger",
     });
     if (!ok) return;
+    setError(null);
     setDeleting(true);
     try {
       await api.del(`/api/companies/${company.id}/employees/${emp.id}`);
       navigate(`/c/${company.slug}/employees`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
       setDeleting(false);
     }
   }
@@ -398,6 +400,7 @@ function EmployeeDangerZoneCard({ company, emp }: { company: Company; emp: Emplo
   return (
     <Card>
       <CardBody>
+        <FormError message={error} className="mb-3" />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -424,7 +427,6 @@ function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) 
   const [reportsTo, setReportsTo] = React.useState<string>(emp.reportsToEmployeeId ?? "");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const { toast } = useToast();
 
   React.useEffect(() => {
     setTeamId(emp.teamId ?? "");
@@ -456,7 +458,6 @@ function EmployeeOrgCard({ company, emp }: { company: Company; emp: Employee }) 
         teamId: teamId || null,
         reportsToEmployeeId: reportsTo || null,
       });
-      toast("Org chart updated", "success");
       window.dispatchEvent(new CustomEvent("genosyn:employee-updated"));
     } catch (err) {
       setError((err as Error).message);
@@ -630,7 +631,6 @@ function EmployeeBasicsCard({ company, emp }: { company: Company; emp: Employee 
   const [slug, setSlug] = React.useState(emp.slug);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const { toast } = useToast();
 
   React.useEffect(() => {
     setName(emp.name);
@@ -658,7 +658,6 @@ function EmployeeBasicsCard({ company, emp }: { company: Company; emp: Employee 
         `/api/companies/${company.id}/employees/${emp.id}`,
         patch,
       );
-      toast("Employee updated", "success");
       if (updated.slug !== emp.slug) {
         navigate(`/c/${company.slug}/employees/${updated.slug}/settings/general`, {
           replace: true,
@@ -742,7 +741,8 @@ function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Em
   const [savingToggle, setSavingToggle] = React.useState(false);
   const [savingApproval, setSavingApproval] = React.useState(false);
   const [savingHosts, setSavingHosts] = React.useState(false);
-  const { toast } = useToast();
+  const [hostsError, setHostsError] = React.useState<string | null>(null);
+  const dialog = useDialog();
 
   React.useEffect(() => {
     setEnabled(!!emp.browserEnabled);
@@ -760,11 +760,10 @@ function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Em
       await api.patch<Employee>(`/api/companies/${company.id}/employees/${emp.id}`, {
         browserEnabled: next,
       });
-      toast(next ? "Browser access enabled" : "Browser access disabled", "success");
       window.dispatchEvent(new CustomEvent("genosyn:employee-updated"));
     } catch (err) {
       setEnabled(!next);
-      toast((err as Error).message || "Could not update browser access", "error");
+      void dialog.error(err, { title: "Couldn’t update browser access" });
     } finally {
       setSavingToggle(false);
     }
@@ -778,10 +777,9 @@ function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Em
       await api.patch<Employee>(`/api/companies/${company.id}/employees/${emp.id}`, {
         browserApprovalRequired: next,
       });
-      toast(next ? "Browser submits will require approval" : "Approval gate disabled", "success");
     } catch (err) {
       setApproval(!next);
-      toast((err as Error).message || "Could not update approval mode", "error");
+      void dialog.error(err, { title: "Couldn’t update approval mode" });
     } finally {
       setSavingApproval(false);
     }
@@ -789,14 +787,14 @@ function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Em
 
   async function saveHosts() {
     if (savingHosts) return;
+    setHostsError(null);
     setSavingHosts(true);
     try {
       await api.patch<Employee>(`/api/companies/${company.id}/employees/${emp.id}`, {
         browserAllowedHosts: allowedHosts,
       });
-      toast("Allow list saved", "success");
     } catch (err) {
-      toast((err as Error).message || "Could not save allow list", "error");
+      setHostsError(errorMessage(err, "Could not save the allow list"));
     } finally {
       setSavingHosts(false);
     }
@@ -873,6 +871,7 @@ function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Em
                 placeholder="# Examples:&#10;mail.google.com&#10;*.github.com"
                 className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               />
+              <FormError message={hostsError} className="mt-2" />
               <div className="mt-2 flex justify-end">
                 <Button
                   variant="secondary"
@@ -1077,7 +1076,7 @@ function ModelForm({
   const [baseURL, setBaseURL] = React.useState("");
   const [modelId, setModelId] = React.useState("");
   const [apiKey, setApiKey] = React.useState("");
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   const isCustom = provider === "custom";
 
@@ -1099,6 +1098,7 @@ function ModelForm({
       className="flex flex-col gap-4"
       onSubmit={async (e) => {
         e.preventDefault();
+        setError(null);
         setSaving(true);
         const base = `/api/companies/${company.id}/employees/${emp.id}/models`;
         try {
@@ -1128,7 +1128,7 @@ function ModelForm({
           }
           onSaved();
         } catch (err) {
-          toast((err as Error).message, "error");
+          setError(errorMessage(err));
         } finally {
           setSaving(false);
         }
@@ -1211,6 +1211,7 @@ function ModelForm({
               : "GPT via the OpenAI API. Add the API key after saving."}
         </div>
       )}
+      <FormError message={error} />
       <div>
         <Button
           type="submit"
@@ -1241,7 +1242,6 @@ function ModelCard({
   model: AIModel;
   onChanged: () => void;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const connected = model.status === "connected";
   const [activating, setActivating] = React.useState(false);
@@ -1251,10 +1251,9 @@ function ModelCard({
     setActivating(true);
     try {
       await api.post(`${base}/${model.id}/activate`);
-      toast(`${emp.name} now runs on ${model.provider} · ${model.model}`, "success");
       onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t switch the active model" });
     } finally {
       setActivating(false);
     }
@@ -1272,10 +1271,9 @@ function ModelCard({
     }
     try {
       await api.del(`${base}/${model.id}`);
-      toast(connected ? "Model removed" : "Removed", "success");
       onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t remove the model" });
     }
   }
 
@@ -1400,39 +1398,45 @@ function ContextWindowPanel({
   model: AIModel;
   onChanged: () => void;
 }) {
-  const { toast } = useToast();
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(String(model.contextWindow ?? ""));
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
   const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}`;
 
   async function probe() {
+    setError(null);
+    setNotice(null);
     setBusy(true);
     try {
       const updated = await api.post<AIModel>(`${base}/refresh`);
-      toast(
-        updated.contextWindow
-          ? `Context window: ${updated.contextWindow.toLocaleString()} tokens`
-          : "The endpoint still doesn't report a context window — set it by hand below.",
-        updated.contextWindow ? "success" : "error",
-      );
+      // Neither outcome shows on its own: a probe that came back empty leaves
+      // the reading below at "Unknown", and one that confirms the number
+      // already there re-renders it identically.
+      if (!updated.contextWindow) {
+        setError("The endpoint still doesn’t report a context window — set it by hand below.");
+      } else {
+        setNotice(`Context window: ${updated.contextWindow.toLocaleString()} tokens`);
+      }
       onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
   }
 
   async function save(next: number | null) {
+    setError(null);
+    setNotice(null);
     setBusy(true);
     try {
       await api.put(`${base}/context-window`, { contextWindow: next });
-      toast(next ? "Context window saved" : "Context window cleared", "success");
       setEditing(false);
       onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1500,6 +1504,9 @@ function ContextWindowPanel({
           )}
         </div>
       </div>
+
+      <FormError message={error} className="mt-2" />
+      <FormSuccess message={notice} className="mt-2" />
 
       {editing && (
         <form
@@ -1586,13 +1593,16 @@ function SubscriptionPanel({
   model: AIModel;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [deviceSession, setDeviceSession] = React.useState<SubscriptionDeviceSession | null>(null);
   const [starting, setStarting] = React.useState(false);
   const [cancelling, setCancelling] = React.useState(false);
   const [pollError, setPollError] = React.useState<string | null>(null);
+  const [signInError, setSignInError] = React.useState<string | null>(null);
+  const [codeCopied, setCodeCopied] = React.useState(false);
   const [accessToken, setAccessToken] = React.useState("");
   const [savingToken, setSavingToken] = React.useState(false);
+  const [tokenError, setTokenError] = React.useState<string | null>(null);
   const connected = model.status === "connected";
   const deviceSignInAvailable = model.supportsSubscription && model.subscriptionAvailable;
   const base = `/api/companies/${company.id}/employees/${emp.id}/models/${model.id}/subscription`;
@@ -1602,11 +1612,10 @@ function SubscriptionPanel({
       setDeviceSession(next);
       setPollError(null);
       if (next.status === "succeeded") {
-        toast("ChatGPT subscription connected", "success");
         onSaved();
       }
     },
-    [onSaved, toast],
+    [onSaved],
   );
 
   const deviceSessionId = deviceSession?.id;
@@ -1642,11 +1651,13 @@ function SubscriptionPanel({
   async function startDeviceSignIn() {
     setStarting(true);
     setPollError(null);
+    setSignInError(null);
+    setCodeCopied(false);
     try {
       const session = await api.post<SubscriptionDeviceSession>(`${base}/device`);
       receiveDeviceSession(session);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setSignInError(errorMessage(err));
     } finally {
       setStarting(false);
     }
@@ -1655,15 +1666,15 @@ function SubscriptionPanel({
   async function cancelDeviceSignIn() {
     if (!deviceSession || deviceSession.status !== "running") return;
     setCancelling(true);
+    setSignInError(null);
     try {
       await api.del(`${base}/device/${deviceSession.id}`);
       setDeviceSession((current) =>
         current ? { ...current, status: "cancelled", error: null } : current,
       );
       setPollError(null);
-      toast("ChatGPT sign-in cancelled");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setSignInError(errorMessage(err));
     } finally {
       setCancelling(false);
     }
@@ -1671,15 +1682,15 @@ function SubscriptionPanel({
 
   async function saveAccessToken(e: React.FormEvent) {
     e.preventDefault();
+    setTokenError(null);
     setSavingToken(true);
     try {
       await api.post(`${base}/access-token`, { accessToken });
       setAccessToken("");
       setDeviceSession(null);
-      toast("OpenAI subscription access token saved", "success");
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setTokenError(errorMessage(err));
     } finally {
       setSavingToken(false);
     }
@@ -1747,13 +1758,18 @@ function SubscriptionPanel({
                 variant="ghost"
                 onClick={async () => {
                   const copied = await copyToClipboard(deviceSession.userCode ?? "");
-                  toast(
-                    copied ? "Code copied" : "Could not copy the code",
-                    copied ? "success" : "error",
-                  );
+                  if (!copied) {
+                    void dialog.error("Copy it by hand from the field beside this button.", {
+                      title: "Couldn’t copy the code",
+                    });
+                    return;
+                  }
+                  setCodeCopied(true);
+                  window.setTimeout(() => setCodeCopied(false), 1500);
                 }}
               >
-                <Copy size={13} /> Copy
+                {codeCopied ? <Check size={13} /> : <Copy size={13} />}
+                {codeCopied ? "Copied" : "Copy"}
               </Button>
             </div>
           )}
@@ -1778,6 +1794,8 @@ function SubscriptionPanel({
           ChatGPT subscription connected.
         </div>
       )}
+
+      <FormError message={signInError} />
 
       <div className="flex flex-wrap gap-2">
         {deviceSignInAvailable && !deviceRunning && (
@@ -1826,6 +1844,7 @@ function SubscriptionPanel({
               Use this only when your OpenAI Business or Enterprise setup issues a direct access
               token. It is stored encrypted at rest.
             </div>
+            <FormError message={tokenError} />
             <div>
               <Button
                 type="submit"
@@ -1859,12 +1878,13 @@ function ApiKeyPanel({
 }) {
   const [key, setKey] = React.useState("");
   const [saving, setSaving] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
   return (
     <form
       className="flex flex-col gap-2"
       onSubmit={async (e) => {
         e.preventDefault();
+        setError(null);
         setSaving(true);
         try {
           await api.post(
@@ -1872,10 +1892,9 @@ function ApiKeyPanel({
             { apiKey: key },
           );
           setKey("");
-          toast("API key saved", "success");
           onSaved();
         } catch (err) {
-          toast((err as Error).message, "error");
+          setError(errorMessage(err));
         } finally {
           setSaving(false);
         }
@@ -1892,6 +1911,7 @@ function ApiKeyPanel({
       <div className="text-xs text-slate-500 dark:text-slate-400">
         Stored encrypted at rest. Removed on disconnect.
       </div>
+      <FormError message={error} />
       <div>
         <Button type="submit" disabled={saving || key.length === 0}>
           {saving ? "Saving…" : "Save key"}
@@ -1921,13 +1941,14 @@ function CustomEndpointPanel({
   const [modelId, setModelId] = React.useState(model.customEndpointModelId ?? "");
   const [apiKey, setApiKey] = React.useState("");
   const [saving, setSaving] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
   const connected = model.status === "connected";
   return (
     <form
       className="flex flex-col gap-3"
       onSubmit={async (e) => {
         e.preventDefault();
+        setError(null);
         setSaving(true);
         try {
           await api.post(
@@ -1939,10 +1960,9 @@ function CustomEndpointPanel({
             },
           );
           setApiKey("");
-          toast(connected ? "Endpoint updated" : "Endpoint connected", "success");
           onSaved();
         } catch (err) {
-          toast((err as Error).message, "error");
+          setError(errorMessage(err));
         } finally {
           setSaving(false);
         }
@@ -1979,6 +1999,7 @@ function CustomEndpointPanel({
         Point this employee at a self-hosted OpenAI-compatible server. Base URL + key are stored
         encrypted at rest.
       </div>
+      <FormError message={error} />
       <div>
         <Button type="submit" disabled={saving || baseURL.length === 0 || modelId.length === 0}>
           {saving ? "Saving…" : connected ? "Update endpoint" : "Save & connect"}
@@ -2012,7 +2033,8 @@ export function JournalPage() {
   const [title, setTitle] = React.useState("");
   const [body, setBody] = React.useState("");
   const [saving, setSaving] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const dialog = useDialog();
 
   const base = `/api/companies/${company.id}/employees/${emp.id}`;
@@ -2021,8 +2043,9 @@ export function JournalPage() {
     try {
       const list = await api.get<JournalEntryT[]>(`${base}/journal`);
       setEntries(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the journal"));
       setEntries([]);
     }
   }
@@ -2038,6 +2061,7 @@ export function JournalPage() {
     e.preventDefault();
     const t = title.trim();
     if (!t || saving) return;
+    setError(null);
     setSaving(true);
     try {
       const created = await api.post<JournalEntryT>(`${base}/journal`, {
@@ -2048,7 +2072,7 @@ export function JournalPage() {
       setTitle("");
       setBody("");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -2066,7 +2090,7 @@ export function JournalPage() {
       await api.del(`${base}/journal/${id}`);
       setEntries((prev) => (prev ? prev.filter((e) => e.id !== id) : prev));
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the entry" });
     }
   }
 
@@ -2079,7 +2103,7 @@ export function JournalPage() {
       setEntries((prev) => (prev ? prev.map((e) => (e.id === id ? updated : e)) : prev));
       return true;
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t save the entry" });
       return false;
     }
   }
@@ -2111,6 +2135,7 @@ export function JournalPage() {
               placeholder="Optional detail…"
               className="resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600"
             />
+            <FormError message={error} />
             <div>
               <Button type="submit" size="sm" disabled={saving || title.trim().length === 0}>
                 <BookText size={14} /> {saving ? "Saving…" : "Add entry"}
@@ -2121,7 +2146,9 @@ export function JournalPage() {
       </Card>
 
       <div className="mt-4">
-        {entries === null ? (
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : entries === null ? (
           <Spinner />
         ) : entries.length === 0 ? (
           <EmptyState
@@ -2267,7 +2294,8 @@ export function MemoryPage() {
   const [title, setTitle] = React.useState("");
   const [body, setBody] = React.useState("");
   const [saving, setSaving] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const dialog = useDialog();
 
   const base = `/api/companies/${company.id}/employees/${emp.id}`;
@@ -2276,11 +2304,12 @@ export function MemoryPage() {
     try {
       const list = await api.get<MemoryItem[]>(`${base}/memory`);
       setItems(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the memories"));
       setItems([]);
     }
-  }, [base, toast]);
+  }, [base]);
 
   React.useEffect(() => {
     reload();
@@ -2292,6 +2321,7 @@ export function MemoryPage() {
     e.preventDefault();
     const t = title.trim();
     if (!t || saving) return;
+    setError(null);
     setSaving(true);
     try {
       const created = await api.post<MemoryItem>(`${base}/memory`, {
@@ -2302,7 +2332,7 @@ export function MemoryPage() {
       setTitle("");
       setBody("");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -2314,7 +2344,7 @@ export function MemoryPage() {
       setItems((prev) => (prev ? prev.map((x) => (x.id === id ? updated : x)) : prev));
       return true;
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t save the memory" });
       return false;
     }
   }
@@ -2331,7 +2361,7 @@ export function MemoryPage() {
       await api.del(`${base}/memory/${id}`);
       setItems((prev) => (prev ? prev.filter((x) => x.id !== id) : prev));
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the memory" });
     }
   }
 
@@ -2364,6 +2394,7 @@ export function MemoryPage() {
               placeholder="Optional elaboration…"
               className="resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:bg-slate-900 dark:border-slate-600 dark:text-slate-100"
             />
+            <FormError message={error} />
             <div>
               <Button type="submit" size="sm" disabled={saving || title.trim().length === 0}>
                 <Plus size={14} /> {saving ? "Saving…" : "Add memory"}
@@ -2374,7 +2405,9 @@ export function MemoryPage() {
       </Card>
 
       <div className="mt-4">
-        {items === null ? (
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : items === null ? (
           <Spinner />
         ) : items.length === 0 ? (
           <EmptyState
@@ -2513,7 +2546,7 @@ export function McpPage() {
   const { company, emp } = useCtx();
   const [servers, setServers] = React.useState<McpServer[] | null>(null);
   const [adding, setAdding] = React.useState(false);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const dialog = useDialog();
   const base = `/api/companies/${company.id}/employees/${emp.id}/mcp`;
 
@@ -2521,8 +2554,9 @@ export function McpPage() {
     try {
       const list = await api.get<McpServer[]>(base);
       setServers(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the MCP servers"));
       setServers([]);
     }
   }
@@ -2546,7 +2580,7 @@ export function McpPage() {
       await api.del(`${base}/${id}`);
       setServers((prev) => (prev ? prev.filter((s) => s.id !== id) : prev));
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the MCP server" });
     }
   }
 
@@ -2559,7 +2593,9 @@ export function McpPage() {
       <div className="mb-3">
         <ExternalMcpPanel company={company} emp={emp} />
       </div>
-      {servers === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : servers === null ? (
         <Spinner />
       ) : servers.length === 0 ? (
         <EmptyState
@@ -2695,11 +2731,12 @@ function NewMcpModal({
   const [envLines, setEnvLines] = React.useState("");
   const [guardedLine, setGuardedLine] = React.useState("");
   const [saving, setSaving] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
+    setError(null);
     setSaving(true);
     try {
       // Space-separated args on one line — MCP command lines are typically
@@ -2729,7 +2766,7 @@ function NewMcpModal({
       await api.post(`/api/companies/${company.id}/employees/${emp.id}/mcp`, body);
       onCreated();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -2809,6 +2846,7 @@ function NewMcpModal({
             instead of running. Guard anything that mutates — budget changes, sends, deletes.
           </p>
         </div>
+        <FormError message={error} />
         <div className="flex gap-2">
           <Button type="submit" disabled={saving || !name.trim()}>
             {saving ? "Saving…" : "Add server"}

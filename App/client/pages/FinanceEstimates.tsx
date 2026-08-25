@@ -9,13 +9,13 @@ import {
   EstimateListItem,
   formatMoney,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Menu, MenuItem } from "../components/ui/Menu";
-import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type StatusFilter = "all" | DisplayEstimateStatus;
@@ -47,7 +47,7 @@ const STATUS_BADGE: Record<DisplayEstimateStatus, string> = {
  */
 export default function FinanceEstimates() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const navigate = useNavigate();
   const [estimates, setEstimates] = React.useState<EstimateListItem[] | null>(null);
@@ -75,12 +75,8 @@ export default function FinanceEstimates() {
     const originalIndex = estimates?.findIndex((item) => item.id === est.id) ?? -1;
     setEstimates((current) => current?.filter((item) => item.id !== est.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/estimates/${est.slug}`), {
-      loading: "Deleting estimate draft…",
-      success: "Estimate draft deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the estimate: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the estimate",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setEstimates((current) => {
           if (!current || current.some((item) => item.id === est.id)) return current;
@@ -97,10 +93,9 @@ export default function FinanceEstimates() {
       const draft = await api.post<Estimate>(
         `/api/companies/${company.id}/estimates/${est.slug}/duplicate`,
       );
-      toast("Estimate duplicated as draft", "success");
       navigate(`/c/${company.slug}/finance/estimates/${draft.slug}/edit`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t duplicate the estimate" });
     }
   }
 
@@ -124,12 +119,8 @@ export default function FinanceEstimates() {
     background(
       () => api.post<Estimate>(`/api/companies/${company.id}/estimates/${est.slug}/void`),
       {
-        loading: "Voiding estimate…",
-        success: "Estimate voided",
-        error: (error) =>
-          `Couldn\u2019t void the estimate: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The change was undone.`,
+        title: "Couldn’t void the estimate",
+        error: (error) => `${errorMessage(error)} The change was undone.`,
         onSuccess: (updated) => {
           setEstimates(
             (current) =>

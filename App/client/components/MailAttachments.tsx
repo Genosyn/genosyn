@@ -1,8 +1,9 @@
 import React from "react";
 import { Paperclip, X } from "lucide-react";
 import { StagedAttachment, mailApi } from "../lib/mail";
+import { errorMessage } from "../lib/errors";
 import { Spinner } from "./ui/Spinner";
-import { useToast } from "./ui/Toast";
+import { useDialog } from "./ui/Dialog";
 
 /**
  * Outbound-attachment picker shared by the compose modal and the reply
@@ -11,26 +12,39 @@ import { useToast } from "./ui/Toast";
  * hook owns the list; `<AttachmentBar>` renders the button + chips.
  */
 export function useMailAttachments(companyId: string, accountId: string) {
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [items, setItems] = React.useState<StagedAttachment[]>([]);
   const [uploading, setUploading] = React.useState(0);
 
   const addFiles = React.useCallback(
     async (files: FileList | File[]) => {
       const list = Array.from(files);
+      // The dialog holds one request at a time, so reporting from inside the
+      // loop would leave only the last failure on screen. Collect them and
+      // name every file that didn't make it in a single message.
+      const failed: { name: string; error: unknown }[] = [];
       for (const file of list) {
         setUploading((n) => n + 1);
         try {
           const staged = await mailApi.uploadAttachment(companyId, accountId, file);
           setItems((prev) => [...prev, staged]);
         } catch (err) {
-          toast((err as Error).message, "error");
+          failed.push({ name: file.name, error: err });
         } finally {
           setUploading((n) => n - 1);
         }
       }
+      if (failed.length === 1) {
+        const [only] = failed;
+        void dialog.error(only.error, { title: `Couldn’t attach ${only.name}` });
+      } else if (failed.length > 1) {
+        void dialog.error(null, {
+          title: `Couldn’t attach ${failed.length} files`,
+          message: failed.map((f) => `${f.name}: ${errorMessage(f.error)}`).join("\n"),
+        });
+      }
     },
-    [companyId, accountId, toast],
+    [companyId, accountId, dialog],
   );
 
   const remove = React.useCallback((id: string) => {

@@ -4,13 +4,11 @@ import { api } from "../lib/api";
 import { AuthShell } from "./Login";
 import { Button } from "../components/ui/Button";
 import { FormError } from "../components/ui/FormError";
-import { useToast } from "../components/ui/Toast";
 
 export default function Invite() {
   const { token } = useParams();
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const { toast } = useToast();
 
   async function accept() {
     if (!token) return;
@@ -18,7 +16,6 @@ export default function Invite() {
     setLoading(true);
     try {
       await api.post("/api/invitations/accept", { token });
-      toast("Invitation accepted", "success");
       // The authenticated app caches the caller's memberships. A full
       // navigation refreshes that state so a first-time invitee lands in the
       // company they just joined instead of the onboarding screen.

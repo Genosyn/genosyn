@@ -5,11 +5,12 @@ import { Link, useNavigate } from "react-router-dom";
 import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { FormError } from "@/components/ui/FormError";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
-import { useToast } from "@/components/ui/Toast";
 import { api, type Company, type Employee } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 
 export type ExploreAiConnection = {
   id: string;
@@ -44,16 +45,18 @@ export function ExploreAiBuilder({
   onClose: () => void;
 }) {
   const navigate = useNavigate();
-  const { toast } = useToast();
   const connected = React.useMemo(
     () => connections.filter((connection) => connection.status === "connected"),
     [connections],
   );
   const [connectionId, setConnectionId] = React.useState("");
   const [employees, setEmployees] = React.useState<Employee[] | null>(null);
+  const [employeesError, setEmployeesError] = React.useState<string | null>(null);
   const [grantedIds, setGrantedIds] = React.useState<Set<string> | null>(null);
+  const [grantsError, setGrantsError] = React.useState<string | null>(null);
   const [busyEmployeeId, setBusyEmployeeId] = React.useState<string | null>(null);
   const [request, setRequest] = React.useState("");
+  const [actionError, setActionError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
@@ -63,22 +66,26 @@ export function ExploreAiBuilder({
     setConnectionId(preferred);
     setRequest(defaultRequest(connected.find((connection) => connection.id === preferred)));
     setEmployees(null);
+    setEmployeesError(null);
+    setActionError(null);
     api
       .get<Employee[]>(`/api/companies/${company.id}/employees`)
       .then(setEmployees)
-      .catch((error) => {
+      .catch((error: unknown) => {
         setEmployees([]);
-        toast((error as Error).message, "error");
+        setEmployeesError(errorMessage(error, "Could not load the AI Employees"));
       });
-  }, [company.id, connected, initialConnectionId, open, toast]);
+  }, [company.id, connected, initialConnectionId, open]);
 
   React.useEffect(() => {
     if (!open || !connectionId) {
       setGrantedIds(new Set());
+      setGrantsError(null);
       return;
     }
     let cancelled = false;
     setGrantedIds(null);
+    setGrantsError(null);
     api
       .get<ConnectionGrant[]>(
         `/api/companies/${company.id}/integrations/connections/${connectionId}/grants`,
@@ -86,17 +93,21 @@ export function ExploreAiBuilder({
       .then((grants) => {
         if (!cancelled) setGrantedIds(new Set(grants.map((grant) => grant.employeeId)));
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         if (cancelled) return;
         setGrantedIds(new Set());
-        toast((error as Error).message, "error");
+        setGrantsError(errorMessage(error, "Could not load the Connection grants"));
       });
     return () => {
       cancelled = true;
     };
-  }, [company.id, connectionId, open, toast]);
+  }, [company.id, connectionId, open]);
 
   const selectedConnection = connected.find((connection) => connection.id === connectionId);
+  // Only a failed AI Employee fetch has nothing to render in place of: the
+  // grants fetch supplies a per-row badge, and its catch falls back to an empty
+  // set so every row still offers "Grant & open chat".
+  const loadError = employeesError;
 
   function changeConnection(nextId: string) {
     setConnectionId(nextId);
@@ -106,6 +117,7 @@ export function ExploreAiBuilder({
   async function openEmployeeChat(employee: Employee) {
     if (!selectedConnection || !request.trim()) return;
     setBusyEmployeeId(employee.id);
+    setActionError(null);
     try {
       if (!grantedIds?.has(employee.id)) {
         await api.post(
@@ -113,14 +125,13 @@ export function ExploreAiBuilder({
           { connectionId: selectedConnection.id },
         );
         setGrantedIds((current) => new Set([...(current ?? []), employee.id]));
-        toast(`Granted ${employee.name} access to ${selectedConnection.label}`, "success");
       }
       onClose();
       navigate(`/c/${company.slug}/employees/${employee.slug}/chat`, {
         state: { starterPrompt: request.trim() },
       });
     } catch (error) {
-      toast((error as Error).message, "error");
+      setActionError(errorMessage(error));
     } finally {
       setBusyEmployeeId(null);
     }
@@ -189,7 +200,10 @@ export function ExploreAiBuilder({
             <div className="mb-2 text-xs font-medium text-slate-700 dark:text-slate-300">
               Choose an AI Employee
             </div>
-            {employees === null || grantedIds === null ? (
+            <FormError message={grantsError} className="mb-2" />
+            {loadError ? (
+              <FormError message={loadError} />
+            ) : employees === null || grantedIds === null ? (
               <div className="flex justify-center py-8">
                 <Spinner />
               </div>
@@ -262,6 +276,7 @@ export function ExploreAiBuilder({
                 })}
               </ul>
             )}
+            <FormError message={actionError} className="mt-3" />
           </div>
         </div>
       )}

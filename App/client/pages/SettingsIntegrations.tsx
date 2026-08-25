@@ -44,6 +44,7 @@ import {
   INTEGRATION_CATEGORY_ORDER,
   type IntegrationCategory,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -51,9 +52,9 @@ import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Breadcrumbs, ContextualLayout, TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
 import {
@@ -139,8 +140,8 @@ function IntegrationsPage({
   company: Company;
   scope?: ProductIntegrationScope;
 }) {
-  const { toast, background } = useToast();
   const dialog = useDialog();
+  const background = useBackgroundAction();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedReconnectId = searchParams.get("reconnect");
   const searchParamsString = searchParams.toString();
@@ -148,6 +149,7 @@ function IntegrationsPage({
 
   const [catalog, setCatalog] = React.useState<IntegrationCatalogEntry[] | null>(null);
   const [connections, setConnections] = React.useState<IntegrationConnection[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [addingApiKey, setAddingApiKey] = React.useState<IntegrationCatalogEntry | null>(null);
   const [addingGoogle, setAddingGoogle] = React.useState<IntegrationCatalogEntry | null>(null);
   const [reconnecting, setReconnecting] = React.useState<{
@@ -155,11 +157,21 @@ function IntegrationsPage({
     conn: IntegrationConnection;
   } | null>(null);
   const [refreshingId, setRefreshingId] = React.useState<string | null>(null);
+  // A healthy verdict from "Check status" changes nothing on the row, so it
+  // needs a line of its own. One object, so checking another row retires the
+  // previous row's notice.
+  const [checkNotice, setCheckNotice] = React.useState<{ id: string; message: string } | null>(
+    null,
+  );
   const [managing, setManaging] = React.useState<IntegrationConnection | null>(null);
   const [pickingRepos, setPickingRepos] = React.useState<IntegrationConnection | null>(null);
   const [search, setSearch] = React.useState("");
 
   const reload = React.useCallback(async () => {
+    // The rows are about to be replaced wholesale — including by the socket
+    // refetch — so a check notice from the old list would be describing a
+    // status this reload may have just changed.
+    setCheckNotice(null);
     try {
       const [cat, conns] = await Promise.all([
         api.get<IntegrationCatalogEntry[]>(`/api/companies/${company.id}/integrations/catalog`),
@@ -167,12 +179,13 @@ function IntegrationsPage({
       ]);
       setCatalog(cat);
       setConnections(conns);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the integrations"));
       setCatalog([]);
       setConnections([]);
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -200,7 +213,7 @@ function IntegrationsPage({
       scope?.providers ?? null,
     );
     if (!target) {
-      toast("That connection is no longer available.", "error");
+      void dialog.error("That connection is no longer available.", { title: "Couldn’t reconnect" });
       return;
     }
     setReconnecting(target);
@@ -211,7 +224,7 @@ function IntegrationsPage({
     searchParamsString,
     setSearchParams,
     scope?.providers,
-    toast,
+    dialog,
   ]);
 
   useLiveRefetch("connection", reload);
@@ -229,15 +242,16 @@ function IntegrationsPage({
       } | null;
       if (!data || data.source !== "genosyn-oauth") return;
       if (data.ok) {
-        toast(data.title ?? "Connected", "success");
         reload();
       } else {
-        toast(data.detail ?? data.title ?? "OAuth failed", "error");
+        void dialog.error(data.detail ?? data.title ?? "OAuth failed", {
+          title: "Couldn’t finish connecting",
+        });
       }
     }
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [reload, toast]);
+  }, [reload, dialog]);
 
   const allowedProviders = React.useMemo(
     () => (scope?.providers ? new Set(scope.providers) : null),
@@ -296,7 +310,9 @@ function IntegrationsPage({
 
   async function startConnect(entry: IntegrationCatalogEntry) {
     if (!entry.enabled) {
-      toast(entry.disabledReason ?? "Integration not enabled", "error");
+      void dialog.error(entry.disabledReason ?? "Integration not enabled", {
+        title: `Couldn’t connect ${entry.name}`,
+      });
       return;
     }
     // OAuth / Service-Account / GitHub-App integrations all share the
@@ -311,24 +327,24 @@ function IntegrationsPage({
 
   async function reconnect(conn: IntegrationConnection) {
     if (conn.retired) {
-      toast(
+      void dialog.error(
         `${conn.retired.name} was retired in ${conn.retired.retiredIn}. ${conn.retired.reason}`,
-        "error",
+        { title: "Couldn’t reconnect" },
       );
       return;
     }
     const entry = catalog?.find((e) => e.provider === conn.provider);
     if (!entry) {
-      toast(`Unknown integration: ${conn.provider}`, "error");
+      void dialog.error(`Unknown integration: ${conn.provider}`, { title: "Couldn’t reconnect" });
       return;
     }
     // Browser login is retired, so there is no form to reopen for a
     // connection created under it. Say that here rather than opening a
     // modal whose only button would fail on submit.
     if (conn.authMode === "browser") {
-      toast(
+      void dialog.error(
         `Browser login for ${entry.name} has been retired. Disconnect this connection and connect over OAuth instead; keep the site password in the Vault.`,
-        "error",
+        { title: "Couldn’t reconnect" },
       );
       return;
     }
@@ -337,18 +353,21 @@ function IntegrationsPage({
 
   async function refreshStatus(conn: IntegrationConnection) {
     setRefreshingId(conn.id);
+    setCheckNotice(null);
     try {
       const updated = await api.post<IntegrationConnection>(
         `/api/companies/${company.id}/integrations/connections/${conn.id}/check`,
       );
       setConnections((prev) => (prev ?? []).map((c) => (c.id === updated.id ? updated : c)));
+      // A failed check is carried by the row itself — the badge flips and the
+      // status message prints under the label. A healthy one prints nothing
+      // (the "Connected" pill was already there), so say it here or the click
+      // looks like it never registered.
       if (updated.status === "connected") {
-        toast("Connection is healthy", "success");
-      } else {
-        toast(updated.statusMessage || "Connection reports an error", "error");
+        setCheckNotice({ id: updated.id, message: "Connection is healthy" });
       }
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t check the connection" });
     } finally {
       setRefreshingId(null);
     }
@@ -377,12 +396,8 @@ function IntegrationsPage({
           { label: trimmed },
         ),
       {
-        loading: "Renaming Connection…",
-        success: "Connection renamed",
-        error: (error) =>
-          `Couldn\u2019t rename the Connection: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The previous name has been restored.`,
+        title: "Couldn’t rename the Connection",
+        error: (error) => `${errorMessage(error)} The previous name has been restored.`,
         onSuccess: (updated) => {
           setConnections(
             (current) =>
@@ -410,12 +425,8 @@ function IntegrationsPage({
     const originalIndex = connections?.findIndex((item) => item.id === conn.id) ?? -1;
     setConnections((current) => current?.filter((item) => item.id !== conn.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/integrations/connections/${conn.id}`), {
-      loading: "Disconnecting…",
-      success: "Disconnected",
-      error: (error) =>
-        `Couldn\u2019t disconnect: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. The Connection has been restored.`,
+      title: "Couldn’t disconnect",
+      error: (error) => `${errorMessage(error)} The Connection has been restored.`,
       onError: () => {
         setConnections((current) => {
           if (!current || current.some((item) => item.id === conn.id)) return current;
@@ -430,6 +441,13 @@ function IntegrationsPage({
   return (
     <>
       <TopBar title="Integrations" />
+
+      {/*
+        The catalog and the connections are fetched together, so one failure
+        empties both panels below — the banner sits above both rather than
+        being repeated inside each one.
+      */}
+      <FormError message={loadError} className="mb-6" />
 
       {scope && (
         <div className="mb-6 flex flex-col gap-3 rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 sm:flex-row sm:items-center dark:border-indigo-900/60 dark:bg-indigo-950/30">
@@ -532,6 +550,9 @@ function IntegrationsPage({
                             {c.statusMessage}
                           </p>
                         ) : null}
+                        {checkNotice && checkNotice.id === c.id && (
+                          <FormSuccess message={checkNotice.message} className="mt-1" />
+                        )}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         <Button
@@ -806,16 +827,19 @@ function ManageAccessModal({
   catalog: IntegrationCatalogEntry[];
   onClose: () => void;
 }) {
-  const { toast } = useToast();
   const [employees, setEmployees] = React.useState<Employee[] | null>(null);
   const [grants, setGrants] = React.useState<ConnectionGrantWithEmployee[] | null>(null);
   const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open || !connection) return;
     let cancelled = false;
     setEmployees(null);
     setGrants(null);
+    setLoadError(null);
+    setError(null);
     (async () => {
       try {
         const [emps, gs] = await Promise.all([
@@ -829,7 +853,7 @@ function ManageAccessModal({
         setGrants(gs);
       } catch (err) {
         if (cancelled) return;
-        toast((err as Error).message, "error");
+        setLoadError(errorMessage(err, "Could not load the AI employees"));
         setEmployees([]);
         setGrants([]);
       }
@@ -837,7 +861,7 @@ function ManageAccessModal({
     return () => {
       cancelled = true;
     };
-  }, [open, connection, company.id, toast]);
+  }, [open, connection, company.id]);
 
   const grantedIds = React.useMemo(
     () => new Set((grants ?? []).map((g) => g.employeeId)),
@@ -847,6 +871,7 @@ function ManageAccessModal({
   async function grant(emp: Employee) {
     if (!connection) return;
     setBusyId(emp.id);
+    setError(null);
     try {
       const created = await api.post<ConnectionGrantWithEmployee>(
         `/api/companies/${company.id}/integrations/employees/${emp.id}/grants`,
@@ -871,9 +896,8 @@ function ManageAccessModal({
           },
         },
       ]);
-      toast(`Granted ${emp.name}`, "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusyId(null);
     }
@@ -882,14 +906,14 @@ function ManageAccessModal({
   async function revoke(emp: Employee) {
     if (!connection) return;
     setBusyId(emp.id);
+    setError(null);
     try {
       await api.del(
         `/api/companies/${company.id}/integrations/employees/${emp.id}/grants/${connection.id}`,
       );
       setGrants((prev) => (prev ?? []).filter((g) => g.employeeId !== emp.id));
-      toast(`Revoked ${emp.name}`, "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusyId(null);
     }
@@ -924,7 +948,9 @@ function ManageAccessModal({
           </div>
         </div>
 
-        {!ready ? (
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : !ready ? (
           <div className="flex justify-center py-6">
             <Spinner />
           </div>
@@ -942,7 +968,11 @@ function ManageAccessModal({
             }
           />
         ) : (
-          <ul className="flex flex-col gap-1.5">
+          // The list scrolls inside itself rather than growing the modal body:
+          // a grant/revoke failure lands in the banner below, and that banner
+          // has to stay on screen no matter how many AI employees there are or
+          // how far down the list the failing row sits.
+          <ul className="flex max-h-96 flex-col gap-1.5 overflow-y-auto">
             {employees!.map((emp) => {
               const isGranted = grantedIds.has(emp.id);
               const isBusy = busyId === emp.id;
@@ -989,6 +1019,8 @@ function ManageAccessModal({
             })}
           </ul>
         )}
+
+        <FormError message={error} />
 
         <div className="flex justify-end pt-1">
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -1061,12 +1093,13 @@ export function ApiKeyModal({
   const [label, setLabel] = React.useState("");
   const [fields, setFields] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (open && entry) {
       setLabel(reconnect?.label ?? entry.name);
       setFields({});
+      setError(null);
     }
   }, [open, entry, reconnect]);
 
@@ -1082,24 +1115,25 @@ export function ApiKeyModal({
         onSubmit={async (e) => {
           e.preventDefault();
           setBusy(true);
+          setError(null);
           try {
             if (isReconnect) {
               await api.put(
                 `/api/companies/${companyId}/integrations/connections/${reconnect.connectionId}/credentials`,
                 { fields },
               );
-              toast(`${entry.name} reconnected`, "success");
             } else {
               await api.post(`/api/companies/${companyId}/integrations/connections`, {
                 provider: entry.provider,
                 label: label.trim() || entry.name,
                 fields,
               });
-              toast(`${entry.name} connected`, "success");
             }
+            // No confirmation message: onSaved closes this modal and
+            // reloads the connection list behind it.
             onSaved();
           } catch (err) {
-            toast((err as Error).message, "error");
+            setError(errorMessage(err));
           } finally {
             setBusy(false);
           }
@@ -1151,6 +1185,7 @@ export function ApiKeyModal({
             )}
           </div>
         ))}
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
@@ -1201,7 +1236,6 @@ export function OauthOrServiceAccountModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
   const supportsOauth = !!entry?.oauth;
   const supportsSa = !!entry?.serviceAccount;
   // An entry advertises API-key as a *secondary* mode whenever it has
@@ -1238,6 +1272,8 @@ export function OauthOrServiceAccountModal({
   const [selectedScopeGroups, setSelectedScopeGroups] = React.useState<string[]>([]);
   const [oauthExtraFields, setOauthExtraFields] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState(false);
+  // One banner per form; only one mode's form is mounted at a time.
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (open && entry) {
@@ -1266,6 +1302,7 @@ export function OauthOrServiceAccountModal({
       setAppDiscovery(null);
       setSelectedInstallationId("");
       setOauthExtraFields({});
+      setError(null);
       // Providers may declare a safer starting set when some permissions
       // require a separate review (LinkedIn company-page posting, for
       // example). Providers without explicit defaults preserve the
@@ -1302,10 +1339,18 @@ export function OauthOrServiceAccountModal({
 
   if (!entry) return null;
 
+  // Each tab owns its own failure, so a message from the form the user just
+  // left must not follow them into the next one.
+  function chooseMode(next: ConnectMode) {
+    setMode(next);
+    setError(null);
+  }
+
   async function submitOauth(e: React.FormEvent) {
     e.preventDefault();
     if (!entry) return;
     setBusy(true);
+    setError(null);
     try {
       const isOauthReconnect = isReconnect && reconnect.authMode === "oauth2";
       const { authorizeUrl } = isOauthReconnect
@@ -1330,14 +1375,14 @@ export function OauthOrServiceAccountModal({
           );
       const popup = window.open(authorizeUrl, "genosyn-oauth", "width=520,height=700");
       if (!popup) {
-        toast("Popup blocked — allow popups for this site and try again.", "error");
+        setError("Popup blocked — allow popups for this site and try again.");
       } else {
         // Close modal optimistically; the parent listens for the popup's
         // postMessage and refreshes the connection list on success.
         onSaved();
       }
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1346,6 +1391,7 @@ export function OauthOrServiceAccountModal({
   async function discoverGithubApp() {
     if (!entry) return;
     setDiscovering(true);
+    setError(null);
     try {
       const out = await api.post<GithubAppDiscovery>(
         `/api/companies/${companyId}/integrations/github-app/discover`,
@@ -1358,7 +1404,7 @@ export function OauthOrServiceAccountModal({
         setSelectedInstallationId(String(out.installations[0].id));
       }
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setDiscovering(false);
     }
@@ -1368,6 +1414,7 @@ export function OauthOrServiceAccountModal({
     e.preventDefault();
     if (!entry) return;
     setBusy(true);
+    setError(null);
     try {
       if (isReconnect && reconnect.authMode === "github_app") {
         await api.put(
@@ -1378,7 +1425,6 @@ export function OauthOrServiceAccountModal({
             installationId: selectedInstallationId.trim(),
           },
         );
-        toast(`${entry.name} reconnected`, "success");
       } else {
         await api.post(`/api/companies/${companyId}/integrations/connections/github-app`, {
           provider: entry.provider,
@@ -1387,11 +1433,10 @@ export function OauthOrServiceAccountModal({
           privateKey: appPrivateKey.trim(),
           installationId: selectedInstallationId.trim(),
         });
-        toast(`${entry.name} connected`, "success");
       }
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1401,16 +1446,16 @@ export function OauthOrServiceAccountModal({
     e.preventDefault();
     if (!entry) return;
     setBusy(true);
+    setError(null);
     try {
       await api.post(`/api/companies/${companyId}/integrations/connections`, {
         provider: entry.provider,
         label: label.trim() || entry.name,
         fields: apiKeyFields,
       });
-      toast(`${entry.name} connected`, "success");
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1420,6 +1465,7 @@ export function OauthOrServiceAccountModal({
     e.preventDefault();
     if (!entry) return;
     setBusy(true);
+    setError(null);
     try {
       if (isReconnect) {
         await api.put(
@@ -1430,7 +1476,6 @@ export function OauthOrServiceAccountModal({
             scopeGroups: selectedScopeGroups,
           },
         );
-        toast(`${entry.name} reconnected`, "success");
       } else {
         await api.post(`/api/companies/${companyId}/integrations/connections/service-account`, {
           provider: entry.provider,
@@ -1439,11 +1484,10 @@ export function OauthOrServiceAccountModal({
           impersonationEmail: impersonationEmail.trim() || undefined,
           scopeGroups: selectedScopeGroups,
         });
-        toast(`${entry.name} connected`, "success");
       }
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1535,7 +1579,7 @@ export function OauthOrServiceAccountModal({
               {supportsOauth && (
                 <button
                   type="button"
-                  onClick={() => setMode("oauth")}
+                  onClick={() => chooseMode("oauth")}
                   className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
                     mode === "oauth"
                       ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
@@ -1548,7 +1592,7 @@ export function OauthOrServiceAccountModal({
               {supportsGithubApp && (
                 <button
                   type="button"
-                  onClick={() => setMode("github_app")}
+                  onClick={() => chooseMode("github_app")}
                   className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
                     mode === "github_app"
                       ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
@@ -1561,7 +1605,7 @@ export function OauthOrServiceAccountModal({
               {supportsSa && (
                 <button
                   type="button"
-                  onClick={() => setMode("service_account")}
+                  onClick={() => chooseMode("service_account")}
                   className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
                     mode === "service_account"
                       ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
@@ -1574,7 +1618,7 @@ export function OauthOrServiceAccountModal({
               {supportsApiKey && (
                 <button
                   type="button"
-                  onClick={() => setMode("apikey")}
+                  onClick={() => chooseMode("apikey")}
                   className={`flex-1 rounded-md px-3 py-1.5 font-medium transition ${
                     mode === "apikey"
                       ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-100"
@@ -1704,6 +1748,7 @@ export function OauthOrServiceAccountModal({
               selected={selectedScopeGroups}
               onToggle={toggleScopeGroup}
             />
+            <FormError message={error} />
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
                 Cancel
@@ -1779,6 +1824,7 @@ export function OauthOrServiceAccountModal({
               selected={selectedScopeGroups}
               onToggle={toggleScopeGroup}
             />
+            <FormError message={error} />
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
                 Cancel
@@ -1893,6 +1939,10 @@ export function OauthOrServiceAccountModal({
                 </div>
               )
             ) : null}
+            {/* Covers both Discover and submit — a failed discovery leaves
+                the installation block above unrendered, so the banner lands
+                directly under the button that failed. */}
+            <FormError message={error} />
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
                 Cancel
@@ -1952,6 +2002,7 @@ export function OauthOrServiceAccountModal({
                 )}
               </div>
             ))}
+            <FormError message={error} />
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
                 Cancel
@@ -1995,10 +2046,10 @@ function RepoAllowlistModal({
   companyId: string;
   onClose: () => void;
 }) {
-  const { toast } = useToast();
   const [allowed, setAllowed] = React.useState<GithubRepoRow[]>([]);
   const [discoverable, setDiscoverable] = React.useState<GithubRepoRow[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
@@ -2008,6 +2059,7 @@ function RepoAllowlistModal({
     setDiscoverable(null);
     setAllowed([]);
     setLoadError(null);
+    setSaveError(null);
     setSearch("");
     (async () => {
       try {
@@ -2020,7 +2072,7 @@ function RepoAllowlistModal({
         setDiscoverable(data.discoverable);
       } catch (err) {
         if (cancelled) return;
-        setLoadError((err as Error).message);
+        setLoadError(errorMessage(err, "Could not load the repos"));
         setDiscoverable([]);
       }
     })();
@@ -2054,6 +2106,7 @@ function RepoAllowlistModal({
   async function save() {
     if (!connection) return;
     setBusy(true);
+    setSaveError(null);
     try {
       await api.put(
         `/api/companies/${companyId}/integrations/connections/${connection.id}/github/repos`,
@@ -2065,10 +2118,10 @@ function RepoAllowlistModal({
           })),
         },
       );
-      toast(`Allowlisted ${allowed.length} repo${allowed.length === 1 ? "" : "s"}`, "success");
+      // The modal closing is the confirmation.
       onClose();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setSaveError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -2173,6 +2226,8 @@ function RepoAllowlistModal({
             })}
           </ul>
         )}
+
+        <FormError message={saveError} />
 
         <div className="flex items-center justify-between gap-2 pt-1">
           <span className="text-xs text-slate-500 dark:text-slate-400">

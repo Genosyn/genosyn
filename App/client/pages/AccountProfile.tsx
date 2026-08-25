@@ -2,13 +2,13 @@ import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { Camera } from "lucide-react";
 import { api, Me } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
-import { FormError } from "../components/ui/FormError";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Avatar, meAvatarUrl } from "../components/ui/Avatar";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { disablePush, enablePush, getPushState, PushState } from "../lib/push";
 import type { AccountOutletCtx } from "./AccountLayout";
 
@@ -29,13 +29,14 @@ export function AccountProfile() {
   const [handle, setHandle] = React.useState(me.handle ?? "");
   const [savingProfile, setSavingProfile] = React.useState(false);
   const [profileError, setProfileError] = React.useState<string | null>(null);
+  const [profileNotice, setProfileNotice] = React.useState<string | null>(null);
   const [profileCurrentPassword, setProfileCurrentPassword] = React.useState("");
   const [currentPassword, setCurrentPassword] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
   const [savingPassword, setSavingPassword] = React.useState(false);
   const [passwordError, setPasswordError] = React.useState<string | null>(null);
-  const { toast } = useToast();
+  const [passwordNotice, setPasswordNotice] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     setName(me.name);
@@ -68,6 +69,7 @@ export function AccountProfile() {
                 e.preventDefault();
                 if (!profileDirty) return;
                 setProfileError(null);
+                setProfileNotice(null);
                 setSavingProfile(true);
                 try {
                   const nextHandle = handle.trim().toLowerCase();
@@ -81,14 +83,15 @@ export function AccountProfile() {
                     },
                   );
                   setProfileCurrentPassword("");
-                  if (result.pendingEmail) setEmail(me.email);
+                  // A saved profile shows itself: the fields resync and the
+                  // Save button goes quiet. A pending email change does not —
+                  // the field snaps back to the old address, so say where the
+                  // confirmation link went.
+                  if (result.pendingEmail) {
+                    setEmail(me.email);
+                    setProfileNotice(`Check ${result.pendingEmail} to confirm the change`);
+                  }
                   onCompaniesChanged();
-                  toast(
-                    result.pendingEmail
-                      ? `Check ${result.pendingEmail} to confirm the change`
-                      : "Profile updated",
-                    "success",
-                  );
                 } catch (err) {
                   setProfileError((err as Error).message);
                 } finally {
@@ -97,6 +100,7 @@ export function AccountProfile() {
               }}
             >
               <FormError message={profileError} />
+              <FormSuccess message={profileNotice} />
               <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
               <Input
                 label="Email"
@@ -158,6 +162,7 @@ export function AccountProfile() {
               className="flex flex-col gap-3"
               onSubmit={async (e) => {
                 e.preventDefault();
+                setPasswordNotice(null);
                 if (newPassword.length < 12) {
                   setPasswordError("New password must be at least 12 characters");
                   return;
@@ -173,7 +178,9 @@ export function AccountProfile() {
                   setCurrentPassword("");
                   setNewPassword("");
                   setConfirmPassword("");
-                  toast("Password changed", "success");
+                  // Emptied password fields look exactly like untouched ones,
+                  // so this is the only sign the change went through.
+                  setPasswordNotice("Password changed");
                 } catch (err) {
                   setPasswordError((err as Error).message);
                 } finally {
@@ -182,6 +189,7 @@ export function AccountProfile() {
               }}
             >
               <FormError message={passwordError} />
+              <FormSuccess message={passwordNotice} />
               <Input
                 label="Current password"
                 type="password"
@@ -235,9 +243,9 @@ export function AccountProfile() {
  * Chrome are two subscriptions). See client/lib/push.ts for the flow.
  */
 function PushNotificationsCard() {
-  const { toast } = useToast();
   const [state, setState] = React.useState<PushState>("unsupported");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     getPushState().then(setState);
@@ -245,16 +253,17 @@ function PushNotificationsCard() {
 
   async function toggle() {
     setBusy(true);
+    setError(null);
     try {
+      // The status line below re-reads the subscription either way, so it
+      // already says whether this device is on or off.
       if (state === "subscribed") {
         await disablePush();
-        toast("Push notifications disabled on this device.", "success");
       } else {
         await enablePush();
-        toast("Push notifications enabled on this device.", "success");
       }
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
       setState(await getPushState());
@@ -271,7 +280,8 @@ function PushNotificationsCard() {
           Genosyn to your home screen first.
         </p>
       </CardHeader>
-      <CardBody>
+      <CardBody className="flex flex-col gap-3">
+        <FormError message={error} />
         <div className="flex items-center justify-between gap-4">
           <div className="text-sm text-slate-700 dark:text-slate-200">
             {state === "unsupported" && "This browser doesn't support push notifications."}

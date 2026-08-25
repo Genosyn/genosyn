@@ -2,8 +2,9 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { FileCode, GitBranch, GitCommitHorizontal, History, RefreshCw, User } from "lucide-react";
 import { Button } from "../components/ui/Button";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { formatRelative } from "../components/decisions/relative";
 import { BranchPicker, branchLabelFor } from "../components/repositories/BranchPicker";
@@ -17,6 +18,7 @@ import {
   RepositoryHistoryResponse,
   RepositoryStatus,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 
 /**
@@ -32,7 +34,7 @@ const HISTORY_LIMIT = 100;
 
 export default function RepositoryHistory() {
   const { company, repo } = useRepositoriesContext();
-  const { toast } = useToast();
+  const dialog = useDialog();
 
   const base = repo ? `/api/companies/${company.id}/repositories/${repo.slug}` : "";
   const repoId = repo?.id ?? null;
@@ -40,8 +42,10 @@ export default function RepositoryHistory() {
   const [commits, setCommits] = React.useState<RepositoryCommit[] | null>(null);
   const [status, setStatus] = React.useState<RepositoryStatus | null>(null);
   const [branches, setBranches] = React.useState<RepositoryBranch[]>([]);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [selectedSha, setSelectedSha] = React.useState<string | null>(null);
   const [detail, setDetail] = React.useState<RepositoryCommitDiff | null>(null);
+  const [detailError, setDetailError] = React.useState<string | null>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
   const [reloading, setReloading] = React.useState(false);
   const [switching, setSwitching] = React.useState(false);
@@ -62,16 +66,18 @@ export default function RepositoryHistory() {
       setCommits(history.commits);
       setStatus(nextStatus);
       setBranches(branchRows.branches);
+      setLoadError(null);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setLoadError(errorMessage(err, "Could not load the history"));
       setCommits([]);
     }
-  }, [base, toast]);
+  }, [base]);
 
   React.useEffect(() => {
     setCommits(null);
     setStatus(null);
     setBranches([]);
+    setLoadError(null);
     setSelectedSha(null);
     setDetail(null);
     reload();
@@ -86,17 +92,20 @@ export default function RepositoryHistory() {
       selectTokenRef.current = token;
       setSelectedSha(sha);
       setDetail(null);
+      setDetailError(null);
       setDetailLoading(true);
       try {
         const row = await api.get<RepositoryCommitDiff>(`${base}/workspace/commits/${sha}`);
         if (selectTokenRef.current === token) setDetail(row);
       } catch (err) {
-        toast(err instanceof Error ? err.message : String(err), "error");
+        if (selectTokenRef.current === token) {
+          setDetailError(errorMessage(err, "Could not load the diff"));
+        }
       } finally {
         if (selectTokenRef.current === token) setDetailLoading(false);
       }
     },
-    [base, toast],
+    [base],
   );
 
   async function refresh() {
@@ -104,9 +113,8 @@ export default function RepositoryHistory() {
     try {
       await api.post(`${base}/workspace/refresh`);
       await reload();
-      toast("History refreshed", "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      void dialog.error(err, { title: "Couldn’t refresh the repository" });
     } finally {
       setReloading(false);
     }
@@ -119,9 +127,8 @@ export default function RepositoryHistory() {
     try {
       await api.post(`${base}/workspace/checkout`, { name });
       await reload();
-      toast(`Reading ${name}`, "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      void dialog.error(err, { title: `Couldn’t switch to ${name}` });
     } finally {
       setSwitching(false);
     }
@@ -176,7 +183,9 @@ export default function RepositoryHistory() {
 
       <div className="mt-6 flex flex-col gap-4 lg:flex-row">
         <div className="w-full shrink-0 lg:w-96">
-          {commits === null ? (
+          {loadError ? (
+            <FormError message={loadError} />
+          ) : commits === null ? (
             <div className="flex h-32 items-center justify-center">
               <Spinner size={20} />
             </div>
@@ -250,6 +259,8 @@ export default function RepositoryHistory() {
             <div className="flex h-32 items-center justify-center">
               <Spinner size={20} />
             </div>
+          ) : detailError ? (
+            <FormError message={detailError} />
           ) : detail === null ? (
             <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-14 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
               That commit&apos;s diff could not be loaded. Try Refresh, or pick another commit.

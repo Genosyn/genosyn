@@ -7,19 +7,21 @@ import {
   Save,
 } from "lucide-react";
 import { api, type InstanceSettings } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 
 /** Admin → General. Database-backed settings for the whole installation. */
 export function AdminGeneral() {
   const [data, setData] = React.useState<InstanceSettings | null>(null);
   const [publicUrl, setPublicUrl] = React.useState("");
   const [saving, setSaving] = React.useState(false);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
   const detectedUrl = window.location.origin;
 
   const reload = React.useCallback(async () => {
@@ -27,10 +29,11 @@ export function AdminGeneral() {
       const next = await api.get<InstanceSettings>("/api/admin/instance-settings");
       setData(next);
       setPublicUrl(next.publicUrl);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the instance settings"));
     }
-  }, [toast]);
+  }, []);
 
   React.useEffect(() => {
     reload();
@@ -41,9 +44,7 @@ export function AdminGeneral() {
       <>
         <TopBar title="General" />
         <Card>
-          <CardBody>
-            <Spinner />
-          </CardBody>
+          <CardBody>{loadError ? <FormError message={loadError} /> : <Spinner />}</CardBody>
         </Card>
       </>
     );
@@ -54,8 +55,9 @@ export function AdminGeneral() {
   const differsFromBrowser = data.publicUrl !== detectedUrl;
 
   const save = async () => {
+    setError(null);
     if (!publicUrl.trim()) {
-      toast("Public URL is required", "error");
+      setError("Public URL is required");
       return;
     }
     setSaving(true);
@@ -65,9 +67,8 @@ export function AdminGeneral() {
       });
       setData(next);
       setPublicUrl(next.publicUrl);
-      toast("Instance settings saved", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -85,6 +86,8 @@ export function AdminGeneral() {
       />
 
       <div className="flex flex-col gap-4">
+        <FormError message={loadError} />
+
         <Card
           className={
             data.configured && !differsFromBrowser
@@ -172,6 +175,7 @@ export function AdminGeneral() {
                   </Button>
                 </div>
               )}
+              <FormError message={error} />
               <div className="flex justify-end">
                 <Button type="submit" disabled={!dirty || saving}>
                   <Save size={14} /> {saving ? "Saving…" : "Save changes"}

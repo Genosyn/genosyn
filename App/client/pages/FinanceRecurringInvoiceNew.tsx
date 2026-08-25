@@ -24,13 +24,14 @@ import {
   WEEKDAY_LABELS,
   withTime,
 } from "../lib/schedule";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type LineRow = {
@@ -83,7 +84,6 @@ const scheduleField =
 export default function FinanceRecurringInvoiceNew() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const { recurringSlug } = useParams();
   const isEdit = Boolean(recurringSlug);
 
@@ -105,6 +105,7 @@ export default function FinanceRecurringInvoiceNew() {
   const [endsOn, setEndsOn] = React.useState("");
   const [lines, setLines] = React.useState<LineRow[]>([emptyLine()]);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     (async () => {
@@ -229,6 +230,7 @@ export default function FinanceRecurringInvoiceNew() {
     e.preventDefault();
     if (!canSave) return;
     setBusy(true);
+    setError(null);
     try {
       const lineDrafts: RecurringInvoiceLineDraft[] = lines
         .filter((l) => l.description.trim())
@@ -269,7 +271,7 @@ export default function FinanceRecurringInvoiceNew() {
             );
       navigate(`/c/${company.slug}/finance/recurring-invoices/${ri.slug}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -392,6 +394,8 @@ export default function FinanceRecurringInvoiceNew() {
           </Button>
         </div>
       </div>
+
+      <FormError message={error} className="mb-4" />
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

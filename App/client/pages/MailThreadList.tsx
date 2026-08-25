@@ -23,15 +23,16 @@ import {
   shortMailDate,
 } from "../lib/mail";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
+import { errorMessage } from "../lib/errors";
 import { type Command, useRegisterCommands } from "../components/CommandRegistry";
 import { MailOutletCtx } from "./MailLayout";
 import { MailDraftReview } from "./MailDraftReview";
 import { Button } from "../components/ui/Button";
 import { Checkbox } from "../components/ui/Checkbox";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
 
 /**
@@ -54,7 +55,7 @@ const VIEW_TITLES: Record<MailThreadView, string> = {
 export default function MailThreadList() {
   const { company, account, labels, changeTick, syncing, syncNow, openCompose } =
     useOutletContext<MailOutletCtx>();
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const [params, setParams] = useSearchParams();
   const view = (params.get("view") ?? "inbox") as MailThreadView;
@@ -62,8 +63,10 @@ export default function MailThreadList() {
   const q = params.get("q") ?? "";
 
   const [threads, setThreads] = React.useState<MailThread[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [nextBefore, setNextBefore] = React.useState<string | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
+  const [moreError, setMoreError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState(q);
 
   // Drafts are not browsed as threads — the review queue loads its own
@@ -89,6 +92,7 @@ export default function MailThreadList() {
       if (seq !== loadSeq.current) return;
       setThreads((prev) => (append && prev ? [...prev, ...res.threads] : res.threads));
       setNextBefore(res.nextBefore);
+      setLoadError(null);
     },
     [company.id, account.id, view, label, q, draftsReview],
   );
@@ -96,8 +100,9 @@ export default function MailThreadList() {
   React.useEffect(() => {
     let cancelled = false;
     setThreads(null);
-    load(false).catch((err) => {
-      if (!cancelled) toast((err as Error).message, "error");
+    setLoadError(null);
+    load(false).catch((err: unknown) => {
+      if (!cancelled) setLoadError(errorMessage(err, "Could not load the threads"));
     });
     return () => {
       cancelled = true;
@@ -140,11 +145,8 @@ export default function MailThreadList() {
     );
 
     background(() => mailApi.threadAction(company.id, thread.id, action), {
-      loading: "Updating email…",
-      error: (error) =>
-        `Couldn\u2019t update the email: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. The change was undone.`,
+      title: "Couldn’t update the email",
+      error: (error) => `${errorMessage(error)} The change was undone.`,
       onSuccess: ({ thread: updated }) => {
         if (!updated) return;
         setThreads(
@@ -239,22 +241,21 @@ export default function MailThreadList() {
           });
           failures.push(...res.skipped);
         }
-        const done = ids.length - failures.length;
-        toast(
-          failures.length === 0
-            ? `Updated ${done} ${done === 1 ? "thread" : "threads"}.`
-            : `Updated ${done} · ${failures.length} failed.`,
-          failures.length === 0 ? "success" : "error",
-        );
+        if (failures.length > 0) {
+          const done = ids.length - failures.length;
+          void dialog.error(`Updated ${done} · ${failures.length} failed.`, {
+            title: "Some threads couldn’t be updated",
+          });
+        }
       } catch (err) {
-        toast((err as Error).message, "error");
+        void dialog.error(err, { title: "Couldn’t update the threads" });
       } finally {
         setBulkBusy(false);
         clearSelection();
         await load(false).catch(() => {});
       }
     },
-    [selectedIds, company.id, account.id, toast, clearSelection, load],
+    [selectedIds, company.id, account.id, dialog, clearSelection, load],
   );
 
   React.useEffect(() => {
@@ -314,7 +315,8 @@ export default function MailThreadList() {
       .then((res) => {
         if (!cancelled) setSaved(res.savedSearches);
       })
-      // A missing shortcut list is not worth a toast — the search box still works.
+      // A missing shortcut list is not worth interrupting for — the search box
+      // still works.
       .catch(() => {
         if (!cancelled) setSaved([]);
       });
@@ -338,7 +340,7 @@ export default function MailThreadList() {
       const res = await mailApi.createSavedSearch(company.id, account.id, { name, query });
       setSaved((prev) => [...prev, res.savedSearch]);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t save the search" });
     }
   };
 
@@ -352,7 +354,7 @@ export default function MailThreadList() {
     if (!ok) return;
     setSaved((prev) => prev.filter((row) => row.id !== entry.id));
     mailApi.deleteSavedSearch(company.id, entry.id).catch((err: unknown) => {
-      toast(err instanceof Error ? err.message : "Could not delete that shortcut", "error");
+      void dialog.error(err, { title: `Couldn’t delete “${entry.name}”` });
     });
   };
 
@@ -507,6 +509,8 @@ export default function MailThreadList() {
           changeTick={changeTick}
           openCompose={openCompose}
         />
+      ) : loadError ? (
+        <FormError message={loadError} />
       ) : threads === null ? (
         <div className="flex flex-1 items-center justify-center">
           <Spinner size={22} />
@@ -565,16 +569,18 @@ export default function MailThreadList() {
           </ul>
           {nextBefore && (
             <div className="border-t border-slate-100 p-2 text-center dark:border-slate-800">
+              <FormError message={moreError} className="mb-2 text-left" />
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={loadingMore}
                 onClick={async () => {
                   setLoadingMore(true);
+                  setMoreError(null);
                   try {
                     await load(true, nextBefore);
                   } catch (err) {
-                    toast((err as Error).message, "error");
+                    setMoreError(errorMessage(err, "Could not load more threads"));
                   } finally {
                     setLoadingMore(false);
                   }

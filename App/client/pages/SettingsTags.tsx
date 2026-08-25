@@ -2,6 +2,7 @@ import React from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { useOutletContext } from "react-router-dom";
 import { api, CompanyTag, TagColor } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { TopBar } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -9,8 +10,7 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Spinner } from "../components/ui/Spinner";
-import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 import { getTagColorOption, randomTagColor, TagColorPicker } from "../components/TagColorPicker";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -25,17 +25,19 @@ export function SettingsTags() {
   const [editColor, setEditColor] = React.useState<TagColor>("slate");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const dialog = useDialog();
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
 
   const reload = React.useCallback(async () => {
     try {
       setTags(await api.get<CompanyTag[]>(`/api/companies/${company.id}/tags`));
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the tags"));
       setTags([]);
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -53,9 +55,8 @@ export function SettingsTags() {
       setName("");
       setColor(randomTagColor());
       await reload();
-      toast("Tag created", "success");
     } catch (err) {
-      setError((err as Error).message);
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -75,12 +76,8 @@ export function SettingsTags() {
           color: optimistic.color,
         }),
       {
-        loading: "Renaming tag…",
-        success: "Tag renamed",
-        error: (error) =>
-          `Couldn\u2019t rename the tag: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The previous name has been restored.`,
+        title: "Couldn’t rename the tag",
+        error: (error) => `${errorMessage(error)} The previous name has been restored.`,
         onSuccess: (updated) => {
           setTags(
             (current) =>
@@ -111,12 +108,8 @@ export function SettingsTags() {
     const originalIndex = tags?.findIndex((item) => item.id === tag.id) ?? -1;
     setTags((current) => current?.filter((item) => item.id !== tag.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/tags/${tag.id}`), {
-      loading: "Deleting tag…",
-      success: "Tag deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the tag: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the tag",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setTags((current) => {
           if (!current || current.some((item) => item.id === tag.id)) return current;
@@ -164,7 +157,9 @@ export function SettingsTags() {
           <h2 className="text-sm font-semibold">Company tags</h2>
         </CardHeader>
         <CardBody>
-          {tags === null ? (
+          {loadError ? (
+            <FormError message={loadError} />
+          ) : tags === null ? (
             <Spinner />
           ) : tags.length === 0 ? (
             <EmptyState

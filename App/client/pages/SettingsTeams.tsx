@@ -2,6 +2,7 @@ import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { Pencil, Trash2, Users } from "lucide-react";
 import { api, Team } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
@@ -9,8 +10,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
 
@@ -27,19 +27,21 @@ export function SettingsTeams() {
   const [description, setDescription] = React.useState("");
   const [creating, setCreating] = React.useState(false);
   const [createError, setCreateError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [editing, setEditing] = React.useState<Team | null>(null);
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
 
   const reload = React.useCallback(async () => {
     try {
       const list = await api.get<Team[]>(`/api/companies/${company.id}/teams?includeArchived=true`);
       setTeams(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the teams"));
       setTeams([]);
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -60,7 +62,6 @@ export function SettingsTeams() {
       setName("");
       setDescription("");
       await reload();
-      toast("Team created", "success");
     } catch (err) {
       setCreateError((err as Error).message);
     } finally {
@@ -82,12 +83,8 @@ export function SettingsTeams() {
     const originalIndex = teams?.findIndex((item) => item.id === team.id) ?? -1;
     setTeams((current) => current?.filter((item) => item.id !== team.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/teams/${team.id}`), {
-      loading: "Deleting team…",
-      success: "Team deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the team: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the team",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setTeams((current) => {
           if (!current || current.some((item) => item.id === team.id)) return current;
@@ -135,7 +132,9 @@ export function SettingsTeams() {
           <h2 className="text-sm font-semibold">All teams</h2>
         </CardHeader>
         <CardBody>
-          {teams === null ? (
+          {loadError ? (
+            <FormError message={loadError} />
+          ) : teams === null ? (
             <Spinner />
           ) : teams.length === 0 ? (
             <EmptyState
@@ -208,7 +207,6 @@ function EditTeamModal({
   const [archived, setArchived] = React.useState(team.archivedAt !== null);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const { toast } = useToast();
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -220,7 +218,6 @@ function EditTeamModal({
         description,
         archived,
       });
-      toast("Team updated", "success");
       onClose(true);
     } catch (err) {
       setError((err as Error).message);

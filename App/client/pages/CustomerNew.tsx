@@ -10,13 +10,14 @@ import {
   Member,
   parseMoneyToCents,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
 import { CustomersOutletCtx } from "./CustomersLayout";
 import { CustomerContractsPanel } from "./CustomerContractsPanel";
 
@@ -71,13 +72,13 @@ function rowFromContact(c: CustomerContact): ContactRow {
 export default function CustomerNew() {
   const { company } = useOutletContext<CustomersOutletCtx>();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const { customerSlug } = useParams();
   const isEdit = Boolean(customerSlug);
   const customersUrl = `/c/${company.slug}/customers`;
 
   const [ready, setReady] = React.useState(!isEdit);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
 
   const [customerId, setCustomerId] = React.useState<string | null>(null);
   const [name, setName] = React.useState("");
@@ -135,7 +136,7 @@ export default function CustomerNew() {
         setContacts(c.contacts.map(rowFromContact));
         setReady(true);
       } catch (err) {
-        setLoadError((err as Error).message);
+        setLoadError(errorMessage(err));
         setReady(true);
       }
     })();
@@ -176,6 +177,7 @@ export default function CustomerNew() {
     e.preventDefault();
     if (!name.trim()) return;
     setBusy(true);
+    setSaveError(null);
     try {
       const trimmedContacts = contacts
         .map((r, i) => ({ ...r, sortOrder: i }))
@@ -251,10 +253,9 @@ export default function CustomerNew() {
           contacts: inlineContacts,
         });
       }
-      toast(isEdit ? "Customer updated" : "Customer created", "success");
       navigate(customersUrl);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setSaveError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -323,6 +324,8 @@ export default function CustomerNew() {
           </Button>
         </div>
       </div>
+
+      <FormError message={saveError} className="mb-6" />
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

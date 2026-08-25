@@ -33,13 +33,14 @@ import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
 import { copyToClipboard } from "../lib/clipboard";
+import { errorMessage } from "../lib/errors";
 import {
   RunLiveModal,
   RunBrowserRecordingsPane,
@@ -78,7 +79,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
   const { routines, loading, refresh } = useOutletContext<RoutinesContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeRun, setActiveRun] = React.useState<Run | null>(null);
-  const { toast } = useToast();
+  const dialog = useDialog();
 
   const routine =
     routines.find((r) => r.employee?.slug === empSlug && r.slug === routineSlug) ?? null;
@@ -124,7 +125,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
       const run = await api.post<Run>(`/api/companies/${company.id}/routines/${routine.id}/run`);
       setActiveRun(run);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t start the run" });
     }
   }
 
@@ -552,7 +553,8 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
   const [content, setContent] = React.useState<string | null>(null);
   const [saved, setSaved] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     api
@@ -561,23 +563,24 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
         setContent(r.content);
         setSaved(r.content);
       })
-      .catch((err) => toast((err as Error).message, "error"));
-  }, [company.id, routine.id, toast]);
+      .catch((err: unknown) => setLoadError(errorMessage(err, "Could not load the brief")));
+  }, [company.id, routine.id]);
 
   async function save() {
     if (content === null) return;
     setSaving(true);
+    setError(null);
     try {
       await api.put(`/api/companies/${company.id}/routines/${routine.id}/readme`, { content });
       setSaved(content);
-      toast("Brief saved", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
   }
 
+  if (loadError) return <FormError message={loadError} />;
   if (content === null) return <Spinner />;
   const dirty = content !== saved;
 
@@ -589,6 +592,7 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
           on every run.
         </p>
         <MarkdownEditor value={content} onChange={setContent} rows={18} />
+        <FormError message={error} />
         <div className="flex items-center gap-2">
           <Button onClick={save} disabled={saving || !dirty}>
             {saving ? "Saving…" : "Save brief"}
@@ -624,14 +628,16 @@ function RunsTab({
   const [activeId, setActiveId] = React.useState<string | null>(null);
   const [log, setLog] = React.useState<RunLog | null>(null);
   const [loadingLog, setLoadingLog] = React.useState(false);
-  const [logLoadError, setLogLoadError] = React.useState(false);
-  const { toast } = useToast();
+  const [logLoadError, setLogLoadError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const dialog = useDialog();
   const recordings = visibleBrowserRecordings(log?.browserRecordings);
 
   const loadRuns = React.useCallback(async () => {
     try {
       const list = await api.get<Run[]>(`/api/companies/${company.id}/routines/${routine.id}/runs`);
       setRuns(list);
+      setLoadError(null);
       setActiveId((current) => {
         // Keep the run the human is looking at selected across a live refetch;
         // only fall back to the deep-linked or newest run on first load.
@@ -640,10 +646,10 @@ function RunsTab({
         return initialRunId && list.some((r) => r.id === initialRunId) ? initialRunId : list[0].id;
       });
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the runs"));
       setRuns([]);
     }
-  }, [company.id, routine.id, initialRunId, toast]);
+  }, [company.id, routine.id, initialRunId]);
 
   React.useEffect(() => {
     loadRuns();
@@ -656,33 +662,27 @@ function RunsTab({
   React.useEffect(() => {
     if (!activeId) {
       setLog(null);
-      setLogLoadError(false);
+      setLogLoadError(null);
       return;
     }
     setLoadingLog(true);
     setLog(null);
-    setLogLoadError(false);
+    setLogLoadError(null);
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let consecutiveErrors = 0;
-    let errorToastShown = false;
     async function loadLog() {
       try {
         const l = await api.get<RunLog>(`/api/companies/${company.id}/runs/${activeId}/log`);
         if (cancelled) return;
         consecutiveErrors = 0;
-        errorToastShown = false;
         setLog(l);
-        setLogLoadError(false);
+        setLogLoadError(null);
         if (runLogNeedsPolling(l)) timer = setTimeout(loadLog, 1200);
       } catch (err) {
         if (cancelled) return;
         consecutiveErrors += 1;
-        setLogLoadError(true);
-        if (!errorToastShown) {
-          toast(`${(err as Error).message} Retrying…`, "error");
-          errorToastShown = true;
-        }
+        setLogLoadError(`${errorMessage(err, "Couldn’t load the log.")} Retrying…`);
         const retryDelay = Math.min(
           10_000,
           2500 * 2 ** Math.min(consecutiveErrors - 1, 2),
@@ -700,6 +700,7 @@ function RunsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company.id, activeId]);
 
+  if (loadError) return <FormError message={loadError} />;
   if (runs === null) return <Spinner />;
   if (runs.length === 0) {
     return (
@@ -731,9 +732,8 @@ function RunsTab({
           null,
       );
       setLog((current) => (current ? { ...current, retryAt: null } : current));
-      toast("Automatic retry cancelled", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t cancel the retry" });
       await loadRuns();
     }
   }
@@ -799,7 +799,7 @@ function RunsTab({
           <RunLogPane
             log={log}
             loading={loadingLog}
-            placeholder={logLoadError ? "Couldn’t load the log. Retrying…" : "(empty log)"}
+            placeholder={logLoadError ?? "(empty log)"}
             className="h-full max-h-[60vh] min-h-[400px]"
           />
           {recordings.length > 0 && activeId && (
@@ -850,7 +850,6 @@ function SettingsTab({
   onSaved: () => Promise<void>;
 }) {
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const emp = routine.employee;
 
@@ -883,6 +882,9 @@ function SettingsTab({
   const [webhookEnabled, setWebhookEnabled] = React.useState(routine.webhookEnabled);
   const [webhookToken, setWebhookToken] = React.useState(routine.webhookToken);
   const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [webhookError, setWebhookError] = React.useState<string | null>(null);
+  const [webhookNotice, setWebhookNotice] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!emp) return;
@@ -909,6 +911,8 @@ function SettingsTab({
   }, [company.id, emp]);
 
   async function toggleWebhook(next: boolean) {
+    setWebhookError(null);
+    setWebhookNotice(null);
     try {
       const updated = await api.post<Routine>(
         `/api/companies/${company.id}/routines/${routine.id}/webhook`,
@@ -917,12 +921,13 @@ function SettingsTab({
       setWebhookEnabled(updated.webhookEnabled);
       setWebhookToken(updated.webhookToken);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setWebhookError(errorMessage(err));
     }
   }
 
   async function save() {
     setSaving(true);
+    setError(null);
     try {
       await api.patch(`/api/companies/${company.id}/routines/${routine.id}`, {
         name,
@@ -939,12 +944,11 @@ function SettingsTab({
         retryBackoffSec,
         retryOnTimeout,
       });
-      await onSaved();
-      toast("Routine saved", "success");
       // The slug is stable across renames, so the address survives — but the
       // list behind it has to reload before the header shows the new name.
+      await onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -1253,13 +1257,13 @@ function SettingsTab({
                 onClick={async () => {
                   await toggleWebhook(false);
                   await toggleWebhook(true);
-                  toast("Webhook token regenerated", "success");
                 }}
               >
                 Regenerate token
               </Button>
             )}
           </div>
+          <FormError message={webhookError} />
           <div className="text-xs text-slate-500 dark:text-slate-400">
             External systems POST here to fire this routine. The URL itself is the credential — keep
             it secret. This one saves immediately.
@@ -1273,16 +1277,26 @@ function SettingsTab({
                 size="sm"
                 variant="ghost"
                 onClick={async () => {
+                  setWebhookNotice(null);
                   const ok = await copyToClipboard(webhookUrl);
-                  toast(ok ? "Copied" : "Could not access clipboard", ok ? "success" : "error");
+                  if (!ok) {
+                    void dialog.error("Could not access the clipboard.", {
+                      title: "Couldn’t copy the webhook URL",
+                    });
+                    return;
+                  }
+                  setWebhookNotice("Webhook URL copied.");
                 }}
               >
                 <Copy size={12} />
               </Button>
             </div>
           )}
+          <FormSuccess message={webhookNotice} />
         </CardBody>
       </Card>
+
+      <FormError message={error} />
 
       <div className="flex gap-2">
         <Button onClick={save} disabled={saving}>
@@ -1317,7 +1331,7 @@ function SettingsTab({
                 await onSaved();
                 navigate(`/c/${company.slug}/routines`, { replace: true });
               } catch (err) {
-                toast((err as Error).message, "error");
+                void dialog.error(err, { title: "Couldn’t delete the routine" });
               }
             }}
           >

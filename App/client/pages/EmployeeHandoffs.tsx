@@ -16,6 +16,7 @@ import {
   Handoff,
   HandoffStatus,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
@@ -24,7 +25,6 @@ import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { useLiveRefetch } from "../components/CompanySocket";
 
 type EmpCtx = { company: Company; emp: Employee };
@@ -67,6 +67,7 @@ export function HandoffsPage() {
     "all",
   );
   const [rows, setRows] = React.useState<Handoff[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [creating, setCreating] = React.useState(false);
   const [transitioning, setTransitioning] = React.useState<Handoff | null>(
     null,
@@ -74,7 +75,6 @@ export function HandoffsPage() {
   const [transitionAction, setTransitionAction] = React.useState<
     "complete" | "decline" | "cancel" | null
   >(null);
-  const { toast } = useToast();
 
   const reload = React.useCallback(async () => {
     const params = new URLSearchParams({
@@ -87,11 +87,12 @@ export function HandoffsPage() {
         `/api/companies/${company.id}/handoffs?${params.toString()}`,
       );
       setRows(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the handoffs"));
       setRows([]);
     }
-  }, [company.id, emp.id, direction, statusFilter, toast]);
+  }, [company.id, emp.id, direction, statusFilter]);
 
   React.useEffect(() => {
     reload();
@@ -152,7 +153,9 @@ export function HandoffsPage() {
           </div>
         </CardHeader>
         <CardBody>
-          {rows === null ? (
+          {loadError ? (
+            <FormError message={loadError} />
+          ) : rows === null ? (
             <Spinner />
           ) : rows.length === 0 ? (
             <EmptyState
@@ -302,7 +305,6 @@ function NewHandoffModal({
   const [dueAt, setDueAt] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const { toast } = useToast();
 
   React.useEffect(() => {
     api
@@ -312,7 +314,7 @@ function NewHandoffModal({
         setEmployees(filtered);
         if (filtered[0]) setToEmployeeId(filtered[0].id);
       })
-      .catch((err) => setError((err as Error).message));
+      .catch((err: unknown) => setError(errorMessage(err, "Could not load the employees")));
   }, [company.id, fromEmployee.id]);
 
   async function submit(e: React.FormEvent) {
@@ -328,10 +330,9 @@ function NewHandoffModal({
         body: body.trim() || undefined,
         dueAt: dueAt ? new Date(dueAt).toISOString() : null,
       });
-      toast("Handoff created", "success");
       onClose(true);
     } catch (err) {
-      setError((err as Error).message);
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -428,7 +429,6 @@ function TransitionHandoffModal({
   const [note, setNote] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const { toast } = useToast();
   const labels = {
     complete: { title: "Mark as completed", verb: "Complete" },
     decline: { title: "Decline this handoff", verb: "Decline" },
@@ -445,10 +445,9 @@ function TransitionHandoffModal({
         `/api/companies/${companyId}/handoffs/${handoff.id}/${action === "complete" ? "complete" : action}`,
         { resolutionNote: note.trim() || undefined },
       );
-      toast(`Handoff ${action}d`, "success");
       onClose(true);
     } catch (err) {
-      setError((err as Error).message);
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }

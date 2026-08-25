@@ -2,12 +2,13 @@ import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { ChevronDown, ChevronRight, ScrollText } from "lucide-react";
 import { api, AuditEvent } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { TopBar } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Card, CardBody } from "../components/ui/Card";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
-import { useToast } from "../components/ui/Toast";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 
 /**
@@ -18,17 +19,18 @@ import type { SettingsOutletCtx } from "./SettingsLayout";
 export default function AuditLog() {
   const { company } = useOutletContext<SettingsOutletCtx>();
   const [rows, setRows] = React.useState<AuditEvent[] | null>(null);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
       const list = await api.get<AuditEvent[]>(`/api/companies/${company.id}/audit`);
       setRows(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the audit log"));
       setRows([]);
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -41,7 +43,9 @@ export default function AuditLog() {
   return (
     <>
       <TopBar title="Audit log" />
-      {rows === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : rows === null ? (
         <Spinner />
       ) : rows.length === 0 ? (
         <EmptyState

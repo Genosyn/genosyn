@@ -9,9 +9,10 @@ import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { Menu, MenuItem, MenuSeparator } from "../components/ui/Menu";
+import { errorMessage } from "../lib/errors";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 const TYPES: AccountType[] = ["asset", "liability", "equity", "revenue", "expense"];
@@ -34,7 +35,7 @@ const TYPE_BADGE: Record<AccountType, string> = {
  */
 export default function FinanceAccounts() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const [accounts, setAccounts] = React.useState<Account[] | null>(null);
   const [editing, setEditing] = React.useState<Account | "new" | null>(null);
@@ -64,12 +65,8 @@ export default function FinanceAccounts() {
           archived: !a.archivedAt,
         }),
       {
-        loading: a.archivedAt ? "Restoring account…" : "Archiving account…",
-        success: a.archivedAt ? "Account restored" : "Account archived",
-        error: (error) =>
-          `Couldn\u2019t update the account: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The change was undone.`,
+        title: "Couldn’t update the account",
+        error: (error) => `${errorMessage(error)} The change was undone.`,
         onSuccess: (updated) => {
           setAccounts(
             (current) =>
@@ -96,12 +93,8 @@ export default function FinanceAccounts() {
     const originalIndex = accounts?.findIndex((item) => item.id === a.id) ?? -1;
     setAccounts((current) => current?.filter((item) => item.id !== a.id) ?? current);
     background(() => api.del(`/api/companies/${company.id}/accounts/${a.id}`), {
-      loading: "Deleting account…",
-      success: "Account deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the account: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the account",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setAccounts((current) => {
           if (!current || current.some((item) => item.id === a.id)) return current;
@@ -290,16 +283,17 @@ function AccountEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
   const [code, setCode] = React.useState(account?.code ?? "");
   const [name, setName] = React.useState(account?.name ?? "");
   const [type, setType] = React.useState<AccountType>(account?.type ?? "asset");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const isSystem = !!account?.isSystem;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
       const body = isSystem
         ? { name: name.trim() }
@@ -311,7 +305,7 @@ function AccountEditor({
       }
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -358,6 +352,7 @@ function AccountEditor({
             can&apos;t change. Renaming is fine.
           </p>
         )}
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel

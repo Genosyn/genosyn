@@ -7,11 +7,12 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { api, InstanceCheck, InstanceHealthReport, InstanceSeverity } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
 
 /**
@@ -69,19 +70,20 @@ function relativeTime(iso: string): string {
 export function AdminInstanceHealth() {
   const [report, setReport] = React.useState<InstanceHealthReport | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await api.get<InstanceHealthReport>("/api/admin/instance-health");
       setReport(data);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the instance health report"));
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   React.useEffect(() => {
     reload();
@@ -98,7 +100,9 @@ export function AdminInstanceHealth() {
         }
       />
 
-      {report === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : report === null ? (
         <Card>
           <CardBody>
             <Spinner />

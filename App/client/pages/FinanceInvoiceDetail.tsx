@@ -26,6 +26,7 @@ import {
   CustomerCreditApplicationRow,
   parseMoneyToCents,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -35,7 +36,7 @@ import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -106,7 +107,6 @@ export default function FinanceInvoiceDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const { invoiceSlug } = useParams();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [invoice, setInvoice] = React.useState<Invoice | null>(null);
   const [emailDetails, setEmailDetails] =
@@ -138,7 +138,7 @@ export default function FinanceInvoiceDetail() {
       setCreditApplications(inv.creditApplications ?? []);
       setLoadError(null);
     } catch (err) {
-      setLoadError((err as Error).message);
+      setLoadError(errorMessage(err, "Could not load the invoice"));
     }
   }, [company.id, invoiceSlug]);
 
@@ -158,9 +158,8 @@ export default function FinanceInvoiceDetail() {
       setInvoice(fresh);
       // Slug changes from `draft-…` to `inv-####` on issue — redirect.
       navigate(`/c/${company.slug}/finance/invoices/${fresh.slug}`, { replace: true });
-      toast(`Issued as ${fresh.number}`, "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t issue the invoice" });
     } finally {
       setBusy(false);
     }
@@ -182,17 +181,21 @@ export default function FinanceInvoiceDetail() {
       }
       if (result.send.status === "sent") {
         if (result.send.pdfRequested && !result.send.pdfAttached) {
-          toast("Invoice emailed, but the PDF attachment could not be generated", "info");
-        } else {
-          toast("Invoice emailed to customer", "success");
+          void dialog.error("The PDF attachment could not be generated.", {
+            title: "Invoice emailed without the PDF",
+          });
         }
       } else if (result.send.status === "skipped") {
-        toast("No email transport configured — set one in Settings → Email", "info");
+        void dialog.error("Set one in Settings → Email, then send again.", {
+          title: "No email transport configured",
+        });
       } else {
-        toast(`Email failed: ${result.send.errorMessage || "unknown"}`, "error");
+        void dialog.error(result.send.errorMessage || "Unknown error", {
+          title: "Couldn’t email the invoice",
+        });
       }
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t send the invoice" });
     } finally {
       setBusy(false);
     }
@@ -213,9 +216,8 @@ export default function FinanceInvoiceDetail() {
         `/api/companies/${company.id}/invoices/${invoice.slug}/void`,
       );
       setInvoice(fresh);
-      toast("Invoice voided", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t void the invoice" });
     } finally {
       setBusy(false);
     }
@@ -228,10 +230,9 @@ export default function FinanceInvoiceDetail() {
       const draft = await api.post<Invoice>(
         `/api/companies/${company.id}/invoices/${invoice.slug}/duplicate`,
       );
-      toast("Invoice duplicated as draft", "success");
       navigate(`/c/${company.slug}/finance/invoices/${draft.slug}/edit`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t duplicate the invoice" });
       setBusy(false);
     }
   }
@@ -249,7 +250,7 @@ export default function FinanceInvoiceDetail() {
       await api.del(`/api/companies/${company.id}/invoices/${invoice.slug}`);
       navigate(`/c/${company.slug}/finance/invoices`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the draft" });
       setBusy(false);
     }
   }
@@ -269,7 +270,7 @@ export default function FinanceInvoiceDetail() {
       );
       setInvoice(fresh);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the payment" });
     }
   }
 
@@ -289,7 +290,7 @@ export default function FinanceInvoiceDetail() {
       setInvoice(fresh);
       setWriteOffs(fresh.writeOffs ?? []);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t reverse the write-off" });
     }
   }
 
@@ -308,7 +309,7 @@ export default function FinanceInvoiceDetail() {
       );
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t unapply the credit" });
     }
   }
 
@@ -893,19 +894,20 @@ function CreditNoteModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
   const [mode, setMode] = React.useState<"full" | "amount">("full");
   const [amount, setAmount] = React.useState((invoice.balanceCents / 100).toFixed(2));
   const [applyNow, setApplyNow] = React.useState(true);
   const [reason, setReason] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function submit() {
+    setError(null);
     const body: Record<string, unknown> = { mode, applyNow, reason: reason.trim() || undefined };
     if (mode === "amount") {
       const amountCents = parseMoneyToCents(amount);
       if (amountCents <= 0) {
-        toast("Enter a positive amount", "error");
+        setError("Enter a positive amount");
         return;
       }
       body.amountCents = amountCents;
@@ -918,7 +920,7 @@ function CreditNoteModal({
       );
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -958,6 +960,7 @@ function CreditNoteModal({
           />
           Apply to this invoice now (reduce its balance)
         </label>
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
@@ -982,22 +985,23 @@ function WriteOffModal({
   onClose: () => void;
   onSaved: (fresh: Invoice, writeOffs: InvoiceWriteOff[]) => void;
 }) {
-  const { toast } = useToast();
   const [amount, setAmount] = React.useState(
     (invoice.balanceCents / 100).toFixed(2),
   );
   const [kind, setKind] = React.useState<InvoiceWriteOffKind>("bad_debt");
   const [note, setNote] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function submit() {
+    setError(null);
     const amountCents = parseMoneyToCents(amount);
     if (amountCents <= 0) {
-      toast("Enter a positive amount", "error");
+      setError("Enter a positive amount");
       return;
     }
     if (amountCents > invoice.balanceCents) {
-      toast("Amount exceeds the invoice's open balance", "error");
+      setError("Amount exceeds the invoice's open balance");
       return;
     }
     setBusy(true);
@@ -1008,7 +1012,7 @@ function WriteOffModal({
       );
       onSaved(fresh, fresh.writeOffs ?? []);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1042,6 +1046,7 @@ function WriteOffModal({
           onChange={(e) => setNote(e.target.value)}
           rows={2}
         />
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
@@ -1068,19 +1073,21 @@ function ResendInvoiceModal({
   onClose: () => void;
   onFinished: () => void;
 }) {
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [to, setTo] = React.useState(details.toAddress);
   const [cc, setCc] = React.useState("");
   const [message, setMessage] = React.useState("");
   const [attachPdf, setAttachPdf] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function resend(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     const toRecipients = parseRecipientInput(to);
     const ccRecipients = parseRecipientInput(cc);
     if (toRecipients.length === 0) {
-      toast("Add at least one To recipient", "error");
+      setError("Add at least one To recipient");
       return;
     }
     setBusy(true);
@@ -1089,20 +1096,26 @@ function ResendInvoiceModal({
         `/api/companies/${companyId}/invoices/${invoice.slug}/send`,
         { to: toRecipients, cc: ccRecipients, message: message.trim(), attachPdf },
       );
+      // The modal closes on every outcome and the Activity list logs it; only
+      // a partial or failed send carries a reason worth stopping the user for.
       if (result.send.status === "sent") {
         if (result.send.pdfRequested && !result.send.pdfAttached) {
-          toast("Email resent, but the PDF attachment could not be generated", "info");
-        } else {
-          toast("Invoice email resent", "success");
+          void dialog.error("The PDF attachment could not be generated.", {
+            title: "Email resent without the PDF",
+          });
         }
       } else if (result.send.status === "skipped") {
-        toast("No email transport configured — set one in Settings → Email", "info");
+        void dialog.error("Set one in Settings → Email, then resend.", {
+          title: "No email transport configured",
+        });
       } else {
-        toast(`Email failed: ${result.send.errorMessage || "unknown"}`, "error");
+        void dialog.error(result.send.errorMessage || "Unknown error", {
+          title: "Couldn’t resend the invoice email",
+        });
       }
       onFinished();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1210,6 +1223,8 @@ function ResendInvoiceModal({
           </span>
         </label>
 
+        <FormError message={error} />
+
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
@@ -1245,7 +1260,6 @@ function PaymentModal({
   onClose: () => void;
   onSaved: (fresh: Invoice) => void;
 }) {
-  const { toast } = useToast();
   const [amount, setAmount] = React.useState(
     (invoice.balanceCents / 100).toFixed(2),
   );
@@ -1257,11 +1271,13 @@ function PaymentModal({
   const [notes, setNotes] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [allowOverpayment, setAllowOverpayment] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const cents = parseMoneyToCents(amount);
   const overpay = cents > invoice.balanceCents;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     setBusy(true);
     try {
       const fresh = await api.post<Invoice>(
@@ -1278,7 +1294,7 @@ function PaymentModal({
       );
       onSaved(fresh);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1341,6 +1357,7 @@ function PaymentModal({
           onChange={(e) => setNotes(e.target.value)}
           rows={2}
         />
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel

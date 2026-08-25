@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { Download, Pencil, Search, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import {
   activityKindLabel,
   type RevenueActivity,
@@ -16,7 +17,6 @@ import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
 import { RevenueOutletCtx } from "./RevenueLayout";
 
 type ActivityRow = RevenueActivity & {
@@ -54,7 +54,6 @@ export default function RevenueActivities() {
   const baseUrl = `/api/companies/${company.id}/revenue`;
   const sectionUrl = `/c/${company.slug}/revenue`;
   const dialog = useDialog();
-  const { toast } = useToast();
   const [rows, setRows] = React.useState<ActivityRow[] | null>(null);
   const [total, setTotal] = React.useState(0);
   const [query, setQuery] = React.useState("");
@@ -65,6 +64,7 @@ export default function RevenueActivities() {
   const [selected, setSelected] = React.useState<ActivityRow | null>(null);
   const [edit, setEdit] = React.useState<ActivityRow | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
 
   const params = React.useMemo(() => {
     const next = new URLSearchParams({ limit: "200" });
@@ -95,6 +95,7 @@ export default function RevenueActivities() {
 
   async function openActivity(id: string) {
     setError(null);
+    setDeleteError(null);
     try {
       setSelected(await api.get<ActivityRow>(`${baseUrl}/activities/${id}`));
     } catch (cause) {
@@ -103,6 +104,7 @@ export default function RevenueActivities() {
   }
 
   async function removeActivity(activity: ActivityRow) {
+    setDeleteError(null);
     const confirmed = await dialog.confirm({
       title: "Delete this activity?",
       message:
@@ -115,9 +117,8 @@ export default function RevenueActivities() {
       await api.del(`${baseUrl}/activities/${activity.id}`);
       setSelected(null);
       await reload();
-      toast("Activity deleted", "success");
     } catch (cause) {
-      toast(cause instanceof Error ? cause.message : String(cause), "error");
+      setDeleteError(errorMessage(cause));
     }
   }
 
@@ -220,7 +221,10 @@ export default function RevenueActivities() {
 
       <Modal
         open={Boolean(selected)}
-        onClose={() => setSelected(null)}
+        onClose={() => {
+          setSelected(null);
+          setDeleteError(null);
+        }}
         title={selected ? activityKindLabel(selected.kind) : "Activity"}
         size="lg"
       >
@@ -273,6 +277,7 @@ export default function RevenueActivities() {
                 </Link>
               )}
             </div>
+            <FormError message={deleteError} />
             {MANUAL_KINDS.has(selected.kind) ? (
               <div className="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
                 <Button
@@ -303,7 +308,6 @@ export default function RevenueActivities() {
         onSaved={async () => {
           setEdit(null);
           await reload();
-          toast("Activity updated", "success");
         }}
         baseUrl={baseUrl}
       />

@@ -17,12 +17,13 @@ import {
 } from "lucide-react";
 import { ExploreShareModal } from "./ExploreShareModal";
 import { api, Company } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Modal } from "../components/ui/Modal";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
 import {
   ChartRenderer,
   type QueryResult,
@@ -82,7 +83,6 @@ type RunState =
 export default function ExploreDashboardDetail({ company }: { company: Company }) {
   const { slug = "" } = useParams<{ slug: string }>();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const { reload: reloadIndex } = useExplore();
 
@@ -93,6 +93,8 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
   const [sharing, setSharing] = React.useState(false);
   const [editingDetails, setEditingDetails] = React.useState(false);
   const [savingDetails, setSavingDetails] = React.useState(false);
+  const [detailsError, setDetailsError] = React.useState<string | null>(null);
+  const [addCardError, setAddCardError] = React.useState<string | null>(null);
   const [runs, setRuns] = React.useState<Record<string, RunState>>({});
 
   const reload = React.useCallback(async () => {
@@ -141,7 +143,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
       } catch (err) {
         setRuns((r) => ({
           ...r,
-          [chartSlug]: { kind: "error", message: (err as Error).message },
+          [chartSlug]: { kind: "error", message: errorMessage(err) },
         }));
       }
     },
@@ -175,12 +177,13 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
       await reloadIndex();
       navigate(`/c/${company.slug}/explore`, { replace: true });
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the dashboard" });
     }
   }
 
   async function saveDashboardDetails(details: { title: string; description: string }) {
     if (!data) return;
+    setDetailsError(null);
     setSavingDetails(true);
     try {
       await api.patch(`/api/companies/${company.id}/explore/dashboards/${data.slug}`, details);
@@ -188,7 +191,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
       await reload();
       await reloadIndex();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setDetailsError(errorMessage(err));
     } finally {
       setSavingDetails(false);
     }
@@ -196,6 +199,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
 
   async function addCard(chartId: string) {
     if (!data) return;
+    setAddCardError(null);
     try {
       await api.post(`/api/companies/${company.id}/explore/dashboards/${data.slug}/cards`, {
         chartId,
@@ -203,7 +207,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
       setPicking(false);
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setAddCardError(errorMessage(err));
     }
   }
 
@@ -215,7 +219,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
       );
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t remove the card" });
     }
   }
 
@@ -237,7 +241,7 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
         patch,
       );
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t update the card" });
       await reload();
     }
   }
@@ -424,7 +428,11 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
           companyId={company.id}
           companySlug={company.slug}
           alreadyOn={new Set(data.cards.map((c) => c.chartId))}
-          onClose={() => setPicking(false)}
+          error={addCardError}
+          onClose={() => {
+            setPicking(false);
+            setAddCardError(null);
+          }}
           onPick={(chartId) => addCard(chartId)}
         />
       )}
@@ -443,7 +451,11 @@ export default function ExploreDashboardDetail({ company }: { company: Company }
         description={data.description}
         submitLabel="Save details"
         saving={savingDetails}
-        onClose={() => setEditingDetails(false)}
+        error={detailsError}
+        onClose={() => {
+          setEditingDetails(false);
+          setDetailsError(null);
+        }}
         onSubmit={(details) => void saveDashboardDetails(details)}
       />
     </div>
@@ -582,12 +594,14 @@ function ChartPicker({
   companyId,
   companySlug,
   alreadyOn,
+  error,
   onClose,
   onPick,
 }: {
   companyId: string;
   companySlug: string;
   alreadyOn: Set<string>;
+  error: string | null;
   onClose: () => void;
   onPick: (chartId: string) => void;
 }) {
@@ -615,6 +629,7 @@ function ChartPicker({
           placeholder="Filter charts…"
           className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
         />
+        <FormError message={error} />
         <div className="max-h-[60vh] overflow-y-auto rounded-md border border-slate-200 dark:border-slate-700">
           {charts === null ? (
             <div className="flex justify-center p-6">

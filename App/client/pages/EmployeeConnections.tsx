@@ -19,14 +19,15 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { api, ConnectionGrant, IntegrationCatalogEntry, IntegrationConnection } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { TopBar } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { EmptyState } from "../components/ui/EmptyState";
-import { useToast } from "../components/ui/Toast";
-import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import type { EmployeeOutletCtx } from "./EmployeeLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
 
@@ -59,13 +60,15 @@ function useCtx(): EmployeeOutletCtx {
 
 export function EmployeeConnections() {
   const { company, emp } = useCtx();
-  const { toast, background } = useToast();
   const dialog = useDialog();
+  const background = useBackgroundAction();
 
   const [grants, setGrants] = React.useState<ConnectionGrant[] | null>(null);
   const [catalog, setCatalog] = React.useState<IntegrationCatalogEntry[]>([]);
   const [pool, setPool] = React.useState<IntegrationConnection[]>([]);
   const [picker, setPicker] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [pickError, setPickError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
@@ -79,11 +82,12 @@ export function EmployeeConnections() {
       setGrants(g);
       setCatalog(cat);
       setPool(conns);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the connections"));
       setGrants([]);
     }
-  }, [company.id, emp.id, toast]);
+  }, [company.id, emp.id]);
 
   React.useEffect(() => {
     reload();
@@ -107,12 +111,8 @@ export function EmployeeConnections() {
           `/api/companies/${company.id}/integrations/employees/${emp.id}/grants/${grant.connectionId}`,
         ),
       {
-        loading: "Revoking Connection access…",
-        success: "Access revoked",
-        error: (error) =>
-          `Couldn\u2019t revoke access: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }. The grant has been restored.`,
+        title: "Couldn’t revoke access",
+        error: (error) => `${errorMessage(error)} The grant has been restored.`,
         onError: () => {
           setGrants((current) => {
             if (!current || current.some((item) => item.id === grant.id)) return current;
@@ -151,7 +151,9 @@ export function EmployeeConnections() {
         </p>
       </CardHeader>
       <CardBody>
-        {grants === null ? (
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : grants === null ? (
           <Spinner />
         ) : pool.length === 0 ? (
           <EmptyState
@@ -211,20 +213,24 @@ export function EmployeeConnections() {
 
       <GrantPickerModal
         open={picker}
-        onClose={() => setPicker(false)}
+        onClose={() => {
+          setPicker(false);
+          setPickError(null);
+        }}
         onPick={async (connection) => {
+          setPickError(null);
           try {
             await api.post<ConnectionGrant>(
               `/api/companies/${company.id}/integrations/employees/${emp.id}/grants`,
               { connectionId: connection.id },
             );
             setPicker(false);
-            toast(`Granted ${connection.label}`, "success");
             reload();
           } catch (err) {
-            toast((err as Error).message, "error");
+            setPickError(errorMessage(err));
           }
         }}
+        error={pickError}
         options={grantable}
         catalog={catalog}
       />
@@ -260,17 +266,20 @@ function GrantPickerModal({
   open,
   onClose,
   onPick,
+  error,
   options,
   catalog,
 }: {
   open: boolean;
   onClose: () => void;
   onPick: (c: IntegrationConnection) => void;
+  error: string | null;
   options: IntegrationConnection[];
   catalog: IntegrationCatalogEntry[];
 }) {
   return (
     <Modal open={open} onClose={onClose} title="Grant access to a connection" size="lg">
+      <FormError message={error} className="mb-3" />
       {options.length === 0 ? (
         <p className="text-sm text-slate-500 dark:text-slate-400">
           Every company connection is already granted to this employee. Add more in Settings →

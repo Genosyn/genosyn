@@ -2889,8 +2889,9 @@ of the original V1 backlog has shipped — what remains is mostly
       locally on click while the API request continues in the background:
       email send/triage, todos and review queues, approvals, notifications,
       tags, grants, settings toggles, and list-row archive/delete/status
-      actions. A shared progress toast follows work across navigation; failures
-      stay visible and restore the affected row, value, draft, or composer.
+      actions. Nothing announces the work while it runs; a failure restores the
+      affected row, value, draft, or composer and says why, inline where the
+      action started or in the error modal.
 - [x] **Palette entity search** — the ⌘K palette also searches the company's
       content by name (`GET /api/companies/:cid/search`): AI employees,
       skills, routines, channels, projects, todos, bases, notebooks, notes,

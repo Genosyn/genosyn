@@ -3,8 +3,9 @@ import { Link, useOutletContext } from "react-router-dom";
 import { AlertTriangle, Plus, Search, Target } from "lucide-react";
 
 import { Select } from "@/components/ui/Select";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { api, type Employee, type IntegrationConnection } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import {
   formatMarketingMoney,
   formatMarketingPacing,
@@ -36,8 +37,9 @@ import {
 
 export function MarketingCampaignsPage() {
   const { company } = useOutletContext<MarketingOutletCtx>();
-  const { toast } = useToast();
   const [rows, setRows] = React.useState<MarketingCampaignWithMetrics[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [formError, setFormError] = React.useState<string | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [connections, setConnections] = React.useState<IntegrationConnection[]>([]);
   const [showForm, setShowForm] = React.useState(false);
@@ -62,26 +64,33 @@ export function MarketingCampaignsPage() {
     setRows(campaigns.rows);
     setEmployees(employeeRows);
     setConnections(connectionRows);
+    setLoadError(null);
   }, [company.id, includeArchived, status, windowDays]);
 
   React.useEffect(() => {
-    load().catch((err: Error) => toast(err.message, "error"));
-  }, [load, toast]);
+    load().catch((err: unknown) => {
+      setLoadError(errorMessage(err, "Could not load Campaigns"));
+      setRows([]);
+    });
+  }, [load]);
 
   async function createCampaign(event: React.FormEvent) {
     event.preventDefault();
+    setFormError(null);
     setSaving(true);
     try {
       await api.post(`/api/companies/${company.id}/marketing/campaigns`, draftToPayload(draft));
-      setDraft(emptyCampaignDraft);
-      setShowForm(false);
-      await load();
-      toast("Campaign created", "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not create Campaign", "error");
+      setFormError(errorMessage(err, "Could not create Campaign"));
+      return;
     } finally {
       setSaving(false);
     }
+    setDraft(emptyCampaignDraft);
+    setShowForm(false);
+    await load().catch((err: unknown) => {
+      setLoadError(errorMessage(err, "Campaign created, but the list could not be refreshed."));
+    });
   }
 
   if (!rows) return <LoadingPage />;
@@ -105,7 +114,13 @@ export function MarketingCampaignsPage() {
         action={
           <div className="flex flex-wrap items-center gap-3">
             <WindowPicker value={windowDays} onChange={setWindowDays} />
-            <button className={primaryButton} onClick={() => setShowForm((value) => !value)}>
+            <button
+              className={primaryButton}
+              onClick={() => {
+                setFormError(null);
+                setShowForm((value) => !value);
+              }}
+            >
               <Plus size={15} /> New Campaign
             </button>
           </div>
@@ -124,8 +139,16 @@ export function MarketingCampaignsPage() {
             employees={employees}
             connections={connections}
           />
+          <FormError message={formError} className="mt-5" />
           <div className="mt-5 flex justify-end gap-2">
-            <button type="button" className={secondaryButton} onClick={() => setShowForm(false)}>
+            <button
+              type="button"
+              className={secondaryButton}
+              onClick={() => {
+                setFormError(null);
+                setShowForm(false);
+              }}
+            >
               Cancel
             </button>
             <button disabled={saving} className={primaryButton}>
@@ -170,7 +193,9 @@ export function MarketingCampaignsPage() {
         </label>
       </div>
 
-      {visible.length === 0 ? (
+      <FormError message={loadError} className="mb-4" />
+
+      {loadError && rows.length === 0 ? null : visible.length === 0 ? (
         <EmptyState
           icon={<Target size={19} />}
           title={rows.length === 0 ? "No Campaigns yet" : "Nothing matches that search"}

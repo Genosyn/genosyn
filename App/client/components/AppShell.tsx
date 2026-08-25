@@ -18,7 +18,6 @@ import { api, Company, Me } from "../lib/api";
 import { createCompanyAndSwitch } from "../lib/companySwitch";
 import { SECTION_BY_KEY, SectionItem, activeSection } from "../lib/sections";
 import { productIntegrationScope, type ProductIntegrationKey } from "../lib/productIntegrations";
-import { useToast } from "./ui/Toast";
 import { useDialog } from "./ui/Dialog";
 import { Avatar, meAvatarUrl } from "./ui/Avatar";
 import { CommandPaletteProvider, PALETTE_SHORTCUT, useCommandPalette } from "./CommandPalette";
@@ -147,7 +146,6 @@ function TopNav({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { toast } = useToast();
   const dialog = useDialog();
   const shortcuts = useKeyboardShortcuts();
   const sidebarCtx = React.useContext(ContextualSidebarContext);
@@ -253,7 +251,7 @@ function TopNav({
                       suffix: "/onboarding",
                     });
                   } catch (e) {
-                    toast((e as Error).message, "error");
+                    void dialog.error(e, { title: "Couldn’t create the company" });
                   }
                 }}
                 className="block w-full border-t border-slate-100 px-3 py-2 text-left text-sm text-indigo-600 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"

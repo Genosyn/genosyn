@@ -18,12 +18,13 @@ import {
   EmailLogStatus,
   EmailLogTransport,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FormError } from "../components/ui/FormError";
 import { Modal } from "../components/ui/Modal";
-import { useToast } from "../components/ui/Toast";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
 
@@ -62,9 +63,9 @@ function useCtx(): SettingsOutletCtx {
 
 export function SettingsEmailLogs() {
   const { company } = useCtx();
-  const { toast } = useToast();
   const [page, setPage] = React.useState<EmailLogPage | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [offset, setOffset] = React.useState(0);
   const [status, setStatus] = React.useState<EmailLogStatus | "">("");
   const [purpose, setPurpose] = React.useState<EmailLogPurpose | "">("");
@@ -90,13 +91,14 @@ export function SettingsEmailLogs() {
         `/api/companies/${company.id}/email/logs?${params.toString()}`,
       );
       setPage(data);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the email logs"));
       setPage({ total: 0, limit: PAGE_SIZE, offset: 0, rows: [] });
     } finally {
       setLoading(false);
     }
-  }, [company.id, offset, status, purpose, debouncedSearch, toast]);
+  }, [company.id, offset, status, purpose, debouncedSearch]);
 
   React.useEffect(() => {
     reload();
@@ -186,7 +188,9 @@ export function SettingsEmailLogs() {
           </div>
         </CardHeader>
         <CardBody>
-          {loading && rows.length === 0 ? (
+          {loadError ? (
+            <FormError message={loadError} />
+          ) : loading && rows.length === 0 ? (
             <Spinner />
           ) : rows.length === 0 ? (
             <EmptyState

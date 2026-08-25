@@ -23,10 +23,10 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Checkbox } from "../components/ui/Checkbox";
+import { FormError } from "../components/ui/FormError";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { useNavigationGuard } from "../components/NavigationGuard";
 import { BranchPicker } from "../components/repositories/BranchPicker";
@@ -54,6 +54,7 @@ import {
   RepositoryTreeEntry,
   RepositoryTreeResponse,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 
 /**
@@ -241,7 +242,6 @@ function toFileText(source: string, ending: LineEnding): string {
 
 export default function RepositoryFiles() {
   const { company, repo } = useRepositoriesContext();
-  const { toast } = useToast();
   const dialog = useDialog();
   const navigate = useNavigate();
   const navigationGuard = useNavigationGuard();
@@ -252,9 +252,11 @@ export default function RepositoryFiles() {
   const isRemote = repo?.origin === "remote";
 
   const [status, setStatus] = React.useState<RepositoryStatus | null>(null);
+  const [statusError, setStatusError] = React.useState<string | null>(null);
   const [branches, setBranches] = React.useState<RepositoryBranch[]>([]);
   const [dirs, setDirs] = React.useState<Record<string, RepositoryTreeEntry[]>>({});
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set([""]));
+  const [treeError, setTreeError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
 
   const [openPath, setOpenPath] = React.useState<string | null>(null);
@@ -266,6 +268,8 @@ export default function RepositoryFiles() {
   /** Set on a successful save, so "Saved" can mean something someone just did. */
   const [justSaved, setJustSaved] = React.useState(false);
   const [previewing, setPreviewing] = React.useState(false);
+  /** The last problem with the open file — reading it, saving it, or diffing it. */
+  const [editorError, setEditorError] = React.useState<string | null>(null);
 
   const [diffPath, setDiffPath] = React.useState<string | null>(null);
   const [diff, setDiff] = React.useState<RepositoryDiff | null>(null);
@@ -274,12 +278,14 @@ export default function RepositoryFiles() {
   const [selected, setSelected] = React.useState<Set<string>>(() => new Set());
   const [message, setMessage] = React.useState("");
   const [committing, setCommitting] = React.useState(false);
+  const [commitError, setCommitError] = React.useState<string | null>(null);
 
   const [showIgnored, setShowIgnored] = React.useState(false);
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [searchResults, setSearchResults] = React.useState<RepositorySearchResponse | null>(null);
   const [searchLoading, setSearchLoading] = React.useState(false);
+  const [searchError, setSearchError] = React.useState<string | null>(null);
 
   const [quickOpen, setQuickOpen] = React.useState(false);
   const [fileIndex, setFileIndex] = React.useState<{
@@ -325,12 +331,13 @@ export default function RepositoryFiles() {
           `${base}/workspace/tree?path=${encodeURIComponent(path)}${ignoredParam}`,
         );
         setDirs((current) => ({ ...current, [path]: response.entries }));
+        setTreeError(null);
       } catch (err) {
-        toast(err instanceof Error ? err.message : String(err), "error");
+        setTreeError(errorMessage(err, "Could not load the file tree"));
         setDirs((current) => ({ ...current, [path]: [] }));
       }
     },
-    [base, toast],
+    [base],
   );
 
   const reloadTree = React.useCallback(async () => {
@@ -346,11 +353,12 @@ export default function RepositoryFiles() {
       ]);
       setStatus(nextStatus);
       setBranches(branchRows.branches);
+      setStatusError(null);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setStatusError(errorMessage(err, "Could not read the repository status"));
       setStatus(EMPTY_STATUS);
     }
-  }, [base, toast]);
+  }, [base]);
 
   React.useEffect(() => {
     if (!base) return;
@@ -361,9 +369,11 @@ export default function RepositoryFiles() {
     setOpenPath(null);
     setFile(null);
     setSavedContent(null);
+    setEditorError(null);
     setDiffPath(null);
     setDiff(null);
     setMessage("");
+    setCommitError(null);
     setSearchOpen(false);
     setSearchQuery("");
     // Abandon a crawl still in flight for the previous repository, and clear the
@@ -427,6 +437,7 @@ export default function RepositoryFiles() {
       setFile(null);
       setSavedContent(null);
       setJustSaved(false);
+      setEditorError(null);
       setFileLoading(true);
       try {
         const row = await api.get<RepositoryFileContent>(
@@ -447,13 +458,13 @@ export default function RepositoryFiles() {
         }
       } catch (err) {
         if (openTokenRef.current !== token) return;
-        toast(err instanceof Error ? err.message : String(err), "error");
+        setEditorError(errorMessage(err, "Could not open that file"));
         setOpenPath(null);
       } finally {
         if (openTokenRef.current === token) setFileLoading(false);
       }
     },
-    [base, documentsFirst, toast],
+    [base, documentsFirst],
   );
 
   const dirty = savedContent !== null && content !== savedContent;
@@ -468,12 +479,12 @@ export default function RepositoryFiles() {
   const save = React.useCallback(async () => {
     if (!base || !openPath || savedContent === null || content === savedContent || saving) return;
     const payload = toFileText(content, eolRef.current);
+    setEditorError(null);
     // The server's schema counts UTF-16 units and its writer counts bytes, so
     // the only limit that means anything to a person is checked here first.
     if (new TextEncoder().encode(payload).length > MAX_EDITABLE_FILE_BYTES) {
-      toast(
+      setEditorError(
         `This file has grown past ${Math.round(MAX_EDITABLE_FILE_BYTES / 1024)} KB, which is more than the browser editor saves. Trim it, or split it in two.`,
-        "error",
       );
       return;
     }
@@ -484,11 +495,11 @@ export default function RepositoryFiles() {
       setJustSaved(true);
       await reloadStatus();
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setEditorError(errorMessage(err, "Could not save the file"));
     } finally {
       setSaving(false);
     }
-  }, [base, content, openPath, reloadStatus, saving, savedContent, toast]);
+  }, [base, content, openPath, reloadStatus, saving, savedContent]);
 
   React.useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -628,6 +639,7 @@ export default function RepositoryFiles() {
     if (!base || !searchOpen || term.length < SEARCH_MIN_CHARS) {
       searchTokenRef.current += 1;
       setSearchResults(null);
+      setSearchError(null);
       setSearchLoading(false);
       return;
     }
@@ -642,11 +654,12 @@ export default function RepositoryFiles() {
         .then((response) => {
           if (searchTokenRef.current !== token) return;
           setSearchResults(response);
+          setSearchError(null);
           setSearchLoading(false);
         })
         .catch((err: unknown) => {
           if (searchTokenRef.current !== token) return;
-          toast(err instanceof Error ? err.message : String(err), "error");
+          setSearchError(errorMessage(err, "Could not search this repository"));
           setSearchResults({ matches: [], truncated: false });
           setSearchLoading(false);
         });
@@ -658,7 +671,7 @@ export default function RepositoryFiles() {
       // present itself as the final count for a term nobody is searching for.
       searchTokenRef.current += 1;
     };
-  }, [base, searchOpen, searchQuery, toast]);
+  }, [base, searchOpen, searchQuery]);
 
   const searchGroups = React.useMemo(() => {
     const groups = new Map<string, RepositorySearchMatch[]>();
@@ -738,17 +751,18 @@ export default function RepositoryFiles() {
       if (!base) return;
       setDiffPath(path);
       setDiff(null);
+      setEditorError(null);
       try {
         const row = await api.get<RepositoryDiff>(
           `${base}/workspace/diff?path=${encodeURIComponent(path)}`,
         );
         setDiff(row);
       } catch (err) {
-        toast(err instanceof Error ? err.message : String(err), "error");
+        setEditorError(errorMessage(err, "Could not load the diff"));
         setDiffPath(null);
       }
     },
-    [base, toast],
+    [base],
   );
 
   if (!repo) {
@@ -809,13 +823,13 @@ export default function RepositoryFiles() {
       // The only read that costs a round trip to the git host.
       const next = await api.post<RepositoryStatus>(`${base}/workspace/refresh`);
       setStatus(next);
+      setStatusError(null);
       const branchRows = await api.get<RepositoryBranchesResponse>(`${base}/workspace/branches`);
       setBranches(branchRows.branches);
       await reloadTree();
       setFileIndex(null);
-      toast(isRemote ? "Refreshed from the remote" : "Refreshed", "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      void dialog.error(err, { title: "Couldn’t refresh the repository" });
     } finally {
       setBusy(false);
     }
@@ -829,9 +843,8 @@ export default function RepositoryFiles() {
       await Promise.all([reloadStatus(), reloadTree()]);
       setFileIndex(null);
       if (openPath) await openFile(openPath);
-      toast(`Switched to ${name}`, "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      void dialog.error(err, { title: `Couldn’t switch to ${name}` });
     } finally {
       setBusy(false);
     }
@@ -859,9 +872,8 @@ export default function RepositoryFiles() {
     try {
       await api.post(`${base}/workspace/branches`, { name: name.trim() });
       await Promise.all([reloadStatus(), reloadTree()]);
-      toast(`Created ${name.trim()}`, "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      void dialog.error(err, { title: `Couldn’t create ${name.trim()}` });
     } finally {
       setBusy(false);
     }
@@ -870,18 +882,17 @@ export default function RepositoryFiles() {
   async function push() {
     const branch = currentStatus?.branch;
     if (!branch) {
-      toast("Check out a branch before pushing.", "error");
+      void dialog.error("Check out a branch before pushing.", { title: "Couldn’t push" });
       return;
     }
     setBusy(true);
     try {
       await api.post(`${base}/workspace/push`, { name: branch });
       await reloadStatus();
-      toast(`Pushed ${branch}`, "success");
     } catch (err) {
       // A 403 here is the "only an owner or admin can push" rule. Its wording
       // is the whole value of the response, so it is shown verbatim.
-      toast(err instanceof Error ? err.message : String(err), "error");
+      void dialog.error(err, { title: `Couldn’t push ${branch}` });
     } finally {
       setBusy(false);
     }
@@ -894,7 +905,7 @@ export default function RepositoryFiles() {
   async function pull() {
     const branch = currentStatus?.branch;
     if (!branch) {
-      toast("Check out a branch before pulling.", "error");
+      void dialog.error("Check out a branch before pulling.", { title: "Couldn’t pull" });
       return;
     }
     if (!(await confirmLeavingUnsaved())) return;
@@ -904,9 +915,8 @@ export default function RepositoryFiles() {
       await Promise.all([reloadStatus(), reloadTree()]);
       setFileIndex(null);
       if (openPath) await openFile(openPath);
-      toast(`Updated ${branch} from the remote`, "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      void dialog.error(err, { title: `Couldn’t pull ${branch}` });
     } finally {
       setBusy(false);
     }
@@ -945,9 +955,10 @@ export default function RepositoryFiles() {
       setFileIndex(null);
       await reloadStatus();
       if (kind === "file") await openFile(clean);
-      toast(kind === "file" ? "File created" : "Folder created", "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      void dialog.error(err, {
+        title: kind === "file" ? "Couldn’t create the file" : "Couldn’t create the folder",
+      });
     }
   }
 
@@ -972,9 +983,8 @@ export default function RepositoryFiles() {
         setDiff(null);
       }
       if (openPath === change.path) await openFile(change.path);
-      toast("Changes discarded", "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      void dialog.error(err, { title: `Couldn’t discard changes to ${change.path}` });
     }
   }
 
@@ -982,10 +992,11 @@ export default function RepositoryFiles() {
     // The button is disabled in both of these cases, so reaching here means a
     // stray keypress rather than a person to explain anything to.
     if (!message.trim() || selected.size === 0) return;
+    setCommitError(null);
     setCommitting(true);
     try {
       const everything = selected.size === changes.length;
-      const result = await api.post<RepositoryCommitResult>(`${base}/workspace/commit`, {
+      await api.post<RepositoryCommitResult>(`${base}/workspace/commit`, {
         message: message.trim(),
         // Omitting `paths` commits the whole working tree, which is both the
         // common case and the one that also picks up deletions correctly.
@@ -995,9 +1006,8 @@ export default function RepositoryFiles() {
       setDiffPath(null);
       setDiff(null);
       await Promise.all([reloadStatus(), reloadTree()]);
-      toast(`Committed ${result.sha.slice(0, 7)}`, "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setCommitError(errorMessage(err, "Could not commit the changes"));
     } finally {
       setCommitting(false);
     }
@@ -1174,14 +1184,19 @@ export default function RepositoryFiles() {
           )}
 
           <div className="min-h-0 flex-1 overflow-auto p-1">
+            {!searchOpen && <FormError message={treeError} className="mb-1" />}
             {searchOpen && searchQuery.trim().length >= SEARCH_MIN_CHARS ? (
-              <SearchResults
-                loading={searchLoading}
-                results={searchResults}
-                groups={searchGroups}
-                activePath={openPath}
-                onOpen={(match) => void openSearchMatch(match)}
-              />
+              searchError ? (
+                <FormError message={searchError} className="m-1" />
+              ) : (
+                <SearchResults
+                  loading={searchLoading}
+                  results={searchResults}
+                  groups={searchGroups}
+                  activePath={openPath}
+                  onOpen={(match) => void openSearchMatch(match)}
+                />
+              )
             ) : searchOpen ? (
               <div className="px-2 py-6 text-center text-xs text-slate-400 dark:text-slate-500">
                 Type at least {SEARCH_MIN_CHARS} characters.
@@ -1262,6 +1277,8 @@ export default function RepositoryFiles() {
             )}
           </div>
 
+          <FormError message={editorError} className="mx-3 mt-3" />
+
           <div className="min-h-0 flex-1 overflow-auto">
             {diffPath ? (
               diff === null ? (
@@ -1335,7 +1352,9 @@ export default function RepositoryFiles() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto">
-              {status === null ? (
+              {statusError ? (
+                <FormError message={statusError} className="m-3" />
+              ) : status === null ? (
                 <div className="flex h-24 items-center justify-center">
                   <Spinner size={18} />
                 </div>
@@ -1380,6 +1399,7 @@ export default function RepositoryFiles() {
                 disabled={changes.length === 0}
                 className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:border-indigo-700 dark:focus:ring-indigo-900/30"
               />
+              <FormError message={commitError} className="mt-2" />
               <div className="mt-2 flex items-center justify-between gap-2">
                 {/* The count used to be inert text beside thirty checkboxes;
                   as a control it is the difference between one click and

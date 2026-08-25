@@ -24,12 +24,13 @@ import {
   NoteGrantsResponse,
   NotebookInheritedGrant,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Modal } from "../components/ui/Modal";
 import { Breadcrumbs } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { BlockEditor } from "../components/notes/BlockEditor";
 import { NotesContext } from "./NotesLayout";
@@ -81,10 +82,10 @@ export default function NoteDetail({ company }: { company: Company }) {
   }>();
   const navigate = useNavigate();
   const { notebooks, notes, refresh } = useOutletContext<NotesContext>();
-  const { toast } = useToast();
   const dialog = useDialog();
 
   const [note, setNote] = React.useState<Note | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [title, setTitle] = React.useState("");
   const [body, setBody] = React.useState("");
   const [icon, setIcon] = React.useState("");
@@ -94,6 +95,7 @@ export default function NoteDetail({ company }: { company: Company }) {
     icon: string;
   } | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [savedAt, setSavedAt] = React.useState<number | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [shareOpen, setShareOpen] = React.useState(false);
@@ -105,6 +107,8 @@ export default function NoteDetail({ company }: { company: Company }) {
     setNote(null);
     setSaved(null);
     setSavedAt(null);
+    setLoadError(null);
+    setSaveError(null);
     api
       .get<Note>(`/api/companies/${company.id}/notes/${noteSlug}`)
       .then((n) => {
@@ -115,13 +119,13 @@ export default function NoteDetail({ company }: { company: Company }) {
         setIcon(n.icon);
         setSaved({ title: n.title, body: n.body, icon: n.icon });
       })
-      .catch((err) => {
-        if (!cancelled) toast((err as Error).message, "error");
+      .catch((err: unknown) => {
+        if (!cancelled) setLoadError(errorMessage(err, "Could not load the note"));
       });
     return () => {
       cancelled = true;
     };
-  }, [company.id, noteSlug, toast]);
+  }, [company.id, noteSlug]);
 
   useLiveRefetch("note", refresh);
 
@@ -132,6 +136,7 @@ export default function NoteDetail({ company }: { company: Company }) {
   const save = React.useCallback(async () => {
     if (!note || !dirty || saving) return;
     setSaving(true);
+    setSaveError(null);
     try {
       const updated = await api.patch<Note>(
         `/api/companies/${company.id}/notes/${note.slug}`,
@@ -142,11 +147,11 @@ export default function NoteDetail({ company }: { company: Company }) {
       setSavedAt(Date.now());
       await refresh();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setSaveError(errorMessage(err, "Could not save the note"));
     } finally {
       setSaving(false);
     }
-  }, [body, company.id, dirty, icon, note, refresh, saving, title, toast]);
+  }, [body, company.id, dirty, icon, note, refresh, saving, title]);
 
   // Cmd/Ctrl+S anywhere on the page saves; the editor also forwards its own.
   React.useEffect(() => {
@@ -202,7 +207,7 @@ export default function NoteDetail({ company }: { company: Company }) {
           : `/c/${company.slug}/notes`,
       );
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t move the note to the trash" });
     }
   }
 
@@ -215,9 +220,8 @@ export default function NoteDetail({ company }: { company: Company }) {
       );
       setNote(updated);
       await refresh();
-      toast("Note restored", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t restore the note" });
     }
   }
 
@@ -240,8 +244,16 @@ export default function NoteDetail({ company }: { company: Company }) {
           : `/c/${company.slug}/notes`,
       );
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the note" });
     }
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex h-full items-start justify-center px-6 pt-14">
+        <FormError message={loadError} className="w-full max-w-md" />
+      </div>
+    );
   }
 
   if (!note) {
@@ -371,6 +383,8 @@ export default function NoteDetail({ company }: { company: Company }) {
           gutter (which sits in the negative-left of each row). */}
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[820px] px-6 pb-32 pt-14 sm:px-14 lg:px-20">
+          <FormError message={saveError} className="mb-6" />
+
           {note.archivedAt && (
             <div className="mb-6 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
               <span>This note is in the trash.</span>
@@ -603,11 +617,11 @@ function ShareModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [grants, setGrants] = React.useState<NoteGrantsResponse | null>(null);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [busy, setBusy] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
@@ -615,10 +629,11 @@ function ShareModal({
         `/api/companies/${company.id}/notes/${note.slug}/grants`,
       );
       setGrants(data);
+      setError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err, "Could not load who this note is shared with"));
     }
-  }, [company.id, note.slug, toast]);
+  }, [company.id, note.slug]);
 
   React.useEffect(() => {
     if (open) reload();
@@ -627,6 +642,7 @@ function ShareModal({
   async function changeLevel(grant: NoteGrant, next: NoteAccessLevel) {
     if (grant.accessLevel === next) return;
     setBusy(grant.id);
+    setError(null);
     try {
       await api.patch(
         `/api/companies/${company.id}/notes/${note.slug}/grants/${grant.id}`,
@@ -634,7 +650,7 @@ function ShareModal({
       );
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(null);
     }
@@ -650,13 +666,14 @@ function ShareModal({
     });
     if (!ok) return;
     setBusy(grant.id);
+    setError(null);
     try {
       await api.del(
         `/api/companies/${company.id}/notes/${note.slug}/grants/${grant.id}`,
       );
       await reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(null);
     }
@@ -677,7 +694,9 @@ function ShareModal({
 
   return (
     <Modal open={open} onClose={onClose} title="Share this note">
-      {!grants ? (
+      {!grants && error ? (
+        <FormError message={error} />
+      ) : !grants ? (
         <Spinner />
       ) : (
         <div className="flex flex-col gap-4">
@@ -720,6 +739,8 @@ function ShareModal({
               ))}
             </div>
           )}
+
+          <FormError message={error} />
 
           <div className="flex items-center justify-between">
             <button
@@ -955,29 +976,33 @@ function AddGrantModal({
   onClose: () => void;
   onAdded: () => Promise<void> | void;
 }) {
-  const { toast } = useToast();
   const [candidates, setCandidates] = React.useState<NoteGrantCandidate[] | null>(
     null,
   );
   const [picked, setPicked] = React.useState<string | null>(null);
   const [level, setLevel] = React.useState<NoteAccessLevel>("write");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
     setPicked(null);
     setLevel("write");
+    setError(null);
     api
       .get<NoteGrantCandidate[]>(
         `/api/companies/${company.id}/notes/${note.slug}/grant-candidates`,
       )
       .then(setCandidates)
-      .catch((err) => toast((err as Error).message, "error"));
-  }, [open, company.id, note.slug, toast]);
+      .catch((err: unknown) =>
+        setError(errorMessage(err, "Could not load the AI employees")),
+      );
+  }, [open, company.id, note.slug]);
 
   async function submit() {
     if (!picked) return;
     setBusy(true);
+    setError(null);
     try {
       await api.post(`/api/companies/${company.id}/notes/${note.slug}/grants`, {
         employeeId: picked,
@@ -985,7 +1010,7 @@ function AddGrantModal({
       });
       await onAdded();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -995,7 +1020,9 @@ function AddGrantModal({
 
   return (
     <Modal open={open} onClose={onClose} title="Share with an AI employee">
-      {candidates === null ? (
+      {candidates === null && error ? (
+        <FormError message={error} />
+      ) : candidates === null ? (
         <Spinner />
       ) : available.length === 0 ? (
         <div className="text-sm text-slate-500 dark:text-slate-400">
@@ -1087,6 +1114,8 @@ function AddGrantModal({
             Access cascades — every page nested under this one inherits the
             same level.
           </div>
+
+          <FormError message={error} />
 
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>

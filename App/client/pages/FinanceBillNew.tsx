@@ -11,13 +11,14 @@ import {
   TaxRate,
   Vendor,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { Input } from "../components/ui/Input";
 import { Textarea } from "../components/ui/Textarea";
 import { Select } from "../components/ui/Select";
-import { useToast } from "../components/ui/Toast";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 type LineRow = {
@@ -48,7 +49,6 @@ function emptyLine(defaultExpenseId: string): LineRow {
 export default function FinanceBillNew() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const navigate = useNavigate();
-  const { toast } = useToast();
 
   const [vendors, setVendors] = React.useState<Vendor[] | null>(null);
   const [accounts, setAccounts] = React.useState<Account[]>([]);
@@ -64,6 +64,7 @@ export default function FinanceBillNew() {
   const [notes, setNotes] = React.useState("");
   const [lines, setLines] = React.useState<LineRow[]>([]);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     Promise.all([
@@ -143,6 +144,7 @@ export default function FinanceBillNew() {
     e.preventDefault();
     if (!canSave) return;
     setBusy(true);
+    setError(null);
     try {
       const lineDrafts: BillLineDraft[] = lines
         .filter((l) => l.description.trim())
@@ -165,7 +167,7 @@ export default function FinanceBillNew() {
       });
       navigate(`/c/${company.slug}/finance/bills/${bill.slug}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -232,6 +234,8 @@ export default function FinanceBillNew() {
           </Button>
         </div>
       </div>
+
+      <FormError message={error} className="mb-4" />
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">

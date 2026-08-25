@@ -6,14 +6,13 @@ import { Breadcrumbs } from "../components/AppShell";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
 import { Button } from "../components/ui/Button";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
 import { api, type Customer, type Employee, type Member } from "../lib/api";
 import type { RevenueAccount } from "../lib/revenue";
 import type { RevenueContact } from "./RevenueContacts";
@@ -75,7 +74,7 @@ export default function RevenueAccountDetail() {
   const { accountId = "" } = useParams();
   const navigate = useNavigate();
   const dialog = useDialog();
-  const { background, toast } = useToast();
+  const background = useBackgroundAction();
   const base = `/api/companies/${company.id}/revenue`;
   const sectionUrl = `/c/${company.slug}/revenue`;
   const [detail, setDetail] = React.useState<AccountDetail | null>(null);
@@ -162,12 +161,7 @@ export default function RevenueAccountDetail() {
     background(
       () => api.post<Customer>(`${base}/accounts/${accountId}/${archived ? "archive" : "restore"}`),
       {
-        loading: archived ? "Archiving Account…" : "Restoring Account…",
-        success: archived ? "Account archived" : "Account restored",
-        error: (cause) =>
-          `Couldn’t ${archived ? "archive" : "restore"} this Account: ${
-            cause instanceof Error ? cause.message : "Unknown error"
-          }.`,
+        title: `Couldn’t ${archived ? "archive" : "restore"} this Account`,
         onSuccess: () => void load(),
       },
     );
@@ -433,10 +427,6 @@ export default function RevenueAccountDetail() {
         source={account}
         onMerged={(result) => {
           setMergeOpen(false);
-          toast(
-            `${result.source.name} was merged into ${result.target.name} and archived.`,
-            "success",
-          );
           navigate(`${sectionUrl}/accounts/${result.target.id}`);
         }}
       />

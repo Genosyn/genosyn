@@ -1,11 +1,12 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { api, CompanyFinanceSettings } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /**
@@ -17,13 +18,14 @@ import { FinanceOutletCtx } from "./FinanceLayout";
  */
 export default function FinanceTemplates() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
   const [settings, setSettings] = React.useState<CompanyFinanceSettings | null>(
     null,
   );
   const [fromBlock, setFromBlock] = React.useState("");
   const [footer, setFooter] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     api
@@ -35,12 +37,15 @@ export default function FinanceTemplates() {
         setFromBlock(s.defaultFromBlock);
         setFooter(s.defaultFooter);
       })
-      .catch((err) => toast((err as Error).message, "error"));
-  }, [company.id, toast]);
+      .catch((err: unknown) =>
+        setLoadError(errorMessage(err, "Could not load the templates")),
+      );
+  }, [company.id]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
       const fresh = await api.patch<CompanyFinanceSettings>(
         `/api/companies/${company.id}/finance-settings`,
@@ -50,12 +55,19 @@ export default function FinanceTemplates() {
         },
       );
       setSettings(fresh);
-      toast("Templates saved", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
+  }
+
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-3xl p-8">
+        <FormError message={loadError} />
+      </div>
+    );
   }
 
   if (settings === null) {
@@ -118,6 +130,8 @@ export default function FinanceTemplates() {
             no footer of its own. A per-document footer always wins.
           </p>
         </div>
+
+        <FormError message={error} />
 
         <div className="flex justify-end gap-2">
           <Button

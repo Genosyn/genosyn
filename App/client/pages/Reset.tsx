@@ -5,7 +5,6 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { FormError } from "../components/ui/FormError";
 import { AuthShell } from "./Login";
-import { useToast } from "../components/ui/Toast";
 
 export default function Reset() {
   const { token } = useParams();
@@ -13,7 +12,6 @@ export default function Reset() {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const navigate = useNavigate();
-  const { toast } = useToast();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -22,7 +20,6 @@ export default function Reset() {
     setLoading(true);
     try {
       await api.post("/api/auth/reset", { token, password });
-      toast("Password reset — please sign in", "success");
       navigate("/login");
     } catch (err) {
       setError((err as Error).message);

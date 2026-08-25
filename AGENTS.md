@@ -393,8 +393,18 @@ Think **Linear × Notion**. Clean, quiet, fast.
 - `rounded-xl`, subtle `border`, soft shadow `shadow-sm`. No heavy gradients,
   no glassmorphism, no emoji decoration in product chrome.
 - Inter (or the system sans stack) for body; tabular-nums for numeric data.
-- Empty states always exist. Loading states always exist. Error toasts
-  always exist.
+- Empty states always exist. Loading states always exist. So do error states —
+  but **never as a toast**. A failure belongs where the person is already
+  looking: inline in the form or section that owns it (`<FormError>`), or, when
+  there is no form to put it in, in the error modal
+  (`useDialog().error(err, { title })`). Corner popups that time out are gone
+  from this codebase; do not reintroduce a toast, a snackbar, or a
+  notification library. Optimistic writes report a failure the same way, from
+  `useBackgroundAction()`, after rolling the row back.
+- Success needs no announcement. The list re-rendering, the row updating, the
+  modal closing *is* the confirmation. Only when an action changes nothing on
+  screen — a test email sent, a backup queued — does it earn a `<FormSuccess>`
+  beside the control that started it.
 - Mobile-responsive is expected, not optional.
 
 ---

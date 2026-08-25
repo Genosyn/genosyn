@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { Bot, Pencil, Plus, ShieldCheck, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react";
 import { Employee, api } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import {
   MailGrant,
   MailRule,
@@ -19,7 +20,7 @@ import {
 } from "../lib/mailRules";
 import { MailOutletCtx } from "./MailLayout";
 import { Button } from "../components/ui/Button";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
@@ -27,7 +28,6 @@ import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
 
 /**
@@ -57,9 +57,10 @@ const UNSUBSCRIBE_CONFIRM_MESSAGE =
 
 export default function MailRules() {
   const { company, account } = useOutletContext<MailOutletCtx>();
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
   const [rules, setRules] = React.useState<MailRule[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [grants, setGrants] = React.useState<MailGrant[]>([]);
   const [editing, setEditing] = React.useState<EditorState | null>(null);
@@ -73,12 +74,16 @@ export default function MailRules() {
     setRules(rulesRes.rules);
     setEmployees(emps);
     setGrants(grantsRes.direct);
+    setLoadError(null);
   }, [company.id, account.id]);
 
   React.useEffect(() => {
     setRules(null);
-    load().catch((err) => toast((err as Error).message, "error"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setLoadError(null);
+    load().catch((err: unknown) => {
+      setLoadError(errorMessage(err, "Could not load the rules"));
+      setRules([]);
+    });
   }, [load]);
 
   const toggle = async (rule: MailRule) => {
@@ -97,11 +102,8 @@ export default function MailRules() {
         current?.map((item) => (item.id === rule.id ? { ...item, enabled } : item)) ?? current,
     );
     background(() => mailApi.patchRule(company.id, rule.id, { enabled }), {
-      loading: enabled ? "Enabling rule…" : "Disabling rule…",
-      error: (error) =>
-        `Couldn\u2019t update the rule: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. The change was undone.`,
+      title: "Couldn’t update the rule",
+      error: (error) => `${errorMessage(error)} The change was undone.`,
       onSuccess: ({ rule: updated }) => {
         setRules(
           (current) => current?.map((item) => (item.id === updated.id ? updated : item)) ?? current,
@@ -125,12 +127,8 @@ export default function MailRules() {
     const originalIndex = rules?.findIndex((item) => item.id === rule.id) ?? -1;
     setRules((current) => current?.filter((item) => item.id !== rule.id) ?? current);
     background(() => mailApi.deleteRule(company.id, rule.id), {
-      loading: "Deleting rule…",
-      success: "Rule deleted",
-      error: (error) =>
-        `Couldn\u2019t delete the rule: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }. It has been restored.`,
+      title: "Couldn’t delete the rule",
+      error: (error) => `${errorMessage(error)} It has been restored.`,
       onError: () => {
         setRules((current) => {
           if (!current || current.some((item) => item.id === rule.id)) return current;
@@ -156,7 +154,9 @@ export default function MailRules() {
         judgment, or both — then label, unsubscribe safely, or hand off the mail.
       </p>
 
-      {rules === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : rules === null ? (
         <div className="flex justify-center py-10">
           <Spinner size={20} />
         </div>
@@ -426,7 +426,7 @@ function RuleEditor({
       }
       await onSaved();
     } catch (err) {
-      setError((err as Error).message);
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }

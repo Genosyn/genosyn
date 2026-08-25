@@ -10,9 +10,10 @@ import {
   Sparkles,
 } from "lucide-react";
 import { api, Company, Note, Notebook } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
 import { NotesContext } from "./NotesLayout";
 import { clsx } from "../components/ui/clsx";
 
@@ -25,15 +26,16 @@ import { clsx } from "../components/ui/clsx";
 export default function NotesIndex({ company }: { company: Company }) {
   const { notebooks, notes, refresh } = useOutletContext<NotesContext>();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<Note[] | null>(null);
   const [searching, setSearching] = React.useState(false);
+  const [searchError, setSearchError] = React.useState<string | null>(null);
   const [creatingNb, setCreatingNb] = React.useState(false);
 
   React.useEffect(() => {
     const q = query.trim();
+    setSearchError(null);
     if (!q) {
       setResults(null);
       return;
@@ -46,13 +48,13 @@ export default function NotesIndex({ company }: { company: Company }) {
         );
         setResults(rows);
       } catch (err) {
-        toast((err as Error).message, "error");
+        setSearchError(errorMessage(err, "Could not search these notes"));
       } finally {
         setSearching(false);
       }
     }, 200);
     return () => window.clearTimeout(handle);
-  }, [query, company.id, toast]);
+  }, [query, company.id]);
 
   const notebookById = React.useMemo(() => {
     const m = new Map<string, Notebook>();
@@ -77,7 +79,7 @@ export default function NotesIndex({ company }: { company: Company }) {
       await refresh();
       navigate(`/c/${company.slug}/notes/${created.slug}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t create the notebook" });
     } finally {
       setCreatingNb(false);
     }
@@ -135,7 +137,9 @@ export default function NotesIndex({ company }: { company: Company }) {
             />
           </div>
 
-          {results !== null ? (
+          {searchError ? (
+            <FormError message={searchError} />
+          ) : results !== null ? (
             <SearchResults
               company={company}
               query={query}

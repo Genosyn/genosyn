@@ -24,9 +24,9 @@ import { Avatar, employeeAvatarUrl } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
 import { Spinner } from "@/components/ui/Spinner";
-import { useToast } from "@/components/ui/Toast";
 import { clsx } from "@/components/ui/clsx";
 import type { Company, TldrItem } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 import {
   mergeQuestions,
   TLDR_QUESTION_MESSAGE_MAX_CHARS,
@@ -94,7 +94,6 @@ export function TldrQuestions({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [data, setData] = React.useState<TldrQuestionsResponse | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -116,7 +115,7 @@ export function TldrQuestions({
       setError(null);
       setReconnecting(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load the questions on this TLDR.");
+      setError(errorMessage(err, "Could not load the questions on this TLDR."));
     }
   }, [company.id, item.id]);
 
@@ -407,10 +406,7 @@ export function TldrQuestions({
       await tldrQuestionsApi.dismissAction(company.id, item.id, question.id, action.id);
     } catch (err) {
       setData(previous);
-      toast(
-        `Couldn’t dismiss that suggestion: ${err instanceof Error ? err.message : "Unknown error"}`,
-        "error",
-      );
+      void dialog.error(err, { title: "Couldn’t dismiss that suggestion" });
     }
   }
 
@@ -439,10 +435,7 @@ export function TldrQuestions({
       await tldrQuestionsApi.remove(company.id, item.id, question.id);
     } catch (err) {
       setData(previous);
-      toast(
-        `Couldn’t remove the question: ${err instanceof Error ? err.message : "Unknown error"}`,
-        "error",
-      );
+      void dialog.error(err, { title: "Couldn’t remove the question" });
     }
   }
 

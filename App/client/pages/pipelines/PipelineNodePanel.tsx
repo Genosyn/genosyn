@@ -1,12 +1,12 @@
 import React from "react";
 import { Select } from "@/components/ui/Select";
-import { AlertCircle, ArrowRight, CheckCircle2, Copy, Info, Trash2, X } from "lucide-react";
+import { AlertCircle, ArrowRight, Check, CheckCircle2, Copy, Info, Trash2, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
+import { FormSuccess } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
-import { useToast } from "@/components/ui/Toast";
 import {
   api,
   type BaseField,
@@ -741,7 +741,11 @@ function resourceOptionsForField({
 }
 
 function ReferenceKey({ nodeId }: { nodeId: string }) {
-  const { toast } = useToast();
+  const dialog = useDialog();
+  // Remember whose reference was copied, not just that one was: the check mark
+  // then clears itself as soon as another step is selected into this panel.
+  const [copiedNodeId, setCopiedNodeId] = React.useState<string | null>(null);
+  const copied = copiedNodeId === nodeId;
   return (
     <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs dark:bg-slate-900">
       <span className="text-slate-500 dark:text-slate-400">Output reference</span>
@@ -751,14 +755,19 @@ function ReferenceKey({ nodeId }: { nodeId: string }) {
       <button
         type="button"
         onClick={async () => {
-          const ok = await copyToClipboard(`{{${nodeId}.}}`);
-          toast(ok ? "Reference copied" : "Could not access clipboard", ok ? "success" : "error");
+          if (!(await copyToClipboard(`{{${nodeId}.}}`))) {
+            void dialog.error("Copy it by hand from the field beside this button.", {
+              title: "Couldn’t copy the output reference",
+            });
+            return;
+          }
+          setCopiedNodeId(nodeId);
         }}
         className="text-slate-400 hover:text-indigo-600"
-        title="Copy output reference"
-        aria-label="Copy output reference"
+        title={copied ? "Output reference copied" : "Copy output reference"}
+        aria-label={copied ? "Output reference copied" : "Copy output reference"}
       >
-        <Copy size={13} />
+        {copied ? <Check size={13} /> : <Copy size={13} />}
       </button>
     </div>
   );
@@ -929,8 +938,8 @@ function WebhookSettings({
   node: PipelineNode;
   onRegenerate: (token: string) => void;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
+  const [notice, setNotice] = React.useState<string | null>(null);
   const token = String(node.config.token ?? "");
   const url = token
     ? `${window.location.origin}/api/webhooks/pipelines/${pipeline.id}/${token}`
@@ -944,15 +953,15 @@ function WebhookSettings({
       variant: "danger",
     });
     if (!confirmed) return;
+    setNotice(null);
     try {
       const result = await api.post<{ token: string }>(
         `/api/companies/${company.id}/pipelines/${pipeline.id}/webhook-token`,
         { nodeId: node.id },
       );
       onRegenerate(result.token);
-      toast("Webhook URL replaced", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t replace the webhook URL" });
     }
   }
 
@@ -971,11 +980,14 @@ function WebhookSettings({
             <button
               type="button"
               onClick={async () => {
-                const ok = await copyToClipboard(url);
-                toast(
-                  ok ? "Webhook URL copied" : "Could not access clipboard",
-                  ok ? "success" : "error",
-                );
+                setNotice(null);
+                if (!(await copyToClipboard(url))) {
+                  void dialog.error("Could not access the clipboard.", {
+                    title: "Couldn’t copy the webhook URL",
+                  });
+                  return;
+                }
+                setNotice("Webhook URL copied.");
               }}
               className="rounded-lg p-2 text-slate-500 hover:bg-slate-200 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-100"
               title="Copy webhook URL"
@@ -989,6 +1001,7 @@ function WebhookSettings({
             Save the pipeline once to create its private URL.
           </p>
         )}
+        <FormSuccess message={notice} className="mt-2" />
         <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
           Send a POST request with JSON. Later steps can read it from{" "}
           <code className="rounded bg-white px-1 py-0.5 font-mono text-[10px] dark:bg-slate-950">

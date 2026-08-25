@@ -26,10 +26,11 @@ import {
   BaseTable,
   Company,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { CellEditor, CellView } from "./BaseGridCells";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { clsx } from "../components/ui/clsx";
 
@@ -96,7 +97,7 @@ export function RecordDetailDrawer({
   /** Re-fetch the parent grid after a cell write so link labels stay fresh. */
   onChanged: () => Promise<void> | void;
 }) {
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
   const baseUrl = recordApiUrl(company, base, table, record.id);
 
   // Close on Escape so the drawer feels like a modal.
@@ -109,11 +110,12 @@ export function RecordDetailDrawer({
   }, [onClose]);
 
   async function patchCell(fieldId: string, value: unknown) {
+    setError(null);
     try {
       await api.patch(baseUrl, { fieldId, value });
       await onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     }
   }
 
@@ -159,6 +161,7 @@ export function RecordDetailDrawer({
         {/* Body — scroll */}
         <div className="flex-1 overflow-y-auto">
           <div className="px-5 py-4">
+            <FormError message={error} className="mb-3" />
             <RecordFieldsGrid
               fields={fields}
               record={record}
@@ -262,28 +265,32 @@ export function RecordFilesSection({
   company: Company;
   baseUrl: string;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [attachments, setAttachments] = React.useState<BaseRecordAttachment[] | null>(null);
   const [uploading, setUploading] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const loadAttachments = React.useCallback(async () => {
     try {
       const list = await api.get<BaseRecordAttachment[]>(`${baseUrl}/attachments`);
       setAttachments(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the files"));
+      setAttachments([]);
     }
-  }, [baseUrl, toast]);
+  }, [baseUrl]);
 
   React.useEffect(() => {
     void loadAttachments();
   }, [loadAttachments]);
 
   async function uploadFile(file: File) {
+    setUploadError(null);
     if (file.size > 25 * 1024 * 1024) {
-      toast("File exceeds the 25 MB upload cap", "error");
+      setUploadError("File exceeds the 25 MB upload cap");
       return;
     }
     setUploading(true);
@@ -302,7 +309,7 @@ export function RecordFilesSection({
       }
       await loadAttachments();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setUploadError(errorMessage(err));
     } finally {
       setUploading(false);
     }
@@ -320,7 +327,7 @@ export function RecordFilesSection({
       await api.del(`${baseUrl}/attachments/${a.id}`);
       await loadAttachments();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the file" });
     }
   }
 
@@ -362,8 +369,11 @@ export function RecordFilesSection({
           }}
         />
       </div>
+      <FormError message={uploadError} className="mt-2" />
       <div className="mt-2 space-y-1.5">
-        {attachments === null ? (
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : attachments === null ? (
           <div className="text-xs text-slate-400 dark:text-slate-500">Loading…</div>
         ) : attachments.length === 0 ? (
           <div className="rounded-md border border-dashed border-slate-200 px-3 py-3 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
@@ -394,20 +404,23 @@ export function RecordCommentsSection({
   company: Company;
   baseUrl: string;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [comments, setComments] = React.useState<BaseRecordComment[] | null>(null);
   const [commentDraft, setCommentDraft] = React.useState("");
   const [postingComment, setPostingComment] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [postError, setPostError] = React.useState<string | null>(null);
 
   const loadComments = React.useCallback(async () => {
     try {
       const list = await api.get<BaseRecordComment[]>(`${baseUrl}/comments`);
       setComments(list);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the comments"));
+      setComments([]);
     }
-  }, [baseUrl, toast]);
+  }, [baseUrl]);
 
   React.useEffect(() => {
     void loadComments();
@@ -417,12 +430,13 @@ export function RecordCommentsSection({
     const text = commentDraft.trim();
     if (!text) return;
     setPostingComment(true);
+    setPostError(null);
     try {
       await api.post<BaseRecordComment>(`${baseUrl}/comments`, { body: text });
       setCommentDraft("");
       await loadComments();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setPostError(errorMessage(err));
     } finally {
       setPostingComment(false);
     }
@@ -440,7 +454,7 @@ export function RecordCommentsSection({
       await api.del(`${baseUrl}/comments/${c.id}`);
       await loadComments();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the comment" });
     }
   }
 
@@ -455,7 +469,9 @@ export function RecordCommentsSection({
         )}
       </div>
       <div className="mt-2 space-y-3">
-        {comments === null ? (
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : comments === null ? (
           <div className="text-xs text-slate-400 dark:text-slate-500">Loading…</div>
         ) : comments.length === 0 ? (
           <div className="rounded-md border border-dashed border-slate-200 px-3 py-3 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
@@ -472,6 +488,8 @@ export function RecordCommentsSection({
           ))
         )}
       </div>
+
+      <FormError message={postError} className="mt-3" />
 
       <div className="mt-3 flex items-end gap-2">
         <textarea

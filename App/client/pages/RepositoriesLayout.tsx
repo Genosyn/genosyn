@@ -12,9 +12,10 @@ import {
   Users,
 } from "lucide-react";
 import { Breadcrumbs, ContextualLayout, SidebarLink } from "../components/AppShell";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { api, Repository, Company } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { useLiveRefetch } from "../components/CompanySocket";
 
 export type RepositoriesOutletCtx = {
@@ -47,17 +48,18 @@ export default function RepositoriesLayout({
 }) {
   const { slug } = useParams<{ slug: string }>();
   const location = useLocation();
-  const { toast } = useToast();
   const [repositories, setRepositories] = React.useState<Repository[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
       setRepositories(await api.get<Repository[]>(`/api/companies/${company.id}/repositories`));
+      setLoadError(null);
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not load repositories", "error");
+      setLoadError(errorMessage(err, "Could not load repositories"));
       setRepositories([]);
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -188,7 +190,15 @@ export default function RepositoriesLayout({
               ]}
             />
           </div>
-          {repositories !== null && !repo ? (
+          {/* A list we could not read leaves `repositories` as `[]`, which is
+            indistinguishable from a repository that no longer exists — so the
+            failure has to be tested first, or it reads as "Repository not
+            found." It belongs in the main pane rather than the sidebar: the
+            contextual rail is hidden below `md`, so a message parked there is
+            off screen on a phone. */}
+          {loadError ? (
+            <FormError message={loadError} />
+          ) : repositories !== null && !repo ? (
             <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
               Repository not found.
             </div>

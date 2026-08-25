@@ -2,7 +2,6 @@ import React from "react";
 import { Download, FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, Company, CustomerContract } from "../lib/api";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { ContractUploadModal } from "../components/ContractUploadModal";
 import { formatContractSize, formatSignedDate } from "../lib/contracts";
@@ -22,7 +21,6 @@ export function CustomerContractsPanel({
   customerId: string;
   customerName: string;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [contracts, setContracts] = React.useState<CustomerContract[] | null>(null);
   const [uploadOpen, setUploadOpen] = React.useState(false);
@@ -53,7 +51,7 @@ export function CustomerContractsPanel({
       await api.del(`/api/companies/${company.id}/contracts/${c.id}`);
       reload();
     } catch (e) {
-      toast((e as Error).message, "error");
+      void dialog.error(e, { title: "Couldn’t delete the contract" });
     }
   }
 

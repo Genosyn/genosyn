@@ -2,17 +2,18 @@ import React from "react";
 import { Link, useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 import { api, Company, SkillWithMeta } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { ToolsetPicker } from "../components/ToolsetPicker";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
 import { SkillsContext } from "./SkillsLayout";
 import { ResourceTagPicker } from "../components/TagPicker";
 
@@ -164,7 +165,8 @@ function PlaybookTab({ company, skill }: { company: Company; skill: SkillWithMet
   const [content, setContent] = React.useState<string | null>(null);
   const [saved, setSaved] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     api
@@ -173,23 +175,24 @@ function PlaybookTab({ company, skill }: { company: Company; skill: SkillWithMet
         setContent(r.content);
         setSaved(r.content);
       })
-      .catch((err) => toast((err as Error).message, "error"));
-  }, [company.id, skill.id, toast]);
+      .catch((err: unknown) => setLoadError(errorMessage(err, "Could not load the playbook")));
+  }, [company.id, skill.id]);
 
   const save = React.useCallback(async () => {
     if (content === null) return;
     setSaving(true);
+    setError(null);
     try {
       await api.put(`/api/companies/${company.id}/skills/${skill.id}/readme`, { content });
       setSaved(content);
-      toast("Skill saved", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
-  }, [company.id, skill.id, content, toast]);
+  }, [company.id, skill.id, content]);
 
+  if (loadError) return <FormError message={loadError} />;
   if (content === null) return <Spinner />;
   const dirty = content !== saved;
 
@@ -201,6 +204,7 @@ function PlaybookTab({ company, skill }: { company: Company; skill: SkillWithMet
           into their prompt alongside their Soul.
         </p>
         <MarkdownEditor value={content} onChange={setContent} rows={18} onSave={save} />
+        <FormError message={error} />
         <div className="flex items-center gap-2">
           <Button onClick={save} disabled={saving || !dirty}>
             {saving ? "Saving…" : "Save skill"}
@@ -230,6 +234,7 @@ function SettingsTab({
   const [name, setName] = React.useState(skill.name);
   const [toolset, setToolset] = React.useState<string[]>(skill.toolset ?? []);
   const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   // A toolset-only edit must be saveable, so the dirty check spans both fields.
   // Order-insensitive on the toolset — the picker appends, but a reorder is not
@@ -239,21 +244,20 @@ function SettingsTab({
     name.trim() !== skill.name ||
     toolset.length !== savedToolset.length ||
     [...toolset].sort().join(" ") !== [...savedToolset].sort().join(" ");
-  const { toast } = useToast();
   const dialog = useDialog();
   const navigate = useNavigate();
 
   async function save() {
     setSaving(true);
+    setError(null);
     try {
       await api.patch(`/api/companies/${company.id}/skills/${skill.id}`, {
         name: name.trim(),
         toolset,
       });
       await onSaved();
-      toast("Skill saved", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -285,6 +289,8 @@ function SettingsTab({
           <ToolsetPicker companyId={company.id} value={toolset} onChange={setToolset} />
         </CardBody>
       </Card>
+
+      <FormError message={error} />
 
       <div className="flex gap-2">
         <Button onClick={save} disabled={saving || !name.trim() || !dirty}>
@@ -318,7 +324,7 @@ function SettingsTab({
                 await onSaved();
                 navigate(`/c/${company.slug}/skills`, { replace: true });
               } catch (err) {
-                toast((err as Error).message, "error");
+                void dialog.error(err, { title: "Couldn’t delete the skill" });
               }
             }}
           >

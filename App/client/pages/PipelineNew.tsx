@@ -13,10 +13,11 @@ import {
 import { useNavigate, useOutletContext } from "react-router-dom";
 import { Breadcrumbs } from "@/components/AppShell";
 import { Button } from "@/components/ui/Button";
+import { FormError } from "@/components/ui/FormError";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
-import { useToast } from "@/components/ui/Toast";
 import { api, type Company, type Pipeline } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 import type { PipelinesContext } from "@/pages/PipelinesLayout";
 
 type StartWith = "manual" | "schedule" | "webhook" | "emailReceived" | "todoCreated";
@@ -68,16 +69,17 @@ const STARTERS: Array<{
 export default function PipelineNew({ company }: { company: Company }) {
   const navigate = useNavigate();
   const { refresh } = useOutletContext<PipelinesContext>();
-  const { toast } = useToast();
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [startWith, setStartWith] = React.useState<StartWith>("manual");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!name.trim()) return;
     setBusy(true);
+    setError(null);
     try {
       const created = await api.post<Pipeline>(`/api/companies/${company.id}/pipelines`, {
         name: name.trim(),
@@ -87,7 +89,7 @@ export default function PipelineNew({ company }: { company: Company }) {
       await refresh();
       navigate(`/c/${company.slug}/pipelines/${created.slug}`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -228,6 +230,8 @@ export default function PipelineNew({ company }: { company: Company }) {
             </div>
           </div>
         </section>
+
+        <FormError message={error} />
 
         <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800 dark:bg-slate-900">
           <div className="flex max-w-md items-start gap-2 text-xs leading-5 text-slate-500 dark:text-slate-400">

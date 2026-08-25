@@ -1219,9 +1219,9 @@ function describePushFailure(
  * Turn a failed `POST /pulls` into a sentence that names what to change.
  *
  * GitHub answers a bad pull request with `Validation Failed` and a machine
- * triple like `{field: "base", code: "invalid"}`. That is unreadable in a
- * toast, and it is the reason this button looked broken rather than
- * misconfigured. Every branch below says which branch was wrong and where to
+ * triple like `{field: "base", code: "invalid"}`. That is unreadable wherever
+ * the browser shows it, and it is the reason this button looked broken rather
+ * than misconfigured. Every branch below says which branch was wrong and where to
  * fix it; anything unrecognised keeps GitHub's own wording rather than being
  * flattened into a generic failure.
  */

@@ -14,10 +14,11 @@ import {
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
+import { useBackgroundAction } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
 import { Menu } from "../components/ui/Menu";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import {
   api,
   FinanceAccessLevel,
@@ -25,6 +26,7 @@ import {
   FinanceGrantCandidate,
   FinanceGrantsResponse,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
 /**
@@ -84,10 +86,12 @@ function meta(level: FinanceAccessLevel): LevelMeta {
 
 export default function FinanceAiAccess() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast, background } = useToast();
+  const background = useBackgroundAction();
   const [grants, setGrants] = React.useState<FinanceGrant[] | null>(null);
   const [candidates, setCandidates] = React.useState<FinanceGrantCandidate[]>([]);
   const [adding, setAdding] = React.useState(false);
+  const [addError, setAddError] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [pickEmployee, setPickEmployee] = React.useState("");
   const [pickLevel, setPickLevel] = React.useState<FinanceAccessLevel>("read");
 
@@ -101,11 +105,12 @@ export default function FinanceAiAccess() {
       ]);
       setGrants(grantRows.direct);
       setCandidates(candidateRows);
+      setLoadError(null);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setLoadError(errorMessage(err, "Could not load the grants"));
       setGrants([]);
     }
-  }, [base, toast]);
+  }, [base]);
 
   React.useEffect(() => {
     reload();
@@ -120,14 +125,14 @@ export default function FinanceAiAccess() {
   async function addGrant() {
     if (!pickEmployee) return;
     setAdding(true);
+    setAddError(null);
     try {
       await api.post(`${base}/grants`, { employeeId: pickEmployee, accessLevel: pickLevel });
       setPickEmployee("");
       setPickLevel("read");
       await reload();
-      toast("Finance access granted", "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setAddError(errorMessage(err));
     } finally {
       setAdding(false);
     }
@@ -140,11 +145,8 @@ export default function FinanceAiAccess() {
         current,
     );
     background(() => api.patch(`${base}/grants/${grant.id}`, { accessLevel: level }), {
-      loading: "Updating finance access…",
-      error: (error) =>
-        `Couldn’t update access: ${
-          error instanceof Error ? error.message : String(error)
-        }. The change was undone.`,
+      title: "Couldn’t update access",
+      error: (error) => `${errorMessage(error)} The change was undone.`,
       onError: () => {
         setGrants(
           (current) => current?.map((item) => (item.id === grant.id ? grant : item)) ?? current,
@@ -157,12 +159,8 @@ export default function FinanceAiAccess() {
     const originalIndex = grants?.findIndex((item) => item.id === grant.id) ?? -1;
     setGrants((current) => current?.filter((item) => item.id !== grant.id) ?? current);
     background(() => api.del(`${base}/grants/${grant.id}`), {
-      loading: "Revoking finance access…",
-      success: "Finance access revoked",
-      error: (error) =>
-        `Couldn’t revoke access: ${
-          error instanceof Error ? error.message : String(error)
-        }. The grant has been restored.`,
+      title: "Couldn’t revoke access",
+      error: (error) => `${errorMessage(error)} The grant has been restored.`,
       onError: () => {
         setGrants((current) => {
           if (!current || current.some((item) => item.id === grant.id)) return current;
@@ -228,44 +226,49 @@ export default function FinanceAiAccess() {
 
       <div className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
         {/* Add a grant */}
-        <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-end dark:border-slate-800">
-          <div className="min-w-0 flex-1">
-            <Select
-              label="Grant access to"
-              value={pickEmployee}
-              onChange={(event) => setPickEmployee(event.target.value)}
-              disabled={ungranted.length === 0}
-            >
-              <option value="">
-                {ungranted.length === 0
-                  ? "All employees already have access"
-                  : "Choose an AI employee…"}
-              </option>
-              {ungranted.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name} &mdash; {candidate.role}
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-4 dark:border-slate-800">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1">
+              <Select
+                label="Grant access to"
+                value={pickEmployee}
+                onChange={(event) => setPickEmployee(event.target.value)}
+                disabled={ungranted.length === 0}
+              >
+                <option value="">
+                  {ungranted.length === 0
+                    ? "All employees already have access"
+                    : "Choose an AI employee…"}
                 </option>
-              ))}
-            </Select>
+                {ungranted.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name} &mdash; {candidate.role}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="w-full sm:w-auto">
+              <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+                Access level
+              </label>
+              <LevelPicker
+                level={pickLevel}
+                align="left"
+                disabled={ungranted.length === 0}
+                onChange={setPickLevel}
+              />
+            </div>
+            <Button onClick={addGrant} disabled={adding || !pickEmployee} className="shrink-0">
+              {adding ? <Spinner size={14} /> : <UserPlus size={14} />}
+              Add
+            </Button>
           </div>
-          <div className="w-full sm:w-auto">
-            <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
-              Access level
-            </label>
-            <LevelPicker
-              level={pickLevel}
-              align="left"
-              disabled={ungranted.length === 0}
-              onChange={setPickLevel}
-            />
-          </div>
-          <Button onClick={addGrant} disabled={adding || !pickEmployee} className="shrink-0">
-            {adding ? <Spinner size={14} /> : <UserPlus size={14} />}
-            Add
-          </Button>
+          <FormError message={addError} />
         </div>
 
-        {grants === null ? (
+        {loadError ? (
+          <FormError message={loadError} className="m-4" />
+        ) : grants === null ? (
           <div className="flex h-24 items-center justify-center">
             <Spinner size={16} />
           </div>

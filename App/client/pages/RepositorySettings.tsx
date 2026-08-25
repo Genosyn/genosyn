@@ -4,16 +4,16 @@ import { Github, Settings, Trash2 } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { ConnectGithubModal } from "../components/repositories/ConnectGithubModal";
 import { api, Repository } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { RepoFormFields, RepoFormState, repoFormToPayload, repoToForm } from "./RepositoryForm";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 
 export default function RepositorySettings() {
   const { company, repo, reload } = useRepositoriesContext();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [form, setForm] = React.useState<RepoFormState | null>(repo ? repoToForm(repo) : null);
   // What the form looked like when it was last in step with the server. Save is
@@ -22,6 +22,8 @@ export default function RepositorySettings() {
     repo ? repoToForm(repo) : null,
   );
   const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [connectOpen, setConnectOpen] = React.useState(false);
 
   React.useEffect(() => {
@@ -57,6 +59,7 @@ export default function RepositorySettings() {
 
   async function save() {
     setSaving(true);
+    setSaveError(null);
     try {
       const row = await api.patch<Repository>(
         `/api/companies/${company.id}/repositories/${currentRepo.slug}`,
@@ -65,9 +68,8 @@ export default function RepositorySettings() {
       setForm(repoToForm(row));
       setBaseline(repoToForm(row));
       await reload();
-      toast("Repository settings saved", "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setSaveError(errorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -82,13 +84,13 @@ export default function RepositorySettings() {
       variant: "danger",
     });
     if (!ok) return;
+    setDeleteError(null);
     try {
       await api.del(`/api/companies/${company.id}/repositories/${currentRepo.slug}`);
-      toast("Repository deleted", "success");
       await reload();
       navigate(`/c/${company.slug}/repositories`);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setDeleteError(errorMessage(err));
     }
   }
 
@@ -148,6 +150,7 @@ export default function RepositorySettings() {
           hasToken={repo.hasToken}
           hasSshKey={repo.hasSshKey}
         />
+        <FormError message={saveError} className="mt-5" />
         <div className="mt-5 flex items-center justify-end gap-3">
           {changed && !saving && (
             <span className="text-xs text-amber-600 dark:text-amber-400">Unsaved changes</span>
@@ -173,6 +176,7 @@ export default function RepositorySettings() {
             <Trash2 size={14} /> Delete repository
           </Button>
         </div>
+        <FormError message={deleteError} className="mt-3" />
       </div>
 
       <ConnectGithubModal

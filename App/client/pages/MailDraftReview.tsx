@@ -28,6 +28,7 @@ import {
 } from "../lib/mail";
 import { shouldIgnoreShortcut } from "../lib/keyboard";
 import { activeMailQueueBatch, mailQueueEtaLabel } from "../lib/mailQueueTiming";
+import { errorMessage } from "../lib/errors";
 import { type Command, useRegisterCommands } from "../components/CommandRegistry";
 import { MailBulkSendDialog, type BulkProgress } from "./MailBulkSendDialog";
 import { MailDraftDrawer } from "./MailDraftDrawer";
@@ -38,7 +39,6 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
 
 /**
@@ -86,7 +86,6 @@ export function MailDraftReview({
   changeTick,
   openCompose,
 }: MailDraftReviewProps) {
-  const { toast } = useToast();
   const dialog = useDialog();
 
   const [rows, setRows] = React.useState<MailDraft[]>([]);
@@ -120,7 +119,7 @@ export function MailDraftReview({
   const [progress, setProgress] = React.useState<BulkProgress | null>(null);
   const [queueing, setQueueing] = React.useState(false);
   const [sendBatch, setSendBatch] = React.useState<MailDraftSendBatch | null>(null);
-  /** Drafts a send refused, kept visible instead of vanishing into a toast. */
+  /** Drafts a send refused, kept visible instead of vanishing from the queue. */
   const [failed, setFailed] = React.useState<Map<string, string>>(() => new Map());
   const failedRef = React.useRef(failed);
   failedRef.current = failed;
@@ -155,7 +154,7 @@ export function MailDraftReview({
         setTotals(res.totals);
       } catch (err) {
         if (id !== seq.current) return;
-        setError((err as Error).message);
+        setError(errorMessage(err));
       } finally {
         if (id === seq.current) setLoading(false);
       }
@@ -186,7 +185,7 @@ export function MailDraftReview({
       if (discoveredFailure || (result.batch && !activeBatch)) void load(false);
     } catch {
       // The draft list remains usable if a status poll fails. The next poll or
-      // navigation retries it; mutation failures still surface as toasts.
+      // navigation retries it; mutation failures still surface in the error modal.
     }
   }, [companyId, account.id, load]);
 
@@ -297,31 +296,30 @@ export function MailDraftReview({
   const sendOne = (draft: MailDraft) => {
     if (draft.missingRecipient) return;
     if (draft.queuedForSend) {
-      toast("That draft is already queued to send.", "info");
+      void dialog.error("That draft is already queued to send.", {
+        title: "Couldn’t send that draft",
+      });
       return;
     }
     setDrawerId(null);
     removeRows([draft.id]);
     mailApi
       .sendDraft(companyId, draft.id)
-      .then(() => {
-        toast("Draft sent", "success");
-        void load(false);
-      })
+      .then(() => void load(false))
       .catch((err: unknown) => {
-        toast(
-          `Couldn't send that draft: ${
-            err instanceof Error ? err.message : "Unknown error"
-          }. It is back in the queue.`,
-          "error",
-        );
+        void dialog.error(err, {
+          title: "Couldn’t send that draft",
+          message: `${errorMessage(err)} It is back in the queue.`,
+        });
         void load(false);
       });
   };
 
   const discardOne = async (draft: MailDraft) => {
     if (draft.queuedForSend) {
-      toast("That draft is already queued to send.", "info");
+      void dialog.error("That draft is already queued to send.", {
+        title: "Couldn’t discard that draft",
+      });
       return;
     }
     const ok = await dialog.confirm({
@@ -337,7 +335,7 @@ export function MailDraftReview({
       .discardDraft(companyId, draft.id)
       .then(() => void load(false))
       .catch((err: unknown) => {
-        toast(`Couldn't discard: ${err instanceof Error ? err.message : "Unknown error"}`, "error");
+        void dialog.error(err, { title: "Couldn’t discard that draft" });
         void load(false);
       });
   };
@@ -356,17 +354,17 @@ export function MailDraftReview({
       const preview = await mailApi.draftsSendPreview(companyId, account.id, sel);
       const count = action === "send" ? preview.sendable : preview.total;
       if (count === 0) {
-        toast(
+        void dialog.error(
           action === "send"
-            ? "Nothing to send — those drafts have no recipient yet."
-            : "Nothing to discard.",
-          "info",
+            ? "Those drafts have no recipient yet."
+            : "There is nothing left to discard.",
+          { title: action === "send" ? "Nothing to send" : "Nothing to discard" },
         );
         return;
       }
       setPending({ action, preview });
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t prepare that batch" });
     }
   };
 
@@ -409,7 +407,7 @@ export function MailDraftReview({
         failures.push(...res.skipped);
         removeRows(res.succeeded);
       } catch (err) {
-        const reason = err instanceof Error ? err.message : "Request failed";
+        const reason = errorMessage(err, "Request failed");
         for (const id of chunk) failures.push({ id, reason });
       }
       setProgress({ done: Math.min(i + chunk.length, ids.length), total: ids.length });
@@ -425,14 +423,12 @@ export function MailDraftReview({
         for (const failure of failures) next.set(failure.id, failure.reason);
         return next;
       });
+      void dialog.error(
+        `Discarded ${succeeded.length} · ${failures.length} left in Needs attention.`,
+        { title: "Some drafts couldn’t be discarded" },
+      );
     }
 
-    toast(
-      failures.length === 0
-        ? `Discarded ${succeeded.length}.`
-        : `Discarded ${succeeded.length} · ${failures.length} left in Needs attention.`,
-      failures.length === 0 ? "success" : "error",
-    );
     await load(false);
   };
 
@@ -444,13 +440,9 @@ export function MailDraftReview({
       setSendBatch(result.batch);
       setPending(null);
       clearSelection();
-      toast(
-        `${result.added} ${result.added === 1 ? "draft" : "drafts"} added to the send queue. ${result.batch.remaining} ${result.batch.remaining === 1 ? "email remains" : "emails remain"}.`,
-        "success",
-      );
       await load(false);
     } catch (error) {
-      toast(error instanceof Error ? error.message : "Could not queue those drafts.", "error");
+      void dialog.error(error, { title: "Couldn’t queue those drafts" });
       await loadSendBatch();
     } finally {
       setQueueing(false);

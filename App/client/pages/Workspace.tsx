@@ -38,13 +38,14 @@ import {
   workspaceApi,
 } from "../lib/workspace";
 import { copyToClipboard } from "../lib/clipboard";
+import { errorMessage } from "../lib/errors";
 import { useCompanySocket, useCompanySocketSubscription } from "../components/CompanySocket";
 import { EmojiPicker } from "../components/workspace/EmojiPicker";
 import { Avatar as UIAvatar } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import {
   ChatResourceReference,
@@ -82,9 +83,10 @@ const WORKSPACE_MESSAGE_PAGE_SIZE = 40;
 export default function Workspace({ company, me }: WorkspaceProps) {
   const { channelId: urlChannelId } = useParams();
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const dialog = useDialog();
 
   const [channels, setChannels] = React.useState<WorkspaceChannel[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [activeChannelId, setActiveChannelId] = React.useState<string | null>(urlChannelId ?? null);
   const [directory, setDirectory] = React.useState<WorkspaceDirectory | null>(null);
   const [mentionables, setMentionables] = React.useState<Mentionable[]>([]);
@@ -96,6 +98,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   const [loadingOlderMessages, setLoadingOlderMessages] = React.useState<Record<string, boolean>>(
     {},
   );
+  const [messageErrors, setMessageErrors] = React.useState<Record<string, string | null>>({});
   const [onlineUsers, setOnlineUsers] = React.useState<Set<string>>(new Set());
   const [typing, setTyping] = React.useState<
     Record<string, { kind: "user" | "ai"; id: string; name: string; until: number }[]>
@@ -131,12 +134,14 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   React.useEffect(() => {
     let cancelled = false;
     setChannels(null);
+    setLoadError(null);
     setDirectory(null);
     setMentionables([]);
     setMessages({});
     setMessageHistoryLoaded({});
     setHasOlderMessages({});
     setLoadingOlderMessages({});
+    setMessageErrors({});
     countedMessageIdsRef.current.clear();
     loadingOlderChannelIdsRef.current.clear();
     (async () => {
@@ -151,13 +156,15 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         setDirectory(dir);
         setMentionables(ments);
       } catch (e) {
-        toast((e as Error).message, "error");
+        if (cancelled) return;
+        setLoadError(errorMessage(e, "Could not load the workspace"));
+        setChannels([]);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [company.id, toast]);
+  }, [company.id]);
 
   // Re-sync channels (and their server-authoritative unreadCount) from the
   // server. WS-driven local increments can drift past the real count over a
@@ -430,15 +437,19 @@ export default function Workspace({ company, me }: WorkspaceProps) {
           ...prev,
           [activeChannelId]: true,
         }));
+        setMessageErrors((prev) => ({ ...prev, [activeChannelId]: null }));
       } catch (e) {
         if (cancelled) return;
-        toast((e as Error).message, "error");
+        setMessageErrors((prev) => ({
+          ...prev,
+          [activeChannelId]: errorMessage(e, "Could not load the messages"),
+        }));
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [activeChannelId, activeMessageHistoryLoaded, company.id, toast]);
+  }, [activeChannelId, activeMessageHistoryLoaded, company.id]);
 
   async function loadOlderChannelMessages(channelId: string): Promise<boolean> {
     if (loadingOlderChannelIdsRef.current.has(channelId)) return false;
@@ -448,6 +459,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
 
     loadingOlderChannelIdsRef.current.add(channelId);
     setLoadingOlderMessages((prev) => ({ ...prev, [channelId]: true }));
+    setMessageErrors((prev) => ({ ...prev, [channelId]: null }));
     try {
       const list = await workspaceApi.listMessages(company.id, channelId, {
         before: current[0].createdAt,
@@ -463,7 +475,10 @@ export default function Workspace({ company, me }: WorkspaceProps) {
       }));
       return list.length > 0;
     } catch (e) {
-      toast((e as Error).message, "error");
+      setMessageErrors((prev) => ({
+        ...prev,
+        [channelId]: errorMessage(e, "Could not load earlier messages"),
+      }));
       return false;
     } finally {
       loadingOlderChannelIdsRef.current.delete(channelId);
@@ -524,9 +539,8 @@ export default function Workspace({ company, me }: WorkspaceProps) {
           { replace: true },
         );
       }
-      toast("Conversation archived.", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t archive the conversation" });
     }
   }
 
@@ -549,7 +563,9 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         onArchive={archiveWorkspaceChannel}
       />
       <main className="flex min-w-0 flex-1 flex-col bg-white dark:bg-slate-950">
-        {channels === null ? (
+        {loadError ? (
+          <FormError message={loadError} className="m-6" />
+        ) : channels === null ? (
           <WorkspaceLoading label="Loading workspace…" />
         ) : activeChannel ? (
           <ChannelView
@@ -560,6 +576,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
             messages={
               messageHistoryLoaded[activeChannel.id] ? (messages[activeChannel.id] ?? []) : null
             }
+            messagesError={messageErrors[activeChannel.id] ?? null}
             hasOlderMessages={hasOlderMessages[activeChannel.id] ?? false}
             loadingOlderMessages={loadingOlderMessages[activeChannel.id] ?? false}
             onLoadOlderMessages={() => loadOlderChannelMessages(activeChannel.id)}
@@ -837,6 +854,7 @@ function ChannelView({
   me,
   channel,
   messages,
+  messagesError,
   hasOlderMessages,
   loadingOlderMessages,
   onLoadOlderMessages,
@@ -851,6 +869,7 @@ function ChannelView({
   me: Me;
   channel: WorkspaceChannel;
   messages: WorkspaceMessage[] | null;
+  messagesError: string | null;
   hasOlderMessages: boolean;
   loadingOlderMessages: boolean;
   onLoadOlderMessages: () => Promise<boolean>;
@@ -989,7 +1008,9 @@ function ChannelView({
           }
         }}
       >
-        {messages === null ? (
+        {messages === null && messagesError ? (
+          <FormError message={messagesError} />
+        ) : messages === null ? (
           <WorkspaceLoading label="Loading messages…" />
         ) : messages.length === 0 ? (
           <div className="flex h-full items-center justify-center text-center text-sm text-slate-400 dark:text-slate-500">
@@ -1015,6 +1036,7 @@ function ChannelView({
                 )}
               </div>
             )}
+            <FormError message={messagesError} className="mb-2" />
             <MessageList
               messages={messages}
               meId={me.id}
@@ -1198,17 +1220,18 @@ function MessageRow({
   onReact: (m: WorkspaceMessage, emoji: string) => Promise<void>;
 }) {
   const [draft, setDraft] = React.useState(message.content);
+  const [editError, setEditError] = React.useState<string | null>(null);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [emojiOpen, setEmojiOpen] = React.useState(false);
   const rowRef = React.useRef<HTMLDivElement | null>(null);
   const dialog = useDialog();
-  const { toast } = useToast();
 
   // When edit mode is entered (often via ↑ from the composer), refresh the
   // draft from the latest message content and bring the row into view.
   React.useEffect(() => {
     if (editing) {
       setDraft(message.content);
+      setEditError(null);
       rowRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1280,11 +1303,12 @@ function MessageRow({
                 }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
+                  setEditError(null);
                   try {
                     await onEdit(message, draft);
                     onSetEditing(null);
                   } catch (err) {
-                    toast((err as Error).message, "error");
+                    setEditError(errorMessage(err));
                   }
                 }
               }}
@@ -1293,11 +1317,12 @@ function MessageRow({
             <Button
               size="sm"
               onClick={async () => {
+                setEditError(null);
                 try {
                   await onEdit(message, draft);
                   onSetEditing(null);
                 } catch (e) {
-                  toast((e as Error).message, "error");
+                  setEditError(errorMessage(e));
                 }
               }}
             >
@@ -1321,6 +1346,8 @@ function MessageRow({
         ) : (
           <MessageBody content={message.content} mentionables={mentionables} />
         )}
+
+        {editing && <FormError message={editError} className="mt-1.5" />}
 
         {!isDeleted && message.attachments.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-2">
@@ -1404,7 +1431,7 @@ function MessageRow({
                     try {
                       await onDelete(message);
                     } catch (e) {
-                      toast((e as Error).message, "error");
+                      void dialog.error(e, { title: "Couldn’t delete the message" });
                     }
                   }}
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
@@ -1642,6 +1669,7 @@ function Composer({
   const [draft, setDraft] = React.useState("");
   const [attachments, setAttachments] = React.useState<WorkspaceAttachment[]>([]);
   const [sending, setSending] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const [emojiOpen, setEmojiOpen] = React.useState(false);
   const [mentionOpen, setMentionOpen] = React.useState(false);
   const [mentionQuery, setMentionQuery] = React.useState("");
@@ -1650,7 +1678,6 @@ function Composer({
   const [resourceStart, setResourceStart] = React.useState<number | null>(null);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
   const textRef = React.useRef<HTMLTextAreaElement | null>(null);
-  const { toast } = useToast();
   const { references, loading: referencesLoading } = useResourceReferences(
     company.id,
     resourceQuery,
@@ -1661,6 +1688,7 @@ function Composer({
   React.useEffect(() => {
     setDraft("");
     setAttachments([]);
+    setError(null);
     setResourceQuery(null);
     setResourceStart(null);
   }, [channel.id]);
@@ -1686,13 +1714,13 @@ function Composer({
     const trimmed = draft.trim();
     if (!trimmed && attachments.length === 0) return;
     setSending(true);
+    setError(null);
     try {
       if (channel.kind === "dm" && trimmed === "/new" && attachments.length === 0) {
         await workspaceApi.resetContext(company.id, channel.id);
         setDraft("");
         setMentionOpen(false);
         setResourceQuery(null);
-        toast("New context started.", "success");
         return;
       }
       await workspaceApi.sendMessage(company.id, channel.id, {
@@ -1704,7 +1732,7 @@ function Composer({
       setEmojiOpen(false);
       setMentionOpen(false);
     } catch (e) {
-      toast((e as Error).message, "error");
+      setError(errorMessage(e));
     } finally {
       setSending(false);
     }
@@ -1712,12 +1740,13 @@ function Composer({
 
   async function onFiles(files: FileList | File[] | null) {
     if (!files || files.length === 0) return;
+    setError(null);
     for (const f of Array.from(files)) {
       try {
         const a = await workspaceApi.uploadAttachment(company.id, f);
         setAttachments((prev) => [...prev, a]);
       } catch (err) {
-        toast(`Upload failed: ${(err as Error).message}`, "error");
+        setError(`Upload failed: ${errorMessage(err)}`);
       }
     }
   }
@@ -1843,6 +1872,7 @@ function Composer({
           ))}
         </div>
       )}
+      <FormError message={error} className="mb-2" />
       <div
         {...dragProps}
         className={
@@ -2182,7 +2212,7 @@ function NewChannelModal({
   const [pickedUsers, setPickedUsers] = React.useState<Set<string>>(new Set());
   const [pickedEmps, setPickedEmps] = React.useState<Set<string>>(new Set());
   const [creating, setCreating] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) {
@@ -2191,12 +2221,14 @@ function NewChannelModal({
       setKind("public");
       setPickedUsers(new Set());
       setPickedEmps(new Set());
+      setError(null);
     }
   }, [open]);
 
   async function create() {
     if (!name.trim()) return;
     setCreating(true);
+    setError(null);
     try {
       const ch = await workspaceApi.createChannel(company.id, {
         name: name.trim(),
@@ -2207,7 +2239,7 @@ function NewChannelModal({
       });
       onCreated(ch);
     } catch (e) {
-      toast((e as Error).message, "error");
+      setError(errorMessage(e));
     } finally {
       setCreating(false);
     }
@@ -2303,6 +2335,7 @@ function NewChannelModal({
             }
           />
         </div>
+        <FormError message={error} />
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
             Cancel
@@ -2332,18 +2365,22 @@ function NewDMModal({
   onOpened: (c: WorkspaceChannel) => void;
 }) {
   const [q, setQ] = React.useState("");
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (!open) setQ("");
+    if (!open) {
+      setQ("");
+      setError(null);
+    }
   }, [open]);
 
   async function openWith(target: { targetUserId: string } | { targetEmployeeId: string }) {
+    setError(null);
     try {
       const ch = await workspaceApi.openDm(company.id, target);
       onOpened(ch);
     } catch (e) {
-      toast((e as Error).message, "error");
+      setError(errorMessage(e));
     }
   }
 
@@ -2371,6 +2408,7 @@ function NewDMModal({
           placeholder="Search teammates or AI employees"
           className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
         />
+        <FormError message={error} />
         <div className="max-h-80 space-y-3 overflow-y-auto">
           {users.length > 0 && (
             <div>
@@ -2444,7 +2482,9 @@ function ChannelSettingsModal({
   const [webhook, setWebhook] = React.useState<WorkspaceChannelWebhookSettings | null>(null);
   const [loadingWebhook, setLoadingWebhook] = React.useState(false);
   const [changingWebhook, setChangingWebhook] = React.useState(false);
-  const { toast } = useToast();
+  const [generalError, setGeneralError] = React.useState<string | null>(null);
+  const [webhookError, setWebhookError] = React.useState<string | null>(null);
+  const [copyNotice, setCopyNotice] = React.useState<string | null>(null);
   const dialog = useDialog();
 
   React.useEffect(() => {
@@ -2452,28 +2492,31 @@ function ChannelSettingsModal({
     setName(channel.name ?? "");
     setTopic(channel.topic);
     setWebhook(null);
+    setGeneralError(null);
+    setWebhookError(null);
+    setCopyNotice(null);
     setLoadingWebhook(true);
     workspaceApi
       .getChannelWebhook(company.id, channel.id)
       .then(setWebhook)
       .catch((error: unknown) => {
-        toast(error instanceof Error ? error.message : "Could not load webhook settings", "error");
+        setWebhookError(errorMessage(error, "Could not load webhook settings"));
       })
       .finally(() => setLoadingWebhook(false));
-  }, [channel.id, channel.name, channel.topic, company.id, open, toast]);
+  }, [channel.id, channel.name, channel.topic, company.id, open]);
 
   async function saveGeneral() {
     if (!name.trim()) return;
     setSaving(true);
+    setGeneralError(null);
     try {
       const updated = await workspaceApi.updateChannel(company.id, channel.id, {
         name: name.trim(),
         topic: topic.trim(),
       });
       onChanged(updated);
-      toast("Channel settings saved", "success");
     } catch (error) {
-      toast((error as Error).message, "error");
+      setGeneralError(errorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -2481,22 +2524,19 @@ function ChannelSettingsModal({
 
   async function changeWebhook(enabled: boolean, regenerate = false) {
     setChangingWebhook(true);
+    setWebhookError(null);
+    setCopyNotice(null);
     try {
       const updated = await workspaceApi.updateChannelWebhook(company.id, channel.id, {
         enabled,
         regenerate,
       });
       setWebhook(updated);
-      toast(
-        !enabled
-          ? "Incoming webhook disabled"
-          : regenerate
-            ? "Webhook URL regenerated"
-            : "Incoming webhook enabled",
-        "success",
-      );
+      if (regenerate && updated.enabled && updated.url) {
+        setCopyNotice("Webhook URL regenerated. The previous URL no longer works.");
+      }
     } catch (error) {
-      toast((error as Error).message, "error");
+      setWebhookError(errorMessage(error));
     } finally {
       setChangingWebhook(false);
     }
@@ -2548,6 +2588,7 @@ function ChannelSettingsModal({
               className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
             />
           </div>
+          <FormError message={generalError} />
           <div className="flex justify-end">
             <Button disabled={saving || !name.trim()} onClick={saveGeneral}>
               {saving ? "Saving…" : "Save changes"}
@@ -2585,6 +2626,7 @@ function ChannelSettingsModal({
               attachments become messages in this channel.
             </p>
           </div>
+          <FormError message={webhookError} />
           {loadingWebhook ? (
             <div className="flex items-center gap-2 py-3 text-xs text-slate-500">
               <Spinner size={14} /> Loading webhook settings…
@@ -2603,17 +2645,18 @@ function ChannelSettingsModal({
                     size="sm"
                     variant="secondary"
                     onClick={async () => {
+                      setWebhookError(null);
+                      setCopyNotice(null);
                       const copied = await copyToClipboard(webhook.url!);
-                      toast(
-                        copied ? "Webhook URL copied" : "Could not access clipboard",
-                        copied ? "success" : "error",
-                      );
+                      if (copied) setCopyNotice("Webhook URL copied");
+                      else setWebhookError("Could not access clipboard");
                     }}
                   >
                     <Copy size={13} /> Copy
                   </Button>
                 </div>
               </div>
+              <FormSuccess message={copyNotice} />
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 The URL is a credential. Keep it secret. This URL always posts to this channel, even
                 if a Slack payload names a different one.
@@ -2719,19 +2762,19 @@ function ChannelMembersSettings({
   const [adding, setAdding] = React.useState<
     null | { kind: "user"; id: string } | { kind: "ai"; id: string }
   >(null);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   async function add(target: "user" | "ai", id: string) {
     setAdding({ kind: target, id });
+    setError(null);
     try {
       const updated = await workspaceApi.addMembers(company.id, channel.id, {
         userIds: target === "user" ? [id] : [],
         employeeIds: target === "ai" ? [id] : [],
       });
       onChanged(updated);
-      toast(`${target === "user" ? "Member" : "AI employee"} added`, "success");
-    } catch (error) {
-      toast((error as Error).message, "error");
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
       setAdding(null);
     }
@@ -2821,6 +2864,7 @@ function ChannelMembersSettings({
           </div>
         </div>
       )}
+      <FormError message={error} />
     </div>
   );
 }

@@ -1,12 +1,14 @@
 import React from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { Bot, ExternalLink } from "lucide-react";
+import { errorMessage } from "../lib/errors";
 import { MailHandover, mailApi } from "../lib/mail";
 import { MailOutletCtx } from "./MailLayout";
 import { Button } from "../components/ui/Button";
+import { useDialog } from "../components/ui/Dialog";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
 
 /**
@@ -23,18 +25,23 @@ const STATUS_STYLE: Record<MailHandover["status"], string> = {
 
 export default function MailHandovers() {
   const { company, account, changeTick } = useOutletContext<MailOutletCtx>();
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [handovers, setHandovers] = React.useState<MailHandover[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     const res = await mailApi.handovers(company.id, account.id);
     setHandovers(res.handovers);
+    setLoadError(null);
   }, [company.id, account.id]);
 
   React.useEffect(() => {
     setHandovers(null);
-    load().catch((err) => toast((err as Error).message, "error"));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setLoadError(null);
+    load().catch((err: unknown) => {
+      setLoadError(errorMessage(err, "Could not load the handovers"));
+      setHandovers([]);
+    });
   }, [load]);
 
   React.useEffect(() => {
@@ -46,10 +53,9 @@ export default function MailHandovers() {
   const retry = async (h: MailHandover) => {
     try {
       await mailApi.retryHandover(company.id, h.id);
-      toast("Retrying", "info");
       await load();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t retry the handover" });
     }
   };
 
@@ -65,7 +71,9 @@ export default function MailHandovers() {
         Threads handed to AI employees on {account.address}, newest first.
       </p>
 
-      {handovers === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : handovers === null ? (
         <div className="flex justify-center py-10">
           <Spinner size={20} />
         </div>

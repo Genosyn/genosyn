@@ -2,9 +2,9 @@ import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { BarChart3, LayoutGrid, LineChart as LineIcon, Plus, Search } from "lucide-react";
 import { api, Company } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { ContextualLayout } from "../components/AppShell";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { ExploreDashboardDetailsModal } from "../components/explore/ExploreDashboardDetailsModal";
 
@@ -49,13 +49,13 @@ export function useExplore(): ExploreContextValue {
 
 export default function ExploreLayout({ company }: { company: Company }) {
   const navigate = useNavigate();
-  const { toast } = useToast();
   const [charts, setCharts] = React.useState<ChartListItem[] | null>(null);
   const [dashboards, setDashboards] = React.useState<DashboardListItem[] | null>(null);
   const [query, setQuery] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [creatingDashboard, setCreatingDashboard] = React.useState(false);
   const [savingDashboard, setSavingDashboard] = React.useState(false);
+  const [createError, setCreateError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     const [chartResult, dashboardResult] = await Promise.allSettled([
@@ -85,6 +85,7 @@ export default function ExploreLayout({ company }: { company: Company }) {
 
   const submitDashboard = React.useCallback(
     async (details: { title: string; description: string }) => {
+      setCreateError(null);
       setSavingDashboard(true);
       try {
         const d = await api.post<{ slug: string }>(
@@ -95,12 +96,12 @@ export default function ExploreLayout({ company }: { company: Company }) {
         await reload();
         navigate(`/c/${company.slug}/explore/dashboards/${d.slug}`);
       } catch (err) {
-        toast((err as Error).message, "error");
+        setCreateError(errorMessage(err));
       } finally {
         setSavingDashboard(false);
       }
     },
-    [company.id, company.slug, navigate, reload, toast],
+    [company.id, company.slug, navigate, reload],
   );
 
   const ctx = React.useMemo<ExploreContextValue>(
@@ -254,7 +255,11 @@ export default function ExploreLayout({ company }: { company: Company }) {
         description=""
         submitLabel="Create dashboard"
         saving={savingDashboard}
-        onClose={() => setCreatingDashboard(false)}
+        error={createError}
+        onClose={() => {
+          setCreatingDashboard(false);
+          setCreateError(null);
+        }}
         onSubmit={(details) => void submitDashboard(details)}
       />
     </ExploreContext.Provider>

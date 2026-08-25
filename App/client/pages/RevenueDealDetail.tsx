@@ -32,6 +32,7 @@ import {
   formatMoney,
   parseMoneyToCents,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { RevenueCustomFieldsPanel } from "../components/revenue/RevenueCustomFieldsPanel";
 import { RevenueDocumentsPanel } from "../components/revenue/RevenueDocumentsPanel";
@@ -43,8 +44,7 @@ import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import {
   Activity,
   ActivityKind,
@@ -95,7 +95,7 @@ export default function RevenueDealDetail() {
   const { company } = useOutletContext<RevenueOutletCtx>();
   const params = useParams();
   const navigate = useNavigate();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
 
   // The lead owns the route; accept either param name rather than 404 on it.
@@ -174,18 +174,13 @@ export default function RevenueDealDetail() {
     [members, employees],
   );
 
-  function patchDeal(
-    body: Record<string, unknown>,
-    labels: { loading: string; success: string },
-    optimistic: (current: Deal) => Deal,
-  ) {
+  function patchDeal(body: Record<string, unknown>, optimistic: (current: Deal) => Deal) {
     if (!detail) return;
     const snapshot = detail;
     setDetail({ ...detail, deal: optimistic(detail.deal) });
     background(() => api.patch<Deal>(`${base}/deals/${dealId}`, body), {
-      loading: labels.loading,
-      success: labels.success,
-      error: (err) => `Couldn’t save: ${errText(err)}. The change was undone.`,
+      title: "Couldn’t save the deal",
+      error: (err) => `${errorMessage(err)} The change was undone.`,
       onSuccess: (saved) =>
         setDetail((current) => (current ? { ...current, deal: saved } : current)),
       onError: () => setDetail(snapshot),
@@ -235,9 +230,8 @@ export default function RevenueDealDetail() {
     background(
       () => api.post<Deal>(`${base}/deals/${dealId}/stage`, { stageId: target.id, lostReason }),
       {
-        loading: `Moving to ${target.name}…`,
-        success: `Moved to ${target.name}`,
-        error: (err) => `Couldn’t move the deal: ${errText(err)}. The move was undone.`,
+        title: "Couldn’t move the deal",
+        error: (err) => `${errorMessage(err)} The move was undone.`,
         // The move writes a lifecycle activity, so the timeline has to refetch.
         onSuccess: () => liveReload(),
         onError: () => setDetail(snapshot),
@@ -263,9 +257,8 @@ export default function RevenueDealDetail() {
     background(
       () => api.post<DealContactLink>(`${base}/deals/${dealId}/contacts`, { contactId, role }),
       {
-        loading: "Adding to the committee…",
-        success: `${contact?.name ?? "Contact"} added`,
-        error: (err) => `Couldn’t add them: ${errText(err)}. The list was put back.`,
+        title: "Couldn’t add them to the committee",
+        error: (err) => `${errorMessage(err)} The list was put back.`,
         onSuccess: () => liveReload(),
         onError: () => setDetail(snapshot),
       },
@@ -291,9 +284,8 @@ export default function RevenueDealDetail() {
       // The route keys on the contact id, not the join row's own id.
       () => api.del<{ ok: true }>(`${base}/deals/${dealId}/contacts/${link.contactId}`),
       {
-        loading: "Removing…",
-        success: `${name} removed`,
-        error: (err) => `Couldn’t remove them: ${errText(err)}. They were put back.`,
+        title: `Couldn’t remove ${name}`,
+        error: (err) => `${errorMessage(err)} They were put back.`,
         onError: () => setDetail(snapshot),
       },
     );
@@ -333,9 +325,8 @@ export default function RevenueDealDetail() {
           dealId,
         }),
       {
-        loading: "Logging…",
-        success: "Logged to the timeline",
-        error: (err) => `Couldn’t log that: ${errText(err)}. Nothing was saved.`,
+        title: "Couldn’t log that activity",
+        error: (err) => `${errorMessage(err)} Nothing was saved.`,
         onSuccess: () => liveReload(),
         onError: () => setDetail(snapshot),
       },
@@ -403,13 +394,7 @@ export default function RevenueDealDetail() {
         <div className="min-w-0 flex-1">
           <InlineTitle
             value={deal.title}
-            onSave={(title) =>
-              patchDeal(
-                { title },
-                { loading: "Renaming…", success: "Deal renamed" },
-                (current) => ({ ...current, title }),
-              )
-            }
+            onSave={(title) => patchDeal({ title }, (current) => ({ ...current, title }))}
           />
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
             <span className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100">
@@ -752,11 +737,7 @@ function DealFields({
   members: Member[];
   employees: Employee[];
   sources: RevenueClassification[];
-  onSave: (
-    body: Record<string, unknown>,
-    labels: { loading: string; success: string },
-    optimistic: (current: Deal) => Deal,
-  ) => void;
+  onSave: (body: Record<string, unknown>, optimistic: (current: Deal) => Deal) => void;
 }) {
   // Keyed on the values rather than on the `deal` object: `useLiveRefetch`
   // hands back a new object on every company-wide deal event, and resetting
@@ -844,10 +825,7 @@ function DealFields({
     }
     if (Object.keys(body).length === 0) return;
 
-    onSave(body, { loading: "Saving…", success: "Deal updated" }, (current) => ({
-      ...current,
-      ...next,
-    }));
+    onSave(body, (current) => ({ ...current, ...next }));
   }
 
   return (

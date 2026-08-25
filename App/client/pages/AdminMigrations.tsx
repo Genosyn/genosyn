@@ -18,12 +18,13 @@ import {
   MigrationReport,
   MigrationState,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
 
 /**
@@ -160,7 +161,6 @@ export function AdminMigrations() {
   const [report, setReport] = React.useState<MigrationReport | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const { toast } = useToast();
 
   const reload = React.useCallback(async () => {
     setLoading(true);
@@ -170,12 +170,11 @@ export function AdminMigrations() {
     } catch (err) {
       // Keep any previously-loaded report on screen; surface the failure as its
       // own state instead of masquerading as an instance with no migrations.
-      setError((err as Error).message);
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   React.useEffect(() => {
     reload();
@@ -197,6 +196,11 @@ export function AdminMigrations() {
           </Button>
         }
       />
+
+      {/* A refresh that failed on top of a report already on screen: the
+          EmptyStates below only cover the first load, and the unreadable-report
+          one keeps winning its branch however many retries fail. */}
+      {error && report !== null && <FormError message={error} className="mb-4" />}
 
       {error && report === null ? (
         <EmptyState

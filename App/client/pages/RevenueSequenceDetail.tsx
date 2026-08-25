@@ -13,17 +13,17 @@ import {
   Zap,
 } from "lucide-react";
 import { api, Employee } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { mailApi, MailAccount } from "../lib/mail";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Checkbox } from "../components/ui/Checkbox";
-import { useDialog } from "../components/ui/Dialog";
+import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
 import { RevenueOutletCtx } from "./RevenueLayout";
 import {
   ENROLLMENT_STATUS_LABEL,
@@ -158,7 +158,7 @@ function hourLabel(hour: number): string {
 export default function RevenueSequenceDetail() {
   const { company } = useOutletContext<RevenueOutletCtx>();
   const { id } = useParams();
-  const { background } = useToast();
+  const background = useBackgroundAction();
   const dialog = useDialog();
 
   const [sequence, setSequence] = React.useState<HydratedSequence | null>(null);
@@ -257,12 +257,8 @@ export default function RevenueSequenceDetail() {
       sendWindowJson: JSON.stringify(form.sendWindow),
     });
     background(() => api.patch<Sequence>(`${base}/sequences/${sequence.id}`, body), {
-      loading: "Saving sequence…",
-      success: "Sequence saved",
-      error: (error) =>
-        `Couldn’t save the sequence: ${
-          error instanceof Error ? error.message : String(error)
-        }. Your changes were kept in the form.`,
+      title: "Couldn’t save the sequence",
+      error: (error) => `${errorMessage(error)} Your changes were kept in the form.`,
       onSuccess: () => {
         formDirty.current = false;
         setSavingSettings(false);
@@ -298,12 +294,8 @@ export default function RevenueSequenceDetail() {
     background(
       () => api.patch<Sequence>(`${base}/sequences/${sequence.id}`, { autoSend: next }),
       {
-        loading: next ? "Turning auto-send on…" : "Turning auto-send off…",
-        success: next ? "Auto-send is on" : "Auto-send is off",
-        error: (error) =>
-          `Couldn’t change auto-send: ${
-            error instanceof Error ? error.message : String(error)
-          }. The switch was put back.`,
+        title: "Couldn’t change auto-send",
+        error: (error) => `${errorMessage(error)} The switch was put back.`,
         onSuccess: () => void reload(),
         onError: () => setSequence(previous),
       },
@@ -325,12 +317,8 @@ export default function RevenueSequenceDetail() {
           })),
         }),
       {
-        loading: "Saving steps…",
-        success: "Step ladder saved",
-        error: (error) =>
-          `Couldn’t save the steps: ${
-            error instanceof Error ? error.message : String(error)
-          }. Your ladder was kept in the editor.`,
+        title: "Couldn’t save the steps",
+        error: (error) => `${errorMessage(error)} Your ladder was kept in the editor.`,
         onSuccess: () => {
           stepsDirty.current = false;
           setSavingSteps(false);
@@ -361,12 +349,8 @@ export default function RevenueSequenceDetail() {
         ) ?? current,
     );
     background(() => api.post(`${base}/enrollments/${row.id}/stop`, {}), {
-      loading: "Stopping…",
-      success: "Enrolment stopped",
-      error: (error) =>
-        `Couldn’t stop the enrolment: ${
-          error instanceof Error ? error.message : String(error)
-        }. It is still running.`,
+      title: "Couldn’t stop the enrolment",
+      error: (error) => `${errorMessage(error)} It is still running.`,
       onSuccess: () => void reload(),
       onError: () => setEnrollments(previous),
     });

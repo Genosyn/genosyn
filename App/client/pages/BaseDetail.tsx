@@ -41,13 +41,14 @@ import {
   isBaseResourceFieldType,
   SelectOption,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Spinner } from "../components/ui/Spinner";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { useBases } from "./BasesLayout";
 import {
@@ -146,12 +147,12 @@ function sortDirectionLabels(type: BaseFieldType): { asc: string; desc: string }
 export default function BaseDetail({ company }: { company: Company }) {
   const { baseSlug, tableSlug } = useParams();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const { activeDetail, reloadActive, reload: reloadBases } = useBases();
 
   const [content, setContent] = React.useState<BaseTableContent | null>(null);
   const [contentLoading, setContentLoading] = React.useState(false);
+  const [contentError, setContentError] = React.useState<string | null>(null);
   const [showSettings, setShowSettings] = React.useState(false);
   const [showAssistant, setShowAssistant] = React.useState(false);
   const [openRecordId, setOpenRecordId] = React.useState<string | null>(null);
@@ -167,6 +168,11 @@ export default function BaseDetail({ company }: { company: Company }) {
     if (tableSlug) return detail.tables.find((t) => t.slug === tableSlug) ?? null;
     return detail.tables.find((table) => !table.archivedAt) ?? null;
   }, [detail, tableSlug]);
+
+  // `content` lags a table switch — it still holds the previous table's rows
+  // until the new fetch lands. Only trust it once it names the table on screen.
+  const contentForTable =
+    content && currentTable && content.table.id === currentTable.id ? content : null;
 
   // Route to the first table when landing on the bare base URL.
   React.useEffect(() => {
@@ -192,13 +198,18 @@ export default function BaseDetail({ company }: { company: Company }) {
           `/api/companies/${company.id}/bases/${detail.base.slug}/tables/${currentTable.id}/rows`,
         );
         setContent(d);
+        setContentError(null);
       } catch (err) {
-        toast((err as Error).message, "error");
+        // A silent refetch (live socket, post-mutation reload) is background
+        // work: it must not take over a grid the user is working in, and the
+        // mutation that triggered it already owns its own error surface.
+        if (silent) return;
+        setContentError(errorMessage(err, "Could not load this table"));
       } finally {
         if (!silent) setContentLoading(false);
       }
     },
-    [company.id, currentTable, detail, toast],
+    [company.id, currentTable, detail],
   );
 
   React.useEffect(() => {
@@ -212,9 +223,11 @@ export default function BaseDetail({ company }: { company: Company }) {
   useLiveRefetch("baserecord", liveReloadContent, currentTable?.id ?? null);
 
   // Reset the active view whenever the user switches tables — view IDs are
-  // per-table so the previous selection is meaningless on the next one.
+  // per-table so the previous selection is meaningless on the next one. The
+  // load error goes with it: it described the table we just left.
   React.useEffect(() => {
     setActiveViewId(null);
+    setContentError(null);
   }, [currentTable?.id]);
 
   React.useEffect(() => {
@@ -268,11 +281,11 @@ export default function BaseDetail({ company }: { company: Company }) {
           patch,
         );
       } catch (err) {
-        toast((err as Error).message, "error");
+        void dialog.error(err, { title: "Couldn’t update the view" });
         setContent(prev);
       }
     },
-    [activeView, company.id, content, currentTable, detail, toast],
+    [activeView, company.id, content, currentTable, detail, dialog],
   );
 
   const createView = React.useCallback(async () => {
@@ -292,9 +305,9 @@ export default function BaseDetail({ company }: { company: Company }) {
       await loadContent(true);
       setActiveViewId(created.id);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t create the view" });
     }
-  }, [company.id, content, currentTable, detail, dialog, loadContent, toast]);
+  }, [company.id, content, currentTable, detail, dialog, loadContent]);
 
   const renameView = React.useCallback(
     async (viewId: string) => {
@@ -314,10 +327,10 @@ export default function BaseDetail({ company }: { company: Company }) {
         );
         await loadContent(true);
       } catch (err) {
-        toast((err as Error).message, "error");
+        void dialog.error(err, { title: "Couldn’t rename the view" });
       }
     },
-    [company.id, content, currentTable, detail, dialog, loadContent, toast],
+    [company.id, content, currentTable, detail, dialog, loadContent],
   );
 
   const deleteView = React.useCallback(
@@ -339,19 +352,10 @@ export default function BaseDetail({ company }: { company: Company }) {
         if (activeViewId === viewId) setActiveViewId(null);
         await loadContent(true);
       } catch (err) {
-        toast((err as Error).message, "error");
+        void dialog.error(err, { title: "Couldn’t delete the view" });
       }
     },
-    [
-      activeViewId,
-      company.id,
-      content,
-      currentTable,
-      detail,
-      dialog,
-      loadContent,
-      toast,
-    ],
+    [activeViewId, company.id, content, currentTable, detail, dialog, loadContent],
   );
 
   if (!detail) {
@@ -427,16 +431,18 @@ export default function BaseDetail({ company }: { company: Company }) {
               This base has no active tables. Add one or restore an archived table
               from the sidebar.
             </div>
-          ) : contentLoading && !content ? (
+          ) : contentError && !contentForTable ? (
+            <FormError message={contentError} className="m-4" />
+          ) : contentLoading && !contentForTable ? (
             <div className="flex h-full items-center justify-center">
               <Spinner />
             </div>
-          ) : content ? (
+          ) : contentForTable ? (
             <Grid
               base={base}
               table={currentTable}
               tables={tables}
-              content={content}
+              content={contentForTable}
               onReload={() => loadContent(true)}
               onTablesReload={reloadActive}
               companyId={company.id}
@@ -453,8 +459,8 @@ export default function BaseDetail({ company }: { company: Company }) {
         </div>
       </div>
 
-      {openRecordId && currentTable && content && (() => {
-        const record = content.records.find((r) => r.id === openRecordId);
+      {openRecordId && currentTable && contentForTable && (() => {
+        const record = contentForTable.records.find((r) => r.id === openRecordId);
         if (!record) return null;
         return (
           <RecordDetailDrawer
@@ -462,9 +468,9 @@ export default function BaseDetail({ company }: { company: Company }) {
             base={base}
             table={currentTable}
             record={record}
-            fields={content.fields}
-            linkOptions={content.linkOptions}
-            resourceOptions={content.resourceOptions}
+            fields={contentForTable.fields}
+            linkOptions={contentForTable.linkOptions}
+            resourceOptions={contentForTable.resourceOptions}
             onClose={() => setOpenRecordId(null)}
             onChanged={() => loadContent(true)}
           />
@@ -535,7 +541,6 @@ function Grid({
     patch: Partial<Pick<BaseView, "name" | "filters" | "sorts" | "hiddenFieldIds">>,
   ) => Promise<void> | void;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const { fields, records, linkOptions, resourceOptions, views } = content;
   const [pendingLinkField, setPendingLinkField] = React.useState<string | null>(null);
@@ -634,7 +639,7 @@ function Grid({
       );
       await onReload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t save the cell" });
       await onReload();
     }
   }
@@ -647,7 +652,7 @@ function Grid({
       );
       await onReload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t add the row" });
     }
   }
 
@@ -658,7 +663,7 @@ function Grid({
       );
       await onReload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the row" });
     }
   }
 
@@ -711,9 +716,10 @@ function Grid({
       );
       setSelectedIds(new Set());
       await onReload();
-      toast(`Deleted ${ids.length} ${ids.length === 1 ? "row" : "rows"}`, "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, {
+        title: `Couldn’t delete the ${ids.length === 1 ? "row" : "rows"}`,
+      });
     }
   }
 
@@ -751,7 +757,7 @@ function Grid({
       await onReload();
       await onTablesReload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t add the field" });
     }
   }
 
@@ -764,7 +770,7 @@ function Grid({
       await onReload();
       await onTablesReload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t add the link field" });
     }
   }
 
@@ -776,7 +782,7 @@ function Grid({
       );
       await onReload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t update the field" });
     }
   }
 
@@ -794,7 +800,7 @@ function Grid({
       );
       await onReload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the field" });
     }
   }
 
@@ -1580,17 +1586,18 @@ function BaseSettingsModal({
   onSaved: () => Promise<void>;
   onDeleted: () => void;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [name, setName] = React.useState(base.name);
   const [description, setDescription] = React.useState(base.description);
   const [icon, setIcon] = React.useState(base.icon);
   const [color, setColor] = React.useState(base.color);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState<"general" | "access">("general");
 
   async function save() {
     setBusy(true);
+    setError(null);
     try {
       await api.patch(`/api/companies/${company.id}/bases/${base.slug}`, {
         name,
@@ -1601,7 +1608,7 @@ function BaseSettingsModal({
       await onSaved();
       onClose();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1616,11 +1623,12 @@ function BaseSettingsModal({
     });
     if (!ok) return;
     setBusy(true);
+    setError(null);
     try {
       await api.del(`/api/companies/${company.id}/bases/${base.slug}`);
       onDeleted();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1717,6 +1725,8 @@ function BaseSettingsModal({
               </div>
             </div>
 
+            <FormError message={error} />
+
             <div className="mt-2 flex items-center justify-between">
               <Button variant="danger" onClick={remove} disabled={busy}>
                 <Trash2 size={14} /> Delete base
@@ -1772,11 +1782,12 @@ function BaseAccessTab({
   base: Base;
   onClose: () => void;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [grants, setGrants] = React.useState<BaseGrant[] | null>(null);
   const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [picker, setPicker] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [grantError, setGrantError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     try {
@@ -1788,11 +1799,12 @@ function BaseAccessTab({
       ]);
       setGrants(g);
       setEmployees(emps);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load access"));
       setGrants([]);
     }
-  }, [base.slug, company.id, toast]);
+  }, [base.slug, company.id]);
 
   React.useEffect(() => {
     reload();
@@ -1808,16 +1820,16 @@ function BaseAccessTab({
   );
 
   async function grant(emp: Employee) {
+    setGrantError(null);
     try {
       await api.post<BaseGrant>(
         `/api/companies/${company.id}/bases/${base.slug}/grants`,
         { employeeId: emp.id },
       );
-      toast(`Granted ${emp.name}`, "success");
       setPicker(false);
       reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setGrantError(errorMessage(err));
     }
   }
 
@@ -1834,9 +1846,8 @@ function BaseAccessTab({
         `/api/companies/${company.id}/bases/${base.slug}/grants/${g.employeeId}`,
       );
       setGrants((prev) => (prev ?? []).filter((x) => x.id !== g.id));
-      toast("Revoked", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t revoke access" });
     }
   }
 
@@ -1852,7 +1863,9 @@ function BaseAccessTab({
         </p>
       </div>
 
-      {grants === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : grants === null ? (
         <div className="flex justify-center py-6">
           <Spinner size={16} />
         </div>
@@ -1918,7 +1931,11 @@ function BaseAccessTab({
       {picker && (
         <EmployeePickerModal
           employees={grantable}
-          onCancel={() => setPicker(false)}
+          error={grantError}
+          onCancel={() => {
+            setPicker(false);
+            setGrantError(null);
+          }}
           onPick={grant}
         />
       )}
@@ -1928,10 +1945,12 @@ function BaseAccessTab({
 
 function EmployeePickerModal({
   employees,
+  error,
   onCancel,
   onPick,
 }: {
   employees: Employee[];
+  error: string | null;
   onCancel: () => void;
   onPick: (e: Employee) => void;
 }) {
@@ -1958,6 +1977,7 @@ function EmployeePickerModal({
           </button>
         </div>
         <div className="max-h-[60vh] overflow-y-auto p-3">
+          <FormError message={error} className="mb-2" />
           {employees.length === 0 ? (
             <p className="px-2 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
               Every AI employee already has access.

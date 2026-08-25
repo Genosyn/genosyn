@@ -3,14 +3,16 @@ import { useOutletContext, useParams } from "react-router-dom";
 import { AlertTriangle, Database, Play, Save, ShieldAlert } from "lucide-react";
 import { api, Employee } from "../lib/api";
 import { cronHuman, cronIsReadable } from "../lib/cron";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
+import { useBackgroundAction } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
 import { RevenueOutletCtx } from "./RevenueLayout";
 import { HydratedSequence } from "./RevenueSequences";
 import {
@@ -103,7 +105,7 @@ function renderCell(value: unknown): string {
 export default function RevenueSignalDetail() {
   const { company } = useOutletContext<RevenueOutletCtx>();
   const { id } = useParams();
-  const { background, toast } = useToast();
+  const background = useBackgroundAction();
 
   const [signal, setSignal] = React.useState<Signal | null>(null);
   const [events, setEvents] = React.useState<SignalEvent[]>([]);
@@ -117,6 +119,7 @@ export default function RevenueSignalDetail() {
   const [saving, setSaving] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
   const [testResult, setTestResult] = React.useState<TestSignalResult | null>(null);
+  const [testError, setTestError] = React.useState<string | null>(null);
 
   // Refs, not state: a live refetch must not overwrite half-typed SQL, and the
   // reload callback has to stay stable for the socket subscription.
@@ -190,12 +193,8 @@ export default function RevenueSignalDetail() {
     const previous = signal;
     setSignal({ ...signal, enabled: next });
     background(() => api.patch<Signal>(`${base}/signals/${signal.id}`, { enabled: next }), {
-      loading: next ? "Enabling signal…" : "Disabling signal…",
-      success: next ? "Signal enabled" : "Signal disabled",
-      error: (error) =>
-        `Couldn’t change the signal: ${
-          error instanceof Error ? error.message : String(error)
-        }. The switch was put back.`,
+      title: "Couldn’t change the signal",
+      error: (error) => `${errorMessage(error)} The switch was put back.`,
       onSuccess: () => void reload(),
       onError: () => setSignal(previous),
     });
@@ -222,12 +221,8 @@ export default function RevenueSignalDetail() {
     setSaving(true);
     setSignal({ ...signal, ...body, actionConfigJson: JSON.stringify(config) });
     background(() => api.patch<Signal>(`${base}/signals/${signal.id}`, body), {
-      loading: "Saving signal…",
-      success: "Signal saved",
-      error: (error) =>
-        `Couldn’t save the signal: ${
-          error instanceof Error ? error.message : String(error)
-        }. Your changes were kept in the form.`,
+      title: "Couldn’t save the signal",
+      error: (error) => `${errorMessage(error)} Your changes were kept in the form.`,
       onSuccess: () => {
         formDirty.current = false;
         setSaving(false);
@@ -244,11 +239,12 @@ export default function RevenueSignalDetail() {
     if (!signal) return;
     setTesting(true);
     setTestResult(null);
+    setTestError(null);
     try {
       const result = await api.post<TestSignalResult>(`${base}/signals/${signal.id}/test`, {});
       setTestResult(result);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setTestError(errorMessage(err, "The test run couldn’t be started"));
     } finally {
       setTesting(false);
     }
@@ -433,6 +429,7 @@ export default function RevenueSignalDetail() {
             </p>
           </div>
 
+          <FormError message={testError} />
           {testResult && <TestOutput result={testResult} />}
         </div>
       </section>

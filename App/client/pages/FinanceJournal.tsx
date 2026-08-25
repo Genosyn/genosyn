@@ -11,13 +11,14 @@ import {
   LedgerEntrySource,
   parseMoneyToCents,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
-import { useToast } from "../components/ui/Toast";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -139,13 +140,15 @@ const UNKNOWN_SOURCE_BADGE = {
  */
 export default function FinanceJournal() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [entries, setEntries] = React.useState<LedgerEntry[] | null>(null);
   const [accounts, setAccounts] = React.useState<Account[]>([]);
   const [homeCurrency, setHomeCurrency] = React.useState("USD");
   const [loadError, setLoadError] = React.useState(false);
   const [showNew, setShowNew] = React.useState(false);
+  // A proposal never lands in this feed, so staging one leaves nothing on
+  // screen to show for it. Everything else here confirms itself.
+  const [notice, setNotice] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     const [es, as, settings] = await Promise.all([
@@ -169,6 +172,7 @@ export default function FinanceJournal() {
   useLiveRefetch(["ledger", "financeaccount"], reload);
 
   async function remove(e: LedgerEntry) {
+    setNotice(null);
     const ok = await dialog.confirm({
       title: "Delete this manual entry?",
       message: "The lines disappear from the trial balance immediately.",
@@ -180,7 +184,7 @@ export default function FinanceJournal() {
       await api.del(`/api/companies/${company.id}/ledger-entries/${e.id}`);
       reload();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the entry" });
     }
   }
 
@@ -201,10 +205,17 @@ export default function FinanceJournal() {
             rows are auto-posted; manual rows are for accountant adjustments.
           </p>
         </div>
-        <Button onClick={() => setShowNew(true)}>
+        <Button
+          onClick={() => {
+            setNotice(null);
+            setShowNew(true);
+          }}
+        >
           <Plus size={14} /> Manual entry
         </Button>
       </div>
+
+      <FormSuccess message={notice} className="mb-4" />
 
       {loadError ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white p-12 text-center dark:border-slate-700 dark:bg-slate-900">
@@ -263,8 +274,9 @@ export default function FinanceJournal() {
           accounts={accounts}
           homeCurrency={homeCurrency}
           onClose={() => setShowNew(false)}
-          onSaved={() => {
+          onSaved={(message) => {
             setShowNew(false);
+            setNotice(message ?? null);
             reload();
           }}
         />
@@ -427,13 +439,14 @@ function NewEntryModal({
   accounts: Account[];
   homeCurrency: string;
   onClose: () => void;
-  onSaved: () => void;
+  /** `notice` is surfaced by the page once the modal has closed. */
+  onSaved: (notice?: string) => void;
 }) {
-  const { toast } = useToast();
   const [date, setDate] = React.useState(new Date().toISOString().slice(0, 10));
   const [memo, setMemo] = React.useState("");
   const [lines, setLines] = React.useState<DraftLine[]>([emptyLine("debit"), emptyLine("credit")]);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   const totals = React.useMemo(() => {
     let d = 0;
@@ -475,8 +488,9 @@ function NewEntryModal({
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     if (!totals.balanced) {
-      toast("Debits and credits must match", "error");
+      setError("Debits and credits must match");
       return;
     }
     setBusy(true);
@@ -484,7 +498,7 @@ function NewEntryModal({
       await api.post(`/api/companies/${companyId}/ledger-entries`, buildBody());
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -494,17 +508,17 @@ function NewEntryModal({
   // posting it, so a second member applies it from the Proposals queue. Nothing
   // hits the ledger until they do.
   async function propose() {
+    setError(null);
     if (!totals.balanced) {
-      toast("Debits and credits must match", "error");
+      setError("Debits and credits must match");
       return;
     }
     setBusy(true);
     try {
       await api.post(`/api/companies/${companyId}/finance-proposals`, buildBody());
-      toast("Staged for review", "success");
-      onSaved();
+      onSaved("Staged for review");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -648,6 +662,8 @@ function NewEntryModal({
             </div>
           </div>
         </div>
+
+        <FormError message={error} />
 
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>

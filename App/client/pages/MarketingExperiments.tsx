@@ -3,8 +3,10 @@ import { Link, useOutletContext } from "react-router-dom";
 import { Check, FlaskConical, Play, Plus, Square } from "lucide-react";
 
 import { Select } from "@/components/ui/Select";
-import { useToast } from "../components/ui/Toast";
+import { useDialog } from "../components/ui/Dialog";
+import { FormError } from "../components/ui/FormError";
 import { api } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import {
   marketingStatusLabel,
   MARKETING_EXPERIMENT_STATUS_OPTIONS,
@@ -15,6 +17,7 @@ import {
 import type { MarketingOutletCtx } from "./MarketingLayout";
 import {
   EmptyState,
+  ErrorPage,
   LoadingPage,
   PageHeader,
   StatusBadge,
@@ -29,7 +32,7 @@ type Decision = { winnerCreativeId: string; rationale: string; promote: boolean 
 
 export function MarketingExperimentsPage() {
   const { company } = useOutletContext<MarketingOutletCtx>();
-  const { toast } = useToast();
+  const dialog = useDialog();
   const [rows, setRows] = React.useState<MarketingExperiment[] | null>(null);
   const [campaigns, setCampaigns] = React.useState<MarketingCampaign[]>([]);
   const [creatives, setCreatives] = React.useState<MarketingCreative[]>([]);
@@ -44,6 +47,8 @@ export function MarketingExperimentsPage() {
     creativeIds: [] as string[],
   });
   const [decisions, setDecisions] = React.useState<Record<string, Decision>>({});
+  const [loadError, setLoadError] = React.useState("");
+  const [formError, setFormError] = React.useState("");
 
   const load = React.useCallback(async () => {
     const [experiments, campaignRows, creativeRows] = await Promise.all([
@@ -63,13 +68,14 @@ export function MarketingExperimentsPage() {
   }, [company.id]);
 
   React.useEffect(() => {
-    load().catch((err: Error) => toast(err.message, "error"));
-  }, [load, toast]);
+    load().catch((err: unknown) => setLoadError(errorMessage(err, "Could not load Experiments")));
+  }, [load]);
 
   const eligible = creatives.filter((row) => row.campaignId === draft.campaignId);
 
   async function createExperiment(event: React.FormEvent) {
     event.preventDefault();
+    setFormError("");
     try {
       await api.post(`/api/companies/${company.id}/marketing/experiments`, {
         ...draft,
@@ -84,23 +90,32 @@ export function MarketingExperimentsPage() {
         minimumSampleSize: "",
         creativeIds: [],
       }));
-      await load();
-      toast("Experiment created", "success");
+      // The POST already succeeded, and closing the form takes `formError` off
+      // screen with it — so a failed refetch gets its own surface, and has to
+      // say the Experiment was created or the next submit makes a duplicate.
+      await load().catch((err: unknown) =>
+        dialog.error(err, {
+          title: "Couldn’t refresh the Experiment list",
+          message:
+            "The Experiment was created, but the list could not be reloaded. Refresh to see it. " +
+            errorMessage(err),
+        }),
+      );
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not create Experiment", "error");
+      setFormError(errorMessage(err, "Could not create Experiment"));
     }
   }
 
-  async function updateExperiment(id: string, patch: Record<string, unknown>, message: string) {
+  async function updateExperiment(id: string, patch: Record<string, unknown>, title: string) {
     try {
       await api.patch(`/api/companies/${company.id}/marketing/experiments/${id}`, patch);
       await load();
-      toast(message, "success");
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Could not update Experiment", "error");
+      void dialog.error(err, { title });
     }
   }
 
+  if (loadError) return <ErrorPage message={loadError} />;
   if (!rows) return <LoadingPage />;
 
   const creativeById = new Map(creatives.map((row) => [row.id, row]));
@@ -117,7 +132,10 @@ export function MarketingExperimentsPage() {
           <button
             className={primaryButton}
             disabled={creatives.length < 2}
-            onClick={() => setShowForm((value) => !value)}
+            onClick={() => {
+              setFormError("");
+              setShowForm((value) => !value);
+            }}
           >
             <Plus size={15} /> New Experiment
           </button>
@@ -214,6 +232,7 @@ export function MarketingExperimentsPage() {
               </p>
             )}
           </fieldset>
+          <FormError message={formError} className="mt-5" />
           <div className="mt-5 flex justify-end gap-2">
             <button type="button" className={secondaryButton} onClick={() => setShowForm(false)}>
               Cancel
@@ -321,7 +340,11 @@ export function MarketingExperimentsPage() {
                         <button
                           className={primaryButton}
                           onClick={() =>
-                            updateExperiment(row.id, { status: "running" }, "Experiment started")
+                            updateExperiment(
+                              row.id,
+                              { status: "running" },
+                              "Couldn’t start the Experiment",
+                            )
                           }
                         >
                           <Play size={14} /> Start
@@ -329,7 +352,11 @@ export function MarketingExperimentsPage() {
                         <button
                           className={secondaryButton}
                           onClick={() =>
-                            updateExperiment(row.id, { status: "stopped" }, "Experiment stopped")
+                            updateExperiment(
+                              row.id,
+                              { status: "stopped" },
+                              "Couldn’t abandon the Experiment",
+                            )
                           }
                         >
                           <Square size={14} /> Abandon
@@ -396,9 +423,7 @@ export function MarketingExperimentsPage() {
                                 decisionRationale: decision.rationale,
                                 promoteWinner: decision.promote,
                               },
-                              decision.promote
-                                ? "Winner promoted and losers retired"
-                                : "Decision recorded",
+                              "Couldn’t record the decision",
                             )
                           }
                         >
@@ -407,7 +432,11 @@ export function MarketingExperimentsPage() {
                         <button
                           className={secondaryButton}
                           onClick={() =>
-                            updateExperiment(row.id, { status: "stopped" }, "Experiment stopped")
+                            updateExperiment(
+                              row.id,
+                              { status: "stopped" },
+                              "Couldn’t stop the Experiment",
+                            )
                           }
                         >
                           <Square size={14} /> Stop

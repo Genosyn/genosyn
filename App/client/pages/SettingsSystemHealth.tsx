@@ -9,11 +9,12 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { api, HealthCheck, HealthSeverity, SystemHealthReport } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 
@@ -66,7 +67,7 @@ export function SettingsSystemHealth() {
   const { company } = useOutletContext<SettingsOutletCtx>();
   const [report, setReport] = React.useState<SystemHealthReport | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
     setLoading(true);
@@ -75,12 +76,13 @@ export function SettingsSystemHealth() {
         `/api/companies/${company.id}/system-health`,
       );
       setReport(data);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load system health"));
     } finally {
       setLoading(false);
     }
-  }, [company.id, toast]);
+  }, [company.id]);
 
   React.useEffect(() => {
     reload();
@@ -105,7 +107,9 @@ export function SettingsSystemHealth() {
         }
       />
 
-      {report === null ? (
+      {loadError ? (
+        <FormError message={loadError} />
+      ) : report === null ? (
         <Card>
           <CardBody>
             <Spinner />

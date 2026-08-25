@@ -201,8 +201,8 @@ export async function runWorkspaceGit(options: WorkspaceGitOptions): Promise<{ s
       // one — which carries every environment entry as a literal
       // `--setenv GENOSYN_REPO_TOKEN_CONNECTION ghs_…` triple. This branch is
       // reached exactly when Git printed nothing, which is the timeout and
-      // signal path, so the credential would have been handed to the browser
-      // in a toast.
+      // signal path, so the credential would have been handed straight to the
+      // browser.
       if (detail.killed || detail.signal) {
         throw new Error(
           `git ${command} did not finish in time and was stopped. A very large repository can exceed the limit; try again, and check the server can reach the remote.`,
@@ -220,7 +220,7 @@ export async function runWorkspaceGit(options: WorkspaceGitOptions): Promise<{ s
  *
  * Git does not normally echo a credential, but a remote helper, a proxy, or a
  * misconfigured URL can put one in stderr, and this string travels all the way
- * to a browser toast. Redaction is by value, taken from
+ * to the browser. Redaction is by value, taken from
  * {@link GitInvocation.secrets} — reading the launcher's own environment would
  * find nothing at all under bubblewrap, which is the mode that ships.
  */

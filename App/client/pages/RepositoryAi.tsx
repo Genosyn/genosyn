@@ -6,7 +6,7 @@ import { Button, buttonClassName } from "../components/ui/Button";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { formatRelative } from "../components/decisions/relative";
 import { SessionPane } from "../components/repositories/SessionPane";
@@ -32,6 +32,7 @@ import {
   RepositoryWorkSessionCandidatesResponse,
   RepositoryWorkSessionsResponse,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 
 /**
@@ -103,7 +104,6 @@ export default function RepositoryAi() {
   const { company, currentUserId, repo } = useRepositoriesContext();
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
 
   const base = repo ? `/api/companies/${company.id}/repositories/${repo.slug}` : "";
@@ -257,7 +257,6 @@ export default function RepositoryAi() {
               canReachRemote={canReachRemote}
               checkoutBranch={checkoutBranch}
               dialog={dialog}
-              toast={toast}
               onChanged={reloadList}
               onGone={goToSessionList}
             />
@@ -274,7 +273,6 @@ export default function RepositoryAi() {
               candidates={candidates}
               error={candidatesError}
               busy={anyRunning}
-              toast={toast}
               onRetry={reloadList}
               onStarted={async (session) => {
                 await reloadList();
@@ -553,7 +551,6 @@ function NewSessionPane({
   candidates,
   error,
   busy,
-  toast,
   onRetry,
   onStarted,
 }: {
@@ -568,7 +565,6 @@ function NewSessionPane({
   error: string | null;
   /** Another session is running — worth saying, not worth blocking on. */
   busy: boolean;
-  toast: (message: string, kind?: "success" | "error") => void;
   onRetry: () => Promise<void>;
   onStarted: (session: RepositoryWorkSession) => Promise<void>;
 }) {
@@ -577,6 +573,7 @@ function NewSessionPane({
     `repository-ai-draft:${currentUserId}:${repoId}`,
   );
   const [starting, setStarting] = React.useState(false);
+  const [startError, setStartError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!candidates || candidates.length === 0) {
@@ -621,8 +618,9 @@ function NewSessionPane({
 
   async function start() {
     if (!employeeId) return;
+    setStartError(null);
     if (!instruction.trim()) {
-      toast("Say what the employee should do.", "error");
+      setStartError("Say what the employee should do.");
       return;
     }
     setStarting(true);
@@ -632,11 +630,9 @@ function NewSessionPane({
         instruction: instruction.trim(),
       });
       setInstruction("");
-      const who = candidates?.find((candidate) => candidate.id === employeeId)?.name;
-      toast(`${who ?? "The employee"} is on it. Follow along in this session.`, "success");
       await onStarted(session);
     } catch (err) {
-      toast(err instanceof Error ? err.message : String(err), "error");
+      setStartError(errorMessage(err));
     } finally {
       setStarting(false);
     }
@@ -732,6 +728,8 @@ function NewSessionPane({
               <span className="text-[10px] text-slate-400 dark:text-slate-500">⌘↵ to start</span>
             </div>
           </div>
+
+          <FormError message={startError} className="mt-4" />
 
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0 max-w-sm">

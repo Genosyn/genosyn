@@ -13,6 +13,7 @@ import {
   IntegrationConnection,
   MatchCandidate,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -20,7 +21,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
-import { useToast } from "../components/ui/Toast";
+import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -41,7 +42,6 @@ function bankFeedSourceLabel(kind: BankFeedKind): string {
  */
 export default function FinanceReconcile() {
   const { company } = useOutletContext<FinanceOutletCtx>();
-  const { toast } = useToast();
   const dialog = useDialog();
 
   const [feeds, setFeeds] = React.useState<BankFeed[] | null>(null);
@@ -52,6 +52,7 @@ export default function FinanceReconcile() {
   const [showNewFeed, setShowNewFeed] = React.useState(false);
   const [showImport, setShowImport] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [notice, setNotice] = React.useState<string | null>(null);
   const [homeCurrency, setHomeCurrency] = React.useState("USD");
 
   const reloadFeeds = React.useCallback(async () => {
@@ -84,6 +85,9 @@ export default function FinanceReconcile() {
   }, [reloadTxns]);
   useLiveRefetch("reconcile", reloadTxns);
 
+  // A sync/import summary describes one feed — drop it when the feed changes.
+  React.useEffect(() => setNotice(null), [activeFeedId]);
+
   React.useEffect(() => {
     let alive = true;
     api
@@ -115,18 +119,18 @@ export default function FinanceReconcile() {
   async function syncFeed() {
     if (!activeFeed) return;
     setBusy(true);
+    setNotice(null);
     try {
       const r = await api.post<{ inserted: number; matched: number }>(
         `/api/companies/${company.id}/bank-feeds/${activeFeed.id}/sync`,
       );
-      toast(
+      setNotice(
         `Pulled ${r.inserted} new transaction${r.inserted === 1 ? "" : "s"}, auto-matched ${r.matched}`,
-        "success",
       );
       reloadTxns();
       reloadFeeds();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t sync the feed" });
     } finally {
       setBusy(false);
     }
@@ -146,7 +150,7 @@ export default function FinanceReconcile() {
       setActiveFeedId("");
       reloadFeeds();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the feed" });
     }
   }
 
@@ -232,6 +236,8 @@ export default function FinanceReconcile() {
             )}
           </div>
 
+          <FormSuccess message={notice} className="mb-3" />
+
           <div className="mb-3 flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
             {(["unmatched", "matched", "all"] as const).map((f) => {
               const count =
@@ -311,10 +317,7 @@ export default function FinanceReconcile() {
           onClose={() => setShowImport(false)}
           onSaved={(r) => {
             setShowImport(false);
-            toast(
-              `Imported ${r.inserted}, skipped ${r.skipped}, auto-matched ${r.matched}`,
-              "success",
-            );
+            setNotice(`Imported ${r.inserted}, skipped ${r.skipped}, auto-matched ${r.matched}`);
             reloadTxns();
             reloadFeeds();
           }}
@@ -345,7 +348,9 @@ function TxnRow({
   const [candidates, setCandidates] = React.useState<MatchCandidate[] | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [catAccount, setCatAccount] = React.useState("");
-  const { toast } = useToast();
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const dialog = useDialog();
 
   const matched = !!txn.reconciledAt;
 
@@ -356,8 +361,9 @@ function TxnRow({
         `/api/companies/${companyId}/bank-transactions/${txn.id}/candidates`,
       );
       setCandidates(c);
+      setLoadError(null);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setLoadError(errorMessage(err, "Could not load the match candidates"));
       setCandidates([]);
     }
   }
@@ -376,7 +382,7 @@ function TxnRow({
       await api.post(`/api/companies/${companyId}/bank-transactions/${txn.id}/match`, body);
       onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t match the transaction" });
     } finally {
       setBusy(false);
     }
@@ -388,15 +394,16 @@ function TxnRow({
       await api.post(`/api/companies/${companyId}/bank-transactions/${txn.id}/unmatch`);
       onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t unmatch the transaction" });
     } finally {
       setBusy(false);
     }
   }
 
   async function categorize() {
+    setError(null);
     if (!catAccount) {
-      toast("Pick a category account first", "error");
+      setError("Pick a category account first");
       return;
     }
     setBusy(true);
@@ -406,7 +413,7 @@ function TxnRow({
       });
       onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -486,6 +493,8 @@ function TxnRow({
                 <X size={14} /> Unmatch
               </Button>
             </div>
+          ) : loadError ? (
+            <FormError message={loadError} />
           ) : candidates === null ? (
             <div className="flex justify-center p-4">
               <Spinner size={16} />
@@ -544,26 +553,29 @@ function TxnRow({
             </ul>
           )}
           {!matched && (
-            <div className="mt-3 flex items-end gap-2 border-t border-slate-200 pt-3 dark:border-slate-700">
-              <div className="flex-1">
-                <Select
-                  label="Or post it straight to a category"
-                  value={catAccount}
-                  onChange={(e) => setCatAccount(e.target.value)}
-                >
-                  <option value="">— Pick an account —</option>
-                  {accounts
-                    .filter((a) => !a.archivedAt)
-                    .map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.code} {a.name}
-                      </option>
-                    ))}
-                </Select>
+            <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-700">
+              <FormError message={error} className="mb-2" />
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <Select
+                    label="Or post it straight to a category"
+                    value={catAccount}
+                    onChange={(e) => setCatAccount(e.target.value)}
+                  >
+                    <option value="">— Pick an account —</option>
+                    {accounts
+                      .filter((a) => !a.archivedAt)
+                      .map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.code} {a.name}
+                        </option>
+                      ))}
+                  </Select>
+                </div>
+                <Button variant="secondary" onClick={categorize} disabled={busy || !catAccount}>
+                  Categorize
+                </Button>
               </div>
-              <Button variant="secondary" onClick={categorize} disabled={busy || !catAccount}>
-                Categorize
-              </Button>
             </div>
           )}
         </div>
@@ -585,7 +597,6 @@ function NewFeedModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { toast } = useToast();
   const [name, setName] = React.useState("");
   const [kind, setKind] = React.useState<BankFeedKind>("csv");
   const [accountId, setAccountId] = React.useState(
@@ -597,6 +608,7 @@ function NewFeedModal({
   const [brexAccounts, setBrexAccounts] = React.useState<BrexCashAccount[] | null>([]);
   const [brexAccountsError, setBrexAccountsError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   const stripeConns = connections.filter((connection) => connection.provider === "stripe");
   const brexConns = connections.filter((connection) => connection.provider === "brex");
@@ -643,6 +655,7 @@ function NewFeedModal({
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setError(null);
     try {
       await api.post(`/api/companies/${companyId}/bank-feeds`, {
         name: name.trim(),
@@ -653,7 +666,7 @@ function NewFeedModal({
       });
       onSaved();
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -767,6 +780,7 @@ function NewFeedModal({
             {brexAccountsError}
           </p>
         )}
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
@@ -802,14 +816,15 @@ function ImportCsvModal({
   onClose: () => void;
   onSaved: (r: { inserted: number; skipped: number; matched: number }) => void;
 }) {
-  const { toast } = useToast();
   const [file, setFile] = React.useState<File | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function upload(e: React.FormEvent) {
     e.preventDefault();
     if (!file) return;
     setBusy(true);
+    setError(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -823,7 +838,7 @@ function ImportCsvModal({
       if (!res.ok) throw new Error((data && data.error) || res.statusText);
       onSaved(data);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -842,6 +857,7 @@ function ImportCsvModal({
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           className="block w-full text-sm text-slate-700 file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-indigo-700 dark:text-slate-200 dark:file:bg-indigo-500/10 dark:file:text-indigo-300"
         />
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
             Cancel

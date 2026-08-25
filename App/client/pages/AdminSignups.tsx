@@ -1,11 +1,12 @@
 import React from "react";
 import { CheckCircle2, Lock, RefreshCw, Unlock } from "lucide-react";
 import { api, SignupSettings } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
+import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
-import { useToast } from "../components/ui/Toast";
 import { clsx } from "../components/ui/clsx";
 
 /**
@@ -20,15 +21,16 @@ import { clsx } from "../components/ui/clsx";
 export function AdminSignups() {
   const [data, setData] = React.useState<SignupSettings | null>(null);
   const [saving, setSaving] = React.useState(false);
-  const { toast } = useToast();
+  const [error, setError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
+    setError(null);
     try {
       setData(await api.get<SignupSettings>("/api/admin/signup-settings"));
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err, "Could not load the sign-up settings"));
     }
-  }, [toast]);
+  }, []);
 
   React.useEffect(() => {
     reload();
@@ -38,11 +40,15 @@ export function AdminSignups() {
     return (
       <>
         <TopBar title="Sign-ups" />
-        <Card>
-          <CardBody>
-            <Spinner />
-          </CardBody>
-        </Card>
+        {error ? (
+          <FormError message={error} />
+        ) : (
+          <Card>
+            <CardBody>
+              <Spinner />
+            </CardBody>
+          </Card>
+        )}
       </>
     );
   }
@@ -51,14 +57,14 @@ export function AdminSignups() {
 
   const setDisabled = async (next: boolean) => {
     setSaving(true);
+    setError(null);
     try {
       const saved = await api.put<SignupSettings>("/api/admin/signup-settings", {
         signupsDisabled: next,
       });
       setData(saved);
-      toast(saved.signupsDisabled ? "Sign-ups disabled" : "Sign-ups enabled", "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err, "Could not save the sign-up setting"));
     } finally {
       setSaving(false);
     }
@@ -99,6 +105,8 @@ export function AdminSignups() {
             />
           </CardBody>
         </Card>
+
+        <FormError message={error} />
       </div>
     </>
   );

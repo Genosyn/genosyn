@@ -13,7 +13,6 @@ import {
 import { Breadcrumbs } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
-import { useToast } from "../components/ui/Toast";
 import { useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -167,7 +166,6 @@ function ProposalCard({
   homeCurrency: string;
   onChanged: () => Promise<void> | void;
 }) {
-  const { toast } = useToast();
   const dialog = useDialog();
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -196,10 +194,9 @@ function ProposalCard({
     setBusy(true);
     try {
       await api.post(`/api/companies/${companyId}/finance-proposals/${proposal.id}/apply`, {});
-      toast("Applied", "success");
       await onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t apply the proposal" });
     } finally {
       setBusy(false);
     }
@@ -217,10 +214,9 @@ function ProposalCard({
       await api.post(`/api/companies/${companyId}/finance-proposals/${proposal.id}/reject`, {
         note: note || undefined,
       });
-      toast("Rejected", "success");
       await onChanged();
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t reject the proposal" });
     } finally {
       setBusy(false);
     }

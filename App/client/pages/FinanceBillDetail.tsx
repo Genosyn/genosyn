@@ -10,6 +10,7 @@ import {
   parseMoneyToCents,
   VendorCreditDetail,
 } from "../lib/api";
+import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
@@ -18,7 +19,7 @@ import { Modal } from "../components/ui/Modal";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
 import { Textarea } from "../components/ui/Textarea";
-import { useToast } from "../components/ui/Toast";
+import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { FinanceOutletCtx } from "./FinanceLayout";
 
@@ -39,7 +40,6 @@ export default function FinanceBillDetail() {
   const { company } = useOutletContext<FinanceOutletCtx>();
   const { billSlug } = useParams();
   const navigate = useNavigate();
-  const { toast } = useToast();
   const dialog = useDialog();
   const [bill, setBill] = React.useState<Bill | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -54,7 +54,7 @@ export default function FinanceBillDetail() {
       setBill(b);
       setLoadError(null);
     } catch (err) {
-      setLoadError((err as Error).message);
+      setLoadError(errorMessage(err, "Could not load the bill"));
     }
   }, [company.id, billSlug]);
 
@@ -73,9 +73,8 @@ export default function FinanceBillDetail() {
       );
       setBill(fresh);
       navigate(`/c/${company.slug}/finance/bills/${fresh.slug}`, { replace: true });
-      toast(`Issued as ${fresh.number}`, "success");
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t issue the bill" });
     } finally {
       setBusy(false);
     }
@@ -94,7 +93,7 @@ export default function FinanceBillDetail() {
       const fresh = await api.post<Bill>(`/api/companies/${company.id}/bills/${bill.slug}/void`);
       setBill(fresh);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t void the bill" });
     } finally {
       setBusy(false);
     }
@@ -112,7 +111,7 @@ export default function FinanceBillDetail() {
       await api.del(`/api/companies/${company.id}/bills/${bill.slug}`);
       navigate(`/c/${company.slug}/finance/bills`);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the draft" });
     }
   }
 
@@ -130,7 +129,7 @@ export default function FinanceBillDetail() {
       );
       setBill(fresh);
     } catch (err) {
-      toast((err as Error).message, "error");
+      void dialog.error(err, { title: "Couldn’t delete the payment" });
     }
   }
 
@@ -416,18 +415,22 @@ function VendorCreditModal({
   onClose: () => void;
   onCreated: (credit: VendorCreditDetail) => void;
 }) {
-  const { toast } = useToast();
   const [mode, setMode] = React.useState<"full" | "amount">("full");
   const [amount, setAmount] = React.useState((bill.balanceCents / 100).toFixed(2));
   const [applyNow, setApplyNow] = React.useState(true);
   const [reason, setReason] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   async function submit() {
+    setError(null);
     const body: Record<string, unknown> = { mode, applyNow, reason: reason.trim() || undefined };
     if (mode === "amount") {
       const amountCents = parseMoneyToCents(amount);
-      if (amountCents <= 0) return toast("Enter a positive amount", "error");
+      if (amountCents <= 0) {
+        setError("Enter a positive amount");
+        return;
+      }
       body.amountCents = amountCents;
     }
     setBusy(true);
@@ -439,7 +442,7 @@ function VendorCreditModal({
         ),
       );
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -470,6 +473,7 @@ function VendorCreditModal({
           <input type="checkbox" checked={applyNow} onChange={(e) => setApplyNow(e.target.checked)} />
           Apply to this bill now (reduce its balance)
         </label>
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button onClick={submit} disabled={busy}>{busy ? "Creating…" : "Create vendor credit"}</Button>
@@ -490,18 +494,19 @@ function PaymentModal({
   onClose: () => void;
   onSaved: (fresh: Bill) => void;
 }) {
-  const { toast } = useToast();
   const [amount, setAmount] = React.useState((bill.balanceCents / 100).toFixed(2));
   const [paidAt, setPaidAt] = React.useState(new Date().toISOString().slice(0, 10));
   const [method, setMethod] = React.useState<BillPaymentMethod>("bank_transfer");
   const [reference, setReference] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
   const cents = parseMoneyToCents(amount);
   const overpay = cents > bill.balanceCents;
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     setBusy(true);
     try {
       const fresh = await api.post<Bill>(
@@ -517,7 +522,7 @@ function PaymentModal({
       );
       onSaved(fresh);
     } catch (err) {
-      toast((err as Error).message, "error");
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -544,6 +549,7 @@ function PaymentModal({
         </Select>
         <Input label="Reference (optional)" value={reference} onChange={(e) => setReference(e.target.value)} />
         <Textarea label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+        <FormError message={error} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button type="submit" disabled={busy || cents <= 0 || overpay}>Record payment</Button>
