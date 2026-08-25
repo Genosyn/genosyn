@@ -38,6 +38,7 @@ import {
   duplicateInvoice,
   getInvoiceEmailDetails,
   hydrateInvoices,
+  type InvoiceSendResult,
   issueInvoice,
   listInvoiceResendActivities,
   loadCustomerBySlug,
@@ -46,6 +47,7 @@ import {
   postInvoicePayment,
   recomputeInvoiceTotals,
   replaceInvoiceLines,
+  resolveInvoiceRecipients,
   reverseInvoicePayment,
   sendInvoiceEmail,
   uniqueCustomerSlug,
@@ -137,11 +139,13 @@ import {
   createEstimateDraft,
   declineEstimate,
   duplicateEstimate,
+  type EstimateSendResult,
   hydrateEstimates,
   issueEstimate,
   loadEstimateBySlug,
   recomputeEstimateTotals,
   replaceEstimateLines,
+  resolveEstimateRecipient,
   sendEstimateEmail,
   voidEstimate,
 } from "../services/estimates.js";
@@ -1110,12 +1114,47 @@ financeRouter.post("/invoices/:slug/send", validateBody(invoiceSendSchema), asyn
     });
   }
   const isResend = inv.status !== "draft";
-  if (inv.status === "draft") {
-    inv = await issueInvoice(inv, req.userId ?? null);
-  }
   const body = req.body as z.infer<typeof invoiceSendSchema>;
+  // Issuing a draft mints its gapless number and re-slugs the row from
+  // `draft-…` to `inv-nnnn`, so once we have issued, the caller *must* be told
+  // the new slug — an error response instead leaves the open detail page
+  // refetching a slug that no longer exists and reporting the invoice as
+  // deleted. So: refuse up front for the reasons visible up front (no
+  // customer, no recipient), and downgrade anything that fails after the issue
+  // to a failed send rather than an error status.
+  let issuedHere = false;
   try {
-    const result = await sendInvoiceEmail(cid, inv, req.userId ?? null, body);
+    await resolveInvoiceRecipients(cid, inv, body);
+    if (inv.status === "draft") {
+      inv = await issueInvoice(inv, req.userId ?? null);
+      issuedHere = true;
+    }
+  } catch (err) {
+    return res.status(400).json({ error: (err as Error).message });
+  }
+  let result: InvoiceSendResult;
+  try {
+    result = await sendInvoiceEmail(cid, inv, req.userId ?? null, body);
+  } catch (err) {
+    const errorMessage = (err as Error).message;
+    if (!issuedHere) return res.status(400).json({ error: errorMessage });
+    result = {
+      status: "failed",
+      logId: "",
+      errorMessage,
+      transport: "console",
+      toAddress: "",
+      ccAddress: "",
+      fromAddress: "",
+      replyTo: "",
+      pdfRequested: body.attachPdf,
+      pdfAttached: false,
+      hasMessage: Boolean(body.message.trim()),
+    };
+  }
+  // Express 4 does not catch a rejected async handler, so the tail stays
+  // guarded too — an unanswered request is worse than an error.
+  try {
     if (isResend) {
       await recordAudit({
         companyId: cid,
@@ -2131,13 +2170,36 @@ financeRouter.post("/estimates/:slug/send", async (req, res) => {
   if (est.status === "void") {
     return res.status(409).json({ error: "Voided estimates cannot be sent" });
   }
-  if (est.status === "draft") {
-    est = await issueEstimate(est, req.userId ?? null);
-  }
+  // Issuing a draft mints its gapless number and re-slugs the row from
+  // `edraft-…` to `est-nnnn`, so once we have issued, the caller *must* be
+  // told the new slug — an error response instead leaves the open detail page
+  // refetching a slug that no longer exists and reporting the estimate as
+  // deleted. So: refuse up front for the reasons visible up front (no
+  // customer, no address), and downgrade anything that fails after the issue
+  // to a failed send rather than an error status.
+  let issuedHere = false;
   try {
-    const result = await sendEstimateEmail(cid, est, req.userId ?? null);
+    await resolveEstimateRecipient(cid, est);
+    if (est.status === "draft") {
+      est = await issueEstimate(est, req.userId ?? null);
+      issuedHere = true;
+    }
+  } catch (err) {
+    return res.status(400).json({ error: (err as Error).message });
+  }
+  let send: EstimateSendResult;
+  try {
+    send = await sendEstimateEmail(cid, est, req.userId ?? null);
+  } catch (err) {
+    const errorMessage = (err as Error).message;
+    if (!issuedHere) return res.status(400).json({ error: errorMessage });
+    send = { status: "failed", logId: "", errorMessage };
+  }
+  // Express 4 does not catch a rejected async handler, so the tail stays
+  // guarded too — an unanswered request is worse than an error.
+  try {
     const [hydrated] = await hydrateEstimates(cid, [est]);
-    res.json({ estimate: hydrated, send: result });
+    res.json({ estimate: hydrated, send });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }

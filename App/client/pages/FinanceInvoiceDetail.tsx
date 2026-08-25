@@ -125,6 +125,14 @@ export default function FinanceInvoiceDetail() {
   const [showCreditNote, setShowCreditNote] = React.useState(false);
   const [showResend, setShowResend] = React.useState(false);
 
+  // True once this slug has loaded. Issuing a draft re-slugs the invoice from
+  // `draft-…` to `inv-nnnn`, and the socket refetch that write triggers can
+  // land in the moment before we navigate to the new URL. Reading that 404 as
+  // "deleted" is what made Issue & send blank the page out from under the
+  // invoice it had just issued — so once we have something on screen, a failed
+  // background refetch leaves it there and waits for the next one.
+  const shown = React.useRef(false);
+
   const reload = React.useCallback(async () => {
     if (!invoiceSlug) return;
     try {
@@ -136,13 +144,17 @@ export default function FinanceInvoiceDetail() {
       setResendActivities(inv.resendActivities);
       setWriteOffs(inv.writeOffs ?? []);
       setCreditApplications(inv.creditApplications ?? []);
+      shown.current = true;
       setLoadError(null);
     } catch (err) {
+      if (shown.current) return;
       setLoadError(errorMessage(err, "Could not load the invoice"));
     }
   }, [company.id, invoiceSlug]);
 
   React.useEffect(() => {
+    // A different invoice is a fresh page: its own 404 is worth showing.
+    shown.current = false;
     reload();
   }, [reload]);
 
@@ -316,9 +328,19 @@ export default function FinanceInvoiceDetail() {
   if (loadError) {
     return (
       <div className="mx-auto max-w-3xl p-8 text-sm text-slate-500">
-        {loadError === "Invoice not found"
-          ? "This invoice doesn't exist or was deleted."
-          : loadError}
+        <p>
+          {loadError === "Invoice not found"
+            ? "This invoice doesn't exist or was deleted."
+            : loadError}
+        </p>
+        {/* A dead URL should not be a dead end — an invoice that was issued
+            under an older link is still sitting in the list. */}
+        <Link
+          to={`/c/${company.slug}/finance/invoices`}
+          className="mt-3 inline-block text-slate-600 underline hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+        >
+          Back to invoices
+        </Link>
       </div>
     );
   }

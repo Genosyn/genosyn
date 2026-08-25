@@ -57,6 +57,14 @@ export default function FinanceEstimateDetail() {
   const [busy, setBusy] = React.useState(false);
   const [sendNotice, setSendNotice] = React.useState<string | null>(null);
 
+  // True once this slug has loaded. Issuing a draft re-slugs the estimate from
+  // `edraft-…` to `est-nnnn`, and the socket refetch that write triggers can
+  // land in the moment before we navigate to the new URL. Reading that 404 as
+  // "deleted" is what made Issue & send blank the page out from under the
+  // estimate it had just issued — so once we have something on screen, a
+  // failed background refetch leaves it there and waits for the next one.
+  const shown = React.useRef(false);
+
   const reload = React.useCallback(async () => {
     if (!estimateSlug) return;
     try {
@@ -64,13 +72,17 @@ export default function FinanceEstimateDetail() {
         `/api/companies/${company.id}/estimates/${estimateSlug}`,
       );
       setEstimate(est);
+      shown.current = true;
       setLoadError(null);
     } catch (err) {
+      if (shown.current) return;
       setLoadError(errorMessage(err, "Could not load the estimate"));
     }
   }, [company.id, estimateSlug]);
 
   React.useEffect(() => {
+    // A different estimate is a fresh page: its own 404 is worth showing.
+    shown.current = false;
     reload();
   }, [reload]);
 
@@ -258,9 +270,19 @@ export default function FinanceEstimateDetail() {
   if (loadError) {
     return (
       <div className="mx-auto max-w-3xl p-8 text-sm text-slate-500">
-        {loadError === "Estimate not found"
-          ? "This estimate doesn't exist or was deleted."
-          : loadError}
+        <p>
+          {loadError === "Estimate not found"
+            ? "This estimate doesn't exist or was deleted."
+            : loadError}
+        </p>
+        {/* A dead URL should not be a dead end — an estimate that was issued
+            under an older link is still sitting in the list. */}
+        <Link
+          to={`/c/${company.slug}/finance/estimates`}
+          className="mt-3 inline-block text-slate-600 underline hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+        >
+          Back to estimates
+        </Link>
       </div>
     );
   }

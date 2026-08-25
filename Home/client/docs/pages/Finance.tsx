@@ -116,6 +116,14 @@ export function Finance() {
         copy of the estimate as an attachment — delivered through whichever{" "}
         <DocLink to="/docs/integrations">EmailProvider</DocLink> the company has configured.
       </P>
+      <P>
+        <Code>Issue &amp; send</Code> checks that there is somewhere to send before it issues
+        anything. If the customer has no email address on file, the estimate stays a draft with its
+        <Code>edraft-xxxxxx</Code> slug and no number is minted — add the address and click again.
+        The same holds for invoices, where issuing also posts to the ledger: a send that cannot go
+        out leaves the draft, its number, and the books untouched. A delivery that fails later — the
+        SMTP host is down, say — is reported on the detail page, and the document is still issued.
+      </P>
 
       <H2 id="customers">Customers</H2>
       <P>

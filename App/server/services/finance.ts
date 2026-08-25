@@ -280,6 +280,14 @@ export async function issueInvoice(
   if (!customer) {
     throw new Error("Customer for this invoice no longer exists");
   }
+  // What to put back if the ledger refuses the entry below.
+  const draftState = {
+    numberSeq: invoice.numberSeq,
+    number: invoice.number,
+    slug: invoice.slug,
+    status: invoice.status,
+    sentAt: invoice.sentAt,
+  };
   const seq = await mintNextInvoiceSeq(invoice.companyId, invoice.customerId);
   invoice.numberSeq = seq;
   // Display number carries the customer slug as a prefix, e.g.
@@ -294,6 +302,7 @@ export async function issueInvoice(
   await AppDataSource.getRepository(Invoice).save(invoice);
   // Customer is the account record before and after billing. Issuing its first
   // invoice is the objective transition from prospect to customer.
+  const promotedFrom = customer.accountStatus;
   if (customer.accountStatus === "prospect") {
     customer.accountStatus = "customer";
     await AppDataSource.getRepository(Customer).save(customer);
@@ -301,7 +310,23 @@ export async function issueInvoice(
   const recomputed = await recomputeInvoiceTotals(invoice);
   // Auto-post: DR Accounts Receivable / CR Sales Revenue + Tax Payable.
   // Phase B (M19) — see services/ledger.ts and ROADMAP.md.
-  await postInvoiceIssue(recomputed, actorUserId);
+  try {
+    await postInvoiceIssue(recomputed, actorUserId);
+  } catch (err) {
+    // Issuing is all-or-nothing. The rename above is already committed, and
+    // the ledger has real reasons to refuse — a missing exchange rate, a
+    // closed period. Leaving the invoice renamed but unposted burned a gapless
+    // number for nothing and, worse, moved it to a URL nobody had been told
+    // about: the open detail page then reported it as deleted. Put the draft
+    // back and let the caller see the ledger's own error.
+    Object.assign(recomputed, draftState);
+    await AppDataSource.getRepository(Invoice).save(recomputed);
+    if (promotedFrom === "prospect") {
+      customer.accountStatus = promotedFrom;
+      await AppDataSource.getRepository(Customer).save(customer);
+    }
+    throw err;
+  }
   return recomputed;
 }
 
@@ -879,6 +904,50 @@ export async function listInvoiceResendActivities(
   });
 }
 
+export type InvoiceSendResult = {
+  status: "sent" | "skipped" | "failed";
+  logId: string;
+  errorMessage: string;
+  transport: string;
+  toAddress: string;
+  ccAddress: string;
+  fromAddress: string;
+  replyTo: string;
+  pdfRequested: boolean;
+  pdfAttached: boolean;
+  hasMessage: boolean;
+};
+
+/**
+ * Resolve who an invoice email would be addressed to, throwing the same
+ * errors {@link sendInvoiceEmail} would.
+ *
+ * Split out so `/invoices/:slug/send` can refuse *before* auto-issuing a
+ * draft. Issuing mints the gapless number and re-slugs the row from `draft-…`
+ * to `inv-nnnn`, so a failure discovered afterwards left the caller holding a
+ * URL that no longer resolved — the open detail page then reported a
+ * perfectly live invoice as deleted.
+ */
+export async function resolveInvoiceRecipients(
+  companyId: string,
+  invoice: Invoice,
+  options: { to?: string[] } = {},
+): Promise<{ customer: Customer; to: string[] }> {
+  const customer = await AppDataSource.getRepository(Customer).findOneBy({
+    id: invoice.customerId,
+    companyId,
+  });
+  if (!customer) throw new Error("Customer not found");
+  if (!customer.email && options.to === undefined) {
+    throw new Error("Customer has no email address — add one before sending");
+  }
+  const to = normalizeRecipientAddresses(
+    options.to ?? (customer.email ? [customer.email] : []),
+  );
+  if (to.length === 0) throw new Error("Add at least one To recipient");
+  return { customer, to };
+}
+
 /**
  * Email the rendered HTML invoice to the customer's `email`. Uses the
  * company's default `EmailProvider` if one exists, falling back to the
@@ -895,40 +964,17 @@ export async function sendInvoiceEmail(
     to?: string[];
     cc?: string[];
   } = {},
-): Promise<{
-  status: "sent" | "skipped" | "failed";
-  logId: string;
-  errorMessage: string;
-  transport: string;
-  toAddress: string;
-  ccAddress: string;
-  fromAddress: string;
-  replyTo: string;
-  pdfRequested: boolean;
-  pdfAttached: boolean;
-  hasMessage: boolean;
-}> {
-  const [customer, settings] = await Promise.all([
-    AppDataSource.getRepository(Customer).findOneBy({
-      id: invoice.customerId,
-      companyId,
-    }),
+): Promise<InvoiceSendResult> {
+  const [{ customer, to }, settings] = await Promise.all([
+    resolveInvoiceRecipients(companyId, invoice, options),
     getFinanceSettings(companyId),
   ]);
-  if (!customer) throw new Error("Customer not found");
-  if (!customer.email && options.to === undefined) {
-    throw new Error("Customer has no email address — add one before sending");
-  }
-  const to = normalizeRecipientAddresses(
-    options.to ?? (customer.email ? [customer.email] : []),
-  );
   const cc = normalizeRecipientAddresses([
     ...settings.invoiceCcEmails,
     ...(options.cc ?? []),
   ]).filter(
     (address) => !to.some((toAddress) => toAddress.toLowerCase() === address.toLowerCase()),
   );
-  if (to.length === 0) throw new Error("Add at least one To recipient");
   const toAddress = to.join(", ");
   const ccAddress = cc.join(", ");
   const [lines, payments] = await Promise.all([

@@ -287,6 +287,7 @@ import {
   postInvoicePayment,
   recomputeInvoiceTotals,
   replaceInvoiceLines,
+  resolveInvoiceRecipients,
   sendInvoiceEmail,
   uniqueCustomerSlug,
   voidInvoice,
@@ -2242,16 +2243,27 @@ mcpInternalRouter.post(
         });
       }
     }
+    const sendOptions = {
+      message: body.message,
+      attachPdf: body.attachPdf ?? true,
+      to: body.to,
+      cc: body.cc ?? [],
+    };
+    // Issuing re-slugs the invoice from `draft-…` to `inv-nnnn`, so failing
+    // after that point would answer with an error that never names the new
+    // slug — and the caller's next `invoiceSlug` lookup would 404, reading as
+    // "this invoice was deleted" when it is issued and sitting in the list.
+    // Check the recipients up front, the same way the human route does.
+    try {
+      await resolveInvoiceRecipients(cid, inv, sendOptions);
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
     try {
       // Auto-issue drafts first (mints the number, posts DR AR / CR Revenue),
       // matching the human "Send" button.
       if (inv.status === "draft") inv = await issueInvoice(inv, null);
-      const result = await sendInvoiceEmail(cid, inv, null, {
-        message: body.message,
-        attachPdf: body.attachPdf ?? true,
-        to: body.to,
-        cc: body.cc ?? [],
-      });
+      const result = await sendInvoiceEmail(cid, inv, null, sendOptions);
       const [hydrated] = await hydrateInvoices(cid, [inv]);
       await aiWriteTrail(req, {
         action: "finance.invoice.send",

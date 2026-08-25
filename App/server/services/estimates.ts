@@ -548,6 +548,37 @@ export function displayEstimateStatus(
 
 // ─────────────────────────── Email send ────────────────────────────────
 
+export type EstimateSendResult = {
+  status: "sent" | "skipped" | "failed";
+  logId: string;
+  errorMessage: string;
+};
+
+/**
+ * Resolve the customer an estimate email would be addressed to, throwing the
+ * same errors {@link sendEstimateEmail} would.
+ *
+ * Split out so `/estimates/:slug/send` can refuse *before* auto-issuing a
+ * draft. Issuing mints the gapless number and re-slugs the row from
+ * `edraft-…` to `est-nnnn`, so a failure discovered afterwards left the
+ * caller holding a URL that no longer resolved — the open detail page then
+ * reported a perfectly live estimate as deleted.
+ */
+export async function resolveEstimateRecipient(
+  companyId: string,
+  estimate: Estimate,
+): Promise<Customer> {
+  const customer = await AppDataSource.getRepository(Customer).findOneBy({
+    id: estimate.customerId,
+    companyId,
+  });
+  if (!customer) throw new Error("Customer not found");
+  if (!customer.email) {
+    throw new Error("Customer has no email address — add one before sending");
+  }
+  return customer;
+}
+
 /**
  * Email the rendered HTML estimate to the customer's `email`. Uses the
  * company's default `EmailProvider` if one exists, falling back to the
@@ -558,15 +589,8 @@ export async function sendEstimateEmail(
   companyId: string,
   estimate: Estimate,
   triggeredByUserId: string | null,
-): Promise<{ status: "sent" | "skipped" | "failed"; logId: string; errorMessage: string }> {
-  const customer = await AppDataSource.getRepository(Customer).findOneBy({
-    id: estimate.customerId,
-    companyId,
-  });
-  if (!customer) throw new Error("Customer not found");
-  if (!customer.email) {
-    throw new Error("Customer has no email address — add one before sending");
-  }
+): Promise<EstimateSendResult> {
+  const customer = await resolveEstimateRecipient(companyId, estimate);
   const lines = await AppDataSource.getRepository(EstimateLineItem).find({
     where: { estimateId: estimate.id },
     order: { sortOrder: "ASC" },

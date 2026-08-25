@@ -47,18 +47,30 @@ export default function FinanceBillDetail() {
   const [showPay, setShowPay] = React.useState(false);
   const [showCredit, setShowCredit] = React.useState(false);
 
+  // True once this slug has loaded. Issuing a draft re-slugs the bill from
+  // `bdraft-…` to `bil-nnnn`, and the socket refetch that write triggers can
+  // land in the moment before we navigate to the new URL. Reading that 404 as
+  // "deleted" is what made Issue blank the page out from under the bill it had
+  // just issued — so once we have something on screen, a failed background
+  // refetch leaves it there and waits for the next one.
+  const shown = React.useRef(false);
+
   const reload = React.useCallback(async () => {
     if (!billSlug) return;
     try {
       const b = await api.get<Bill>(`/api/companies/${company.id}/bills/${billSlug}`);
       setBill(b);
+      shown.current = true;
       setLoadError(null);
     } catch (err) {
+      if (shown.current) return;
       setLoadError(errorMessage(err, "Could not load the bill"));
     }
   }, [company.id, billSlug]);
 
   React.useEffect(() => {
+    // A different bill is a fresh page: its own 404 is worth showing.
+    shown.current = false;
     reload();
   }, [reload]);
 

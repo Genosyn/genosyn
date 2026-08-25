@@ -180,6 +180,14 @@ export async function issueBill(
       throw new Error("Pick an expense account on every line before issuing");
     }
   }
+  // What to put back if the ledger refuses the entry below.
+  const draftState = {
+    numberSeq: bill.numberSeq,
+    number: bill.number,
+    slug: bill.slug,
+    status: bill.status,
+    receivedAt: bill.receivedAt,
+  };
   const seq = await mintNextBillSeq(bill.companyId);
   bill.numberSeq = seq;
   bill.number = formatBillNumber(seq);
@@ -188,7 +196,19 @@ export async function issueBill(
   bill.receivedAt = new Date();
   await AppDataSource.getRepository(Bill).save(bill);
   const recomputed = await recomputeBillTotals(bill);
-  await postBillIssue(recomputed, lines, actorUserId);
+  try {
+    await postBillIssue(recomputed, lines, actorUserId);
+  } catch (err) {
+    // Issuing is all-or-nothing, exactly as it is for invoices: the rename
+    // above is already committed, and the ledger has real reasons to refuse —
+    // a missing exchange rate, an archived expense account. Leaving the bill
+    // renamed but unposted burned a gapless number for nothing and moved it to
+    // a URL nobody had been told about, so the page it was issued from
+    // reported a live bill as deleted. Put the draft back.
+    Object.assign(recomputed, draftState);
+    await AppDataSource.getRepository(Bill).save(recomputed);
+    throw err;
+  }
   return recomputed;
 }
 
