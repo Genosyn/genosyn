@@ -158,7 +158,15 @@ function guidance(category: ErrorCategory, model: AIModel): string[] {
         ];
   }
   if (category === "timeout") {
+    if (model.authMode === "subscription") {
+      return [
+        "• The Codex app-server manages retries for subscription-auth turns.",
+        "• Confirm the model service is healthy and not overloaded.",
+        "• Retry once the service is responding normally.",
+      ];
+    }
     return [
+      "• Genosyn retries an unanswered turn ten times with backoff before reporting this.",
       "• Confirm the model service is healthy and not overloaded.",
       "• Check proxy and load-balancer timeouts between Genosyn and the model API.",
       "• Retry once the service is responding normally.",

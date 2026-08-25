@@ -7,11 +7,25 @@
  * interrupts the backoff instead of waiting for an SDK timeout.
  */
 
-/** Total provider calls allowed for one turn, counting the first. */
-export const MODEL_TURN_MAX_ATTEMPTS = 5;
+/**
+ * Total provider calls allowed for one turn, counting the first — one attempt
+ * plus ten retries.
+ *
+ * A model service that times out or 5xxs is usually overloaded rather than
+ * broken, and the failure often outlasts a handful of quick retries. Riding it
+ * out beats handing the employee an error it can do nothing about: nothing has
+ * been streamed yet, the backoff below keeps the pressure off the service, and
+ * the chat or Run deadline still bounds the whole turn.
+ */
+export const MODEL_TURN_MAX_ATTEMPTS = 11;
 
 const RETRY_BASE_DELAY_MS = 1_000;
-const RETRY_MAX_DELAY_MS = 8_000;
+/**
+ * Ceiling for one wait, matching the `Retry-After` cap so no single backoff
+ * parks an employee longer than half a minute either way. Ten retries reach it
+ * on the sixth, for a worst case near three minutes of waiting per turn.
+ */
+const RETRY_MAX_DELAY_MS = 30_000;
 const RETRY_AFTER_MAX_MS = 30_000;
 
 type ErrorRecord = Record<string, unknown>;

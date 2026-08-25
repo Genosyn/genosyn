@@ -358,13 +358,16 @@ export function Models() {
       <H3 id="model-errors">When a chat or Run reports a model error</H3>
       <P>
         For API-key and custom-endpoint models, temporary model-service and network failures are
-        retried automatically before Genosyn reports an error. Each model turn gets up to{" "}
-        <Strong>five attempts</Strong> with a short exponential backoff; provider{" "}
-        <Code>Retry-After</Code> guidance is respected up to 30 seconds, and cancelling the chat or
-        Run cancels the wait. A turn is never replayed after visible output has started, because
-        doing so could duplicate a partial answer. Run transcripts record each retry on a{" "}
-        <Code>[model]</Code> line. The Codex app-server manages retries for subscription-auth turns,
-        so those turns do not use Genosyn&apos;s five-attempt loop or its retry transcript lines.
+        retried automatically before Genosyn reports an error. Each model turn gets{" "}
+        <Strong>one attempt plus ten retries</Strong> with exponential backoff — waits of roughly
+        1s, 2s, 4s, 8s and 16s, then 30s for every retry after that, so a model service that stays
+        down costs about three minutes of waiting before the error surfaces. A provider{" "}
+        <Code>Retry-After</Code> header wins over that schedule and is respected up to 30 seconds,
+        and cancelling the chat or Run cancels the wait. A turn is never replayed after visible
+        output has started, because doing so could duplicate a partial answer. Run transcripts
+        record each retry on a <Code>[model]</Code> line. The Codex app-server manages retries for
+        subscription-auth turns, so those turns do not use Genosyn&apos;s retry loop or its retry
+        transcript lines.
       </P>
       <P>
         The error names the model used for that turn, shows the safe host-only endpoint, preserves

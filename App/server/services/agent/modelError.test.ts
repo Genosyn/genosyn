@@ -53,14 +53,20 @@ describe("formatModelError classification", () => {
   });
 
   test("recognizes timeouts by status, name, and message", () => {
-    assert.match(
-      formatModelError(model("openai"), { statusCode: 504, message: "gateway" }),
-      /did not respond in time/,
-    );
+    const gateway = formatModelError(model("openai"), { statusCode: 504, message: "gateway" });
+    assert.match(gateway, /did not respond in time/);
+    assert.match(gateway, /retries an unanswered turn ten times with backoff/);
     assert.match(
       formatModelError(model("openai"), { name: "AbortError", message: "cancelled" }),
       /did not respond in time/,
     );
+
+    const subscription = formatModelError(model("openai", { authMode: "subscription" }), {
+      statusCode: 504,
+      message: "gateway",
+    });
+    assert.match(subscription, /Codex app-server manages retries/);
+    assert.doesNotMatch(subscription, /Genosyn retries an unanswered turn/);
   });
 
   test("recognizes context-window failures before treating them as generic requests", () => {
