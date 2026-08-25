@@ -679,7 +679,14 @@ export type ConversationSummary = {
   legacyUnclaimed?: boolean;
 };
 export type ConversationMessageRole = "user" | "assistant";
-export type ConversationMessageStatus = "working" | "ok" | "skipped" | "error" | "busy";
+/** `interrupted` — a Member stopped this turn; the partial reply is kept. */
+export type ConversationMessageStatus =
+  | "working"
+  | "ok"
+  | "skipped"
+  | "error"
+  | "busy"
+  | "interrupted";
 /** Tool-driven write the AI employee performed during this chat turn. */
 export type MessageAction = {
   action: string;
@@ -2177,6 +2184,8 @@ export type RepositoryWorkSession = {
   pullRequestUrl: string | null;
   pullRequestNumber: number | null;
   finishedAt: string | null;
+  /** Set once a Member filed the session away; it leaves the inbox, not the DB. */
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
   employee: RepositoryWorkSessionEmployee | null;

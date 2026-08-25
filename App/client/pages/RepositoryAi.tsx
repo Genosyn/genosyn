@@ -1,6 +1,17 @@
 import React from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { CircleCheck, Inbox, Plus, Search, ShieldCheck, Sparkles, Users, X } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  CircleCheck,
+  Inbox,
+  Plus,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Users,
+  X,
+} from "lucide-react";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button, buttonClassName } from "../components/ui/Button";
 import { Select } from "../components/ui/Select";
@@ -18,6 +29,7 @@ import {
   SESSION_INBOX_GROUP_LABEL,
   SESSION_INBOX_GROUP_ORDER,
   groupSessions,
+  isArchived,
   isGithubRemote,
   matchesSessionSearch,
   sessionSubtitle,
@@ -123,6 +135,13 @@ export default function RepositoryAi() {
   const goToSessionList = React.useCallback(() => navigate(aiBase), [navigate, aiBase]);
 
   const [sessions, setSessions] = React.useState<RepositoryWorkSession[] | null>(null);
+  /**
+   * The filed-away sessions, read separately rather than filtered out of one
+   * list. The point of archiving is that a repository with two hundred
+   * finished sessions stops shipping all two hundred of them to draw a
+   * sidebar; a client-side filter would ship them anyway.
+   */
+  const [archived, setArchived] = React.useState<RepositoryWorkSession[] | null>(null);
   const [candidates, setCandidates] = React.useState<
     RepositoryWorkSessionCandidatesResponse["employees"] | null
   >(null);
@@ -135,8 +154,9 @@ export default function RepositoryAi() {
   const reloadList = React.useCallback(async () => {
     if (!base) return;
     const request = ++listRequest.current;
-    const [sessionRows, candidateRows, status] = await Promise.allSettled([
+    const [sessionRows, archivedRows, candidateRows, status] = await Promise.allSettled([
       api.get<RepositoryWorkSessionsResponse>(`${base}/sessions`),
+      api.get<RepositoryWorkSessionsResponse>(`${base}/sessions?archived=1`),
       api.get<RepositoryWorkSessionCandidatesResponse>(`${base}/session-candidates`),
       // Accepting work merges it into whatever branch this checkout is on,
       // and the page used to ask people to approve that without ever naming
@@ -155,6 +175,11 @@ export default function RepositoryAi() {
           : "Could not load work sessions.",
       );
     }
+
+    // The archive is secondary: it is read for a count and for the drawer
+    // behind a toggle, and a failure to load it must not take the inbox with
+    // it. Left as null, the toggle simply says nothing is there yet.
+    if (archivedRows.status === "fulfilled") setArchived(archivedRows.value.sessions);
 
     // Candidate and history failures are deliberately independent. A broken
     // grant read should not erase a useful session history, and vice versa.
@@ -175,12 +200,27 @@ export default function RepositoryAi() {
   React.useEffect(() => {
     listRequest.current += 1;
     setSessions(null);
+    setArchived(null);
     setCandidates(null);
     setSessionsError(null);
     setCandidatesError(null);
     setCheckoutBranch(null);
     void reloadList();
   }, [reloadList]);
+
+  const setSessionArchived = React.useCallback(
+    async (session: RepositoryWorkSession, next: boolean) => {
+      try {
+        await api.post(`${base}/sessions/${session.id}/archive`, { archived: next });
+        await reloadList();
+      } catch (err) {
+        void dialog.error(err, {
+          title: next ? "Couldn’t archive the work session" : "Couldn’t restore the work session",
+        });
+      }
+    },
+    [base, reloadList, dialog],
+  );
 
   useLiveRefetch("repository", reloadList, repoId);
 
@@ -235,11 +275,13 @@ export default function RepositoryAi() {
         <SessionInbox
           companyId={company.id}
           sessions={sessions}
+          archived={archived}
           error={sessionsError}
           activeId={sessionId ?? null}
           aiBase={aiBase}
           onRetry={reloadList}
           onSelect={(id) => navigate(id ? `${aiBase}/${id}` : aiBase)}
+          onArchivedChange={setSessionArchived}
         />
 
         <div className="min-w-0 flex-1">
@@ -291,24 +333,51 @@ export default function RepositoryAi() {
 function SessionInbox({
   companyId,
   sessions,
+  archived,
   error,
   activeId,
   aiBase,
   onRetry,
   onSelect,
+  onArchivedChange,
 }: {
   companyId: string;
   sessions: RepositoryWorkSession[] | null;
+  archived: RepositoryWorkSession[] | null;
   error: string | null;
   activeId: string | null;
   aiBase: string;
   onRetry: () => Promise<void>;
   onSelect: (sessionId: string | null) => void;
+  onArchivedChange: (session: RepositoryWorkSession, archived: boolean) => Promise<void>;
 }) {
   const [query, setQuery] = React.useState("");
-  const visible = (sessions ?? []).filter((session) => matchesSessionSearch(session, query));
+  const [showArchive, setShowArchive] = React.useState(false);
+  const archivedRows = archived ?? [];
+
+  /**
+   * Opening an archived session — from its own URL, from a colleague's link —
+   * switches the list to the archive. Otherwise the sidebar sits there
+   * insisting the thing on screen does not exist.
+   */
+  const activeIsArchived = !!activeId && archivedRows.some((row) => row.id === activeId);
+  React.useEffect(() => {
+    if (activeIsArchived) setShowArchive(true);
+  }, [activeIsArchived]);
+
+  /**
+   * The archive is a flat list in the order things were filed away, not the
+   * inbox's status grouping. Grouping it would put a "Needs attention" heading
+   * over sessions somebody archived precisely to say they need nothing, and
+   * would reorder a history whose only useful order is most-recent-first.
+   */
+  const listed = showArchive ? archivedRows : (sessions ?? []);
+  const visible = listed.filter((session) => matchesSessionSearch(session, query));
   const groups = groupSessions(visible);
-  const activeMissing = !!activeId && !sessions?.some((session) => session.id === activeId);
+  const activeMissing =
+    !!activeId &&
+    !sessions?.some((session) => session.id === activeId) &&
+    !archivedRows.some((session) => session.id === activeId);
 
   return (
     <aside className="w-full shrink-0 lg:sticky lg:top-4 lg:w-72 xl:w-80">
@@ -346,6 +415,22 @@ function SessionInbox({
                     {sessionTitle(session)} — {SESSION_STATUS_LABEL[session.status]}
                   </option>
                 ))}
+                {/* A phone gets no second list to toggle to, so the archive
+                  lives here as its own group: still out of the way, still
+                  reachable, and still searchable by the same index. */}
+                {archivedRows.length > 0 && (
+                  <optgroup label="Archived">
+                    {archivedRows.map((session) => (
+                      <option
+                        key={session.id}
+                        value={session.id}
+                        data-search-text={sessionSearchText(session)}
+                      >
+                        {sessionTitle(session)} — {SESSION_STATUS_LABEL[session.status]}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </Select>
             </div>
             {error && (
@@ -360,21 +445,51 @@ function SessionInbox({
       <div className="hidden max-h-[calc(100vh-9rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900 lg:flex">
         <div className="border-b border-slate-100 p-3 dark:border-slate-800">
           <div className="flex items-center justify-between gap-2">
-            <div>
+            <div className="min-w-0">
               <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                Work sessions
+                {showArchive ? "Archived sessions" : "Work sessions"}
               </h2>
               <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                {sessions?.length ?? 0} recent
+                {showArchive
+                  ? `${archivedRows.length} archived`
+                  : `${sessions?.length ?? 0} recent`}
               </p>
             </div>
-            {activeId && (
-              <Link to={aiBase} className={buttonClassName({ size: "sm" })}>
-                <Plus size={13} /> New
-              </Link>
-            )}
+            <div className="flex shrink-0 items-center gap-1">
+              {/* Hidden until there is something to hide. An empty archive is
+                a control that only ever shows an empty list. */}
+              {(showArchive || archivedRows.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => setShowArchive((current) => !current)}
+                  aria-pressed={showArchive}
+                  title={showArchive ? "Back to the inbox" : "Show archived sessions"}
+                  // The visible label is a bare count, which is no name at all
+                  // read aloud.
+                  aria-label={
+                    showArchive
+                      ? "Back to the inbox"
+                      : `Show ${archivedRows.length} archived session${archivedRows.length === 1 ? "" : "s"}`
+                  }
+                  className={
+                    "inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-colors " +
+                    (showArchive
+                      ? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                      : "text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300")
+                  }
+                >
+                  {showArchive ? <Inbox size={13} /> : <Archive size={13} />}
+                  {showArchive ? "Inbox" : archivedRows.length}
+                </button>
+              )}
+              {activeId && (
+                <Link to={aiBase} className={buttonClassName({ size: "sm" })}>
+                  <Plus size={13} /> New
+                </Link>
+              )}
+            </div>
           </div>
-          {sessions !== null && sessions.length > 4 && (
+          {listed.length > 4 && (
             <label className="relative mt-3 block">
               <Search
                 size={13}
@@ -383,8 +498,8 @@ function SessionInbox({
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search sessions"
-                aria-label="Search work sessions"
+                placeholder={showArchive ? "Search archived" : "Search sessions"}
+                aria-label={showArchive ? "Search archived sessions" : "Search work sessions"}
                 className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-8 pr-8 text-xs text-slate-700 placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:focus:border-indigo-700 dark:focus:ring-indigo-900/30"
               />
               {query && (
@@ -408,16 +523,18 @@ function SessionInbox({
             </div>
           ) : error && sessions === null ? (
             <InlineRetry message={error} onRetry={onRetry} compact />
-          ) : sessions?.length === 0 ? (
+          ) : listed.length === 0 ? (
             <div className="px-4 py-10 text-center">
               <span className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500">
-                <Inbox size={16} />
+                {showArchive ? <Archive size={16} /> : <Inbox size={16} />}
               </span>
               <p className="mt-3 text-xs font-medium text-slate-600 dark:text-slate-300">
-                No sessions yet
+                {showArchive ? "Nothing archived" : "No sessions yet"}
               </p>
               <p className="mt-1 text-[11px] leading-4 text-slate-400 dark:text-slate-500">
-                Your delegated work will stay organized here.
+                {showArchive
+                  ? "Archive a finished session to file it away without throwing the work out."
+                  : "Your delegated work will stay organized here."}
               </p>
             </div>
           ) : visible.length === 0 ? (
@@ -431,33 +548,49 @@ function SessionInbox({
                   <InlineRetry message={error} onRetry={onRetry} compact />
                 </div>
               )}
-              {SESSION_INBOX_GROUP_ORDER.map((group) => {
-                const rows = groups[group];
-                if (rows.length === 0) return null;
-                return (
-                  <section key={group} className="mb-3 last:mb-0">
-                    <div className="flex items-center justify-between px-2 pb-1 pt-1">
-                      <h3 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                        {SESSION_INBOX_GROUP_LABEL[group]}
-                      </h3>
-                      <span className="font-mono text-[10px] tabular-nums text-slate-300 dark:text-slate-600">
-                        {rows.length}
-                      </span>
-                    </div>
-                    <ul className="space-y-0.5">
-                      {rows.map((session) => (
-                        <SessionInboxRow
-                          key={session.id}
-                          companyId={companyId}
-                          session={session}
-                          active={session.id === activeId}
-                          href={`${aiBase}/${session.id}`}
-                        />
-                      ))}
-                    </ul>
-                  </section>
-                );
-              })}
+              {showArchive && (
+                <ul className="space-y-0.5">
+                  {visible.map((session) => (
+                    <SessionInboxRow
+                      key={session.id}
+                      companyId={companyId}
+                      session={session}
+                      active={session.id === activeId}
+                      href={`${aiBase}/${session.id}`}
+                      onArchivedChange={onArchivedChange}
+                    />
+                  ))}
+                </ul>
+              )}
+              {!showArchive &&
+                SESSION_INBOX_GROUP_ORDER.map((group) => {
+                  const rows = groups[group];
+                  if (rows.length === 0) return null;
+                  return (
+                    <section key={group} className="mb-3 last:mb-0">
+                      <div className="flex items-center justify-between px-2 pb-1 pt-1">
+                        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          {SESSION_INBOX_GROUP_LABEL[group]}
+                        </h3>
+                        <span className="font-mono text-[10px] tabular-nums text-slate-300 dark:text-slate-600">
+                          {rows.length}
+                        </span>
+                      </div>
+                      <ul className="space-y-0.5">
+                        {rows.map((session) => (
+                          <SessionInboxRow
+                            key={session.id}
+                            companyId={companyId}
+                            session={session}
+                            active={session.id === activeId}
+                            href={`${aiBase}/${session.id}`}
+                            onArchivedChange={onArchivedChange}
+                          />
+                        ))}
+                      </ul>
+                    </section>
+                  );
+                })}
             </>
           )}
         </div>
@@ -471,21 +604,38 @@ function SessionInboxRow({
   session,
   active,
   href,
+  onArchivedChange,
 }: {
   companyId: string;
   session: RepositoryWorkSession;
   active: boolean;
   href: string;
+  onArchivedChange: (session: RepositoryWorkSession, archived: boolean) => Promise<void>;
 }) {
   const tone = SESSION_STATUS_TONE[session.status];
   const employeeName = session.employee?.name ?? "Removed employee";
+  const archived = isArchived(session);
+  const [busy, setBusy] = React.useState(false);
+  // A turn in flight is the one thing that must not be filed away mid-work,
+  // and it is the one thing the server refuses too.
+  const canArchive = session.status !== "running";
+
+  async function toggle() {
+    setBusy(true);
+    try {
+      await onArchivedChange(session, !archived);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <li className="relative">
+    <li className="group/row relative">
       <Link
         to={href}
         aria-current={active ? "page" : undefined}
         className={
-          "group flex items-start gap-2.5 rounded-lg px-2.5 py-2.5 transition-colors " +
+          "group flex items-start gap-2.5 rounded-lg py-2.5 pl-2.5 pr-9 transition-colors " +
           (active
             ? "bg-indigo-50 ring-1 ring-inset ring-indigo-100 dark:bg-indigo-500/10 dark:ring-indigo-500/20"
             : "hover:bg-slate-50 dark:hover:bg-slate-800/60")
@@ -534,6 +684,24 @@ function SessionInboxRow({
           )}
         </span>
       </Link>
+      {/* Outside the Link, not inside it: a button nested in an anchor is
+        invalid markup and swallows the navigation people expect from the rest
+        of the row. Kept visible on focus so it is reachable by keyboard, and
+        always visible on touch, where there is no hover to reveal it with. */}
+      {canArchive && (
+        <button
+          type="button"
+          onClick={() => void toggle()}
+          disabled={busy}
+          title={archived ? "Put this session back in the inbox" : "Archive this session"}
+          aria-label={
+            archived ? `Restore ${sessionTitle(session)}` : `Archive ${sessionTitle(session)}`
+          }
+          className="absolute right-1.5 top-2 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-slate-200 hover:text-slate-600 focus-visible:opacity-100 disabled:opacity-50 group-hover/row:opacity-100 dark:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200 [@media(hover:none)]:opacity-100"
+        >
+          {archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+        </button>
+      )}
     </li>
   );
 }

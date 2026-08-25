@@ -607,10 +607,10 @@ test("retries a transient provider failure and reports the attempt", async () =>
 
   assert.equal(calls, 2);
   assert.equal(result.finalText, "recovered");
-  assert.deepEqual(retries, [{ attempt: 2, maxAttempts: 5, delayMs: 0, reason: "HTTP 500" }]);
+  assert.deepEqual(retries, [{ attempt: 2, maxAttempts: 11, delayMs: 0, reason: "HTTP 500" }]);
 });
 
-test("stops after five transient attempts", async () => {
+test("stops after eleven transient attempts", async () => {
   let calls = 0;
   await assert.rejects(
     runAgentLoop({
@@ -628,7 +628,7 @@ test("stops after five transient attempts", async () => {
     }),
     /still failing/,
   );
-  assert.equal(calls, 5);
+  assert.equal(calls, 11);
 });
 
 test("does not retry a permanent error or replay a partial streamed answer", async () => {

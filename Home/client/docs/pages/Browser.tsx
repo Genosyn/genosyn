@@ -317,6 +317,13 @@ export function Browser() {
         torn down while someone is watching.
       </P>
       <P>
+        The panel keeps whatever you last did to it. Collapse it to a rail, or hide it with the{" "}
+        <Strong>×</Strong> in its header, and it stays that way through a reload and through coming
+        back to the thread later — a reload is not a request to reopen a browser you sent away.
+        Hiding one session does not hide the next: when the employee opens a browser again, the
+        panel comes back.
+      </P>
+      <P>
         Taking over also unlocks the <Strong>address bar</Strong> above the page, along with back,
         forward and reload. Type a URL and press Enter to go somewhere the employee did not — useful
         when a sign-in bounces you to a settings page the model never opened. <Code>Ctrl</Code>/
@@ -405,6 +412,18 @@ export function Browser() {
         are all simply true.
       </P>
       <P>
+        A real browser is only half of it; the other half is <Strong>how it is driven</Strong>. A
+        person types a password one key at a time and moves the pointer to a button before pressing
+        it. A sign-in page watches for exactly that, and a field that fills in a single
+        keystroke-free burst from a pointer that never moved is read as automation even when the
+        browser itself is an honest Chrome — which is why an employee gets challenged from the same
+        address you sign in from cleanly. So the tools <Strong>type character by character</Strong>{" "}
+        with small randomized gaps and <Strong>approach a control with the pointer</Strong> before
+        clicking. This changes only how the input arrives, never what: a <DocLink to="/docs/vault">
+        Vault</DocLink> credential is typed into the same field, is never revealed to the employee,
+        and stays redacted from snapshots and recordings.
+      </P>
+      <P>
         Genosyn still never solves a captcha and never defeats a challenge. This only removes{" "}
         <em>false</em> signals from a browser doing legitimate work. If a site challenges the
         employee anyway, the answer is still a human: take over here, or use a{" "}
@@ -413,8 +432,10 @@ export function Browser() {
       <P>
         Nothing here needs configuring. The knobs exist in <Code>config.ts</Code> under{" "}
         <Code>browser</Code> if you need them — a different Chrome binary, forced headless on a host
-        that cannot run a virtual display, or a locale and timezone matching where your deployment
-        egresses from. Leave them empty and Chrome tells the truth about itself, which is the
+        that cannot run a virtual display, a locale and timezone matching where your deployment
+        egresses from, or <Code>humanize</Code> to switch off the character-by-character typing and
+        pointer approach in a trusted environment that wants raw speed. Leave them at their
+        defaults and Chrome tells the truth about itself while behaving like a person, which is the
         setting you want. A source-managed install on a host with no Chrome falls back to whatever
         Chromium it finds, and only then does a compatibility layer start filling in the
         differences.

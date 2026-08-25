@@ -98,6 +98,8 @@ export type ChatResult =
  * lock forever.
  */
 export const CHAT_HARD_TIMEOUT_MS = 6 * 60 * 60_000;
+/** Stands in for a stopped turn the employee had not started answering yet. */
+export const INTERRUPTED_BEFORE_REPLY = "Stopped before this reply started.";
 /** Max model turns before the loop stops itself. */
 const CHAT_MAX_STEPS = 100;
 
@@ -173,6 +175,17 @@ type ChatBaseOptions = {
   timeoutMs?: number;
   /** Aborted when this process loses the durable worker claim. */
   signal?: AbortSignal;
+  /**
+   * True once a Member asked Genosyn to stop this turn.
+   *
+   * Read after the agent unwinds, before the model error is inspected: an
+   * aborted provider stream surfaces as a transport error, and reporting that
+   * to the human who pressed the button would blame Genosyn for doing what
+   * they asked. A stopped turn keeps whatever the employee had already
+   * streamed and is reported as an ordinary reply — the caller that owns the
+   * durable row is the one that marks it interrupted.
+   */
+  wasInterrupted?: () => boolean;
 };
 
 type MemberChatAuthority = {
@@ -469,6 +482,9 @@ export async function streamChatWithEmployee(
             onContextUsage: options.onContextUsage,
           },
         });
+        if (options.wasInterrupted?.()) {
+          return { status: "ok", reply: interruptedReply(buffered), attachmentIds: [], sidecars: {} };
+        }
         if (result.status === "error") {
           return { status: "error", reply: result.error, attachmentIds: [], sidecars: {} };
         }
@@ -680,6 +696,9 @@ export async function streamChatWithEmployee(
       });
       const attachmentIds = drainAttachmentsForToken(mcpToken);
       const sidecars = drainSidecarsForToken(mcpToken);
+      if (options.wasInterrupted?.()) {
+        return { status: "ok", reply: interruptedReply(buffered), attachmentIds, sidecars };
+      }
       if (result.status === "error") {
         return { status: "error", reply: result.error, attachmentIds, sidecars };
       }
@@ -693,6 +712,11 @@ export async function streamChatWithEmployee(
     if (mcpToken) revokeMcpToken(mcpToken);
     await releaseChatWorkloadLease(workloadLease);
   }
+}
+
+/** Whatever a stopped turn managed to say, or a short note that it said nothing. */
+function interruptedReply(buffered: string): string {
+  return buffered.trim() || INTERRUPTED_BEFORE_REPLY;
 }
 
 /** Map the stored conversation turns + new message to the agent's message list. */

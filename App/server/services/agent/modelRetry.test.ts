@@ -21,7 +21,7 @@ test("retries transient HTTP statuses and fails permanent request errors immedia
       false,
     );
   }
-  assert.equal(MODEL_TURN_MAX_ATTEMPTS, 5);
+  assert.equal(MODEL_TURN_MAX_ATTEMPTS, 11);
 });
 
 test("recognizes transport failures through their nested cause", () => {
@@ -35,7 +35,18 @@ test("recognizes transport failures through their nested cause", () => {
 test("uses exponential jitter when the provider supplies no delay", () => {
   assert.equal(modelRetryDelayMs(new Error("network"), 1, { rng: () => 0 }), 750);
   assert.equal(modelRetryDelayMs(new Error("network"), 2, { rng: () => 1 }), 2_000);
-  assert.equal(modelRetryDelayMs(new Error("network"), 9, { rng: () => 1 }), 8_000);
+  assert.equal(modelRetryDelayMs(new Error("network"), 5, { rng: () => 1 }), 16_000);
+  assert.equal(modelRetryDelayMs(new Error("network"), 6, { rng: () => 1 }), 30_000);
+  assert.equal(modelRetryDelayMs(new Error("network"), 10, { rng: () => 1 }), 30_000);
+  assert.equal(modelRetryDelayMs(new Error("network"), 20, { rng: () => 0 }), 22_500);
+});
+
+test("keeps a full retry budget of waits inside the turn deadline", () => {
+  let total = 0;
+  for (let retry = 1; retry < MODEL_TURN_MAX_ATTEMPTS; retry += 1) {
+    total += modelRetryDelayMs(new Error("network"), retry, { rng: () => 1 });
+  }
+  assert.equal(total, 181_000);
 });
 
 test("honors Retry-After seconds and date while capping an excessive wait", () => {

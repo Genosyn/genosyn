@@ -215,10 +215,7 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
     });
     return { status: "ok", finalText: result.finalText, steps: result.steps };
   } catch (err) {
-    console.error(
-      `[agent:model] request failed employee=${params.employeeId} model=${params.model.id}`,
-      err,
-    );
+    reportAgentTurnFailure("request failed", params.employeeId, params.model.id, params.signal, err);
     return {
       status: "error",
       error: formatModelError(params.model, err),
@@ -269,10 +266,7 @@ export async function runRestrictedEmployeeAgent(
     });
     return { status: "ok", finalText: result.finalText, steps: result.steps };
   } catch (err) {
-    console.error(
-      `[agent:model] restricted request failed employee=${params.employeeId} model=${params.model.id}`,
-      err,
-    );
+    reportAgentTurnFailure("restricted request failed", params.employeeId, params.model.id, params.signal, err);
     return {
       status: "error",
       error: formatModelError(params.model, err),
@@ -330,10 +324,7 @@ async function runSubscriptionEmployeeAgent(
     });
     return { status: "ok", finalText: result.finalText, steps: result.steps };
   } catch (err) {
-    console.error(
-      `[agent:model] subscription request failed employee=${params.employeeId} model=${params.model.id}`,
-      err,
-    );
+    reportAgentTurnFailure("subscription request failed", params.employeeId, params.model.id, params.signal, err);
     return {
       status: "error",
       error: formatModelError(params.model, err),
@@ -341,6 +332,29 @@ async function runSubscriptionEmployeeAgent(
   } finally {
     await gathered?.close();
   }
+}
+
+/**
+ * Log why a turn ended badly — unless it ended because someone asked it to.
+ *
+ * A cancelled turn surfaces here as an abort error from whichever provider was
+ * mid-stream, and printing that as a failure with a stack trace teaches an
+ * operator to distrust their own logs: a Member stopping a reply, a turn
+ * hitting its deadline, and a worker losing its claim are all normal. The
+ * error is still reported to the caller either way; only the log line changes.
+ */
+function reportAgentTurnFailure(
+  kind: string,
+  employeeId: string,
+  modelId: string,
+  signal: AbortSignal | undefined,
+  err: unknown,
+): void {
+  if (signal?.aborted) {
+    console.info(`[agent:model] ${kind.replace("failed", "stopped")} employee=${employeeId}`);
+    return;
+  }
+  console.error(`[agent:model] ${kind} employee=${employeeId} model=${modelId}`, err);
 }
 
 /** Run one temporary copy of the employee with an isolated conversation. */

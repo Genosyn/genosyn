@@ -1,6 +1,6 @@
 import { Router, type Request, type RequestHandler, type Response } from "express";
 import { z } from "zod";
-import { In } from "typeorm";
+import { In, IsNull, Not } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Repository } from "../db/entities/Repository.js";
@@ -61,6 +61,7 @@ import {
   repositoryWorkSessionDiff,
   repositoryWorkSessionTurns,
   runRepositoryWorkSession,
+  setRepositoryWorkSessionArchived,
   WORK_SESSION_TITLE_MAX,
 } from "../services/repositoryWorkSessions.js";
 
@@ -590,12 +591,28 @@ async function hydrateSessions(
   });
 }
 
+/**
+ * `archived=1` asks for the sessions a Member has filed away instead of the
+ * ones they have not. The two lists are never mixed: the inbox exists to say
+ * what still wants attention, and an archived session is the statement that it
+ * does not.
+ */
+const listSessionsQuerySchema = z
+  .object({ archived: z.enum(["0", "1", "true", "false"]).optional() })
+  .strict();
+
 repositoryContentRouter.get(
   "/repositories/:slug/sessions",
-  withRepository(async (repo, _req, res) => {
+  withRepository(async (repo, req, res) => {
+    const parsed = listSessionsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
+      return;
+    }
+    const archived = parsed.data.archived === "1" || parsed.data.archived === "true";
     const sessions = await AppDataSource.getRepository(RepositoryWorkSession).find({
-      where: { repositoryId: repo.id },
-      order: { createdAt: "DESC" },
+      where: { repositoryId: repo.id, archivedAt: archived ? Not(IsNull()) : IsNull() },
+      order: archived ? { archivedAt: "DESC" } : { createdAt: "DESC" },
       take: 50,
     });
     res.json({ sessions: await hydrateSessions(repo.companyId, sessions) });
@@ -879,6 +896,39 @@ repositoryContentRouter.post(
       targetId: repo.id,
       targetLabel: repo.name,
       metadata: { sessionId: session.id, pushed: push },
+    });
+    const [hydrated] = await hydrateSessions(repo.companyId, [updated]);
+    res.json(hydrated);
+  }),
+);
+
+const archiveSessionSchema = z.object({ archived: z.boolean() }).strict();
+
+/**
+ * File a session away, or take it back out.
+ *
+ * Member-level, like renaming and unlike anything that reaches the remote:
+ * this changes what one list shows and touches neither the branch nor the
+ * work. One route in both directions, because "archive" and "restore" are the
+ * same decision with the flag flipped, and a pair of endpoints would let them
+ * drift apart.
+ */
+repositoryContentRouter.post(
+  "/repositories/:slug/sessions/:sessionId/archive",
+  validateBody(archiveSessionSchema),
+  withRepository(async (repo, req, res) => {
+    const session = await loadSession(repo, req.params.sessionId);
+    if (!session) throw new Error("Work session not found.");
+    const archived = (req.body as z.infer<typeof archiveSessionSchema>).archived;
+    const updated = await setRepositoryWorkSessionArchived(repo.companyId, session.id, archived);
+    await recordAudit({
+      companyId: repo.companyId,
+      actorUserId: req.userId ?? null,
+      action: archived ? "repository.work_session_archive" : "repository.work_session_restore",
+      targetType: "repository",
+      targetId: repo.id,
+      targetLabel: repo.name,
+      metadata: { sessionId: session.id, status: updated.status },
     });
     const [hydrated] = await hydrateSessions(repo.companyId, [updated]);
     res.json(hydrated);

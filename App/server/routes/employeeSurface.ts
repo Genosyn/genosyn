@@ -20,7 +20,11 @@ import { validateBody } from "../middleware/validate.js";
 import { parseActions } from "../services/turnActions.js";
 import { lastChatModelId, lastChatModelIds } from "../services/conversationModels.js";
 import { contextUsagePercent } from "../services/agent/contextUsage.js";
-import { enqueueDurableChatTurn, executeDurableChatTurn } from "../services/durableChatTurns.js";
+import {
+  enqueueDurableChatTurn,
+  executeDurableChatTurn,
+  interruptDurableChatTurn,
+} from "../services/durableChatTurns.js";
 import { resolveChatModel } from "../services/models.js";
 import {
   attachmentsForMessages,
@@ -646,6 +650,46 @@ employeeSurfaceRouter.post(
     } finally {
       clearInterval(heartbeat);
     }
+  },
+);
+
+const interruptSchema = z.object({}).strict();
+
+/**
+ * Stop the reply this thread is waiting on.
+ *
+ * The Member is telling the employee to put down what it is doing, usually
+ * because the follow-up they already typed matters more than the answer in
+ * flight. Whatever the employee had streamed so far is kept and the turn is
+ * marked `interrupted`, so the composer's queue drains into a free employee
+ * within the second instead of after however long the abandoned turn had left.
+ *
+ * Idempotent: a thread with nothing running answers `interrupted: false`
+ * rather than an error, because two browsers on the same thread — or a
+ * double-click — must not turn a completed turn into a failure.
+ */
+employeeSurfaceRouter.post(
+  "/:eid/conversations/:convId/interrupt",
+  validateBody(interruptSchema),
+  async (req, res) => {
+    const { cid, eid, convId } = req.params as Record<string, string>;
+    const loaded = await loadEmpAndCompany(cid, eid);
+    if (!loaded) return res.status(404).json({ error: "Not found" });
+    const conv = await findAccessibleConversation({ req, employeeId: eid, conversationId: convId });
+    if (!conv) return res.status(404).json({ error: "Not found" });
+    const working = await AppDataSource.getRepository(ConversationMessage).find({
+      where: { conversationId: conv.id, role: "assistant", status: "working" },
+      order: { createdAt: "ASC" },
+    });
+    // A thread can hold more than one `working` row: a second turn accepted
+    // from another tab sits there, unstarted and unclaimed, with the label
+    // "Waiting for another reply" until the employee frees up. Stopping that
+    // one would leave the reply the Member is actually watching running, so
+    // prefer whichever row a worker has claimed.
+    const target = working.find((message) => message.turnWorkerId !== null) ?? working[0];
+    if (!target) return res.json({ interrupted: false });
+    const outcome = await interruptDurableChatTurn(target.id);
+    res.json({ interrupted: outcome === "interrupted" });
   },
 );
 

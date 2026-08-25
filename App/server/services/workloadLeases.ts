@@ -92,3 +92,17 @@ export async function releaseChatWorkloadLease(lease: WorkloadLease | null): Pro
   if (!lease) return;
   await AppDataSource.getRepository(WorkloadLease).delete({ id: lease.id });
 }
+
+/**
+ * Drop a durable turn's reply lease by the stable key that turn owns.
+ *
+ * For when a turn is terminalized from outside the process that acquired the
+ * lease. `acquireWithManager` purges by `ownerKey` too, but only when someone
+ * re-acquires under the same key — and a turn that will never run again never
+ * does, so its lease would sit there reading as busy until the six-hour TTL
+ * ran out. Deleting by key rather than by id is the point: the caller is
+ * precisely the one that does not hold the row.
+ */
+export async function releaseChatWorkloadLeaseByOwner(ownerKey: string): Promise<void> {
+  await AppDataSource.getRepository(WorkloadLease).delete({ ownerKey });
+}

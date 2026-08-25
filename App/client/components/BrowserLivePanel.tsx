@@ -1,6 +1,12 @@
 import * as React from "react";
 import { ExternalLink, Globe2, Laptop, Loader2, Monitor, X } from "lucide-react";
 import { api } from "../lib/api";
+import {
+  chatPanelMemoryStorage,
+  readChatPanelMemory,
+  writeChatPanelMemory,
+  type BrowserLivePanelMemory,
+} from "../lib/chatPanelMemory";
 import { SidePanelCollapseIcon, SidePanelResizeHandle, useSidePanelWidth } from "./ui/SidePanel";
 
 /**
@@ -13,6 +19,13 @@ import { SidePanelCollapseIcon, SidePanelResizeHandle, useSidePanelWidth } from 
  *
  * The panel is keyed to either a `conversationId` (chat seam) or a `runId`
  * (routine seam). When neither is set the panel is hidden entirely.
+ *
+ * Hiding it and winding it down to its rail are decisions that outlive the
+ * page: a reload is not a request to reopen a browser someone sent away, and
+ * it is not a request to close one they were watching either. Both are
+ * remembered per thread in `lib/chatPanelMemory`, and the dismissal is
+ * recorded against the session that was dismissed rather than the thread, so
+ * the browser the employee opens an hour later is still news.
  */
 
 export type BrowserSessionDto = {
@@ -46,9 +59,9 @@ type Props = {
   onDismiss?: () => void;
   /**
    * Hide without unmounting, for when another panel has the slot beside the
-   * chat. Unmounting would tear down the live viewer's iframe and reset the
-   * "hide" and "collapse" the Member already chose, so a browser session they
-   * dismissed would reappear the moment the other panel closed.
+   * chat. Unmounting would tear down the live viewer's iframe — reconnecting a
+   * viewer nobody asked to leave — and restart the poll from nothing the
+   * moment the other panel closed.
    */
   hidden?: boolean;
 };
@@ -82,16 +95,34 @@ function sameSession(a: BrowserSessionDto | null, b: BrowserSessionDto | null): 
 export function BrowserLivePanel(props: Props) {
   const { companyId, employeeId, conversationId, runId, onDismiss, hidden = false } = props;
   const [session, setSession] = React.useState<BrowserSessionDto | null>(null);
-  const [dismissed, setDismissed] = React.useState(false);
+  const [dismissed, setDismissed] = React.useState<string[]>([]);
   const [collapsed, setCollapsed] = React.useState(false);
   const { width, resizing, startResize, onResizeKeyDown } =
     useSidePanelWidth(PANEL_WIDTH_STORAGE_KEY);
 
-  const cacheKey = `${companyId}:${employeeId}:${conversationId ?? runId ?? ""}`;
+  /**
+   * What this panel's state is remembered against. A browser session belongs
+   * to a conversation or a Run, and both already imply the company and the
+   * employee, so neither belongs in the key.
+   */
+  const memoryKey = conversationId ?? runId ?? null;
+  const remember = React.useCallback(
+    (next: BrowserLivePanelMemory) => {
+      writeChatPanelMemory(chatPanelMemoryStorage(), memoryKey, { browser: next });
+    },
+    [memoryKey],
+  );
+
+  const cacheKey = `${companyId}:${employeeId}:${memoryKey ?? ""}`;
   React.useEffect(() => {
-    setDismissed(false);
+    // What the reader last did to this panel, restored before the poll below
+    // can return anything — otherwise a dismissed session flashes back into
+    // the layout for a beat on every reload.
+    const remembered = readChatPanelMemory(chatPanelMemoryStorage(), memoryKey).browser;
+    setDismissed(remembered?.dismissed ?? []);
+    setCollapsed(remembered?.collapsed ?? false);
     setSession(null);
-  }, [cacheKey]);
+  }, [cacheKey, memoryKey]);
 
   React.useEffect(() => {
     if (!conversationId && !runId) return;
@@ -148,14 +179,26 @@ export function BrowserLivePanel(props: Props) {
     };
   }, [companyId, employeeId, conversationId, runId]);
 
-  if (dismissed) return null;
   if (!session) return null;
+  if (dismissed.includes(session.id)) return null;
   // Auto-hide closed sessions after a beat so the panel doesn't squat the layout.
   if (session.status === "closed" || session.status === "expired") {
     if (session.closedAt) {
       const closedFor = Date.now() - new Date(session.closedAt).getTime();
       if (closedFor > 30_000) return null;
     }
+  }
+
+  function collapse(next: boolean) {
+    setCollapsed(next);
+    remember({ dismissed, collapsed: next });
+  }
+
+  function dismiss(sessionId: string) {
+    const next = dismissed.includes(sessionId) ? dismissed : [...dismissed, sessionId];
+    setDismissed(next);
+    remember({ dismissed: next, collapsed });
+    onDismiss?.();
   }
 
   return (
@@ -178,17 +221,14 @@ export function BrowserLivePanel(props: Props) {
         />
       )}
       {collapsed ? (
-        <CollapsedRail status={session.status} onExpand={() => setCollapsed(false)} />
+        <CollapsedRail status={session.status} onExpand={() => collapse(false)} />
       ) : (
         <>
           <PanelHeader
             session={session}
             companyId={companyId}
-            onCollapse={() => setCollapsed(true)}
-            onClose={() => {
-              setDismissed(true);
-              onDismiss?.();
-            }}
+            onCollapse={() => collapse(true)}
+            onClose={() => dismiss(session.id)}
           />
           <PanelBody
             session={session}

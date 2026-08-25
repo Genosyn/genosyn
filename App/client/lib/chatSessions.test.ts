@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   bindLazyCreatedConversation,
+  moveQueuedMessageToFront,
   resolveLazyCreatedSelection,
   shouldRenderQueuedMessage,
   type QueuedChatMessage,
@@ -70,5 +71,33 @@ describe("lazy-created chat conversation boundaries", () => {
     assert.equal(shouldRenderQueuedMessage(null, null, 7, 7), true);
     assert.equal(shouldRenderQueuedMessage("conversation-new", "conversation-new", 7, 8), true);
     assert.equal(shouldRenderQueuedMessage("conversation-new", "conversation-other", 7, 7), false);
+  });
+});
+
+describe("interrupt and send", () => {
+  test("moves the chosen follow-up ahead of everything else waiting", () => {
+    const queue = [queued("first", 1), queued("second", 1), queued("third", 1)];
+
+    assert.deepEqual(
+      moveQueuedMessageToFront(queue, "third").map((message) => message.id),
+      ["third", "first", "second"],
+      "the message the Member interrupted for must be the one that sends next",
+    );
+    assert.deepEqual(
+      queue.map((message) => message.id),
+      ["first", "second", "third"],
+      "promotion must not mutate the queue the worker is draining",
+    );
+  });
+
+  test("leaves the queue alone when the message is already next or already sent", () => {
+    const queue = [queued("first", 1), queued("second", 1)];
+
+    assert.equal(moveQueuedMessageToFront(queue, "first"), queue);
+    assert.equal(
+      moveQueuedMessageToFront(queue, "already-drained"),
+      queue,
+      "a message the worker already shifted off must not resurrect a stale copy",
+    );
   });
 });

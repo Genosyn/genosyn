@@ -846,6 +846,11 @@ the reply.
 - [x] Direct-chat follow-up queue: the composer stays editable during a reply,
       shows queued messages inline, and releases them serially when the AI
       Employee finishes
+- [x] Interrupt and send: a Member can stop the reply in flight so a queued
+      follow-up goes next instead of waiting the employee out. The stopped
+      turn keeps whatever it had already streamed, is marked `interrupted`
+      rather than failed, releases the employee's reply lease, and is left
+      terminal so recovery never resumes it
 - [x] Per-message AI Model picker in direct employee Chat when multiple models
       are connected; defaults to the active model and persists each queued
       turn's choice through disconnect and server-restart recovery
@@ -1152,6 +1157,22 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       Activity and Changes views with commit checkpoints and review actions;
       a compact mobile session switcher; and explicit loading, error, empty,
       and retry states throughout.
+- [x] **Archive a work session** (`RepositoryWorkSession.archivedAt`) — a
+      repository accumulates finished sessions faster than anything else, and
+      the only thing on offer for shortening the list was `discard`, which
+      deletes the branch. So the way to get a readable inbox was to throw work
+      away. Archiving files a session out of the inbox and changes nothing
+      else: same branch, same commits, same transcript, same status, same URL.
+      Deliberately a timestamp rather than an eighth status — a status says
+      what happened to the *work*, archiving says what a Member wants to see in
+      a *list*, and merging the two would leave no answer for what a restored
+      session goes back to. The list endpoint serves the two sets separately
+      (`?archived=1`) rather than shipping everything and filtering in the
+      browser, an archived session is excluded from the "needs attention"
+      count, and asking one for another pass restores it — a turn running
+      inside something nobody can see is the one state an inbox must not
+      produce. Member-level, like renaming: nothing here reaches a remote.
+      A live turn is refused.
 - [x] **Open a pull request for a session** — the third thing to do with
       reviewed work, and the one merging and pushing could not express: it
       pushes the branch and opens a pull request against the default branch, so
@@ -3084,6 +3105,26 @@ of the original V1 backlog has shipped — what remains is mostly
         is the honest answer when a site refuses server-hosted browsers as
         such. Genosyn still solves no captcha; this removes *false* signals
         from a browser doing legitimate work.
+  - [x] **Drive it like a person, not a framework.** Real headed Chrome closed
+        the *fingerprint* contradictions, but a login was still challenged where
+        a human on the same browser and IP was not — because the input arrived
+        the way automation drives a browser and not the way a person does.
+        `fill()` set a field's value in one shot with zero keystrokes and
+        `click()` teleported the pointer, so a sign-in form saw a username and
+        password appear with none of the keystroke or pointer telemetry X and
+        the anti-bot vendors score. `services/humanInput.ts` re-enters input the
+        human way — type character by character with randomized gaps, approach a
+        control with the pointer before clicking, hold a key press for a real
+        dwell, pause briefly between actions — and the `browser_*` RPCs route
+        every fill/click/press/hover through it, so it covers the container's own
+        Chrome and Member browsers alike. It changes only *how* a value arrives,
+        never *what*: a Vault credential is typed into the same field, never
+        returned, still password-taint redacted, and the time-boxed one-time-code
+        paths are exempt from the think-pause so a fresh code never lapses.
+        Playwright's actionability waits are preserved and it degrades to the
+        old fill/click when disabled. On by default; `config.browser.humanize`
+        turns it off. Still camouflage, never challenge-solving — a real
+        challenge still stops for a human.
   - [x] **Browser sessions survive a container update.** `releasePage` was the
         only thing that wrote an employee's cookies to disk, and its
         `"shutdown"` reason had no caller — the App had no `SIGTERM` handler at

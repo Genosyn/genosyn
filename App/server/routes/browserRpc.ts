@@ -65,6 +65,13 @@ import {
 } from "../services/browserAccess.js";
 import { memberBrowserUrlAllowed } from "../services/memberBrowsers.js";
 import { parseAllowList, urlAllowed } from "../services/browserHostPolicy.js";
+import {
+  humanClick,
+  humanFill,
+  humanHover,
+  humanPress,
+  humanThinkPause,
+} from "../services/humanInput.js";
 
 /**
  * Internal HTTP surface called by the stripped-down `browser` MCP child.
@@ -1779,9 +1786,10 @@ browserRpcRouter.post("/click", validateBody(clickSchema), async (req: BrowserRp
   let guardedPage: Page | null = null;
   try {
     const page = await bumpAndAcquire(req);
+    await humanThinkPause();
     if (!req.approvalRequired && !body.approvalId) {
       const loc = await locate(page, session.id, body.selector);
-      await loc.click({ timeout: ACTION_TIMEOUT_MS });
+      await humanClick(page, loc, { timeout: ACTION_TIMEOUT_MS });
     } else {
       let target = await inspectBrowserApprovalTarget({
         page,
@@ -1835,7 +1843,7 @@ browserRpcRouter.post("/click", validateBody(clickSchema), async (req: BrowserRp
         target = revalidated;
       }
       if (claimId) actionAttempted = true;
-      await target.handle.click({ timeout: ACTION_TIMEOUT_MS });
+      await humanClick(page, target.handle, { timeout: ACTION_TIMEOUT_MS });
       if (body.approvalId && claimId) {
         await settleBrowserActionApproval({
           approvalId: body.approvalId,
@@ -1887,7 +1895,8 @@ browserRpcRouter.post("/fill", validateBody(fillSchema), async (req: BrowserRpcR
   try {
     const page = await bumpAndAcquire(req);
     const loc = await locate(page, sessionId, body.selector);
-    await loc.fill(body.value, { timeout: ACTION_TIMEOUT_MS });
+    await humanThinkPause();
+    await humanFill(page, loc, body.value, { timeout: ACTION_TIMEOUT_MS });
     res.json({ snapshot: await pageSnapshot(page, sessionId) });
   } catch (err) {
     res.status(500).json({ error: safeBrowserError(req.browserSession!.id, err) });
@@ -2013,7 +2022,12 @@ browserRpcRouter.post(
       if (body.field === "secret") {
         await rememberVaultSensitiveValue(session.id, value);
       }
-      await targetHandle.fill(value, { timeout: ACTION_TIMEOUT_MS });
+      // Type the credential in like a person — the value is entered into the
+      // same field, never returned, and stays under the password-taint
+      // redaction registered just above. A one-time code races a freshness
+      // deadline, so only a non-TOTP field gets the human think-pause first.
+      if (body.field !== "totp") await humanThinkPause();
+      await humanFill(page, targetHandle, value, { timeout: ACTION_TIMEOUT_MS });
       await recordAudit({
         companyId: session.companyId,
         actorEmployeeId: employee.id,
@@ -2206,7 +2220,7 @@ browserRpcRouter.post(
       // auto-submit as soon as the final digit arrives. From this line onward,
       // the claimed approval is therefore terminal and must never be replayed.
       submitAttempted = true;
-      await liveTarget.vaultTotpTarget!.handle.fill(generated.code, {
+      await humanFill(page, liveTarget.vaultTotpTarget!.handle, generated.code, {
         timeout: ACTION_TIMEOUT_MS,
       });
 
@@ -2221,9 +2235,11 @@ browserRpcRouter.post(
         );
       }
       if (body.key) {
-        await liveTarget.handle.press(body.key, { timeout: ACTION_TIMEOUT_MS });
+        // Dwell only — no think-pause here; the one-time code was generated
+        // against a freshness deadline and must be submitted before it lapses.
+        await humanPress(liveTarget.handle, body.key, { timeout: ACTION_TIMEOUT_MS });
       } else {
-        await liveTarget.handle.click({ timeout: ACTION_TIMEOUT_MS });
+        await humanClick(page, liveTarget.handle, { timeout: ACTION_TIMEOUT_MS });
       }
       if (body.approvalId && claimId) {
         await settleBrowserActionApproval({
@@ -3139,7 +3155,7 @@ browserRpcRouter.post("/press", validateBody(pressSchema), async (req: BrowserRp
       }
       target = revalidated;
       actionAttempted = true;
-      await target.handle.press(body.key, { timeout: ACTION_TIMEOUT_MS });
+      await humanPress(target.handle, body.key, { timeout: ACTION_TIMEOUT_MS });
       await settleBrowserActionApproval({
         approvalId: body.approvalId,
         claimId,
@@ -3151,11 +3167,12 @@ browserRpcRouter.post("/press", validateBody(pressSchema), async (req: BrowserRp
         await armUnapprovedFormSubmitGuard(page);
         guardedPage = page;
       }
+      await humanThinkPause();
       if (body.selector && body.selector.length > 0) {
         const loc = await locate(page, session.id, body.selector);
-        await loc.press(body.key, { timeout: ACTION_TIMEOUT_MS });
+        await humanPress(loc, body.key, { timeout: ACTION_TIMEOUT_MS });
       } else {
-        await page.keyboard.press(body.key);
+        await humanPress(page.keyboard, body.key);
       }
     }
     await settle(page);
@@ -3227,7 +3244,7 @@ browserRpcRouter.post("/hover", validateBody(hoverSchema), async (req: BrowserRp
   try {
     const page = await bumpAndAcquire(req);
     const loc = await locate(page, sessionId, body.selector);
-    await loc.hover({ timeout: ACTION_TIMEOUT_MS });
+    await humanHover(page, loc, { timeout: ACTION_TIMEOUT_MS });
     await settle(page);
     res.json({ snapshot: await pageSnapshot(page, sessionId) });
   } catch (err) {

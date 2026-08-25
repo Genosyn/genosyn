@@ -14,6 +14,7 @@ import {
   CHAT_HARD_TIMEOUT_MS,
   type ChatResult,
   type ChatTurn,
+  INTERRUPTED_BEFORE_REPLY,
   streamChatWithEmployee,
 } from "./chat.js";
 import { createChatTurnContextUsageRecorder } from "./chatTurnContextUsage.js";
@@ -21,7 +22,10 @@ import { createChatTurnProgressRecorder } from "./chatTurnProgress.js";
 import { historicalAttachmentSummaries, inlineAttachmentsForMessage } from "./attachmentText.js";
 import { captureTurnActionsForAuthority } from "./turnActions.js";
 import { bindAttachmentsToMessage } from "./uploads.js";
-import { EmployeeWorkloadBusyError } from "./workloadLeases.js";
+import {
+  EmployeeWorkloadBusyError,
+  releaseChatWorkloadLeaseByOwner,
+} from "./workloadLeases.js";
 
 const MAX_REPLAY_TURNS = 20;
 const TURN_LEASE_MS = 15_000;
@@ -43,6 +47,12 @@ export type DurableChatTurnCallbacks = {
 
 export type DurableChatTurnOutcome = "completed" | "deferred" | "claimed_elsewhere";
 
+/**
+ * `not_running` means there was nothing left to stop — the turn had already
+ * finalized, or another Member's browser stopped it first.
+ */
+export type InterruptDurableChatTurnOutcome = "interrupted" | "not_running";
+
 type ClaimedTurn = {
   message: ConversationMessage;
   workerId: string;
@@ -51,6 +61,8 @@ type ClaimedTurn = {
 let recoveryTimer: NodeJS.Timeout | null = null;
 const locallyExecuting = new Set<string>();
 const activeClaimAborters = new Map<string, () => void>();
+/** Returns false when this process no longer owns the turn it registered for. */
+const activeTurnInterrupters = new Map<string, () => boolean>();
 
 /** Derive the sidebar title from the first accepted human message. */
 function deriveTitle(message: string): string {
@@ -207,13 +219,27 @@ export async function executeDurableChatTurn(
   const messageRepo = AppDataSource.getRepository(ConversationMessage);
   const claimController = new AbortController();
   let lostClaim = false;
+  let interrupted = false;
   let renewing = false;
 
   const loseClaim = () => {
     lostClaim = true;
     claimController.abort();
   };
+  // Deliberately not `loseClaim`: this process keeps the claim so it can write
+  // the partial reply the human already read on screen. The agent stops either
+  // way — both paths abort the same controller. Reports whether it actually
+  // took effect: a worker that has already lost the turn cannot stop it, and
+  // saying otherwise would leave the Member watching a reply they thought they
+  // had cancelled.
+  const interruptTurn = (): boolean => {
+    if (lostClaim) return false;
+    interrupted = true;
+    claimController.abort();
+    return true;
+  };
   activeClaimAborters.set(claimedMessage.id, loseClaim);
+  activeTurnInterrupters.set(claimedMessage.id, interruptTurn);
   const renewClaim = async () => {
     if (renewing || lostClaim) return;
     renewing = true;
@@ -345,9 +371,23 @@ export async function executeDurableChatTurn(
           throwOnWorkloadUnavailable: true,
           timeoutMs: remainingMs,
           signal: claimController.signal,
+          wasInterrupted: () => interrupted,
         },
       );
     } catch (error) {
+      // Checked ahead of both claim loss and the contention retry: re-queuing a
+      // turn the Member just stopped would restart it in fifteen seconds, and
+      // walking away as "claimed elsewhere" would leave it running under
+      // whoever overtook us. A stop has to become terminal on every path.
+      if (interrupted) {
+        await Promise.all([progressRecorder.flush(), contextUsageRecorder.flush()]);
+        return finalizeInterruptedTurn(
+          claimedMessage,
+          workerId,
+          INTERRUPTED_BEFORE_REPLY,
+          callbacks,
+        );
+      }
       if (lostClaim) return "claimed_elsewhere";
       if (error instanceof EmployeeWorkloadBusyError) {
         await Promise.all([progressRecorder.flush(), contextUsageRecorder.flush()]);
@@ -365,6 +405,19 @@ export async function executeDurableChatTurn(
           },
         );
         if (deferred.affected === 1) {
+          // Re-read rather than trusting the check above: the deferral write is
+          // a database round trip, and a stop that lands inside it would
+          // otherwise be answered "interrupted" and then thrown away — the row
+          // is back at `working` with a fifteen-second lease, so recovery would
+          // re-run a request the Member had cancelled.
+          if (interrupted) {
+            return finalizeInterruptedTurn(
+              claimedMessage,
+              workerId,
+              INTERRUPTED_BEFORE_REPLY,
+              callbacks,
+            );
+          }
           try {
             callbacks.onProgress?.({
               percent: claimedMessage.progressPercent ?? 1,
@@ -381,9 +434,16 @@ export async function executeDurableChatTurn(
     }
 
     await Promise.all([progressRecorder.flush(), contextUsageRecorder.flush()]);
-    if (lostClaim) return "claimed_elsewhere";
-    await renewClaim();
-    if (lostClaim) return "claimed_elsewhere";
+    if (!lostClaim) await renewClaim();
+    if (lostClaim) {
+      // Overtaken while the agent unwound. Ordinary claim loss is somebody
+      // else's problem now, but a stop the Member asked for still has to stick
+      // — `finalizeInterruptedTurn` writes it under whoever holds the row.
+      if (interrupted) {
+        return finalizeInterruptedTurn(claimedMessage, workerId, result.reply, callbacks);
+      }
+      return "claimed_elsewhere";
+    }
 
     let actions: MessageAction[] = [];
     try {
@@ -416,7 +476,11 @@ export async function executeDurableChatTurn(
       },
       {
         content: result.reply,
-        status: result.status,
+        // A Member who stopped this turn asked for exactly what is on screen.
+        // The agent's own status describes how the model unwound, which after
+        // an abort is usually a transport error — not the answer to "did the
+        // human get what they asked for".
+        status: interrupted ? "interrupted" : result.status,
         progressPercent: null,
         progressLabel: null,
         // Unlike progress, the context gauge is not cleared on completion — it
@@ -438,7 +502,15 @@ export async function executeDurableChatTurn(
         turnLeaseExpiresAt: null,
       },
     );
-    if (finalized.affected !== 1) return "claimed_elsewhere";
+    if (finalized.affected !== 1) {
+      // Overtaken between the stop and this write. The Member's stop still has
+      // to stick, so fall through to the unconditional finalize rather than
+      // walking away from a turn they already cancelled.
+      if (interrupted) {
+        return finalizeInterruptedTurn(claimedMessage, workerId, result.reply, callbacks);
+      }
+      return "claimed_elsewhere";
+    }
 
     context.conversation.updatedAt = new Date();
     await AppDataSource.getRepository(Conversation).save(context.conversation);
@@ -453,6 +525,11 @@ export async function executeDurableChatTurn(
     return "completed";
   } catch (error) {
     if (lostClaim) return "claimed_elsewhere";
+    // A stop the human asked for is not a failure, even when the abort tore
+    // through a seam that had no partial reply to hand back.
+    if (interrupted) {
+      return finalizeInterruptedTurn(claimedMessage, workerId, INTERRUPTED_BEFORE_REPLY, callbacks);
+    }
     // eslint-disable-next-line no-console
     console.error(
       `[chat] durable turn failed conversation=${claimedMessage.conversationId} ` +
@@ -468,7 +545,48 @@ export async function executeDurableChatTurn(
   } finally {
     clearInterval(heartbeat);
     activeClaimAborters.delete(claimedMessage.id);
+    activeTurnInterrupters.delete(claimedMessage.id);
   }
+}
+
+/**
+ * Stop a durable turn a Member asked Genosyn to abandon.
+ *
+ * The turn usually runs in this process, so the fast path aborts the agent
+ * directly and lets the worker finalize its own row with whatever text the
+ * human already read. When it doesn't — a turn another replica recovered —
+ * finalizing here is both the answer to the Member and the stop signal: the
+ * row leaves `working`, so the remote worker's next lease renewal fails and it
+ * abandons the agent within a heartbeat. That path cannot keep the partial
+ * reply, because the text only exists in the other process's memory.
+ */
+export async function interruptDurableChatTurn(
+  messageId: string,
+): Promise<InterruptDurableChatTurnOutcome> {
+  // A registered interrupter that declines has been overtaken by another
+  // worker, so this falls through to the same path a turn running elsewhere
+  // takes rather than reporting a stop that never happened.
+  if (activeTurnInterrupters.get(messageId)?.()) return "interrupted";
+  const repo = AppDataSource.getRepository(ConversationMessage);
+  const finalized = await repo.update(
+    { id: messageId, role: "assistant", status: "working" },
+    {
+      content: INTERRUPTED_BEFORE_REPLY,
+      status: "interrupted",
+      progressPercent: null,
+      progressLabel: null,
+      turnWorkerId: null,
+      turnLeaseExpiresAt: null,
+    },
+  );
+  if (finalized.affected !== 1) return "not_running";
+  // Same reason as `finalizeInterruptedTurn`: this turn will never run again,
+  // so the reply lease its worker acquired has to be dropped here or it blocks
+  // the employee's chat until it expires. Deleting by owner key also releases
+  // the lease of a worker that died mid-turn, which is exactly the state a
+  // Member is usually reacting to when they reach for Stop.
+  await releaseChatWorkloadLeaseByOwner(messageId);
+  return "interrupted";
 }
 
 async function loadTurnContext(
@@ -546,9 +664,17 @@ async function buildTurnPrompt(args: {
   );
   const replay: ChatTurn[] = prior.map((message) => {
     const note = priorAttachmentNotes.get(message.id);
+    const content = note ? `${message.content}\n[attached: ${note}]` : message.content;
+    // A stopped reply is replayed because it is genuinely what the employee
+    // said, but it stops mid-thought. Unmarked, the next turn reads it as a
+    // finished answer and can carry on as though it had delivered something it
+    // never did — so say plainly that the Member cut it off.
     return {
       role: message.role,
-      content: note ? `${message.content}\n[attached: ${note}]` : message.content,
+      content:
+        message.status === "interrupted"
+          ? `${content}\n[This reply was cut short — the Member stopped it here.]`
+          : content,
     };
   });
 
@@ -591,6 +717,62 @@ async function buildTurnPrompt(args: {
   }
 
   return { replay, prompt };
+}
+
+/**
+ * Write down a stopped turn.
+ *
+ * Used for aborts that unwound through a seam holding no partial reply, and as
+ * the backstop when the reply-bearing finalize loses its conditional write.
+ *
+ * The retry without the worker criterion is the point of this function. A stop
+ * a Member asked for has to become terminal even if this process was overtaken
+ * a moment earlier: leaving the row `working` would let the new claimant carry
+ * on answering a question that has already been withdrawn. Taking it out of
+ * `working` under that claimant is also how it learns — its next lease renewal
+ * fails and it abandons the agent within a heartbeat.
+ */
+async function finalizeInterruptedTurn(
+  message: ConversationMessage,
+  workerId: string,
+  content: string,
+  callbacks: DurableChatTurnCallbacks,
+): Promise<DurableChatTurnOutcome> {
+  const repo = AppDataSource.getRepository(ConversationMessage);
+  const patch = {
+    content,
+    status: "interrupted" as const,
+    progressPercent: null,
+    progressLabel: null,
+    turnWorkerId: null,
+    turnLeaseExpiresAt: null,
+  };
+  let finalized = await repo.update(
+    { id: message.id, status: "working", turnWorkerId: workerId },
+    patch,
+  );
+  if (finalized.affected !== 1) {
+    finalized = await repo.update({ id: message.id, role: "assistant", status: "working" }, patch);
+  }
+  if (finalized.affected !== 1) return "claimed_elsewhere";
+  // The row is terminal now, so nothing will ever re-acquire under this key and
+  // trigger the lazy purge. Left behind, the employee reads as busy to every
+  // later chat turn until a six-hour TTL runs out.
+  await releaseChatWorkloadLeaseByOwner(message.id);
+
+  const conversation = await AppDataSource.getRepository(Conversation).findOneBy({
+    id: message.conversationId,
+  });
+  if (!conversation) return "completed";
+  conversation.updatedAt = new Date();
+  await AppDataSource.getRepository(Conversation).save(conversation);
+  const finalMessage = await repo.findOneByOrFail({ id: message.id });
+  safeFinalCallback(callbacks, {
+    message: finalMessage,
+    attachments: [],
+    conversation,
+  });
+  return "completed";
 }
 
 async function finalizeInfrastructureError(
