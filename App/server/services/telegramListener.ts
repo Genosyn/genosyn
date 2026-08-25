@@ -278,7 +278,11 @@ async function handleMessage(
   // wants to push something via `send_message` later in the same turn.
   const tagged = `[Inbound via Telegram · chat_id ${msg.chat.id}${msg.from?.username ? ` · from @${msg.from.username}` : ""}]\n${text}`;
 
-  const result = await chatWithEmployee(conn.companyId, responder, tagged, replay);
+  // Naming the Conversation keeps two Telegram chats with the same employee
+  // independent: each serializes on its own transcript, not on the employee.
+  const result = await chatWithEmployee(conn.companyId, responder, tagged, replay, {
+    conversationId: conversation.id,
+  });
 
   await msgRepo.save(
     msgRepo.create({

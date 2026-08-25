@@ -128,8 +128,8 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         namespaces, plus a cgroup namespace where the kernel supports it. Only that employee&apos;s
         workspace is writable; the API process environment is not inherited. File tools resolve real
         paths and reject symlink escapes. Top-level AI work, including Routine runs and chat, can
-        overlap without an application-level per-company cap. Two chat replies for one AI Employee
-        remain serialized.
+        overlap without an application-level per-company cap. One AI Employee replies to each of
+        their chat threads in parallel; only two replies in the same thread are serialized.
       </P>
       <Callout kind="warn" title="Plan capacity at the deployment and AI Model layers.">
         Genosyn does not queue or cap top-level work by company. Provision enough replicas, CPU,

@@ -107,6 +107,10 @@ export async function kickoffAssignedTodo(args: {
       {
         requesterUserId: args.requesterUserId,
         requesterSessionVersion: args.requesterSessionVersion,
+        // Same scope as an @-mention reply in `routes/projects.ts`: both
+        // replay this Todo's comment thread, so they are the one pair that
+        // genuinely must not answer it at the same time.
+        workloadScope: `todo:${todo.id}`,
       },
     );
 

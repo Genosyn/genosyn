@@ -26,6 +26,7 @@ import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
 import {
   acquireChatWorkloadLease,
+  EMPLOYEE_WIDE_SCOPE,
   EmployeeWorkloadBusyError,
   releaseChatWorkloadLease,
 } from "./workloadLeases.js";
@@ -104,13 +105,22 @@ export const INTERRUPTED_BEFORE_REPLY = "Stopped before this reply started.";
 const CHAT_MAX_STEPS = 100;
 
 /**
- * Human-facing notice for a chat turn that lost the race to another chat.
- * Routine runs deliberately do not block chat.
+ * Human-facing notice for a chat turn that lost its reply lease.
+ *
+ * Which turn it lost to depends on the scope, and saying the wrong one sends
+ * the reader looking in the wrong place. A thread-scoped turn can only ever
+ * have been blocked by the previous message in that same thread. An
+ * employee-wide one (a Base or meeting kickoff, which has no transcript of its
+ * own) was blocked by some other surface entirely, so it must not claim
+ * otherwise. Other conversations and Routine runs deliberately block neither.
  */
-function formatBusyReply(employeeName: string): string {
+function formatBusyReply(employeeName: string, threadScoped: boolean): string {
+  const blocker = threadScoped
+    ? "still finishing the previous message in this thread"
+    : "still finishing another request";
   return (
-    `${employeeName} is still finishing another message. Send yours again in a ` +
-    `moment and ${employeeName} will pick it up.`
+    `${employeeName} is ${blocker}. Send yours again in a moment and ` +
+    `${employeeName} will pick it up.`
   );
 }
 
@@ -166,6 +176,12 @@ type ChatBaseOptions = {
    * an interrupted process could not release.
    */
   workloadKey?: string;
+  /**
+   * The thread this turn serializes against, for a surface whose thread is
+   * neither a Conversation nor an email thread — a TLDR question, a Todo
+   * discussion. See {@link chatWorkloadScopeKey}.
+   */
+  workloadScope?: string;
   /**
    * Durable workers retry when the employee is already replying instead of
    * turning contention into a terminal busy reply.
@@ -261,27 +277,41 @@ export function resolveInteractiveChatContextAccess(
 }
 
 /**
- * Whether a turn needs the per-employee chat-reply lease.
+ * Which thread a turn serializes against, or `undefined` when it needs no
+ * chat-reply lease at all.
  *
- * `chat` is serialized per employee so two turns a human is waiting on cannot
- * race their replies. A Repository work session runs through this same seam
- * but is not one of those turns: nobody is watching its text arrive, and the
- * Member who asked for it must stay able to keep talking while it works.
+ * The lease exists so two turns that replay the *same* transcript cannot race
+ * their replies — the second would read a history missing the first's answer.
+ * That hazard is per thread, not per employee: a Member talking to one AI
+ * Employee in three conversations is asking for three independent replies, and
+ * making them queue behind each other is the bug this scope key removes. So
+ * the key names the thread — a conversation, an email thread, a TLDR question
+ * — and turns on different threads never contend.
  *
- * Leasing it as `chat` would also make a session started *from* chat
+ * `EMPLOYEE_WIDE_SCOPE` is the fallback for a surface with no thread of its own
+ * (a one-shot Base or meeting kickoff): those still share a single lease, which
+ * is exactly how they behaved before threads were scoped.
+ *
+ * A Repository work session takes no lease. Nobody is watching its text
+ * arrive, and the Member who asked for it must stay able to keep talking while
+ * it works. Leasing it would also make a session started *from* chat
  * impossible rather than merely unlucky — the turn that called
- * `start_repository_work_session` still holds the employee's chat lease while
- * the tool runs, so the session would be refused every single time and land as
- * a `failed` row explaining that the employee was busy with the conversation
- * that started it.
- *
- * Repository work sessions are independent background work, so they do not
- * take a chat-reply lease. There is no company-wide AI workload pool.
+ * `start_repository_work_session` still holds its own conversation's lease
+ * while the tool runs, so the session would be refused every single time and
+ * land as a `failed` row explaining that the employee was busy with the
+ * conversation that started it.
  */
-export function usesChatWorkloadLease(
-  options: Pick<ChatOptions, "repositoryWorkSessionId">,
-): boolean {
-  return !options.repositoryWorkSessionId;
+export function chatWorkloadScopeKey(
+  options: Pick<
+    ChatOptions,
+    "repositoryWorkSessionId" | "workloadScope" | "conversationId" | "mailThreadId"
+  >,
+): string | undefined {
+  if (options.repositoryWorkSessionId) return undefined;
+  if (options.workloadScope) return options.workloadScope;
+  if (options.conversationId) return `conversation:${options.conversationId}`;
+  if (options.mailThreadId) return `mail-thread:${options.mailThreadId}`;
+  return EMPLOYEE_WIDE_SCOPE;
 }
 
 /** A deliberately company-agnostic briefing for unauthenticated surfaces. */
@@ -412,11 +442,13 @@ export async function streamChatWithEmployee(
   }
 
   let workloadLease = null;
-  if (usesChatWorkloadLease(options)) {
+  const workloadScopeKey = chatWorkloadScopeKey(options);
+  if (workloadScopeKey !== undefined) {
     try {
       workloadLease = await acquireChatWorkloadLease(
         co.id,
         emp.id,
+        workloadScopeKey,
         (options.timeoutMs ?? CHAT_HARD_TIMEOUT_MS) + 60_000,
         { ownerKey: options.workloadKey },
       );
@@ -425,7 +457,7 @@ export async function streamChatWithEmployee(
       if (error instanceof EmployeeWorkloadBusyError) {
         return {
           status: "busy",
-          reply: formatBusyReply(employeeDisplayName),
+          reply: formatBusyReply(employeeDisplayName, workloadScopeKey !== EMPLOYEE_WIDE_SCOPE),
           attachmentIds: [],
           sidecars: {},
         };
@@ -483,7 +515,12 @@ export async function streamChatWithEmployee(
           },
         });
         if (options.wasInterrupted?.()) {
-          return { status: "ok", reply: interruptedReply(buffered), attachmentIds: [], sidecars: {} };
+          return {
+            status: "ok",
+            reply: interruptedReply(buffered),
+            attachmentIds: [],
+            sidecars: {},
+          };
         }
         if (result.status === "error") {
           return { status: "error", reply: result.error, attachmentIds: [], sidecars: {} };

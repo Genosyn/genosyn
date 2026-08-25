@@ -39,7 +39,8 @@ import {
 import { describeContextUsage } from "../lib/chatContextUsage";
 import { isIndeterminateChatProgress, shouldShowChatProgressCard } from "../lib/chatProgress";
 import {
-  type EmployeeSession,
+  activeFlight,
+  type ConversationFlight,
   QueuedChatMessage,
   shouldRenderQueuedMessage,
   useEmployeeSession,
@@ -100,21 +101,18 @@ export default function EmployeeChat() {
     activeConvId,
     loadedConvId,
     messages,
-    streamingReply,
-    progress,
     contextUsage,
-    connectionState,
-    sendingConvId,
-    sendingNewConversationIntent,
-    sending,
-    interruptingConvId,
-    queuedMessages,
     newConversationIntent,
     input,
     convs,
     convsLoaded,
     convLoading,
   } = session;
+  // Everything about the reply in flight belongs to the thread on screen. The
+  // same employee may be answering other conversations at the same time; those
+  // have their own flights and never show up here.
+  const { sending, interrupting, streamingReply, progress, connectionState, queuedMessages } =
+    activeFlight(session);
 
   /** Action whose details are open in the logs modal; null when closed. */
   const [inspectAction, setInspectAction] = React.useState<MessageAction | null>(null);
@@ -157,12 +155,9 @@ export default function EmployeeChat() {
       newConversationIntent,
     ),
   );
-  const isActiveResponse =
-    sending &&
-    sendingConvId === activeConvId &&
-    (sendingConvId !== null || sendingNewConversationIntent === newConversationIntent);
+  const isActiveResponse = sending;
   /** A stop this browser asked for that the employee has not finished obeying. */
-  const isInterrupting = interruptingConvId !== null && interruptingConvId === sendingConvId;
+  const isInterrupting = interrupting;
   const hasStreamingReply = streamingReply !== null && streamingReply.length > 0;
   const hasProgressCard = progress
     ? shouldShowChatProgressCard(progress.percent, progress.label, connectionState)
@@ -502,7 +497,8 @@ export default function EmployeeChat() {
   }
 
   /**
-   * Stop the reply in flight so an already-queued follow-up goes now.
+   * Stop the reply in flight in this thread so an already-queued follow-up
+   * goes now.
    *
    * The message is not re-sent — it is already durable in the queue. Only its
    * position and the employee's attention change.
@@ -512,7 +508,7 @@ export default function EmployeeChat() {
     setComposerError(null);
     actions.promoteQueuedMessage(emp.id, queuedMessageId);
     followTail();
-    const err = await actions.interruptActiveTurn(company.id, emp.id);
+    const err = await actions.interruptActiveTurn(company.id, emp.id, activeConvId);
     if (err) setComposerError(err);
   }
 
@@ -743,11 +739,10 @@ export default function EmployeeChat() {
             onSubmit={() => send()}
             error={composerError}
             onInterruptAndSend={() => send(undefined, { interrupt: true })}
-            isResponding={sending}
-            // Queueing is employee-wide — a follow-up typed here waits behind
-            // whichever thread is replying. Stopping is not: it would land on
-            // that other thread, which is not what someone reading this one
-            // means by "interrupt".
+            isResponding={isActiveResponse}
+            // Queueing is per thread, so a follow-up typed here only ever
+            // waits behind this conversation's own reply — and stopping lands
+            // on exactly the reply the reader is looking at.
             canInterrupt={isActiveResponse}
             interrupting={isInterrupting}
             queuedCount={visibleQueuedMessages.length}
@@ -1247,7 +1242,7 @@ function ProgressIndicator({
   authorName: string;
   percent: number;
   label: string;
-  connectionState: EmployeeSession["connectionState"];
+  connectionState: ConversationFlight["connectionState"];
 }) {
   const indeterminate = isIndeterminateChatProgress(percent, label);
 
@@ -1314,7 +1309,7 @@ function ProgressConnectionStatus({
   connectionState,
   announcementPrefix,
 }: {
-  connectionState: EmployeeSession["connectionState"];
+  connectionState: ConversationFlight["connectionState"];
   announcementPrefix?: string;
 }) {
   const reconnecting = connectionState === "reconnecting";

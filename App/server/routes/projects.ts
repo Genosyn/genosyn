@@ -1197,6 +1197,9 @@ async function respondAsEmployee(
   const result = await chatWithEmployee(companyId, employeeId, turn.message, history, {
     requesterUserId: requester.userId,
     requesterSessionVersion: requester.sessionVersion,
+    // The comment thread on one Todo is the transcript this turn replays, so
+    // it is what the reply serializes against — not the whole employee.
+    workloadScope: `todo:${todo.id}`,
   });
   const reply = result.reply || "(no reply)";
 

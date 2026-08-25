@@ -1140,14 +1140,20 @@ async function handleMentions(args: {
         framed,
         history,
         () => {},
-        args.requester
-          ? {
-              requesterUserId: args.requester.userId,
-              requesterSessionVersion: args.requester.sessionVersion,
-            }
-          : args.trigger.kind === "ai"
-            ? { toolAuthority: "employee" }
-            : { toolAuthority: "untrusted" },
+        {
+          // One channel is one transcript, so that is what the reply
+          // serializes on. Mentioning the same employee in two channels asks
+          // for two answers, not a queue.
+          workloadScope: `workspace-channel:${args.channel.id}`,
+          ...(args.requester
+            ? {
+                requesterUserId: args.requester.userId,
+                requesterSessionVersion: args.requester.sessionVersion,
+              }
+            : args.trigger.kind === "ai"
+              ? { toolAuthority: "employee" as const }
+              : { toolAuthority: "untrusted" as const }),
+        },
       );
     } finally {
       clearInterval(typingTimer);

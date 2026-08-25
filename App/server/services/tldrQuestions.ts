@@ -828,6 +828,9 @@ async function runDiscussMode(
           // leave the employee looking busy for the six-hour lease TTL —
           // recovery drops the lease along with the row.
           workloadKey: workingId,
+          // One question card is one thread. Another card on the same TLDR,
+          // and any private chat with the same employee, reply in parallel.
+          workloadScope: `tldr-question:${question.id}`,
           throwOnWorkloadUnavailable: true,
           requesterUserId,
           requesterSessionVersion,

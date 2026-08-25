@@ -101,10 +101,10 @@ export function SelfHosting() {
 } as const;`}</Pre>
       <P>
         Genosyn does not impose a per-company ceiling on top-level AI work. Chats and Routine runs
-        can overlap freely; only chat replies for the same AI Employee are serialized. Size the host
-        and any worker replicas for the overlap Members and Routines can create, and monitor your AI
-        Model provider&apos;s concurrency, token, spend, and rate limits. Provider-side throttling
-        still applies.
+        can overlap freely, including several conversations with one AI Employee; only replies within
+        a single thread are serialized. Size the host and any worker replicas for the overlap Members
+        and Routines can create, and monitor your AI Model provider&apos;s concurrency, token, spend,
+        and rate limits. Provider-side throttling still applies.
       </P>
       <Callout kind="info" title="Command execution is on by default, behind bubblewrap.">
         The standard Docker image ships the <Code>bwrap</Code> executable, so an out-of-the-box

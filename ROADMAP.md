@@ -410,9 +410,10 @@ export const config = {
       cleared server environment, symlink-safe file tools, and no shell network;
       shared browser and arbitrary stdio MCP disabled in SaaS mode
 - [x] Top-level AI work can overlap without a per-company application quota;
-      Routine runs and chat can run together for one AI Employee, while chat
-      replies stay serialized per AI Employee. Deployment operators and AI
-      Model providers remain responsible for real capacity and rate limits
+      Routine runs and chat can run together for one AI Employee, and so can
+      that employee's separate chat threads — only two turns replaying the
+      same transcript are serialized. Deployment operators and AI Model
+      providers remain responsible for real capacity and rate limits
 - [x] Requester-bound private AI Employee conversations and durable recovery;
       interactive tools enforce the intersection of live Member access and AI
       Employee Grants through an exhaustive fail-closed manifest policy, while
@@ -851,6 +852,11 @@ the reply.
       turn keeps whatever it had already streamed, is marked `interrupted`
       rather than failed, releases the employee's reply lease, and is left
       terminal so recovery never resumes it
+- [x] Concurrent conversations with one AI Employee: the reply lease and the
+      browser's send queue are scoped to the thread — a conversation, an email
+      thread, a TLDR question, a Todo, a workspace channel — so only a second
+      message in the *same* thread waits, and separate chats with one employee
+      reply in parallel
 - [x] Per-message AI Model picker in direct employee Chat when multiple models
       are connected; defaults to the active model and persists each queued
       turn's choice through disconnect and server-restart recovery

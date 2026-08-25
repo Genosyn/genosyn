@@ -283,11 +283,12 @@ export function Email() {
         A reply in progress belongs to the server, not to your browser tab. Work that takes a while
         shows as <Strong>working</Strong> beside the email; if the connection drops, the panel says{" "}
         <Strong>reconnecting</Strong> and picks the same reply back up when it lands — closing the
-        panel, switching threads, or reloading the page is safe. If the employee is busy with
-        another message, yours waits its turn instead of asking you to send it again. Replies that
-        genuinely could not run — the server restarted mid-answer, or the employee stayed busy for
-        several minutes — say so plainly and offer <Strong>Try again</Strong>, which re-sends that
-        same instruction.
+        panel, switching threads, or reloading the page is safe. Each email thread is answered
+        independently, so a reply running on one email never holds up the one you are reading; only
+        a second message on the <em>same</em> email waits its turn, and it waits instead of asking
+        you to send it again. Replies that genuinely could not run — the server restarted
+        mid-answer, or the employee stayed busy for several minutes — say so plainly and offer{" "}
+        <Strong>Try again</Strong>, which re-sends that same instruction.
       </P>
 
       <H2 id="hand-to-ai">Handing a thread to an AI employee</H2>

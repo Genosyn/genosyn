@@ -184,10 +184,10 @@ Post it to the #morning channel.`}</Pre>
       <P>
         Starting a Routine does not make its AI employee unavailable. You can keep chatting with
         that employee and start other independent Routines while the first Run continues. Genosyn
-        places no per-company ceiling on overlapping top-level AI work. A second chat reply for the
-        same AI Employee waits for the first reply, but Routine work never blocks the composer. Your
-        deployment operator and AI Model provider still determine real capacity, cost, and rate
-        limits.
+        places no per-company ceiling on overlapping top-level AI work. Chat threads are
+        independent too: one AI Employee answers several conversations at once, and only a second
+        message in the <em>same</em> thread waits for the reply ahead of it. Your deployment operator
+        and AI Model provider still determine real capacity, cost, and rate limits.
       </P>
       <Callout kind="warn" title="Parallel work shares the employee workspace.">
         Reads are safe. For writes, use distinct output files and avoid simultaneous git operations

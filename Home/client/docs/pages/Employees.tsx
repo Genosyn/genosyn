@@ -169,26 +169,25 @@ export function Employees() {
         Coding access depends on the installation mode. The default bubblewrap mode provides
         sandboxed <Code>bash</Code> and materializes repositories; where its Linux namespaces are
         unavailable, boot falls back to disabled, which exposes no coding tools and materializes no
-        repositories. Separately acknowledged host mode provides
-        path-confined file and search tools rooted in this directory (<Code>read_file</Code>,{" "}
-        <Code>write_file</Code>, <Code>edit_file</Code>, <Code>list_dir</Code>, <Code>glob</Code>,
-        and <Code>grep</Code>) but never exposes <Code>bash</Code>, because a working directory is
-        not a security boundary for an unrestricted same-user shell. The runner captures the agent
-        transcript into a Run
-        log. API-key and custom models use Genosyn&apos;s in-process loop; OpenAI subscription
-        models use the official Codex app-server. A Routine does not make its AI employee
-        unavailable: Members can keep chatting with that employee and start independent Routines in
-        parallel without a per-company application cap. Chat replies for the same AI Employee remain
-        serialized. Concurrent work shares this directory when coding is enabled, so give
-        overlapping Runs distinct output files and avoid simultaneous edits to the same git working
-        tree. Model credentials stay encrypted in the database. They never enter the employee working
-        directory. For an OpenAI subscription login or Run, Genosyn gives the official app-server a
-        locked temporary <Code>CODEX_HOME</Code>. Managed ChatGPT
-        sessions are materialized there; access tokens enter only the child process environment.
-        Genosyn removes the directory afterward. Trusted single-tenant installs support subscription
-        auth in the bubblewrap default, including standard Docker, alongside isolated coding and
-        repository synchronization — and in the disabled fallback, with no coding tools or
-        repository materialization. Host mode rejects subscription auth.
+        repositories. Separately acknowledged host mode provides path-confined file and search tools
+        rooted in this directory (<Code>read_file</Code>, <Code>write_file</Code>,{" "}
+        <Code>edit_file</Code>, <Code>list_dir</Code>, <Code>glob</Code>, and <Code>grep</Code>) but
+        never exposes <Code>bash</Code>, because a working directory is not a security boundary for
+        an unrestricted same-user shell. The runner captures the agent transcript into a Run log.
+        API-key and custom models use Genosyn&apos;s in-process loop; OpenAI subscription models use
+        the official Codex app-server. A Routine does not make its AI employee unavailable: Members
+        can keep chatting with that employee and start independent Routines in parallel without a
+        per-company application cap. Several conversations with the same AI Employee also reply in
+        parallel; only two turns in one thread are serialized. Concurrent work shares this directory
+        when coding is enabled, so give overlapping Runs distinct output files and avoid
+        simultaneous edits to the same git working tree. Model credentials stay encrypted in the
+        database. They never enter the employee working directory. For an OpenAI subscription login
+        or Run, Genosyn gives the official app-server a locked temporary <Code>CODEX_HOME</Code>.
+        Managed ChatGPT sessions are materialized there; access tokens enter only the child process
+        environment. Genosyn removes the directory afterward. Trusted single-tenant installs support
+        subscription auth in the bubblewrap default, including standard Docker, alongside isolated
+        coding and repository synchronization — and in the disabled fallback, with no coding tools
+        or repository materialization. Host mode rejects subscription auth.
       </P>
 
       <H3 id="org-chart">Org chart</H3>
@@ -228,13 +227,14 @@ export function Employees() {
           lets one replacement worker resume the request safely from its saved context and latest
           milestone; it checks current state before continuing so completed side effects are not
           repeated. The final reply reappears in the same thread. You can keep writing while the
-          employee works — follow-ups queue and send in order. When the answer in flight has
-          stopped being the one you want, choose <Strong>Interrupt &amp; send</Strong> on the
-          queued message (or press <Code>⌘/Ctrl+Enter</Code> in the composer) and the employee
+          employee works — follow-ups queue and send in order within that thread, while your other
+          conversations with the same employee carry on answering in parallel. When the answer in
+          flight has stopped being the one you want, choose <Strong>Interrupt &amp; send</Strong> on
+          the queued message (or press <Code>⌘/Ctrl+Enter</Code> in the composer) and the employee
           puts down what it is doing so that message goes next. Whatever it had already written
-          stays in the thread, marked <Strong>interrupted</Strong>, and the next turn can see it.
-          A stop lands as soon as the step already running hands back, so a long tool call can
-          take a moment. Chat stays available while that employee&apos;s Routines run.
+          stays in the thread, marked <Strong>interrupted</Strong>, and the next turn can see it. A
+          stop lands as soon as the step already running hands back, so a long tool call can take a
+          moment. Chat stays available while that employee&apos;s Routines run.
           <br />
           <br />
           Under the composer, next to the model picker, Genosyn shows{" "}
