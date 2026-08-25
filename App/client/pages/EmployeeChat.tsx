@@ -508,6 +508,8 @@ export default function EmployeeChat() {
    * position and the employee's attention change.
    */
   async function interruptFor(queuedMessageId: string) {
+    // This attempt owns the composer's failure line; the last one is over.
+    setComposerError(null);
     actions.promoteQueuedMessage(emp.id, queuedMessageId);
     followTail();
     const err = await actions.interruptActiveTurn(company.id, emp.id);

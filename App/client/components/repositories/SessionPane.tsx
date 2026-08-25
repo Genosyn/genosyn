@@ -270,14 +270,22 @@ export function SessionPane({
     ? employeeAvatarUrl(companyId, session.employee.id, session.employee.avatarKey)
     : null;
 
-  /** Every action clears the last failure first — it belongs to the old attempt. */
-  async function run(work: () => Promise<void>) {
+  /**
+   * Every action clears the last failure first — it belongs to the old attempt.
+   *
+   * These four are all header buttons, and the header is sticky while the
+   * banner below it is not: on a session with a long transcript the person who
+   * clicked has usually scrolled the banner off the top of the window. Three of
+   * them just answered a confirm dialog, so the failure goes back to the
+   * surface they were already looking at.
+   */
+  async function run(work: () => Promise<void>, title: string) {
     setFailure(null);
     setActing(true);
     try {
       await work();
     } catch (err) {
-      setFailure(errorMessage(err));
+      void dialog.error(err, { title });
     } finally {
       setActing(false);
     }
@@ -319,11 +327,14 @@ export function SessionPane({
       confirmLabel: push ? "Accept and send" : "Accept changes",
     });
     if (!ok) return;
-    await run(async () => {
-      await api.post(`${base}/sessions/${sessionId}/publish`, { push });
-      await reload();
-      await onChanged();
-    });
+    await run(
+      async () => {
+        await api.post(`${base}/sessions/${sessionId}/publish`, { push });
+        await reload();
+        await onChanged();
+      },
+      push ? "Couldn’t accept and send the changes" : "Couldn’t accept the changes",
+    );
   }
 
   async function openPullRequest(isUpdate: boolean) {
@@ -335,11 +346,14 @@ export function SessionPane({
       confirmLabel: isUpdate ? "Push the update" : "Open pull request",
     });
     if (!ok) return;
-    await run(async () => {
-      await api.post(`${base}/sessions/${sessionId}/pull-request`, {});
-      await reload();
-      await onChanged();
-    });
+    await run(
+      async () => {
+        await api.post(`${base}/sessions/${sessionId}/pull-request`, {});
+        await reload();
+        await onChanged();
+      },
+      isUpdate ? "Couldn’t push the update" : "Couldn’t open the pull request",
+    );
   }
 
   async function discard() {
@@ -356,7 +370,7 @@ export function SessionPane({
       await api.post(`${base}/sessions/${sessionId}/discard`);
       await reload();
       await onChanged();
-    });
+    }, "Couldn’t throw the work away");
   }
 
   /**
@@ -366,11 +380,14 @@ export function SessionPane({
    * throw work away.
    */
   async function toggleArchive(archive: boolean) {
-    await run(async () => {
-      await api.post(`${base}/sessions/${sessionId}/archive`, { archived: archive });
-      await reload();
-      await onChanged();
-    });
+    await run(
+      async () => {
+        await api.post(`${base}/sessions/${sessionId}/archive`, { archived: archive });
+        await reload();
+        await onChanged();
+      },
+      archive ? "Couldn’t archive this session" : "Couldn’t restore this session",
+    );
   }
 
   async function saveTitle() {
@@ -550,6 +567,7 @@ export function SessionPane({
 
       {failure && (
         <div
+          role="alert"
           className={
             (docked ? "mx-3 shrink-0 " : "") +
             "mt-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/60 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/5 dark:text-rose-300"
