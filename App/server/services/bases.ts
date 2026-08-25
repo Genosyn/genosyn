@@ -389,6 +389,33 @@ export async function buildLinkOptionsFor(
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * Resolve one write-payload key to a field on the table. A key may be a field
+ * id — the storage key — or a field name, matched exactly and then without
+ * case. Names carry no unique index, so `fields` must arrive ordered
+ * `sortOrder ASC, createdAt ASC` and the first match wins.
+ *
+ * Returns null instead of throwing because each write path answers an
+ * unresolved key differently: a code step refuses, a pipeline step refuses a
+ * name but forgives a stale id. `unknownBaseFieldMessage` keeps the ones that
+ * do refuse speaking with one voice.
+ */
+export function findBaseField(fields: BaseField[], key: string): BaseField | null {
+  const wanted = String(key);
+  return (
+    fields.find((f) => f.id === wanted) ??
+    fields.find((f) => f.name === wanted) ??
+    fields.find((f) => f.name.toLowerCase() === wanted.toLowerCase()) ??
+    null
+  );
+}
+
+/** The shared wording for a key that matches no field on the table. */
+export function unknownBaseFieldMessage(fields: BaseField[], key: string): string {
+  const available = fields.map((f) => f.name).join(", ");
+  return `Unknown field "${key}" — available fields: ${available || "(none)"}`;
+}
+
+/**
  * Append a row to a table. New rows land after the current last row with the
  * sparse +1000 sort order the grid relies on for cheap manual reordering.
  * Every write path (HTTP route, MCP tool, code SDK) creates rows here so the

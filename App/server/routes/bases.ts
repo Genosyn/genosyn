@@ -12,7 +12,7 @@ import { BaseView } from "../db/entities/BaseView.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateParams } from "../middleware/validate.js";
 import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
 import { Role } from "../db/entities/Membership.js";
 import { toSlug } from "../lib/slug.js";
@@ -477,6 +477,33 @@ basesRouter.get("/bases/:baseSlug/tables/:tableId/rows", async (req, res) => {
 });
 
 // ─────────────────────────── fields ──────────────────────────────────────────
+
+const tableParamsSchema = z
+  .object({ cid: z.string(), baseSlug: z.string(), tableId: z.string() })
+  .passthrough();
+
+/**
+ * Just the columns. The grid reads fields from `…/rows`, but a caller that
+ * only wants to know what a table is called — the Pipelines builder naming
+ * cells for the Add record step — should not pull every row and every
+ * cross-product link option to find out.
+ */
+basesRouter.get(
+  "/bases/:baseSlug/tables/:tableId/fields",
+  validateParams(tableParamsSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const b = await loadBaseBySlug(cid, req.params.baseSlug);
+    if (!b) return res.status(404).json({ error: "Base not found" });
+    const t = await loadTable(b.id, req.params.tableId);
+    if (!t) return res.status(404).json({ error: "Table not found" });
+    const fields = await AppDataSource.getRepository(BaseField).find({
+      where: { tableId: t.id },
+      order: { sortOrder: "ASC", createdAt: "ASC" },
+    });
+    res.json({ fields: fields.map(hydrateField) });
+  },
+);
 
 const createFieldSchema = z.object({
   name: z.string().min(1).max(80),

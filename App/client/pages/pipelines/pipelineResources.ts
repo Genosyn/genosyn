@@ -2,6 +2,10 @@ import React from "react";
 import {
   api,
   type Base,
+  type BaseDetail,
+  type BaseField,
+  type BaseTable,
+  type BaseTableFields,
   type IntegrationConnection,
   type PipelineNodeCatalogEntry,
   type Project,
@@ -80,4 +84,83 @@ export function usePipelineResources(companyId: string): PipelineResources {
   }, [companyId]);
 
   return resources;
+}
+
+export type BaseTableFieldsState = {
+  tables: BaseTable[];
+  fields: BaseField[];
+  tablesLoading: boolean;
+};
+
+/**
+ * The tables of one Base, and the columns of the table selected inside it, for
+ * the Add record (Base) step. Two fetches rather than one because the fields
+ * route is keyed by table id while a step's config stores a slug — and because
+ * changing the selected table should not re-read the whole Base.
+ *
+ * Failures degrade to empty lists on purpose: the JSON field is still typeable
+ * without the helper, so an unavailable Base must not block editing the step.
+ */
+export function useBaseTableFields(
+  companyId: string,
+  baseSlug: string,
+  tableSlug: string,
+): BaseTableFieldsState {
+  const [tables, setTables] = React.useState<BaseTable[]>([]);
+  const [tablesLoading, setTablesLoading] = React.useState(false);
+  // Stamped with the table the columns belong to. Selecting a second step
+  // reuses this hook rather than remounting it, so returning the payload
+  // unconditionally would label one table's columns with another's name for
+  // the length of the fetch — long enough to warn about a config that is fine.
+  const [loaded, setLoaded] = React.useState<{ tableId: string; fields: BaseField[] }>({
+    tableId: "",
+    fields: [],
+  });
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!baseSlug) {
+      setTables([]);
+      return;
+    }
+    setTablesLoading(true);
+    api
+      .get<BaseDetail>(`/api/companies/${companyId}/bases/${baseSlug}`)
+      .then((detail) => {
+        if (!cancelled) setTables(detail.tables);
+      })
+      .catch(() => {
+        if (!cancelled) setTables([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTablesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [baseSlug, companyId]);
+
+  const tableId = tables.find((table) => table.slug === tableSlug)?.id ?? "";
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!baseSlug || !tableId) return;
+    api
+      .get<BaseTableFields>(`/api/companies/${companyId}/bases/${baseSlug}/tables/${tableId}/fields`)
+      .then((content) => {
+        if (!cancelled) setLoaded({ tableId, fields: content.fields });
+      })
+      .catch(() => {
+        if (!cancelled) setLoaded({ tableId, fields: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [baseSlug, companyId, tableId]);
+
+  return {
+    tables,
+    fields: loaded.tableId === tableId ? loaded.fields : [],
+    tablesLoading,
+  };
 }

@@ -5,11 +5,12 @@ import { Project } from "../../db/entities/Project.js";
 import { Todo } from "../../db/entities/Todo.js";
 import { Base } from "../../db/entities/Base.js";
 import { BaseTable } from "../../db/entities/BaseTable.js";
-import { BaseRecord } from "../../db/entities/BaseRecord.js";
+import { BaseField } from "../../db/entities/BaseField.js";
 import { JournalEntry } from "../../db/entities/JournalEntry.js";
 import { IntegrationConnection } from "../../db/entities/IntegrationConnection.js";
 import { ChannelMessage } from "../../db/entities/ChannelMessage.js";
 import { Channel } from "../../db/entities/Channel.js";
+import { createBaseRecordRow, findBaseField, unknownBaseFieldMessage, UUID_RE } from "../bases.js";
 import { findChannelBySlugOrId } from "../workspaceChat.js";
 import { broadcastToCompany } from "../realtime.js";
 import { assertSafeOutboundConfig, safeFetchBuffer } from "../../lib/outboundUrl.js";
@@ -222,26 +223,40 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
       archivedAt: IsNull(),
     });
     if (!table) throw new Error(`Table "${tableSlug}" not found in base "${baseSlug}"`);
-    const data = parseObject(ctx.config.data, "data");
-    const last = await AppDataSource.getRepository(BaseRecord).findOne({
+    const input = parseObject(ctx.config.data, "data");
+    // Authors write field names; cells are stored under field ids. Same order
+    // as the code SDK loads them, so both paths pick the same field when two
+    // share a name.
+    const fields = await AppDataSource.getRepository(BaseField).find({
       where: { tableId: table.id },
-      order: { sortOrder: "DESC" },
+      order: { sortOrder: "ASC", createdAt: "ASC" },
     });
-    const recRepo = AppDataSource.getRepository(BaseRecord);
-    const saved = await recRepo.save(
-      recRepo.create({
-        tableId: table.id,
-        dataJson: JSON.stringify(data),
-        sortOrder: (last?.sortOrder ?? 0) + 1000,
-      }),
-    );
+    const data: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(input)) {
+      if (value === null || value === undefined || value === "") continue;
+      const field = findBaseField(fields, key);
+      if (field) {
+        data[field.id] = value;
+        continue;
+      }
+      // A name matching nothing is a typo the author can fix, so say so. A
+      // field id matching nothing is a column somebody deleted after this step
+      // was saved: there is no author mistake to report, and failing the run
+      // would punish the pipeline for an unrelated schema edit.
+      if (UUID_RE.test(key)) {
+        ctx.log(`skipped "${key}": no such field in ${baseSlug}/${tableSlug}`);
+        continue;
+      }
+      throw new Error(`${unknownBaseFieldMessage(fields, key)} (in ${baseSlug}/${tableSlug})`);
+    }
+    const saved = await createBaseRecordRow(table.id, data);
     ctx.log(`added record to ${baseSlug}/${tableSlug}: ${saved.id}`);
     return {
       outputs: {
         recordId: saved.id,
         tableId: table.id,
         baseId: base.id,
-        data,
+        data: input,
       },
     };
   },

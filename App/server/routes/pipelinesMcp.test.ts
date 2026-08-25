@@ -9,6 +9,7 @@ import express from "express";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Base } from "../db/entities/Base.js";
+import { BaseField } from "../db/entities/BaseField.js";
 import { BaseTable } from "../db/entities/BaseTable.js";
 import { Channel } from "../db/entities/Channel.js";
 import { ChannelMember } from "../db/entities/ChannelMember.js";
@@ -160,6 +161,14 @@ async function grantedBase(): Promise<{ base: Base; table: BaseTable }> {
     slug: "marketing-webhook-events",
     sortOrder: 1000,
   });
+  await insert(BaseField, {
+    tableId: table.id,
+    name: "Event id",
+    type: "text",
+    configJson: "{}",
+    isPrimary: true,
+    sortOrder: 1000,
+  });
   await insert(EmployeeBaseGrant, { employeeId: employee.id, baseId: base.id });
   return { base, table };
 }
@@ -186,7 +195,7 @@ describe("pipeline tools exist and are reachable", () => {
       stepTypes: Array<{
         type: string;
         outputs: string[];
-        config: Array<{ key: string; required: boolean }>;
+        config: Array<{ key: string; required: boolean; hint?: string }>;
       }>;
     }>("list_pipeline_node_types");
     assert.equal(response.status, 200);
@@ -197,6 +206,10 @@ describe("pipeline tools exist and are reachable", () => {
       (entry) => entry.type === "action.createBaseRecord",
     );
     assert.ok(record?.config.some((field) => field.key === "baseSlug" && field.required));
+    // `placeholder` is not projected to employees, so the hint is the only
+    // place the name-keyed contract can reach them.
+    const data = record?.config.find((field) => field.key === "data");
+    assert.match(data?.hint ?? "", /field names/);
   });
 });
 
@@ -214,7 +227,7 @@ describe("create_pipeline", () => {
           config: {
             baseSlug: "revenue",
             tableSlug: table.slug,
-            data: '{"eventId": "{{trigger.payload.eventId}}"}',
+            data: '{"Event id": "{{trigger.payload.eventId}}"}',
           },
         },
       ),
@@ -795,7 +808,7 @@ describe("running and reading back", () => {
           config: {
             baseSlug: "revenue",
             tableSlug: table.slug,
-            data: '{"eventId": "{{trigger.payload.eventId}}"}',
+            data: '{"Event id": "{{trigger.payload.eventId}}"}',
           },
         },
       ),

@@ -1550,6 +1550,9 @@ export type BaseTableContent = {
   views: BaseView[];
 };
 
+/** The columns of one table, without its rows. */
+export type BaseTableFields = { fields: BaseField[] };
+
 export type BaseTemplateSummary = {
   id: string;
   name: string;

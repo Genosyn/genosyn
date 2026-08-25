@@ -147,6 +147,13 @@ export function Pipelines() {
           now.
         </LI>
         <LI>
+          <Strong>Add record (Base)</Strong> keys its JSON by field name — for example{" "}
+          <Code>{'{"Email": "{{trigger.payload.email}}"}'}</Code>. The step lists the table&apos;s
+          field names as you type, and a name that matches no field fails the Run rather than
+          writing a cell nobody can read. Pipelines saved before this keep working: field ids are
+          still accepted.
+        </LI>
+        <LI>
           Branch paths are labelled <Code>true</Code> and <Code>false</Code> on the canvas and in
           Flow settings.
         </LI>

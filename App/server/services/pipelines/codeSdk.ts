@@ -7,8 +7,10 @@ import { BaseRecord } from "../../db/entities/BaseRecord.js";
 import {
   createBaseRecordRow,
   deleteBaseRecordWithContents,
+  findBaseField,
   hydrateField,
   mergeBaseRecordData,
+  unknownBaseFieldMessage,
   UUID_RE,
 } from "../bases.js";
 
@@ -98,15 +100,9 @@ export function makeCodeSdk(ctx: CodeSdkContext) {
   }
 
   function resolveField(fields: BaseField[], key: string): BaseField {
-    const wanted = String(key);
-    const byId = fields.find((f) => f.id === wanted);
-    if (byId) return byId;
-    const byName = fields.find((f) => f.name === wanted);
-    if (byName) return byName;
-    const byLowerName = fields.find((f) => f.name.toLowerCase() === wanted.toLowerCase());
-    if (byLowerName) return byLowerName;
-    const available = fields.map((f) => f.name).join(", ");
-    throw new Error(`Unknown field "${wanted}" — available fields: ${available || "(none)"}`);
+    const found = findBaseField(fields, key);
+    if (!found) throw new Error(unknownBaseFieldMessage(fields, key));
+    return found;
   }
 
   function parseData(record: BaseRecord): Record<string, unknown> {

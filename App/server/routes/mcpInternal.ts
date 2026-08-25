@@ -8365,7 +8365,8 @@ const PIPELINE_AUTHORING_NOTES: Partial<Record<PipelineNodeKind, string>> = {
     "Only pointable at yourself. A journal is rendered back to its owner as their own memory.",
   "integration.invoke":
     "Needs your own grant on the Connection, plus the strongest access it can be asked for. `toolName` must be a literal action name, never a template.",
-  "action.createBaseRecord": "Needs your own Grant on the Base.",
+  "action.createBaseRecord":
+    "Needs your own Grant on the Base. `data` is keyed by field name — read a table's field names with `get_base`. Field ids are still accepted here, but `create_base_row` remains id-keyed.",
   "action.sendMessage": "A private channel needs you to be a member of it. DMs are refused.",
   "action.createTodo": "Needs edit access to the Project.",
   "logic.code":

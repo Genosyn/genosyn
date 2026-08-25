@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/Textarea";
 import { useToast } from "@/components/ui/Toast";
 import {
   api,
-  type BaseDetail,
+  type BaseField,
   type Company,
   type Pipeline,
   type PipelineGraph,
@@ -19,9 +19,10 @@ import {
 } from "@/lib/api";
 import { copyToClipboard } from "@/lib/clipboard";
 import { CRON_PRESETS, cronHuman, cronIsReadable } from "@/lib/cron";
-import type {
-  PipelineIntegrationTool,
-  PipelineResources,
+import {
+  useBaseTableFields,
+  type PipelineIntegrationTool,
+  type PipelineResources,
 } from "@/pages/pipelines/pipelineResources";
 import {
   PIPELINE_FAMILY_META,
@@ -31,6 +32,9 @@ import {
 } from "@/pages/pipelines/pipelineUi";
 
 type SelectOption = { value: string; label: string; description?: string };
+
+/** Distinguishes a Base field id from a field name in an authored `data` key. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function PipelineNodePanel({
   company,
@@ -67,40 +71,23 @@ export function PipelineNodePanel({
   onSelectIssue: (nodeId: string) => void;
   onTokenRegenerated: (token: string) => void;
 }) {
-  const [tables, setTables] = React.useState<SelectOption[]>([]);
-  const [tablesLoading, setTablesLoading] = React.useState(false);
-  const baseSlug =
-    node?.type === "action.createBaseRecord" ? String(node.config.baseSlug ?? "") : "";
-
-  React.useEffect(() => {
-    let cancelled = false;
-    if (!baseSlug) {
-      setTables([]);
-      return;
-    }
-    setTablesLoading(true);
-    api
-      .get<BaseDetail>(`/api/companies/${company.id}/bases/${baseSlug}`)
-      .then((detail) => {
-        if (!cancelled) {
-          setTables(
-            detail.tables.map((table) => ({
-              value: table.slug,
-              label: table.name,
-            })),
-          );
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setTables([]);
-      })
-      .finally(() => {
-        if (!cancelled) setTablesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [baseSlug, company.id]);
+  const isBaseRecord = node?.type === "action.createBaseRecord";
+  const baseSlug = isBaseRecord ? String(node?.config.baseSlug ?? "") : "";
+  const tableSlug = isBaseRecord ? String(node?.config.tableSlug ?? "") : "";
+  const {
+    tables: baseTables,
+    fields: baseFields,
+    tablesLoading,
+  } = useBaseTableFields(company.id, baseSlug, tableSlug);
+  // An archived table is still returned by the Base, but the runtime refuses to
+  // write to one — so it has no business in the picker.
+  const tables = React.useMemo(
+    () =>
+      baseTables
+        .filter((table) => !table.archivedAt)
+        .map((table) => ({ value: table.slug, label: table.name })),
+    [baseTables],
+  );
 
   if (!node || !entry) {
     return <BuilderGuide issues={issues} onSelectIssue={onSelectIssue} />;
@@ -218,6 +205,8 @@ export function PipelineNodePanel({
                         value={node.config[field.key]}
                         resource={resource}
                         selectedTool={field.key === "args" ? selectedTool : null}
+                        baseFields={isBaseRecord && field.key === "data" ? baseFields : null}
+                        baseTableChosen={Boolean(tableSlug)}
                         onChange={(value) => {
                           const config = { ...node.config, [field.key]: value };
                           if (field.key === "baseSlug") config.tableSlug = "";
@@ -426,12 +415,16 @@ function FieldEditor({
   value,
   resource,
   selectedTool,
+  baseFields,
+  baseTableChosen,
   onChange,
 }: {
   field: PipelineNodeField;
   value: unknown;
   resource: ResourceField | null;
   selectedTool: PipelineIntegrationTool | null;
+  baseFields: BaseField[] | null;
+  baseTableChosen: boolean;
   onChange: (value: unknown) => void;
 }) {
   const normalized = value === undefined || value === null ? "" : value;
@@ -508,6 +501,14 @@ function FieldEditor({
         )}
         {selectedTool && field.key === "args" && (
           <ToolSchemaHelp tool={selectedTool} onInsert={(next) => onChange(next)} />
+        )}
+        {baseFields && (
+          <BaseFieldsHelp
+            fields={baseFields}
+            tableChosen={baseTableChosen}
+            value={text}
+            onInsert={(next) => onChange(next)}
+          />
         )}
         {field.hint && (
           <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{field.hint}</p>
@@ -842,6 +843,77 @@ function ToolSchemaHelp({
           Insert a JSON outline
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * The selected table's field names, so the author names cells instead of
+ * guessing at ids. Keys that match nothing are called out here rather than at
+ * run time, which is the whole reason the step stopped being keyed by id.
+ */
+function BaseFieldsHelp({
+  fields,
+  tableChosen,
+  value,
+  onInsert,
+}: {
+  fields: BaseField[];
+  tableChosen: boolean;
+  value: string;
+  onInsert: (value: string) => void;
+}) {
+  // Only names are called out. A field id that matches nothing is a column
+  // somebody deleted, which the runtime skips rather than fails on — and the
+  // author has no name to correct it to anyway.
+  const unknown = React.useMemo(() => {
+    if (!isJsonObject(value)) return [];
+    const authored = Object.keys(JSON.parse(value) as Record<string, unknown>);
+    return authored.filter(
+      (key) =>
+        !UUID_RE.test(key) &&
+        !fields.some(
+          (f) => f.id === key || f.name === key || f.name.toLowerCase() === key.toLowerCase(),
+        ),
+    );
+  }, [fields, value]);
+
+  // While a table's columns are in flight this is empty too, so the copy has to
+  // hold for both — naming the other table's fields would be worse than waiting.
+  if (fields.length === 0) {
+    return (
+      <div className="mt-2 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-900">
+        <p className="leading-5 text-slate-500 dark:text-slate-400">
+          {tableChosen
+            ? "Loading this table's field names…"
+            : "Choose a table to see the field names you can write to."}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-900">
+      <div className="font-medium text-slate-700 dark:text-slate-300">Fields on this table</div>
+      <p className="mt-1 leading-5 text-slate-500 dark:text-slate-400">
+        {fields.map((f) => f.name).join(", ")}
+      </p>
+      {unknown.length > 0 && (
+        <p className="mt-1 leading-5 text-rose-600 dark:text-rose-300">
+          {unknown.length === 1 ? "No field is named " : "No fields are named "}
+          {unknown.map((key) => `"${key}"`).join(", ")}. This step will fail when it runs.
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={() => {
+          const example = Object.fromEntries(fields.map((f) => [f.name, ""]));
+          onInsert(JSON.stringify(example, null, 2));
+        }}
+        className="mt-2 font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+      >
+        Insert a JSON outline
+      </button>
     </div>
   );
 }

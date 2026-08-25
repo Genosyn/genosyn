@@ -256,7 +256,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     family: "action",
     label: "Add record (Base)",
     icon: "DatabasePlus",
-    description: "Append a row to a Base table. Supply field id → value as JSON.",
+    description: "Append a row to a Base table. Supply field name → value as JSON.",
     fields: [
       {
         key: "baseSlug",
@@ -272,10 +272,11 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
       },
       {
         key: "data",
-        label: "Record fields (JSON, keyed by field id)",
+        label: "Record fields (JSON)",
         type: "code",
-        placeholder: '{"<field-id>": "value"}',
+        placeholder: '{"Field name": "value"}',
         default: "{}",
+        hint: "Keys are the table's field names. Field ids still work, so Pipelines saved earlier keep running.",
       },
     ],
   },
