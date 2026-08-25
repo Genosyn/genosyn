@@ -157,6 +157,18 @@ export const config = {
     // detector reads the same way it reads a spoofed user agent.
     locale: "",
     timezone: "",
+    // Enter text and clicks the way a person does: type character by character
+    // with small randomized gaps, and move the pointer to a control before
+    // pressing it. The alternative — setting a field's value in one shot and
+    // teleporting the cursor — is how automation frameworks drive a browser,
+    // and login pages (X, Google, and the anti-bot vendors in front of them)
+    // score exactly that. A form that receives a username and password with no
+    // keystroke or pointer telemetry is read as a bot even when the browser is
+    // otherwise an honest, real Chrome, which is why an AI Employee gets
+    // challenged from the same IP a human signs in from cleanly. Leave this on.
+    // Turn it off only for a trusted environment that wants raw speed and does
+    // not meet human-facing anti-bot defenses.
+    humanize: true as boolean,
   },
 
   // Global SMTP fallback for system-level sends (password resets, invites).

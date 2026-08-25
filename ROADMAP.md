@@ -3083,6 +3083,26 @@ of the original V1 backlog has shipped — what remains is mostly
         is the honest answer when a site refuses server-hosted browsers as
         such. Genosyn still solves no captcha; this removes *false* signals
         from a browser doing legitimate work.
+  - [x] **Drive it like a person, not a framework.** Real headed Chrome closed
+        the *fingerprint* contradictions, but a login was still challenged where
+        a human on the same browser and IP was not — because the input arrived
+        the way automation drives a browser and not the way a person does.
+        `fill()` set a field's value in one shot with zero keystrokes and
+        `click()` teleported the pointer, so a sign-in form saw a username and
+        password appear with none of the keystroke or pointer telemetry X and
+        the anti-bot vendors score. `services/humanInput.ts` re-enters input the
+        human way — type character by character with randomized gaps, approach a
+        control with the pointer before clicking, hold a key press for a real
+        dwell, pause briefly between actions — and the `browser_*` RPCs route
+        every fill/click/press/hover through it, so it covers the container's own
+        Chrome and Member browsers alike. It changes only *how* a value arrives,
+        never *what*: a Vault credential is typed into the same field, never
+        returned, still password-taint redacted, and the time-boxed one-time-code
+        paths are exempt from the think-pause so a fresh code never lapses.
+        Playwright's actionability waits are preserved and it degrades to the
+        old fill/click when disabled. On by default; `config.browser.humanize`
+        turns it off. Still camouflage, never challenge-solving — a real
+        challenge still stops for a human.
   - [x] **Browser sessions survive a container update.** `releasePage` was the
         only thing that wrote an employee's cookies to disk, and its
         `"shutdown"` reason had no caller — the App had no `SIGTERM` handler at
