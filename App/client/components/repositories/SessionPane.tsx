@@ -2,6 +2,8 @@ import React from "react";
 import {
   Activity,
   AlertCircle,
+  Archive,
+  ArchiveRestore,
   ArrowUp,
   Check,
   CircleCheck,
@@ -32,6 +34,7 @@ import {
   SESSION_STATUS_LABEL,
   SESSION_STATUS_TONE,
   hasReviewableWork,
+  isArchived,
   sessionActions,
   sessionTitle,
 } from "./sessionState";
@@ -261,6 +264,7 @@ export function SessionPane({
     admin: canReachRemote,
   });
   const tone = SESSION_STATUS_TONE[session.status];
+  const archived = isArchived(session);
   const employeeName = session.employee?.name ?? "Removed employee";
   const target = checkoutBranch ?? "the current branch";
   const avatarSrc = session.employee
@@ -371,6 +375,21 @@ export function SessionPane({
     });
   }
 
+  /**
+   * No confirmation. Archiving ends nothing and deletes nothing, and a dialog
+   * in front of a one-click reversal only teaches people to click through
+   * dialogs — which is a habit that matters at the one below it, which does
+   * throw work away.
+   */
+  async function toggleArchive(archive: boolean) {
+    await run(async () => {
+      await api.post(`${base}/sessions/${sessionId}/archive`, { archived: archive });
+      await reload();
+      await onChanged();
+      toast(archive ? "Archived" : "Back in the inbox", "success");
+    });
+  }
+
   async function saveTitle() {
     const next = (renaming ?? "").trim();
     setRenaming(null);
@@ -412,6 +431,22 @@ export function SessionPane({
                 >
                   <Pencil size={12} />
                 </button>
+                {actions.archive && (
+                  <button
+                    type="button"
+                    onClick={() => void toggleArchive(!archived)}
+                    disabled={acting}
+                    title={
+                      archived
+                        ? "Put this session back in the inbox"
+                        : "Archive this session — the work is kept, the inbox gets shorter"
+                    }
+                    aria-label={archived ? "Restore this session" : "Archive this session"}
+                    className="shrink-0 rounded p-1 text-slate-300 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50 dark:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                  >
+                    {archived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+                  </button>
+                )}
               </div>
             ) : (
               <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -443,16 +478,27 @@ export function SessionPane({
                 </button>
               </div>
             )}
-            <span
-              aria-live="polite"
-              className={
-                "inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold " +
-                TONE_CLASS[tone]
-              }
-            >
-              {running && <Spinner size={10} />}
-              {SESSION_STATUS_LABEL[session.status]}
-            </span>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {/* The status is what happened to the work; this is where the
+                Member filed it. Two separate facts, so two separate chips —
+                an archived session that is still waiting on review must not
+                read as one that was thrown away. */}
+              {archived && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  <Archive size={10} /> Archived
+                </span>
+              )}
+              <span
+                aria-live="polite"
+                className={
+                  "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold " +
+                  TONE_CLASS[tone]
+                }
+              >
+                {running && <Spinner size={10} />}
+                {SESSION_STATUS_LABEL[session.status]}
+              </span>
+            </div>
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-500 dark:text-slate-400">
@@ -595,8 +641,10 @@ export function SessionPane({
                 />
                 <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-2.5 py-2 dark:border-slate-800">
                   <span className="min-w-0 truncate text-[10px] text-slate-400 dark:text-slate-500">
-                    Same employee, branch, and context ·{" "}
-                    {instruction ? "draft saved" : "⌘↵ to send"}
+                    {archived
+                      ? "Sending brings this session back into the inbox"
+                      : "Same employee, branch, and context"}{" "}
+                    · {instruction ? "draft saved" : "⌘↵ to send"}
                   </span>
                   <Button
                     size="sm"

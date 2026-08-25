@@ -145,6 +145,21 @@ export class RepositoryWorkSession {
   @Column({ type: dateTimeColumnType, nullable: true })
   finishedAt!: Date | null;
 
+  /**
+   * Set when a Member archived the session, which takes it out of the AI work
+   * inbox without ending it.
+   *
+   * Deliberately not another `status`. A status says what happened to the
+   * *work*; archiving says what a Member wants to see in a *list*. Folding the
+   * two together would make "I have read this and I am done with it"
+   * indistinguishable from "I threw the work away", and would have to invent
+   * an answer for the question a status cannot hold — what an archived session
+   * goes back to when it is restored. Keeping it separate means the status is
+   * untouched, so restoring puts the row back exactly where it was.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  archivedAt!: Date | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

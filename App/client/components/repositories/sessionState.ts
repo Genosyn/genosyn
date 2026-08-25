@@ -79,6 +79,16 @@ export type SessionActions = {
   /** Send another instruction. */
   revise: boolean;
   /**
+   * File the session away, or take it back out — the same button either way,
+   * because the two are one decision with the flag flipped.
+   *
+   * Offered at every status except a turn in flight. Archiving touches no
+   * branch and ends nothing, so there is no state where it is destructive;
+   * hiding running work behind a filter, on the other hand, is the one thing
+   * an inbox must never do.
+   */
+  archive: boolean;
+  /**
    * There is reviewable work, and the only two buttons that could send it
    * onward are hidden because this Member may not reach the remote. The page
    * says so rather than looking like the feature is missing.
@@ -128,8 +138,14 @@ export function sessionActions(
       session.status !== "discarded" &&
       session.status !== "running",
     revise: canRevise(session.status),
+    archive: session.status !== "running",
     remoteNeedsAdmin: reviewable && repo.remote && !repo.admin,
   };
+}
+
+/** Whether a session has been filed away out of the inbox. */
+export function isArchived(session: Pick<RepositoryWorkSession, "archivedAt">): boolean {
+  return session.archivedAt !== null;
 }
 
 /**

@@ -10,6 +10,7 @@ import {
   canRevise,
   groupSessions,
   hasReviewableWork,
+  isArchived,
   matchesSessionSearch,
   sessionActions,
   sessionInboxGroup,
@@ -61,6 +62,7 @@ function session(overrides: Partial<RepositoryWorkSession> = {}): RepositoryWork
     pullRequestUrl: null,
     pullRequestNumber: null,
     finishedAt: "2026-08-19T10:00:00.000Z",
+    archivedAt: null,
     createdAt: "2026-08-19T09:00:00.000Z",
     updatedAt: "2026-08-19T10:00:00.000Z",
     employee: { id: "e1", name: "Ada", slug: "ada", avatarKey: null },
@@ -137,7 +139,7 @@ describe("the actions offered for a session", () => {
     assert.equal(actions.discard, false, "a turn in flight owns the worktree");
   });
 
-  test("nothing is offered once the work is accepted or thrown away", () => {
+  test("once the work is accepted or thrown away, only filing it away is left", () => {
     for (const status of ["published", "discarded"] as RepositoryWorkSessionStatus[]) {
       const actions = sessionActions(session({ status }), github);
       assert.deepEqual(
@@ -149,6 +151,9 @@ describe("the actions offered for a session", () => {
           pullRequestIsUpdate: false,
           discard: false,
           revise: false,
+          // Archiving is about the list, not the work — a finished session is
+          // exactly the one somebody wants out of their inbox.
+          archive: true,
           remoteNeedsAdmin: false,
         },
         status,
@@ -176,6 +181,29 @@ describe("the actions offered for a session", () => {
       ALL_STATUSES.filter((status) => hasReviewableWork({ status })),
       ["ready", "proposed"],
     );
+  });
+});
+
+describe("filing a session away", () => {
+  test("offered at every status except a turn in flight", () => {
+    const offered = ALL_STATUSES.filter(
+      (status) =>
+        sessionActions(session({ status }), { remote: false, github: false, admin: false }).archive,
+    );
+    assert.deepEqual(offered, ["ready", "empty", "proposed", "published", "discarded", "failed"]);
+  });
+
+  test("an ordinary Member is offered it — nothing here reaches the remote", () => {
+    const actions = sessionActions(session(), { remote: true, github: true, admin: false });
+    assert.equal(actions.archive, true);
+  });
+
+  test("archived is a timestamp, not a status", () => {
+    assert.equal(isArchived(session()), false);
+    assert.equal(isArchived(session({ archivedAt: "2026-08-20T09:00:00.000Z" })), true);
+    // The work's own state is untouched by it, which is the whole point of
+    // keeping the two apart.
+    assert.equal(session({ archivedAt: "2026-08-20T09:00:00.000Z" }).status, "ready");
   });
 });
 

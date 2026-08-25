@@ -2177,6 +2177,8 @@ export type RepositoryWorkSession = {
   pullRequestUrl: string | null;
   pullRequestNumber: number | null;
   finishedAt: string | null;
+  /** Set once a Member filed the session away; it leaves the inbox, not the DB. */
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
   employee: RepositoryWorkSessionEmployee | null;

@@ -1152,6 +1152,22 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       Activity and Changes views with commit checkpoints and review actions;
       a compact mobile session switcher; and explicit loading, error, empty,
       and retry states throughout.
+- [x] **Archive a work session** (`RepositoryWorkSession.archivedAt`) — a
+      repository accumulates finished sessions faster than anything else, and
+      the only thing on offer for shortening the list was `discard`, which
+      deletes the branch. So the way to get a readable inbox was to throw work
+      away. Archiving files a session out of the inbox and changes nothing
+      else: same branch, same commits, same transcript, same status, same URL.
+      Deliberately a timestamp rather than an eighth status — a status says
+      what happened to the *work*, archiving says what a Member wants to see in
+      a *list*, and merging the two would leave no answer for what a restored
+      session goes back to. The list endpoint serves the two sets separately
+      (`?archived=1`) rather than shipping everything and filtering in the
+      browser, an archived session is excluded from the "needs attention"
+      count, and asking one for another pass restores it — a turn running
+      inside something nobody can see is the one state an inbox must not
+      produce. Member-level, like renaming: nothing here reaches a remote.
+      A live turn is refused.
 - [x] **Open a pull request for a session** — the third thing to do with
       reviewed work, and the one merging and pushing could not express: it
       pushes the branch and opens a pull request against the default branch, so

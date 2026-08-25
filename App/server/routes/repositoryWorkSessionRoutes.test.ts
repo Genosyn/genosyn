@@ -213,7 +213,10 @@ describe("reading a session", () => {
     assert.equal(detail.session.title, "Rewrite the plan");
     assert.equal(detail.session.turnCount, 1);
     assert.equal(detail.session.employee?.name, "Ada");
-    assert.deepEqual(detail.turns.map((turn) => turn.ordinal), [1]);
+    assert.deepEqual(
+      detail.turns.map((turn) => turn.ordinal),
+      [1],
+    );
     assert.equal(detail.turns[0].status, "ok");
   });
 
@@ -268,6 +271,104 @@ describe("renaming a session", () => {
 
   test("refuses an empty name", async () => {
     const result = await call("PATCH", `${sessionsUrl()}/${session.id}`, { title: "" });
+    assert.equal(result.status, 400);
+  });
+});
+
+describe("archiving a session", () => {
+  async function listed(archived: boolean): Promise<string[]> {
+    const result = await call("GET", `${sessionsUrl()}${archived ? "?archived=1" : ""}`);
+    assert.equal(result.status, 200);
+    return (result.body as { sessions: Array<{ id: string }> }).sessions.map((row) => row.id);
+  }
+
+  test("moves the session between the two lists without touching the work", async () => {
+    assert.deepEqual(await listed(false), [session.id]);
+    assert.deepEqual(await listed(true), []);
+
+    const archived = await call("POST", `${sessionsUrl()}/${session.id}/archive`, {
+      archived: true,
+    });
+    assert.equal(archived.status, 200);
+    assert.notEqual(archived.body.archivedAt, null);
+    // The status is what happened to the work; archiving says nothing about it.
+    assert.equal(archived.body.status, "ready");
+    assert.equal(archived.body.branch, "genosyn/ada/abcdef12");
+
+    assert.deepEqual(await listed(false), []);
+    assert.deepEqual(await listed(true), [session.id]);
+  });
+
+  test("restoring puts it back where it was", async () => {
+    await call("POST", `${sessionsUrl()}/${session.id}/archive`, { archived: true });
+    const restored = await call("POST", `${sessionsUrl()}/${session.id}/archive`, {
+      archived: false,
+    });
+    assert.equal(restored.status, 200);
+    assert.equal(restored.body.archivedAt, null);
+    assert.equal(restored.body.status, "ready");
+    assert.deepEqual(await listed(false), [session.id]);
+    assert.deepEqual(await listed(true), []);
+  });
+
+  test("an archived session is still readable by its own URL", async () => {
+    await call("POST", `${sessionsUrl()}/${session.id}/archive`, { archived: true });
+    const result = await call("GET", `${sessionsUrl()}/${session.id}`);
+    assert.equal(result.status, 200);
+    const detail = result.body as { session: { id: string; archivedAt: string | null } };
+    assert.equal(detail.session.id, session.id);
+    assert.notEqual(detail.session.archivedAt, null);
+  });
+
+  test("an ordinary Member may archive — it is not an admin action", async () => {
+    actingUserId = member.id;
+    const result = await call("POST", `${sessionsUrl()}/${session.id}/archive`, { archived: true });
+    assert.equal(result.status, 200);
+  });
+
+  test("refuses to file away a turn that is still in flight", async () => {
+    await AppDataSource.getRepository(RepositoryWorkSession).update(
+      { id: session.id },
+      { status: "running" },
+    );
+    const result = await call("POST", `${sessionsUrl()}/${session.id}/archive`, { archived: true });
+    assert.equal(result.status, 400);
+    assert.match(String(result.body.error), /still working/);
+    const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: session.id,
+    });
+    assert.equal(row.archivedAt, null);
+  });
+
+  test("asking for changes brings an archived session back into the inbox", async () => {
+    await call("POST", `${sessionsUrl()}/${session.id}/archive`, { archived: true });
+    const result = await call("POST", `${sessionsUrl()}/${session.id}/revise`, {
+      instruction: "One more pass",
+    });
+    assert.equal(result.status, 200);
+    const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: session.id,
+    });
+    assert.equal(row.archivedAt, null);
+  });
+
+  test("refuses a body that does not say which way", async () => {
+    const result = await call("POST", `${sessionsUrl()}/${session.id}/archive`, {});
+    assert.equal(result.status, 400);
+  });
+
+  test("a non-member cannot file away someone else's session", async () => {
+    actingUserId = outsider.id;
+    const result = await call("POST", `${sessionsUrl()}/${session.id}/archive`, { archived: true });
+    assert.equal(result.status, 403);
+    const row = await AppDataSource.getRepository(RepositoryWorkSession).findOneByOrFail({
+      id: session.id,
+    });
+    assert.equal(row.archivedAt, null);
+  });
+
+  test("rejects a query it does not understand rather than guessing", async () => {
+    const result = await call("GET", `${sessionsUrl()}?archived=maybe`);
     assert.equal(result.status, 400);
   });
 });

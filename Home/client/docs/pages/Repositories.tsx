@@ -248,13 +248,14 @@ export function Repositories() {
         work. Search by session title or employee, then open the result you need. Each session has
         its own URL, so you can come back tomorrow or send a colleague straight to the work you want
         them to review. Rename a session from its header when the instruction it was opened with
-        stops describing it.
+        stops describing it, and <Strong>archive</Strong> one you are finished with to take it out
+        of the list — see <Strong>Clearing the inbox</Strong> below.
       </P>
       <P>
         On a phone or narrow window, the inbox becomes a compact session switcher above the open
         session instead of squeezing the list and the work into two columns. It keeps the same
-        direct access to recent sessions, and the current session stays selected as you move between
-        its views.
+        direct access to recent sessions, archived ones included as their own group, and the current
+        session stays selected as you move between its views.
       </P>
 
       <H3 id="quick-start">Start with a useful brief</H3>
@@ -366,6 +367,44 @@ export function Repositories() {
         accepts another instruction.
       </P>
 
+      <H3 id="archiving">Clearing the inbox</H3>
+      <P>
+        A repository accumulates finished sessions faster than it accumulates anything else.{" "}
+        <Strong>Archive</Strong> one to file it away: the inbox gets shorter and nothing else
+        changes. The branch, the commits, the transcript, and the session&apos;s status are all left
+        exactly as they were, and its URL keeps working — which is what makes archiving different
+        from throwing the work away, the only other way there used to be to shorten the list.
+      </P>
+      <UL>
+        <LI>
+          Archive from a session&apos;s header, or from the button that appears on its row in the
+          inbox. There is no confirmation step, because there is nothing to undo.
+        </LI>
+        <LI>
+          The archive lives behind the <Strong>Archive</Strong> toggle at the top of the inbox,
+          which carries a count and appears once there is something in it. Opening an archived
+          session — from a link, or from your own history — switches the list to the archive so the
+          session you are reading is the one highlighted beside it.
+        </LI>
+        <LI>
+          <Strong>Restore</Strong> puts it back exactly where it was. Nothing about the work has to
+          be re-derived, because nothing about the work was changed.
+        </LI>
+        <LI>
+          Asking an archived session for another pass restores it automatically. Work running inside
+          something filtered out of view is the one state an inbox must never produce.
+        </LI>
+        <LI>
+          A session with a turn in flight cannot be archived. Wait for the turn to finish — the
+          button says so rather than hiding live work.
+        </LI>
+      </UL>
+      <P>
+        Archived sessions are excluded from the <Strong>needs attention</Strong> count in the page
+        header, which is the point: archiving is how you say a session no longer wants anything from
+        you.
+      </P>
+
       <H3 id="session-base">Where a session starts</H3>
       <P>
         Work starts from the repository&apos;s <Strong>default branch</Strong>, brought up to date
@@ -401,11 +440,11 @@ export function Repositories() {
 
       <H3 id="agents-md">AGENTS.md</H3>
       <P>
-        If your repository keeps an <Code>AGENTS.md</Code> at its root, Genosyn reads it and includes
-        it in the employee&apos;s briefing for every session. It is the ordinary convention for
-        telling contributors how to work in a repository — the vocabulary to use, the stack, what
-        gets a change sent back — and an employee that has read it produces work you merge rather
-        than work you have to explain.
+        If your repository keeps an <Code>AGENTS.md</Code> at its root, Genosyn reads it and
+        includes it in the employee&apos;s briefing for every session. It is the ordinary convention
+        for telling contributors how to work in a repository — the vocabulary to use, the stack,
+        what gets a change sent back — and an employee that has read it produces work you merge
+        rather than work you have to explain.
       </P>
       <P>
         Large guides are truncated in the briefing, and the employee is told to read the rest with
@@ -503,7 +542,7 @@ export function Repositories() {
         rows={[
           {
             term: "Any Member",
-            def: "Browse the tree, search it, edit, create and delete files, commit, create and switch branches, read history and diffs, start AI work sessions, ask an open session for changes, and merge a session's work into the checkout.",
+            def: "Browse the tree, search it, edit, create and delete files, commit, create and switch branches, read history and diffs, start AI work sessions, ask an open session for changes, merge a session's work into the checkout, and archive or restore a session.",
           },
           {
             term: "Owner / admin",

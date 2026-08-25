@@ -525,6 +525,12 @@ export async function prepareWorkSessionRevision(
   session.status = "running";
   session.error = "";
   session.finishedAt = null;
+  // Asking for another pass un-archives the session. An archived row is one
+  // somebody filtered out of their inbox, and a turn running inside something
+  // nobody can see is exactly the state archiving exists to avoid; it also
+  // spares the Member the two-step of restoring a session before they are
+  // allowed to talk to it.
+  session.archivedAt = null;
   session.requestedByUserId = args.requesterUserId;
   await sessionRepo.save(session);
   const turn = await appendTurn(session, instruction, args.requesterUserId);
@@ -872,6 +878,42 @@ export async function renameRepositoryWorkSession(
   const trimmed = title.replace(/\s+/g, " ").trim();
   if (!trimmed) throw new Error("A session needs a name.");
   session.title = trimmed.slice(0, WORK_SESSION_TITLE_MAX);
+  await sessionRepo.save(session);
+  return session;
+}
+
+/**
+ * Take a session out of the inbox, or put it back.
+ *
+ * Nothing about the work changes: the branch, the worktree, the transcript,
+ * and the status are all left exactly as they were, and the session's own URL
+ * keeps working. That is the whole point — a repository accumulates finished
+ * sessions faster than it accumulates anything else, and the only thing on
+ * offer for clearing them used to be `discard`, which deletes the branch. A
+ * Member who wanted a shorter list had to throw work away to get one.
+ *
+ * A live turn is refused. Archiving one would not break it — no files are
+ * touched — but it would hide running work behind a filter nobody has open,
+ * which is the one thing an inbox must never do. Bounded by liveness rather
+ * than by `status` alone, for the reason `discardRepositoryWorkSession`
+ * explains: nothing reconciles `running` at boot, and a row stranded by a
+ * killed process must still be clearable.
+ */
+export async function setRepositoryWorkSessionArchived(
+  companyId: string,
+  sessionId: string,
+  archived: boolean,
+): Promise<RepositoryWorkSession> {
+  const sessionRepo = AppDataSource.getRepository(RepositoryWorkSession);
+  const session = await sessionRepo.findOneBy({ id: sessionId, companyId });
+  if (!session) throw new Error("Work session not found.");
+  if (archived === (session.archivedAt !== null)) return session;
+  if (archived && session.status === "running" && (await repositoryWorkSessionIsLive(session))) {
+    throw new Error(
+      "This employee is still working. Wait for the turn to finish, then archive it.",
+    );
+  }
+  session.archivedAt = archived ? new Date() : null;
   await sessionRepo.save(session);
   return session;
 }
