@@ -423,7 +423,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   repositories: {
     label: "repositories",
     blurb:
-      "The Repositories granted to you — code, documents, anything version-controlled. Changing one means starting a work session first; the repository_* tools work only inside one.",
+      "The Repositories granted to you — code, documents, anything version-controlled. Changing one means starting a work session first; the repository_* tools work only inside one, where you can also run the repository's tests and linter before you commit.",
     tools: [
       "list_repositories",
       "start_repository_work_session",
@@ -432,6 +432,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
       "repository_write_file",
       "repository_delete_file",
       "repository_search",
+      "repository_run_command",
       "repository_commit",
     ],
   },
@@ -1272,6 +1273,21 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   repository_write_file: ["repo", "file", "write", "edit", "save"],
   repository_delete_file: ["repo", "file", "delete", "remove"],
   repository_search: ["repo", "search", "grep", "find", "mentions"],
+  repository_run_command: [
+    "repo",
+    "run",
+    "command",
+    "shell",
+    "bash",
+    "terminal",
+    "test",
+    "tests",
+    "lint",
+    "build",
+    "compile",
+    "typecheck",
+    "check my work",
+  ],
   repository_commit: ["repo", "commit", "git", "save", "record"],
   list_employees: ["team", "colleague", "who else", "roster"],
   list_teams: ["team", "department", "group"],

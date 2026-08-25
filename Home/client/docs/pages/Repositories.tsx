@@ -285,9 +285,15 @@ export function Repositories() {
           employee&apos;s guesses about them.
         </LI>
         <LI>
-          The employee works only through six tools Genosyn runs on its behalf — list files, read,
-          write, delete, search, and commit. It gets no shell and no filesystem access to the
-          worktree.
+          The employee works through tools Genosyn runs on its behalf — list files, read, write,
+          delete, search, and commit. It gets no filesystem access to the worktree.
+        </LI>
+        <LI>
+          Where your installation has the isolation for it, the employee can also{" "}
+          <Strong>run commands</Strong> in its working copy — your tests, your linter, your build —
+          so it verifies its own work before you read the diff, and tells you what it ran and what
+          it said. What it may run is yours to decide on the repository&apos;s{" "}
+          <Strong>Settings</Strong> page; see <DocLink to="#commands">Commands</DocLink>.
         </LI>
         <LI>
           It commits its work and writes a short report of what it changed, what it left alone, and
@@ -457,6 +463,61 @@ export function Repositories() {
         to look for the same file in each checkout they have been granted.
       </P>
 
+      <H3 id="commands">Commands</H3>
+      <P>
+        An employee that can only write files has to hand you work it hopes is right. One that can
+        run your tests hands you work it has checked. On the repository&apos;s{" "}
+        <Strong>Settings</Strong> page, under <Strong>Commands</Strong>, you choose which it is:
+      </P>
+      <UL>
+        <LI>
+          <Strong>No commands</Strong> — the employee reads, writes, and commits, and nothing else.
+          This is what every work session did before this existed.
+        </LI>
+        <LI>
+          <Strong>Allowed commands only</Strong> — the default. Anything matching the
+          repository&apos;s list runs; anything else is refused, and the employee is told which part
+          of its command was refused and that an owner or admin can add it. Leave the list empty to
+          use Genosyn&apos;s built-in one, which covers the usual test, lint, and build tooling
+          across the common ecosystems and leaves out the verbs a work session has no business
+          reaching for — no <Code>curl</Code>, no <Code>ssh</Code>, no <Code>git push</Code>, no
+          package-manager installs onto the host.
+        </LI>
+        <LI>
+          <Strong>Every command</Strong> — no list and no check. For a repository whose own tooling
+          needs more than a list can express.
+        </LI>
+      </UL>
+      <P>
+        A pattern is a command with an optional trailing <Code>*</Code> that matches the rest of it,
+        so <Code>npm run *</Code> allows every npm script while <Code>npm test</Code> allows only
+        itself. Every part of a chained command is checked separately —{" "}
+        <Code>npm test &amp;&amp; curl example.com</Code> is refused for the second half — and the
+        constructs that would hide what actually runs, such as <Code>$(…)</Code> and redirection,
+        are refused rather than guessed at. Lines beginning with <Code>#</Code> are comments.
+      </P>
+      <Callout kind="info" title="The list is intent. The isolation is the boundary.">
+        Whichever mode you pick, a command runs behind <Code>bubblewrap</Code> with the
+        session&apos;s own worktree as its entire filesystem: no shared checkout, no other session,
+        no rest of the server, no <Code>git</Code>, and no network unless your installation allows
+        one. Nothing is pushed or merged without a human. What the list decides is what an employee
+        will reach for — not what would happen if it did. Where that isolation is unavailable —{" "}
+        <Code>disabled</Code> or <Code>host</Code> execution — work sessions run without commands
+        whatever this setting says. Genosyn does not give an AI Employee a shell outside a sandbox.
+      </Callout>
+      <Callout kind="warn" title="A working copy holds only what git tracks.">
+        A session&apos;s worktree is created from the repository&apos;s history, so it has no{" "}
+        <Code>node_modules</Code>, no virtualenv, and no vendor directory. A repository whose checks
+        need those can fetch them only where your installation allows the sandbox a network (
+        <Code>agent.codingTools.allowNetwork</Code> in <Code>config.ts</Code>, off by default).
+        Without one, the employee tells you it could not install them rather than reporting checks
+        it did not run — which is still better than the diff you used to get, but it is worth
+        knowing before you expect green tests from a fresh clone.
+      </Callout>
+      <P>
+        Changing the setting is owner and admin only, and every change is written to the audit log.
+      </P>
+
       <H3 id="pull-requests">Opening a pull request</H3>
       <P>
         For a repository whose remote is on GitHub, <Strong>Open pull request</Strong> is the third
@@ -484,11 +545,11 @@ export function Repositories() {
       </P>
 
       <Callout kind="tip" title="This works on the standard Docker install.">
-        The standard install can expose bubblewrap-isolated <Code>bash</Code> for other AI work, but
-        the browser editor and Repository work sessions do not depend on it. Git runs against a
-        server-owned checkout no model process can reach, and the employee&apos;s edits arrive
-        through validated tool calls rather than a shell. If bubblewrap cannot start and boot falls
-        back to disabled execution, these Repository surfaces still work.
+        Reading, writing and committing depend on nothing: Git runs against a server-owned checkout
+        no model process can reach, and the employee&apos;s edits arrive through validated tool
+        calls rather than a shell. If bubblewrap cannot start and boot falls back to disabled
+        execution, those Repository surfaces still work — only{" "}
+        <DocLink to="#commands">running commands</DocLink> goes away with it.
       </Callout>
 
       <H3 id="sessions-from-chat">Asking for one in chat</H3>
@@ -595,10 +656,18 @@ export function Repositories() {
           model can reach. That is precisely what lets it hold a real <Code>origin</Code> and push.
         </LI>
         <LI>
-          A session worktree is writable only through the tools, and every path is checked: anything
-          containing a <Code>.git</Code> segment or resolving outside the worktree is refused. An
-          employee cannot write <Code>.git/config</Code>, install a hook, or point a symlink out of
-          the tree.
+          A session worktree is written through the tools, and by commands where you allow them.
+          Every tool path is checked: anything containing a <Code>.git</Code> segment, anything
+          resolving outside the worktree, and anything reached through a symlink is refused. So an
+          employee cannot write <Code>.git/config</Code>, install a hook, or make a tool follow a
+          link out of the tree — including a link one of its own commands created.
+        </LI>
+        <LI>
+          A command runs behind <Code>bubblewrap</Code>, in private user, process and IPC
+          namespaces, with that one session worktree as its whole filesystem and no network unless
+          your installation allows one. The shared checkout, other sessions, the rest of the server
+          and <Code>git</Code> itself are all outside it. Genosyn never runs an employee&apos;s
+          command outside that isolation, whatever the repository allows.
         </LI>
         <LI>
           Nothing an AI Employee produced reaches the remote unless a Member reviews it and an owner
@@ -625,7 +694,8 @@ export function Repositories() {
         subscription-authenticated model needs that working bubblewrap either way. See{" "}
         <DocLink to="/docs/models">AI Models</DocLink> for the modes and{" "}
         <DocLink to="/docs/self-hosting">Configuration</DocLink> for the setting. The browser editor
-        and AI work sessions above need none of this.
+        and AI work sessions above need none of this — only{" "}
+        <DocLink to="#commands">running commands</DocLink> inside a session does.
       </Callout>
       <P>
         The two <Strong>AI access</Strong> levels apply to that checkout.{" "}

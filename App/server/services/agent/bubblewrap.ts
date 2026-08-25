@@ -11,6 +11,18 @@ export type BubblewrapCommandOptions = {
   /** Complete child environment; bubblewrap clears everything else. */
   env: Record<string, string>;
   unshareNetwork?: boolean;
+  /**
+   * Host paths inside {@link workspaceRoot} to re-bind read-only over the
+   * writable workspace. Bind mounts are applied in order, so these land on top
+   * of `/workspace` and win.
+   *
+   * The case this exists for is a git worktree's `.git` pointer. The worktree
+   * is the child's whole world, but that one entry is read by the App
+   * afterwards to commit the work; a command that truncated or replaced it
+   * would break its own session for no gain. A mount point also cannot be
+   * unlinked, so `rm -rf` inside the worktree leaves it standing.
+   */
+  readOnlyPaths?: string[];
 };
 
 /**
@@ -89,10 +101,25 @@ export function buildBubblewrapCommandArgs(options: BubblewrapCommandOptions): s
     "--bind",
     root,
     "/workspace",
-    "--chdir",
-    sandboxCwd,
-    "--clearenv",
   ];
+  // After the workspace bind and before anything else, so a later option
+  // cannot quietly make one of these writable again.
+  for (const readOnlyPath of options.readOnlyPaths ?? []) {
+    const resolved = path.resolve(readOnlyPath);
+    const relative = path.relative(root, resolved);
+    if (
+      relative.length === 0 ||
+      relative === ".." ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)
+    ) {
+      throw new Error("Bubblewrap read-only path must stay inside the workspace.");
+    }
+    // `-try` because the path is an expectation, not a precondition: a session
+    // whose worktree has not been materialized yet must not fail to start.
+    args.push("--ro-bind-try", resolved, `/workspace/${relative.split(path.sep).join("/")}`);
+  }
+  args.push("--chdir", sandboxCwd, "--clearenv");
   if (options.unshareNetwork) args.push("--unshare-net");
 
   for (const [name, value] of Object.entries(options.env)) {

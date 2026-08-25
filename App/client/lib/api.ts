@@ -1920,6 +1920,13 @@ export type RepositoryOrigin = "remote" | "local";
  */
 export type RepositoryKind = "code" | "documents";
 
+/**
+ * What an AI Employee may run in a work session on this repository: nothing,
+ * only commands matching the repository's list, or anything at all. The
+ * sandbox is unchanged in every case — this is about intent, not containment.
+ */
+export type RepositoryCommandMode = "off" | "allowlist" | "all";
+
 export type RepositoryAuthor = {
   kind: "human";
   id: string;
@@ -1944,6 +1951,9 @@ export type Repository = {
   httpsUsername: string | null;
   committerName: string | null;
   committerEmail: string | null;
+  commandMode: RepositoryCommandMode;
+  /** One command pattern per line. Empty means Genosyn's built-in list. */
+  allowedCommands: string;
   /** Whether a credential is stored — never the secret itself. */
   hasToken: boolean;
   hasSshKey: boolean;

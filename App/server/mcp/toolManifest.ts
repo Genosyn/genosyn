@@ -2054,6 +2054,28 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "repository_run_command",
+    description:
+      "Run a command in your Repository work session's working copy — the tests, the linter, the type checker, the build — and get back what it printed and its exit code. This is how you check your own work before committing it, so a human reads a diff you have already verified rather than one you hope is right. What you may run is the company's decision on the repository: a command that is not allowed comes back saying so, and saying who can change it. Three things are not available inside it. `git` — use `repository_commit`. The network, unless this installation enables it — so if a dependency install fails to reach a registry, that is why. And installed dependencies: the working copy holds only what the repository tracks, so a repo whose tests need `node_modules`, a virtualenv, or a vendor directory cannot run them unless the network is on. Do not retry a command that failed for one of those reasons — say so in your reply and carry on with what you can check. Keep commands non-interactive; nothing can answer a prompt.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          description:
+            "The command to run, from the root of your working copy. For example `npm test` or `pytest -q`.",
+        },
+        timeout_ms: {
+          type: "number",
+          description:
+            "How long to let it run before it is stopped, in milliseconds. Defaults to 5 minutes; 10 is the maximum.",
+        },
+      },
+      required: ["command"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "repository_commit",
     description:
       "Record everything you have written or deleted in this Repository work session as a git commit. Write the message in the imperative mood and say why the change exists, not what the diff already shows. Commit whenever you finish a coherent piece of work; anything left uncommitted when the session ends is discarded. The commit stays on your session's own branch — a human reviews the diff and decides whether it is merged or pushed, so you never need to (and cannot) push.",

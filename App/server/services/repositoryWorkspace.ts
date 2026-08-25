@@ -183,9 +183,23 @@ export function normalizeRepositoryPath(input: string, { allowRoot = false } = {
  * Resolve a repository-relative path to a real filesystem path inside the
  * checkout, refusing anything that escapes it.
  *
- * `realpathSync` on the parent is what closes the symlink hole: a tracked
- * symlink pointing at `/etc` would otherwise let a plain "save this file"
- * request write outside the checkout entirely.
+ * `realpathSync` is what closes the symlink hole for *reading*: a tracked
+ * symlink pointing at `/etc` would otherwise let a plain "open this file"
+ * request read outside the checkout entirely.
+ *
+ * It does not close it for *writing*, and cannot, for two reasons that both
+ * end with the caller holding an un-dereferenced path:
+ *
+ *   - a symlink pointing back *inside* the checkout resolves to something
+ *     contained, so it passes — even when what it points at is a name
+ *     {@link normalizeRepositoryPath} refuses outright, such as `.git`;
+ *   - a *dangling* symlink fails `realpathSync` with `ENOENT`, so the walk
+ *     falls back to the nearest existing ancestor, which is legitimately
+ *     contained. The write then creates the link's target.
+ *
+ * Every write therefore goes through {@link writeFileInCheckout}, which
+ * refuses to follow a symlink at the leaf at all. Containment here, no-follow
+ * there; neither is sufficient alone.
  */
 export function resolveInCheckout(checkout: string, relativePath: string): string {
   const normalized = normalizeRepositoryPath(relativePath, { allowRoot: true });
@@ -197,6 +211,49 @@ export function resolveInCheckout(checkout: string, relativePath: string): strin
     throw new Error("Path escapes the repository.");
   }
   return target;
+}
+
+/**
+ * Write a file inside a checkout without following a symlink at the leaf.
+ *
+ * `O_NOFOLLOW` is the load-bearing flag: it fails with `ELOOP` on a symlink,
+ * live or dangling, so a link planted in the tree cannot redirect the write.
+ * The `lstat` above it is only there to produce a sentence a person can act on
+ * instead of an errno.
+ *
+ * It covers the two cases {@link resolveInCheckout} cannot: a link that points
+ * back inside the checkout (at `.git`, say) and a dangling link whose target
+ * does not exist yet. Both pass a containment check and neither may be
+ * written through.
+ *
+ * This matters more than it used to. A tree could always contain a tracked
+ * symlink — git checks them out like anything else — but now an AI Employee
+ * running a command in a work session can create one directly, and the write
+ * it redirects would land on the Member checkout's Git directory or in another
+ * session's worktree.
+ */
+export function writeFileInCheckout(absolute: string, content: string): void {
+  let existing: fs.Stats | undefined;
+  try {
+    existing = fs.lstatSync(absolute);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  if (existing?.isSymbolicLink()) {
+    throw new Error("That path is a symlink, which cannot be written through.");
+  }
+  if (existing?.isDirectory()) throw new Error("That path is a directory.");
+  fs.mkdirSync(path.dirname(absolute), { recursive: true });
+  const handle = fs.openSync(
+    absolute,
+    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW,
+    0o644,
+  );
+  try {
+    fs.writeFileSync(handle, content, "utf8");
+  } finally {
+    fs.closeSync(handle);
+  }
 }
 
 function existingAncestorRealPath(target: string): string {
@@ -969,12 +1026,7 @@ export async function writeRepositoryFile(
     throw new Error("That file is too large to save from the editor.");
   }
   const normalized = normalizeRepositoryPath(filePath);
-  const absolute = resolveInCheckout(checkoutPath(repo), normalized);
-  if (fs.existsSync(absolute) && fs.lstatSync(absolute).isDirectory()) {
-    throw new Error("That path is a directory.");
-  }
-  fs.mkdirSync(path.dirname(absolute), { recursive: true });
-  fs.writeFileSync(absolute, content, "utf8");
+  writeFileInCheckout(resolveInCheckout(checkoutPath(repo), normalized), content);
 }
 
 export async function deleteRepositoryEntry(repo: Repository, entryPath: string): Promise<void> {

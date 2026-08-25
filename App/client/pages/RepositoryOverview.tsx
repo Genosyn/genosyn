@@ -14,6 +14,7 @@ import {
   Github,
   GitPullRequest,
   Plug,
+  Terminal,
   Users,
 } from "lucide-react";
 import { Button } from "../components/ui/Button";
@@ -23,6 +24,7 @@ import { ConnectGithubModal } from "../components/repositories/ConnectGithubModa
 import { MarkdownPreview } from "../components/repositories/MarkdownPreview";
 import {
   api,
+  RepositoryCommandMode,
   RepositoryFileContent,
   RepositoryGrant,
   RepositoryGrantsResponse,
@@ -32,6 +34,13 @@ import {
 import { SyncBadge, signInLabel } from "./RepositoriesIndex";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
+
+/** What the Settings page's three choices are called on a summary card. */
+const COMMAND_MODE_LABEL: Record<RepositoryCommandMode, string> = {
+  off: "None",
+  allowlist: "Allowed only",
+  all: "Any command",
+};
 
 export default function RepositoryOverview() {
   const { company, repo, reload } = useRepositoriesContext();
@@ -226,7 +235,7 @@ export default function RepositoryOverview() {
         </section>
       )}
 
-      <div className="mt-7 grid gap-3 sm:grid-cols-3">
+      <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard
           icon={<GitBranch size={16} />}
           label="Default branch"
@@ -243,6 +252,11 @@ export default function RepositoryOverview() {
           // `authMode.toUpperCase()` printed SSH / HTTPS, which names a
           // protocol rather than answering the question the card asks.
           value={repo.origin === "local" ? "Not needed" : signInLabel(repo)}
+        />
+        <SummaryCard
+          icon={<Terminal size={16} />}
+          label="AI commands"
+          value={COMMAND_MODE_LABEL[repo.commandMode]}
         />
       </div>
 

@@ -277,7 +277,15 @@ into an employee working tree or injected into model coding tools.
       bubblewrap deployment exposes only the sandboxed `bash` tool from this
       family; the in-process file tools are omitted install-wide so a concurrent
       non-subscription turn cannot race a symlink into that credential.
-      Repository clone/fetch runs through the same namespace boundary;
+      Repository clone/fetch runs through the same namespace boundary.
+      A **Repository work session** gets a second sandbox root of its own
+      through `repository_run_command`: the same bubblewrap boundary, rooted
+      at that session's worktree rather than the employee cwd, so the Member
+      checkout, sibling sessions and `git` itself stay outside it. It is
+      bubblewrap-only for the same reason `bash` is — host mode never gives an
+      AI Employee a same-UID shell — and what it may run is a company decision
+      on the Repository row (`commandMode` + `allowedCommands`). Everything
+      else a session does still needs no execution at all;
     * the built-in **genosyn** tools, dispatched in-process to the loopback
       internal API (`server/mcp/toolManifest.ts` + `routes/mcpInternal.ts`)
       with a short-lived MCP token. The model is shown a **working set** of

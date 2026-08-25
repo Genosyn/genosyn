@@ -36,6 +36,7 @@ import {
   gitRemoteUrlForResponse,
   isPlainHttpsCredentialUrl,
 } from "../services/repositoryValidation.js";
+import { normalizeAllowedCommands } from "../services/repositoryCommandPolicy.js";
 import {
   assertSafeGitRemoteUrl,
   SAFE_GIT_REMOTE_URL_MESSAGE,
@@ -168,6 +169,8 @@ repositoriesRouter.post(
         body.authMode === "ssh" && body.sshKey ? encryptRepoSecret(body.sshKey, cid) : null,
       committerName: (body.committerName ?? "").trim() || null,
       committerEmail: (body.committerEmail ?? "").trim() || null,
+      commandMode: body.commandMode ?? "allowlist",
+      allowedCommands: normalizeAllowedCommands(body.allowedCommands ?? ""),
       lastSyncStatus: "unknown",
       lastSyncError: "",
       createdById: req.userId ?? null,
@@ -181,7 +184,12 @@ repositoriesRouter.post(
       targetType: "repository",
       targetId: row.id,
       targetLabel: row.name,
-      metadata: { gitUrl: row.gitUrl, authMode: row.authMode, origin: row.origin },
+      metadata: {
+        gitUrl: row.gitUrl,
+        authMode: row.authMode,
+        origin: row.origin,
+        commandMode: row.commandMode,
+      },
     });
 
     const [hydrated] = await hydrate(cid, [row]);
@@ -253,6 +261,19 @@ repositoriesRouter.patch(
     if (body.committerName !== undefined) row.committerName = body.committerName.trim() || null;
     if (body.committerEmail !== undefined) row.committerEmail = body.committerEmail.trim() || null;
 
+    // What an AI employee may run is the one setting on this row that widens
+    // what a model can do, so a change to it is recorded even though the rest
+    // of this handler records nothing. "Who turned off the command check, and
+    // when" is a question a company will eventually ask.
+    const priorCommandMode = row.commandMode;
+    const priorAllowedCommands = row.allowedCommands;
+    if (body.commandMode !== undefined) row.commandMode = body.commandMode;
+    if (body.allowedCommands !== undefined) {
+      row.allowedCommands = normalizeAllowedCommands(body.allowedCommands);
+    }
+    const commandPolicyChanged =
+      row.commandMode !== priorCommandMode || row.allowedCommands !== priorAllowedCommands;
+
     if (body.authMode !== undefined) {
       row.authMode = body.authMode;
       // Flipping to a mode wipes the now-irrelevant credential so a stale
@@ -270,6 +291,23 @@ repositoriesRouter.patch(
     if (body.sshKey) row.encryptedSshKey = encryptRepoSecret(body.sshKey, cid);
 
     await AppDataSource.getRepository(Repository).save(row);
+    if (commandPolicyChanged) {
+      await recordAudit({
+        companyId: cid,
+        actorUserId: req.userId ?? null,
+        action: "repository.commands.update",
+        targetType: "repository",
+        targetId: row.id,
+        targetLabel: row.name,
+        metadata: {
+          from: priorCommandMode,
+          to: row.commandMode,
+          allowedCommandCount: row.allowedCommands
+            ? row.allowedCommands.split("\n").filter(Boolean).length
+            : 0,
+        },
+      });
+    }
     const [hydrated] = await hydrate(cid, [row]);
     res.json(hydrated);
   },

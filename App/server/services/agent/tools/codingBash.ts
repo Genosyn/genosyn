@@ -1,9 +1,8 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import { StringDecoder } from "node:string_decoder";
-import { config } from "../../../../config.js";
-import { buildBubblewrapCommandArgs } from "../bubblewrap.js";
 import { codingRuntimeAvailability } from "../codingAvailability.js";
+import { buildSandboxShellInvocation } from "../sandboxShell.js";
 import type { AgentTool, ToolResult } from "../types.js";
 import { fail, type CodingToolContext } from "./codingShared.js";
 
@@ -44,45 +43,23 @@ export function bashTool(ctx: CodingToolContext): AgentTool {
 function runBash(command: string, ctx: CodingToolContext, timeoutMs: number): Promise<ToolResult> {
   if (command.includes("\0")) return Promise.resolve(fail("Command must not contain NUL bytes."));
 
-  const sandbox = config.agent.codingTools.executionMode;
   const availability = codingRuntimeAvailability();
   if (!availability.available) return Promise.resolve(fail(availability.reason));
   let executable: string;
   let args: string[];
   let childEnv: Record<string, string>;
   try {
-    const safePath = process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin";
-    for (const [name, value] of Object.entries(ctx.env)) {
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || typeof value !== "string") {
-        throw new Error(`Invalid shell environment entry: ${name}`);
-      }
-      if (value.includes("\0")) throw new Error(`Invalid shell environment value: ${name}`);
-    }
-    // Runner-owned values win over company/repository input. In bubblewrap the
-    // host workspace is mounted at /workspace, so a host HOME would make `~`,
-    // package caches, and user-level config point at a path that does not exist.
-    const sandboxEnv = {
-      ...ctx.env,
-      PATH: safePath,
-      HOME: sandbox === "bubblewrap" ? "/workspace" : ctx.cwd,
-      LANG: "C.UTF-8",
-    };
-    executable = sandbox === "bubblewrap" ? config.agent.codingTools.bubblewrapPath : "bash";
-    args =
-      sandbox === "bubblewrap"
-        ? buildBubblewrapCommandArgs({
-            workspaceRoot: ctx.cwd,
-            cwd: ctx.cwd,
-            executable: "bash",
-            args: ["-lc", command],
-            env: sandboxEnv,
-            unshareNetwork: !config.agent.codingTools.allowNetwork,
-          })
-        : ["-lc", command];
-    // Company secrets belong inside the sandbox, not in the environment of the
-    // host-side bwrap launcher. Variables such as LD_PRELOAD take effect before
-    // bwrap can clear its child environment and would cross the boundary.
-    childEnv = sandbox === "bubblewrap" ? { PATH: safePath } : sandboxEnv;
+    // The employee's whole working directory is the sandbox root here: the
+    // repositories it was granted, and whatever its tools wrote into cwd.
+    const invocation = buildSandboxShellInvocation({
+      workspaceRoot: ctx.cwd,
+      cwd: ctx.cwd,
+      command,
+      env: ctx.env,
+    });
+    executable = invocation.executable;
+    args = invocation.args;
+    childEnv = invocation.env;
   } catch (err) {
     return Promise.resolve(
       fail(`Failed to prepare command: ${err instanceof Error ? err.message : String(err)}`),

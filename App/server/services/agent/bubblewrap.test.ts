@@ -121,6 +121,49 @@ describe("bubblewrap isolation posture", () => {
     );
   });
 
+  test("re-binds requested paths read-only, on top of the writable workspace", () => {
+    const args = buildBubblewrapCommandArgs(
+      options({
+        workspaceRoot: "/srv/sessions/abc",
+        cwd: "/srv/sessions/abc",
+        readOnlyPaths: ["/srv/sessions/abc/.git"],
+      }),
+    );
+    const bind = args.indexOf("--bind");
+    const readOnly = args.indexOf("--ro-bind-try", bind);
+    assert.notEqual(readOnly, -1, "the read-only overlay is missing");
+    assert.deepEqual(args.slice(readOnly, readOnly + 3), [
+      "--ro-bind-try",
+      "/srv/sessions/abc/.git",
+      "/workspace/.git",
+    ]);
+    // Order is the whole mechanism: a bind applied before the workspace bind
+    // would simply be overwritten by it.
+    assert.ok(readOnly > bind, "the overlay must come after the workspace bind");
+    assert.ok(args.indexOf("--chdir") > readOnly, "chdir must come after the overlays");
+  });
+
+  test("refuses a read-only path outside the workspace, or the workspace itself", () => {
+    for (const readOnlyPath of [
+      "/srv/elsewhere/.git",
+      "/srv/sessions/abc/../x",
+      "/srv/sessions/abc",
+    ]) {
+      assert.throws(
+        () =>
+          buildBubblewrapCommandArgs(
+            options({
+              workspaceRoot: "/srv/sessions/abc",
+              cwd: "/srv/sessions/abc",
+              readOnlyPaths: [readOnlyPath],
+            }),
+          ),
+        /read-only path must stay inside the workspace/i,
+        readOnlyPath,
+      );
+    }
+  });
+
   test("preserves the executable and arguments as an uninterpreted tail", () => {
     const executable = "/usr/bin/tool with spaces";
     const commandArgs = ["", "argument with spaces", "$(touch nope)", "--flag=value"];

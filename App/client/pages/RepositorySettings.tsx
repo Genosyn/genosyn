@@ -8,7 +8,13 @@ import { FormError } from "../components/ui/FormError";
 import { ConnectGithubModal } from "../components/repositories/ConnectGithubModal";
 import { api, Repository } from "../lib/api";
 import { errorMessage } from "../lib/errors";
-import { RepoFormFields, RepoFormState, repoFormToPayload, repoToForm } from "./RepositoryForm";
+import {
+  RepoCommandFields,
+  RepoFormFields,
+  RepoFormState,
+  repoFormToPayload,
+  repoToForm,
+} from "./RepositoryForm";
 import { useRepositoriesContext } from "./RepositoriesLayout";
 
 export default function RepositorySettings() {
@@ -106,8 +112,8 @@ export default function RepositorySettings() {
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
             {isLocal
-              ? `Rename ${repo.name}, change what it holds, and choose the name its edits are signed with.`
-              : `Change where ${repo.name} syncs from, its sign-in details, and the name its edits are signed with.`}
+              ? `Rename ${repo.name}, change what it holds, choose the name its edits are signed with, and decide what AI employees may run here.`
+              : `Change where ${repo.name} syncs from, its sign-in details, the name its edits are signed with, and what AI employees may run here.`}
           </p>
         </div>
       </div>
@@ -150,8 +156,11 @@ export default function RepositorySettings() {
           hasToken={repo.hasToken}
           hasSshKey={repo.hasSshKey}
         />
-        <FormError message={saveError} className="mt-5" />
-        <div className="mt-5 flex items-center justify-end gap-3">
+        <div className="mt-6 border-t border-slate-200 pt-6 dark:border-slate-700">
+          <RepoCommandFields form={form} setForm={setForm} />
+        </div>
+        <FormError message={saveError} className="mt-6" />
+        <div className="mt-6 flex items-center justify-end gap-3">
           {changed && !saving && (
             <span className="text-xs text-amber-600 dark:text-amber-400">Unsaved changes</span>
           )}

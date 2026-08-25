@@ -50,8 +50,26 @@ export type RepositoryOrigin = "remote" | "local";
  */
 export type RepositoryKind = "code" | "documents";
 
+/**
+ * What an AI Employee is allowed to run in a work session on this repository:
+ *   - `off`       → no commands at all. The session is the six file-and-commit
+ *                   tools and nothing else, which is what every session was
+ *                   before commands existed.
+ *   - `allowlist` → only commands matching {@link Repository.allowedCommands},
+ *                   or Genosyn's built-in list while that field is empty.
+ *   - `all`       → every command, with no pattern check. The sandbox and the
+ *                   operator's execution mode still apply; this switch only
+ *                   turns off Genosyn's own matching.
+ *
+ * None of the three can conjure command execution where the install has none:
+ * `codingRuntimeAvailability()` is checked first, and on an install whose
+ * sandbox could not start there is no shell to reach whatever this says.
+ */
+export type RepositoryCommandMode = "off" | "allowlist" | "all";
+
 export const REPOSITORY_KINDS: RepositoryKind[] = ["code", "documents"];
 export const REPOSITORY_ORIGINS: RepositoryOrigin[] = ["remote", "local"];
+export const REPOSITORY_COMMAND_MODES: RepositoryCommandMode[] = ["off", "allowlist", "all"];
 
 /**
  * A Repository is a version-controlled workspace the company owns — a real
@@ -114,6 +132,19 @@ export class Repository {
 
   @Column({ type: "varchar", default: "code" })
   kind!: RepositoryKind;
+
+  /** What an AI Employee may run in a work session. See {@link RepositoryCommandMode}. */
+  @Column({ type: "varchar", default: "allowlist" })
+  commandMode!: RepositoryCommandMode;
+
+  /**
+   * One command pattern per line, matched against every segment of a command
+   * an employee asks to run. Empty means "use Genosyn's built-in list", which
+   * is what a repository nobody has configured gets — see
+   * `services/repositoryCommandPolicy.ts`.
+   */
+  @Column({ type: "text", default: "" })
+  allowedCommands!: string;
 
   /**
    * The GitHub Connection this repository publishes through, when it was

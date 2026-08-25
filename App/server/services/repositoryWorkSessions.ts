@@ -28,6 +28,7 @@ import {
   runRepositoryGit,
   summarizeDiff,
   syncDefaultBranch,
+  writeFileInCheckout,
   type RepositoryCommit,
   type RepositoryDiff,
   type RepositoryTreeEntry,
@@ -44,6 +45,7 @@ import {
   type GithubPullRequest,
 } from "./repositoryGithub.js";
 import { decryptRepositorySecret } from "./repositories.js";
+import { workSessionCommandAvailability } from "./repositoryCommandRun.js";
 import { toSlug } from "../lib/slug.js";
 import { config } from "../../config.js";
 
@@ -60,23 +62,35 @@ import { config } from "../../config.js";
  * moment the Member decides to merge them — there is nothing to transfer and
  * no second copy of the history.
  *
- * The employee never gets filesystem or shell access to that worktree. It
- * reaches it only through the `repository_*` tools, which the App executes on
- * its behalf with every path validated. Three consequences follow, and they
- * are the reason this design was chosen over handing the model a checkout:
+ * The employee never gets *filesystem* access to that worktree. It reaches it
+ * only through the `repository_*` tools, which the App executes on its behalf
+ * with every path validated. Three consequences follow, and they are the
+ * reason this design was chosen over handing the model a checkout:
  *
- *   1. **It works on every install.** The employee needs no coding tools, no
- *      bubblewrap, and no host execution — which the standard Docker install
- *      has switched off. A design that required them would have made "ask AI
- *      to update the strategy doc" unavailable to almost everybody.
+ *   1. **It works on every install.** Reading, writing and committing need no
+ *      coding tools, no bubblewrap, and no host execution. A design that
+ *      required them would have made "ask AI to update the strategy doc"
+ *      unavailable to almost everybody.
  *   2. **The checkout cannot be made hostile to Git.** Every write goes
  *      through {@link normalizeRepositoryPath}, which refuses any path with a
- *      `.git` segment, and through `resolveInCheckout`, which refuses any path
- *      that resolves outside the worktree. The model cannot write
- *      `.git/config`, install a hook, or point a symlink out of the tree, so
- *      the properties that make server-owned Git safe still hold.
+ *      `.git` segment; through `resolveInCheckout`, which refuses any path
+ *      whose parent resolves outside the worktree; and through
+ *      `writeFileInCheckout`, which refuses to follow a symlink at the leaf.
+ *      The last of those is what keeps this true now that a command can create
+ *      a symlink the earlier two never anticipated: without it, writing
+ *      "through" a planted link would reach `.git` by another name or land
+ *      outside the worktree entirely.
  *   3. **Nothing reaches the remote unreviewed.** Credentials live only in the
  *      push path, which only a Member can trigger.
+ *
+ * `repository_run_command` is the one exception, and it is shaped to keep all
+ * three true. It runs behind the same bubblewrap boundary as every other
+ * command Genosyn executes, rooted at the session worktree and nothing above
+ * it, so the Member checkout and every other session stay unreachable and Git
+ * itself is not available inside it. It is off wherever command execution is
+ * off, which is what keeps (1) intact, and what a repository will run is a
+ * company decision on the Repository row — see
+ * `services/repositoryCommandPolicy.ts`.
  *
  * The separate per-employee checkout at `<employeeDir>/repositories/<slug>/`
  * is untouched by all of this. It still exists for open-ended chat and Routine
@@ -253,12 +267,7 @@ export function sessionWriteFile(directory: string, filePath: string, content: s
     throw new Error("That file is too large to write.");
   }
   const normalized = normalizeRepositoryPath(filePath);
-  const absolute = resolveInCheckout(directory, normalized);
-  if (fs.existsSync(absolute) && fs.lstatSync(absolute).isDirectory()) {
-    throw new Error("That path is a directory.");
-  }
-  fs.mkdirSync(path.dirname(absolute), { recursive: true });
-  fs.writeFileSync(absolute, content, "utf8");
+  writeFileInCheckout(resolveInCheckout(directory, normalized), content);
 }
 
 export function sessionDeleteFile(directory: string, filePath: string): void {
@@ -672,7 +681,7 @@ export async function runRepositoryWorkSession(
           revision: turn.ordinal > 1,
           agentsGuide: readAgentsGuide(directory),
         }),
-        extraToolset: REPOSITORY_SESSION_TOOLS,
+        extraToolset: repositorySessionResidentTools(repo),
       },
     );
 
@@ -1428,15 +1437,34 @@ export async function discardRepositoryWorkSession(
 
 // ──────────────────────────── the briefing ──────────────────────────────
 
-/** Loaded up-front on this surface: the session's whole job is the repository. */
+/**
+ * Every tool a session may reach. This is the allowlist the MCP seam enforces
+ * (`routes/mcpInternal.ts`), so it stays the full set whatever any one
+ * repository allows — a repository that forbids commands refuses them in the
+ * handler, with a sentence saying who can change that, rather than by making
+ * the tool vanish into a flat "you may only use the repository_* tools".
+ */
 export const REPOSITORY_SESSION_TOOLS = [
   "repository_list_files",
   "repository_read_file",
   "repository_write_file",
   "repository_delete_file",
   "repository_search",
+  "repository_run_command",
   "repository_commit",
 ];
+
+/**
+ * The subset loaded up-front for this repository: the session's whole job is
+ * the repository, so all of them, minus a command tool that would only ever
+ * answer with a refusal. Anything left out is still reachable through
+ * `find_tools` / `call_tool`, which is what keeps the refusal available to be
+ * read rather than silently absent.
+ */
+export function repositorySessionResidentTools(repo: Pick<Repository, "commandMode">): string[] {
+  const commands = workSessionCommandAvailability(repo).available;
+  return REPOSITORY_SESSION_TOOLS.filter((name) => commands || name !== "repository_run_command");
+}
 
 export function composeWorkSystemPrompt(
   repo: Repository,
@@ -1447,6 +1475,7 @@ export function composeWorkSystemPrompt(
     repo.kind === "documents"
       ? "a version-controlled set of documents"
       : "a version-controlled codebase";
+  const commands = workSessionCommandAvailability(repo).available;
   return [
     `You are working inside the Genosyn Repository "${repo.name}" — ${subject}.`,
     `Your working copy for this session is isolated: session id \`${sessionId}\`. Nobody else is editing it, and nothing you do here affects anyone until a human reviews your diff and merges it.`,
@@ -1455,21 +1484,53 @@ export function composeWorkSystemPrompt(
     "- `repository_list_files` and `repository_read_file` to understand what is there before changing it. Read a file before you rewrite it.",
     "- `repository_search` to find where something is mentioned.",
     "- `repository_write_file` writes the whole file, so include the parts you are keeping.",
+    ...(commands
+      ? [
+          "- `repository_run_command` runs a command in your working copy — the tests, the linter, the build. Use it to check your own work before you commit, not to explore. `git` is not available inside it; recording work is what `repository_commit` is for.",
+        ]
+      : []),
     "- `repository_commit` records your work. Commit when you have finished a coherent piece, with a message in the imperative mood explaining why the change exists.",
     "",
     "You must commit. Work you leave uncommitted is discarded when the session ends and the human sees nothing.",
     options.revision
       ? "This is a follow-up on work you already did in this same working copy. Your earlier commits are still there and are what the human is looking at, so read the files again rather than trusting your memory of them, change only what has just been asked for, and commit the change as its own commit on top."
       : "",
-    repo.kind === "documents"
-      ? "This repository holds documents rather than software. Match the surrounding structure and voice, and keep the prose readable."
-      : "Match the conventions of the surrounding code. You have no shell and cannot run tests here, so keep changes reviewable and say plainly in your reply what you could not verify.",
+    ...codeConventionLines(repo, commands),
     "",
     "Your reply is shown to the human next to your diff. Make it a short report: what you changed, why, and anything you deliberately left alone or could not do.",
     ...agentsGuideSection(options.agentsGuide),
   ]
     .filter((line, index, all) => line !== "" || all[index - 1] !== "")
     .join("\n");
+}
+
+/**
+ * What to say about verifying the work, which depends on whether there is
+ * anything to verify it with.
+ *
+ * The old text told every session it had no shell and could not run tests.
+ * That was true of every session once, and is now true only of a documents
+ * repository, an install whose sandbox could not start, or a repository whose
+ * company switched commands off — so it has to be asked rather than assumed.
+ * Getting it wrong in either direction is expensive: an employee told it has
+ * no shell will not reach for one, and an employee told it has one where it
+ * does not spends the turn finding out.
+ */
+function codeConventionLines(repo: Repository, commands: boolean): string[] {
+  if (repo.kind === "documents") {
+    return [
+      "This repository holds documents rather than software. Match the surrounding structure and voice, and keep the prose readable.",
+    ];
+  }
+  if (!commands) {
+    return [
+      "Match the conventions of the surrounding code. You have no shell and cannot run tests here, so keep changes reviewable and say plainly in your reply what you could not verify.",
+    ];
+  }
+  return [
+    "Match the conventions of the surrounding code.",
+    "Verify your own work before you commit: run the repository's tests, its linter, and whatever else its contributor guide asks for. A command that fails is information — read it and fix the cause. Say in your reply which commands you ran and what they said, and be plain about anything you could not check.",
+  ];
 }
 
 /**

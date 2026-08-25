@@ -4,6 +4,11 @@ import {
   httpsCredentialScope,
   SAFE_GIT_REMOTE_URL_MESSAGE,
 } from "./gitCredentialHelper.js";
+import {
+  MAX_ALLOWED_COMMAND_PATTERNS,
+  MAX_ALLOWED_COMMAND_PATTERN_LENGTH,
+  parseAllowedCommands,
+} from "./repositoryCommandPolicy.js";
 
 export const HIDDEN_UNSAFE_GIT_REMOTE_URL = "[unsafe clone URL hidden]";
 
@@ -98,6 +103,27 @@ const branchNameSchema = z
     message: "That branch name is not valid.",
   });
 
+/**
+ * The repository's command allowlist as the settings textarea sends it: one
+ * pattern per line. Bounded on both axes so a paste cannot become an
+ * unbounded row, and rejected rather than silently trimmed — a person who
+ * pasted 600 lines needs to know only some of them would have counted.
+ */
+export const allowedCommandsSchema = z
+  .string()
+  .max(MAX_ALLOWED_COMMAND_PATTERNS * (MAX_ALLOWED_COMMAND_PATTERN_LENGTH + 1))
+  .refine(
+    (value) => parseAllowedCommands(value).length <= MAX_ALLOWED_COMMAND_PATTERNS,
+    `A repository may allow at most ${MAX_ALLOWED_COMMAND_PATTERNS} command patterns.`,
+  )
+  .refine(
+    (value) =>
+      parseAllowedCommands(value).every(
+        (pattern) => pattern.length <= MAX_ALLOWED_COMMAND_PATTERN_LENGTH,
+      ),
+    `Each command pattern may be at most ${MAX_ALLOWED_COMMAND_PATTERN_LENGTH} characters.`,
+  );
+
 export const repositoryCreateSchema = z
   .object({
     name: z.string().min(1).max(120),
@@ -117,6 +143,8 @@ export const repositoryCreateSchema = z
     sshKey: z.string().max(50000).optional(),
     committerName: z.string().max(200).optional(),
     committerEmail: z.string().email().max(320).optional().or(z.literal("")),
+    commandMode: z.enum(["off", "allowlist", "all"]).optional(),
+    allowedCommands: allowedCommandsSchema.optional(),
   })
   .refine((body) => (body.origin ?? "remote") === "local" || !!body.gitUrl, {
     message: "Enter the repository's clone URL, or create a local repository instead.",
@@ -157,4 +185,8 @@ export const repositoryPatchSchema = z.object({
   sshKey: z.string().max(50000).optional(),
   committerName: z.string().max(200).optional(),
   committerEmail: z.string().email().max(320).optional().or(z.literal("")),
+  /** What AI employees may run in a work session. See `repositoryCommandPolicy.ts`. */
+  commandMode: z.enum(["off", "allowlist", "all"]).optional(),
+  /** One command pattern per line. Empty means Genosyn's built-in list. */
+  allowedCommands: allowedCommandsSchema.optional(),
 });

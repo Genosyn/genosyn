@@ -40,6 +40,12 @@ import {
   sessionWriteFile,
   type SessionCheckout,
 } from "../services/repositoryWorkSessions.js";
+import { MAX_SESSION_COMMAND_LENGTH } from "../services/repositoryCommandPolicy.js";
+import {
+  MAX_SESSION_COMMAND_MS,
+  isCommandRefusal,
+  runWorkSessionCommand,
+} from "../services/repositoryCommandRun.js";
 import { toSlug } from "../lib/slug.js";
 import { formatMoney } from "../lib/money.js";
 import { routineTemplate, skillTemplate } from "../services/files.js";
@@ -744,7 +750,7 @@ mcpInternalRouter.use(requireDelegatedToolAuthority);
  * A session's blast radius should be its own worktree, whoever asked for it.
  *
  * This is also what stops sessions nesting: `start_repository_work_session` is
- * not one of the six, so a session cannot start another one, and there is no
+ * not one of them, so a session cannot start another one, and there is no
  * separate recursion check anywhere for that to drift out of step with.
  *
  * `/integrations/*` is refused along with everything else, which is intended —
@@ -12311,7 +12317,7 @@ mcpInternalRouter.post(
 
     // Note there is no recursion check here: a turn inside a session cannot
     // reach this handler at all, because `restrictRepositoryWorkSessionTools`
-    // has already refused every tool but the `repository_*` six. A second check
+    // has already refused every tool but the `repository_*` set. A second check
     // would read as the guard and quietly rot.
 
     // A session runs on the delegated access of the Member who asked for it —
@@ -12572,6 +12578,68 @@ mcpInternalRouter.post(
       const { directory } = await sessionCheckoutFor(req);
       const body = req.body as z.infer<typeof repositorySearchSchema>;
       res.json({ matches: sessionSearch(directory, body.query) });
+    } catch (error) {
+      respondWithSessionError(res, error);
+    }
+  },
+);
+
+const repositoryRunCommandSchema = z
+  .object({
+    command: z.string().min(1).max(MAX_SESSION_COMMAND_LENGTH),
+    timeout_ms: z.number().int().positive().max(MAX_SESSION_COMMAND_MS).optional(),
+  })
+  .strict();
+
+/**
+ * Run a command in the session's worktree.
+ *
+ * A refusal — the install cannot execute commands, the repository forbids
+ * them, the command is not on its list — is a 200 with `ran: false` and the
+ * reason, not an error. The employee is meant to read it, adapt, and say in
+ * its reply what it could not check; an error result invites it to retry the
+ * same command instead. A command that runs and *fails* is a different thing
+ * and reports as one: that is information about the repository, and the
+ * employee's job is to act on it.
+ */
+mcpInternalRouter.post(
+  "/tools/repository_run_command",
+  validateBody(repositoryRunCommandSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const { repo, directory } = await sessionCheckoutFor(req);
+      const body = req.body as z.infer<typeof repositoryRunCommandSchema>;
+      // The turn's abort — a cancelled session, the chat hard timeout — reaches
+      // here as the client hanging up on this loopback request. Without it a
+      // ten-minute test run would keep going in a worktree nobody is waiting
+      // for, and one that may be pruned out from under it.
+      const controller = new AbortController();
+      const onClose = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      res.on("close", onClose);
+      try {
+        const result = await runWorkSessionCommand({
+          repo,
+          directory,
+          command: body.command,
+          timeoutMs: body.timeout_ms,
+          signal: controller.signal,
+        });
+        if (isCommandRefusal(result)) {
+          return res.json({ ran: false, reason: result.refused });
+        }
+        res.json({
+          ran: true,
+          command: body.command,
+          exitCode: result.exitCode,
+          timedOut: result.timedOut,
+          truncated: result.truncated,
+          output: result.output || "(no output)",
+        });
+      } finally {
+        res.off("close", onClose);
+      }
     } catch (error) {
       respondWithSessionError(res, error);
     }

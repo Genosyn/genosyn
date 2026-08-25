@@ -11,6 +11,7 @@ import {
   Company,
   Repository,
   RepositoryAuthMode,
+  RepositoryCommandMode,
   RepositoryKind,
   RepositoryOrigin,
 } from "../lib/api";
@@ -35,6 +36,8 @@ export type RepoFormState = {
   sshKey: string;
   committerName: string;
   committerEmail: string;
+  commandMode: RepositoryCommandMode;
+  allowedCommands: string;
 };
 
 export function emptyRepoForm(): RepoFormState {
@@ -51,6 +54,8 @@ export function emptyRepoForm(): RepoFormState {
     sshKey: "",
     committerName: "",
     committerEmail: "",
+    commandMode: "allowlist",
+    allowedCommands: "",
   };
 }
 
@@ -68,6 +73,8 @@ export function repoToForm(repo: Repository): RepoFormState {
     sshKey: "",
     committerName: repo.committerName ?? "",
     committerEmail: repo.committerEmail ?? "",
+    commandMode: repo.commandMode,
+    allowedCommands: repo.allowedCommands,
   };
 }
 
@@ -90,6 +97,8 @@ export function repoFormToPayload(form: RepoFormState): Record<string, unknown> 
     authMode: local ? "none" : form.authMode,
     committerName: form.committerName.trim(),
     committerEmail: form.committerEmail.trim(),
+    commandMode: form.commandMode,
+    allowedCommands: form.allowedCommands,
   };
   if (!local) {
     if (form.authMode === "https") body.httpsUsername = form.httpsUsername.trim();
@@ -266,6 +275,132 @@ export function RepoFormFields({
         rows={2}
         placeholder="What lives here, branch conventions, anything employees should know."
       />
+    </div>
+  );
+}
+
+/**
+ * What AI employees may run here.
+ *
+ * Settings-only, like the rest of what a repository decides about AI work: at
+ * create time nobody has yet decided whether an employee will ever touch this
+ * repository, and a security question asked before it is relevant is a
+ * question people click past.
+ *
+ * The copy carries one load-bearing fact and repeats it because it is the
+ * thing that makes the third option defensible: the list is about intent, and
+ * the isolation is what contains the command either way.
+ */
+export function RepoCommandFields({
+  form,
+  setForm,
+}: {
+  form: RepoFormState;
+  setForm: (next: RepoFormState) => void;
+}) {
+  const patch = (p: Partial<RepoFormState>) => setForm({ ...form, ...p });
+  const options: { value: RepositoryCommandMode; title: string; blurb: string }[] = [
+    {
+      value: "off",
+      title: "No commands",
+      blurb: "Employees read, write, and commit. They cannot run anything.",
+    },
+    {
+      value: "allowlist",
+      title: "Allowed commands only",
+      blurb: "Anything on the list below. Everything else is refused and reported.",
+    },
+    {
+      value: "all",
+      title: "Every command",
+      blurb: "No list, no check. Genosyn's isolation still applies.",
+    },
+  ];
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Commands</div>
+        <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
+          What an AI employee may run in a work session — the tests, the linter, the build — so it
+          can check its own work before you read the diff. A command runs inside that session&apos;s
+          own working copy and nowhere else: it cannot reach this server, your checkout, another
+          session, git itself, or the network unless this installation allows it. Where the
+          isolation Genosyn requires is unavailable, work sessions carry on without commands
+          whatever is chosen here.
+        </p>
+        <p className="mt-2 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
+          A session&apos;s working copy holds only what git tracks, so a repository whose checks
+          need installed dependencies can fetch them only if your installation allows the sandbox a
+          network. Without one, an employee reports that it could not install them rather than
+          pretending the checks passed.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {options.map((option) => {
+          const selected = option.value === form.commandMode;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => patch({ commandMode: option.value })}
+              aria-pressed={selected}
+              className={
+                "rounded-xl border px-4 py-3 text-left transition " +
+                (selected
+                  ? "border-indigo-300 bg-indigo-50/60 dark:border-indigo-700 dark:bg-indigo-500/10"
+                  : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600")
+              }
+            >
+              <span className="block text-sm font-medium text-slate-900 dark:text-slate-100">
+                {option.title}
+              </span>
+              <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                {option.blurb}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {form.commandMode === "allowlist" && (
+        <div className="flex flex-col gap-2">
+          <Textarea
+            label="Allowed commands (one per line)"
+            value={form.allowedCommands}
+            onChange={(e) => patch({ allowedCommands: e.target.value })}
+            rows={8}
+            placeholder={
+              "Leave empty to use Genosyn's list, which covers the usual test,\n" +
+              "lint, and build tooling. Or write your own, for example:\n\n" +
+              "npm test\nnpm run *\npytest *\nmake check"
+            }
+            className="font-mono text-xs"
+          />
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            A trailing <code className="font-mono">*</code> matches the rest of the command, so{" "}
+            <code className="font-mono">npm run *</code> allows every npm script and{" "}
+            <code className="font-mono">npm test</code> allows only itself. Lines starting with{" "}
+            <code className="font-mono">#</code> are comments. Every part of a chained command is
+            checked separately, and a refused command is reported back to the employee with the
+            reason.
+          </p>
+        </div>
+      )}
+
+      {form.commandMode === "all" && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4 text-xs text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/5 dark:text-amber-200">
+          <div className="text-sm font-medium">Every command is allowed</div>
+          <p className="mt-1">
+            An employee can run anything in a work session on this repository, including reaching
+            the network where this installation allows it. The isolation around the session is
+            unchanged, and you still review the diff before anything is merged or pushed — but
+            Genosyn will not refuse a command on your behalf. Choose this when the repository&apos;s
+            own tooling needs more than a list can express.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

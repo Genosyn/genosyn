@@ -1455,12 +1455,13 @@ export const PRODUCTS: ProductDef[] = [
     description:
       "Version-controlled workspaces for code and documents. Edit files in the browser, commit and branch, connect a local repository to GitHub later, and hand work to an AI Employee that commits to its own branch for you to review.",
     intro:
-      "Not every repository is a codebase. A Repository is a real git repository your company owns — clone one from GitHub, GitLab, Bitbucket, or a self-hosted server, or create one empty inside Genosyn with no git host at all. Starting empty is not a dead end: connect that repository to GitHub later and Genosyn creates it there through your existing GitHub Connection and pushes the history across, with no personal access token minted or pasted. Members browse, search, and edit files in the browser, read the diff, and commit under their own name. AI Employees get their own isolated worktree, edit through Genosyn-executed tools rather than a shell, and commit to their own branch — which a human reviews and merges. It runs on the standard Docker install, with no coding tools and no sandbox required.",
+      "Not every repository is a codebase. A Repository is a real git repository your company owns — clone one from GitHub, GitLab, Bitbucket, or a self-hosted server, or create one empty inside Genosyn with no git host at all. Starting empty is not a dead end: connect that repository to GitHub later and Genosyn creates it there through your existing GitHub Connection and pushes the history across, with no personal access token minted or pasted. Members browse, search, and edit files in the browser, read the diff, and commit under their own name. AI Employees get their own isolated worktree, edit through Genosyn-executed tools rather than a shell, run your tests and linter against what they wrote, and commit to their own branch — which a human reviews and merges. Reading, writing and committing run on the standard Docker install with no coding tools and no sandbox required; running commands is a per-repository decision, behind the sandbox.",
     checks: [
       "Start empty inside Genosyn, or clone any git URL",
       "Publish a local repository to GitHub later",
       "Browser editor with search, diffs, and history",
       "AI work sessions you review before merging",
+      "Per-repository control over what AI may run",
       "Credentials AES-256-GCM encrypted",
     ],
     features: [
@@ -1487,7 +1488,7 @@ export const PRODUCTS: ProductDef[] = [
       {
         icon: "bot",
         title: "AI work sessions",
-        body: "Describe the work, pick a granted AI Employee, and it runs in its own git worktree on its own branch — editing through six Genosyn-executed tools, never a shell. It commits and reports. You read the diff and merge, or discard it.",
+        body: "Describe the work, pick a granted AI Employee, and it runs in its own git worktree on its own branch — editing through Genosyn-executed tools, and running your tests and linter against what it wrote so the diff you read has already been checked. It commits and reports. You read it and merge, or discard it.",
       },
       {
         icon: "shieldCheck",
@@ -1501,11 +1502,11 @@ export const PRODUCTS: ProductDef[] = [
       bullets: [
         {
           title: "Isolated by construction",
-          body: "Each session gets its own git worktree and branch. Two sessions never collide, and an employee cannot reach the shared checkout, write into .git, or point a symlink out of the tree.",
+          body: "Each session gets its own git worktree and branch. Two sessions never collide, and an employee cannot reach the shared checkout, write into .git, or make a tool follow a symlink out of the tree.",
         },
         {
-          title: "No shell required",
-          body: "List, read, write, delete, search, commit — six tools Genosyn runs on the employee's behalf. Repository work needs no coding tools, no bubblewrap, and no host execution, so it works even where the sandbox cannot start.",
+          title: "Commands you decide on",
+          body: "Choose per repository what an employee may run: nothing, only what matches your list, or anything. The default list covers the usual test, lint, and build tooling and leaves out curl, ssh, and git push. Commands run behind bubblewrap with the session's worktree as their whole filesystem — and where that isolation is unavailable, sessions carry on reading, writing, and committing without them.",
         },
         {
           title: "A diff and a report",
@@ -1528,7 +1529,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Do I need coding tools or a sandbox enabled?",
-        a: "Not for this. The browser editor and AI work sessions run against a server-owned checkout with no shell involved, so they work on the standard Docker install. The separate per-employee checkout — the one an employee uses with ordinary git during open-ended chat and Routine work — needs coding execution, which the standard Docker install has by default unless its host denies bubblewrap the Linux namespaces it needs.",
+        a: "Not for reading, writing, and committing: the browser editor and AI work sessions run against a server-owned checkout with no shell involved. You need the sandbox for two things. One is letting an employee run your tests and linter inside a work session. The other is the separate per-employee checkout, the one an employee uses with ordinary git during open-ended chat and Routine work. The standard Docker install has the sandbox by default, unless its host denies bubblewrap the Linux namespaces it needs.",
       },
       {
         q: "Can an AI Employee push straight to my remote?",

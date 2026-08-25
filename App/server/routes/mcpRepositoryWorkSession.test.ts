@@ -310,6 +310,20 @@ describe("what a session's own turn may reach", () => {
       revokeMcpToken(bearer);
     }
   });
+
+  test("the command tool is one of them, and answers with a readable refusal", async () => {
+    // The suite runs with command execution off, which is exactly the case
+    // worth pinning: the tool must still be *reachable*, and must explain
+    // itself, rather than coming back as "you may only use the repository_*
+    // tools" — which would be both wrong and impossible to act on.
+    const bearer = await sessionToken();
+    try {
+      const res = await callWith(bearer, "repository_run_command", { command: "npm test" });
+      assert.notEqual(res.status, 403);
+    } finally {
+      revokeMcpToken(bearer);
+    }
+  });
 });
 
 /**

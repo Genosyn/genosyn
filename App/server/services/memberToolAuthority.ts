@@ -84,6 +84,11 @@ const MEMBER_TOOLS = [
   "repository_write_file",
   "repository_delete_file",
   "repository_search",
+  // Running a command is member-level for the same reason, plus one of its
+  // own: what may run is a repository setting an owner or admin made, not an
+  // argument this turn chose. A Member cannot widen it from here, and the
+  // command is confined to the session's own worktree either way.
+  "repository_run_command",
   "repository_commit",
   "list_notebooks",
   "list_notes",

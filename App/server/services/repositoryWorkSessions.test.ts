@@ -43,6 +43,8 @@ import {
   prepareWorkSessionRevision,
   readAgentsGuide,
   renameRepositoryWorkSession,
+  REPOSITORY_SESSION_TOOLS,
+  repositorySessionResidentTools,
   repositoryWorkSessionTurns,
   reviseRepositoryWorkSession,
   discardRepositoryWorkSession,
@@ -1274,6 +1276,30 @@ describe("the tools an employee is given", () => {
     }
   });
 
+  test("cannot be redirected by a symlink a command planted in the worktree", () => {
+    // A command can create symlinks; the file tools must not follow one. Two
+    // shapes matter and they fail for different reasons: a link pointing back
+    // *inside* the worktree reaches `.git` under a name the path check allows,
+    // and a *dangling* link resolves to nothing, so a containment check on the
+    // realpath falls back to a parent that is legitimately contained.
+    const pointerBefore = fs.readFileSync(path.join(directory, ".git"), "utf8");
+    const outside = path.join(directory, "..", "planted.txt");
+
+    fs.symlinkSync(".git", path.join(directory, "gitlink"));
+    fs.symlinkSync("../planted.txt", path.join(directory, "outlink"));
+    fs.symlinkSync("/etc/hosts", path.join(directory, "abslink"));
+
+    for (const bad of ["gitlink", "outlink", "abslink"]) {
+      assert.throws(() => sessionWriteFile(directory, bad, "pwned\n"), /symlink|escapes/, bad);
+    }
+    assert.equal(
+      fs.readFileSync(path.join(directory, ".git"), "utf8"),
+      pointerBefore,
+      "the worktree's .git pointer is untouched",
+    );
+    assert.equal(fs.existsSync(outside), false, "nothing was created outside the worktree");
+  });
+
   test("refuses to write more than the cap", () => {
     assert.throws(
       () => sessionWriteFile(directory, "huge.md", "x".repeat(300 * 1024)),
@@ -1335,6 +1361,72 @@ describe("the briefing an employee receives", () => {
     assert.match(documents, /documents rather than software/);
     assert.match(code, /conventions of the surrounding code/);
     assert.ok(!documents.includes("cannot run tests"));
+  });
+
+  test("says there is no shell where the install cannot give it one", () => {
+    // The suite runs with execution disabled, which is the case this covers.
+    const prompt = composeWorkSystemPrompt(
+      { ...repository, kind: "code", commandMode: "all" },
+      "s",
+    );
+    assert.match(prompt, /no shell and cannot run tests/);
+    assert.ok(!prompt.includes("repository_run_command"));
+  });
+});
+
+/**
+ * What changes once commands are available.
+ *
+ * Both halves matter and for the same reason: an employee acts on what the
+ * briefing says. Told it has no shell it will not reach for one, and told it
+ * has one where it does not it spends the turn discovering otherwise.
+ */
+describe("a session that can run commands", () => {
+  beforeEach(() => {
+    codingTools.executionMode = "bubblewrap";
+  });
+  after(() => {
+    codingTools.executionMode = "disabled";
+  });
+
+  test("tells the employee to verify its own work before committing", () => {
+    const prompt = composeWorkSystemPrompt({ ...repository, kind: "code" }, "s");
+    assert.match(prompt, /repository_run_command/);
+    assert.match(prompt, /Verify your own work before you commit/);
+    assert.ok(!prompt.includes("no shell and cannot run tests"));
+  });
+
+  test("still says nothing about commands on a repository that forbids them", () => {
+    const prompt = composeWorkSystemPrompt(
+      { ...repository, kind: "code", commandMode: "off" },
+      "s",
+    );
+    assert.ok(!prompt.includes("repository_run_command"));
+    assert.match(prompt, /no shell and cannot run tests/);
+  });
+
+  test("a documents repository is briefed about its prose, commands or not", () => {
+    const prompt = composeWorkSystemPrompt({ ...repository, kind: "documents" }, "s");
+    assert.match(prompt, /documents rather than software/);
+    assert.match(prompt, /repository_run_command/);
+  });
+
+  test("loads the command tool up front only where it would work", () => {
+    assert.ok(repositorySessionResidentTools(repository).includes("repository_run_command"));
+    assert.ok(
+      !repositorySessionResidentTools({ ...repository, commandMode: "off" }).includes(
+        "repository_run_command",
+      ),
+    );
+    codingTools.executionMode = "disabled";
+    assert.ok(!repositorySessionResidentTools(repository).includes("repository_run_command"));
+  });
+
+  test("the MCP allowlist keeps the tool whatever one repository decided", () => {
+    // A repository that forbids commands answers with a refusal that names who
+    // can change it. Dropping the tool from the seam would answer instead with
+    // "you may only use the repository_* tools", which is both wrong and useless.
+    assert.ok(REPOSITORY_SESSION_TOOLS.includes("repository_run_command"));
   });
 });
 
@@ -1400,7 +1492,10 @@ describe("the trunk a session branches from", () => {
     await writeRepositoryFile(repository, "plan.md", "v1\n");
     await commitRepositoryChanges(repository, { message: "Plan v1" });
 
-    const first = await start(stubChat(() => {}), "Look around");
+    const first = await start(
+      stubChat(() => {}),
+      "Look around",
+    );
     await writeRepositoryFile(repository, "plan.md", "v2\n");
     const moved = await commitRepositoryChanges(repository, { message: "Plan v2" });
     assert.ok(moved);
@@ -1601,7 +1696,10 @@ describe("AGENTS.md", () => {
       Buffer.byteLength(read) < Buffer.byteLength(huge),
       "an unbounded guide would crowd out the instruction",
     );
-    assert.match(read, /\[Truncated\. Read `AGENTS\.md` with `repository_read_file` for the rest\.\]/);
+    assert.match(
+      read,
+      /\[Truncated\. Read `AGENTS\.md` with `repository_read_file` for the rest\.\]/,
+    );
     assert.ok(read.startsWith("# AGENTS"), "the beginning is the part worth keeping");
     // Cut on a line boundary, so the guide never ends mid-sentence.
     const lines = read.split("\n");
