@@ -846,6 +846,11 @@ the reply.
 - [x] Direct-chat follow-up queue: the composer stays editable during a reply,
       shows queued messages inline, and releases them serially when the AI
       Employee finishes
+- [x] Interrupt and send: a Member can stop the reply in flight so a queued
+      follow-up goes next instead of waiting the employee out. The stopped
+      turn keeps whatever it had already streamed, is marked `interrupted`
+      rather than failed, releases the employee's reply lease, and is left
+      terminal so recovery never resumes it
 - [x] Per-message AI Model picker in direct employee Chat when multiple models
       are connected; defaults to the active model and persists each queued
       turn's choice through disconnect and server-restart recovery

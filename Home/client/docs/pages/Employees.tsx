@@ -228,8 +228,13 @@ export function Employees() {
           lets one replacement worker resume the request safely from its saved context and latest
           milestone; it checks current state before continuing so completed side effects are not
           repeated. The final reply reappears in the same thread. You can keep writing while the
-          employee works — follow-ups queue and send in order. Chat stays available while that
-          employee&apos;s Routines run.
+          employee works — follow-ups queue and send in order. When the answer in flight has
+          stopped being the one you want, choose <Strong>Interrupt &amp; send</Strong> on the
+          queued message (or press <Code>⌘/Ctrl+Enter</Code> in the composer) and the employee
+          puts down what it is doing so that message goes next. Whatever it had already written
+          stays in the thread, marked <Strong>interrupted</Strong>, and the next turn can see it.
+          A stop lands as soon as the step already running hands back, so a long tool call can
+          take a moment. Chat stays available while that employee&apos;s Routines run.
           <br />
           <br />
           Under the composer, next to the model picker, Genosyn shows{" "}

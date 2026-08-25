@@ -679,7 +679,14 @@ export type ConversationSummary = {
   legacyUnclaimed?: boolean;
 };
 export type ConversationMessageRole = "user" | "assistant";
-export type ConversationMessageStatus = "working" | "ok" | "skipped" | "error" | "busy";
+/** `interrupted` — a Member stopped this turn; the partial reply is kept. */
+export type ConversationMessageStatus =
+  | "working"
+  | "ok"
+  | "skipped"
+  | "error"
+  | "busy"
+  | "interrupted";
 /** Tool-driven write the AI employee performed during this chat turn. */
 export type MessageAction = {
   action: string;

@@ -43,6 +43,12 @@ export type EmployeeSession = {
   /** Intent boundary used while that conversation is still being created. */
   sendingNewConversationIntent: number | null;
   sending: boolean;
+  /**
+   * Conversation whose in-flight reply this browser has asked Genosyn to stop.
+   * Held until that turn actually finalizes so the button cannot be pressed
+   * twice while the agent unwinds.
+   */
+  interruptingConvId: string | null;
   /** Follow-up messages waiting for the current reply to finish. */
   queuedMessages: QueuedChatMessage[];
   /** Client-only boundary for the selected, possibly not-yet-created thread. */
@@ -83,6 +89,7 @@ const EMPTY: EmployeeSession = Object.freeze({
   sendingConvId: null,
   sendingNewConversationIntent: null,
   sending: false,
+  interruptingConvId: null,
   queuedMessages: [],
   newConversationIntent: 0,
   input: "",
@@ -116,9 +123,22 @@ type ChatActions = {
       clearInput?: boolean;
       attachments?: ChatAttachment[];
       modelId?: string | null;
+      /**
+       * Stop the reply already in flight and put this message at the head of
+       * the queue, instead of waiting the employee out.
+       */
+      interrupt?: boolean;
     },
   ) => Promise<string | null>;
   removeQueuedMessage: (empId: string, queuedMessageId: string) => void;
+  /** Move a waiting follow-up to the head of the queue. */
+  promoteQueuedMessage: (empId: string, queuedMessageId: string) => void;
+  /**
+   * Ask the server to stop the reply this employee is streaming. Resolves with
+   * an error message on failure, or null when there was something to stop or
+   * nothing left to stop.
+   */
+  interruptActiveTurn: (companyId: string, empId: string) => Promise<string | null>;
 };
 
 type ChatSessionsCtx = {
@@ -158,6 +178,26 @@ export function resolveLazyCreatedSelection(
   createdConversationId: string,
 ): string | null {
   return currentIntent === createdIntent ? createdConversationId : currentConversationId;
+}
+
+/**
+ * Move one waiting follow-up to the head of the queue, in place.
+ *
+ * Returns the same array when the message is already next or isn't in this
+ * list at all — the queue is kept in two representations (a synchronous ref
+ * the worker drains, and the rendered mirror), and only one of them holds any
+ * given message once the worker has shifted it off.
+ */
+export function moveQueuedMessageToFront<T extends { id: string }>(
+  messages: T[],
+  queuedMessageId: string,
+): T[] {
+  const index = messages.findIndex((message) => message.id === queuedMessageId);
+  if (index <= 0) return messages;
+  const next = [...messages];
+  const [promoted] = next.splice(index, 1);
+  next.unshift(promoted);
+  return next;
 }
 
 /** Render an optimistic message only in the context that originally queued it. */
@@ -209,9 +249,21 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         // another tab keeps reopening on the stale summary.
         const convs = withRefreshedSummary(s.convs, detail.conversation);
         const archivedConvs = withRefreshedSummary(s.archivedConvs, detail.conversation);
+        // Resolved from this response rather than from what is on screen: a
+        // Member can navigate away while the stop they asked for is still
+        // unwinding, and a flag left set would keep the button held on their
+        // next turn in that thread.
+        const interruptingConvId =
+          s.interruptingConvId === convId && !working ? null : s.interruptingConvId;
         if (s.activeConvId !== convId) {
-          if (convs === s.convs && archivedConvs === s.archivedConvs) return s;
-          return { ...s, convs, archivedConvs };
+          if (
+            convs === s.convs &&
+            archivedConvs === s.archivedConvs &&
+            interruptingConvId === s.interruptingConvId
+          ) {
+            return s;
+          }
+          return { ...s, convs, archivedConvs, interruptingConvId };
         }
         const wasFollowingThisConversation = s.sendingConvId === convId;
         return {
@@ -246,6 +298,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
             : wasFollowingThisConversation
               ? null
               : s.connectionState,
+          interruptingConvId,
         };
       });
       return working;
@@ -264,6 +317,59 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         ...s,
         queuedMessages: s.queuedMessages.filter((item) => item.id !== queuedMessageId),
       }));
+    },
+    [update],
+  );
+
+  /**
+   * Move a waiting follow-up to the head of the queue.
+   *
+   * Both the synchronous `pendingRef` queue and its rendered mirror move
+   * together — the worker drains the ref, so reordering only one of them would
+   * send a different message than the card the Member pressed.
+   */
+  const promoteQueuedMessage = React.useCallback(
+    (empId: string, queuedMessageId: string) => {
+      pendingRef.current[empId] = moveQueuedMessageToFront(
+        pendingRef.current[empId] ?? [],
+        queuedMessageId,
+      );
+      update(empId, (s) => {
+        const queuedMessages = moveQueuedMessageToFront(s.queuedMessages, queuedMessageId);
+        return queuedMessages === s.queuedMessages ? s : { ...s, queuedMessages };
+      });
+    },
+    [update],
+  );
+
+  /**
+   * Ask the server to stop the reply this employee is streaming.
+   *
+   * Nothing local is torn down. The turn is durable, so the server finalizes
+   * the row and the same SSE stream (or the recovery poll) delivers the
+   * partial reply — which is what releases the queue worker to send the next
+   * message. Tearing the client state down here would race that.
+   */
+  const interruptActiveTurn = React.useCallback(
+    async (companyId: string, empId: string): Promise<string | null> => {
+      const convId = (sessionsRef.current[empId] ?? EMPTY).sendingConvId;
+      if (!convId) return null;
+      // Deliberately not skipped when a stop is already pending: the endpoint
+      // is idempotent, and refusing here would turn any stranded flag into a
+      // button that silently does nothing. The flag only drives the label.
+      update(empId, (s) => (s.sendingConvId === convId ? { ...s, interruptingConvId: convId } : s));
+      try {
+        await api.post<{ interrupted: boolean }>(
+          `/api/companies/${companyId}/employees/${empId}/conversations/${convId}/interrupt`,
+          {},
+        );
+        return null;
+      } catch (error) {
+        update(empId, (s) =>
+          s.interruptingConvId === convId ? { ...s, interruptingConvId: null } : s,
+        );
+        return (error as Error).message || "Could not stop the reply.";
+      }
     },
     [update],
   );
@@ -551,6 +657,9 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
           streamingReply: "",
           progress: null,
           connectionState: "streaming",
+          // A new turn is never already being stopped. Without this a flag
+          // stranded by an earlier turn would disable this turn's button.
+          interruptingConvId: null,
           input: clearInput && isVisibleContext ? "" : s.input,
           messages: isVisibleContext ? [...s.messages, tempUser] : s.messages,
         };
@@ -836,6 +945,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
           sendingNewConversationIntent: null,
           progress: null,
           connectionState: null,
+          interruptingConvId: null,
         });
       }
     },
@@ -851,6 +961,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         clearInput?: boolean;
         attachments?: ChatAttachment[];
         modelId?: string | null;
+        interrupt?: boolean;
       },
     ): Promise<string | null> => {
       const content = message.trim();
@@ -871,6 +982,19 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
           queuedAt: new Date().toISOString(),
         };
         const item: PendingChatMessage = { ...visibleItem, resolve };
+
+        /**
+         * The Member asked for this message ahead of the reply in flight, so
+         * it jumps whatever else is waiting and the current turn is stopped.
+         * A failed stop is not a lost message: it stays at the head of the
+         * queue and sends the moment the employee finishes on its own.
+         */
+        function interruptForThisMessage(): void {
+          promoteQueuedMessage(empId, item.id);
+          void interruptActiveTurn(companyId, empId).then((error) => {
+            if (error) console.warn(`[chat] could not stop the reply: ${error}`);
+          });
+        }
 
         async function drainQueue(first: PendingChatMessage): Promise<void> {
           let current: PendingChatMessage | undefined = first;
@@ -908,6 +1032,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
             input: opts?.clearInput === false ? s.input : "",
             queuedMessages: [...s.queuedMessages, visibleItem],
           }));
+          if (opts?.interrupt) interruptForThisMessage();
           return;
         }
 
@@ -920,6 +1045,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
             input: opts?.clearInput === false ? s.input : "",
             queuedMessages: [...s.queuedMessages, visibleItem],
           }));
+          if (opts?.interrupt) interruptForThisMessage();
 
           void (async () => {
             const runningConvId = existing.sendingConvId!;
@@ -958,7 +1084,7 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
         void drainQueue(item);
       });
     },
-    [applyConversationDetail, sendTurn, update],
+    [applyConversationDetail, interruptActiveTurn, promoteQueuedMessage, sendTurn, update],
   );
 
   const actions = React.useMemo<ChatActions>(
@@ -976,6 +1102,8 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
       loadArchived,
       send,
       removeQueuedMessage,
+      promoteQueuedMessage,
+      interruptActiveTurn,
     }),
     [
       update,
@@ -991,6 +1119,8 @@ export function ChatSessionsProvider({ children }: { children: React.ReactNode }
       loadArchived,
       send,
       removeQueuedMessage,
+      promoteQueuedMessage,
+      interruptActiveTurn,
     ],
   );
 

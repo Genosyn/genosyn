@@ -12,14 +12,22 @@ import { dateTimeColumnType } from "./columnTypes.js";
  * One turn in a {@link Conversation}. `role` is `user` for humans and
  * `assistant` for the AI employee. `status` mirrors the chat service's result
  * shape so the UI can render skipped/error/busy turns distinctly — NULL on
- * user messages, one of `working`/`ok`/`skipped`/`error`/`busy` on assistant
- * replies. `working` is a durable placeholder for a chat turn still running.
- * It lets a browser reload or a replacement connection recover the live state
- * without mistaking a dropped stream for a failed turn. `busy` means the
- * employee was already mid-Run or mid-chat, so the new turn did not start.
+ * user messages, one of `working`/`ok`/`skipped`/`error`/`busy`/`interrupted`
+ * on assistant replies. `working` is a durable placeholder for a chat turn
+ * still running. It lets a browser reload or a replacement connection recover
+ * the live state without mistaking a dropped stream for a failed turn. `busy`
+ * means the employee was already mid-Run or mid-chat, so the new turn did not
+ * start. `interrupted` means a Member stopped the turn on purpose — whatever
+ * the employee had already said is kept, and nothing retries it.
  */
 export type ConversationMessageRole = "user" | "assistant";
-export type ConversationMessageStatus = "working" | "ok" | "skipped" | "error" | "busy";
+export type ConversationMessageStatus =
+  | "working"
+  | "ok"
+  | "skipped"
+  | "error"
+  | "busy"
+  | "interrupted";
 
 @Entity("conversation_messages")
 export class ConversationMessage {

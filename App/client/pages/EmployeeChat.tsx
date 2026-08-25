@@ -107,6 +107,7 @@ export default function EmployeeChat() {
     sendingConvId,
     sendingNewConversationIntent,
     sending,
+    interruptingConvId,
     queuedMessages,
     newConversationIntent,
     input,
@@ -152,6 +153,8 @@ export default function EmployeeChat() {
     sending &&
     sendingConvId === activeConvId &&
     (sendingConvId !== null || sendingNewConversationIntent === newConversationIntent);
+  /** A stop this browser asked for that the employee has not finished obeying. */
+  const isInterrupting = interruptingConvId !== null && interruptingConvId === sendingConvId;
   const hasStreamingReply = streamingReply !== null && streamingReply.length > 0;
   const hasProgressCard = progress
     ? shouldShowChatProgressCard(progress.percent, progress.label, connectionState)
@@ -435,7 +438,7 @@ export default function EmployeeChat() {
     }
   }
 
-  async function send(messageOverride?: string) {
+  async function send(messageOverride?: string, opts?: { interrupt?: boolean }) {
     if (activeConv?.legacyUnclaimed) {
       toast("Claim this legacy conversation before continuing it.", "error");
       return;
@@ -464,6 +467,7 @@ export default function EmployeeChat() {
       clearInput: !messageOverride,
       attachments: atts,
       modelId: selectedModelId,
+      interrupt: opts?.interrupt,
     });
     if (err) {
       toast(err, "error");
@@ -471,6 +475,19 @@ export default function EmployeeChat() {
       if (!messageOverride) setPendingAttachments(atts);
     }
     inputRef.current?.focus();
+  }
+
+  /**
+   * Stop the reply in flight so an already-queued follow-up goes now.
+   *
+   * The message is not re-sent — it is already durable in the queue. Only its
+   * position and the employee's attention change.
+   */
+  async function interruptFor(queuedMessageId: string) {
+    actions.promoteQueuedMessage(emp.id, queuedMessageId);
+    followTail();
+    const err = await actions.interruptActiveTurn(company.id, emp.id);
+    if (err) toast(err, "error");
   }
 
   async function uploadAttachment(file: File): Promise<void> {
@@ -666,7 +683,10 @@ export default function EmployeeChat() {
                   <QueuedMessageStack
                     messages={visibleQueuedMessages}
                     empName={emp.name}
+                    canInterrupt={isActiveResponse}
+                    interrupting={isInterrupting}
                     onRemove={(id) => actions.removeQueuedMessage(emp.id, id)}
+                    onInterruptAndSend={(id) => void interruptFor(id)}
                   />
                 )}
               </div>
@@ -689,7 +709,14 @@ export default function EmployeeChat() {
             value={input}
             onChange={(v) => actions.update(emp.id, { input: v })}
             onSubmit={() => send()}
+            onInterruptAndSend={() => send(undefined, { interrupt: true })}
             isResponding={sending}
+            // Queueing is employee-wide — a follow-up typed here waits behind
+            // whichever thread is replying. Stopping is not: it would land on
+            // that other thread, which is not what someone reading this one
+            // means by "interrupt".
+            canInterrupt={isActiveResponse}
+            interrupting={isInterrupting}
             queuedCount={visibleQueuedMessages.length}
             empName={emp.name}
             companyId={company.id}
@@ -1040,6 +1067,10 @@ function TurnBubble({
   // The employee was already mid-Run/mid-chat. Not a failure — an in-progress
   // notice that names them and (for a routine) links the run to watch.
   const isBusy = message.status === "busy";
+  // A reply the reader stopped on purpose. Rendered as ordinary prose, because
+  // it is: everything the employee said before the stop is real work, and only
+  // the badge marks that there was more coming.
+  const isInterrupted = message.status === "interrupted";
 
   return (
     <div className="flex justify-start gap-2.5">
@@ -1065,6 +1096,11 @@ function TurnBubble({
                 <Clock size={10} /> working
               </span>
             )}
+            {isInterrupted && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <CircleSlash size={10} /> interrupted
+              </span>
+            )}
           </div>
         )}
         <div
@@ -1076,7 +1112,9 @@ function TurnBubble({
                 ? "border border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
                 : isBusy
                   ? "border border-indigo-200 bg-indigo-50 text-indigo-900 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-100"
-                  : "border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100")
+                  : isInterrupted
+                    ? "border border-dashed border-slate-300 bg-white text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"
+                    : "border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100")
           }
         >
           {isError || isSkipped ? (
@@ -1281,11 +1319,18 @@ function ProgressConnectionStatus({
 function QueuedMessageStack({
   messages,
   empName,
+  canInterrupt,
+  interrupting,
   onRemove,
+  onInterruptAndSend,
 }: {
   messages: QueuedChatMessage[];
   empName: string;
+  /** There is a live reply in this thread that a stop could actually land on. */
+  canInterrupt: boolean;
+  interrupting: boolean;
   onRemove: (id: string) => void;
+  onInterruptAndSend: (id: string) => void;
 }) {
   return (
     <section
@@ -1303,7 +1348,9 @@ function QueuedMessageStack({
               Up next
             </div>
             <div className="truncate text-[11px] text-indigo-600/80 dark:text-indigo-300/70">
-              Sends automatically when {empName} finishes
+              {canInterrupt
+                ? `Sends when ${empName} finishes — or interrupt to send now`
+                : `Sends automatically when ${empName} finishes`}
             </div>
           </div>
         </div>
@@ -1348,6 +1395,23 @@ function QueuedMessageStack({
             >
               <X size={13} />
             </button>
+            {canInterrupt && (
+              // `-mr-6` cancels the card's `pr-9`, which exists to clear the
+              // remove button above. Without it this row would stop short of
+              // the card's own right edge and read as misaligned.
+              <div className="-mr-6 mt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => onInterruptAndSend(message.id)}
+                  disabled={interrupting}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-2 py-1 text-[11px] font-medium text-indigo-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60 dark:border-indigo-500/30 dark:bg-slate-900 dark:text-indigo-200 dark:hover:border-indigo-400/60 dark:hover:bg-indigo-500/10"
+                  title={`Stop ${empName} and send this message now`}
+                >
+                  <Zap size={11} />
+                  {interrupting ? "Interrupting…" : "Interrupt & send"}
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -1432,7 +1496,10 @@ function Composer({
   value,
   onChange,
   onSubmit,
+  onInterruptAndSend,
   isResponding,
+  canInterrupt,
+  interrupting,
   queuedCount,
   empName,
   companyId,
@@ -1450,7 +1517,12 @@ function Composer({
   value: string;
   onChange: (v: string) => void;
   onSubmit: () => void;
+  /** Stop the reply in flight and put this message at the head of the queue. */
+  onInterruptAndSend: () => void;
   isResponding: boolean;
+  /** The thread on screen is the one replying, so a stop lands where it reads. */
+  canInterrupt: boolean;
+  interrupting: boolean;
   queuedCount: number;
   empName: string;
   companyId: string;
@@ -1625,6 +1697,16 @@ function Composer({
                 return;
               }
             }
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              // ⌘/Ctrl+Enter is "I mean now": it interrupts a reply in flight
+              // rather than adding to the back of the queue. With nothing
+              // running it is an ordinary send, so the shortcut is safe to
+              // learn as one habit.
+              e.preventDefault();
+              if (canInterrupt && canSend) onInterruptAndSend();
+              else onSubmit();
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               onSubmit();
@@ -1690,6 +1772,18 @@ function Composer({
                 : "Enter queues your follow-up"}
             </span>
           ) : null}
+          {canInterrupt && canSend && (
+            <button
+              type="button"
+              onClick={onInterruptAndSend}
+              disabled={interrupting}
+              title={`Stop ${empName} and send this message now (⌘/Ctrl+Enter)`}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 font-medium text-slate-600 transition hover:border-indigo-300 hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-500/60 dark:hover:text-indigo-200"
+            >
+              <Zap size={11} />
+              {interrupting ? "Interrupting…" : "Interrupt & send"}
+            </button>
+          )}
           {contextUsage && (
             <ContextUsageBadge
               usage={contextUsage}
