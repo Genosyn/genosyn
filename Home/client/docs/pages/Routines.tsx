@@ -46,8 +46,10 @@ export function Routines() {
       </P>
       <P>
         Clicking a routine opens its detail page: <Strong>Overview</Strong>, <Strong>Brief</Strong>,{" "}
-        <Strong>Runs</Strong>, and <Strong>Settings</Strong>. Each AI employee links to their own
-        slice of that list from <Strong>Settings → Routines</Strong> — same page, filtered to them.
+        <Strong>Runs</Strong>, and <Strong>Settings</Strong>, with{" "}
+        <DocLink to="/docs/routines#assistant">Ask AI</DocLink> in the header. Each AI employee
+        links to their own slice of that list from <Strong>Settings → Routines</Strong> — same page,
+        filtered to them.
       </P>
 
       <H2 id="folders">Folders</H2>
@@ -233,14 +235,50 @@ Every weekday at 09:00, post a 5-bullet summary of:
 
 Post it to the #morning channel.`}</Pre>
 
+      <H2 id="assistant">Ask AI about a routine</H2>
+      <P>
+        Every routine has its own AI chat. Press <Strong>Ask AI</Strong> in the routine header and a
+        panel docks beside the page — the same idea as the chat beside an{" "}
+        <DocLink to="/docs/email#assistant">email</DocLink>, pointed at scheduled work instead. Drag
+        its left edge to resize it, or wind it down to a spine with the chevron; it stays how you
+        left it next time.
+      </P>
+      <P>
+        The employee that owns the routine answers by default, because the question is usually about
+        their work. They are handed the routine itself before they read your message: the schedule
+        and every setting, the brief, how the last ten <Strong>Runs</Strong> went, and the tail of
+        the newest Run&apos;s log. So &ldquo;why did last night&apos;s run fail?&rdquo; is answered
+        from the transcript rather than guessed at — and you never have to paste a log in. Type{" "}
+        <Code>@</Code> to hand the question to somebody else, <Code>#</Code> to reference another
+        company resource, or <Code>/new</Code> on its own to clear this routine&apos;s context.
+      </P>
+      <P>
+        Asking is not editing. Any Member who can open a routine can ask about it, while changing
+        one still needs an admin — and the employee is told to describe a change rather than make
+        it. If you do ask for the change and you have the rights to make it, it runs with{" "}
+        <em>your</em> authority, and whatever it did shows up as a small action pill under the
+        reply. You can attach a file to the question too — a spec to check the brief against, a log
+        from somewhere else.
+      </P>
+      <P>
+        Each routine&apos;s chat is independent, and a reply in progress belongs to the server
+        rather than to your browser tab. A long answer shows as <Strong>working</Strong>; if the
+        connection drops the panel says <Strong>reconnecting</Strong> and picks the same reply back
+        up when it lands, so closing the panel, changing tabs, or reloading is safe. A reply that
+        genuinely could not run — the server restarted mid-answer, or the employee stayed busy for
+        several minutes — says so and offers <Strong>Try again</Strong>. When the answering employee
+        has more than one connected <DocLink to="/docs/models">AI Model</DocLink> a selector appears
+        under the composer, and the conversation stays on whichever model answered last.
+      </P>
+
       <H2 id="concurrent-runs">Chat and Runs continue in parallel</H2>
       <P>
         Starting a Routine does not make its AI employee unavailable. You can keep chatting with
         that employee and start other independent Routines while the first Run continues. Genosyn
-        places no per-company ceiling on overlapping top-level AI work. Chat threads are
-        independent too: one AI Employee answers several conversations at once, and only a second
-        message in the <em>same</em> thread waits for the reply ahead of it. Your deployment operator
-        and AI Model provider still determine real capacity, cost, and rate limits.
+        places no per-company ceiling on overlapping top-level AI work. Chat threads are independent
+        too: one AI Employee answers several conversations at once, and only a second message in the{" "}
+        <em>same</em> thread waits for the reply ahead of it. Your deployment operator and AI Model
+        provider still determine real capacity, cost, and rate limits.
       </P>
       <Callout kind="warn" title="Parallel work shares the employee workspace.">
         Reads are safe. For writes, use distinct output files and avoid simultaneous git operations
@@ -571,14 +609,14 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         Some routines should not auto-fire. Flip <Code>approvalRequired</Code> on and the runner
         stops the moment the routine would take a sensitive action — raising an ad budget, sending
-        an email, hitting a third-party API. The action is recorded as an{" "}
-        <Code>Approval</Code> row. A company owner or admin must approve or reject it from a
-        logged-in browser session with recent primary and second-factor authentication; API keys and
-        ordinary Members cannot open the inbox or decide approvals. Approval claims are one-shot, so
-        double-clicks and concurrent reviewers cannot replay the action. If the approved action
-        fails, the row moves to <Code>execution_failed</Code> for investigation instead of becoming
-        eligible to run again. Replay payloads, provider results, and raw provider failures are
-        never returned by the inbox API.
+        an email, hitting a third-party API. The action is recorded as an <Code>Approval</Code> row.
+        A company owner or admin must approve or reject it from a logged-in browser session with
+        recent primary and second-factor authentication; API keys and ordinary Members cannot open
+        the inbox or decide approvals. Approval claims are one-shot, so double-clicks and concurrent
+        reviewers cannot replay the action. If the approved action fails, the row moves to{" "}
+        <Code>execution_failed</Code> for investigation instead of becoming eligible to run again.
+        Replay payloads, provider results, and raw provider failures are never returned by the inbox
+        API.
       </P>
 
       <H3 id="approval-kinds">Built-in approval kinds</H3>

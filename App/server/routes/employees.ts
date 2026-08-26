@@ -7,6 +7,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { Skill } from "../db/entities/Skill.js";
 import { Routine } from "../db/entities/Routine.js";
+import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
 import { Run } from "../db/entities/Run.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { JournalEntry } from "../db/entities/JournalEntry.js";
@@ -485,8 +486,16 @@ employeesRouter.delete("/:eid", async (req, res) => {
     : [];
   await AppDataSource.getRepository(Approval).delete({ employeeId: emp.id });
   await deleteBrowserRecordingsForRunIds(runs.map((run) => run.id));
-  if (routineIds.length)
+  if (routineIds.length) {
     await AppDataSource.getRepository(Run).delete({ routineId: In(routineIds) });
+    // The Ask AI conversation on each routine goes with the routine. Nothing
+    // can reach these rows once the routine is gone — the panel resolves a
+    // routine first — so leaving them behind strands transcript text, Run log
+    // excerpts included, in every future backup.
+    await AppDataSource.getRepository(RoutineChatMessage).delete({
+      routineId: In(routineIds),
+    });
+  }
   await AppDataSource.getRepository(Routine).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(Skill).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(AIModel).delete({ employeeId: emp.id });

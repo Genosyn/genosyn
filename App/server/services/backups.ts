@@ -21,6 +21,7 @@ import {
 import { withSchedulerLease } from "./schedulerLeases.js";
 import { bootDurableChatTurnRecovery, stopDurableChatTurnRecovery } from "./durableChatTurns.js";
 import { finalizeInterruptedAssistantTurns } from "./mail/assistant.js";
+import { finalizeInterruptedAssistantTurns as finalizeInterruptedRoutineAssistantTurns } from "./routineAssistant.js";
 import { finalizeInterruptedTldrQuestionTurns } from "./tldrQuestions.js";
 import {
   bootContextWindowRefresh,
@@ -914,6 +915,8 @@ export async function restoreFromBackup(id: string): Promise<{
     // Per-email AI chat rows captured mid-turn by the archive have no process
     // behind them any more; close them out rather than restoring a spinner.
     await finalizeInterruptedAssistantTurns();
+    // Same for a Routine's Ask AI rows.
+    await finalizeInterruptedRoutineAssistantTurns();
     // Same for TLDR question cards captured mid-answer.
     await finalizeInterruptedTldrQuestionTurns();
     bootContextWindowRefresh();

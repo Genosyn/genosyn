@@ -7,6 +7,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Company } from "../db/entities/Company.js";
 import { Routine } from "../db/entities/Routine.js";
+import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
 import { Run } from "../db/entities/Run.js";
 import { Approval } from "../db/entities/Approval.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
@@ -488,6 +489,9 @@ routinesRouter.delete("/routines/:rid", async (req, res) => {
     select: { id: true },
   });
   await AppDataSource.getRepository(Approval).delete({ routineId: found.routine.id });
+  // The routine's Ask AI conversation goes with it — it is about this routine
+  // and nothing else, so leaving it behind leaves rows nobody can ever reach.
+  await AppDataSource.getRepository(RoutineChatMessage).delete({ routineId: found.routine.id });
   await deleteBrowserRecordingsForRunIds(runs.map((run) => run.id));
   await AppDataSource.getRepository(Run).delete({ routineId: found.routine.id });
   await deleteTagAssignments("routine", found.routine.id);

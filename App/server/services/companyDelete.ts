@@ -105,6 +105,7 @@ import { Meeting } from "../db/entities/Meeting.js";
 import { MeetingParticipant } from "../db/entities/MeetingParticipant.js";
 import { MeetingTranscriptSegment } from "../db/entities/MeetingTranscriptSegment.js";
 import { MailChatMessage } from "../db/entities/MailChatMessage.js";
+import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
 import { MailDraftSendBatch } from "../db/entities/MailDraftSendBatch.js";
 import { MailHandover } from "../db/entities/MailHandover.js";
 import { MailLabel } from "../db/entities/MailLabel.js";
@@ -450,6 +451,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(MailRule, { companyId });
     await m.delete(MailHandover, { companyId });
     await m.delete(MailChatMessage, { companyId });
+    await m.delete(RoutineChatMessage, { companyId });
     await m.delete(MailAccount, { companyId });
     // Calendar + Meetings (M44). Same shape as mail: the grant carries no
     // companyId so it goes by this company's employees, then leaf-first

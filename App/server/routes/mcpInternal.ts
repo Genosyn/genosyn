@@ -15,6 +15,7 @@ import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
 import { User } from "../db/entities/User.js";
 import { Routine } from "../db/entities/Routine.js";
+import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
 import { Run } from "../db/entities/Run.js";
 import {
   deleteBrowserRecordingsForRunIds,
@@ -8103,6 +8104,10 @@ mcpInternalRouter.post(
     await AppDataSource.getRepository(Approval).delete({ routineId: routine.id });
     await deleteBrowserRecordingsForRunIds(runs.map((run) => run.id));
     await AppDataSource.getRepository(Run).delete({ routineId: routine.id });
+    // Same cleanup the human delete route does: the routine's Ask AI
+    // conversation is about this routine and nothing else, so it cannot
+    // outlive it.
+    await AppDataSource.getRepository(RoutineChatMessage).delete({ routineId: routine.id });
     await repo.delete({ id: routine.id });
 
     await recordAudit({

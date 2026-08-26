@@ -2892,6 +2892,46 @@ tags.
       like the routine surface itself, documented in the OpenAPI spec, and
       registered for app-wide live sync (M31) under the existing `routine` kind.
 
+### M49 — Ask AI on a Routine ✅
+
+M25 put an AI chat beside every email and it turned out to be the shape people
+actually wanted: the thing you are looking at, and someone who already knows
+about it, in the same view. A Routine has the same problem and a worse version
+of it. "Why did last night's run fail?" is answered by a transcript nobody
+wants to read, sitting one tab away, written by an employee who is right there.
+The old answer was to copy the log into that employee's chat and explain which
+routine it came from. This is the same panel pointed at scheduled work.
+
+- [x] **`RoutineChatMessage`** — one conversation per Routine, the sibling of
+      `MailChatMessage` down to the recovery semantics: the assistant row is
+      persisted `working` before the model starts, so the reply belongs to the
+      database rather than to one browser tab. A dropped stream, a closed
+      panel, or a reload follows the same row to its real answer; boot and
+      restore sweeps close out rows a dead process left behind and free their
+      reply lease.
+- [x] **The employee is handed the routine, not asked to go find it.** Each
+      turn injects a freshly built context block: every setting, the schedule
+      and what it resolves to, the folder, the brief, the last ten Runs with
+      status / duration / exit code / attempt / missed slots, and the tail of
+      the newest Run's log. Only `get_routine` is added to the toolset — the
+      routine tools are already resident (M30), so the working set is
+      untouched.
+- [x] **The routine's own employee answers by default**, then whoever answered
+      last, with `@slug` to hand the question to somebody else — and the model
+      a turn ran on is persisted, so reopening the panel days later does not
+      quietly continue on a different brain.
+- [x] **Asking is not editing.** `routes/routineAssistant.ts` mounts ahead of
+      `routinesRouter` so an ordinary Member can ask about a routine while
+      mutating one still needs an admin; the turn runs with that Member's own
+      authority, so anything the employee *does* is intersected with what they
+      are allowed to do, and the briefing tells it to describe a change rather
+      than make one. A route test mounts both routers in production order and
+      asserts both halves.
+- [x] **A resizable rail on the routine page**, sharing the `SidePanel`
+      primitives with the browser and repository panels, collapsing to a spine
+      and taking the pane on a narrow window. Deleting a routine takes its
+      conversation with it.
+
 ## V1 backlog (post-MVP)
 
 Items here are not on the active milestone path but worth picking up. Most

@@ -21,6 +21,7 @@ import { bootMailHandovers } from "./services/mail/handovers.js";
 import { bootMailDraftSendQueue } from "./services/mail/draftSendQueue.js";
 import { bootMailAutomationQueue } from "./services/mail/automationQueue.js";
 import { finalizeInterruptedAssistantTurns } from "./services/mail/assistant.js";
+import { finalizeInterruptedAssistantTurns as finalizeInterruptedRoutineAssistantTurns } from "./services/routineAssistant.js";
 import { finalizeInterruptedTldrQuestionTurns } from "./services/tldrQuestions.js";
 import { attachRealtime, bootRealtimeBridge } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
@@ -33,6 +34,7 @@ import { employeesRouter } from "./routes/employees.js";
 import { skillsRouter } from "./routes/skills.js";
 import { toolCatalogueRouter } from "./routes/toolCatalogue.js";
 import { routinesRouter } from "./routes/routines.js";
+import { routineAssistantRouter } from "./routes/routineAssistant.js";
 import { routineFoldersRouter } from "./routes/routineFolders.js";
 import { modelsRouter } from "./routes/models.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
@@ -182,6 +184,10 @@ async function main() {
     // eslint-disable-next-line no-console
     console.error("[mail] assistant turn recovery failed:", err);
   });
+  void finalizeInterruptedRoutineAssistantTurns().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[routine:assistant] turn recovery failed:", err);
+  });
   void finalizeInterruptedTldrQuestionTurns().catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[tldr:question] turn recovery failed:", err);
@@ -307,6 +313,11 @@ async function main() {
   app.use("/api/companies/:cid/employees", employeeSurfaceRouter);
   app.use("/api/companies/:cid", skillsRouter);
   app.use("/api/companies/:cid", toolCatalogueRouter);
+  // Ask AI on a Routine. Mounted before `routinesRouter` deliberately: that
+  // router gates every non-GET under `/routines` behind the admin role, and
+  // asking a question about a routine is not an admin action. See the header
+  // of `routes/routineAssistant.ts`.
+  app.use("/api/companies/:cid", routineAssistantRouter);
   app.use("/api/companies/:cid", routinesRouter);
   app.use("/api/companies/:cid", routineFoldersRouter);
   // Org chart + Handoffs (Phase B). Teams group employees; Handoffs are

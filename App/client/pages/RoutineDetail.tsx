@@ -13,6 +13,7 @@ import {
   Play,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   Timer,
   Trash2,
   Webhook,
@@ -40,6 +41,7 @@ import { Input } from "../components/ui/Input";
 import { MarkdownEditor } from "../components/MarkdownEditor";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
+import { clsx } from "../components/ui/clsx";
 import { useDialog } from "../components/ui/Dialog";
 import { copyToClipboard } from "../lib/clipboard";
 import { errorMessage } from "../lib/errors";
@@ -57,6 +59,7 @@ import {
 } from "../components/routines/RunViews";
 import { cronHuman, cronIsReadable } from "../lib/cron";
 import { RoutinesContext } from "./RoutinesLayout";
+import { RoutineAssistant } from "./RoutineAssistant";
 import { ResourceTagPicker } from "../components/TagPicker";
 
 /**
@@ -76,12 +79,70 @@ const TABS: Array<[Tab, string]> = [
   ["settings", "Settings"],
 ];
 
+/**
+ * Whether the Ask AI rail is open, and whether it is wound down to its 44px
+ * spine. Remembered per browser rather than in the URL: opening a chat is a
+ * preference about the workspace, and putting it in `?` would make every
+ * shared routine link carry somebody else's panel state — and would fight
+ * `?tab=` for the same history entry.
+ */
+const ASSISTANT_OPEN_KEY = "genosyn.routineAssistant.open";
+const ASSISTANT_COLLAPSED_KEY = "genosyn.routineAssistant.collapsed";
+
+function readFlag(key: string, fallback: boolean): boolean {
+  if (typeof window === "undefined") return fallback;
+  const raw = window.localStorage.getItem(key);
+  return raw === null ? fallback : raw === "1";
+}
+
+function writeFlag(key: string, value: boolean): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(key, value ? "1" : "0");
+}
+
 export default function RoutineDetail({ company }: { company: Company }) {
   const { empSlug, routineSlug } = useParams();
   const { routines, folders, loading, refresh } = useOutletContext<RoutinesContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeRun, setActiveRun] = React.useState<Run | null>(null);
+  const [aiOpen, setAiOpen] = React.useState(() => readFlag(ASSISTANT_OPEN_KEY, false));
+  const [aiCollapsed, setAiCollapsed] = React.useState(() =>
+    readFlag(ASSISTANT_COLLAPSED_KEY, false),
+  );
   const dialog = useDialog();
+
+  const openAssistant = React.useCallback((next: boolean) => {
+    setAiOpen(next);
+    writeFlag(ASSISTANT_OPEN_KEY, next);
+    // Reopening a panel that was closed while wound down should give the
+    // reader the panel, not the spine they can't remember collapsing.
+    if (next) {
+      setAiCollapsed(false);
+      writeFlag(ASSISTANT_COLLAPSED_KEY, false);
+    }
+  }, []);
+
+  const collapseAssistant = React.useCallback((next: boolean) => {
+    setAiCollapsed(next);
+    writeFlag(ASSISTANT_COLLAPSED_KEY, next);
+  }, []);
+
+  /** The conversation is actually on screen — open, and not wound down. */
+  const assistantShowing = aiOpen && !aiCollapsed;
+
+  /**
+   * What the header button does. From a collapsed spine it restores the
+   * conversation rather than closing the panel outright: the reader pressing
+   * "Ask AI" while a spine is showing wants the chat back, and closing it
+   * would take two more clicks to undo.
+   */
+  const toggleAssistant = React.useCallback(() => {
+    if (aiOpen && aiCollapsed) {
+      collapseAssistant(false);
+      return;
+    }
+    openAssistant(!aiOpen);
+  }, [aiOpen, aiCollapsed, collapseAssistant, openAssistant]);
 
   const routine =
     routines.find((r) => r.employee?.slug === empSlug && r.slug === routineSlug) ?? null;
@@ -160,131 +221,164 @@ export default function RoutineDetail({ company }: { company: Company }) {
 
   const emp = routine.employee;
   const brokenSchedule = routine.enabled && routine.nextRunAt === null;
+  // With the rail docked, the page has roughly a phone's width to play with.
+  // Two-column tab layouts stop being two columns at that point.
+  const compact = assistantShowing;
 
   return (
-    <div className="page-shell p-6">
-      <Breadcrumbs
-        items={[
-          { label: "Routines", to: `/c/${company.slug}/routines` },
-          ...(emp
-            ? [{ label: emp.name, to: `/c/${company.slug}/routines?employee=${emp.slug}` }]
-            : []),
-          { label: routine.name },
-        ]}
-      />
+    // A flex row so the Ask AI rail can dock beside the routine, the same
+    // shape the mail thread uses. `relative` anchors the rail's narrow-window
+    // takeover; the left column takes the page's scroll off `<main>` so the
+    // rail scrolls its own conversation instead of riding the page down.
+    <div className="relative flex h-full min-h-0 w-full">
+      <div className="page-shell min-w-0 flex-1 overflow-y-auto p-6">
+        <Breadcrumbs
+          items={[
+            { label: "Routines", to: `/c/${company.slug}/routines` },
+            ...(emp
+              ? [{ label: emp.name, to: `/c/${company.slug}/routines?employee=${emp.slug}` }]
+              : []),
+            { label: routine.name },
+          ]}
+        />
 
-      <div className="mb-5 mt-3 flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-              {routine.name}
-            </h1>
-            {!routine.enabled && (
-              <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                <Pause size={10} /> paused
-              </span>
-            )}
-            {routine.lastRun && <RunStatusChip status={routine.lastRun.status} size="xs" />}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
-            <span title={routine.cronExpr}>{cronHuman(routine.cronExpr)}</span>
-            {routine.enabled && routine.nextRunAt && (
-              <>
-                <span aria-hidden="true">·</span>
-                {overdueFor(routine.nextRunAt) ? (
-                  <span
-                    className="text-amber-600 dark:text-amber-400"
-                    title={new Date(routine.nextRunAt).toLocaleString()}
-                  >
-                    overdue by {overdueFor(routine.nextRunAt)}
-                  </span>
-                ) : (
-                  <span title={new Date(routine.nextRunAt).toLocaleString()}>
-                    next {timeUntil(routine.nextRunAt)}
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-          <div className="mt-3 max-w-lg">
-            <ResourceTagPicker
-              companyId={company.id}
-              resourceType="routine"
-              resourceId={routine.id}
-              value={routine.tags ?? []}
-              onSaved={refresh}
-            />
-          </div>
-        </div>
-        <Button onClick={triggerRun}>
-          <Play size={14} /> Run now
-        </Button>
-      </div>
-
-      {brokenSchedule && (
-        <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-          <div>
-            <div className="font-medium">This routine never fires.</div>
-            <div className="text-xs">
-              It&apos;s enabled, but no next run could be computed from{" "}
-              <code className="font-mono">{routine.cronExpr}</code>. Edit the schedule under
-              Settings, or run it manually.
+        <div className="mb-5 mt-3 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+                {routine.name}
+              </h1>
+              {!routine.enabled && (
+                <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[11px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  <Pause size={10} /> paused
+                </span>
+              )}
+              {routine.lastRun && <RunStatusChip status={routine.lastRun.status} size="xs" />}
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
+              <span title={routine.cronExpr}>{cronHuman(routine.cronExpr)}</span>
+              {routine.enabled && routine.nextRunAt && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  {overdueFor(routine.nextRunAt) ? (
+                    <span
+                      className="text-amber-600 dark:text-amber-400"
+                      title={new Date(routine.nextRunAt).toLocaleString()}
+                    >
+                      overdue by {overdueFor(routine.nextRunAt)}
+                    </span>
+                  ) : (
+                    <span title={new Date(routine.nextRunAt).toLocaleString()}>
+                      next {timeUntil(routine.nextRunAt)}
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="mt-3 max-w-lg">
+              <ResourceTagPicker
+                companyId={company.id}
+                resourceType="routine"
+                resourceId={routine.id}
+                value={routine.tags ?? []}
+                onSaved={refresh}
+              />
             </div>
           </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => toggleAssistant()}
+              // "Showing" means the conversation is on screen. A rail wound
+              // down to its spine is open but not showing, so announcing it as
+              // pressed would contradict what the reader can see.
+              aria-pressed={assistantShowing}
+            >
+              <Sparkles size={14} /> Ask AI
+            </Button>
+            <Button onClick={triggerRun}>
+              <Play size={14} /> Run now
+            </Button>
+          </div>
         </div>
-      )}
 
-      <div className="mb-5 flex gap-1 border-b border-slate-200 dark:border-slate-800">
-        {TABS.map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={
-              "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition " +
-              (tab === key
-                ? "border-indigo-600 text-indigo-700 dark:border-indigo-400 dark:text-indigo-300"
-                : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200")
-            }
-          >
-            {label}
-          </button>
-        ))}
+        {brokenSchedule && (
+          <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <div>
+              <div className="font-medium">This routine never fires.</div>
+              <div className="text-xs">
+                It&apos;s enabled, but no next run could be computed from{" "}
+                <code className="font-mono">{routine.cronExpr}</code>. Edit the schedule under
+                Settings, or run it manually.
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="mb-5 flex gap-1 border-b border-slate-200 dark:border-slate-800">
+          {TABS.map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={
+                "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition " +
+                (tab === key
+                  ? "border-indigo-600 text-indigo-700 dark:border-indigo-400 dark:text-indigo-300"
+                  : "border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200")
+              }
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "overview" && (
+          <OverviewTab
+            folders={folders}
+            company={company}
+            routine={routine}
+            compact={compact}
+            onSeeRuns={() => setTab("runs")}
+            onOpenRun={openRun}
+          />
+        )}
+        {tab === "brief" && <BriefTab company={company} routine={routine} />}
+        {tab === "runs" && (
+          <RunsTab
+            company={company}
+            routine={routine}
+            compact={compact}
+            initialRunId={deepLinkedRun}
+            onRetry={triggerRun}
+          />
+        )}
+        {tab === "settings" && (
+          <SettingsTab company={company} routine={routine} folders={folders} onSaved={refresh} />
+        )}
+
+        {activeRun && (
+          <RunLiveModal
+            key={activeRun.id}
+            company={company}
+            routine={routine}
+            run={activeRun}
+            onRetry={triggerRun}
+            onClose={() => {
+              setActiveRun(null);
+              refresh();
+            }}
+          />
+        )}
       </div>
 
-      {tab === "overview" && (
-        <OverviewTab
-          folders={folders}
+      {aiOpen && (
+        <RoutineAssistant
           company={company}
           routine={routine}
-          onSeeRuns={() => setTab("runs")}
-          onOpenRun={openRun}
-        />
-      )}
-      {tab === "brief" && <BriefTab company={company} routine={routine} />}
-      {tab === "runs" && (
-        <RunsTab
-          company={company}
-          routine={routine}
-          initialRunId={deepLinkedRun}
-          onRetry={triggerRun}
-        />
-      )}
-      {tab === "settings" && (
-        <SettingsTab company={company} routine={routine} folders={folders} onSaved={refresh} />
-      )}
-
-      {activeRun && (
-        <RunLiveModal
-          key={activeRun.id}
-          company={company}
-          routine={routine}
-          run={activeRun}
-          onRetry={triggerRun}
-          onClose={() => {
-            setActiveRun(null);
-            refresh();
-          }}
+          collapsed={aiCollapsed}
+          onCollapsedChange={collapseAssistant}
+          onClose={() => openAssistant(false)}
         />
       )}
     </div>
@@ -297,12 +391,15 @@ function OverviewTab({
   company,
   routine,
   folders,
+  compact,
   onSeeRuns,
   onOpenRun,
 }: {
   company: Company;
   routine: RoutineWithMeta;
   folders: RoutineFolder[];
+  /** The Ask AI rail is docked, so there is no room for two columns. */
+  compact: boolean;
   onSeeRuns: () => void;
   onOpenRun: (runId: string) => void;
 }) {
@@ -336,7 +433,7 @@ function OverviewTab({
   const recent = (runs ?? []).slice(0, 5);
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className={clsx("grid gap-4", !compact && "md:grid-cols-2")}>
       <Card>
         <CardBody className="flex flex-col gap-3">
           <SectionLabel>Assigned to</SectionLabel>
@@ -467,7 +564,7 @@ function OverviewTab({
         </CardBody>
       </Card>
 
-      <Card className="md:col-span-2">
+      <Card className={compact ? undefined : "md:col-span-2"}>
         <CardBody className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <SectionLabel>Recent runs</SectionLabel>
@@ -636,11 +733,14 @@ function BriefTab({ company, routine }: { company: Company; routine: RoutineWith
 function RunsTab({
   company,
   routine,
+  compact,
   initialRunId,
   onRetry,
 }: {
   company: Company;
   routine: RoutineWithMeta;
+  /** The Ask AI rail is docked, so the run list stacks above the log. */
+  compact: boolean;
   initialRunId: string | null;
   onRetry: () => void;
 }) {
@@ -703,10 +803,7 @@ function RunsTab({
         if (cancelled) return;
         consecutiveErrors += 1;
         setLogLoadError(`${errorMessage(err, "Couldn’t load the log.")} Retrying…`);
-        const retryDelay = Math.min(
-          10_000,
-          2500 * 2 ** Math.min(consecutiveErrors - 1, 2),
-        );
+        const retryDelay = Math.min(10_000, 2500 * 2 ** Math.min(consecutiveErrors - 1, 2));
         timer = setTimeout(loadLog, retryDelay);
       } finally {
         if (!cancelled) setLoadingLog(false);
@@ -760,8 +857,16 @@ function RunsTab({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-3 md:flex-row" style={{ minHeight: 460 }}>
-        <aside className="max-h-48 w-full shrink-0 overflow-y-auto rounded-lg border border-slate-200 bg-white md:max-h-none md:w-64 dark:border-slate-700 dark:bg-slate-950">
+      <div
+        className={clsx("flex flex-col gap-3", !compact && "md:flex-row")}
+        style={{ minHeight: 460 }}
+      >
+        <aside
+          className={clsx(
+            "max-h-48 w-full shrink-0 overflow-y-auto rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950",
+            !compact && "md:max-h-none md:w-64",
+          )}
+        >
           <ul className="flex flex-col">
             {runs.map((r) => (
               <li key={r.id}>
@@ -813,7 +918,8 @@ function RunsTab({
         </aside>
         <div
           className={
-            "grid min-w-0 flex-1 gap-3 " + (recordings.length > 0 ? "xl:grid-cols-2" : "")
+            "grid min-w-0 flex-1 gap-3 " +
+            (recordings.length > 0 && !compact ? "xl:grid-cols-2" : "")
           }
         >
           <RunLogPane
@@ -1005,11 +1111,7 @@ function SettingsTab({
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
 
           <div className="flex flex-col gap-1">
-            <Select
-              label="Folder"
-              value={folderId}
-              onChange={(e) => setFolderId(e.target.value)}
-            >
+            <Select label="Folder" value={folderId} onChange={(e) => setFolderId(e.target.value)}>
               <option value="">Unfiled</option>
               {folders.map((f) => (
                 <option key={f.id} value={f.id}>

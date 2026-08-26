@@ -71,7 +71,8 @@ export function Email() {
 
       <Callout kind="info" title="No Google Cloud Pub/Sub required.">
         Sync is poll-based on a short interval, so there is nothing to set up beyond the Google
-        connection itself. Self-hosted installs get a working inbox with zero extra ceremony. (On a very large account you can cap the first import to recent mail with{" "}
+        connection itself. Self-hosted installs get a working inbox with zero extra ceremony. (On a
+        very large account you can cap the first import to recent mail with{" "}
         <Code>config.mail.backfillDays</Code>; the default imports everything.)
       </Callout>
 
@@ -272,21 +273,21 @@ export function Email() {
         </LI>
       </UL>
       <Callout kind="tip" title="Nothing runs by itself.">
-        Analysis only ever <em>proposes</em>. Buttons act with your access, not the
-        employee&apos;s — which is why an employee on <Strong>Draft</Strong> can offer to write a
-        reply you then send. What you see under each label is the fact the server checked, not the
-        employee&apos;s claim about it: the total an invoice adds up to, the host an unsubscribe
-        would talk to, the address a reply would go to. Buttons that consume something are marked
-        done once they run, so a reload cannot fire them twice. Acting with <em>your</em> access
-        cuts both ways: if your <DocLink to="/docs/finance">finance</DocLink> access is read-only,
-        the invoice and estimate buttons appear greyed out with the reason, because they would be
-        refused anyway — you still see what the email was read as.
+        Analysis only ever <em>proposes</em>. Buttons act with your access, not the employee&apos;s
+        — which is why an employee on <Strong>Draft</Strong> can offer to write a reply you then
+        send. What you see under each label is the fact the server checked, not the employee&apos;s
+        claim about it: the total an invoice adds up to, the host an unsubscribe would talk to, the
+        address a reply would go to. Buttons that consume something are marked done once they run,
+        so a reload cannot fire them twice. Acting with <em>your</em> access cuts both ways: if your{" "}
+        <DocLink to="/docs/finance">finance</DocLink> access is read-only, the invoice and estimate
+        buttons appear greyed out with the reason, because they would be refused anyway — you still
+        see what the email was read as.
       </Callout>
       <P>
         Email is untrusted text, and it is treated that way. The employee reading it gets one
-        submission tool and nothing else — no repositories, no secrets, no browser, no company
-        tools — so an email that tries to give instructions is evidence about its sender, not a
-        command. It also cannot choose its own affordances: whether <Strong>Unsubscribe</Strong>
+        submission tool and nothing else — no repositories, no secrets, no browser, no company tools
+        — so an email that tries to give instructions is evidence about its sender, not a command.
+        It also cannot choose its own affordances: whether <Strong>Unsubscribe</Strong>
         may be offered at all is decided by Genosyn before the employee ever sees the email.
       </P>
       <H3 id="analysis-settings">Choosing who reads, and turning it off</H3>
@@ -314,7 +315,9 @@ export function Email() {
         employee you tagged stays on that email until you tag somebody else. Type <Code>#</Code> to
         attach a product area or company resource to the instruction, or <Code>/new</Code> by itself
         to clear this email&apos;s AI context. Use several <Code>#</Code> tags when the work crosses
-        products—for example an account, Invoices, and a Workspace channel.
+        products—for example an account, Invoices, and a Workspace channel. The same panel sits
+        beside every <DocLink to="/docs/routines#assistant">Routine</DocLink>, where it answers
+        about the schedule and the Run log instead.
       </P>
       <P>
         Every email has an independent chat, including each item in the Drafts review queue, so
