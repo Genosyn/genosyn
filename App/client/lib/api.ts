@@ -210,6 +210,13 @@ export type Company = {
   mission: string;
   vision: string;
   role?: "owner" | "admin" | "member";
+  /**
+   * What this Member may do in Finance, already resolved server-side — owners
+   * and admins arrive as `"full"` whatever their membership row says. Carried
+   * on the company so surfaces outside Finance can decline to offer what the
+   * finance routes would refuse, rather than finding out on the click.
+   */
+  financeAccess: FinanceAccess;
   requireTwoFactor: boolean;
 };
 export type Employee = {

@@ -10,7 +10,7 @@ import { ApiKey } from "../db/entities/ApiKey.js";
 import { Company } from "../db/entities/Company.js";
 import { EmailLog } from "../db/entities/EmailLog.js";
 import { Invitation } from "../db/entities/Invitation.js";
-import { Membership, type Role } from "../db/entities/Membership.js";
+import { Membership, type FinanceAccess, type Role } from "../db/entities/Membership.js";
 import { Notebook } from "../db/entities/Notebook.js";
 import { User } from "../db/entities/User.js";
 import { hashToken } from "../lib/token.js";
@@ -142,6 +142,45 @@ describe("company routes", () => {
     assert.equal(detail.status, 200);
     assert.equal(detail.body.mission, company.mission);
     assert.equal(detail.body.vision, company.vision);
+  });
+
+  test("tells the client what this Member may do in Finance", async () => {
+    // Surfaces outside Finance — the inbox's invoice and estimate buttons —
+    // decide what to offer from this, so it has to be the same verdict the
+    // finance routes gate on rather than a second opinion.
+    const owner = await call<Array<{ id: string; financeAccess: FinanceAccess }>>("GET", "");
+    assert.equal(owner.status, 200);
+    assert.equal(owner.body[0].financeAccess, "full");
+
+    // An owner dialled down in the column is still full: the exemption is the
+    // rule, and reporting "read" here would hide buttons that in fact work.
+    const membershipRepo = AppDataSource.getRepository(Membership);
+    const ownerMembership = await membershipRepo.findOneByOrFail({
+      companyId: company.id,
+      userId: actingUserId!,
+    });
+    ownerMembership.financeAccess = "read";
+    await membershipRepo.save(ownerMembership);
+    const stillFull = await call<Array<{ financeAccess: FinanceAccess }>>("GET", "");
+    assert.equal(stillFull.body[0].financeAccess, "full");
+
+    // An ordinary Member reports whatever the column says.
+    const member = await insert(User, {
+      email: "member@example.com",
+      name: "Member",
+      passwordHash: "x",
+      sessionVersion: 0,
+    });
+    await insert(Membership, {
+      companyId: company.id,
+      userId: member.id,
+      role: "member" as Role,
+      financeAccess: "read",
+    });
+    actingUserId = member.id;
+    const restricted = await call<Array<{ financeAccess: FinanceAccess }>>("GET", "");
+    assert.equal(restricted.status, 200);
+    assert.equal(restricted.body[0].financeAccess, "read");
   });
 
   test("creates a company with trimmed optional direction", async () => {

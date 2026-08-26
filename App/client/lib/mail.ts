@@ -308,7 +308,6 @@ export type MailAssistantRosterEntry = {
   models: MailAssistantModel[];
 };
 
-
 // ───────────────────────── AI analysis of inbound mail ─────────────────────────
 
 /**
@@ -334,6 +333,14 @@ export const MAIL_ANALYSIS_CATEGORIES = [
 ] as const;
 
 export type MailAnalysisCategory = (typeof MAIL_ANALYSIS_CATEGORIES)[number];
+
+/**
+ * The button kinds that write to Finance. Mirrors the server list of the same
+ * name; `server/client/mailAnalysis.test.ts` fails if the two drift, because a
+ * money button the client does not know about would render live and then be
+ * refused on the click.
+ */
+export const MAIL_ANALYSIS_FINANCE_KINDS = ["create_invoice", "create_estimate"] as const;
 
 export type MailAnalysisLine = {
   description: string;
@@ -698,7 +705,6 @@ export const mailApi = {
   ) => api.post<{ handover: MailHandover }>(`${base(cid)}/threads/${tid}/handovers`, input),
   retryHandover: (cid: string, hid: string) =>
     api.post<{ ok: true }>(`${base(cid)}/handovers/${hid}/retry`, {}),
-
 
   // ── AI analysis of inbound mail ──
   analysisSettings: (cid: string, aid: string) =>

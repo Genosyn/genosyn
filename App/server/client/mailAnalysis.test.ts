@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 
 import {
   CATEGORY_TONE_CLASSES,
+  analysisActionBlockedReason,
   analysisActionConfirm,
   analysisActionDetail,
   analysisActionHint,
@@ -13,12 +14,18 @@ import {
 } from "../../client/lib/mailAnalysis.js";
 import {
   MAIL_ANALYSIS_CATEGORIES,
+  MAIL_ANALYSIS_FINANCE_KINDS,
   type MailAccessLevel,
   type MailAnalysisAction,
   type MailAssistantModel,
   type MailAssistantRosterEntry,
 } from "../../client/lib/mail.js";
-import { MAIL_ANALYSIS_CATEGORIES as SERVER_MAIL_ANALYSIS_CATEGORIES } from "../services/mail/analysis.js";
+import type { FinanceAccess } from "../../client/lib/api.js";
+import {
+  MAIL_ANALYSIS_CATEGORIES as SERVER_MAIL_ANALYSIS_CATEGORIES,
+  MAIL_ANALYSIS_FINANCE_KINDS as SERVER_MAIL_ANALYSIS_FINANCE_KINDS,
+} from "../services/mail/analysis.js";
+import { financeAccessFor } from "../middleware/financeAccess.js";
 
 function assistantModel(overrides: Partial<MailAssistantModel> = {}): MailAssistantModel {
   return {
@@ -499,5 +506,113 @@ describe("analysis readiness note", () => {
 describe("analysis category vocabulary across the server and client", () => {
   test("the client can label every category the server is allowed to emit", () => {
     assert.deepEqual([...MAIL_ANALYSIS_CATEGORIES], [...SERVER_MAIL_ANALYSIS_CATEGORIES]);
+  });
+});
+
+describe("buttons a restricted Member may not press", () => {
+  const MONEY_KINDS = MAIL_ANALYSIS_FINANCE_KINDS as readonly MailAnalysisAction["kind"][];
+  const OTHER_KINDS = ACTION_KINDS.filter((kind) => !MONEY_KINDS.includes(kind));
+
+  test("lets full finance access press everything", () => {
+    for (const kind of ACTION_KINDS) {
+      assert.equal(analysisActionBlockedReason(analysisAction(kind), "full"), null, kind);
+    }
+  });
+
+  test("blocks both money buttons for read-only finance access", () => {
+    for (const kind of MONEY_KINDS) {
+      assert.equal(
+        analysisActionBlockedReason(analysisAction(kind), "read"),
+        "You have read-only finance access",
+        kind,
+      );
+    }
+  });
+
+  test("blocks both money buttons for a Member shut out of finance entirely", () => {
+    for (const kind of MONEY_KINDS) {
+      assert.equal(
+        analysisActionBlockedReason(analysisAction(kind), "none"),
+        "You don’t have access to this company’s finances",
+        kind,
+      );
+    }
+  });
+
+  test("never blocks a button that writes nothing to the ledger", () => {
+    // Replying, unsubscribing, triaging and handing over are all governed by
+    // the mailbox, not by Finance. Blocking them on a finance level would take
+    // the inbox away from someone who is only restricted from billing.
+    for (const level of ["none", "read", "full"] as FinanceAccess[]) {
+      for (const kind of OTHER_KINDS) {
+        assert.equal(
+          analysisActionBlockedReason(analysisAction(kind), level),
+          null,
+          `${kind}/${level}`,
+        );
+      }
+    }
+  });
+
+  test("agrees with the level the server would resolve for the same Member", () => {
+    // The button and the route have to reach the same verdict, or the UI is
+    // either lying about what is possible or hiding something that is. Both
+    // sides read the level `financeAccessFor` produces.
+    assert.equal(
+      analysisActionBlockedReason(
+        analysisAction("create_invoice"),
+        financeAccessFor("owner", "none"),
+      ),
+      null,
+      "an owner is full regardless of the membership column",
+    );
+    assert.equal(
+      analysisActionBlockedReason(
+        analysisAction("create_invoice"),
+        financeAccessFor("admin", "read"),
+      ),
+      null,
+      "an admin is full regardless of the membership column",
+    );
+    assert.ok(
+      analysisActionBlockedReason(
+        analysisAction("create_invoice"),
+        financeAccessFor("member", "read"),
+      ),
+      "a member dialled down to read-only is blocked",
+    );
+    assert.ok(
+      analysisActionBlockedReason(
+        analysisAction("create_invoice"),
+        financeAccessFor("member", undefined),
+      ),
+      "a missing membership fails closed on both sides",
+    );
+    assert.equal(
+      analysisActionBlockedReason(
+        analysisAction("create_invoice"),
+        financeAccessFor("member", "full"),
+      ),
+      null,
+      "an ordinary member with full access may raise an invoice",
+    );
+  });
+});
+
+describe("the finance-gated kinds across the server and client", () => {
+  test("the client greys out exactly the buttons the server will refuse", () => {
+    // The server gates on its list; the client decides what to offer from
+    // its own. A money button added to one and not the other renders live and
+    // then fails on the click — the confusing turn this whole change removed.
+    assert.deepEqual([...MAIL_ANALYSIS_FINANCE_KINDS], [...SERVER_MAIL_ANALYSIS_FINANCE_KINDS]);
+  });
+
+  test("every finance-gated kind is a kind the model can actually propose", () => {
+    for (const kind of MAIL_ANALYSIS_FINANCE_KINDS) {
+      assert.ok(
+        ACTION_KINDS.includes(kind as MailAnalysisAction["kind"]),
+        `${kind} is gated but is not in the action vocabulary`,
+      );
+    }
   });
 });

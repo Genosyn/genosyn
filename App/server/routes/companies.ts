@@ -23,6 +23,7 @@ import { deleteCompanyCascade } from "../services/companyDelete.js";
 import { companyDir } from "../services/paths.js";
 import { avatarAbsPath, mimeFromKey } from "../services/avatars.js";
 import { getPublicUrl } from "../services/publicUrl.js";
+import { financeAccessFor } from "../middleware/financeAccess.js";
 import { config } from "../../config.js";
 import { hasTwoFactorMethod } from "../services/twoFactor.js";
 import { recordAudit } from "../services/audit.js";
@@ -60,6 +61,11 @@ companiesRouter.get("/", async (req, res) => {
         mission: c.mission,
         vision: c.vision,
         role: m.role,
+        // The client needs this to stop offering finance affordances a
+        // restricted Member cannot use — the mail surface's invoice and
+        // estimate buttons, today. It is the same value the finance routes
+        // gate on, so the button and the server agree.
+        financeAccess: financeAccessFor(m.role, m.financeAccess),
         requireTwoFactor: c.requireTwoFactor,
       };
     })
@@ -113,6 +119,7 @@ companiesRouter.post("/", requireBrowserSession, validateBody(createSchema), asy
     mission: co.mission,
     vision: co.vision,
     role: "owner",
+    financeAccess: financeAccessFor("owner", undefined),
     requireTwoFactor: co.requireTwoFactor,
   });
 });

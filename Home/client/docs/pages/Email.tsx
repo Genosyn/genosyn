@@ -277,7 +277,10 @@ export function Email() {
         reply you then send. What you see under each label is the fact the server checked, not the
         employee&apos;s claim about it: the total an invoice adds up to, the host an unsubscribe
         would talk to, the address a reply would go to. Buttons that consume something are marked
-        done once they run, so a reload cannot fire them twice.
+        done once they run, so a reload cannot fire them twice. Acting with <em>your</em> access
+        cuts both ways: if your <DocLink to="/docs/finance">finance</DocLink> access is read-only,
+        the invoice and estimate buttons appear greyed out with the reason, because they would be
+        refused anyway — you still see what the email was read as.
       </Callout>
       <P>
         Email is untrusted text, and it is treated that way. The employee reading it gets one

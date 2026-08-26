@@ -13,6 +13,7 @@ function company(slug = "new-company"): Company {
     mission: "",
     vision: "",
     role: "owner",
+    financeAccess: "full",
     requireTwoFactor: false,
   };
 }

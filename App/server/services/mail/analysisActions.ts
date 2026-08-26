@@ -18,7 +18,11 @@ import {
 import { Invoice } from "../../db/entities/Invoice.js";
 import { normalizeAccountDomain } from "../revenue/accounts.js";
 import { createMailDraft, performThreadAction } from "./actions.js";
-import { parseAnalysisActions, type MailAnalysisAction } from "./analysis.js";
+import {
+  MAIL_ANALYSIS_FINANCE_KINDS,
+  parseAnalysisActions,
+  type MailAnalysisAction,
+} from "./analysis.js";
 import { createMailHandover, handoverGrantError } from "./handovers.js";
 import { unsubscribeFromMessage } from "./unsubscribe.js";
 
@@ -175,6 +179,11 @@ async function runAction(
   context: { message: MailMessage; thread: MailThread },
   actor: MailAnalysisActor,
 ): Promise<{ navigateTo: string | null; message: string }> {
+  // One gate, driven by the shared list, so a money button added later cannot
+  // be added without it.
+  if ((MAIL_ANALYSIS_FINANCE_KINDS as readonly string[]).includes(action.kind)) {
+    assertFinanceWrite(actor);
+  }
   switch (action.kind) {
     case "draft_reply": {
       const draft = await createMailDraft(
@@ -235,7 +244,6 @@ async function runAction(
     }
 
     case "create_invoice": {
-      assertFinanceWrite(actor);
       const customer = await resolveOrCreateCustomer(account.companyId, {
         name: action.customerName,
         email: context.message.fromEmail,
@@ -248,7 +256,6 @@ async function runAction(
     }
 
     case "create_estimate": {
-      assertFinanceWrite(actor);
       const customer = await resolveOrCreateCustomer(account.companyId, {
         name: action.customerName,
         email: context.message.fromEmail,

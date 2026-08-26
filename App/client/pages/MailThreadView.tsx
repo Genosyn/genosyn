@@ -375,6 +375,7 @@ export default function MailThreadView() {
               analysis={latestAnalysis}
               companyId={company.id}
               companySlug={company.slug}
+              financeAccess={company.financeAccess}
               onChanged={load}
             />
           )}

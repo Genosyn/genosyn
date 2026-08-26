@@ -5,6 +5,7 @@ import {
   Bot,
   Check,
   FileText,
+  Lock,
   MailX,
   Receipt,
   RefreshCw,
@@ -15,8 +16,10 @@ import {
 } from "lucide-react";
 
 import { MailAnalysis, MailAnalysisAction, mailApi } from "../lib/mail";
+import type { FinanceAccess } from "../lib/api";
 import {
   CATEGORY_TONE_CLASSES,
+  analysisActionBlockedReason,
   analysisActionConfirm,
   analysisActionDetail,
   analysisActionHint,
@@ -61,11 +64,14 @@ export function MailAnalysisCard({
   analysis,
   companyId,
   companySlug,
+  financeAccess,
   onChanged,
 }: {
   analysis: MailAnalysis;
   companyId: string;
   companySlug: string;
+  /** This Member's finance level — the money buttons are offered against it. */
+  financeAccess: FinanceAccess;
   /** Reload the thread — a draft reply and a triage action both change it. */
   onChanged: () => void;
 }) {
@@ -79,6 +85,7 @@ export function MailAnalysisCard({
 
   const run = async (action: MailAnalysisAction) => {
     if (busyId || retrying || action.executedAt) return;
+    if (analysisActionBlockedReason(action, financeAccess)) return;
     const confirmation = analysisActionConfirm(action);
     if (confirmation) {
       const ok = await dialog.confirm({
@@ -183,18 +190,24 @@ export function MailAnalysisCard({
             <div className="mt-3 flex flex-wrap gap-1.5">
               {row.actions.map((action) => {
                 const spent = Boolean(action.executedAt);
-                const detail = analysisActionDetail(action);
+                // Shown rather than hidden: the AI did read this email as one
+                // to bill for, and that is worth knowing even by someone who
+                // has to ask a colleague to raise it.
+                const blocked = analysisActionBlockedReason(action, financeAccess);
+                const detail = blocked ?? analysisActionDetail(action);
                 return (
                   <button
                     key={action.id}
-                    disabled={spent || busyId !== null || retrying}
+                    disabled={spent || Boolean(blocked) || busyId !== null || retrying}
                     onClick={() => void run(action)}
-                    title={spent ? "Already done" : analysisActionHint(action)}
+                    title={spent ? "Already done" : (blocked ?? analysisActionHint(action))}
                     className={clsx(
                       "inline-flex items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-left text-xs font-medium transition-colors",
                       spent
                         ? "cursor-default border-slate-200 text-slate-400 line-through dark:border-slate-800 dark:text-slate-600"
-                        : "border-violet-200 bg-white text-violet-700 hover:bg-violet-100 disabled:opacity-60 dark:border-violet-500/30 dark:bg-slate-950 dark:text-violet-200 dark:hover:bg-violet-500/15",
+                        : blocked
+                          ? "cursor-not-allowed border-slate-200 text-slate-400 dark:border-slate-800 dark:text-slate-500"
+                          : "border-violet-200 bg-white text-violet-700 hover:bg-violet-100 disabled:opacity-60 dark:border-violet-500/30 dark:bg-slate-950 dark:text-violet-200 dark:hover:bg-violet-500/15",
                     )}
                   >
                     <span className="mt-0.5 shrink-0">
@@ -202,6 +215,8 @@ export function MailAnalysisCard({
                         <Spinner size={13} />
                       ) : spent ? (
                         <Check size={13} />
+                      ) : blocked ? (
+                        <Lock size={13} />
                       ) : (
                         iconFor(action)
                       )}
@@ -209,7 +224,14 @@ export function MailAnalysisCard({
                     <span className="min-w-0">
                       <span className="block">{action.label}</span>
                       {detail && !spent && (
-                        <span className="block max-w-[240px] truncate text-[10px] font-normal text-violet-500/80 dark:text-violet-300/70">
+                        <span
+                          className={clsx(
+                            "block max-w-[240px] truncate text-[10px] font-normal",
+                            blocked
+                              ? "text-slate-400 dark:text-slate-500"
+                              : "text-violet-500/80 dark:text-violet-300/70",
+                          )}
+                        >
                           {detail}
                         </span>
                       )}

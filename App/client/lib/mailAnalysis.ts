@@ -1,4 +1,5 @@
-import { formatMoney } from "./api";
+import { formatMoney, type FinanceAccess } from "./api";
+import { MAIL_ANALYSIS_FINANCE_KINDS } from "./mail";
 import type { MailAccessLevel, MailAnalysisAction, MailAssistantRosterEntry } from "./mail";
 
 /**
@@ -135,6 +136,29 @@ export function analysisActionHint(action: MailAnalysisAction): string {
       // unknown rather than as whatever the email talked the model into.
       return "Runs this action";
   }
+}
+
+/**
+ * Why this Member cannot press this button, if they cannot.
+ *
+ * `create_invoice` and `create_estimate` write real finance rows, so the
+ * server refuses them for anyone below `full` finance access — the same bar
+ * the finance routes themselves hold. The model proposes buttons from the
+ * email alone and has no idea who is reading, so the check has to happen
+ * here too: an affordance that only fails once you commit to it is the
+ * confusing turn a grayed-out entry exists to prevent.
+ *
+ * Returns null when the button is fine, or the sentence to show instead.
+ */
+export function analysisActionBlockedReason(
+  action: MailAnalysisAction,
+  financeAccess: FinanceAccess,
+): string | null {
+  if (!(MAIL_ANALYSIS_FINANCE_KINDS as readonly string[]).includes(action.kind)) return null;
+  if (financeAccess === "full") return null;
+  return financeAccess === "none"
+    ? "You don\u2019t have access to this company\u2019s finances"
+    : "You have read-only finance access";
 }
 
 /**

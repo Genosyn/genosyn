@@ -97,6 +97,17 @@ export const MAIL_ANALYSIS_CATEGORIES = [
 
 export type MailAnalysisCategory = (typeof MAIL_ANALYSIS_CATEGORIES)[number];
 
+/**
+ * The button kinds that write to Finance, and therefore answer to Finance's
+ * own access rule rather than to the mailbox's.
+ *
+ * A list rather than two `if`s so the gate and the client's greyed-out state
+ * are driven by the same fact. A third money button added here is gated
+ * server-side automatically, and `mailAnalysis.test.ts` fails until the client
+ * knows to stop offering it too.
+ */
+export const MAIL_ANALYSIS_FINANCE_KINDS = ["create_invoice", "create_estimate"] as const;
+
 /** Line item the model extracted from the email, in minor units. */
 export type MailAnalysisLine = {
   description: string;
