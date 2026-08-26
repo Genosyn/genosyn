@@ -90,6 +90,7 @@ code, UI copy, commits, and docs.
 | **AI Model** (backend brain record) | Provider, LLM config |
 | **Member** (human user in a company) | User (in product copy; `User` is fine as the DB entity name) |
 | **Run** (one execution of a Routine) | Execution, Invocation |
+| **Folder** (the exclusive, nestable filing tree for Routines — `RoutineFolder`) | Category, Group, Collection, Tag |
 | **Integration** (a connector type: Stripe, Gmail, …; static in code) | Provider, Plugin, Service (in product copy) |
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
 | **Member browser** (a Chrome a human connected from their own computer — `MemberBrowser`) | Connection, Browser Connection, Device |
@@ -141,6 +142,15 @@ Note that the physical tables are still `code_repositories` and
 `employee_code_repository_grants`: renaming a table means either a generated
 migration that drops and recreates it or a hand-written one, and §7 forbids
 the second. The product noun is what matters.
+
+**A Folder is not a Tag, and neither replaces the other.** A **Folder** answers
+*where does this routine live* — one per routine, nestable, navigable in the
+sidebar. A **Tag** answers *what is this about* — many per resource, spanning
+every section of the app. M27 shipped tags saying they grouped resources
+"without forcing a folder hierarchy"; M48 added the hierarchy for Routines
+because a chip that narrows a flat list is not somewhere to put things. Do not
+add a `folderId` to a resource that only ever needed a tag, and do not model a
+folder as a reserved tag name.
 
 **"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
 pipeline is a flat, ordered list of **Deal Stages** — there is no container

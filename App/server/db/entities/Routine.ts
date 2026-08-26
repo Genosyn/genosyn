@@ -28,6 +28,19 @@ export class Routine {
   @Column({ type: "varchar" })
   cronExpr!: string;
 
+  /**
+   * The {@link RoutineFolder} this routine is filed under, or null for
+   * unfiled. Folders are company-scoped while a routine is owned by an
+   * employee, so the write paths check that the folder's company matches the
+   * owning employee's before accepting an id — see `services/routineFolders.ts`.
+   *
+   * Deleting a folder never deletes what is inside it: its routines and
+   * subfolders are re-parented to the folder's own parent, which is null for a
+   * top-level folder and therefore means "unfiled".
+   */
+  @Column({ type: "varchar", nullable: true })
+  folderId!: string | null;
+
   @Column({ type: "boolean", default: true })
   enabled!: boolean;
 

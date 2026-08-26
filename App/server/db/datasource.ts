@@ -13,6 +13,7 @@ import { AIModel } from "./entities/AIModel.js";
 import { AIEmployee } from "./entities/AIEmployee.js";
 import { Skill } from "./entities/Skill.js";
 import { Routine } from "./entities/Routine.js";
+import { RoutineFolder } from "./entities/RoutineFolder.js";
 import { Run } from "./entities/Run.js";
 import { Project } from "./entities/Project.js";
 import { ProjectMember } from "./entities/ProjectMember.js";
@@ -199,6 +200,7 @@ const entities = [
   AIEmployee,
   Skill,
   Routine,
+  RoutineFolder,
   Run,
   Project,
   ProjectMember,

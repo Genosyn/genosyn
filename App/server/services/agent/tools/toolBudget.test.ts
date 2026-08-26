@@ -41,10 +41,16 @@ const RESIDENT_TOOL_COUNT_MAX = 24;
 /**
  * Serialized `{name, description, inputSchema}` for the whole resident set.
  *
- * ~15,700 today, against ~71,500 before deferral. 20k leaves room to add one
- * genuinely hot tool without a conversation, and not much more.
+ * ~20,100 today, against ~71,500 before deferral. Raised from 20,000 in M48:
+ * the set had already grown to 19,907 — 99.5% of that ceiling — so the two
+ * `folder` params that let an AI employee file its own Routines (symmetric with
+ * the `tags` param already on both tools) had 93 chars to land in, which is not
+ * enough for two descriptions a model can act on. The params are trimmed to the
+ * bone; this buys back a little headroom rather than leaving the next change
+ * with none. Roughly 53 tokens a step — small, but paid on every step of every
+ * run, so keep spending it deliberately.
  */
-const RESIDENT_SCHEMA_CHARS_MAX = 20_000;
+const RESIDENT_SCHEMA_CHARS_MAX = 20_200;
 
 /**
  * No single resident tool may exceed this.

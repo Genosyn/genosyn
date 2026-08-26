@@ -40,9 +40,9 @@ export function Routines() {
         Routines have their own section in the nav, under <Strong>AI → Routines</Strong>. That list
         is company-wide: every routine, every employee, one page. Filter it by the{" "}
         <DocLink to="/docs/employees">AI Employee</DocLink> a routine is assigned to, or by health —{" "}
-        <Strong>Active</Strong>, <Strong>Paused</Strong>, <Strong>Needs attention</Strong>. Company{" "}
-        <DocLink to="/docs/tags">Tags</DocLink> give you another filter for grouping related
-        routines across employees.
+        <Strong>Active</Strong>, <Strong>Paused</Strong>, <Strong>Needs attention</Strong>. Two more
+        axes group routines across employees: <DocLink to="/docs/routines#folders">folders</DocLink>{" "}
+        in the sidebar, and company <DocLink to="/docs/tags">Tags</DocLink> as chips above the list.
       </P>
       <P>
         Clicking a routine opens its detail page: <Strong>Overview</Strong>, <Strong>Brief</Strong>,{" "}
@@ -50,10 +50,63 @@ export function Routines() {
         slice of that list from <Strong>Settings → Routines</Strong> — same page, filtered to them.
       </P>
 
+      <H2 id="folders">Folders</H2>
+      <P>
+        Once a company runs dozens of routines, neither &quot;all of them&quot; nor &quot;one
+        employee&apos;s&quot; is a useful view. <Strong>Folders</Strong> are the filing tree in the
+        Routines sidebar: company-wide, nestable up to five levels, and exclusive — a routine is
+        filed in at most one folder, or in none at all.
+      </P>
+      <P>
+        Create one with the folder button at the top of the sidebar, or from{" "}
+        <Strong>New folder…</Strong> in any move menu. Selecting a folder narrows the list to that
+        folder <Strong>and everything nested inside it</Strong>, so a parent never reads as empty
+        just because its routines live one level down. <Strong>Unfiled</Strong> at the bottom of the
+        tree collects everything you haven&apos;t filed yet. Each folder&apos;s <Code>⋯</Code> menu
+        holds <Strong>New subfolder</Strong>, <Strong>Rename</Strong>,{" "}
+        <Strong>Move to top level</Strong>, and <Strong>Delete folder</Strong>.
+      </P>
+      <Callout kind="info" title="Deleting a folder never deletes routines.">
+        Its routines and subfolders move up to the folder&apos;s own parent — which for a top-level
+        folder means they become Unfiled. The confirmation says exactly where they will land before
+        you press the button.
+      </Callout>
+      <H3 id="filing-routines">Filing routines</H3>
+      <P>
+        To file an existing library, press <Strong>Organize</Strong> above the list. Checkboxes
+        appear on every row: tick the ones you want (or <Strong>Select all</Strong>), then pick a
+        destination from <Strong>Move to folder</Strong>. It is one request for the whole batch, so
+        a failure never leaves half the selection moved. A single routine can also be re-filed from
+        the <Strong>Folder</Strong> field on its <Strong>Settings</Strong> tab, and a new routine
+        created while you are inside a folder lands there by default.
+      </P>
+      <Callout kind="info" title="Folders and tags answer different questions.">
+        A folder is <Strong>where a routine lives</Strong> — one folder, navigable, exclusive. A{" "}
+        <DocLink to="/docs/tags">tag</DocLink> is <Strong>what it is about</Strong> — many per
+        routine, cutting across the tree. &quot;Finance/Month-end&quot; is a folder;
+        &quot;urgent&quot; and &quot;quarterly&quot; are tags. Use both.
+      </Callout>
+      <P>
+        AI employees can file their own work too: <Code>create_routine</Code> and{" "}
+        <Code>update_routine</Code> both take a <Code>folder</Code> — a name like{" "}
+        <Code>Finance</Code> or a path like <Code>Finance/Month-end</Code>. Any segment that
+        doesn&apos;t exist yet is created, the same way tag names are. Passing an empty string to{" "}
+        <Code>update_routine</Code> unfiles the routine.
+      </P>
+
       <H2 id="anatomy">Anatomy</H2>
       <KeyList
         rows={[
           { term: "name", def: "What humans call this routine." },
+          {
+            term: "folder",
+            def: (
+              <>
+                Which <DocLink to="/docs/routines#folders">folder</DocLink> the routine is filed
+                under. Optional — a routine with no folder shows up under <Strong>Unfiled</Strong>.
+              </>
+            ),
+          },
           {
             term: "cron",
             def: (

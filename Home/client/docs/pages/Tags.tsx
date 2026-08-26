@@ -1,4 +1,4 @@
-import { Code, H2, LI, P, PageHeader, Strong, UL } from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, LI, P, PageHeader, Strong, UL } from "@/docs/Prose";
 
 export function Tags() {
   return (
@@ -33,6 +33,13 @@ export function Tags() {
         The same picker is available while creating a Routine, Skill, or Resource. Those three
         company-wide list pages also show tag chips and let you filter down to one tag at a time.
       </P>
+      <Callout kind="info" title="Tags cut across; folders contain.">
+        A resource can carry any number of tags, and a tag can span every section of the app — that
+        is what makes them good at &quot;what is this about?&quot;. Routines additionally have{" "}
+        <DocLink to="/docs/routines#folders">folders</DocLink>, which answer the other question: a
+        routine lives in exactly one folder, folders nest, and the Routines sidebar navigates them.
+        The two are designed to be used together.
+      </Callout>
 
       <H2 id="manage">Manage the company catalog</H2>
       <P>

@@ -735,6 +735,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           description:
             "Optional comma-separated tags, e.g. 'finance, weekly'. Tags are shared across the company; any that don't exist yet are created.",
         },
+        folder: {
+          type: "string",
+          description:
+            "Folder path, e.g. 'Finance/Month-end'; created if missing.",
+        },
       },
       required: ["name", "cronExpr"],
       additionalProperties: false,
@@ -743,7 +748,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_routine",
     description:
-      "Update an existing Routine's name, cron schedule, brief, tags, or enabled state. Use this to edit or pause a routine in place — never create a duplicate routine to work around an outdated one. Identify the routine by its `id`, `slug`, or exact name; only the fields you pass change.",
+      "Update an existing Routine's name, cron schedule, brief, tags, folder, or enabled state. Use this to edit or pause a routine in place — never create a duplicate routine to work around an outdated one. Identify the routine by its `id`, `slug`, or exact name; only the fields you pass change.",
     inputSchema: {
       type: "object",
       properties: {
@@ -771,6 +776,11 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           description:
             "Comma-separated tags, e.g. 'finance, weekly'. Replaces the routine's whole tag set — pass an empty string to clear them, omit to leave them unchanged. Any tags that don't exist yet are created.",
+        },
+        folder: {
+          type: "string",
+          description:
+            "Folder path to move to; '' unfiles.",
         },
         enabled: {
           type: "boolean",

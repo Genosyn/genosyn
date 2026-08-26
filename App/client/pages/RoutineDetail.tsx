@@ -6,6 +6,7 @@ import {
   BrainCircuit,
   Clock,
   Copy,
+  Folder,
   Globe,
   History,
   Pause,
@@ -23,6 +24,7 @@ import {
   Company,
   MemberBrowser,
   Routine,
+  RoutineFolder,
   RoutineWithMeta,
   Run,
   RunLog,
@@ -76,7 +78,7 @@ const TABS: Array<[Tab, string]> = [
 
 export default function RoutineDetail({ company }: { company: Company }) {
   const { empSlug, routineSlug } = useParams();
-  const { routines, loading, refresh } = useOutletContext<RoutinesContext>();
+  const { routines, folders, loading, refresh } = useOutletContext<RoutinesContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeRun, setActiveRun] = React.useState<Run | null>(null);
   const dialog = useDialog();
@@ -252,6 +254,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
 
       {tab === "overview" && (
         <OverviewTab
+          folders={folders}
           company={company}
           routine={routine}
           onSeeRuns={() => setTab("runs")}
@@ -267,7 +270,9 @@ export default function RoutineDetail({ company }: { company: Company }) {
           onRetry={triggerRun}
         />
       )}
-      {tab === "settings" && <SettingsTab company={company} routine={routine} onSaved={refresh} />}
+      {tab === "settings" && (
+        <SettingsTab company={company} routine={routine} folders={folders} onSaved={refresh} />
+      )}
 
       {activeRun && (
         <RunLiveModal
@@ -291,17 +296,20 @@ export default function RoutineDetail({ company }: { company: Company }) {
 function OverviewTab({
   company,
   routine,
+  folders,
   onSeeRuns,
   onOpenRun,
 }: {
   company: Company;
   routine: RoutineWithMeta;
+  folders: RoutineFolder[];
   onSeeRuns: () => void;
   onOpenRun: (runId: string) => void;
 }) {
   const [runs, setRuns] = React.useState<Run[] | null>(null);
   const [model, setModel] = React.useState<AIModel | null | undefined>(undefined);
   const emp = routine.employee;
+  const folder = routine.folderId ? (folders.find((f) => f.id === routine.folderId) ?? null) : null;
 
   React.useEffect(() => {
     api
@@ -372,6 +380,18 @@ function OverviewTab({
                     {pinHolds ? "(pinned)" : "(employee's active model)"}
                   </span>
                 </span>
+              )}
+            </Row>
+            <Row icon={<Folder size={14} />} label="Filed in">
+              {folder ? (
+                <Link
+                  to={`/c/${company.slug}/routines?folder=${encodeURIComponent(folder.slug)}`}
+                  className="hover:text-indigo-600 dark:hover:text-indigo-400"
+                >
+                  {folder.path}
+                </Link>
+              ) : (
+                <span className="text-slate-400 dark:text-slate-500">Unfiled</span>
               )}
             </Row>
           </div>
@@ -843,10 +863,12 @@ function RunsTab({
 function SettingsTab({
   company,
   routine,
+  folders,
   onSaved,
 }: {
   company: Company;
   routine: RoutineWithMeta;
+  folders: RoutineFolder[];
   onSaved: () => Promise<void>;
 }) {
   const navigate = useNavigate();
@@ -856,6 +878,17 @@ function SettingsTab({
   const [name, setName] = React.useState(routine.name);
   const [cronExpr, setCronExpr] = React.useState(routine.cronExpr);
   const [enabled, setEnabled] = React.useState(routine.enabled);
+  // "" is the unfiled choice — the routine sits in no folder at all.
+  const [folderId, setFolderId] = React.useState(routine.folderId ?? "");
+
+  // Re-seed when the routine reloads (a bulk move from the list, another
+  // Member filing it, the folder being deleted underneath us). Without this the
+  // picker held whatever it was mounted with, and saving an unrelated setting
+  // re-filed the routine — or 400'd on a folder id that no longer exists.
+  React.useEffect(() => {
+    const current = routine.folderId ?? "";
+    setFolderId(current && !folders.some((f) => f.id === current) ? "" : current);
+  }, [routine.id, routine.folderId, folders]);
   const [timeoutSec, setTimeoutSec] = React.useState(routine.timeoutSec ?? 3600);
   const [requiresApproval, setRequiresApproval] = React.useState(routine.requiresApproval ?? false);
   // "" is the inherit choice — the routine follows the employee's active model.
@@ -935,6 +968,7 @@ function SettingsTab({
         enabled,
         timeoutSec,
         requiresApproval,
+        folderId: folderId || null,
         modelId: modelId || null,
         browserEnabledOverride:
           browserOverride === "on" ? true : browserOverride === "off" ? false : null,
@@ -969,6 +1003,26 @@ function SettingsTab({
         <CardBody className="flex flex-col gap-4">
           <SectionLabel>Basics</SectionLabel>
           <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+
+          <div className="flex flex-col gap-1">
+            <Select
+              label="Folder"
+              value={folderId}
+              onChange={(e) => setFolderId(e.target.value)}
+            >
+              <option value="">Unfiled</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.path}
+                </option>
+              ))}
+            </Select>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              {folders.length === 0
+                ? "No folders yet — create one from the Routines sidebar."
+                : "Where this routine lives. Use tags for what it’s about; a routine has one folder and any number of tags."}
+            </div>
+          </div>
 
           <div className="flex flex-col gap-1">
             <Input

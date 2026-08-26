@@ -18,18 +18,33 @@ import { TagPicker } from "../components/TagPicker";
  * a routine is always *somebody's* work.
  */
 export default function RoutineNew({ company }: { company: Company }) {
-  const { employees, refresh } = useOutletContext<RoutinesContext>();
+  const { employees, folders, refresh } = useOutletContext<RoutinesContext>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   // Coming from an employee filter, pre-select that employee.
   const preset = searchParams.get("employee");
+  // Coming from inside a folder, file the new routine there by default.
+  const presetFolder = searchParams.get("folder");
   const [employeeId, setEmployeeId] = React.useState("");
   const [name, setName] = React.useState("");
   const [cronExpr, setCronExpr] = React.useState(DEFAULT_CRON);
+  const [folderId, setFolderId] = React.useState("");
   const [tags, setTags] = React.useState<CompanyTag[]>([]);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  // Folders arrive with the layout's fetch, same as the roster. Guarded by a
+  // ref rather than by `folderId` being empty: "" is the *No folder* choice, so
+  // keying off it re-applied the preset the moment the person selected it and
+  // made "No folder" impossible to pick from inside a folder.
+  const seededFolderRef = React.useRef(false);
+  React.useEffect(() => {
+    if (seededFolderRef.current || !presetFolder || folders.length === 0) return;
+    seededFolderRef.current = true;
+    const match = folders.find((f) => f.slug === presetFolder);
+    if (match) setFolderId(match.id);
+  }, [folders, presetFolder]);
 
   // The roster arrives with the layout's fetch, so seed the picker once it
   // lands rather than in useState's initializer.
@@ -46,7 +61,12 @@ export default function RoutineNew({ company }: { company: Company }) {
     try {
       const created = await api.post<Routine>(
         `/api/companies/${company.id}/employees/${employeeId}/routines`,
-        { name: name.trim(), cronExpr: cronExpr.trim(), tagIds: tags.map((tag) => tag.id) },
+        {
+          name: name.trim(),
+          cronExpr: cronExpr.trim(),
+          folderId: folderId || null,
+          tagIds: tags.map((tag) => tag.id),
+        },
       );
       await refresh();
       const emp = employees.find((x) => x.id === employeeId);
@@ -147,6 +167,27 @@ export default function RoutineNew({ company }: { company: Company }) {
                 ))}
               </div>
             </div>
+
+            {folders.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <Select
+                  label="Folder"
+                  value={folderId}
+                  onChange={(e) => setFolderId(e.target.value)}
+                >
+                  <option value="">No folder</option>
+                  {folders.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.path}
+                    </option>
+                  ))}
+                </Select>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Where the routine lives. Tags below are what it&apos;s about — a
+                  routine has one folder and any number of tags.
+                </div>
+              </div>
+            )}
 
             <TagPicker companyId={company.id} value={tags} onChange={setTags} />
 

@@ -160,6 +160,7 @@ import { RecurringInvoiceLineItem } from "../db/entities/RecurringInvoiceLineIte
 import { RealtimeEvent } from "../db/entities/RealtimeEvent.js";
 import { Resource } from "../db/entities/Resource.js";
 import { Routine } from "../db/entities/Routine.js";
+import { RoutineFolder } from "../db/entities/RoutineFolder.js";
 import { Run } from "../db/entities/Run.js";
 import { Secret } from "../db/entities/Secret.js";
 import { VaultItem } from "../db/entities/VaultItem.js";
@@ -540,6 +541,9 @@ export async function deleteCompanyCascade(args: {
     await m.delete(EmployeeMemberBrowserGrant, { companyId });
     await m.delete(MemberBrowser, { companyId });
     await m.delete(Pipeline, { companyId });
+    // After the routines themselves (deleted with their employees above), so a
+    // folder is never removed while something still points at it.
+    await m.delete(RoutineFolder, { companyId });
     await m.delete(Tag, { companyId });
     await m.delete(Team, { companyId });
     await m.delete(Channel, { companyId });

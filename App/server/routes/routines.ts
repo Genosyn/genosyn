@@ -44,6 +44,8 @@ import {
   tagsForResource,
   validateCompanyTagIds,
 } from "../services/tags.js";
+import { resolveFolderForCompany, RoutineFolderError } from "../services/routineFolders.js";
+import { emitResourceChange } from "../services/resourceEvents.js";
 
 export const routinesRouter = Router({ mergeParams: true });
 routinesRouter.use(requireAuth);
@@ -209,6 +211,9 @@ const createSchema = z.object({
   name: z.string().min(1).max(80),
   cronExpr: cronExprSchema,
   tagIds: z.array(z.string().uuid()).max(20).optional(),
+  // Which folder to file the new routine in. Omitted or null leaves it
+  // unfiled, which is where every routine created before folders shipped sits.
+  folderId: z.string().uuid().nullable().optional(),
 });
 
 routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), async (req, res) => {
@@ -224,6 +229,7 @@ routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), asyn
   }
   try {
     await validateCompanyTagIds(co.id, body.tagIds ?? []);
+    await resolveFolderForCompany(co.id, body.folderId ?? null);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return res.status(400).json({ error: message });
@@ -237,6 +243,7 @@ routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), asyn
     cronExpr: body.cronExpr,
     enabled: true,
     lastRunAt: null,
+    folderId: body.folderId ?? null,
     body: routineTemplate(body.name, body.cronExpr),
   });
   registerRoutine(r);
@@ -305,6 +312,10 @@ const patchSchema = z.object({
   // generic PUT /tags/resources/routine/:rid. Passing the array replaces the
   // whole set; omitting it leaves existing assignments untouched.
   tagIds: z.array(z.string().uuid()).max(20).optional(),
+  // Re-file this routine. Null unfiles it; a uuid must name a folder in the
+  // same company as the owning employee. See `POST /routines/move` for the
+  // bulk version the Routines list uses.
+  folderId: z.string().uuid().nullable().optional(),
 });
 
 routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, res) => {
@@ -321,6 +332,15 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
       const message = err instanceof Error ? err.message : String(err);
       return res.status(400).json({ error: message });
     }
+  }
+  if (body.folderId !== undefined) {
+    try {
+      await resolveFolderForCompany(found.co.id, body.folderId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return res.status(400).json({ error: message });
+    }
+    r.folderId = body.folderId;
   }
   if (body.name !== undefined) {
     if (await findRoutineByName(r.employeeId, body.name, r.id)) {
@@ -388,6 +408,75 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
     metadata: { changes: body },
   });
   res.json({ ...r, tags });
+});
+
+/**
+ * Move a batch of routines into one folder (or out of all of them, with a null
+ * `folderId`). The bulk form exists because filing an existing library is the
+ * whole reason folders are here: doing it one PATCH at a time across eighty
+ * routines is the tedium that stops people organizing at all.
+ *
+ * Every id is checked against the company before anything is written, so a
+ * single foreign routine fails the request instead of half-applying it.
+ */
+const moveSchema = z.object({
+  routineIds: z.array(z.string().uuid()).min(1).max(200),
+  folderId: z.string().uuid().nullable(),
+});
+
+routinesRouter.post("/routines/move", validateBody(moveSchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const body = req.body as z.infer<typeof moveSchema>;
+  const co = await loadCo(cid);
+  if (!co) return res.status(404).json({ error: "Company not found" });
+  try {
+    await resolveFolderForCompany(co.id, body.folderId);
+  } catch (err) {
+    if (!(err instanceof RoutineFolderError)) throw err;
+    return res.status(400).json({ error: err.message });
+  }
+
+  const employeeIds = (
+    await AppDataSource.getRepository(AIEmployee).find({
+      where: { companyId: cid },
+      select: { id: true },
+    })
+  ).map((e) => e.id);
+  const routineIds = [...new Set(body.routineIds)];
+  const routines = employeeIds.length
+    ? await AppDataSource.getRepository(Routine).find({
+        where: { id: In(routineIds), employeeId: In(employeeIds) },
+      })
+    : [];
+  if (routines.length !== routineIds.length) {
+    return res.status(404).json({ error: "One or more routines are not in this company" });
+  }
+
+  // A targeted column update, then an explicit live-sync frame.
+  //
+  // Neither half is optional. `save()` on the loaded entities would write back
+  // every column that differs from the row as it stands at save time, so a
+  // `nextRunAt` the cron heartbeat advanced between the read and the write
+  // would be silently reverted — a routine re-firing or skipping a slot
+  // because somebody filed it. `update()` touches only `folderId`, but it
+  // broadcasts just the partial it was handed, which carries no `employeeId`
+  // for the subscriber to hop to the company on, so on its own it tells no
+  // other browser anything. See ROADMAP M31.
+  await AppDataSource.getRepository(Routine).update(
+    { id: In(routineIds) },
+    { folderId: body.folderId },
+  );
+  emitResourceChange(co.id, "routine");
+  await recordAudit({
+    companyId: co.id,
+    actorUserId: req.userId ?? null,
+    action: "routine.move",
+    targetType: "routine_folder",
+    targetId: body.folderId,
+    targetLabel: `${routines.length} routine${routines.length === 1 ? "" : "s"}`,
+    metadata: { routineIds, folderId: body.folderId },
+  });
+  res.json({ ok: true, moved: routines.length, folderId: body.folderId });
 });
 
 routinesRouter.delete("/routines/:rid", async (req, res) => {

@@ -258,7 +258,8 @@ genosyn/
 - **Password Vault (M37):** `VaultItem`, `VaultItemMemberAccess`,
   `EmployeeVaultGrant`
 - **Organization:** `Tag`, `TagAssignment` (company-scoped labels attached to
-  taggable resources)
+  taggable resources), `RoutineFolder` (M48 — the exclusive, nestable filing
+  tree for Routines; `Routine.folderId` points at it)
 - **Revenue (M32):** `Contact`, `DealStage`, `Deal`, `DealContact`, `Activity`,
   `Partnership`, `PartnershipContact`, `RevenueClassification`,
   `RevenueCustomField`, `RevenueCustomValue`, `RevenueDocument`,
@@ -2842,6 +2843,54 @@ was built from.
       job. The rendition is asserted on the HTML rather than the printed page,
       and the whole errand — Word attachment to signing draft with no human
       touching a file — is covered end to end.
+
+### M48 — Routine folders ✅
+
+M27 gave every resource tags and said so out loud: labels "for grouping
+resources without forcing a folder hierarchy." That holds for the question tags
+answer — *what is this about?* — and it is still the right primitive for it. It
+does not answer the other one. Past a few dozen routines, "All routines" is a
+wall of text and the per-employee filter splits it by the wrong axis: nobody
+files month-end close under whoever happens to run it. A tag chip narrows a flat
+list; it never gives you somewhere to put things. Folders do, and the two are
+complementary rather than competing — one folder per routine, any number of
+tags.
+
+- [x] **`RoutineFolder`** — company-scoped, nestable to 5 levels
+      (`MAX_FOLDER_DEPTH`), with `Routine.folderId` filing a routine in at most
+      one. Company-scoped rather than employee-scoped on purpose: a folder
+      spanning employees is exactly the grouping the sidebar's roster filter
+      cannot express. Slugs are stable across renames like every other slug
+      here, so `?folder=<slug>` survives a rename.
+- [x] **The tree can't break.** `services/routineFolders.ts` owns every
+      invariant — a folder cannot be moved into itself or a descendant, a move
+      cannot push a subtree past the depth limit, sibling names are unique
+      case-insensitively, and a folder whose parent vanished is shown at the top
+      level rather than stranded, and a name can never contain the path
+      separator or claim the reserved `unfiled` slug. Covered by service tests
+      plus HTTP tests that assert the admin gate, the cross-company 404s, and
+      that a bulk move announces itself to live sync.
+- [x] **Deleting a folder never deletes routines.** Its routines and subfolders
+      are promoted to its own parent — null for a top-level folder, which means
+      "unfiled". The confirmation quotes back what will move and where before
+      you press it.
+- [x] **Sidebar tree** at `AI → Routines`: collapsible, indented by depth,
+      per-folder counts including nested routines, an **Unfiled** row, and a
+      `⋯` menu per folder for subfolder / rename / move to top level / delete.
+      Selecting a folder shows it *and everything beneath it*.
+- [x] **Filing an existing library.** `POST /routines/move` moves up to 200
+      routines in one checked request, behind an **Organize** mode on the list
+      with per-row checkboxes and select-all. A routine is also re-filable one
+      at a time from its Settings tab, and creating a routine from inside a
+      folder lands it there.
+- [x] **AI employees file their own work.** `create_routine` and
+      `update_routine` take a `folder` — a name or a `Finance/Month-end` path,
+      creating missing segments the way tag names are created; an empty string
+      unfiles. `list_routines` / `get_routine` report the path. No new MCP
+      tools, so the resident working set (M30) is untouched.
+- [x] **`GET/POST/PATCH/DELETE /routine-folders`**, admin-gated for mutations
+      like the routine surface itself, documented in the OpenAPI spec, and
+      registered for app-wide live sync (M31) under the existing `routine` kind.
 
 ## V1 backlog (post-MVP)
 

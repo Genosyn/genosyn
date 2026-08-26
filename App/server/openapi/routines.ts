@@ -31,6 +31,15 @@ const Routine = z
     enabled: z.boolean(),
     body: z.string().describe("Markdown brief that describes what the routine should do."),
     tags: z.array(Tag).describe("Company tags attached to this routine."),
+    folderId: z
+      .string()
+      .uuid()
+      .nullable()
+      .describe(
+        "The routine folder this routine is filed under, or null when unfiled. Folders " +
+          "are company-scoped, nest up to 5 levels, and are exclusive — a routine is in " +
+          "at most one. Use tags for the cross-cutting labels instead.",
+      ),
     modelId: z
       .string()
       .uuid()
@@ -135,6 +144,14 @@ const RoutineColumns = z.object({
     ),
   cronExpr: z.string(),
   enabled: z.boolean(),
+  folderId: z
+    .string()
+    .uuid()
+    .nullable()
+    .describe(
+      "Routine folder this routine is filed under, or null when unfiled. See " +
+        "`GET /routine-folders` for the tree.",
+    ),
   lastRunAt: z.string().datetime().nullable().describe("When the routine last fired."),
   nextRunAt: z
     .string()
@@ -535,6 +552,267 @@ registry.registerPath({
     416: {
       description: "Requested byte range is outside the recording",
       headers: BrowserRecordingRangeHeaders,
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Routine folders
+// ---------------------------------------------------------------------------
+
+/**
+ * A folder in the Routines filing tree. `path` and both counts are derived per
+ * request rather than stored, so a rename or a move is reflected immediately
+ * without a backfill.
+ */
+const RoutineFolder = z
+  .object({
+    id: z.string().uuid(),
+    companyId: z.string().uuid(),
+    name: z.string(),
+    slug: z
+      .string()
+      .describe(
+        "Stable URL handle, unique per company. Left alone on rename so a bookmarked " +
+          "`?folder=<slug>` keeps resolving.",
+      ),
+    parentId: z.string().uuid().nullable().describe("Parent folder, or null at the top level."),
+    sortOrder: z.number().int().describe("Order among siblings under the same parent."),
+    path: z.string().describe('Slash-joined ancestor names, this folder last — "Finance/Weekly".'),
+    depth: z.number().int().describe("1 for a top-level folder; never exceeds `maxDepth`."),
+    routineCount: z.number().int().describe("Routines filed directly in this folder."),
+    totalRoutineCount: z
+      .number()
+      .int()
+      .describe("Routines in this folder and everything nested beneath it."),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .openapi("RoutineFolder");
+
+const RoutineFolderTree = z
+  .object({
+    folders: z
+      .array(RoutineFolder)
+      .describe(
+        "Flat, not nested — every row carries its own `parentId` and `depth`, so a client " +
+          "can index by id and build whatever shape it renders.",
+      ),
+    unfiledCount: z.number().int().describe("Routines in the company that are in no folder."),
+    maxDepth: z.number().int().describe("How deep folders may nest, counting the top level as 1."),
+  })
+  .openapi("RoutineFolderTree");
+
+registry.registerPath({
+  method: "get",
+  path: "/api/companies/{cid}/routine-folders",
+  summary: "List the company's routine folders",
+  description:
+    "The whole folder tree, flat, with per-folder routine counts and the count of " +
+    "unfiled routines. Folders are exclusive — a routine is filed in at most one — " +
+    "and complement tags rather than replacing them: a folder is where a routine " +
+    "lives, a tag is what it is about.",
+  tags: ["Routines"],
+  security: defaultSecurity,
+  request: { params: z.object({ cid: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: "OK",
+      content: { "application/json": { schema: RoutineFolderTree } },
+    },
+    401: {
+      description: "Not authenticated",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    403: {
+      description: "Not a member of this company",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{cid}/routine-folders",
+  summary: "Create a routine folder",
+  tags: ["Routines"],
+  security: defaultSecurity,
+  request: {
+    params: z.object({ cid: z.string().uuid() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            name: z.string().min(1).max(60),
+            parentId: z
+              .string()
+              .uuid()
+              .nullable()
+              .optional()
+              .describe("Nest under this folder. Omitted or null creates a top-level folder."),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Created",
+      content: { "application/json": { schema: RoutineFolder.omit({ path: true, depth: true, routineCount: true, totalRoutineCount: true }) } },
+    },
+    400: {
+      description:
+        "Duplicate name among siblings, the nesting limit was reached, or `parentId` names " +
+        "no folder in this company. Unlike PATCH, an unresolvable parent is a 400 here — " +
+        "the request body is what is wrong, not the resource being addressed.",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    403: {
+      description: "Company admin role required",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/api/companies/{cid}/routine-folders/{fid}",
+  summary: "Rename, move, or reorder a routine folder",
+  description:
+    "Renaming leaves the slug alone so existing links keep working. Moving rejects any " +
+    "destination inside the folder's own subtree, and any move that would push the " +
+    "subtree past the nesting limit.",
+  tags: ["Routines"],
+  security: defaultSecurity,
+  request: {
+    params: z.object({ cid: z.string().uuid(), fid: z.string().uuid() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            name: z.string().min(1).max(60).optional(),
+            parentId: z
+              .string()
+              .uuid()
+              .nullable()
+              .optional()
+              .describe("New parent. Null moves the folder back to the top level."),
+            sortOrder: z.number().int().min(0).max(10_000).optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Updated",
+      content: { "application/json": { schema: RoutineFolder.omit({ path: true, depth: true, routineCount: true, totalRoutineCount: true }) } },
+    },
+    400: {
+      description: "Cycle, duplicate name among siblings, or nesting limit reached",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    403: {
+      description: "Company admin role required",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    404: {
+      description: "Folder not found, or it belongs to another company",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/api/companies/{cid}/routine-folders/{fid}",
+  summary: "Delete a routine folder",
+  description:
+    "Never deletes what is inside it. Subfolders and routines are promoted to this " +
+    "folder's own parent, which for a top-level folder means they become unfiled.",
+  tags: ["Routines"],
+  security: defaultSecurity,
+  request: { params: z.object({ cid: z.string().uuid(), fid: z.string().uuid() }) },
+  responses: {
+    200: {
+      description: "Deleted",
+      content: {
+        "application/json": {
+          schema: z.object({
+            ok: z.literal(true),
+            movedRoutines: z.number().int().describe("Routines promoted out of the folder."),
+            movedFolders: z.number().int().describe("Subfolders promoted out of the folder."),
+            promotedTo: z
+              .string()
+              .uuid()
+              .nullable()
+              .describe("Where the contents went. Null means they are now unfiled."),
+          }),
+        },
+      },
+    },
+    403: {
+      description: "Company admin role required",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    404: {
+      description: "Folder not found, or it belongs to another company",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/companies/{cid}/routines/move",
+  summary: "File a batch of routines into a folder",
+  description:
+    "Moves many routines at once — the operation that makes an existing library worth " +
+    "organizing. Every id is checked against the company first, so one foreign routine " +
+    "fails the whole request rather than half-applying it.",
+  tags: ["Routines"],
+  security: defaultSecurity,
+  request: {
+    params: z.object({ cid: z.string().uuid() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            routineIds: z.array(z.string().uuid()).min(1).max(200),
+            folderId: z
+              .string()
+              .uuid()
+              .nullable()
+              .describe("Destination folder. Null unfiles every routine in the batch."),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Moved",
+      content: {
+        "application/json": {
+          schema: z.object({
+            ok: z.literal(true),
+            moved: z.number().int(),
+            folderId: z.string().uuid().nullable(),
+          }),
+        },
+      },
+    },
+    400: {
+      description: "The folder belongs to another company",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    403: {
+      description: "Company admin role required",
+      content: { "application/json": { schema: ErrorResponse } },
+    },
+    404: {
+      description: "One or more routines are not in this company",
       content: { "application/json": { schema: ErrorResponse } },
     },
   },

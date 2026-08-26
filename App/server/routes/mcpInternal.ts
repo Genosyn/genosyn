@@ -49,6 +49,12 @@ import {
 import { toSlug } from "../lib/slug.js";
 import { formatMoney } from "../lib/money.js";
 import { routineTemplate, skillTemplate } from "../services/files.js";
+import {
+  folderPathFor,
+  listFoldersWithMeta,
+  resolveFolderPath,
+  RoutineFolderError,
+} from "../services/routineFolders.js";
 import { registerRoutine } from "../services/cron.js";
 import { recordAudit } from "../services/audit.js";
 import {
@@ -815,7 +821,7 @@ function serializeEmployee(e: AIEmployee) {
   return { id: e.id, slug: e.slug, name: e.name, role: e.role };
 }
 
-function serializeRoutine(r: Routine, tags: string[] = []) {
+function serializeRoutine(r: Routine, tags: string[] = [], folder: string | null = null) {
   return {
     id: r.id,
     employeeId: r.employeeId,
@@ -826,6 +832,8 @@ function serializeRoutine(r: Routine, tags: string[] = []) {
     lastRunAt: r.lastRunAt,
     brief: r.body,
     tags,
+    /** Slash-joined folder path this routine is filed under; null = unfiled. */
+    folder,
   };
 }
 
@@ -842,7 +850,7 @@ function serializeRoutine(r: Routine, tags: string[] = []) {
  */
 const ROUTINE_BRIEF_PREVIEW_CHARS = 280;
 
-function serializeRoutineSummary(r: Routine, tags: string[] = []) {
+function serializeRoutineSummary(r: Routine, tags: string[] = [], folder: string | null = null) {
   const brief = r.body ?? "";
   const truncated = brief.length > ROUTINE_BRIEF_PREVIEW_CHARS;
   return {
@@ -857,6 +865,7 @@ function serializeRoutineSummary(r: Routine, tags: string[] = []) {
     briefChars: brief.length,
     briefTruncated: truncated,
     tags,
+    folder,
   };
 }
 
@@ -7841,12 +7850,17 @@ mcpInternalRouter.post(
       "routine",
       routines.map((r) => r.id),
     );
+    // One tree lookup for the whole listing rather than a path query per row.
+    const folderPaths = new Map(
+      (await listFoldersWithMeta(co.id)).map((folder) => [folder.id, folder.path]),
+    );
     res.json({
       employee: serializeEmployee(target),
       routines: routines.map((r) =>
         serializeRoutineSummary(
           r,
           (tagsById.get(r.id) ?? []).map((tag) => tag.name),
+          r.folderId ? (folderPaths.get(r.folderId) ?? null) : null,
         ),
       ),
       note:
@@ -7877,6 +7891,7 @@ mcpInternalRouter.post(
       routine: serializeRoutine(
         found.routine,
         tags.map((tag) => tag.name),
+        await folderPathFor(co.id, found.routine.folderId),
       ),
     });
   },
@@ -7889,6 +7904,10 @@ const createRoutineSchema = z
     cronExpr: z.string().refine((v) => cron.validate(v), "Invalid cron expression"),
     brief: z.string().max(20_000).optional(),
     tags: z.string().max(500).optional(),
+    // A folder name or `"Finance/Month-end"` path rather than a uuid: an
+    // employee describes where work belongs the way a person would, and any
+    // missing segment is created, exactly as tag names are.
+    folder: z.string().max(300).optional(),
   })
   .strict();
 
@@ -7921,6 +7940,16 @@ mcpInternalRouter.post(
       slug = `${baseSlug}-${n}`;
     }
 
+    let folder = null;
+    try {
+      if (body.folder !== undefined) {
+        folder = await resolveFolderPath(co.id, body.folder, { create: true });
+      }
+    } catch (err) {
+      if (!(err instanceof RoutineFolderError)) throw err;
+      return res.status(400).json({ error: err.message });
+    }
+
     const r = repo.create({
       employeeId: target.id,
       name: body.name,
@@ -7928,6 +7957,7 @@ mcpInternalRouter.post(
       cronExpr: body.cronExpr,
       enabled: true,
       lastRunAt: null,
+      folderId: folder?.id ?? null,
       body: body.brief?.trim() ? body.brief : routineTemplate(body.name, body.cronExpr),
     });
     registerRoutine(r);
@@ -7953,7 +7983,7 @@ mcpInternalRouter.post(
       `Cron: \`${r.cronExpr}\`\n\nCreated via the built-in MCP tool.`,
     );
 
-    res.json({ routine: serializeRoutine(r, tags) });
+    res.json({ routine: serializeRoutine(r, tags, await folderPathFor(co.id, r.folderId)) });
   },
 );
 
@@ -7969,6 +7999,9 @@ const updateRoutineSchema = z
     brief: z.string().max(20_000).optional(),
     enabled: z.boolean().optional(),
     tags: z.string().max(500).optional(),
+    // Re-file the routine. An empty string unfiles it; a name or path files it,
+    // creating any segment that doesn't exist yet. Omitted leaves it put.
+    folder: z.string().max(300).optional(),
   })
   .strict();
 
@@ -8002,6 +8035,17 @@ mcpInternalRouter.post(
     if (body.cronExpr !== undefined) routine.cronExpr = body.cronExpr;
     if (body.brief !== undefined) routine.body = body.brief;
     if (body.enabled !== undefined) routine.enabled = body.enabled;
+    if (body.folder !== undefined) {
+      try {
+        const folder = body.folder.trim()
+          ? await resolveFolderPath(co.id, body.folder, { create: true })
+          : null;
+        routine.folderId = folder?.id ?? null;
+      } catch (err) {
+        if (!(err instanceof RoutineFolderError)) throw err;
+        return res.status(400).json({ error: err.message });
+      }
+    }
     registerRoutine(routine);
     await repo.save(routine);
     // Tags aren't a Routine column — they're assignments in the shared catalog.
@@ -8025,6 +8069,7 @@ mcpInternalRouter.post(
       routine: serializeRoutine(
         routine,
         tags.map((tag) => tag.name),
+        await folderPathFor(co.id, routine.folderId),
       ),
     });
   },

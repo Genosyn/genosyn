@@ -348,6 +348,13 @@ export type Routine = {
   slug: string;
   cronExpr: string;
   enabled: boolean;
+  /**
+   * The folder this routine is filed under, or null when unfiled. Folders are
+   * company-scoped and exclusive — a routine sits in at most one. Tags stay the
+   * cross-cutting axis: a folder is where a routine lives, a tag is what it is
+   * about.
+   */
+  folderId: string | null;
   lastRunAt: string | null;
   /**
    * When the schedule next fires. Null when the routine is paused, or when
@@ -407,6 +414,38 @@ export type Routine = {
   tags: CompanyTag[];
 };
 export type CatchUpPolicy = "once" | "skip";
+
+/**
+ * A folder in the Routines filing tree, as `GET /routine-folders` returns it.
+ * The list is flat — every row carries its own `parentId` and `depth`, so the
+ * sidebar indents from `depth` and the index page can look one up by id
+ * without re-walking a nested payload.
+ */
+export type RoutineFolder = {
+  id: string;
+  companyId: string;
+  name: string;
+  /** Stable across renames — what `?folder=<slug>` in the URL refers to. */
+  slug: string;
+  parentId: string | null;
+  sortOrder: number;
+  /** Slash-joined ancestor names, this folder last. */
+  path: string;
+  /** 1 for a top-level folder. */
+  depth: number;
+  /** Routines filed directly here. */
+  routineCount: number;
+  /** Routines here and in everything nested beneath. */
+  totalRoutineCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RoutineFolderTree = {
+  folders: RoutineFolder[];
+  unfiledCount: number;
+  maxDepth: number;
+};
 
 /**
  * The slice of an AI employee a company-wide list shows as "assigned to" —

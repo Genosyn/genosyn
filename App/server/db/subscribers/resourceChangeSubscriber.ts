@@ -64,6 +64,10 @@ const REGISTRY: Record<string, Mapping> = {
   },
   Skill: { kind: "skill", company: { fk: "employeeId", parent: "AIEmployee" } },
   Routine: { kind: "routine", company: { fk: "employeeId", parent: "AIEmployee" } },
+  // Folders ride the "routine" kind rather than one of their own: every page
+  // that renders the tree is already the page that renders the routines in
+  // it, so a second kind would only double the refetches.
+  RoutineFolder: { kind: "routine", company: "direct" },
   Run: { kind: "run", company: { fk: "routineId", parent: "Routine" }, scopeFk: "routineId" },
   TldrSettings: { kind: "tldr", company: "direct" },
   Tldr: { kind: "tldr", company: "direct" },
