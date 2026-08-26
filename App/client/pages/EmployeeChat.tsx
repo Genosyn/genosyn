@@ -52,6 +52,7 @@ import { ChatMarkdown } from "../components/ChatMarkdown";
 import { EmployeeHeader } from "../components/EmployeeHeader";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { ModalCloseButton, ModalPanel, ModalScrim } from "../components/ui/ModalChrome";
 import { BrowserLivePanel } from "../components/BrowserLivePanel";
 import {
   RepositoryWorkPanel,
@@ -2260,17 +2261,9 @@ function ActionDetailModal({ action, onClose }: { action: MessageAction; onClose
   const toolName = meta.toolName ?? null;
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4 dark:bg-black/60"
-      onMouseDown={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        onMouseDown={(e) => e.stopPropagation()}
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
-      >
-        <div className="flex items-start gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+    <ModalScrim layer="nested" onDismiss={onClose}>
+      <ModalPanel size="lg">
+        <div className="flex shrink-0 items-start gap-3 border-b border-slate-200/70 px-5 py-4 dark:border-slate-800">
           <div
             className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
               isError
@@ -2318,17 +2311,10 @@ function ActionDetailModal({ action, onClose }: { action: MessageAction; onClose
               )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-            aria-label="Close"
-          >
-            <X size={16} />
-          </button>
+          <ModalCloseButton onClick={onClose} />
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-5 py-4">
           <LogSection title="Arguments" body={meta.argsPreview ?? ""} empty="No arguments sent." />
           {isError ? (
             <LogSection
@@ -2345,8 +2331,8 @@ function ActionDetailModal({ action, onClose }: { action: MessageAction; onClose
             />
           )}
         </div>
-      </div>
-    </div>
+      </ModalPanel>
+    </ModalScrim>
   );
 }
 

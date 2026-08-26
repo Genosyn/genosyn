@@ -64,15 +64,22 @@ html.dark ::selection {
   }
 }
 
-/* A visible, consistent keyboard cursor across raw controls and shared UI
-   primitives. Mouse clicks do not receive the ring because `:focus-visible`
-   follows the browser's input-modality heuristic. */
+/* A visible, consistent keyboard cursor for raw controls that carry no focus
+   styling of their own. Mouse clicks do not receive it because `:focus-visible`
+   follows the browser's input-modality heuristic.
+
+   `:where()` holds this at zero specificity so a primitive that draws its own
+   ring — Button, Input, Select, Textarea — wins outright. `html.dark` has to
+   be wrapped too: unwrapped it scored higher than Tailwind's
+   `focus-visible:outline-none`, repainted the transparent outline that utility
+   emits, and gave every focused control in dark mode a second ring sitting
+   2px outside its first one. */
 :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
   outline: 2px solid #4f46e5;
   outline-offset: 2px;
 }
 
-html.dark
+:where(html.dark)
   :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
   outline-color: #818cf8;
 }

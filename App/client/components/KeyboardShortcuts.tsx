@@ -1,5 +1,5 @@
 import React from "react";
-import { CornerDownLeft, Keyboard, Search, X } from "lucide-react";
+import { CornerDownLeft, Keyboard, Search } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   ACCOUNT_SECTION,
@@ -13,6 +13,7 @@ import { anotherDialogIsOpen, isTypingTarget, setChordPending } from "../lib/key
 import { PALETTE_SHORTCUT } from "./CommandPalette";
 import { useNavigationGuard } from "./NavigationGuard";
 import { clsx } from "./ui/clsx";
+import { ModalCloseButton, ModalPanel, ModalScrim } from "./ui/ModalChrome";
 
 type KeyboardShortcutsState = {
   openGuide: () => void;
@@ -250,12 +251,13 @@ function ShortcutGuide({
   onGoTo: (section: SectionItem) => void;
 }) {
   const dialogRef = React.useRef<HTMLDivElement>(null);
-  const closeRef = React.useRef<HTMLButtonElement>(null);
   const location = useLocation();
   const inMail = /\/mail(\/|$|\?)/.test(location.pathname);
 
   React.useEffect(() => {
-    closeRef.current?.focus();
+    // The panel itself, not the ✕: this is a reference sheet, so the first Tab
+    // should walk into the shortcuts rather than start on the way out.
+    dialogRef.current?.focus();
   }, []);
 
   function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -288,27 +290,21 @@ function ShortcutGuide({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px] dark:bg-black/60"
-      onMouseDown={onClose}
-    >
-      <div
+    <ModalScrim onDismiss={onClose}>
+      <ModalPanel
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="keyboard-shortcuts-title"
+        size="xl"
+        labelledBy="keyboard-shortcuts-title"
         onKeyDown={onKeyDown}
-        onMouseDown={(event) => event.stopPropagation()}
-        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
       >
-        <div className="flex shrink-0 items-start gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
-          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
-            <Keyboard size={18} aria-hidden="true" />
+        <div className="flex shrink-0 items-start gap-3 border-b border-slate-200/70 px-5 py-4 dark:border-slate-800">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+            <Keyboard size={16} aria-hidden="true" />
           </span>
           <div className="min-w-0 flex-1">
             <h2
               id="keyboard-shortcuts-title"
-              className="font-semibold text-slate-900 dark:text-slate-100"
+              className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100"
             >
               Keyboard shortcuts
             </h2>
@@ -316,17 +312,10 @@ function ShortcutGuide({
               Move around Genosyn without lifting your hands.
             </p>
           </div>
-          <button
-            ref={closeRef}
-            onClick={onClose}
-            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-            aria-label="Close keyboard shortcuts"
-          >
-            <X size={18} />
-          </button>
+          <ModalCloseButton onClick={onClose} />
         </div>
 
-        <div className="min-h-0 overflow-y-auto p-5">
+        <div className="min-h-0 overflow-y-auto overscroll-contain p-5">
           <section aria-labelledby="everywhere-shortcuts">
             <h3
               id="everywhere-shortcuts"
@@ -410,11 +399,11 @@ function ShortcutGuide({
           </section>
         </div>
 
-        <div className="shrink-0 border-t border-slate-100 px-5 py-2.5 text-xs text-slate-400 dark:border-slate-800 dark:text-slate-500">
+        <div className="shrink-0 border-t border-slate-200/70 bg-slate-50 px-5 py-2.5 text-xs text-slate-400 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-500">
           Shortcuts pause automatically while you type in a field or editor.
         </div>
-      </div>
-    </div>
+      </ModalPanel>
+    </ModalScrim>
   );
 }
 

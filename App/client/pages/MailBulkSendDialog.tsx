@@ -3,6 +3,7 @@ import { AlertTriangle, Loader2, Send, Trash2, Users } from "lucide-react";
 import { MailDraftSendPreview } from "../lib/mail";
 import { Button } from "../components/ui/Button";
 import { clsx } from "../components/ui/clsx";
+import { ModalFooter, ModalPanel, ModalScrim } from "../components/ui/ModalChrome";
 
 /**
  * The gate in front of every batch action on the drafts queue.
@@ -68,32 +69,23 @@ export function MailBulkSendDialog({
   const breakdownLabel = preview.byRoutine.length > 0 ? "By routine" : "By author";
 
   return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4 dark:bg-black/60"
-      onMouseDown={running ? undefined : onCancel}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="bulk-send-title"
-        onMouseDown={(event) => event.stopPropagation()}
-        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
-      >
-        <div className="flex items-start gap-3 px-5 py-4">
+    <ModalScrim layer="dialog" onDismiss={running ? undefined : onCancel}>
+      <ModalPanel size="md" labelledBy="bulk-send-title">
+        <div className="flex shrink-0 items-start gap-3 px-5 py-4">
           <div
             className={clsx(
-              "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+              "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
               sending
-                ? "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400"
-                : "bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400",
+                ? "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400"
+                : "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400",
             )}
           >
-            {sending ? <AlertTriangle size={18} /> : <Trash2 size={18} />}
+            {sending ? <AlertTriangle size={16} /> : <Trash2 size={16} />}
           </div>
           <div className="min-w-0 flex-1">
             <h2
               id="bulk-send-title"
-              className="text-base font-semibold text-slate-900 dark:text-slate-100"
+              className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100"
             >
               {sending
                 ? `Queue ${count} ${count === 1 ? "draft" : "drafts"} to send?`
@@ -115,7 +107,7 @@ export function MailBulkSendDialog({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto border-t border-slate-100 px-5 py-4 dark:border-slate-800">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-slate-200/70 px-5 py-4 dark:border-slate-800">
           {sending && preview.sampleRecipients.length > 0 && (
             <section className="mb-4">
               <h3 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
@@ -209,7 +201,7 @@ export function MailBulkSendDialog({
           )}
         </div>
 
-        <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-3 dark:border-slate-800 dark:bg-slate-900/50">
+        <ModalFooter>
           <Button size="sm" variant="secondary" disabled={running} onClick={onCancel}>
             Cancel
           </Button>
@@ -228,8 +220,8 @@ export function MailBulkSendDialog({
             )}
             {sending ? `Queue ${count}` : `Discard ${count}`}
           </Button>
-        </div>
-      </div>
-    </div>
+        </ModalFooter>
+      </ModalPanel>
+    </ModalScrim>
   );
 }

@@ -9,6 +9,7 @@ import { Card, CardBody, CardHeader } from "../components/ui/Card";
 import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
+import { Modal } from "../components/ui/Modal";
 import { TopBar } from "../components/AppShell";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import type { SettingsOutletCtx } from "./SettingsLayout";
@@ -227,41 +228,45 @@ function EditTeamModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"
-      onClick={() => onClose(false)}
+    <Modal
+      open
+      onClose={() => onClose(false)}
+      title="Edit team"
+      size="sm"
+      onSubmit={save}
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => onClose(false)}
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={!name.trim() || saving}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </>
+      }
     >
-      <div
-        className="mx-4 w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-lg dark:border-slate-800 dark:bg-slate-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-base font-semibold">Edit team</h3>
-        <form className="mt-4 flex flex-col gap-3" onSubmit={save}>
-          <FormError message={error} />
-          <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
-          <Input
-            label="Description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
+      <div className="flex flex-col gap-3">
+        <FormError message={error} />
+        <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+        <Input
+          label="Description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={archived}
+            onChange={(e) => setArchived(e.target.checked)}
           />
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={archived}
-              onChange={(e) => setArchived(e.target.checked)}
-            />
-            Archived
-          </label>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={() => onClose(false)} disabled={saving}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!name.trim() || saving}>
-              {saving ? "Saving…" : "Save"}
-            </Button>
-          </div>
-        </form>
+          Archived
+        </label>
       </div>
-    </div>
+    </Modal>
   );
 }

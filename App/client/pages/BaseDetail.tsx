@@ -17,7 +17,6 @@ import {
   ListChecks,
   Key,
   ChevronDown,
-  X,
   Users,
   Maximize2,
   Check,
@@ -50,6 +49,7 @@ import { Input } from "../components/ui/Input";
 import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu";
 import { FormError } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { ModalCloseButton, ModalPanel, ModalScrim } from "../components/ui/ModalChrome";
 import { useBases } from "./BasesLayout";
 import {
   CellEditor,
@@ -1092,29 +1092,15 @@ function AddLinkFieldModal({
   const canSubmit = name.trim() && targetTableId;
 
   return (
-    <div
-      onMouseDown={onCancel}
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4 dark:bg-black/60"
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
-      >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
-          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+    <ModalScrim layer="dialog" onDismiss={onCancel}>
+      <ModalPanel size="sm">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200/70 px-5 py-3 dark:border-slate-800">
+          <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">
             Add link field
           </h2>
-          <button
-            onClick={onCancel}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-            aria-label="Close"
-          >
-            <X size={16} />
-          </button>
+          <ModalCloseButton onClick={onCancel} />
         </div>
-        <div className="flex flex-col gap-3 p-5">
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-5">
           <Input
             autoFocus
             label="Field name"
@@ -1151,8 +1137,8 @@ function AddLinkFieldModal({
             </Button>
           </div>
         </div>
-      </div>
-    </div>
+      </ModalPanel>
+    </ModalScrim>
   );
 }
 
@@ -1625,26 +1611,15 @@ function BaseSettingsModal({
   }
 
   return (
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4"
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
-      >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
-          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+    <ModalScrim onDismiss={onClose}>
+      <ModalPanel size="md">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200/70 px-5 py-3 dark:border-slate-800">
+          <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100">
             Base settings
           </h2>
-          <button
-            onClick={onClose}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          >
-            <X size={16} />
-          </button>
+          <ModalCloseButton onClick={onClose} />
         </div>
-        <div className="flex gap-1 border-b border-slate-100 px-5 dark:border-slate-800">
+        <div className="flex shrink-0 gap-1 border-b border-slate-200/70 px-5 dark:border-slate-800">
           <TabButton active={tab === "general"} onClick={() => setTab("general")}>
             General
           </TabButton>
@@ -1653,89 +1628,91 @@ function BaseSettingsModal({
           </TabButton>
         </div>
 
-        {tab === "general" ? (
-          <div className="flex flex-col gap-4 p-5">
-            <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Description
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-500/25"
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Icon
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {BASE_ICON_NAMES.map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setIcon(n)}
-                    className={clsx(
-                      "flex h-8 w-8 items-center justify-center rounded-md border",
-                      icon === n
-                        ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10"
-                        : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
-                    )}
-                    title={n}
-                  >
-                    <BaseIcon name={n} size={14} />
-                  </button>
-                ))}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {tab === "general" ? (
+            <div className="flex flex-col gap-4 p-5">
+              <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Description
+                </label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={2}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-500/25"
+                />
               </div>
-            </div>
 
-            <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Color
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {BASE_COLORS.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setColor(c)}
-                    className={clsx(
-                      "flex h-8 w-8 items-center justify-center rounded-md border",
-                      color === c
-                        ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-800"
-                        : "border-slate-200 dark:border-slate-700",
-                      baseAccent(c, "tile"),
-                    )}
-                    title={c}
-                  >
-                    <BaseIcon name={icon} size={12} />
-                  </button>
-                ))}
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Icon
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {BASE_ICON_NAMES.map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => setIcon(n)}
+                      className={clsx(
+                        "flex h-8 w-8 items-center justify-center rounded-md border",
+                        icon === n
+                          ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10"
+                          : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
+                      )}
+                      title={n}
+                    >
+                      <BaseIcon name={n} size={14} />
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <FormError message={error} />
+              <div className="flex flex-col gap-2">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Color
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {BASE_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setColor(c)}
+                      className={clsx(
+                        "flex h-8 w-8 items-center justify-center rounded-md border",
+                        color === c
+                          ? "border-indigo-500 ring-2 ring-indigo-200 dark:ring-indigo-800"
+                          : "border-slate-200 dark:border-slate-700",
+                        baseAccent(c, "tile"),
+                      )}
+                      title={c}
+                    >
+                      <BaseIcon name={icon} size={12} />
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-            <div className="mt-2 flex items-center justify-between">
-              <Button variant="danger" onClick={remove} disabled={busy}>
-                <Trash2 size={14} /> Delete base
-              </Button>
-              <div className="flex gap-2">
-                <Button variant="secondary" onClick={onClose} disabled={busy}>
-                  Cancel
+              <FormError message={error} />
+
+              <div className="mt-2 flex items-center justify-between">
+                <Button variant="danger" onClick={remove} disabled={busy}>
+                  <Trash2 size={14} /> Delete base
                 </Button>
-                <Button onClick={save} disabled={busy || !name.trim()}>
-                  {busy ? "Saving…" : "Save"}
-                </Button>
+                <div className="flex gap-2">
+                  <Button variant="secondary" onClick={onClose} disabled={busy}>
+                    Cancel
+                  </Button>
+                  <Button onClick={save} disabled={busy || !name.trim()}>
+                    {busy ? "Saving…" : "Save"}
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-        ) : (
-          <BaseAccessTab company={company} base={base} onClose={onClose} />
-        )}
-      </div>
-    </div>
+          ) : (
+            <BaseAccessTab company={company} base={base} onClose={onClose} />
+          )}
+        </div>
+      </ModalPanel>
+    </ModalScrim>
   );
 }
 
@@ -1945,28 +1922,15 @@ function EmployeePickerModal({
   onPick: (e: Employee) => void;
 }) {
   return (
-    <div
-      onMouseDown={onCancel}
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4 dark:bg-black/60"
-    >
-      <div
-        onMouseDown={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        className="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
-      >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+    <ModalScrim layer="top" onDismiss={onCancel}>
+      <ModalPanel size="sm">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200/70 px-5 py-3 dark:border-slate-800">
+          <h3 className="text-sm font-semibold tracking-tight text-slate-900 dark:text-slate-100">
             Grant access
           </h3>
-          <button
-            onClick={onCancel}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800"
-          >
-            <X size={14} />
-          </button>
+          <ModalCloseButton onClick={onCancel} />
         </div>
-        <div className="max-h-[60vh] overflow-y-auto p-3">
+        <div className="min-h-0 overflow-y-auto p-3">
           <FormError message={error} className="mb-2" />
           {employees.length === 0 ? (
             <p className="px-2 py-4 text-center text-xs text-slate-500 dark:text-slate-400">
@@ -1997,7 +1961,7 @@ function EmployeePickerModal({
             </ul>
           )}
         </div>
-      </div>
-    </div>
+      </ModalPanel>
+    </ModalScrim>
   );
 }

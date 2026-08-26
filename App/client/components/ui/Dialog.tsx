@@ -1,7 +1,15 @@
 import React from "react";
-import { X, AlertTriangle } from "lucide-react";
+import { createPortal } from "react-dom";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "./Button";
-import { clsx } from "./clsx";
+import { Input } from "./Input";
+import {
+  ModalCloseButton,
+  ModalFooter,
+  ModalPanel,
+  ModalScrim,
+  useModalChrome,
+} from "./ModalChrome";
 import { errorMessage } from "../../lib/errors";
 
 /**
@@ -128,25 +136,32 @@ export function useBackgroundAction() {
 }
 
 export function DialogProvider({ children }: { children: React.ReactNode }) {
-  const [current, setCurrent] = React.useState<Request | null>(null);
+  // `seq` remounts the shell when one dialog replaces another without a gap,
+  // so a prompt never opens carrying the previous prompt's typed value.
+  const [current, setCurrent] = React.useState<{ seq: number; request: Request } | null>(null);
+  const seqRef = React.useRef(0);
 
-  const api = React.useMemo<DialogApi>(
-    () => ({
+  const api = React.useMemo<DialogApi>(() => {
+    function open(request: Request) {
+      seqRef.current += 1;
+      setCurrent({ seq: seqRef.current, request });
+    }
+    return {
       confirm: (opts) =>
         new Promise<boolean>((resolve) => {
-          setCurrent({ kind: "confirm", opts, resolve });
+          open({ kind: "confirm", opts, resolve });
         }),
       prompt: (opts) =>
         new Promise<string | null>((resolve) => {
-          setCurrent({ kind: "prompt", opts, resolve });
+          open({ kind: "prompt", opts, resolve });
         }),
       alert: (opts) =>
         new Promise<void>((resolve) => {
-          setCurrent({ kind: "alert", opts, resolve });
+          open({ kind: "alert", opts, resolve });
         }),
       error: (error, opts) =>
         new Promise<void>((resolve) => {
-          setCurrent({
+          open({
             kind: "alert",
             opts: {
               title: opts?.title ?? "Something went wrong",
@@ -157,19 +172,19 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
             resolve,
           });
         }),
-    }),
-    [],
-  );
+    };
+  }, []);
 
   function close(result: unknown) {
     if (!current) return;
+    const { request } = current;
     // Narrow by request kind so we hand back the right shape.
-    if (current.kind === "confirm") {
-      current.resolve(Boolean(result));
-    } else if (current.kind === "prompt") {
-      current.resolve((result as string | null) ?? null);
+    if (request.kind === "confirm") {
+      request.resolve(Boolean(result));
+    } else if (request.kind === "prompt") {
+      request.resolve((result as string | null) ?? null);
     } else {
-      current.resolve();
+      request.resolve();
     }
     setCurrent(null);
   }
@@ -179,8 +194,9 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
       {children}
       {current && (
         <DialogShell
-          request={current}
-          onCancel={() => close(current.kind === "prompt" ? null : false)}
+          key={current.seq}
+          request={current.request}
+          onCancel={() => close(current.request.kind === "prompt" ? null : false)}
           onConfirm={(value) => close(value)}
         />
       )}
@@ -197,173 +213,137 @@ function DialogShell({
   onCancel: () => void;
   onConfirm: (value: unknown) => void;
 }) {
-  const titleId = React.useId();
-  const dialogRef = React.useRef<HTMLDivElement>(null);
-  const previousFocusRef = React.useRef<HTMLElement | null>(null);
-  const onCancelRef = React.useRef(onCancel);
-  onCancelRef.current = onCancel;
-
-  // Keep the global dialog above any underlying Modal: it owns Escape and
-  // Tab while open, restores focus on close, and never lets the lower Modal's
-  // document listener process the same key event.
-  React.useEffect(() => {
-    previousFocusRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const frame = window.requestAnimationFrame(() => {
-      const dialog = dialogRef.current;
-      if (!dialog || dialog.contains(document.activeElement)) return;
-      const preferred = dialog.querySelector<HTMLElement>(
-        "input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [href]",
-      );
-      (preferred ?? dialog).focus();
-    });
-
-    function onKey(e: KeyboardEvent) {
-      const dialog = dialogRef.current;
-      if (!dialog) return;
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        onCancelRef.current();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      e.stopPropagation();
-
-      const focusable = Array.from(
-        dialog.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-      ).filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
-      if (focusable.length === 0) {
-        e.preventDefault();
-        dialog.focus();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (!dialog.contains(document.activeElement)) {
-        e.preventDefault();
-        first.focus();
-      } else if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.removeEventListener("keydown", onKey, true);
-      previousFocusRef.current?.focus();
-    };
-  }, []);
+  // A dialog is what a Modal asks a question with, so it sits on the layer
+  // above one: it owns Escape and Tab while open, and the Modal underneath
+  // stays put until it is answered.
+  const { titleId, panelRef } = useModalChrome({ open: true, onDismiss: onCancel });
+  const messageId = React.useId();
 
   const isDanger =
     (request.kind === "confirm" && request.opts.variant === "danger") ||
     (request.kind === "alert" && request.opts.variant === "danger");
 
-  return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 p-4 dark:bg-black/60"
-      onMouseDown={onCancel}
-    >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+  const hasMessage = request.opts.message !== undefined;
+
+  return createPortal(
+    <ModalScrim layer="dialog" onDismiss={onCancel}>
+      <ModalPanel
+        ref={panelRef}
+        size="sm"
+        labelledBy={titleId}
+        describedBy={hasMessage ? messageId : undefined}
       >
-        <div className="flex items-start gap-3 px-5 py-4">
-          {isDanger && (
-            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400">
-              <AlertTriangle size={18} />
+        {request.kind === "prompt" ? (
+          <PromptDialog
+            request={request}
+            titleId={titleId}
+            messageId={messageId}
+            onCancel={onCancel}
+            onConfirm={onConfirm}
+          />
+        ) : (
+          <>
+            <DialogBody
+              isDanger={isDanger}
+              title={request.opts.title}
+              titleId={titleId}
+              message={request.opts.message}
+              messageId={messageId}
+              onCancel={onCancel}
+            />
+            <ModalFooter>
+              {request.kind === "confirm" && (
+                <Button size="sm" variant="secondary" onClick={onCancel}>
+                  {request.opts.cancelLabel ?? "Cancel"}
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant={
+                  request.kind === "confirm" && request.opts.variant === "danger"
+                    ? "danger"
+                    : "primary"
+                }
+                onClick={() => onConfirm(request.kind === "confirm" ? true : undefined)}
+                autoFocus
+              >
+                {request.opts.confirmLabel ??
+                  (request.kind === "alert" ? "OK" : isDanger ? "Delete" : "Confirm")}
+              </Button>
+            </ModalFooter>
+          </>
+        )}
+      </ModalPanel>
+    </ModalScrim>,
+    document.body,
+  );
+}
+
+/**
+ * Icon, question and close button — the part above the action tray. It is the
+ * scroll region, so a long message keeps the buttons reachable instead of
+ * pushing them off the bottom of the screen.
+ */
+function DialogBody({
+  isDanger,
+  title,
+  titleId,
+  message,
+  messageId,
+  onCancel,
+  children,
+}: {
+  isDanger: boolean;
+  title: string;
+  titleId: string;
+  message?: React.ReactNode;
+  messageId: string;
+  onCancel: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+      <div className="flex items-start gap-3">
+        {isDanger && (
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400">
+            <AlertTriangle size={16} />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <h2
+            id={titleId}
+            className="text-base font-semibold tracking-tight text-slate-900 dark:text-slate-100"
+          >
+            {title}
+          </h2>
+          {message !== undefined && (
+            <div
+              id={messageId}
+              className="mt-1.5 whitespace-pre-wrap break-words text-sm text-slate-600 dark:text-slate-300"
+            >
+              {message}
             </div>
           )}
-          <div className="min-w-0 flex-1">
-            <h2 id={titleId} className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              {request.opts.title}
-            </h2>
-            {request.kind === "confirm" && request.opts.message !== undefined && (
-              <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                {request.opts.message}
-              </div>
-            )}
-            {request.kind === "alert" && request.opts.message !== undefined && (
-              <div className="mt-1 max-h-[50vh] overflow-y-auto whitespace-pre-wrap break-words text-sm text-slate-600 dark:text-slate-300">
-                {request.opts.message}
-              </div>
-            )}
-            {request.kind === "prompt" && (
-              <PromptBody request={request} onCancel={onCancel} onConfirm={onConfirm} />
-            )}
-          </div>
-          <button
-            onClick={onCancel}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-            aria-label="Close"
-          >
-            <X size={16} />
-          </button>
         </div>
-        {request.kind !== "prompt" && (
-          <FooterButtons request={request} onCancel={onCancel} onConfirm={onConfirm} />
-        )}
+        <ModalCloseButton onClick={onCancel} />
       </div>
+      {/* Below the row rather than inside the text column, so a field lines up
+          with the panel's gutter instead of stopping short of the ✕. */}
+      {children}
     </div>
   );
 }
 
-function FooterButtons({
+function PromptDialog({
   request,
-  onCancel,
-  onConfirm,
-}: {
-  request: Request;
-  onCancel: () => void;
-  onConfirm: (value: unknown) => void;
-}) {
-  if (request.kind === "alert") {
-    return (
-      <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-3 dark:border-slate-800 dark:bg-slate-900/50">
-        <Button size="sm" onClick={() => onConfirm(undefined)} autoFocus>
-          {request.opts.confirmLabel ?? "OK"}
-        </Button>
-      </div>
-    );
-  }
-  if (request.kind === "confirm") {
-    const danger = request.opts.variant === "danger";
-    return (
-      <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-3 dark:border-slate-800 dark:bg-slate-900/50">
-        <Button size="sm" variant="secondary" onClick={onCancel}>
-          {request.opts.cancelLabel ?? "Cancel"}
-        </Button>
-        <Button
-          size="sm"
-          variant={danger ? "danger" : "primary"}
-          onClick={() => onConfirm(true)}
-          autoFocus
-        >
-          {request.opts.confirmLabel ?? (danger ? "Delete" : "Confirm")}
-        </Button>
-      </div>
-    );
-  }
-  return null;
-}
-
-function PromptBody({
-  request,
+  titleId,
+  messageId,
   onCancel,
   onConfirm,
 }: {
   request: Extract<Request, { kind: "prompt" }>;
+  titleId: string;
+  messageId: string;
   onCancel: () => void;
   onConfirm: (value: string | null) => void;
 }) {
@@ -371,6 +351,7 @@ function PromptBody({
   const [value, setValue] = React.useState(opts.defaultValue ?? "");
   const [error, setError] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const errorId = React.useId();
 
   React.useEffect(() => {
     // Select-all on open so the default value is easy to replace.
@@ -399,41 +380,47 @@ function PromptBody({
 
   return (
     <>
-      {opts.message !== undefined && (
-        <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{opts.message}</div>
-      )}
-      <input
-        ref={inputRef}
-        value={value}
-        placeholder={opts.placeholder}
-        onChange={(e) => {
-          setValue(e.target.value);
-          if (error) setError(null);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            submit();
-          }
-        }}
-        className={clsx(
-          "mt-3 h-10 w-full rounded-lg border bg-white px-3 text-sm text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100",
-          "focus:outline-none focus:ring-2",
-          error
-            ? "border-red-400 focus:ring-red-200 dark:border-red-800 dark:focus:ring-red-900"
-            : "border-slate-200 focus:border-indigo-500 focus:ring-indigo-500/20 dark:border-slate-700 dark:focus:ring-indigo-500/25",
+      <DialogBody
+        isDanger={false}
+        title={opts.title}
+        titleId={titleId}
+        message={opts.message}
+        messageId={messageId}
+        onCancel={onCancel}
+      >
+        <Input
+          ref={inputRef}
+          className="mt-4 w-full"
+          aria-label={opts.title}
+          aria-describedby={error ? errorId : undefined}
+          invalid={Boolean(error)}
+          value={value}
+          placeholder={opts.placeholder}
+          onChange={(e) => {
+            setValue(e.target.value);
+            if (error) setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
+        />
+        {error && (
+          <div id={errorId} className="mt-1.5 text-xs text-red-600 dark:text-red-400">
+            {error}
+          </div>
         )}
-      />
-      {error && <div className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</div>}
-
-      <div className="mt-4 flex justify-end gap-2">
+      </DialogBody>
+      <ModalFooter>
         <Button size="sm" variant="secondary" onClick={onCancel}>
           {opts.cancelLabel ?? "Cancel"}
         </Button>
         <Button size="sm" onClick={submit}>
           {opts.confirmLabel ?? "OK"}
         </Button>
-      </div>
+      </ModalFooter>
     </>
   );
 }
