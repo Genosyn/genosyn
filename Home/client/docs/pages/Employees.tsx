@@ -273,7 +273,10 @@ export function Employees() {
         </LI>
         <LI>
           <Strong>Settings → Handoffs.</Strong> Work this employee has delegated to another, and
-          work delegated to them.
+          work delegated to them. Creating a Handoff starts the receiver working immediately in a
+          background session (when they have a connected model) — delegation is a &quot;go&quot;
+          signal, not a note on a desk. A pending Handoff past its due date escalates: the
+          receiver&apos;s manager and the company&apos;s admins get a bell, once.
         </LI>
         <LI>
           <Strong>Settings → Connections.</Strong> The list of{" "}

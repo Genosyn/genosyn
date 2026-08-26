@@ -10,6 +10,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   GitBranch,
+  Hourglass,
   Landmark,
   ListChecks,
   Mail,
@@ -18,6 +19,7 @@ import {
   RotateCw,
   ShieldCheck,
   Sparkles,
+  Target,
   X,
 } from "lucide-react";
 // The API's Notification row is aliased so the DOM global `Notification`
@@ -937,6 +939,18 @@ function KindIcon({ kind, className }: { kind: NotificationKind; className?: str
       return <Landmark size={12} className={className} />;
     case "mail_handover":
       return <Mail size={12} className={className} />;
+    case "revenue_follow_up":
+      return <BellRing size={12} className={className} />;
+    case "run_failed":
+      return <AlertTriangle size={12} className={className} />;
+    case "run_off_goal":
+      return <Target size={12} className={className} />;
+    case "approval_stale":
+      return <Hourglass size={12} className={className} />;
+    case "decision_stale":
+      return <Hourglass size={12} className={className} />;
+    case "handoff_overdue":
+      return <Hourglass size={12} className={className} />;
   }
 }
 
@@ -964,6 +978,30 @@ const KIND_TONE: Record<NotificationKind, { bg: string; fg: string }> = {
   mail_handover: {
     bg: "bg-sky-100 dark:bg-sky-500/15",
     fg: "text-sky-600 dark:text-sky-300",
+  },
+  revenue_follow_up: {
+    bg: "bg-sky-100 dark:bg-sky-500/15",
+    fg: "text-sky-600 dark:text-sky-300",
+  },
+  run_failed: {
+    bg: "bg-rose-100 dark:bg-rose-500/15",
+    fg: "text-rose-600 dark:text-rose-300",
+  },
+  run_off_goal: {
+    bg: "bg-orange-100 dark:bg-orange-500/15",
+    fg: "text-orange-600 dark:text-orange-300",
+  },
+  approval_stale: {
+    bg: "bg-amber-100 dark:bg-amber-500/15",
+    fg: "text-amber-600 dark:text-amber-300",
+  },
+  decision_stale: {
+    bg: "bg-amber-100 dark:bg-amber-500/15",
+    fg: "text-amber-600 dark:text-amber-300",
+  },
+  handoff_overdue: {
+    bg: "bg-amber-100 dark:bg-amber-500/15",
+    fg: "text-amber-600 dark:text-amber-300",
   },
 };
 

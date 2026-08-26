@@ -8,6 +8,7 @@ import { JournalEntry } from "../db/entities/JournalEntry.js";
 import { validateBody } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { recordAudit } from "../services/audit.js";
+import { kickoffHandoff } from "../services/handoffKickoff.js";
 
 export const handoffsRouter = Router({ mergeParams: true });
 handoffsRouter.use(requireAuth);
@@ -213,6 +214,13 @@ handoffsRouter.post(
         authorUserId: req.userId ?? null,
       }),
     ]);
+    // Creating a handoff is the "go" signal — start the receiver working in
+    // the background instead of waiting for its next scheduled run to notice
+    // the journal entry. All eligibility guards live in the service.
+    void kickoffHandoff({ companyId: cid, handoffId: h.id }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error("[handoffs] kickoff failed:", err);
+    });
     const [hydrated] = await hydrateHandoffs([h]);
     res.status(201).json(hydrated);
   },

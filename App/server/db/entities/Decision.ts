@@ -161,6 +161,10 @@ export class Decision {
   @Column({ type: dateTimeColumnType, nullable: true })
   pickupFinishedAt!: Date | null;
 
+  /** See {@link Approval.stallRemindedAt} — same marker, same reasoning. */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  stallRemindedAt!: Date | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

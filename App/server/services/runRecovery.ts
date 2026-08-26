@@ -17,6 +17,7 @@ import {
   releaseBrowserRecordingRunFinalizing,
 } from "./browserRecordings.js";
 import { finalizeBrowserRecordingsForRun } from "./browserSessions.js";
+import { notifyRunFailure } from "./runAlerts.js";
 
 /**
  * Crash recovery for Runs.
@@ -240,6 +241,14 @@ export async function reconcileOrphanedRuns(opts?: {
           // must not abort reconciliation and strand later orphaned Runs.
           // eslint-disable-next-line no-console
           console.error(`[recovery] failed to journal interrupted run ${run.id}:`, error);
+        });
+      }
+      if (!run.retryAt) {
+        // Interrupted with no recovery attempt owed — the same "work silently
+        // stopped" verdict a terminal failure carries, so it gets the same bell.
+        void notifyRunFailure(run).catch((error) => {
+          // eslint-disable-next-line no-console
+          console.error(`[recovery] failed to notify interrupted run ${run.id}:`, error);
         });
       }
     }

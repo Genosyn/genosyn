@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Ban,
   BrainCircuit,
+  ClipboardCheck,
   Clock,
   Copy,
   Folder,
@@ -49,6 +50,7 @@ import {
   RunLiveModal,
   RunBrowserRecordingsPane,
   RunLogPane,
+  RunOutcomeChip,
   RunStatusChip,
   formatDuration,
   overdueFor,
@@ -254,6 +256,9 @@ export default function RoutineDetail({ company }: { company: Company }) {
                 </span>
               )}
               {routine.lastRun && <RunStatusChip status={routine.lastRun.status} size="xs" />}
+              {routine.lastRun?.outcomeVerdict && (
+                <RunOutcomeChip verdict={routine.lastRun.outcomeVerdict} size="xs" />
+              )}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
               <span title={routine.cronExpr}>{cronHuman(routine.cronExpr)}</span>
@@ -536,6 +541,11 @@ function OverviewTab({
               ? "Each scheduled run waits for a human"
               : "Runs without asking"}
           </Row>
+          <Row icon={<ClipboardCheck size={14} />} label="Outcome check">
+            {routine.acceptanceCriteria?.trim()
+              ? "Completed runs are graded against acceptance criteria"
+              : "Off — no acceptance criteria set"}
+          </Row>
           <Row icon={<Globe size={14} />} label="Browser">
             {routine.browserEnabledOverride === true
               ? "Forced on for this routine"
@@ -593,6 +603,13 @@ function OverviewTab({
                     className="flex w-full items-center gap-3 rounded px-1 py-2 text-left text-sm transition hover:bg-slate-50 dark:hover:bg-slate-900"
                   >
                     <RunStatusChip status={run.status} size="xs" />
+                    {run.outcomeVerdict && (
+                      <RunOutcomeChip
+                        verdict={run.outcomeVerdict}
+                        note={run.outcomeNote}
+                        size="xs"
+                      />
+                    )}
                     <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">
                       {new Date(run.startedAt).toLocaleString()}
                     </span>
@@ -881,6 +898,9 @@ function RunsTab({
                 >
                   <div className="flex items-center gap-2">
                     <RunStatusChip status={r.status} size="xs" />
+                    {r.outcomeVerdict && (
+                      <RunOutcomeChip verdict={r.outcomeVerdict} note={r.outcomeNote} size="xs" />
+                    )}
                     {r.exitCode !== null && (
                       <span className="text-[10px] text-slate-400 dark:text-slate-500">
                         exit {r.exitCode}
@@ -1007,6 +1027,9 @@ function SettingsTab({
   const [maxAttempts, setMaxAttempts] = React.useState(routine.maxAttempts ?? 1);
   const [retryBackoffSec, setRetryBackoffSec] = React.useState(routine.retryBackoffSec ?? 60);
   const [retryOnTimeout, setRetryOnTimeout] = React.useState(routine.retryOnTimeout ?? false);
+  const [acceptanceCriteria, setAcceptanceCriteria] = React.useState(
+    routine.acceptanceCriteria ?? "",
+  );
   const [browserOverride, setBrowserOverride] = React.useState<"inherit" | "on" | "off">(
     routine.browserEnabledOverride === true
       ? "on"
@@ -1083,6 +1106,7 @@ function SettingsTab({
         maxAttempts,
         retryBackoffSec,
         retryOnTimeout,
+        acceptanceCriteria,
       });
       // The slug is stable across renames, so the address survives — but the
       // list behind it has to reload before the header shows the new name.
@@ -1181,6 +1205,34 @@ function SettingsTab({
             </label>
             <div className="text-xs text-slate-500 dark:text-slate-400">
               Manual &quot;Run now&quot; still runs immediately — a human is already in the loop.
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardBody className="flex flex-col gap-4">
+          <SectionLabel>Outcome check</SectionLabel>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+              Acceptance criteria
+            </label>
+            <textarea
+              value={acceptanceCriteria}
+              onChange={(e) => setAcceptanceCriteria(e.target.value)}
+              rows={4}
+              maxLength={4000}
+              placeholder={
+                'What must be true for a run to count — e.g. "The digest was posted to #general and covers every failed run since the last digest."'
+              }
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+            />
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Written in plain language. The criteria ride along in every run&apos;s brief, and
+              after a completed run a restricted checker grades the transcript against them — the
+              verdict shows on the run as <code>achieved</code> / <code>unclear</code> /{" "}
+              <code>off goal</code>, and an off-goal run notifies the company&apos;s owners and
+              admins, plus this employee&apos;s manager. Leave empty to switch the check off.
             </div>
           </div>
         </CardBody>

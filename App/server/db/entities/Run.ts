@@ -4,6 +4,17 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 
 export type RunStatus = "running" | "completed" | "failed" | "skipped" | "timeout" | "interrupted";
 
 /**
+ * How a completed Run measured against its Routine's acceptance criteria,
+ * judged by a restricted zero-tool checker after the transcript was final.
+ * `achieved` — the transcript shows the criteria were met. `off_goal` — the
+ * Run finished but the work does not satisfy the criteria. `unclear` — the
+ * transcript does not show enough either way (including when the checker
+ * itself failed; the note says which). Null when the Routine declares no
+ * criteria, or for Runs that predate the column.
+ */
+export type RunOutcomeVerdict = "achieved" | "unclear" | "off_goal";
+
+/**
  * What caused a Run to start. Only `schedule` and `retry` runs are ever
  * retried automatically — the other three had a caller present who saw the
  * outcome and can decide for themselves.
@@ -106,6 +117,31 @@ export class Run {
    */
   @Column({ type: "integer", default: 0 })
   missedSlots!: number;
+
+  /** See {@link RunOutcomeVerdict}. Written once, after the transcript is final. */
+  @Column({ type: "varchar", nullable: true })
+  outcomeVerdict!: RunOutcomeVerdict | null;
+
+  /**
+   * The checker's one-or-two-sentence reason for the verdict — what the
+   * transcript showed or failed to show. Null whenever `outcomeVerdict` is.
+   */
+  @Column({ type: "text", nullable: true })
+  outcomeNote!: string | null;
+
+  /**
+   * Prompt tokens this Run consumed, summed across every model turn from the
+   * provider's own per-turn counts (each turn's prompt is billed in full, so
+   * the sum is what the Run actually cost — not the final context size).
+   * Includes the outcome-verdict turn when one ran. 0 for Runs that predate
+   * the column or never reached a model.
+   */
+  @Column({ type: "integer", default: 0 })
+  tokensIn!: number;
+
+  /** Completion tokens this Run consumed, same accounting as {@link tokensIn}. */
+  @Column({ type: "integer", default: 0 })
+  tokensOut!: number;
 
   @CreateDateColumn()
   createdAt!: Date;

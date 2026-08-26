@@ -1,6 +1,15 @@
 import React from "react";
 import { AlertTriangle, Ban, Download, Loader2, RotateCcw, Video } from "lucide-react";
-import { api, Company, Routine, Run, RunBrowserRecording, RunLog, RunStatus } from "../../lib/api";
+import {
+  api,
+  Company,
+  Routine,
+  Run,
+  RunBrowserRecording,
+  RunLog,
+  RunOutcomeVerdict,
+  RunStatus,
+} from "../../lib/api";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 
@@ -45,6 +54,59 @@ export function RunStatusChip({ status, size = "sm" }: { status: RunStatus; size
       {status}
     </span>
   );
+}
+
+const OUTCOME_STYLE: Record<RunOutcomeVerdict, string> = {
+  achieved:
+    "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30",
+  unclear:
+    "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-500/10 dark:text-slate-300 dark:border-slate-500/30",
+  off_goal:
+    "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/30",
+};
+
+const OUTCOME_LABEL: Record<RunOutcomeVerdict, string> = {
+  achieved: "achieved",
+  unclear: "unclear",
+  off_goal: "off goal",
+};
+
+/**
+ * The second axis on a run: status says the loop returned, the verdict says
+ * whether the work met the Routine's acceptance criteria. Only rendered when a
+ * verdict exists — routines without criteria stay exactly as before.
+ */
+export function RunOutcomeChip({
+  verdict,
+  note,
+  size = "sm",
+}: {
+  verdict: RunOutcomeVerdict;
+  note?: string | null;
+  size?: "xs" | "sm";
+}) {
+  return (
+    <span
+      title={note ?? undefined}
+      className={
+        "inline-flex shrink-0 items-center gap-1 rounded border font-medium uppercase tracking-wide " +
+        (size === "xs" ? "px-1.5 py-0.5 text-[10px] " : "px-2 py-0.5 text-xs ") +
+        OUTCOME_STYLE[verdict]
+      }
+    >
+      {OUTCOME_LABEL[verdict]}
+    </span>
+  );
+}
+
+/** Compact token count — "12.4k", "1.2M" — for chips and table cells. */
+export function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  // Round first, then pick the unit: 999,999 rounds to 1000.0k, which should
+  // read as 1M rather than as a four-digit "k".
+  const thousands = Math.round(n / 100) / 10;
+  if (thousands < 1000) return `${thousands}k`;
+  return `${Math.round(n / 100_000) / 10}M`;
 }
 
 /** Wall-clock length of a run. Runs carry no duration column — it's derived. */
@@ -160,6 +222,11 @@ export function RunLogPane({
 export function runLogNeedsPolling(log: RunLog): boolean {
   return (
     log.status === "running" ||
+    // The outcome check runs after the transcript is final, so a completed run
+    // on a routine with acceptance criteria lands its verdict a moment after
+    // the status does. Keep polling until it arrives, or the chip would only
+    // ever appear on a reload.
+    (log.status === "completed" && log.awaitingOutcome === true) ||
     (log.browserRecordings ?? []).some(
       (recording) => recording.status === "recording" || recording.status === "finalizing",
     )
@@ -475,8 +542,16 @@ export function RunLiveModal({
       <div className="flex flex-col gap-3" style={{ minHeight: 420 }}>
         <div className="flex items-center gap-2 text-xs">
           <RunStatusChip status={status} />
+          {log?.outcomeVerdict && (
+            <RunOutcomeChip verdict={log.outcomeVerdict} note={log.outcomeNote} />
+          )}
           {log?.exitCode !== null && log?.exitCode !== undefined && (
             <span className="text-slate-500 dark:text-slate-400">exit {log.exitCode}</span>
+          )}
+          {(log?.tokensIn ?? 0) + (log?.tokensOut ?? 0) > 0 && (
+            <span className="text-slate-400 dark:text-slate-500">
+              {formatTokens((log?.tokensIn ?? 0) + (log?.tokensOut ?? 0))} tokens
+            </span>
           )}
           {log?.startedAt && (
             <span className="text-slate-400 dark:text-slate-500">
@@ -497,6 +572,9 @@ export function RunLiveModal({
           )}
           {error && <span className="text-rose-500 dark:text-rose-400">{error}</span>}
         </div>
+        {log?.outcomeNote && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">{log.outcomeNote}</p>
+        )}
         <div
           className={
             "grid min-w-0 flex-1 gap-3 " + (recordings.length > 0 ? "xl:grid-cols-2" : "")

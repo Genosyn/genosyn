@@ -76,6 +76,19 @@ export class Routine {
   timeoutSec!: number;
 
   /**
+   * The Routine's definition of done — what a Run must have achieved for its
+   * work to count, written by a human in plain language ("the digest was
+   * posted to #general and covers every failed run since the last digest").
+   *
+   * Empty (the default) means no verdict pass runs and `Run.outcomeVerdict`
+   * stays null — exactly the pre-M49 behaviour. Non-empty criteria are folded
+   * into the Run brief so the employee knows the bar, and after a completed
+   * Run a restricted zero-tool checker grades the transcript against them.
+   */
+  @Column({ type: "text", default: "" })
+  acceptanceCriteria!: string;
+
+  /**
    * If true, cron ticks enqueue an {@link Approval} instead of running. A
    * human decides from the Approvals inbox. Manual "Run now" from the UI
    * still runs immediately — a human is already in the loop.

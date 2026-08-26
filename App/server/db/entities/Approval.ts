@@ -114,4 +114,15 @@ export class Approval {
 
   @Column({ type: "varchar", nullable: true })
   decidedByUserId!: string | null;
+
+  /**
+   * When the stall sweep re-paged humans about this row still being pending
+   * (`services/escalations.ts`). Null means it has never been re-paged, which
+   * is also what makes the sweep's query cheap: it selects only unreminded
+   * rows rather than paging past ones it has already handled. Durable on the
+   * row on purpose — the bell notification it produces is something a Member
+   * can delete, and a deletable marker would re-arm the nag forever.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  stallRemindedAt!: Date | null;
 }

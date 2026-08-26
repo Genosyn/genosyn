@@ -53,7 +53,9 @@ export function Decisions() {
         Any Member can answer, not just owners and admins. If the employee addressed the question to
         one person, only they — or an owner or admin — can answer it, so nothing strands behind
         somebody on holiday. Owners and admins get a notification for every unassigned decision; an
-        assigned one notifies only its recipient.
+        assigned one notifies only its recipient. A decision still unanswered after 24 hours
+        re-pages the same people once — the employee that stacked it is blocked until someone
+        picks, and a blocked employee should never be a silent one.
       </P>
 
       <Callout kind="info" title="A decision is answered once.">

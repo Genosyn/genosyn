@@ -130,6 +130,7 @@ async function lastRunByRoutine(routineIds: string[]): Promise<Map<string, Run>>
       "run.attempt",
       "run.retryAt",
       "run.missedSlots",
+      "run.outcomeVerdict",
     ])
     .where("run.routineId IN (:...routineIds)", { routineIds })
     .andWhere(
@@ -307,6 +308,9 @@ const patchSchema = z.object({
     .max(6 * 60 * 60)
     .optional(),
   retryOnTimeout: z.boolean().optional(),
+  // The Routine's definition of done. Empty string clears it, which also
+  // switches the post-Run outcome check off for future Runs.
+  acceptanceCriteria: z.string().max(4_000).optional(),
   // Tags aren't a Routine column — they're assignments in the shared catalog,
   // so the create route already accepts these. Editing them here keeps the
   // routine's own endpoint symmetric instead of forcing a second call to the
@@ -387,6 +391,7 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
   if (body.maxAttempts !== undefined) r.maxAttempts = body.maxAttempts;
   if (body.retryBackoffSec !== undefined) r.retryBackoffSec = body.retryBackoffSec;
   if (body.retryOnTimeout !== undefined) r.retryOnTimeout = body.retryOnTimeout;
+  if (body.acceptanceCriteria !== undefined) r.acceptanceCriteria = body.acceptanceCriteria;
   // Only re-derive the pending fire time when the schedule itself changed —
   // renaming a routine or nudging its timeout shouldn't throw away the slot it
   // was already waiting on.
@@ -612,6 +617,10 @@ routinesRouter.get("/routines/:rid/runs", async (req, res) => {
       "run.attempt",
       "run.retryAt",
       "run.missedSlots",
+      "run.outcomeVerdict",
+      "run.outcomeNote",
+      "run.tokensIn",
+      "run.tokensOut",
     ])
     .where("run.routineId = :rid", { rid: found.routine.id })
     .orderBy("run.startedAt", "DESC")
@@ -786,6 +795,19 @@ routinesRouter.get("/runs/:runId/log", async (req, res) => {
     // So the live-log modal can say "retrying in 2m" without a second request.
     retryAt: run.retryAt,
     attempt: run.attempt,
+    // The outcome check lands shortly after a completed run finalizes; polling
+    // this endpoint picks the verdict up without a second request.
+    outcomeVerdict: run.outcomeVerdict,
+    outcomeNote: run.outcomeNote,
+    // True while a verdict is still owed — the routine declares acceptance
+    // criteria and this completed run has not been graded yet. The live-log
+    // modal polls on this rather than guessing how long a check takes.
+    awaitingOutcome:
+      run.status === "completed" &&
+      run.outcomeVerdict === null &&
+      found.routine.acceptanceCriteria.trim().length > 0,
+    tokensIn: run.tokensIn,
+    tokensOut: run.tokensOut,
     browserRecordings,
   });
 });

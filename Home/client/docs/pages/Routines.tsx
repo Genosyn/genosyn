@@ -197,6 +197,17 @@ export function Routines() {
               </>
             ),
           },
+          {
+            term: "acceptanceCriteria",
+            def: (
+              <>
+                Optional plain-language definition of done, edited at{" "}
+                <Strong>Settings → Outcome check</Strong>. When set, the criteria ride along in
+                every Run&apos;s brief and each completed Run is graded against them. See{" "}
+                <DocLink to="/docs/routines#outcome-check">The outcome check</DocLink>.
+              </>
+            ),
+          },
         ]}
       />
 
@@ -444,7 +455,16 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           <Strong>Status</Strong> starts at <Code>running</Code> and ends at one of{" "}
           <Code>completed</Code>, <Code>failed</Code>, <Code>skipped</Code> (no model was
           connected), <Code>timeout</Code>, or <Code>interrupted</Code> (the server stopped
-          mid-run).
+          mid-run). A Run stopped by the step-limit backstop — the model kept calling tools
+          without ever finishing — is marked <Code>failed</Code>, with the reason in the
+          transcript. Completed only ever means the loop returned cleanly; whether the work
+          met its bar is the <DocLink to="/docs/routines#outcome-check">outcome check</DocLink>
+          &apos;s answer, not the status&apos;s.
+        </LI>
+        <LI>
+          Each Run also records the <Strong>tokens</Strong> it consumed — the provider&apos;s own
+          per-turn counts, summed. They show on the Run log modal and roll up per employee and
+          per routine at <Strong>Settings → Usage</Strong>.
         </LI>
         <LI>
           The Run detail view tails the transcript while it&apos;s running, then renders the full
@@ -465,10 +485,13 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         directory and are included in whole-instance backups.
       </P>
       <P>
-        Failures are easy to notice: the Home page shows a <Strong>Failed routines</Strong> panel
-        for anything that broke in the last 24 hours, and every <Strong>Journal</Strong> entry for a
-        Run links straight to that routine&apos;s run history — where the Retry button is one click
-        away. Once you&apos;ve looked at a failure, hit the <Strong>✕</Strong> on its row to{" "}
+        Failures are loud: a Run that ends <Code>failed</Code>, <Code>timeout</Code>, or{" "}
+        <Code>interrupted</Code> with no retry still scheduled sends a bell (and web push)
+        notification to the company&apos;s owners and admins and to the Member the employee
+        reports to, deep-linked to the Run log. The Home page additionally shows a{" "}
+        <Strong>Failed routines</Strong> panel for anything that broke in the last 24 hours, and
+        every <Strong>Journal</Strong> entry for a Run links straight to that routine&apos;s run
+        history — where the Retry button is one click away. Once you&apos;ve looked at a failure, hit the <Strong>✕</Strong> on its row to{" "}
         <Strong>dismiss</Strong> it — the run stays in the routine&apos;s history, but it drops off
         the panel (and out of the System Health failed-runs count) so it stops nagging the whole
         team.
@@ -483,6 +506,42 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         <Code>failed</Code> or <Code>timed out</Code> get no button here — those broke for a reason
         worth reading before you fire them off again.
       </P>
+
+      <H2 id="outcome-check">The outcome check</H2>
+      <P>
+        A green <Code>completed</Code> proves the loop returned — it says nothing about whether
+        the work was any good. A convincingly wrong Run used to look byte-identical to a great
+        one. The outcome check is the second axis: give a routine{" "}
+        <Strong>acceptance criteria</Strong> (Settings → Outcome check) — a plain-language
+        definition of done, like &quot;the digest was posted to #general and covers every failed
+        run since the last digest&quot; — and two things happen.
+      </P>
+      <UL>
+        <LI>
+          The criteria ride along in every Run&apos;s brief, so the employee aims at the same bar
+          it will be graded against.
+        </LI>
+        <LI>
+          After a completed Run, a restricted checker — a zero-tool model turn on the same brain,
+          reading the transcript as untrusted evidence — grades the work and stamps a verdict on
+          the Run: <Code>achieved</Code>, <Code>unclear</Code> (not enough evidence either way,
+          the honest default), or <Code>off goal</Code>. The verdict shows as a chip beside the
+          status everywhere Runs render, with the checker&apos;s one-line reason on hover and in
+          the log view.
+        </LI>
+      </UL>
+      <P>
+        An <Code>off goal</Code> verdict notifies admins and the employee&apos;s manager the same
+        way a failure does — convincing-but-wrong is exactly the failure mode a green checkmark
+        hides. The verdict also lands in the employee&apos;s Journal entry for the Run, so the
+        employee itself learns from past outcomes instead of only seeing that runs
+        &quot;finished&quot;. The check never changes the Run&apos;s status, and a routine with no
+        criteria behaves exactly as before — no verdict, no extra model turn, no extra cost.
+      </P>
+      <Callout kind="info" title="What it costs">
+        One short extra model turn per completed Run, on the routine&apos;s own model. Its tokens
+        are counted into the Run&apos;s totals like everything else.
+      </Callout>
 
       <H2 id="recovery">Downtime and recovery</H2>
       <P>
@@ -617,6 +676,15 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         <Code>execution_failed</Code> for investigation instead of becoming eligible to run again.
         Replay payloads, provider results, and raw provider failures are never returned by the inbox
         API.
+      </P>
+      <P>
+        A pending Approval never expires, so a gated tick nobody answers is lost, not queued.
+        Genosyn no longer lets that happen in silence: an Approval still pending after{" "}
+        <Strong>24 hours</Strong> re-pages the owners and admins with a stall reminder — once per
+        row, so the bell nags exactly one extra time. Pending <Strong>Decisions</Strong> and
+        overdue <Strong>Handoffs</Strong> get the same treatment; see{" "}
+        <DocLink to="/docs/decisions">the Decision Stack</DocLink> and{" "}
+        <DocLink to="/docs/employees">AI Employees</DocLink>.
       </P>
 
       <H3 id="approval-kinds">Built-in approval kinds</H3>

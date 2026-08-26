@@ -36,6 +36,9 @@ import {
   browserRunCreationBlocked,
   releaseBrowserRecordingRunFinalizing,
 } from "./browserRecordings.js";
+import { assessRunOutcome } from "./runVerdicts.js";
+import { notifyRunFailure, notifyRunOffGoal } from "./runAlerts.js";
+import type { AIModel } from "../db/entities/AIModel.js";
 
 export { RUN_LOG_MAX_BYTES } from "./runLog.js";
 
@@ -173,6 +176,8 @@ export async function startRoutineRun(
     attempt: opts.attempt ?? 1,
     parentRunId: opts.parentRunId ?? null,
     missedSlots,
+    tokensIn: 0,
+    tokensOut: 0,
   });
   let saved: Run;
   await opts.beforeRunPersist?.();
@@ -444,7 +449,14 @@ export async function startRoutineRun(
               },
               onToolUse: (name, input) => log.line(`\n[tool] ${name} ${previewArgs(input)}`),
               onToolResult: (name, r) => log.line(`[tool:${name}] ${r.isError ? "error" : "ok"}`),
-              onUsage: (u) => log.line(usageLine(u, model.contextWindow)),
+              onUsage: (u) => {
+                // Every turn's prompt is billed in full, so the Run's cost is
+                // the sum across turns — accumulated here, persisted with the
+                // terminal status.
+                saved.tokensIn += u.inputTokens;
+                saved.tokensOut += u.outputTokens;
+                log.line(usageLine(u, model.contextWindow));
+              },
               onCompact: (c) => log.line(compactLine(c)),
               onToolsTrimmed: (t) => log.line(toolTrimLine(t)),
               onToolsDeferred: (d) => log.line(toolDeferLine(d)),
@@ -471,6 +483,17 @@ export async function startRoutineRun(
         log.line(`\n[error] ${result.error}`);
         saved.status = "failed";
         saved.exitCode = null;
+      } else if (result.stopReason === "max_steps") {
+        // The runaway backstop stopped the loop, not the model deciding it was
+        // done. Calling that "completed" made confident non-finishes read as
+        // green checkmarks; it is a failure, and the retry policy treats it
+        // like any other.
+        if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
+        log.line(
+          `\n[error] Stopped after reaching the ${RUN_MAX_STEPS}-turn step limit without finishing — marked failed.`,
+        );
+        saved.status = "failed";
+        saved.exitCode = null;
       } else {
         if (!streamedAny && result.finalText.trim()) log.line("\n" + result.finalText.trim());
         saved.status = "completed";
@@ -485,7 +508,15 @@ export async function startRoutineRun(
       // either of these used to fall into the catch below, which unconditionally
       // rewrote an already-persisted `completed` run to `failed`. That matters
       // far more now that `failed` can mean "retry this", i.e. spend money.
+      // Re-anchor the schedule *before* the outcome check. The check is a
+      // model turn worth up to two minutes, and `touchRoutine` writes
+      // `nextRunAt` derived from this run's `finishedAt` — so running it
+      // afterwards would let a heartbeat dispatch the next slot in between and
+      // then rewind the schedule behind it, firing that slot a second time.
       await settleAfterRun(routine.id, saved.finishedAt);
+      if (saved.status === "completed") {
+        await assessOutcomeQuietly(runRepo, saved, routine, emp, model);
+      }
       await journalQuietly(emp.id, routine, saved);
       return saved;
     } catch (err) {
@@ -551,10 +582,20 @@ async function finalizeRunFromRunning(
       logContent: run.logContent,
       exitCode: run.exitCode,
       retryAt: run.retryAt,
+      tokensIn: run.tokensIn,
+      tokensOut: run.tokensOut,
     },
   );
   if (result.affected === 1) {
     releaseBrowserRecordingRunFinalizing(run.id);
+    if ((run.status === "failed" || run.status === "timeout") && !run.retryAt) {
+      // Terminal breakage with no attempt left — page a human. Fire-and-forget:
+      // an alerting outage must never change the Run's verdict.
+      void notifyRunFailure(run).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error(`[runner] failed to notify about run ${run.id}:`, err);
+      });
+    }
     return { run, persisted: true };
   }
 
@@ -682,6 +723,13 @@ async function writeJournalForRun(employeeId: string, routine: Routine, run: Run
   const title = `Routine "${routine.name}" ${verb}`;
   const bodyLines: string[] = [];
   if (run.exitCode !== null) bodyLines.push(`exit code: ${run.exitCode}`);
+  // The verdict is what makes this entry teachable: the 7-day journal
+  // injection used to say only that runs finished, never whether they worked.
+  if (run.outcomeVerdict) {
+    bodyLines.push(
+      `outcome: ${run.outcomeVerdict}${run.outcomeNote ? ` — ${run.outcomeNote}` : ""}`,
+    );
+  }
   const entry = journalRepo.create({
     employeeId,
     kind: "run",
@@ -737,6 +785,58 @@ async function journalQuietly(employeeId: string, routine: Routine, run: Run): P
 }
 
 /**
+ * Grade a completed Run against its Routine's acceptance criteria and stamp
+ * the verdict on the row. Best-effort by design: the Run is already terminal
+ * and persisted, and the check must never be able to change that — a checker
+ * outage leaves `outcomeVerdict` null exactly as if no criteria were set.
+ *
+ * Re-reads the Routine rather than trusting the object captured at start:
+ * with runs allowed to last six hours, criteria edited mid-run should judge
+ * (or skip) by what the row says now.
+ */
+async function assessOutcomeQuietly(
+  runRepo: Repository<Run>,
+  run: Run,
+  routine: Routine,
+  emp: AIEmployee,
+  model: AIModel,
+): Promise<void> {
+  try {
+    const fresh = await AppDataSource.getRepository(Routine).findOneBy({ id: routine.id });
+    if (!fresh || !fresh.acceptanceCriteria.trim()) return;
+    const assessment = await assessRunOutcome({ run, routine: fresh, employee: emp, model });
+    const tokensIn = run.tokensIn + assessment.usage.inputTokens;
+    const tokensOut = run.tokensOut + assessment.usage.outputTokens;
+    // Conditional on the status this process persisted, so a row another
+    // owner has since rewritten (or a deleted Routine's cascade) is left alone.
+    const updated = await runRepo.update(
+      { id: run.id, status: "completed" },
+      {
+        routineId: run.routineId,
+        outcomeVerdict: assessment.verdict,
+        outcomeNote: assessment.note,
+        tokensIn,
+        tokensOut,
+      },
+    );
+    if (updated.affected !== 1) return;
+    run.outcomeVerdict = assessment.verdict;
+    run.outcomeNote = assessment.note;
+    run.tokensIn = tokensIn;
+    run.tokensOut = tokensOut;
+    if (assessment.verdict === "off_goal") {
+      void notifyRunOffGoal(run, assessment.note).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error(`[runner] failed to notify off-goal run ${run.id}:`, err);
+      });
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[runner] outcome check failed for run ${run.id}:`, err);
+  }
+}
+
+/**
  * Schedule the next attempt on the run row itself, in the same save as its
  * terminal status, so an owed retry survives a crash. Writes a transcript line
  * so the reason a run reappears an hour later is legible from the log alone.
@@ -770,6 +870,18 @@ function composeRoutineMessage(routine: Routine, missedSlots: number): string {
     `## Routine: ${routine.name}`,
     "",
     routine.body,
+    // The bar the Run will be judged against. Folding it into the brief means
+    // the employee is aiming at the same criteria the outcome check grades.
+    ...(routine.acceptanceCriteria.trim()
+      ? [
+          "",
+          "## Acceptance criteria",
+          routine.acceptanceCriteria.trim(),
+          "",
+          "This run's transcript is graded against the criteria above after it finishes. " +
+            "Make sure the transcript shows they were met — do the work, don't just claim it.",
+        ]
+      : []),
     "",
     "---",
     "Run this routine now. Produce the expected output.",

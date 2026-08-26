@@ -58,6 +58,8 @@ import {
 } from "../services/routineFolders.js";
 import { registerRoutine } from "../services/cron.js";
 import { recordAudit } from "../services/audit.js";
+import { kickoffHandoff } from "../services/handoffKickoff.js";
+import { kickoffTodoReview } from "../services/reviewKickoff.js";
 import {
   noteAttachmentForToken,
   resolveMcpToken,
@@ -9345,6 +9347,15 @@ mcpInternalRouter.post(
         console.error("[mcpInternal] notify review requested failed:", e);
       });
     }
+    // An AI reviewer gets a session, not a bell — brief it to review the work
+    // now and move the card itself. Guards (self-review, pass cap, no model)
+    // live in the service.
+    if (justEnteredReview && t.reviewerEmployeeId && t.reviewerEmployeeId !== self.id) {
+      void kickoffTodoReview({ companyId: co.id, todoId: t.id }).catch((e) => {
+        // eslint-disable-next-line no-console
+        console.error("[mcpInternal] review kickoff failed:", e);
+      });
+    }
 
     await recordAudit({
       companyId: co.id,
@@ -11461,6 +11472,12 @@ mcpInternalRouter.post(
       `Received handoff "${h.title}" from ${self.name}`,
       h.body.length > 240 ? `${h.body.slice(0, 240)}…` : h.body,
     );
+    // The "go" signal: brief the receiver in a background session now rather
+    // than leaving the row for its next spawn's journal to mention.
+    void kickoffHandoff({ companyId: co.id, handoffId: h.id }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error("[mcp] handoff kickoff failed:", err);
+    });
     res.json({ handoff: serializeHandoff(h) });
   },
 );

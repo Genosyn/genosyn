@@ -22,6 +22,7 @@ import { Menu, MenuHeader, MenuItem, MenuSeparator } from "../components/ui/Menu
 import { useDialog } from "../components/ui/Dialog";
 import {
   RunLiveModal,
+  RunOutcomeChip,
   RunStatusChip,
   overdueFor,
   timeAgo,
@@ -678,6 +679,9 @@ function RoutineRow({
         {r.lastRun ? (
           <div className="flex items-center gap-2">
             <RunStatusChip status={r.lastRun.status} size="xs" />
+            {r.lastRun.outcomeVerdict && (
+              <RunOutcomeChip verdict={r.lastRun.outcomeVerdict} size="xs" />
+            )}
             <span
               className="truncate text-xs text-slate-400 dark:text-slate-500"
               title={new Date(r.lastRun.startedAt).toLocaleString()}

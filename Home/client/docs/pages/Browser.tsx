@@ -76,7 +76,10 @@ export function Browser() {
         <Strong>Settings → Browser</Strong>, and flip on <Strong>Browser access</Strong>. The same
         card holds the two shaping controls: the <Strong>allow list</Strong> (which hosts the
         employee may open) and <Strong>require approval for form submits</Strong> (a
-        human-in-the-loop gate on anything that sends data). A{" "}
+        human-in-the-loop gate on anything that sends data). The submit gate is <Strong>on by
+        default for newly created employees</Strong> — the open web is exactly where hostile
+        content meets side effects, so a human turns it off deliberately; employees created
+        before that default flipped keep their existing setting. A{" "}
         <DocLink to="/docs/routines">Routine</DocLink> can override the toggle per schedule — useful
         for an employee who may browse during a nightly research run but not in ad-hoc chat.
       </P>

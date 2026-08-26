@@ -35,6 +35,7 @@ import {
   retireStaleStandingClaims,
   sweepPendingStandingQuestions,
 } from "./tldrStandingQuestions.js";
+import { sweepStalledWork } from "./escalations.js";
 
 /**
  * Heartbeat-based routine scheduler.
@@ -497,6 +498,15 @@ async function tick(): Promise<void> {
       await releaseInterruptedTldrQuestionActions(now).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] TLDR suggested action release failed:", err);
+      });
+
+      // Phase 7 — end the silences. Re-page humans about Approvals, Decisions,
+      // and Handoffs that have sat unanswered past their stall threshold.
+      // Idempotent per row (deduplicated against the notification feed), so
+      // running it on every heartbeat costs three bounded queries.
+      await sweepStalledWork(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] stall sweep failed:", err);
       });
     });
   } finally {

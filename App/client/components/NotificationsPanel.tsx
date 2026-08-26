@@ -1,14 +1,18 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  AlertTriangle,
   AtSign,
   Bell,
+  BellRing,
   CheckCircle2,
   ClipboardCheck,
   GitBranch,
+  Hourglass,
   Landmark,
   Mail,
   ShieldCheck,
+  Target,
 } from "lucide-react";
 import { api, Company, Notification, NotificationKind } from "../lib/api";
 import { errorMessage } from "../lib/errors";
@@ -319,6 +323,18 @@ function KindIcon({
       return <Landmark size={size} className={className} />;
     case "mail_handover":
       return <Mail size={size} className={className} />;
+    case "revenue_follow_up":
+      return <BellRing size={size} className={className} />;
+    case "run_failed":
+      return <AlertTriangle size={size} className={className} />;
+    case "run_off_goal":
+      return <Target size={size} className={className} />;
+    case "approval_stale":
+      return <Hourglass size={size} className={className} />;
+    case "decision_stale":
+      return <Hourglass size={size} className={className} />;
+    case "handoff_overdue":
+      return <Hourglass size={size} className={className} />;
   }
 }
 
@@ -346,6 +362,30 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
   mail_handover: {
     iconBg: "bg-sky-100 dark:bg-sky-500/15",
     iconFg: "text-sky-600 dark:text-sky-300",
+  },
+  revenue_follow_up: {
+    iconBg: "bg-sky-100 dark:bg-sky-500/15",
+    iconFg: "text-sky-600 dark:text-sky-300",
+  },
+  run_failed: {
+    iconBg: "bg-rose-100 dark:bg-rose-500/15",
+    iconFg: "text-rose-600 dark:text-rose-300",
+  },
+  run_off_goal: {
+    iconBg: "bg-orange-100 dark:bg-orange-500/15",
+    iconFg: "text-orange-600 dark:text-orange-300",
+  },
+  approval_stale: {
+    iconBg: "bg-amber-100 dark:bg-amber-500/15",
+    iconFg: "text-amber-600 dark:text-amber-300",
+  },
+  decision_stale: {
+    iconBg: "bg-amber-100 dark:bg-amber-500/15",
+    iconFg: "text-amber-600 dark:text-amber-300",
+  },
+  handoff_overdue: {
+    iconBg: "bg-amber-100 dark:bg-amber-500/15",
+    iconFg: "text-amber-600 dark:text-amber-300",
   },
 };
 

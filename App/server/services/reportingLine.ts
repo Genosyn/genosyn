@@ -1,5 +1,6 @@
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { Membership } from "../db/entities/Membership.js";
 
 /**
  * Who an AI Employee answers to.
@@ -19,6 +20,15 @@ const MAX_REPORTING_DEPTH = 64;
  * The Member an employee ultimately reports to, or null when the chain ends
  * at an employee with no manager. Walks upward through AI managers, so an
  * employee reporting to a lead who reports to a human resolves to that human.
+ *
+ * The final pointer is confirmed against a live `Membership` before it is
+ * returned. `reportsToUserId` is only ever *set* to a validated Member, but
+ * nothing clears it when that Member is removed from the company (only full
+ * account deletion does), so the column can name someone who no longer
+ * belongs here. That matters because callers use this answer as an audience:
+ * push subscriptions are per-account and outlive a membership, so an
+ * unchecked pointer would deliver company activity to an ex-colleague's
+ * phone. A dangling pointer therefore reads as "no manager".
  */
 export async function managingMemberIdForEmployee(
   companyId: string,
@@ -35,7 +45,13 @@ export async function managingMemberIdForEmployee(
       select: { id: true, reportsToEmployeeId: true, reportsToUserId: true },
     });
     if (!employee) return null;
-    if (employee.reportsToUserId) return employee.reportsToUserId;
+    if (employee.reportsToUserId) {
+      const stillAMember = await AppDataSource.getRepository(Membership).countBy({
+        companyId,
+        userId: employee.reportsToUserId,
+      });
+      return stillAMember > 0 ? employee.reportsToUserId : null;
+    }
     currentId = employee.reportsToEmployeeId;
   }
   return null;

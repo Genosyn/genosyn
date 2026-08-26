@@ -12,10 +12,13 @@ import {
 } from "../middleware/auth.js";
 
 /**
- * Compute-time + run-count rollups. We don't have provider-emitted token/cost
- * metadata yet (the CLIs don't surface it in a stable way), so V1 reports what
- * we can measure reliably: number of runs and wall-clock duration. The UI
- * calls this out so operators know what's missing.
+ * Run-count, compute-time, and token rollups. Tokens come from the provider's
+ * own per-turn counts, summed onto each Run by the runner (`Run.tokensIn` /
+ * `Run.tokensOut`) — the only source that can be right, since a custom
+ * endpoint can serve any tokenizer. Dollar costs are still not computed:
+ * pricing varies per provider/model/contract, so the UI shows tokens and lets
+ * the operator do their own arithmetic. Runs from before token accounting
+ * shipped count as zero.
  *
  * Returns per-window totals plus per-employee and per-routine breakdowns so
  * the Usage page can render a dashboard from a single round-trip.
@@ -33,6 +36,8 @@ type RunBucket = {
   timeout: number;
   interrupted: number;
   durationMs: number;
+  tokensIn: number;
+  tokensOut: number;
 };
 
 function emptyBucket(): RunBucket {
@@ -44,6 +49,8 @@ function emptyBucket(): RunBucket {
     timeout: 0,
     interrupted: 0,
     durationMs: 0,
+    tokensIn: 0,
+    tokensOut: 0,
   };
 }
 
@@ -60,6 +67,8 @@ function accumulate(b: RunBucket, run: Run): void {
     const ms = run.finishedAt.getTime() - run.startedAt.getTime();
     if (ms > 0) b.durationMs += ms;
   }
+  b.tokensIn += run.tokensIn ?? 0;
+  b.tokensOut += run.tokensOut ?? 0;
 }
 
 usageRouter.get("/usage", async (req, res) => {

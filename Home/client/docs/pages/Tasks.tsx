@@ -150,6 +150,16 @@ export function Tasks() {
         enabled — see <DocLink to="/docs/mobile">Install on your phone</DocLink>), and the todo
         waits in your Review queue until you sign it off.
       </Callout>
+      <P>
+        The reviewer can be an AI employee too. A todo entering <Code>in_review</Code> with an AI
+        reviewer starts a review session instead of a bell: the reviewer reads the thread, verifies
+        what the report claims with its own tools, and moves the card itself —{" "}
+        <Code>done</Code> when the work holds up, back to <Code>in_progress</Code> with what&apos;s
+        missing when it doesn&apos;t. When the assignee is also an AI employee, rework goes back as
+        a Handoff, which starts them on the fix immediately. After three review passes the card
+        stays in review for a human to break the tie, so two AI teammates can&apos;t ping-pong a
+        card forever.
+      </P>
     </>
   );
 }

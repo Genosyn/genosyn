@@ -10,12 +10,14 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { errorMessage } from "../lib/errors";
 import type { SettingsOutletCtx } from "./SettingsLayout";
+import { formatTokens } from "../components/routines/RunViews";
 
 /**
- * Compute-time + run-count visibility per company. We don't surface model
- * token/cost metadata yet — this page reports what we can measure from the
- * Run table (count + wall-clock duration). A note calls this out so operators
- * know what's missing.
+ * Run-count, compute-time, and token visibility per company. Tokens are the
+ * provider's own per-turn counts summed onto each Run; dollar costs are not
+ * computed because pricing varies per provider/model/contract — the note
+ * under the title says so, and the token columns let operators do their own
+ * arithmetic.
  */
 const WINDOW_OPTIONS = [
   { label: "Last 24 hours", value: 1 },
@@ -66,7 +68,9 @@ export default function Usage() {
         }
       />
       <p className="mb-6 text-xs text-slate-500 dark:text-slate-400">
-        Measured from routine runs. Token counts and dollar costs aren&apos;t tracked yet.
+        Measured from routine runs. Tokens are the provider&apos;s own counts, summed per run;
+        runs from before token accounting shipped count as zero. Dollar costs depend on your
+        model pricing, so they&apos;re left to you.
       </p>
       {loadError ? (
         <FormError message={loadError} />
@@ -92,8 +96,13 @@ function TotalsCards({ summary }: { summary: UsageSummary }) {
   const t = summary.totals;
   const successRate = t.runs ? Math.round((t.completed / t.runs) * 100) : 0;
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       <StatCard label="Runs" value={String(t.runs)} sub={`over ${summary.windowDays} days`} />
+      <StatCard
+        label="Tokens"
+        value={formatTokens((t.tokensIn ?? 0) + (t.tokensOut ?? 0))}
+        sub={`${formatTokens(t.tokensIn ?? 0)} in · ${formatTokens(t.tokensOut ?? 0)} out`}
+      />
       <StatCard label="Compute time" value={formatDuration(t.durationMs)} sub="wall-clock" />
       <StatCard label="Completed" value={`${t.completed}`} sub={`${successRate}% success`} />
       <StatCard
@@ -131,6 +140,7 @@ function ByEmployeeTable({ summary, company }: { summary: UsageSummary; company:
             <tr>
               <th className="py-2">Employee</th>
               <th className="py-2 text-right">Runs</th>
+              <th className="py-2 text-right">Tokens</th>
               <th className="py-2 text-right">Compute</th>
               <th className="py-2 text-right">Success</th>
             </tr>
@@ -147,6 +157,12 @@ function ByEmployeeTable({ summary, company }: { summary: UsageSummary; company:
                   </Link>
                 </td>
                 <td className="py-2 text-right tabular-nums">{e.runs}</td>
+                <td
+                  className="py-2 text-right tabular-nums"
+                  title={`${formatTokens(e.tokensIn ?? 0)} in · ${formatTokens(e.tokensOut ?? 0)} out`}
+                >
+                  {formatTokens((e.tokensIn ?? 0) + (e.tokensOut ?? 0))}
+                </td>
                 <td className="py-2 text-right tabular-nums">{formatDuration(e.durationMs)}</td>
                 <td className="py-2 text-right tabular-nums">
                   {e.runs ? Math.round((e.completed / e.runs) * 100) : 0}%
@@ -175,6 +191,7 @@ function ByRoutineTable({ summary, company }: { summary: UsageSummary; company: 
               <th className="py-2">Routine</th>
               <th className="py-2">Employee</th>
               <th className="py-2 text-right">Runs</th>
+              <th className="py-2 text-right">Tokens</th>
               <th className="py-2 text-right">Compute</th>
               <th className="py-2 text-right">Avg duration</th>
             </tr>
@@ -200,6 +217,12 @@ function ByRoutineTable({ summary, company }: { summary: UsageSummary; company: 
                     )}
                   </td>
                   <td className="py-2 text-right tabular-nums">{r.runs}</td>
+                  <td
+                    className="py-2 text-right tabular-nums"
+                    title={`${formatTokens(r.tokensIn ?? 0)} in · ${formatTokens(r.tokensOut ?? 0)} out`}
+                  >
+                    {formatTokens((r.tokensIn ?? 0) + (r.tokensOut ?? 0))}
+                  </td>
                   <td className="py-2 text-right tabular-nums">{formatDuration(r.durationMs)}</td>
                   <td className="py-2 text-right tabular-nums">{formatDuration(avg)}</td>
                 </tr>

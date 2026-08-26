@@ -77,6 +77,17 @@ export class Todo {
   @Column({ type: "varchar", nullable: true })
   reviewerUserId!: string | null;
 
+  /**
+   * How many AI review sessions this todo has had (`services/reviewKickoff.ts`).
+   * Counted on the row rather than inferred from the comment thread, because
+   * an AI reviewer also comments when a human @-mentions it — inferring would
+   * let ordinary thread chatter silently disable reviewing. Two AI teammates
+   * can otherwise bounce a card between review and rework indefinitely, so
+   * past the cap in `reviewKickoff.ts` the card waits for a human instead.
+   */
+  @Column({ type: "integer", default: 0 })
+  aiReviewPasses!: number;
+
   @Column({ type: "varchar", nullable: true })
   createdById!: string | null;
 

@@ -81,7 +81,20 @@ export type EmployeeAgentParams = {
 };
 
 export type EmployeeAgentResult =
-  | { status: "ok"; finalText: string; steps: number }
+  | {
+      status: "ok";
+      finalText: string;
+      steps: number;
+      /**
+       * Why the loop ended, from {@link runAgentLoop}: `"end_turn"`,
+       * `"max_steps"`, `"aborted"`, or a provider-specific reason. Undefined on
+       * the OpenAI subscription runtime, which does not report one. Callers
+       * that care about honest completion treat `"max_steps"` as unfinished
+       * work — the loop was stopped by the runaway backstop, not by the model
+       * deciding it was done.
+       */
+      stopReason?: string;
+    }
   | { status: "error"; error: string };
 
 /**
@@ -213,7 +226,12 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
       signal: params.signal,
       callbacks: params.callbacks,
     });
-    return { status: "ok", finalText: result.finalText, steps: result.steps };
+    return {
+      status: "ok",
+      finalText: result.finalText,
+      steps: result.steps,
+      stopReason: result.stopReason,
+    };
   } catch (err) {
     reportAgentTurnFailure("request failed", params.employeeId, params.model.id, params.signal, err);
     return {
@@ -264,7 +282,12 @@ export async function runRestrictedEmployeeAgent(
       signal: params.signal,
       callbacks: params.callbacks,
     });
-    return { status: "ok", finalText: result.finalText, steps: result.steps };
+    return {
+      status: "ok",
+      finalText: result.finalText,
+      steps: result.steps,
+      stopReason: result.stopReason,
+    };
   } catch (err) {
     reportAgentTurnFailure("restricted request failed", params.employeeId, params.model.id, params.signal, err);
     return {

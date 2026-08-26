@@ -87,10 +87,13 @@ export class AIEmployee {
    * When true, the `browser_submit` tool queues an `Approval` row
    * (kind=`browser_action`) and returns a `pending_approval` status to the
    * model. The model must call `browser_resume(approvalId)` to re-fire the
-   * submit once a human approves it from the Approvals inbox. Off by
-   * default — the gate is opt-in because the latency hit is significant.
+   * submit once a human approves it from the Approvals inbox. On by default
+   * since M49 — a browser fed by the open web is exactly where hostile
+   * content meets side effects, so new employees start gated and a human
+   * turns the gate off deliberately. Employees created before the default
+   * flipped keep whatever their row already said.
    */
-  @Column({ type: "boolean", default: false })
+  @Column({ type: "boolean", default: true })
   browserApprovalRequired!: boolean;
 
   @CreateDateColumn()

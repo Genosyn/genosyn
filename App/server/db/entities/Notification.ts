@@ -24,7 +24,12 @@ export type NotificationKind =
   | "decision_pending"
   | "finance_review_ready"
   | "mail_handover"
-  | "revenue_follow_up";
+  | "revenue_follow_up"
+  | "run_failed"
+  | "run_off_goal"
+  | "approval_stale"
+  | "decision_stale"
+  | "handoff_overdue";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -35,7 +40,9 @@ export type NotificationEntityKind =
   | "decision"
   | "ledger_entry"
   | "mail_handover"
-  | "revenue_follow_up";
+  | "revenue_follow_up"
+  | "run"
+  | "handoff";
 
 @Entity("notifications")
 @Index(["userId", "readAt"])

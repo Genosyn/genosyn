@@ -147,6 +147,14 @@ don't re-litigate them.
   provider CLI harnesses remain forbidden.
 - **Run** — a single execution of a routine. The agent's transcript (streamed
   text + tool activity) is stored on `Run.logContent` (256 KB cap).
+- **Acceptance criteria** — a Routine's plain-language definition of done
+  (`Routine.acceptanceCriteria`). Folded into every Run brief; empty means no
+  outcome check runs.
+- **Outcome verdict** — how a completed Run measured against its Routine's
+  acceptance criteria (`Run.outcomeVerdict`: `achieved` / `unclear` /
+  `off_goal`), judged by a restricted zero-tool checker after the transcript is
+  final. A separate axis from Run status, which only ever says the loop
+  returned.
 - **TLDR** — one company-wide, AI-written recap of public Workspace messages,
   company-visible journal entries, and terminal Routine Run output from a
   bounded period. Generated on a fixed
@@ -2931,6 +2939,83 @@ routine it came from. This is the same panel pointed at scheduled work.
       primitives with the browser and repository panels, collapsing to a spine
       and taking the pane on a narrow window. Deleting a routine takes its
       conversation with it.
+### M50 — Outcome truth, run economics, loud failures ✅
+
+A Run's `completed` only ever meant "the agent loop returned without a provider
+error" — even step-limit exhaustion finalized green — and a company that
+believed its AI staff was working could have three Routines silently wedged: a
+failed Run raised no bell, a gated tick whose Approval nobody answered was
+simply lost, an unanswered Decision blocked its employee forever, a Handoff was
+a note on a desk until the receiver's next spawn happened to read its journal.
+This milestone is the eyes and the alarm bells: the platform starts telling
+good work from confident failure, counting what work costs, and refusing to
+let stalled work stay silent.
+
+- [x] **Acceptance criteria on Routines** (`Routine.acceptanceCriteria`,
+      Settings → Outcome check). Plain-language definition of done, folded into
+      every Run brief so the employee aims at the same bar it is graded
+      against. Empty (the default) keeps exactly the old behaviour.
+- [x] **Outcome verdicts.** After a completed Run on a Routine with criteria, a
+      restricted zero-tool checker (the TLDR seam's shape: one submission tool,
+      transcript as untrusted evidence) grades the transcript and stamps
+      `Run.outcomeVerdict` (`achieved` / `unclear` / `off_goal`) +
+      `outcomeNote`. Status is untouched — `completed` keeps meaning "the loop
+      returned"; the verdict is the second, honest axis. Verdicts render as
+      chips on run lists and the log modal, land in the journal entry (so the
+      7-day injection finally teaches whether work *worked*), and an off-goal
+      Run notifies admins and the employee's managing Member.
+- [x] **Step-limit exhaustion is a failure.** `stopReason` now rides the agent
+      result; a Run stopped by the runaway backstop finalizes `failed` with the
+      reason in the transcript, and enters the ordinary retry policy.
+- [x] **Token accounting.** `Run.tokensIn` / `tokensOut` sum the provider's own
+      per-turn counts (the verdict turn included); Usage rolls them up per
+      company / employee / Routine with token columns and totals. Dollar costs
+      stay deliberately uncomputed — pricing is the operator's contract.
+- [x] **Failed Runs page a human.** Terminal `failed` / `timeout` /
+      `interrupted` with no retry owed → bell + push (`run_failed`) to
+      owners/admins and the employee's managing Member, deep-linked to the Run
+      log. Mirrors the Home panel's retry-aware quieting.
+- [x] **The stall sweep** (`services/escalations.ts`, on the scheduler
+      heartbeat). Approvals pending past 24h, Decisions blocking past 24h, and
+      Handoffs past their `dueAt` re-page the humans who can unblock them,
+      exactly once. "Once" is a durable `stallRemindedAt` stamp on the row,
+      claimed with a conditional UPDATE — not a lookup in the notification
+      feed, because a Member can delete their own read bells and a deletable
+      marker would re-arm the nag forever; and because the stamp is part of the
+      query, the sweep can never wedge behind a page of rows it already
+      handled. `Handoff.dueAt` is no longer "unenforced".
+- [x] **Audiences are live Memberships.** Nothing clears an employee's
+      `reportsToUserId` or a Decision's `assigneeUserId` when that Member is
+      removed from a company, and push subscriptions are per-account and
+      outlive a membership — so `managingMemberIdForEmployee` now confirms the
+      Member is still in the company before returning them, and a Decision
+      assigned to someone who has left pages the owners instead. The off-goal
+      note is model-written from an untrusted transcript, so it meets the same
+      redaction boundary as an Approval summary before it becomes push copy.
+- [x] **Handoffs kick off.** Creating a Handoff (MCP or API) immediately briefs
+      the receiver in a background session under employee authority — the same
+      "go" signal shape as todo assignment and Decision answers — instructed to
+      do the work now and settle the row via `complete_handoff` /
+      `decline_handoff`. No model → the journal delivery remains the fallback.
+- [x] **AI reviewers review.** A todo entering `in_review` with an AI reviewer
+      starts a review session ("bots don't get a bell" — they get a session):
+      the reviewer verifies the thread's claims with its tools, moves the card
+      itself, and — when the assignee is an AI teammate — sends rework back as
+      a Handoff, which now kicks off. Three passes cap the AI⇄AI ping-pong,
+      counted on `Todo.aiReviewPasses` and claimed with a conditional UPDATE
+      rather than inferred from the comment thread (an AI reviewer also
+      comments when a human @-mentions it, so counting comments would let
+      ordinary chatter silently disable reviewing). An employee never reviews
+      work it was itself assigned.
+- [x] **Safer browser default.** `browserApprovalRequired` defaults **on** for
+      new employees — the open web is where hostile content meets side effects,
+      so the gate is now opt-out. Existing employees keep their stored setting.
+
+Deliberately *not* in M50, each big enough to be its own milestone: taint-aware
+turn policy (untrusted content escalating side-effecting tools one rung),
+Approval-gated self-modification (Soul/Skill/Routine edits), Goals/KPIs, Stripe
+payment links on invoices, and bulk knowledge/CRM migration imports. They are
+the next rungs of the same ladder.
 
 ## V1 backlog (post-MVP)
 

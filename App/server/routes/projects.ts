@@ -22,6 +22,7 @@ import { chatWithEmployee } from "../services/chat.js";
 import { createNotification } from "../services/notifications.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { kickoffAssignedTodo } from "../services/todoKickoff.js";
+import { kickoffTodoReview } from "../services/reviewKickoff.js";
 import {
   ProjectActor,
   countWriteHumans,
@@ -871,8 +872,9 @@ projectsRouter.patch(
     await AppDataSource.getRepository(Todo).save(t);
 
     // Notify the human reviewer when work first enters their queue. Skip if
-    // the reviewer is themselves the one moving the card (no self-pings) or
-    // if the reviewer is an AI employee — bots don't get a bell.
+    // the reviewer is themselves the one moving the card (no self-pings). An
+    // AI reviewer doesn't get a bell — it gets a session: the review kickoff
+    // below briefs it to actually review the work and move the card itself.
     if (justEnteredReview && t.reviewerUserId && t.reviewerUserId !== req.userId) {
       void notifyTodoReviewRequested({
         companyId: cid,
@@ -882,6 +884,12 @@ projectsRouter.patch(
       }).catch((e) => {
         // eslint-disable-next-line no-console
         console.error("[projects] notify review requested failed:", e);
+      });
+    }
+    if (justEnteredReview && t.reviewerEmployeeId) {
+      void kickoffTodoReview({ companyId: cid, todoId: t.id }).catch((e) => {
+        // eslint-disable-next-line no-console
+        console.error("[projects] review kickoff failed:", e);
       });
     }
 

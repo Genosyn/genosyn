@@ -411,6 +411,12 @@ export type Routine = {
    * routine's whole time budget.
    */
   retryOnTimeout?: boolean;
+  /**
+   * The Routine's definition of done. Empty means no outcome check runs;
+   * non-empty criteria are folded into every Run brief, and a completed Run
+   * is graded against them by a restricted checker (`Run.outcomeVerdict`).
+   */
+  acceptanceCriteria?: string;
   tags: CompanyTag[];
 };
 export type CatchUpPolicy = "once" | "skip";
@@ -603,7 +609,22 @@ export type Run = {
   retryAt?: string | null;
   /** Occurrences missed during downtime that this run stands in for. */
   missedSlots?: number;
+  /** How the run measured against its Routine's acceptance criteria. */
+  outcomeVerdict?: RunOutcomeVerdict | null;
+  /** The checker's one-or-two-sentence reason for the verdict. */
+  outcomeNote?: string | null;
+  /** Prompt tokens billed across every model turn of this run. */
+  tokensIn?: number;
+  /** Completion tokens billed across every model turn of this run. */
+  tokensOut?: number;
 };
+/**
+ * `achieved` — the transcript shows the criteria were met. `off_goal` — the
+ * run finished but missed them. `unclear` — not enough evidence either way
+ * (including when the check itself failed). Null/absent when the Routine
+ * declares no criteria.
+ */
+export type RunOutcomeVerdict = "achieved" | "unclear" | "off_goal";
 export type RunBrowserRecordingStatus = "recording" | "finalizing" | "ready" | "failed";
 export type RunBrowserRecording = {
   /** BrowserSession id; one Run may have several when it delegates browser work. */
@@ -626,6 +647,12 @@ export type RunLog = {
   finishedAt?: string | null;
   retryAt?: string | null;
   attempt?: number;
+  outcomeVerdict?: RunOutcomeVerdict | null;
+  outcomeNote?: string | null;
+  tokensIn?: number;
+  tokensOut?: number;
+  /** A verdict is still owed: the run completed and its check hasn't landed. */
+  awaitingOutcome?: boolean;
   /**
    * Silent visual recordings captured by browser sessions that actually ran.
    * There can be several when a Run delegates parallel browser work.
@@ -925,6 +952,10 @@ export type UsageBucket = {
   timeout: number;
   interrupted: number;
   durationMs: number;
+  /** Provider-billed prompt tokens across the window's runs. */
+  tokensIn: number;
+  /** Provider-billed completion tokens across the window's runs. */
+  tokensOut: number;
 };
 export type UsageEmployeeRow = UsageBucket & {
   employeeId: string;
@@ -2314,7 +2345,13 @@ export type NotificationKind =
   | "approval_pending"
   | "decision_pending"
   | "finance_review_ready"
-  | "mail_handover";
+  | "mail_handover"
+  | "revenue_follow_up"
+  | "run_failed"
+  | "run_off_goal"
+  | "approval_stale"
+  | "decision_stale"
+  | "handoff_overdue";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -2323,7 +2360,11 @@ export type NotificationEntityKind =
   | "todo"
   | "approval"
   | "decision"
-  | "ledger_entry";
+  | "ledger_entry"
+  | "mail_handover"
+  | "revenue_follow_up"
+  | "run"
+  | "handoff";
 
 export type NotificationActor = {
   kind: NotificationActorKind;

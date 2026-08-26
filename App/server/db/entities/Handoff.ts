@@ -65,6 +65,16 @@ export class Handoff {
   @Column({ type: dateTimeColumnType, nullable: true })
   completedAt!: Date | null;
 
+  /**
+   * When the stall sweep escalated this handoff for being past `dueAt` while
+   * still pending (`services/escalations.ts`). See
+   * {@link Approval.stallRemindedAt} for why the marker lives on the row.
+   * This is what makes `dueAt` mean something — it used to be documented as
+   * a soft deadline nothing enforced.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  stallRemindedAt!: Date | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 
