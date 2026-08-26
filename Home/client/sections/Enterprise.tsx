@@ -50,7 +50,7 @@ const REASONS: Card[] = [
   {
     icon: LockKeyhole,
     title: "Keep the data plane",
-    body: "Company records, model credentials, Run history, and uploaded artifacts stay in infrastructure you operate.",
+    body: "Company records, model credentials, Run history, and uploaded artifacts stay in infrastructure you operate — including everything an unattended Routine touches.",
   },
   {
     icon: KeyRound,
@@ -59,8 +59,8 @@ const REASONS: Card[] = [
   },
   {
     icon: ShieldCheck,
-    title: "Fit existing controls",
-    body: "Put Genosyn behind your network, identity, database, logging, backup, and change-management standards.",
+    title: "Bound the autonomy",
+    body: "Grants scope what each employee can reach and approval gates stop sensitive actions — inside your network, identity, logging, backup, and change-management standards.",
   },
   {
     icon: Network,
@@ -104,7 +104,12 @@ export function Enterprise(): ReactNode {
   );
 }
 
-const ENTERPRISE_PROOF = ["MIT licensed", "Your model keys", "SQLite or Postgres", "SSO-ready"];
+const ENTERPRISE_PROOF = [
+  "MIT licensed",
+  "Your model keys",
+  "Approval gates on sensitive work",
+  "SSO-ready",
+];
 
 function EnterpriseHero() {
   return (
@@ -118,13 +123,13 @@ function EnterpriseHero() {
           </HeroBadge>
 
           <HeroTitle>
-            Your company. Your models. <HeroTitleMuted>Your control.</HeroTitleMuted>
+            Run autonomously. <HeroTitleMuted>Inside your perimeter.</HeroTitleMuted>
           </HeroTitle>
 
           <HeroLede>
-            Run the open-source company operating system inside the network, identity, database, and
-            AI Model stack your team already trusts — with a production path designed around your
-            controls.
+            Autonomous work is only as trustworthy as the place it runs. Genosyn puts the whole
+            operating system inside the network, identity, database, and AI Model stack your team
+            already governs — with a production path designed around your controls.
           </HeroLede>
 
           <HeroActions>
@@ -223,7 +228,7 @@ function EnterpriseReasons() {
         <div className="mx-auto max-w-3xl text-center">
           <SectionEyebrow>Control without compromise</SectionEyebrow>
           <h2 className="mt-5 text-balance text-4xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-5xl">
-            AI Employees inside your operating boundary.
+            An autonomous company inside your operating boundary.
           </h2>
         </div>
         <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

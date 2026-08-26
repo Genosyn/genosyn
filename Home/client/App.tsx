@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { ArrowRight } from "lucide-react";
 import { Nav } from "@/sections/Nav";
 import { Hero } from "@/sections/Hero";
+import { Autonomy } from "@/sections/Autonomy";
 import { Primitives } from "@/sections/Primitives";
 import { Features } from "@/sections/Features";
 import { HowItWorks } from "@/sections/HowItWorks";
@@ -51,6 +52,7 @@ function Landing() {
       <Nav />
       <main>
         <Hero />
+        <Autonomy />
         <HowItWorks />
         <Primitives />
         <Features />

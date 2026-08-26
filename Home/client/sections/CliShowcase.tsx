@@ -9,7 +9,7 @@ const FACTS = [
   {
     icon: Server,
     title: "Runs where you choose",
-    body: "Start on one Linux host with Docker. Move to Postgres when the company needs it.",
+    body: "Start on one Linux host with Docker. Move to Postgres when the company outgrows it.",
   },
   {
     icon: Database,
@@ -18,8 +18,8 @@ const FACTS = [
   },
   {
     icon: ShieldCheck,
-    title: "Operate it with confidence",
-    body: "The Genosyn CLI handles upgrades, health checks, backups, logs, and recovery.",
+    title: "Autonomy needs uptime",
+    body: "The Genosyn CLI handles upgrades, health checks, backups, logs, and recovery — so the Routines keep firing.",
   },
 ];
 
@@ -46,9 +46,9 @@ export function CliShowcase() {
               Your company. Your infrastructure. Your keys.
             </h2>
             <p className="mt-5 max-w-xl text-base leading-7 text-slate-600 sm:text-lg">
-              Genosyn installs as a single self-hosted application. Bring Anthropic, OpenAI, or a
-              custom OpenAI-compatible endpoint and keep the operating data on infrastructure you
-              control.
+              A company that runs itself should not run on someone else&apos;s computer. Genosyn
+              installs as a single self-hosted application — bring Anthropic, OpenAI, or a custom
+              OpenAI-compatible endpoint, and keep the operating data on infrastructure you control.
             </p>
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <a

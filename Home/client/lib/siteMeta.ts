@@ -19,7 +19,7 @@ export type RouteHead = {
 };
 
 const SITE_DESCRIPTION =
-  "Open-source, self-hosted company operating system where Members and AI Employees share context, tools, work, and review queues.";
+  "Open-source, self-hosted operating system for autonomous companies: AI Employees hold real roles, run the work on their own schedule, and escalate only the decisions that need a human.";
 
 const ORGANIZATION = {
   "@context": "https://schema.org",
@@ -119,16 +119,16 @@ export function allRoutes(): RouteHead[] {
   const routes: RouteHead[] = [
     {
       path: "/",
-      title: "Genosyn — The company operating system for people and AI",
+      title: "Genosyn — Build an autonomous company",
       description: SITE_DESCRIPTION,
       jsonLd: [ORGANIZATION, WEBSITE, SOFTWARE_APPLICATION],
     },
     {
       path: "/products",
-      title: "Products — every tool in the box · Genosyn",
+      title: "Products — the tools an autonomous company runs on · Genosyn",
       // Derived, not hand-listed: the hand-written version had drifted and
       // omitted Paid Marketing while the page itself advertised the full count.
-      description: `Every tool Genosyn ships built in: ${PRODUCTS.map((p) => p.name).join(", ")}.`,
+      description: `Every tool an autonomous company runs on, built in: ${PRODUCTS.map((p) => p.name).join(", ")}.`,
       jsonLd: [
         ORGANIZATION,
         WEBSITE,
@@ -153,9 +153,9 @@ export function allRoutes(): RouteHead[] {
     ...PRODUCTS.map(productRoute),
     {
       path: "/enterprise",
-      title: "Genosyn for Enterprise — Run it in your environment",
+      title: "Genosyn for Enterprise — Autonomous operations, your perimeter",
       description:
-        "Run Genosyn in your own environment: self-hosted AI employees on your infrastructure, your model keys, your data. MIT licensed with no vendor lock-in.",
+        "Run an autonomous company inside your own environment: self-hosted AI employees on your infrastructure, your model keys, your data. MIT licensed with no vendor lock-in.",
       jsonLd: [
         ORGANIZATION,
         WEBSITE,
@@ -200,7 +200,7 @@ export function llmsTxt(): string {
     "",
     `> ${SITE_DESCRIPTION} Genosyn is MIT-licensed, ships as a single Docker container, and runs on SQLite (Postgres via config). Install: \`curl -fsSL ${SITE_URL}/install.sh | bash\` — the app starts on localhost:8471.`,
     "",
-    "Key concepts: an **AI Employee** is a persistent teammate with a **Soul** (written constitution), **Skills** (markdown playbooks), and **Routines** (cron-scheduled work whose every execution is a readable **Run**). Employees run on Anthropic (Claude), OpenAI (GPT), or any OpenAI-compatible endpoint (Ollama, vLLM, llama.cpp). Access to company resources is controlled per employee by **Grants**.",
+    "Key concepts: an **AI Employee** is a persistent teammate with a **Soul** (written constitution), **Skills** (markdown playbooks), and **Routines** (cron-scheduled work whose every execution is a readable **Run**). Routines are what make a company autonomous — they start themselves, with no human trigger — while approval gates and **Decisions** send the small number of judgement calls back to a Member. Employees run on Anthropic (Claude), OpenAI (GPT), or any OpenAI-compatible endpoint (Ollama, vLLM, llama.cpp). Access to company resources is controlled per employee by **Grants**.",
     "",
     "## Products",
     "",
@@ -230,7 +230,7 @@ export function llmsFullTxt(): string {
     "",
     `> ${SITE_DESCRIPTION}`,
     "",
-    "Genosyn is an open-source (MIT), self-hostable platform for running companies with AI Employees. The standard installer ships as a single Docker container, with SQLite by default and Postgres available through config. Anthropic, OpenAI API-key, and custom OpenAI-compatible models run through Genosyn's in-process loop. Trusted single-tenant deployments, including the standard Docker default, can use OpenAI subscription access through the official pinned Codex app-server alongside bubblewrap-isolated coding and repository work, or without coding tools where Linux namespaces are unavailable. Model credentials are AES-256-GCM encrypted in the database; managed subscription sessions are materialized only inside a locked temporary directory for a login or Run.",
+    "Genosyn is an open-source (MIT), self-hostable platform for running companies autonomously with AI Employees. The standard installer ships as a single Docker container, with SQLite by default and Postgres available through config. Anthropic, OpenAI API-key, and custom OpenAI-compatible models run through Genosyn's in-process loop. Trusted single-tenant deployments, including the standard Docker default, can use OpenAI subscription access through the official pinned Codex app-server alongside bubblewrap-isolated coding and repository work, or without coding tools where Linux namespaces are unavailable. Model credentials are AES-256-GCM encrypted in the database; managed subscription sessions are materialized only inside a locked temporary directory for a login or Run.",
     "",
     `Install: \`curl -fsSL ${SITE_URL}/install.sh | bash\` starts Genosyn on localhost:8471.`,
     "",

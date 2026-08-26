@@ -5,9 +5,9 @@ import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
 
 const LINKS = [
+  { href: "/#autonomy", label: "Autonomy" },
   { href: "/products", label: "Products" },
   { href: "/products/ai-employees", label: "AI Employees" },
-  { href: "/#how-it-works", label: "How it works" },
   { href: "/docs", label: "Docs" },
   { href: "/enterprise", label: "Enterprise" },
 ];
@@ -45,7 +45,11 @@ export function Nav() {
           <Logo className="h-7 w-auto" />
         </Link>
 
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Primary navigation">
+        {/* lg, not md: five links plus the GitHub icon and the Install button
+            need ~730px next to the logo, so at 768px the row used to wrap
+            "AI Employees" onto two lines and push Install past the right edge.
+            The menu button covers 768-1023px instead. */}
+        <nav className="hidden items-center gap-1 lg:flex" aria-label="Primary navigation">
           {LINKS.map((link) => (
             <Link
               key={link.href}
@@ -78,7 +82,7 @@ export function Nav() {
             onClick={() => setOpen((value) => !value)}
             aria-label="Toggle navigation"
             aria-expanded={open}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 transition hover:bg-slate-50 md:hidden"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-700 transition hover:bg-slate-50 lg:hidden"
           >
             {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
@@ -86,7 +90,7 @@ export function Nav() {
       </div>
 
       {open && (
-        <div className="border-t border-slate-200 bg-white md:hidden">
+        <div className="border-t border-slate-200 bg-white lg:hidden">
           <nav className="mx-auto flex max-w-7xl flex-col gap-1 px-5 py-4" aria-label="Mobile navigation">
             {LINKS.map((link) => (
               <Link

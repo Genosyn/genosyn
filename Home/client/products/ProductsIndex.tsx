@@ -21,9 +21,9 @@ import { ProductPrototype } from "@/products/ProductPrototype";
 
 const CHECKS = [
   "Built into one workspace",
-  "Shared by Members and AI Employees",
-  "Self-hosted on your infrastructure",
-  "MIT licensed",
+  "Worked by Members and AI Employees alike",
+  "Every product reachable by a Routine",
+  "Self-hosted · MIT licensed",
 ];
 
 export function ProductsIndex() {
@@ -42,12 +42,13 @@ export function ProductsIndex() {
                 <span className="font-medium text-slate-500">{PRODUCTS.length} built in</span>
               </HeroBadge>
               <HeroTitle>
-                Every team. Every tool.{" "}
-                <HeroTitleMuted>One company system.</HeroTitleMuted>
+                Every tool an autonomous company{" "}
+                <HeroTitleMuted>runs on.</HeroTitleMuted>
               </HeroTitle>
               <HeroLede>
-                Bring chat, work, knowledge, automation, analytics, revenue, finance, and code into
-                one operating model shared by Members and AI Employees.
+                An AI Employee can only finish the jobs your systems let it finish. Chat, work,
+                knowledge, automation, analytics, revenue, finance, and code all ship in the box —
+                one operating model, worked by Members and AI Employees alike.
               </HeroLede>
 
               <HeroActions>
@@ -122,7 +123,7 @@ function Flagship({ product }: { product: ProductDef }) {
               The core of Genosyn
             </div>
             <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-white">
-              AI Employees working across the company
+              AI Employees running the company across every product
             </h2>
           </div>
           <Link

@@ -21,7 +21,7 @@ const PRIMITIVES: Primitive[] = [
     icon: BookHeart,
     label: "Soul",
     title: "Who they are",
-    body: "A readable constitution for judgment, voice, priorities, and boundaries.",
+    body: "A readable constitution for judgment, voice, priorities, and the lines they will not cross alone.",
     lines: ["Be exact with financial data", "Surface uncertainty", "Never invent a number"],
   },
   {
@@ -35,7 +35,7 @@ const PRIMITIVES: Primitive[] = [
     icon: CalendarClock,
     label: "Routines",
     title: "When they work",
-    body: "Cron-scheduled work with a clear brief, chosen AI Model, and readable Run history.",
+    body: "Cron-scheduled work that starts itself — a clear brief, a chosen AI Model, and a readable Run history.",
     lines: ["Morning brief · 08:30", "Reconcile · 07:00", "Digest · Fri 17:00"],
   },
   {
@@ -55,14 +55,15 @@ export function Primitives() {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-slate-400/25 bg-slate-400/10 px-3 py-1 text-[11px] font-semibold text-slate-300">
               <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-              The employee model
+              The autonomy model
             </span>
             <h2 className="mt-5 max-w-xl text-balance text-4xl font-semibold tracking-[-0.04em] text-white sm:text-5xl">
-              More than a prompt. A complete operating role.
+              Not a prompt. A role that can run unattended.
             </h2>
             <p className="mt-5 max-w-xl text-base leading-7 text-slate-400 sm:text-lg">
-              Every AI Employee is assembled from plain, editable building blocks stored with your
-              company data. Change the role without rebuilding the system around it.
+              Four plain, editable building blocks are what make unattended work safe: who they
+              are, how they work, when they work, and what they can reach. Change any of them
+              without rebuilding the system around it.
             </p>
             <div className="mt-7 flex flex-wrap gap-2">
               {["Readable", "Portable", "Database-backed", "Auditable"].map((item) => (

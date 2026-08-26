@@ -8,12 +8,13 @@ export function Introduction() {
     <>
       <PageHeader
         eyebrow="Welcome"
-        title="Run autonomous companies."
+        title="Build an autonomous company."
         lead={
           <>
-            Genosyn is an open-source, self-hostable platform for hiring{" "}
+            Genosyn is an open-source, self-hostable platform for running a company with{" "}
             <Strong>AI employees</Strong>. Each one has a written soul, a set of skills, and
-            routines on a schedule. They wake up, do their job, and report what they shipped.
+            routines on a schedule. They wake up on their own, do the job, and report what they
+            shipped — and only the decisions that need a person come back to you.
           </>
         }
       />
@@ -32,7 +33,7 @@ export function Introduction() {
         <Primitive
           icon={<CalendarClock className="h-4 w-4" />}
           tag="Routines"
-          body="Cron-scheduled briefs. Genosyn runs them on time and saves a Run log."
+          body="Cron-scheduled briefs that start themselves. Genosyn runs them on time and saves a Run log."
         />
       </div>
 

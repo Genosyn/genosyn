@@ -1,9 +1,9 @@
 import {
   ArrowRight,
+  CalendarClock,
   CheckCircle2,
-  Eye,
   Files,
-  PlayCircle,
+  ScrollText,
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
@@ -23,29 +23,29 @@ const STEPS: Step[] = [
     number: "01",
     icon: Files,
     title: "Give the context",
-    body: "Connect the company knowledge, data, conversations, and repos the role actually needs.",
+    body: "Connect the company knowledge, data, conversations, and repositories the role actually needs.",
     detail: "Explicit Grants keep the working set scoped.",
   },
   {
     number: "02",
-    icon: PlayCircle,
-    title: "Define the work",
-    body: "Write the Soul, attach Skills, and schedule Routines—or ask for work in chat.",
-    detail: "Every role has a clear operating brief.",
+    icon: ScrollText,
+    title: "Write the role",
+    body: "A Soul for judgment, Skills for the playbooks it repeats, and the AI Model behind both.",
+    detail: "The whole role reads like a job description.",
   },
   {
     number: "03",
-    icon: ShieldCheck,
-    title: "Keep control",
-    body: "Let routine work move automatically while sensitive actions pause for a Member.",
-    detail: "Approvals are part of the workflow, not an afterthought.",
+    icon: CalendarClock,
+    title: "Hand over the clock",
+    body: "Put the work on cron and stop being the trigger. Routines run whether or not anyone is watching.",
+    detail: "Nothing waits for someone to remember.",
   },
   {
     number: "04",
-    icon: Eye,
-    title: "See the record",
-    body: "Read the Run, inspect the output, and follow the handoff into the shared workspace.",
-    detail: "Work stays visible and auditable.",
+    icon: ShieldCheck,
+    title: "Keep the final say",
+    body: "Sensitive actions stop for a Member. Everything else keeps moving, with a Run you can read afterwards.",
+    detail: "Autonomy with an audit trail.",
   },
 ];
 
@@ -55,15 +55,15 @@ export function HowItWorks() {
       <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24 lg:py-28">
         <div className="grid gap-8 lg:grid-cols-[0.82fr_1.18fr] lg:items-end">
           <div>
-            <SectionEyebrow>How Genosyn works</SectionEyebrow>
+            <SectionEyebrow>How autonomy gets built</SectionEyebrow>
             <h2 className="mt-5 max-w-xl text-balance text-4xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-5xl">
-              Give the role. Keep the oversight.
+              Set the role up once. Then get out of its way.
             </h2>
           </div>
           <div className="lg:justify-self-end">
             <p className="max-w-2xl text-pretty text-base leading-7 text-slate-600 sm:text-lg">
-              AI Employees work inside the same system as your team. They have a constitution,
-              repeatable playbooks, a schedule, and only the access you grant.
+              An AI Employee is not something you operate. It has a constitution, repeatable
+              playbooks, a schedule of its own, and exactly the access you granted it.
             </p>
             <Link
               href="/products/ai-employees"

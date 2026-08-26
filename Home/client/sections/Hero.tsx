@@ -16,7 +16,12 @@ import {
   HeroTitleMuted,
 } from "@/sections/HeroKit";
 
-const PROOF = ["MIT licensed", "Self-hosted", "Any AI model", "Human approvals"];
+const PROOF = [
+  "Work runs unattended, on schedule",
+  "Only real decisions reach a human",
+  "Any AI model, your own keys",
+  "Self-hosted · MIT licensed",
+];
 
 export function Hero() {
   return (
@@ -31,22 +36,22 @@ export function Hero() {
           </HeroBadge>
 
           <HeroTitle>
-            Put people and AI on the{" "}
-            <HeroTitleMuted>same operating system.</HeroTitleMuted>
+            Companies can now <HeroTitleMuted>run themselves.</HeroTitleMuted>
           </HeroTitle>
 
           <HeroLede>
-            Give AI Employees real roles, shared company context, scheduled work, and clear human
-            guardrails — all in one workspace you control.
+            Genosyn is the operating system for autonomous companies. AI Employees hold real roles,
+            work through the night on their own schedule, and bring you only the decisions that
+            actually need a human.
           </HeroLede>
 
           <HeroActions>
             <HeroButton href="#quickstart">
-              Install Genosyn
+              Build an autonomous company
               <ArrowRight aria-hidden className="h-4 w-4" />
             </HeroButton>
-            <HeroButton href="#how-it-works" variant="secondary">
-              See how it works
+            <HeroButton href="#autonomy" variant="secondary">
+              See how far autonomy goes
               <ArrowRight aria-hidden className="h-4 w-4 text-slate-400" />
             </HeroButton>
             <HeroButton href={GITHUB_URL} external variant="ghost">
@@ -58,7 +63,7 @@ export function Hero() {
           <HeroProof items={PROOF} />
         </HeroCopy>
 
-        <HeroPanel label="Northstar Labs · Live workspace" status="Work moving now">
+        <HeroPanel label="Northstar Labs · Running autonomously" status="18 Routines today">
           <CompanyPreview compact />
           <div className="absolute -bottom-5 right-3 hidden items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3 shadow-[0_18px_45px_-20px_rgba(15,23,42,0.45)] sm:flex lg:-right-2">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-950 text-white">
@@ -66,10 +71,10 @@ export function Hero() {
             </span>
             <span>
               <span className="block text-[11px] font-semibold text-slate-900">
-                Human control stays visible
+                You are in the loop by exception
               </span>
               <span className="mt-0.5 block text-[10px] text-slate-500">
-                3 changes waiting for review
+                3 decisions waiting · everything else shipped
               </span>
             </span>
           </div>

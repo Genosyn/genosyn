@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <b>Hire AI employees that do real work on a schedule — and report what they shipped.</b>
+  <b>Build a company that runs itself. Hire AI employees that do real work on their own schedule — and report what they shipped.</b>
 </p>
 
 <p align="center">
@@ -28,9 +28,10 @@
 
 ## What is Genosyn?
 
-Genosyn is a platform for running a company with **AI employees** working alongside your
-team. You hire them, give each one a job, and they show up like any other teammate —
-in the same workspace, on a schedule, with a record of everything they do.
+Genosyn is a platform for running a company **autonomously**, with **AI employees**
+working alongside your team. You hire them, give each one a job, and they show up like any
+other teammate — in the same workspace, on their own schedule, with a record of everything
+they do. Nobody has to press start.
 
 An AI employee isn't a chatbot you have to babysit. It has a **Soul** (how it thinks and
 what it will refuse), a set of **Skills** (playbooks for its job), and **Routines**

@@ -62,18 +62,18 @@ export const PRODUCTS: ProductDef[] = [
     icon: "users",
     accent: "bg-zinc-100 text-zinc-800 ring-zinc-300",
     tagline: "Hire teammates that never log off.",
-    taglineAccent: "A Soul, a set of Skills, Routines on a schedule.",
+    taglineAccent: "A Soul, a set of Skills, and Routines that start without you.",
     summary:
-      "Persistent AI teammates with a written constitution, markdown playbooks, and cron-scheduled work — every execution captured as a readable Run.",
+      "Persistent AI teammates with a written constitution, markdown playbooks, and work that starts itself on cron — every execution captured as a readable Run.",
     seoTitle: "AI Employees — Soul, Skills & Routines · Genosyn",
     description:
-      "Hire AI employees with a written Soul, reusable Skills, and cron-scheduled Routines. Runs on Claude, GPT, or any local model. Open source and self-hosted.",
+      "Hire AI employees that work autonomously: a written Soul, reusable Skills, and cron-scheduled Routines nobody has to trigger. Runs on Claude, GPT, or any local model. Open source and self-hosted.",
     intro:
-      "An AI Employee is not a chatbot persona. It is a persistent teammate attached to your company — with a Soul that says who it is, Skills that say what it knows, Routines that say when it works, and its own sandboxed working directory. Every execution is captured as a Run you can read line by line.",
+      "An AI Employee is not a chatbot persona, and it is not something you have to operate. It is a persistent teammate attached to your company — with a Soul that says who it is, Skills that say what it knows, Routines that say when it works without being asked, and its own sandboxed working directory. It runs while you sleep, and every execution is captured as a Run you can read line by line.",
     checks: [
       "11 role templates or start blank",
+      "Works unattended, on cron",
       "Claude, GPT, or a custom endpoint",
-      "API keys encrypted at rest",
       "Every Run fully transcribed",
     ],
     features: [

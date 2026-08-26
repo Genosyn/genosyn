@@ -32,11 +32,11 @@ export function InstallCta() {
           />
           <div className="relative mx-auto max-w-2xl">
             <h2 className="text-balance text-3xl font-semibold tracking-[-0.035em] text-white sm:text-4xl">
-              Put your first AI Employee to work.
+              Build an autonomous company today.
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-slate-200 sm:text-base">
-              Install Genosyn, choose an AI Model, define the role, and schedule the first Routine.
-              The rest of the company can grow from there.
+              Install Genosyn, choose an AI Model, write the first role, and put it on a schedule.
+              Tomorrow morning, one job runs without you. The company grows from there.
             </p>
             <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <a
@@ -71,7 +71,7 @@ export function Footer() {
           <div>
             <Logo className="h-7 w-auto text-slate-900" />
             <p className="mt-4 max-w-sm text-sm leading-6 text-slate-500">
-              The open-source, self-hostable company operating system for people and AI Employees.
+              The open-source, self-hostable operating system for autonomous companies.
             </p>
             <div className="mt-5 inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-500">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />

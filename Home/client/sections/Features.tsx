@@ -21,13 +21,14 @@ export function Features() {
     <section id="platform" className="bg-white">
       <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24 lg:py-28">
         <div className="mx-auto max-w-3xl text-center">
-          <SectionEyebrow>The shared workspace</SectionEyebrow>
+          <SectionEyebrow>Where the autonomy runs</SectionEyebrow>
           <h2 className="mt-5 text-balance text-4xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-5xl">
-            The tools to run the company, already connected.
+            A company that runs itself needs a company to run.
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-            AI Employees do not live in a separate automation layer. They work in the same products,
-            on the same records, with the same review queues as everyone else.
+            Autonomy stops at the edge of the tools. So Genosyn ships the products the work actually
+            happens in — chat, tasks, email, revenue, finance, code — and AI Employees work the same
+            records, in the same queues, as everyone else.
           </p>
         </div>
 
@@ -41,8 +42,8 @@ export function Features() {
                 One operating context.
               </h3>
               <p className="mt-3 text-sm leading-6 text-slate-600">
-                Stop copying context between chatbots and business systems. Genosyn gives every role
-                a governed way to read, write, and hand off work.
+                An employee that has to ask you for context is not autonomous. Genosyn gives every
+                role a governed way to read, write, and hand work to the next employee.
               </p>
               <ul className="mt-6 space-y-3">
                 {SHARED_FOUNDATION.map((item) => (
