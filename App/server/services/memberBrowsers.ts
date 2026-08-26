@@ -309,9 +309,9 @@ export async function closeRunSessionsForMemberBrowser(browserId: string): Promi
  * driving the browser until an idle timer fired.
  */
 export async function revokeMemberBrowser(browserId: string): Promise<void> {
-  // Read before the write: revocation blanks the row's secrets but keeps it,
-  // so the companyId is still there afterwards — reading first only keeps the
-  // live-sync frame below honest if a later change ever unfiles it.
+  // Only to carry the companyId down to the live-sync frame at the bottom: a
+  // criteria `update()` hands nothing back to read it off, and revocation is
+  // rare enough that one extra select costs nothing.
   const browser = await repo().findOneBy({ id: browserId });
   await repo().update(
     { id: browserId },
