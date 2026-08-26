@@ -421,7 +421,7 @@ function PromptBody({
           "focus:outline-none focus:ring-2",
           error
             ? "border-red-400 focus:ring-red-200 dark:border-red-800 dark:focus:ring-red-900"
-            : "border-slate-200 focus:border-indigo-500 focus:ring-indigo-200 dark:border-slate-700 dark:focus:ring-indigo-900",
+            : "border-slate-200 focus:border-indigo-500 focus:ring-indigo-500/20 dark:border-slate-700 dark:focus:ring-indigo-500/25",
         )}
       />
       {error && <div className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</div>}

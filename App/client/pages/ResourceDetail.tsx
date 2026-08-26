@@ -425,7 +425,7 @@ function TextContent({
           value={body}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Write in markdown — # headings, **bold**, [links](https://…), lists, code, tables…"
-          className="min-h-[24rem] w-full resize-none rounded-xl border border-slate-200 bg-white p-5 font-mono text-[13.5px] leading-7 text-slate-800 shadow-sm focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-indigo-700 dark:focus:ring-indigo-900/30"
+          className="min-h-[24rem] w-full resize-none rounded-xl border border-slate-200 bg-white p-5 font-mono text-[13.5px] leading-7 text-slate-800 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-500/25"
           spellCheck={false}
         />
         <p className="text-xs text-slate-400 dark:text-slate-500">

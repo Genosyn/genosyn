@@ -667,7 +667,7 @@ function InlineTitle({
           setEditing(false);
         }
       }}
-      className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-2xl font-semibold text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-900"
+      className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-2xl font-semibold text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-500/25"
     />
   );
 }

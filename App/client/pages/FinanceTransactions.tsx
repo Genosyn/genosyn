@@ -371,7 +371,7 @@ export default function FinanceTransactions() {
               onChange={(event) => setSearch(event.target.value)}
               aria-label="Search transactions by memo, source, or account"
               placeholder="Search memo, source, or account"
-              className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-indigo-900"
+              className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-indigo-500/25"
             />
           </label>
         </div>
@@ -676,7 +676,7 @@ function BulkCategoryModal({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search categories"
-          className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-indigo-900"
+          className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-indigo-500/25"
         />
       </label>
       <div className="mt-3 max-h-72 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700">
@@ -920,7 +920,7 @@ function TransactionReviewModal({
           maxLength={2000}
           rows={3}
           placeholder="Why the categories are correct, or what needs another look"
-          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-indigo-900"
+          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-70 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-indigo-500/25"
         />
       </label>
 

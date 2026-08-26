@@ -1834,7 +1834,7 @@ function Composer({
                 aria-label="AI Model for this message"
                 value={selectedModelId}
                 onChange={(event) => onModelChange(event.target.value)}
-                className="max-w-52 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] font-medium text-slate-600 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                className="max-w-52 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[11px] font-medium text-slate-600 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:focus:ring-indigo-500/25"
               >
                 {models.map((model) => (
                   <option key={model.id} value={model.id}>

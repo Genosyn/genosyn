@@ -869,7 +869,7 @@ function EmployeeBrowserAccessCard({ company, emp }: { company: Company; emp: Em
                 value={allowedHosts}
                 onChange={(e) => setAllowedHosts(e.target.value)}
                 placeholder="# Examples:&#10;mail.google.com&#10;*.github.com"
-                className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-500/25"
               />
               <FormError message={hostsError} className="mt-2" />
               <div className="mt-2 flex justify-end">

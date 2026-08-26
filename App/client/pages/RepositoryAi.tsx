@@ -402,7 +402,7 @@ function SessionInbox({
                 aria-label="Open work session"
                 containerClassName="min-w-0 flex-1"
                 searchPlaceholder="Search work sessions…"
-                className="h-9 border-0 bg-slate-50 py-2 font-medium text-slate-700 focus:ring-indigo-100 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-indigo-900/30"
+                className="h-9 border-0 bg-slate-50 py-2 font-medium text-slate-700 focus:ring-indigo-500/20 dark:bg-slate-800 dark:text-slate-200 dark:focus:ring-indigo-500/25"
               >
                 <option value="">Start a new session</option>
                 {activeMissing && <option value={activeId}>Current session</option>}
@@ -500,7 +500,7 @@ function SessionInbox({
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={showArchive ? "Search archived" : "Search sessions"}
                 aria-label={showArchive ? "Search archived sessions" : "Search work sessions"}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-8 pr-8 text-xs text-slate-700 placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:focus:border-indigo-700 dark:focus:ring-indigo-900/30"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-8 pr-8 text-xs text-slate-700 placeholder:text-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:focus:ring-indigo-500/25"
               />
               {query && (
                 <button

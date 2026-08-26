@@ -135,7 +135,7 @@ export default function SignaturesIndex() {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search requests…"
-              className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-indigo-900"
+              className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:focus:ring-indigo-500/25"
             />
           </label>
         </div>

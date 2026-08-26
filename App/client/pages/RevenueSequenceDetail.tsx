@@ -761,7 +761,7 @@ export default function RevenueSequenceDetail() {
                           ),
                         )
                       }
-                      className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-sm font-medium text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-900"
+                      className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-sm font-medium text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-500/25"
                     />
                   </div>
                   <div className="flex items-center gap-1">

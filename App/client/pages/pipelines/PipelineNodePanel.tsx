@@ -393,7 +393,7 @@ function FlowSettings({
               <Select
                 value={edge?.toNodeId ?? ""}
                 onChange={(event) => onSetConnection(node.id, handle, event.target.value || null)}
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-900"
+                containerClassName="mt-1"
               >
                 <option value="">End the run here</option>
                 {targets.map((target) => (
@@ -440,7 +440,7 @@ function FieldEditor({
           value={current}
           onChange={(event) => onChange(event.target.value)}
           disabled={resource.loading}
-          className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-900"
+          containerClassName="mt-1"
         >
           <option value="">
             {resource.loading ? "Loading…" : `Choose ${resource.singular.toLowerCase()}`}
@@ -545,7 +545,7 @@ function FieldEditor({
         <Select
           value={String(normalized)}
           onChange={(event) => onChange(event.target.value)}
-          className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-900"
+          containerClassName="mt-1"
         >
           {field.options.map((option) => (
             <option key={option.value} value={option.value}>

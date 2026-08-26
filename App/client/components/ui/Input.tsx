@@ -24,7 +24,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
           "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm",
           "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100",
           "placeholder:text-slate-400 dark:placeholder:text-slate-500",
-          "focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900",
+          "focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/25",
           className,
         )}
       />

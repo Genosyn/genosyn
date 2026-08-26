@@ -1115,39 +1115,29 @@ function AddLinkFieldModal({
           </button>
         </div>
         <div className="flex flex-col gap-3 p-5">
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Field name
-            </label>
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Company"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && canSubmit) {
-                  void onCreate(name.trim(), targetTableId);
-                }
-              }}
-              className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Link to table
-            </label>
-            <Select
-              value={targetTableId}
-              onChange={(e) => setTargetTableId(e.target.value)}
-              className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-            >
-              {tables.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </Select>
-          </div>
+          <Input
+            autoFocus
+            label="Field name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Company"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canSubmit) {
+                void onCreate(name.trim(), targetTableId);
+              }
+            }}
+          />
+          <Select
+            label="Link to table"
+            value={targetTableId}
+            onChange={(e) => setTargetTableId(e.target.value)}
+          >
+            {tables.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
           <div className="mt-1 flex justify-end gap-2">
             <Button variant="secondary" size="sm" onClick={onCancel}>
               Cancel
@@ -1674,7 +1664,7 @@ function BaseSettingsModal({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={2}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-indigo-500/25"
               />
             </div>
 

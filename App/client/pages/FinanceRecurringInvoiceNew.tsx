@@ -75,7 +75,7 @@ function lineRowFromExisting(l: {
 // natural sentence ("Every month on the 1st at 09:00") and match the
 // app's other form fields.
 const scheduleField =
-  "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900";
+  "h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-500/25";
 
 /**
  * Recurring-invoice form — handles both create and edit. The lifecycle
@@ -446,7 +446,6 @@ export default function FinanceRecurringInvoiceNew() {
                 onChange={(e) =>
                   setSchedule({ ...schedule, frequency: e.target.value as Frequency })
                 }
-                className={scheduleField}
                 aria-label="Frequency"
               >
                 {[
@@ -470,7 +469,6 @@ export default function FinanceRecurringInvoiceNew() {
                     onChange={(e) =>
                       setSchedule({ ...schedule, weekday: Number(e.target.value) })
                     }
-                    className={scheduleField}
                     aria-label="Day of week"
                   >
                     {WEEKDAY_LABELS.map((w, i) => (
@@ -490,7 +488,6 @@ export default function FinanceRecurringInvoiceNew() {
                     onChange={(e) =>
                       setSchedule({ ...schedule, month: Number(e.target.value) })
                     }
-                    className={scheduleField}
                     aria-label="Month"
                   >
                     {MONTH_LABELS.map((mn, i) => (
@@ -511,7 +508,6 @@ export default function FinanceRecurringInvoiceNew() {
                     onChange={(e) =>
                       setSchedule({ ...schedule, dayOfMonth: Number(e.target.value) })
                     }
-                    className={scheduleField}
                     aria-label="Day of month"
                   >
                     {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (

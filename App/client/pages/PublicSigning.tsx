@@ -1115,7 +1115,7 @@ function SignatureCapture({
               setTyped(event.target.value);
               setTypedDirty(event.target.value !== initialTypedRef.current);
             }}
-            className="mt-2 h-16 w-full rounded-xl border border-slate-200 bg-white px-4 font-serif text-3xl italic text-indigo-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:border-slate-700 dark:bg-slate-950 dark:text-indigo-300"
+            className="mt-2 h-16 w-full rounded-xl border border-slate-200 bg-white px-4 font-serif text-3xl italic text-indigo-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-indigo-300 dark:focus:ring-indigo-500/25"
           />
         </div>
       ) : (
