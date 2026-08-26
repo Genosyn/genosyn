@@ -1,6 +1,7 @@
 import { AppDataSource } from "../db/datasource.js";
 import { AIModel } from "../db/entities/AIModel.js";
 import { Routine } from "../db/entities/Routine.js";
+import { emitResourceChange } from "./resourceEvents.js";
 
 /**
  * Active-model bookkeeping for the one-to-many `AIEmployee` → `AIModel`
@@ -87,9 +88,30 @@ export async function resolveRoutineModel(routine: {
  * Clear the routine pins naming `modelId`, reverting those routines to
  * inheriting the employee's active model. Called when a model is deleted so a
  * pin never outlives the row it points at.
+ *
+ * `companyId` is only for the live-sync frame — every routine reachable from
+ * one model belongs to that model's employee, so there is exactly one company
+ * to announce to and the caller already knows it.
  */
-export async function clearRoutinePins(modelId: string): Promise<void> {
-  await AppDataSource.getRepository(Routine).update({ modelId }, { modelId: null });
+export async function clearRoutinePins(modelId: string, companyId: string): Promise<void> {
+  const repo = AppDataSource.getRepository(Routine);
+  // Read the pinned ids first, purely to decide whether anything is worth
+  // announcing. Not `UpdateResult.affected`: the drivers disagree on when it
+  // is populated (see `routes/unsubscribe.ts`), and a count that comes back
+  // null on Postgres would silence exactly the frame this exists to send.
+  const pinned = await repo.find({ where: { modelId }, select: { id: true } });
+
+  // Still by `{ modelId }` rather than the ids just read, so a pin written
+  // between the two statements is cleared as well — a dangling pin outliving
+  // its model is the bug this function exists to prevent.
+  await repo.update({ modelId }, { modelId: null });
+
+  // Then say so explicitly. A criteria `update()` broadcasts only the partial
+  // it was handed — `{ modelId: null }`, with no `employeeId` — so the live-
+  // sync subscriber has no FK to hop to a company on and every open Routines
+  // page would keep showing a pin to a model that no longer exists. See
+  // ROADMAP M31.
+  if (pinned.length > 0) emitResourceChange(companyId, "routine");
 }
 
 /**

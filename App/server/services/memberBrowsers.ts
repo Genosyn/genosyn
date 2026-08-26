@@ -11,6 +11,7 @@ import { MemberBrowser } from "../db/entities/MemberBrowser.js";
 import { Routine } from "../db/entities/Routine.js";
 import { constantTimeEqual } from "../lib/constantTime.js";
 import { hashToken } from "../lib/token.js";
+import { emitResourceChange } from "./resourceEvents.js";
 
 /**
  * Ownership, pairing, and policy for {@link MemberBrowser} rows — the Chrome a
@@ -308,6 +309,10 @@ export async function closeRunSessionsForMemberBrowser(browserId: string): Promi
  * driving the browser until an idle timer fired.
  */
 export async function revokeMemberBrowser(browserId: string): Promise<void> {
+  // Read before the write: revocation blanks the row's secrets but keeps it,
+  // so the companyId is still there afterwards — reading first only keeps the
+  // live-sync frame below honest if a later change ever unfiles it.
+  const browser = await repo().findOneBy({ id: browserId });
   await repo().update(
     { id: browserId },
     { revokedAt: new Date(), status: "revoked", tokenHash: null, tokenPrefix: null },
@@ -317,10 +322,27 @@ export async function revokeMemberBrowser(browserId: string): Promise<void> {
     { memberBrowserId: browserId },
     { memberBrowserId: null },
   );
-  await AppDataSource.getRepository(Routine).update(
-    { memberBrowserId: browserId },
-    { memberBrowserId: null },
-  );
+
+  const routineRepo = AppDataSource.getRepository(Routine);
+  // The ids are read only to decide whether anything is worth announcing —
+  // not `UpdateResult.affected`, which the drivers disagree on (see
+  // `routes/unsubscribe.ts`) and which would come back null where it matters.
+  const bound = await routineRepo.find({
+    where: { memberBrowserId: browserId },
+    select: { id: true },
+  });
+  // Still unbound by `{ memberBrowserId }` rather than the ids just read, so a
+  // routine bound between the two statements is cut loose as well. A routine
+  // still naming a revoked browser would fail at 3am with no one watching.
+  await routineRepo.update({ memberBrowserId: browserId }, { memberBrowserId: null });
+
+  // Then say so explicitly. A criteria `update()` broadcasts only the partial
+  // it was handed — `{ memberBrowserId: null }`, with no `employeeId` — so the
+  // live-sync subscriber has no FK to hop to a company on, and every open
+  // Routines page would go on offering a browser that has been revoked. See
+  // ROADMAP M31.
+  if (bound.length > 0 && browser) emitResourceChange(browser.companyId, "routine");
+
   await closeSessionsForMemberBrowser(browserId);
 }
 

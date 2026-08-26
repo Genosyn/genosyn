@@ -10,10 +10,12 @@ import { MemberBrowser } from "../db/entities/MemberBrowser.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { AppDataSource } from "../db/datasource.js";
+import { ResourceChangeSubscriber } from "../db/subscribers/resourceChangeSubscriber.js";
 import { hashToken } from "../lib/token.js";
 import { vaultUrlAllowedForEmployee } from "../routes/browserRpc.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
 import { registerBridgeSocket, resetMemberBrowserHubForTests } from "./memberBrowserHub.js";
+import { registerResourceChangeSink } from "./resourceEvents.js";
 import { loadBrowserConfig } from "./agent/tools/mcpSources.js";
 import {
   createMemberBrowser,
@@ -32,7 +34,12 @@ import {
   updateMemberBrowser,
 } from "./memberBrowsers.js";
 
-before(initTestDb);
+before(async () => {
+  await initTestDb();
+  // The real subscriber, so the live-sync test below proves what the production
+  // write path does rather than what a stub does.
+  AppDataSource.subscribers.push(new ResourceChangeSubscriber());
+});
 beforeEach(resetTestDb);
 after(closeTestDb);
 
@@ -551,6 +558,52 @@ describe("revoking a member browser", () => {
       (await AppDataSource.getRepository(BrowserSession).findOneByOrFail({ id: session.id }))
         .status,
       "closed",
+    );
+  });
+
+  /**
+   * A regression guard with a specific past in mind. Cutting the routines loose
+   * went through `Repository.update()` by criteria, which broadcasts only the
+   * partial it was handed — `{ memberBrowserId: null }`, with no `employeeId` —
+   * so the subscriber could not hop to the company and no other open Routines
+   * page ever refetched. The rows were unbound; the app just didn't say so, and
+   * a colleague's screen went on offering a browser that had been revoked.
+   */
+  test("announces a routine change for the routines it cut loose", async () => {
+    const emp = await employee();
+    const mine = await browser({ ownerUserId: "user_1", allowUnattended: true });
+    await insert(Routine, {
+      employeeId: emp.id,
+      name: "Nightly",
+      slug: `nightly-${randomUUID()}`,
+      cronExpr: "0 3 * * *",
+      memberBrowserId: mine.id,
+    });
+    const events: Array<{ companyId: string; kind: string }> = [];
+    registerResourceChangeSink((id, kind) => events.push({ companyId: id, kind }));
+
+    await revokeMemberBrowser(mine.id);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    assert.ok(
+      events.some((e) => e.companyId === companyId && e.kind === "routine"),
+      `expected a routine change for ${companyId}, saw ${JSON.stringify(events)}`,
+    );
+  });
+
+  test("a browser no routine was bound to announces nothing", async () => {
+    // Every revocation would otherwise wake every open Routines page in the
+    // company for a routine list that did not move.
+    const mine = await browser({ ownerUserId: "user_1" });
+    const events: Array<{ companyId: string; kind: string }> = [];
+    registerResourceChangeSink((id, kind) => events.push({ companyId: id, kind }));
+
+    await revokeMemberBrowser(mine.id);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    assert.deepEqual(
+      events.filter((e) => e.companyId === companyId && e.kind === "routine"),
+      [],
     );
   });
 });
