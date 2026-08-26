@@ -266,11 +266,20 @@ export function requireCompanyRoleForMutations(minimum: Role) {
 export type RoutePathMatcher = string | RegExp;
 
 export function matchesRoutePath(path: string, matchers: readonly RoutePathMatcher[]): boolean {
+  // Matched case-insensitively because Express itself is: a Router defaults to
+  // `caseSensitive: false`, so `POST /ROUTINE-FOLDERS` reaches the handler
+  // registered at `/routine-folders`. A guard that compared case-sensitively
+  // therefore skipped itself for exactly that request, and an ordinary Member
+  // could create a folder — or write to Secrets, API keys, Repositories, or any
+  // other surface gated this way — by shouting the path. Every matcher in the
+  // codebase is written in lowercase with `[^/]+` for variable segments, so
+  // folding the path can only make a guard match MORE paths, never fewer.
+  const normalized = path.toLowerCase();
   return matchers.some((matcher) => {
     if (typeof matcher === "string") {
-      return path === matcher || path.startsWith(`${matcher}/`);
+      return normalized === matcher || normalized.startsWith(`${matcher}/`);
     }
-    return matcher.test(path);
+    return matcher.test(normalized);
   });
 }
 

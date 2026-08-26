@@ -28,4 +28,9 @@ test("router guards match only their owned company paths", () => {
   assert.equal(matchesRoutePath("/employees/employee-id/skills", matchers), true);
   assert.equal(matchesRoutePath("/workspace/ws-token", matchers), false);
   assert.equal(matchesRoutePath("/finance/invoices", matchers), false);
+  // Express routes case-insensitively, so the guard must too — otherwise
+  // shouting a path skips the gate that protects it.
+  assert.equal(matchesRoutePath("/AUDIT", matchers), true);
+  assert.equal(matchesRoutePath("/Audit/Export", matchers), true);
+  assert.equal(matchesRoutePath("/EMPLOYEES/employee-id/SKILLS", matchers), true);
 });
