@@ -1,0 +1,103 @@
+name: Deploy site
+
+# Publishes the marketing site to Cloudflare. genosyn.com and www.genosyn.com
+# are custom domains on the `genosyn` Worker, which serves Home's prerendered
+# static assets (see Home/wrangler.jsonc).
+#
+# This workflow exists because the site had no automated deploy at all. The
+# only one it ever had was a hand-run `wrangler deploy` from a laptop, so while
+# lint, docker and release all stayed green, genosyn.com quietly served a build
+# that was sixteen minor versions behind. A deploy nobody can see in the repo
+# is a deploy nobody notices has stopped.
+#
+# `release` rather than `main`, because the site is the shopfront for the
+# released product: Hero.tsx renders the repo-root VERSION as a version badge,
+# and from main that badge would name a version with no tag and no image behind
+# it. RELEASING.md step 3 (`git push origin main:release`) now ships the site
+# alongside the images.
+#
+# CLI/** is in the path filter for the same reason docker.yml lists it — Home's
+# prebuild copies ../CLI into the bundle and serves it at /genosyn and
+# /install.sh, so a CLI-only change with no Home rebuild leaves the script
+# users download stale. VERSION is here because it's the version badge.
+
+on:
+  push:
+    branches: [release]
+    paths:
+      - "Home/**"
+      - "CLI/**"
+      - "VERSION"
+      - ".github/workflows/site.yml"
+  # Redeploy the current `release` tip on demand — for a token rotation, or to
+  # replay a deploy whose push has already scrolled past.
+  workflow_dispatch:
+
+# Never cancel a deploy in flight: a half-finished asset upload is worse than
+# a superseded one, and the next push redeploys from the newer tip anyway.
+concurrency:
+  group: site
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Home to Cloudflare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: Home
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Wrangler falls back to interactive OAuth when the token is missing,
+      # which on a runner is a confusing hang rather than a clear failure.
+      # Fail here instead, with the fix in the message.
+      - name: Check deploy credentials
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is not set. Add it under Settings → Secrets and variables → Actions; RELEASING.md lists the token scopes."
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: Home/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # `npm run deploy` runs `predeploy` (the Vite build, including the
+      # sync-cli step that pulls in ../CLI) and then `wrangler deploy`, so CI
+      # ships a bundle built exactly the way a hand-run deploy builds it. The
+      # account is pinned in Home/wrangler.jsonc, so the token is all wrangler
+      # needs from the environment.
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm run deploy
+
+      # The version badge in the hero is the cheapest end-to-end proof that the
+      # bundle now on genosyn.com is the one this run just built.
+      - name: Verify the live site
+        run: |
+          VERSION="$(tr -d '[:space:]' < ../VERSION)"
+          # Cloudflare's edge revalidates against the new asset ETags rather
+          # than serving the old bundle indefinitely, but that can lag a deploy
+          # by a few seconds, so poll rather than asserting once.
+          for i in $(seq 1 20); do
+            if curl -fsS "https://genosyn.com/?ci=${GITHUB_RUN_ID}" | grep -q "$VERSION"; then
+              echo "genosyn.com is serving $VERSION"
+              exit 0
+            fi
+            sleep 9
+          done
+          echo "::error::genosyn.com did not report $VERSION three minutes after the deploy. The upload succeeded, so check that genosyn.com is still a custom domain on the genosyn Worker in the account pinned in Home/wrangler.jsonc."
+          exit 1

@@ -1,8 +1,9 @@
 # Releasing
 
-How to ship a new Genosyn release. Driven by two GitHub Actions workflows
-([`.github/workflows/release.yml`](.github/workflows/release.yml) and
-[`.github/workflows/docker.yml`](.github/workflows/docker.yml)) plus the
+How to ship a new Genosyn release. Driven by three GitHub Actions workflows
+([`.github/workflows/release.yml`](.github/workflows/release.yml),
+[`.github/workflows/docker.yml`](.github/workflows/docker.yml) and
+[`.github/workflows/site.yml`](.github/workflows/site.yml)) plus the
 single-source-of-truth [`VERSION`](VERSION) file at the repo root.
 
 ## TL;DR
@@ -24,6 +25,11 @@ The release workflow then:
 3. Dispatches [`docker.yml`](.github/workflows/docker.yml) against the new
    tag so semver-tagged images land on GHCR
    (`ghcr.io/genosyn/app:<version>` etc. — see [Images and tags](#images-and-tags)).
+
+The same push to `release` independently fires
+[`site.yml`](.github/workflows/site.yml), which builds `Home/` and publishes
+genosyn.com. That is the *only* thing that updates the marketing site — see
+[The marketing site](#the-marketing-site).
 
 ## Versioning
 
@@ -85,6 +91,8 @@ gh run list --workflow=release.yml --limit 3
 gh run watch <id>                              # release.yml: ~30s
 gh run list --workflow=docker.yml --limit 3
 gh run watch <id>                              # docker.yml: ~3-5 min
+gh run list --workflow=site.yml --limit 3
+gh run watch <id>                              # site.yml: ~2 min
 ```
 
 The release workflow output should report:
@@ -93,14 +101,21 @@ The release workflow output should report:
 - A dispatch line for `docker.yml --ref v<version>`.
 
 The docker workflow then publishes the images described in
-[Images and tags](#images-and-tags) below.
+[Images and tags](#images-and-tags) below, and the site workflow deploys
+genosyn.com, ending with a "Verify the live site" step that fails the run if
+the site isn't serving the version you just shipped.
 
 ### 5. Verify
 
 ```bash
 gh release view v<version>
 docker pull ghcr.io/genosyn/app:<version>   # note: no "v" on image tags
+curl -s https://genosyn.com/ | grep -q "<version>" && echo "site is on <version>"
 ```
+
+The site check reads the version badge the hero renders from `VERSION`. It is
+the same assertion `site.yml` makes, and it is worth repeating by hand after
+any change to the Cloudflare setup.
 
 If anything looks off, the release row on GitHub can be edited in place;
 the GHCR images are immutable but you can publish a higher patch over the top.
@@ -142,6 +157,62 @@ Main tip is `:main` or `:sha-<short>` — use those to run unreleased code.
 > was whichever build ran most recently, and the CLI shipped dev code to
 > self-hosters. Don't reintroduce it.
 
+## The marketing site
+
+genosyn.com and www.genosyn.com are **custom domains on a Cloudflare Worker**,
+not a container. The Worker is named `genosyn` and serves the prerendered
+static bundle Vite writes to `Home/dist/client`. Its config is
+[`Home/wrangler.jsonc`](Home/wrangler.jsonc), which also pins the Cloudflare
+account that owns the zone, the Worker and both domains.
+
+`ghcr.io/genosyn/home` — the image `docker.yml` builds from
+[`Home/Dockerfile`](Home/Dockerfile) — is a *different* deployment of the same
+code, the one self-hosters run behind their own domain. Building that image
+does nothing for genosyn.com.
+
+### What deploys it
+
+[`site.yml`](.github/workflows/site.yml), on every push to `release` that
+touches `Home/**`, `CLI/**` or `VERSION`. It runs `npm run deploy` in `Home/`,
+which is `npm run build` followed by `wrangler deploy` — the same two commands
+you would run by hand, so a laptop deploy and a CI deploy produce the same
+bundle. Wrangler is pinned to a major in the `deploy` script rather than
+installed as a dependency, to keep `workerd` out of every `npm ci` that lint
+and the Dockerfiles run.
+
+To deploy without cutting a release:
+
+```bash
+gh workflow run site.yml --ref release
+```
+
+### The token
+
+`site.yml` needs a `CLOUDFLARE_API_TOKEN` repository secret (Settings →
+Secrets and variables → Actions). Create it in Cloudflare under **My Profile →
+API Tokens → Create Token** from the *Edit Cloudflare Workers* template, scoped
+to the account pinned in `Home/wrangler.jsonc`. If you would rather hand-pick
+permissions, deploying a Worker with static assets needs only **Workers
+Scripts: Edit** and **Account Settings: Read** on that account — the template's
+KV, R2, Tail and Routes grants are for Workers this one doesn't use.
+
+The account id is configuration, not a secret; the token is the secret, and it
+is the only thing the workflow takes from the environment. The job's first step
+fails with a pointed error if it is missing, because wrangler's own fallback is
+an interactive OAuth prompt that just hangs a runner.
+
+### Why this is written down
+
+The site spent two days serving a build sixteen minor versions old while every
+pipeline stayed green. It had no automated deploy at all: it had been published
+exactly once, by hand. That `wrangler deploy` ran with no account pinned, so it
+had also created a second `genosyn` Worker in a personal Cloudflare account
+with no domain attached — and every later deploy "succeeded" into that account
+while genosyn.com went on serving the one build that had landed in the right
+one. A deploy nobody can see in the repo is a deploy nobody notices has
+stopped. Pinning the account closes one half; deploying from CI, with a step
+that asserts the live site actually moved, closes the other.
+
 ## Recovery
 
 ### "I pushed to `release` but the release workflow didn't fire"
@@ -174,6 +245,35 @@ v<version>`, but the GHCR image tags will stay (registry deletes are manual).
 It is almost always cleaner to ship the next patch with the fix than to try to
 rewind.
 
+### "I shipped a release but genosyn.com still shows the old version"
+
+Look at [`site.yml`](.github/workflows/site.yml) first:
+
+```bash
+gh run list --workflow=site.yml --limit 3
+```
+
+Its last step asserts the live site reports the version that was just shipped,
+so a **green run means the site really did move** and you are looking at a
+stale browser cache — hard-reload before going further.
+
+Red on **"Check deploy credentials"**: the `CLOUDFLARE_API_TOKEN` secret is
+missing or expired. See [The token](#the-token).
+
+Red on **"Verify the live site"**: wrangler uploaded, but the bundle isn't
+reaching the domain. Check that genosyn.com and www.genosyn.com are still
+Custom Domains on the `genosyn` Worker **in the account pinned in
+[`Home/wrangler.jsonc`](Home/wrangler.jsonc)**. A deploy aimed at a different
+account creates a same-named Worker that serves nothing, and reports success
+doing it — that is the exact failure this workflow was written to end.
+
+**No run at all**: the push to `release` touched none of the paths in the
+workflow's filter. Deploy it directly:
+
+```bash
+gh workflow run site.yml --ref release
+```
+
 ## Files involved
 
 - [`VERSION`](VERSION) — semver string, no leading `v`.
@@ -183,5 +283,12 @@ rewind.
   builds and publishes GHCR images for `main` (dev tag) and `v*.*.*` tags
   (semver tags). Its `metadata-action` config decides the tag list — see
   [Images and tags](#images-and-tags).
+- [`.github/workflows/site.yml`](.github/workflows/site.yml) —
+  builds `Home/` and deploys genosyn.com on every push to `release`. Needs the
+  `CLOUDFLARE_API_TOKEN` secret — see
+  [The marketing site](#the-marketing-site).
+- [`Home/wrangler.jsonc`](Home/wrangler.jsonc) — the Worker's name, the
+  Cloudflare account it deploys into, and how the prerendered assets are
+  served.
 - [`App/Dockerfile`](App/Dockerfile) /
   [`Home/Dockerfile`](Home/Dockerfile) — what gets built.

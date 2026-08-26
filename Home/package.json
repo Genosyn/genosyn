@@ -14,7 +14,9 @@
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.server.json && tsc --noEmit -p tsconfig.test.json",
     "test": "tsx --test \"tests/**/*.test.ts\"",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "predeploy": "npm run build",
+    "deploy": "npx --yes wrangler@4 deploy"
   },
   "dependencies": {
     "express": "^4.19.2",

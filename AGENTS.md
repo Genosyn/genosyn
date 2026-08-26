@@ -41,7 +41,9 @@ duplicate content from ROADMAP.md here** — link to it.
 ```
 genosyn/
 ├── App/         # Product app: Express + TypeORM + React + Vite + Tailwind
-├── Home/        # Standalone marketing site (React + Vite + Tailwind)
+├── Home/        # Standalone marketing site (React + Vite + Tailwind).
+│                # Deployed to genosyn.com as a Cloudflare Worker by
+│                # .github/workflows/site.yml — see RELEASING.md.
 ├── CLI/         # `genosyn` cluster-maintainer CLI (bash). Served from the
 │                # Home site at /install.sh and /genosyn via a sync step in
 │                # Home's predev/prebuild scripts.
@@ -491,6 +493,13 @@ Cutting a release is a separate, tightly-scripted ritual — see
 [`RELEASING.md`](./RELEASING.md). Short version: bump `VERSION`, push
 `main` to `release`, the workflow tags + publishes GHCR images for you.
 Don't tag manually, don't edit version numbers in `package.json` files.
+
+That same push to `release` is also what publishes **genosyn.com**. The
+marketing site is a Cloudflare Worker deployed by
+[`site.yml`](./.github/workflows/site.yml) — *not* the `ghcr.io/genosyn/home`
+image, which is what self-hosters run. Nothing you merge to `main` reaches the
+public site until it reaches `release`. See
+[The marketing site](./RELEASING.md#the-marketing-site).
 
 ---
 
