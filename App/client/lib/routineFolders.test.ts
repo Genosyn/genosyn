@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { RoutineFolder } from "./api";
-import { childrenByParent, folderAndDescendants } from "./routineFolders";
+import type { CompanyTag, RoutineFolder } from "./api";
+import {
+  childrenByParent,
+  folderAndDescendants,
+  routineTagsInScope,
+} from "./routineFolders";
 
 function folder(id: string, parentId: string | null, name = id): RoutineFolder {
   return {
@@ -16,6 +20,18 @@ function folder(id: string, parentId: string | null, name = id): RoutineFolder {
     depth: 1,
     routineCount: 0,
     totalRoutineCount: 0,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function tag(id: string, name: string): CompanyTag {
+  return {
+    id,
+    companyId: "co",
+    name,
+    normalizedName: name.toLowerCase(),
+    color: "slate",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
   };
@@ -85,5 +101,24 @@ describe("childrenByParent", () => {
       (childrenByParent(folders).get(null) ?? []).map((f) => f.id).sort(),
       ["orphan", "root"],
     );
+  });
+});
+
+describe("routineTagsInScope", () => {
+  test("returns only the unique tags attached to routines in the current scope", () => {
+    const analytics = tag("analytics", "Analytics");
+    const daily = tag("daily", "Daily");
+
+    assert.deepEqual(
+      routineTagsInScope([
+        { tags: [daily, analytics] },
+        { tags: [analytics] },
+      ]).map((row) => row.id),
+      ["analytics", "daily"],
+    );
+  });
+
+  test("an empty folder exposes no tag filters", () => {
+    assert.deepEqual(routineTagsInScope([]), []);
   });
 });

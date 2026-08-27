@@ -1,4 +1,4 @@
-import type { RoutineFolder } from "./api";
+import type { CompanyTag, RoutineFolder, RoutineWithMeta } from "./api";
 
 /**
  * Client-side reads of the folder tree. The server hands back a flat list —
@@ -29,6 +29,21 @@ export function folderAndDescendants(folders: RoutineFolder[], rootId: string): 
     stack.push(...(childIds.get(id) ?? []).map((folder) => folder.id));
   }
   return out;
+}
+
+/**
+ * The unique tag choices attached to the routines in the current list scope.
+ *
+ * Callers pass the already folder/employee-scoped routines so the filter bar
+ * never offers a company-wide tag that cannot match anything in this view.
+ */
+export function routineTagsInScope(
+  routines: ReadonlyArray<Pick<RoutineWithMeta, "tags">>,
+): CompanyTag[] {
+  const byId = new Map(
+    routines.flatMap((routine) => routine.tags ?? []).map((tag) => [tag.id, tag]),
+  );
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**

@@ -30,7 +30,7 @@ import {
 } from "../components/routines/RunViews";
 import { cronHuman } from "../lib/cron";
 import { RoutinesContext } from "./RoutinesLayout";
-import { folderAndDescendants } from "../lib/routineFolders";
+import { folderAndDescendants, routineTagsInScope } from "../lib/routineFolders";
 import { TagChips, TagFilterBar } from "../components/TagPicker";
 
 /**
@@ -205,12 +205,7 @@ export default function RoutinesIndex({ company }: { company: Company }) {
     return true;
   });
 
-  const availableTags = React.useMemo(() => {
-    const byId = new Map(
-      routines.flatMap((routine) => routine.tags ?? []).map((tag) => [tag.id, tag]),
-    );
-    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [routines]);
+  const availableTags = routineTagsInScope(scoped);
 
   const counts = {
     all: scoped.length,

@@ -63,9 +63,10 @@ export function Routines() {
         Create one with the folder button at the top of the sidebar, or from{" "}
         <Strong>New folder…</Strong> in any move menu. Selecting a folder narrows the list to that
         folder <Strong>and everything nested inside it</Strong>, so a parent never reads as empty
-        just because its routines live one level down. <Strong>Unfiled</Strong> at the bottom of the
-        tree collects everything you haven&apos;t filed yet. Each folder&apos;s <Code>⋯</Code> menu
-        holds <Strong>New subfolder</Strong>, <Strong>Rename</Strong>,{" "}
+        just because its routines live one level down. The tag chips narrow with that same folder
+        scope, so every tag shown can match a routine currently in the list. <Strong>Unfiled</Strong>{" "}
+        at the bottom of the tree collects everything you haven&apos;t filed yet. Each folder&apos;s{" "}
+        <Code>⋯</Code> menu holds <Strong>New subfolder</Strong>, <Strong>Rename</Strong>,{" "}
         <Strong>Move to top level</Strong>, and <Strong>Delete folder</Strong>.
       </P>
       <Callout kind="info" title="Deleting a folder never deletes routines.">
