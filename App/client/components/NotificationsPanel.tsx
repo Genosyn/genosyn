@@ -11,6 +11,7 @@ import {
   GitPullRequest,
   Hourglass,
   Landmark,
+  Lightbulb,
   Mail,
   PiggyBank,
   ShieldAlert,
@@ -350,6 +351,8 @@ function KindIcon({
       return <ShieldAlert size={size} className={className} />;
     case "budget_exhausted":
       return <PiggyBank size={size} className={className} />;
+    case "initiative_pending":
+      return <Lightbulb size={size} className={className} />;
   }
 }
 
@@ -425,6 +428,10 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
   budget_exhausted: {
     iconBg: "bg-rose-100 dark:bg-rose-500/15",
     iconFg: "text-rose-600 dark:text-rose-300",
+  },
+  initiative_pending: {
+    iconBg: "bg-amber-100 dark:bg-amber-500/15",
+    iconFg: "text-amber-600 dark:text-amber-300",
   },
 };
 

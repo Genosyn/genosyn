@@ -152,8 +152,19 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * path exists — a discovery miss there reads as the product refusing its own
  * instruction. Still leaves ~3,000 characters for the six returned schemas
  * inside the 8,000-char result envelope.
+ *
+ * Raised to 5,080 for M54's continuity family (`schedule_wakeup`,
+ * `cancel_wakeup`, `create_workstream`, `update_workstream`,
+ * `list_workstreams`) plus `propose_initiative` — ~95 characters. These are
+ * the tools that let work outlive one sitting, and every one is asked for by
+ * intent that matches nothing else lexically: "check back in two days" must
+ * find `schedule_wakeup` or the employee answers "I have no way to follow
+ * up" — the exact sentence M54 exists to delete — and the Workstream brief
+ * block names `update_workstream` as an instruction, so a discovery miss
+ * there reads as the product refusing its own brief. ~2,900 characters
+ * remain for the six returned schemas inside the 8,000-char envelope.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 4_960;
+const DOMAIN_FOOTER_CHARS_MAX = 5_080;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

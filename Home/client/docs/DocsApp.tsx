@@ -37,6 +37,7 @@ import { Goals } from "@/docs/pages/Goals";
 import { Improvement } from "@/docs/pages/Improvement";
 import { Autonomy } from "@/docs/pages/Autonomy";
 import { Policies } from "@/docs/pages/Policies";
+import { Reactivity } from "@/docs/pages/Reactivity";
 import { Pipelines } from "@/docs/pages/Pipelines";
 import { Bases } from "@/docs/pages/Bases";
 import { Customers } from "@/docs/pages/Customers";
@@ -89,6 +90,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   "/docs/improvement": Improvement,
   "/docs/autonomy": Autonomy,
   "/docs/policies": Policies,
+  "/docs/reactivity": Reactivity,
   "/docs/pipelines": Pipelines,
   "/docs/bases": Bases,
   "/docs/customers": Customers,

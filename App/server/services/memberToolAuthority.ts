@@ -71,6 +71,13 @@ const MEMBER_TOOLS = [
   // tool additionally requires the acting employee to be the routed decider,
   // which is strictly narrower.
   "decide_decision",
+  // Workstreams are the employee's own working state — a Member-driven turn
+  // updating them is bookkeeping on work the Member already directed, and
+  // cancelling a wakeup only narrows future work.
+  "create_workstream",
+  "update_workstream",
+  "list_workstreams",
+  "cancel_wakeup",
   // Starting a session is member-level because its human route is: any company
   // Member may send an employee at a repository from the Repository page, for
   // the reason `routes/repositoryContent.ts` gives — editing a document and
@@ -275,6 +282,11 @@ const ADMIN_TOOLS = [
   // — and pages the owners. A Member-driven turn gets it at the same rank as
   // editing those surfaces directly.
   "propose_revision",
+  // Both create future employee-authority work — a wakeup is a deferred
+  // session, an initiative pages owners toward a new Routine. The same class
+  // of act as creating a Routine, which sits in this bucket.
+  "schedule_wakeup",
+  "propose_initiative",
   // Every mutation on the human Pipelines route requires the admin company
   // role (`routes/pipelines.ts`), and a Pipeline runs as the company once
   // saved — so a delegated Member gets exactly the authority they already

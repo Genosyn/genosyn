@@ -81,6 +81,11 @@ const REGISTRY: Record<string, Mapping> = {
   AutonomyWaiver: { kind: "employee", company: "direct", scopeFk: "employeeId" },
   Budget: { kind: "budget", company: "direct" },
   CompanyPolicy: { kind: "policy", company: "direct" },
+  // Triggers render on the Routine page — the RoutineFolder reasoning.
+  RoutineTrigger: { kind: "routine", company: "direct", scopeFk: "routineId" },
+  EmployeeWakeup: { kind: "employee", company: "direct", scopeFk: "employeeId" },
+  Workstream: { kind: "workstream", company: "direct" },
+  Initiative: { kind: "initiative", company: "direct" },
   TldrSettings: { kind: "tldr", company: "direct" },
   Tldr: { kind: "tldr", company: "direct" },
   // Dismissal is Member-private state. Announce only that TLDR state changed;
@@ -326,6 +331,15 @@ const REGISTRY: Record<string, Mapping> = {
     scopeFk: "employeeId",
   },
 };
+
+/**
+ * The distinct event kinds the registry emits — the vocabulary a Routine
+ * Trigger (M54) may subscribe to. Derived rather than hand-listed so a new
+ * registry entry becomes subscribable the moment it exists.
+ */
+export const LIVE_SYNC_KINDS: readonly string[] = [
+  ...new Set(Object.values(REGISTRY).map((m) => m.kind)),
+].sort();
 
 /**
  * `${entityName}:${id}` → companyId. The parent → company mapping is immutable

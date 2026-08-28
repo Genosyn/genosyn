@@ -11,6 +11,7 @@ import {
   Home,
   KeyRound,
   Library,
+  Lightbulb,
   type LucideIcon,
   ListChecks,
   Mail,
@@ -52,6 +53,7 @@ export type SectionKey =
   | "routines"
   | "goals"
   | "revisions"
+  | "initiatives"
   | "tasks"
   | "vault"
   | "bases"
@@ -256,6 +258,20 @@ export const SECTION_GROUPS: SectionGroup[] = [
         path: "/revisions",
         iconBg: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
         keywords: ["revision", "proposal", "soul", "skill", "diff", "review"],
+      },
+      {
+        key: "initiatives",
+        label: "Initiatives",
+        description: "Standing work your AI employees proposed.",
+        icon: Lightbulb,
+        // Letters A–Z are all claimed, so punctuation again (Settings ",",
+        // Goals ".", Revisions "'"): the semicolon — the mark that proposes
+        // the sentence continue, for work proposed to keep going on a
+        // schedule.
+        shortcut: ";",
+        path: "/initiatives",
+        iconBg: "bg-yellow-100 text-yellow-600 dark:bg-yellow-500/15 dark:text-yellow-300",
+        keywords: ["initiative", "propose", "idea", "standing work"],
       },
     ],
   },
@@ -559,6 +575,7 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/routines(\/|$)/.test(pathname)) return "routines";
   if (/\/c\/[^/]+\/goals(\/|$)/.test(pathname)) return "goals";
   if (/\/c\/[^/]+\/revisions(\/|$)/.test(pathname)) return "revisions";
+  if (/\/c\/[^/]+\/initiatives(\/|$)/.test(pathname)) return "initiatives";
   if (/\/c\/[^/]+\/tasks(\/|$)/.test(pathname)) return "tasks";
   if (/\/c\/[^/]+\/vault(\/|$)/.test(pathname)) return "vault";
   if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";

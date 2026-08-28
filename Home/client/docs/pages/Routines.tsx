@@ -229,6 +229,14 @@ export function Routines() {
         The editor previews the cron in plain English next to the field, so you can sanity-check
         before saving.
       </P>
+      <P>
+        Cron is not the only way a routine fires. A <Strong>Trigger</Strong> subscribes a routine
+        to a resource family — deals, mail, Runs, <DocLink to="/docs/goals">Goals</DocLink> — and
+        fires it whenever that family changes anywhere in the company, with a per-trigger minimum
+        interval so a busy family can&apos;t hot-loop it. Gated routines still meet their{" "}
+        <DocLink to="/docs/routines#approvals">Approval</DocLink>. See{" "}
+        <DocLink to="/docs/reactivity#triggers">Reactivity</DocLink>.
+      </P>
 
       <H2 id="the-brief">The brief</H2>
       <P>

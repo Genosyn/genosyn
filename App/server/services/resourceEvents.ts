@@ -45,6 +45,19 @@ export function registerResourceChangeSink(fn: ResourceChangeSink): void {
   sink = fn;
 }
 
+/**
+ * Second consumer of the same coalesced frames (M54): Routine event
+ * Triggers. Registered by `bootRoutineTriggers` rather than imported, so
+ * this low-level module stays free of the runner's dependency graph.
+ * Deliveries are async fire-and-forget — a trigger dispatch must never
+ * delay the UI fan-out.
+ */
+let triggerSink: ResourceChangeSink | null = null;
+
+export function registerRoutineTriggerSink(fn: ResourceChangeSink): void {
+  triggerSink = fn;
+}
+
 /** Browser viewers are privileged; any Membership mutation revokes live viewers immediately. */
 export function registerMembershipAuthorizationChangeSink(fn: (companyId: string) => void): void {
   membershipAuthorizationChangeSink = fn;
@@ -103,6 +116,11 @@ function flush(): void {
         current(companyId, kind, Array.from(scopes));
       } catch {
         // One bad frame must not wedge the flush for other companies/kinds.
+      }
+      try {
+        triggerSink?.(companyId, kind, Array.from(scopes));
+      } catch {
+        // Same isolation: a broken trigger dispatch never costs the UI.
       }
     }
   }

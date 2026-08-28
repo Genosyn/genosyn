@@ -19,7 +19,7 @@ export type RunOutcomeVerdict = "achieved" | "unclear" | "off_goal";
  * retried automatically — the other three had a caller present who saw the
  * outcome and can decide for themselves.
  */
-export type RunTrigger = "schedule" | "manual" | "webhook" | "approval" | "retry";
+export type RunTrigger = "schedule" | "manual" | "webhook" | "approval" | "retry" | "event";
 
 // Run history, the Home failed-routines roll-up, and System Health all filter
 // by routineId and a startedAt window; without this the queries full-scan the

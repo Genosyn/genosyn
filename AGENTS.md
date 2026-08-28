@@ -99,6 +99,10 @@ code, UI copy, commits, and docs.
 | **Decision** (a question an AI Employee stacked for the company to answer — a human, or the AI decider a `DecisionPolicy` rule names — `Decision`) | Approval, Question, Ask, Escalation |
 | **Waiver** (an earned, revocable exemption from one human gate — `AutonomyWaiver`) | Tier, Level, Trust score |
 | **Budget** (a monthly ad-spend envelope — `Budget`) | Cap, Limit, Allowance (as product nouns) |
+| **Trigger** (an event subscription that fires a Routine — `RoutineTrigger`; a Revenue **Signal** stays a cron-evaluated query, never a Trigger) | Subscription, Listener, Hook |
+| **Wakeup** (a timed follow-up session an employee schedules for itself — `EmployeeWakeup`) | Reminder, Timer, Snooze |
+| **Workstream** (a persistent state document for work spanning many Runs — `Workstream`) | Project (reserved for the task manager), Thread, Epic |
+| **Initiative** (standing work an employee proposes and a human accepts — `Initiative`) | Proposal (Revision proposals own that word), Suggestion, Idea |
 | **Policy** (a company-wide rule binding every employee — `CompanyPolicy`; a decision-routing rule is a `DecisionPolicy`, always said as "decision policy") | Rule, Guideline, Guardrail |
 | **Standing question** (a question configured once at TLDR settings that every briefing answers — `TldrStandingQuestion`) | Preset, Template question, Default question |
 | **Suggested action** (a one-click next step an AI Employee attached to its own answer — `TldrQuestionAction`) | Quick action, Command, Shortcut |

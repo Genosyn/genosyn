@@ -215,6 +215,19 @@ don't re-litigate them.
   M53): prose injected above every Soul, plus mechanically-enforced blocked
   recipient domains and forbidden tools. A decision-routing rule is a
   `DecisionPolicy` — always said as "decision policy" so the two never blur.
+- **Trigger** — an event subscription that fires a Routine when a resource
+  family changes (`RoutineTrigger`, M54), riding the M31 live-sync spine
+  id-only. Distinct from a Revenue **Signal**, which is a cron-evaluated
+  query over a connected database.
+- **Wakeup** — a timed follow-up session an employee schedules for itself
+  (`EmployeeWakeup`, M54): a brief its future self reads, dispatched by the
+  heartbeat.
+- **Workstream** — a persistent state document for work spanning many Runs
+  (`Workstream`, M54), maintained by the employee through its own tool and
+  folded into every bound Routine's brief.
+- **Initiative** — standing work an employee proposes with evidence
+  (`Initiative`, M54); an admin accept creates the exact Routine it
+  specified, owned by the proposer.
 - **Goal** — a measurable objective the company steers toward (`Goal`): a
   target value with a direction, an optional deadline, an optional owning AI
   Employee, an optional parent goal, and a metric source (a manual value or
@@ -3190,17 +3203,57 @@ injection-persistence sinks) queue an Approval instead of executing.
       the static catalogue) and mail bodies as a taint source (today it
       would gate every send-grant employee's every send)
 
-### M54 — Reactivity & long horizons (planned)
+### M54 — Reactivity & long horizons ✅
 
-- [ ] Event-triggered Routines on the M31 live-sync spine (subscription rows
-      with kind + filter, grant-intersected at fire time, id-only payloads)
-- [ ] Durable Run suspension with wake conditions (M39's named next step,
-      generalized: decision answered, approval granted, mail reply, handoff
-      completed, timer)
-- [ ] Workstreams: persistent, Routine-bound state documents spanning many
-      Runs, committed atomically with each Run
-- [ ] Initiatives: employees propose standing work with evidence attached;
-      one human accept materializes the Routine/Pipeline it proposed
+Companies run on events and on work that outlives a single sitting; the
+workforce ran on cron and single-Run lifetimes. Four primitives close that,
+each deliberately shaped by what already exists.
+
+**Design calls recorded up front.** (1) Event triggers ride the M31
+live-sync spine exactly as it is: coarse `resource.changed` kinds, id-only,
+no row data — an event names *what family changed*, never what it said, so
+no grant question arises; the fired Run reads through the employee's own
+tools. A fired Routine follows the webhook trigger's precedent verbatim,
+including the Approval path for gated Routines, and a per-trigger minimum
+interval (default 15 minutes) bounds the self-trigger loop a Routine that
+writes what it subscribes to would otherwise become. (2) The codebase has
+deliberately standardized on fresh briefed sessions over same-transcript
+resume four times (decision pickups, handoff and todo kickoffs, AI review
+sessions), and M50/M53 already wake employees when a Decision is answered, a
+Handoff lands, or mail arrives (Mail rules). The genuinely missing wake is
+**time** — so the primitive is a **Wakeup**: an employee schedules a
+follow-up session for itself ("check back on the invoice in two days") with
+a brief its future self reads, dispatched by the heartbeat. (3) A
+**Workstream** is a persistent state document for work spanning many Runs —
+the employee becomes its own project state-holder. The state is updated
+through its own tool during a Run, and the latest state opens every bound
+Routine's brief, replacing journal archaeology as the context seam. (4) An
+**Initiative** is proactive work discovery: an employee proposes standing
+work with evidence attached; one admin accept materializes the Routine it
+specified, owned by the proposing employee. Nothing exists until a human
+accepts — the TldrQuestionAction authority stance.
+
+- [x] **Event-triggered Routines.** `RoutineTrigger` rows (kind from the
+      live-sync registry, optional scope id, per-trigger min interval);
+      dispatch hooks the resource-event flush through a registered sink;
+      fires follow the webhook path — Approval for gated Routines,
+      `Run.triggerKind: "event"` otherwise; Triggers panel on Routine
+      settings
+- [x] **Wakeups.** `EmployeeWakeup` entity + deferred `schedule_wakeup` /
+      `cancel_wakeup` tools (bounded pending per employee); heartbeat
+      dispatch into a background employee-authority session briefed with the
+      employee's own note; journal fallback when no model; visible and
+      cancellable from the employee page
+- [x] **Workstreams.** `Workstream` entity (state doc, status
+      `active` / `done` / `abandoned` with a reason, optional bound
+      Routine); deferred `create_workstream` / `update_workstream` /
+      `list_workstreams` tools; the bound Routine's Run briefs open with the
+      latest state; visible on the Routine page
+- [x] **Initiatives.** `Initiative` entity (evidence, proposal, the exact
+      Routine spec accept would create); deferred `propose_initiative` tool
+      with per-employee pending caps and duplicate refusal; admin
+      accept/decline queue with bells; accept creates the Routine owned by
+      the proposer, audited and journaled
 
 ### M55 — Vertical completeness (planned, pulled by demand)
 

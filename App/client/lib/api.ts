@@ -777,6 +777,107 @@ export type CompanyPolicy = {
   createdAt: string;
 };
 
+/**
+ * An event subscription that fires a Routine (M54): when the named resource
+ * family changes anywhere in the company, the routine fires — an Approval for
+ * gated routines, a Run (trigger "event") otherwise — at most once per
+ * `minIntervalSec`. Served by
+ * `GET /api/companies/:cid/routine-triggers/routine/:rid` as
+ * `RoutineTriggerList`; reads member-level, mutations admin-gated. Live-sync
+ * rides the "routine" kind, scoped by routineId.
+ */
+export type RoutineTrigger = {
+  id: string;
+  routineId: string;
+  kind: string;
+  /** Narrows the subscription to one parent resource; null = the whole family. */
+  scopeId: string | null;
+  minIntervalSec: number;
+  enabled: boolean;
+  lastFiredAt: string | null;
+  createdAt: string;
+};
+/** `kinds` is the server's subscribable event vocabulary — feed the picker from it. */
+export type RoutineTriggerList = {
+  kinds: string[];
+  triggers: RoutineTrigger[];
+};
+
+/**
+ * A timed follow-up session an employee scheduled for itself (M54). Served by
+ * `GET /api/companies/:cid/wakeups/employee/:eid`; cancel via
+ * `POST /wakeups/:wid/cancel` (admin, 409 when no longer pending). Live-sync
+ * rides the "employee" kind, scoped by employeeId.
+ */
+export type EmployeeWakeupStatus = "pending" | "fired" | "cancelled";
+export type EmployeeWakeup = {
+  id: string;
+  employeeId: string;
+  /** When the follow-up session fires. */
+  at: string;
+  /** What the employee told itself to pick back up. */
+  brief: string;
+  status: EmployeeWakeupStatus;
+  firedAt: string | null;
+  /** What the fired session reported back. Empty until then. */
+  outcomeNote: string;
+  createdAt: string;
+};
+
+/**
+ * A persistent state document for work spanning many Runs (M54). Served by
+ * `GET /api/companies/:cid/workstreams?employeeId=`; close via
+ * `POST /workstreams/:wid/close` (admin). Live-sync rides the "workstream"
+ * kind.
+ */
+export type WorkstreamStatus = "active" | "done" | "abandoned";
+export type Workstream = {
+  id: string;
+  employeeId: string;
+  title: string;
+  objective: string;
+  /** The living state document the employee rewrites as the work advances. */
+  stateDoc: string;
+  routineId: string | null;
+  status: WorkstreamStatus;
+  /** Empty while active. */
+  closeReason: string;
+  lastRunId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/**
+ * Standing work an employee proposed and a human accepts (M54). Served by
+ * `GET /api/companies/:cid/initiatives?status=`; accept/decline are
+ * admin-gated — accepting CREATES the spec'd Routine, owned by the proposer.
+ * Live-sync rides the "initiative" kind.
+ */
+export type InitiativeStatus = "pending" | "accepted" | "declined";
+/** The Routine that accepting creates, exactly as proposed. */
+export type InitiativeRoutineSpec = {
+  name: string;
+  cronExpr: string;
+  body: string;
+  acceptanceCriteria?: string;
+};
+export type Initiative = {
+  id: string;
+  employeeId: string;
+  title: string;
+  evidence: string;
+  proposal: string;
+  /** Null when the stored spec is malformed — accept would refuse it too. */
+  routineSpec: InitiativeRoutineSpec | null;
+  status: InitiativeStatus;
+  decidedByUserId: string | null;
+  decidedAt: string | null;
+  reviewNote: string;
+  /** Set on accepted rows: the Routine the acceptance created. */
+  createdRoutineId: string | null;
+  createdAt: string;
+};
+
 export type RunStatus =
   | "running"
   | "completed"
@@ -788,8 +889,8 @@ export type RunStatus =
    * scheduled/retry Runs are eligible for durable automatic recovery.
    */
   | "interrupted";
-/** Manual, webhook, and approval Runs never receive automatic retries. */
-export type RunTrigger = "schedule" | "manual" | "webhook" | "approval" | "retry";
+/** Manual, webhook, approval, and event Runs never receive automatic retries. */
+export type RunTrigger = "schedule" | "manual" | "webhook" | "approval" | "retry" | "event";
 export type Run = {
   id: string;
   routineId: string;
@@ -2560,7 +2661,9 @@ export type NotificationKind =
   /** An employee's earned-autonomy waiver was revoked — the gate re-armed. */
   | "autonomy_revoked"
   /** A monthly ad-spend Budget refused an increase — the envelope is spent. */
-  | "budget_exhausted";
+  | "budget_exhausted"
+  /** An employee filed an Initiative — standing work awaiting a human. */
+  | "initiative_pending";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -2577,7 +2680,8 @@ export type NotificationEntityKind =
   | "goal"
   | "revision_proposal"
   | "employee"
-  | "budget";
+  | "budget"
+  | "initiative";
 
 export type NotificationActor = {
   kind: NotificationActorKind;

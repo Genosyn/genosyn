@@ -888,6 +888,119 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "propose_initiative",
+    description:
+      "Propose new standing work you noticed the company needs — recurring mail nobody answers, a report you rebuild by hand. Nothing exists until an admin accepts, and acceptance creates EXACTLY the Routine you specify here, owned by you. Show the evidence: what you observed is what the reviewer reads first. At most 5 pending per employee.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Short name for the initiative." },
+        evidence: {
+          type: "string",
+          description: "What you observed, with concrete references — threads, Runs, rows.",
+        },
+        proposal: {
+          type: "string",
+          description: "The case: what standing work, and why it pays for itself.",
+        },
+        routine: {
+          type: "object",
+          description: "The exact Routine an accept creates.",
+          properties: {
+            name: { type: "string" },
+            cronExpr: { type: "string", description: "A schedulable cron expression." },
+            body: { type: "string", description: "The Routine's markdown brief." },
+            acceptanceCriteria: { type: "string", description: "Optional definition of done." },
+          },
+          required: ["name", "cronExpr", "body"],
+          additionalProperties: false,
+        },
+      },
+      required: ["title", "evidence", "proposal", "routine"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "schedule_wakeup",
+    description:
+      "Schedule a follow-up session for yourself — 'check back on the invoice in two days'. At the time you name, a fresh session starts briefed with the note you leave here, under your own authority. Use it for one-off follow-ups; recurring work is a Routine. At most 20 pending, up to 90 days out.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        at: { type: "string", description: "When to wake, ISO 8601 (e.g. 2026-09-02T09:00:00Z)." },
+        inHours: {
+          type: "number",
+          description: "Alternative to `at`: hours from now (e.g. 48 for two days).",
+        },
+        brief: {
+          type: "string",
+          description: "The note your future self reads — what to check and what done looks like.",
+        },
+      },
+      required: ["brief"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "cancel_wakeup",
+    description: "Cancel one of your own pending wakeups by id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        wakeupId: { type: "string", description: "The wakeup's id UUID." },
+      },
+      required: ["wakeupId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_workstream",
+    description:
+      "Open a Workstream — your persistent state document for work spanning many Runs ('collect these 40 overdue invoices'). Optionally bind it to one of your Routines: every future Run of that routine then opens with the latest state you committed. One active workstream per routine.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        objective: { type: "string", description: "What done means, in prose." },
+        stateDoc: { type: "string", description: "The initial state document." },
+        routineId: {
+          type: "string",
+          description: "One of your own Routine ids to bind, or omit for unbound.",
+        },
+      },
+      required: ["title"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_workstream",
+    description:
+      "Commit the new state of one of your Workstreams — a full replacement of the state document, exactly what your next Run should open with. Mark it done, or abandoned with a reason, when the work truly ends.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workstreamId: { type: "string" },
+        stateDoc: { type: "string", description: "Full replacement state document." },
+        status: { type: "string", enum: ["active", "done", "abandoned"] },
+        closeReason: { type: "string", description: "Required when abandoning." },
+      },
+      required: ["workstreamId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_workstreams",
+    description:
+      "List your Workstreams with their current state documents. Pass `all: true` to include done and abandoned ones.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        all: { type: "boolean", description: "Include finished workstreams." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_pipelines",
     description:
       "List the company's Pipelines. A Pipeline is deterministic automation: one trigger wired to a series of steps that run the same way every time, with no model in the loop unless a step asks for one. Reach for a Pipeline when the same input should always follow the same path (a webhook that files rows into a Base, a nightly digest) and for a Routine when the work needs judgement. Each row carries the id, slug, whether it is enabled, its trigger summary, step count, schedule, and last Run — call `get_pipeline` for the steps themselves.",

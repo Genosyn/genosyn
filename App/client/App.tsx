@@ -87,6 +87,7 @@ import Approvals from "./pages/Approvals";
 import Decisions from "./pages/Decisions";
 import Goals from "./pages/Goals";
 import Revisions from "./pages/Revisions";
+import Initiatives from "./pages/Initiatives";
 import AuditLog from "./pages/AuditLog";
 import Usage from "./pages/Usage";
 import BasesLayout from "./pages/BasesLayout";
@@ -649,6 +650,7 @@ function CompanyRoutes({
           <Route path="decisions" element={<Decisions company={company} me={me} />} />
           <Route path="goals" element={<Goals company={company} me={me} />} />
           <Route path="revisions" element={<Revisions company={company} me={me} />} />
+          <Route path="initiatives" element={<Initiatives company={company} me={me} />} />
           <Route path="help" element={<Help company={company} />} />
 
           {/* Workspace chat — Slack-style channels and DMs (M9). */}

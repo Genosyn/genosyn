@@ -54,8 +54,19 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   },
   improvement: {
     label: "improvement",
-    blurb: "Stage edits to your own Soul, Skills, or Routines for a human to apply.",
-    tools: ["propose_revision"],
+    blurb: "Stage edits to your own surfaces, or propose new standing work, for a human to apply.",
+    tools: ["propose_revision", "propose_initiative"],
+  },
+  continuity: {
+    label: "continuity",
+    blurb: "Carry work across sessions: wake yourself later, keep state between Runs.",
+    tools: [
+      "schedule_wakeup",
+      "cancel_wakeup",
+      "create_workstream",
+      "update_workstream",
+      "list_workstreams",
+    ],
   },
   pipelines: {
     label: "pipelines",
@@ -1229,6 +1240,12 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   get_goal: ["kpi", "okr", "objective", "target"],
   update_goal_progress: ["kpi", "okr", "report progress", "metric update", "number"],
   decide_decision: ["routed", "answer decision", "decide for", "delegated judgment"],
+  schedule_wakeup: ["remind me", "check back", "later", "follow up", "tomorrow", "in two days"],
+  cancel_wakeup: ["remind", "unschedule"],
+  create_workstream: ["long running", "multi-day", "track progress", "state", "wip"],
+  update_workstream: ["save progress", "checkpoint", "state", "where i left off"],
+  list_workstreams: ["in progress", "wip", "where i left off"],
+  propose_initiative: ["new routine idea", "should exist", "suggest work", "noticed a gap"],
   propose_revision: [
     "edit my soul",
     "improve skill",
