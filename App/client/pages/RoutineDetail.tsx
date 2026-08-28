@@ -24,11 +24,13 @@ import {
   api,
   CatchUpPolicy,
   Company,
+  Goal,
   MemberBrowser,
   Routine,
   RoutineFolder,
   RoutineWithMeta,
   Run,
+  RunLesson,
   RunLog,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
@@ -574,6 +576,8 @@ function OverviewTab({
         </CardBody>
       </Card>
 
+      <LessonsCard company={company} routine={routine} compact={compact} />
+
       <Card className={compact ? undefined : "md:col-span-2"}>
         <CardBody className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
@@ -629,6 +633,97 @@ function OverviewTab({
         </CardBody>
       </Card>
     </div>
+  );
+}
+
+/**
+ * Lessons — the takeaways graded Runs left behind (M52). The runner folds
+ * every undismissed lesson into the routine's future prompts, so an admin
+ * dismissing one here is telling future runs to stop hearing it. The section
+ * vanishes entirely while the routine has no lessons: an empty queue is not
+ * news.
+ */
+function LessonsCard({
+  company,
+  routine,
+  compact,
+}: {
+  company: Company;
+  routine: RoutineWithMeta;
+  compact: boolean;
+}) {
+  const [lessons, setLessons] = React.useState<RunLesson[] | null>(null);
+  const dialog = useDialog();
+  const canManage = company.role === "owner" || company.role === "admin";
+
+  const reload = React.useCallback(() => {
+    api
+      .get<RunLesson[]>(`/api/companies/${company.id}/run-lessons/routine/${routine.id}`)
+      .then(setLessons)
+      .catch(() => setLessons([]));
+  }, [company.id, routine.id]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  // Lessons ride the routine's own live-sync kind, scoped like the runs list:
+  // a graded run writing a new lesson lands here without a manual refresh.
+  useLiveRefetch("routine", reload, routine.id);
+
+  async function dismiss(lesson: RunLesson) {
+    try {
+      await api.post(`/api/companies/${company.id}/run-lessons/${lesson.id}/dismiss`, {});
+      reload();
+    } catch (err) {
+      void dialog.error(err, { title: "Couldn’t dismiss the lesson" });
+    }
+  }
+
+  if (!lessons || lessons.length === 0) return null;
+
+  return (
+    <Card className={compact ? undefined : "md:col-span-2"}>
+      <CardBody className="flex flex-col gap-3">
+        <SectionLabel>Lessons</SectionLabel>
+        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          {lessons.map((lesson) => (
+            <li key={lesson.id} className="flex items-start gap-3 py-2 first:pt-0 last:pb-0">
+              <div className="min-w-0 flex-1">
+                <div
+                  className={clsx(
+                    "text-sm",
+                    lesson.dismissedAt
+                      ? "text-slate-400 dark:text-slate-500"
+                      : "text-slate-800 dark:text-slate-200",
+                  )}
+                >
+                  {lesson.advice}
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  because: {lesson.cause}
+                </div>
+              </div>
+              <span
+                className="shrink-0 text-xs tabular-nums text-slate-400 dark:text-slate-500"
+                title={new Date(lesson.createdAt).toLocaleString()}
+              >
+                {new Date(lesson.createdAt).toLocaleDateString()}
+              </span>
+              {lesson.dismissedAt ? (
+                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  Dismissed
+                </span>
+              ) : canManage ? (
+                <Button variant="ghost" size="sm" onClick={() => void dismiss(lesson)}>
+                  Dismiss
+                </Button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </CardBody>
+    </Card>
   );
 }
 
@@ -1015,6 +1110,15 @@ function SettingsTab({
     const current = routine.folderId ?? "";
     setFolderId(current && !folders.some((f) => f.id === current) ? "" : current);
   }, [routine.id, routine.folderId, folders]);
+  // "" is the unlinked choice — the routine serves no goal.
+  const [goalId, setGoalId] = React.useState(routine.goalId ?? "");
+  const [goals, setGoals] = React.useState<Goal[]>([]);
+  // Same re-seed discipline as the folder picker: another Member linking the
+  // routine, or the goal being deleted underneath us (which unlinks it
+  // server-side), must not be undone by saving an unrelated setting.
+  React.useEffect(() => {
+    setGoalId(routine.goalId ?? "");
+  }, [routine.id, routine.goalId]);
   const [timeoutSec, setTimeoutSec] = React.useState(routine.timeoutSec ?? 3600);
   const [requiresApproval, setRequiresApproval] = React.useState(routine.requiresApproval ?? false);
   // "" is the inherit choice — the routine follows the employee's active model.
@@ -1062,6 +1166,18 @@ function SettingsTab({
   }, [company.id, emp]);
 
   React.useEffect(() => {
+    api
+      .get<Goal[]>(`/api/companies/${company.id}/goals`)
+      .then((list) => {
+        setGoals(list);
+        // A link can dangle if the goal was deleted out from under us. Show
+        // "None", which is what the server holds by then anyway.
+        setGoalId((cur) => (cur && !list.some((g) => g.id === cur) ? "" : cur));
+      })
+      .catch(() => setGoals([]));
+  }, [company.id]);
+
+  React.useEffect(() => {
     if (!emp) return;
     api
       .get<MemberBrowser[]>(`/api/companies/${company.id}/member-browsers/for-employee/${emp.id}`)
@@ -1098,6 +1214,7 @@ function SettingsTab({
         timeoutSec,
         requiresApproval,
         folderId: folderId || null,
+        goalId: goalId || null,
         modelId: modelId || null,
         browserEnabledOverride:
           browserOverride === "on" ? true : browserOverride === "off" ? false : null,
@@ -1147,6 +1264,27 @@ function SettingsTab({
               {folders.length === 0
                 ? "No folders yet — create one from the Routines sidebar."
                 : "Where this routine lives. Use tags for what it’s about; a routine has one folder and any number of tags."}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <Select label="Goal" value={goalId} onChange={(e) => setGoalId(e.target.value)}>
+              <option value="">None</option>
+              {[...goals]
+                .sort(
+                  (a, b) =>
+                    Number(a.status !== "active") - Number(b.status !== "active"),
+                )
+                .map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.status === "active" ? g.title : `${g.title} (${g.status})`}
+                  </option>
+                ))}
+            </Select>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              {goals.length === 0
+                ? "No goals yet — create one on the Goals page."
+                : "The objective this routine’s work serves."}
             </div>
           </div>
 

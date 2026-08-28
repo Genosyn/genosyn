@@ -10,6 +10,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   GitBranch,
+  GitPullRequest,
   Hourglass,
   Landmark,
   ListChecks,
@@ -951,6 +952,14 @@ function KindIcon({ kind, className }: { kind: NotificationKind; className?: str
       return <Hourglass size={12} className={className} />;
     case "handoff_overdue":
       return <Hourglass size={12} className={className} />;
+    case "goal_achieved":
+      return <Target size={12} className={className} />;
+    case "goal_missed":
+      return <Target size={12} className={className} />;
+    case "revision_pending":
+      return <GitPullRequest size={12} className={className} />;
+    case "revision_stale":
+      return <GitPullRequest size={12} className={className} />;
   }
 }
 
@@ -1002,6 +1011,22 @@ const KIND_TONE: Record<NotificationKind, { bg: string; fg: string }> = {
   handoff_overdue: {
     bg: "bg-amber-100 dark:bg-amber-500/15",
     fg: "text-amber-600 dark:text-amber-300",
+  },
+  goal_achieved: {
+    bg: "bg-emerald-100 dark:bg-emerald-500/15",
+    fg: "text-emerald-600 dark:text-emerald-300",
+  },
+  goal_missed: {
+    bg: "bg-rose-100 dark:bg-rose-500/15",
+    fg: "text-rose-600 dark:text-rose-300",
+  },
+  revision_pending: {
+    bg: "bg-amber-100 dark:bg-amber-500/15",
+    fg: "text-amber-600 dark:text-amber-300",
+  },
+  revision_stale: {
+    bg: "bg-rose-100 dark:bg-rose-500/15",
+    fg: "text-rose-600 dark:text-rose-300",
   },
 };
 

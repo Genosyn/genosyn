@@ -24,6 +24,7 @@ import {
 } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { routineTemplate } from "../services/files.js";
+import { getGoal } from "../services/goals.js";
 import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
 import { cancelPendingRetry } from "../services/runRecovery.js";
@@ -321,6 +322,9 @@ const patchSchema = z.object({
   // same company as the owning employee. See `POST /routines/move` for the
   // bulk version the Routines list uses.
   folderId: z.string().uuid().nullable().optional(),
+  // The Goal this routine's work serves (M51). Null clears the link; a uuid
+  // must name a goal in the same company as the owning employee.
+  goalId: z.string().uuid().nullable().optional(),
 });
 
 routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, res) => {
@@ -346,6 +350,12 @@ routinesRouter.patch("/routines/:rid", validateBody(patchSchema), async (req, re
       return res.status(400).json({ error: message });
     }
     r.folderId = body.folderId;
+  }
+  if (body.goalId !== undefined) {
+    if (body.goalId !== null && !(await getGoal(found.co.id, body.goalId))) {
+      return res.status(400).json({ error: "Goal not found in this company" });
+    }
+    r.goalId = body.goalId;
   }
   if (body.name !== undefined) {
     if (await findRoutineByName(r.employeeId, body.name, r.id)) {

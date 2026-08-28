@@ -815,6 +815,79 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "list_goals",
+    description:
+      "List the company's Goals — the measurable objectives the company is steering toward. Each row carries the goal's `id`, `slug`, target, current value, direction, deadline, owner, and computed progress. Goals you own are your accountability; a Routine may declare the goal it serves.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_goal",
+    description:
+      "Read one Goal in full, including its description and cascade position. Identify it by its `id` or `slug` from `list_goals`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        goal: { type: "string", description: "The goal's `id` UUID or its `slug`." },
+      },
+      required: ["goal"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "update_goal_progress",
+    description:
+      "Report the current value of a manual-metric Goal — the number a human or the platform cannot compute for itself. Chart-bound goals refuse this: their value tracks their chart automatically. Reporting is audited and journaled; humans still set the targets.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        goal: { type: "string", description: "The goal's `id` UUID or its `slug`." },
+        value: { type: "number", description: "The metric's current value." },
+        note: {
+          type: "string",
+          description: "One line on where the number came from, for the journal.",
+        },
+      },
+      required: ["goal", "value"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "propose_revision",
+    description:
+      "Propose a revision to your OWN Soul, one of your Skills, or one of your Routines. Nothing changes when you call this: the full replacement body you supply sits in a review queue until an owner or admin applies it, and they see a diff against the current body — so send the complete document, not a fragment. Cite the Runs that motivated the change. One pending proposal per target at a time.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["soul", "skill", "routine_body", "routine_criteria"],
+          description:
+            "What to revise: your Soul, a Skill's playbook, a Routine's brief, or a Routine's acceptance criteria.",
+        },
+        target: {
+          type: "string",
+          description:
+            "The Skill or Routine to revise, by `id`, `slug`, or exact name. Omit for `soul`.",
+        },
+        proposedBody: {
+          type: "string",
+          description: "The complete replacement body, byte for byte what should be stored.",
+        },
+        rationale: {
+          type: "string",
+          description: "Why this change — the first thing the reviewer reads.",
+        },
+        evidenceRunIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "Up to 10 Run ids that show the problem this fixes.",
+        },
+      },
+      required: ["kind", "proposedBody", "rationale"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_pipelines",
     description:
       "List the company's Pipelines. A Pipeline is deterministic automation: one trigger wired to a series of steps that run the same way every time, with no model in the loop unless a step asks for one. Reach for a Pipeline when the same input should always follow the same path (a webhook that files rows into a Base, a nightly digest) and for a Routine when the work needs judgement. Each row carries the id, slug, whether it is enabled, its trigger summary, step count, schedule, and last Run — call `get_pipeline` for the steps themselves.",

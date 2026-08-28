@@ -41,6 +41,17 @@ export class Routine {
   @Column({ type: "varchar", nullable: true })
   folderId!: string | null;
 
+  /**
+   * The {@link Goal} this routine's work serves, or null for work with no
+   * declared objective. Goals are company-scoped while a routine is owned by
+   * an employee, so the write paths check that the goal's company matches the
+   * owning employee's before accepting an id — the `folderId` rule above.
+   * The linked Goal is folded into every Run brief and into the outcome
+   * checker's evidence; deleting a Goal clears the routines pointing at it.
+   */
+  @Column({ type: "varchar", nullable: true })
+  goalId!: string | null;
+
   @Column({ type: "boolean", default: true })
   enabled!: boolean;
 

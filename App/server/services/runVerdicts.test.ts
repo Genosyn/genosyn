@@ -110,4 +110,46 @@ describe("run outcome check", () => {
     assert.equal(assessment.verdict, "achieved");
     assert.match(assessment.note, /First answer/);
   });
+
+  test("a linked Goal rides into the checker as context, framed as context not the bar", async () => {
+    let seenSystem = "";
+    await assessRunOutcome({
+      run,
+      routine,
+      employee,
+      model,
+      goal: {
+        title: "Reply within a day",
+        direction: "decrease_to",
+        targetValue: 24,
+        currentValue: 31,
+        unit: "hours",
+      } as never,
+      runRestricted: (async (params: { system: string; tools: AgentTool[] }) => {
+        seenSystem = params.system;
+        await params.tools[0].run({ verdict: "achieved", note: "Fine." });
+        return { status: "ok", finalText: "", steps: 2, stopReason: "end_turn" };
+      }) as never,
+    });
+    assert.match(seenSystem, /Reply within a day/);
+    assert.match(seenSystem, /drive down to 24 hours/);
+    assert.match(seenSystem, /currently 31 hours/);
+    assert.match(seenSystem, /context, not the bar/);
+  });
+
+  test("no Goal means no objective section — the prompt stays exactly criteria-shaped", async () => {
+    let seenSystem = "";
+    await assessRunOutcome({
+      run,
+      routine,
+      employee,
+      model,
+      runRestricted: (async (params: { system: string; tools: AgentTool[] }) => {
+        seenSystem = params.system;
+        await params.tools[0].run({ verdict: "achieved", note: "Fine." });
+        return { status: "ok", finalText: "", steps: 2, stopReason: "end_turn" };
+      }) as never,
+    });
+    assert.doesNotMatch(seenSystem, /objective this Routine serves/);
+  });
 });

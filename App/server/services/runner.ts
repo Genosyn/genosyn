@@ -14,6 +14,9 @@ import { resolveRoutineModel } from "./models.js";
 import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
+import { composeGoalsContext, goalBriefBlock } from "./goals.js";
+import { composeLessonsBlock, reflectOnRun, shouldReflect } from "./runLessons.js";
+import { Goal } from "../db/entities/Goal.js";
 import { materializeReposForEmployee } from "./repoSync.js";
 import { composeRepositoriesContext, materializeRepositoriesForEmployee } from "./repositories.js";
 import { composeFinanceContext } from "./financeGrants.js";
@@ -324,6 +327,7 @@ export async function startRoutineRun(
       ];
       const repositoryMaterializationAllowed = shouldMaterializeRepositoriesForTurn(model.authMode);
       const memoryContext = await composeMemoryContext(emp.id);
+      const goalsContext = await composeGoalsContext(co.id, emp.id);
       const repositoriesContext = repositoryMaterializationAllowed
         ? await composeRepositoriesContext(emp.id)
         : "";
@@ -342,6 +346,7 @@ export async function startRoutineRun(
         emp,
         skills,
         memoryContext,
+        goalsContext,
         repositoriesContext,
         financeContext,
         signingContext,
@@ -356,7 +361,9 @@ export async function startRoutineRun(
           `your Soul, your Memory, and your Skills.`,
         skillToolsets: skillToolsetMap(skills, unavailableSkillTools),
       });
-      const userMessage = composeRoutineMessage(routine, missedSlots);
+      const goalBlock = await goalBriefBlock(co.id, routine.goalId);
+      const lessonsBlock = await composeLessonsBlock(routine.id);
+      const userMessage = composeRoutineMessage(routine, missedSlots, goalBlock, lessonsBlock);
 
       const cwd = employeeDir(co.slug, emp.slug);
       ensureDir(cwd);
@@ -518,6 +525,12 @@ export async function startRoutineRun(
         await assessOutcomeQuietly(runRepo, saved, routine, emp, model);
       }
       await journalQuietly(emp.id, routine, saved);
+      // The improvement loop (M52): a failed or off-goal Run earns one
+      // reflection turn. After the journal so the lesson never delays the
+      // page a human is owed; rate-limited inside so retry chains stay quiet.
+      if (shouldReflect(saved.status, saved.outcomeVerdict)) {
+        await reflectOnRun({ run: saved, routine, employee: emp, model });
+      }
       return saved;
     } catch (err) {
       if (!agentInvocationStarted && saved.status === "running" && deadlineReached()) {
@@ -804,7 +817,18 @@ async function assessOutcomeQuietly(
   try {
     const fresh = await AppDataSource.getRepository(Routine).findOneBy({ id: routine.id });
     if (!fresh || !fresh.acceptanceCriteria.trim()) return;
-    const assessment = await assessRunOutcome({ run, routine: fresh, employee: emp, model });
+    // The linked Goal rides into the checker as context the same way the
+    // criteria do — re-read here for the same mid-run-edit reason as `fresh`.
+    const goal = fresh.goalId
+      ? await AppDataSource.getRepository(Goal).findOneBy({ id: fresh.goalId, companyId: emp.companyId })
+      : null;
+    const assessment = await assessRunOutcome({
+      run,
+      routine: fresh,
+      employee: emp,
+      model,
+      goal: goal && goal.status === "active" ? goal : null,
+    });
     const tokensIn = run.tokensIn + assessment.usage.inputTokens;
     const tokensOut = run.tokensOut + assessment.usage.outputTokens;
     // Conditional on the status this process persisted, so a row another
@@ -865,11 +889,22 @@ function stampRetry(run: Run, routine: Routine, log: DurableRunLog): void {
   );
 }
 
-function composeRoutineMessage(routine: Routine, missedSlots: number): string {
+function composeRoutineMessage(
+  routine: Routine,
+  missedSlots: number,
+  goalBlock: string | null,
+  lessonsBlock: string,
+): string {
   return [
     `## Routine: ${routine.name}`,
     "",
     routine.body,
+    // The objective this work serves, when the Routine declares one — folded
+    // beside the criteria so the employee aims at the goal it is graded on.
+    ...(goalBlock ? ["", "## Goal", goalBlock] : []),
+    // What earlier graded-bad Runs taught (M52) — advice from the routine's
+    // own retrospectives, so the next attempt starts past the last stumble.
+    ...(lessonsBlock ? ["", lessonsBlock] : []),
     // The bar the Run will be judged against. Folding it into the brief means
     // the employee is aiming at the same criteria the outcome check grades.
     ...(routine.acceptanceCriteria.trim()

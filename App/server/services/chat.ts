@@ -12,6 +12,7 @@ import {
 } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
+import { composeGoalsContext } from "./goals.js";
 import { materializeReposForEmployee } from "./repoSync.js";
 import { composeRepositoriesContext, materializeRepositoriesForEmployee } from "./repositories.js";
 import { composeFinanceContext } from "./financeGrants.js";
@@ -567,6 +568,11 @@ export async function streamChatWithEmployee(
     // chat may receive it. The Member tool registry applies the same rule to
     // list/add/update/delete_memory.
     const memoryContext = contextAccess.memory ? await composeMemoryContext(emp.id) : "";
+    // Goals are company-visible rows every Member can already read from the
+    // Goals page, so the trusted-prompt branch below is the only gate needed.
+    const goalsContext = contextAccess.soulAndSkills
+      ? await composeGoalsContext(co.id, emp.id)
+      : "";
     const repositoriesContext =
       contextAccess.repositories && repositoryMaterializationAllowed
         ? await composeRepositoriesContext(emp.id)
@@ -588,6 +594,7 @@ export async function streamChatWithEmployee(
           emp,
           skills: effectiveSkills,
           memoryContext,
+          goalsContext,
           repositoriesContext,
           financeContext,
           signingContext,

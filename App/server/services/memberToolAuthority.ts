@@ -22,6 +22,10 @@ const MEMBER_TOOLS = [
   "list_skills",
   "list_routines",
   "get_routine",
+  // Goals are the company's shared direction — the human route lists them at
+  // member level for the same reason.
+  "list_goals",
+  "get_goal",
   // Reading a Pipeline is member-level on the human route too — every Member
   // may open Pipelines and inspect a Run. Writing one is not; see ADMIN_TOOLS.
   "list_pipelines",
@@ -259,6 +263,14 @@ const ADMIN_TOOLS = [
   "create_routine",
   "update_routine",
   "delete_routine",
+  // Progress reports mutate a Goal, and every Goal mutation on the human
+  // route is admin-gated (`routes/goals.ts`).
+  "update_goal_progress",
+  // Proposing a revision performs no privileged effect, but it stages an edit
+  // to a Soul/Skill/Routine — surfaces whose human mutations are admin-gated
+  // — and pages the owners. A Member-driven turn gets it at the same rank as
+  // editing those surfaces directly.
+  "propose_revision",
   // Every mutation on the human Pipelines route requires the admin company
   // role (`routes/pipelines.ts`), and a Pipeline runs as the company once
   // saved — so a delegated Member gets exactly the authority they already

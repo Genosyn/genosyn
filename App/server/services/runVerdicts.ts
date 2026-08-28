@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AIEmployee } from "../db/entities/AIEmployee.js";
 import type { AIModel } from "../db/entities/AIModel.js";
+import type { Goal } from "../db/entities/Goal.js";
 import type { Routine } from "../db/entities/Routine.js";
 import type { Run, RunOutcomeVerdict } from "../db/entities/Run.js";
 import { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
@@ -51,11 +52,24 @@ const submittedVerdictSchema = z
   })
   .strict();
 
-function verdictSystemPrompt(employee: AIEmployee, routine: Routine): string {
+function verdictSystemPrompt(employee: AIEmployee, routine: Routine, goal: Goal | null): string {
   return [
     `You are the quality check on a scheduled Run that ${employee.name} (${employee.role}) just finished for the Routine "${routine.name}".`,
     "Judge one thing only: does the transcript show that the acceptance criteria below were met?",
     "",
+    // The Goal is context, not a second bar: the criteria stay the thing being
+    // judged, but "did the work serve its objective" is legible evidence when
+    // deciding achieved vs off_goal.
+    ...(goal
+      ? [
+          "## The objective this Routine serves (context, not the bar)",
+          `Goal "${goal.title}": ${goal.direction === "decrease_to" ? "drive down to" : "reach"} ` +
+            `${goal.targetValue}${goal.unit ? ` ${goal.unit}` : ""}` +
+            `${goal.currentValue !== null ? ` (currently ${goal.currentValue}${goal.unit ? ` ${goal.unit}` : ""})` : ""}.`,
+          "Work that met the letter of the criteria while plainly working against this objective is off_goal.",
+          "",
+        ]
+      : []),
     "## Acceptance criteria (the bar the Run had to clear)",
     routine.acceptanceCriteria,
     "",
@@ -97,6 +111,8 @@ export async function assessRunOutcome(params: {
   routine: Routine;
   employee: AIEmployee;
   model: AIModel;
+  /** The active Goal the Routine declares, folded in as judging context. */
+  goal?: Goal | null;
   /**
    * Seam for tests — the check is a model turn. Mirrors the TLDR service's
    * `runRestricted` injection rather than inventing a second pattern.
@@ -141,7 +157,7 @@ export async function assessRunOutcome(params: {
     const result = await (params.runRestricted ?? runRestrictedEmployeeAgent)({
       model: params.model,
       employeeId: params.employee.id,
-      system: verdictSystemPrompt(params.employee, params.routine),
+      system: verdictSystemPrompt(params.employee, params.routine, params.goal ?? null),
       messages: [
         { role: "user", content: [{ type: "text", text: verdictUserPrompt(params.run) }] },
       ],

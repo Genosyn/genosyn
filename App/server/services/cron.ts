@@ -36,6 +36,7 @@ import {
   sweepPendingStandingQuestions,
 } from "./tldrStandingQuestions.js";
 import { sweepStalledWork } from "./escalations.js";
+import { sweepGoals } from "./goals.js";
 
 /**
  * Heartbeat-based routine scheduler.
@@ -507,6 +508,14 @@ async function tick(): Promise<void> {
       await sweepStalledWork(now).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] stall sweep failed:", err);
+      });
+
+      // Phase 8 — keep the Goals honest. Refresh chart-bound values (bounded
+      // per pass) and settle achieved / missed transitions, each claimed with
+      // a conditional UPDATE so a settle notifies exactly once.
+      await sweepGoals(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] goal sweep failed:", err);
       });
     });
   } finally {

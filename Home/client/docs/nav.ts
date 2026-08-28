@@ -222,6 +222,18 @@ export const DOCS_NAV: DocsSection[] = [
           "Questions your AI employees stopped to ask, with the options they will act on — answered from Home.",
       },
       {
+        path: "/docs/goals",
+        title: "Goals",
+        blurb:
+          "Measurable objectives, cascaded company → employee — in every AI prompt, checked against every Run.",
+      },
+      {
+        path: "/docs/improvement",
+        title: "The improvement loop",
+        blurb:
+          "Lessons from graded-bad Runs feed the next brief; Revision proposals stage durable fixes a human applies.",
+      },
+      {
         path: "/docs/pipelines",
         title: "Pipelines",
         blurb: "Build predictable trigger-to-step automations and inspect every Run.",
