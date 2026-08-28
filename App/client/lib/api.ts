@@ -588,7 +588,18 @@ export type ApprovalKind =
   | "lightning_payment"
   | "browser_action"
   | "mcp_tool"
-  | "ad_spend";
+  | "ad_spend"
+  /**
+   * The eligibility sweep proposing earned autonomy: approving switches the
+   * named gate off (an `AutonomyWaiver` is granted). Title and summary — the
+   * evidence sentence — are server-set.
+   */
+  | "autonomy_promotion"
+  /**
+   * A high-risk call held because the turn had already read web content
+   * (M53b). Approving replays the recorded call verbatim.
+   */
+  | "tainted_tool";
 export type Approval = {
   id: string;
   companyId: string;
@@ -654,6 +665,10 @@ export type Decision = {
   decidedAt: string | null;
   decidedByUserId: string | null;
   decidedBy: { id: string; name: string } | null;
+  /** Set when an AI employee answered under a decision-policy rule (M53a). */
+  decidedByEmployee: { id: string; name: string; slug: string } | null;
+  /** On a pending question: the AI decider currently holding it. */
+  routedToEmployee: { id: string; name: string; slug: string } | null;
   pickupStatus: DecisionPickupStatus;
   pickupSummary: string | null;
   pickupStartedAt: string | null;
@@ -663,6 +678,105 @@ export type Decision = {
   employee: { id: string; name: string; slug: string; avatarKey: string | null } | null;
   assignee: { id: string; name: string } | null;
 };
+
+/**
+ * One row of the decision-rights matrix (M53a): which AI decider a question
+ * from `askingEmployeeId` (null = any employee) is routed to before the human
+ * bell rings. A `manager` rule must not name a decider; an `employee` rule
+ * must. Served by `/api/companies/:cid/decision-policies`; reads are
+ * member-level, mutations admin-gated. Live-sync rides the "decision" kind.
+ */
+export type DecisionPolicyDeciderKind = "manager" | "employee";
+export type DecisionPolicyRule = {
+  id: string;
+  askingEmployeeId: string | null;
+  deciderKind: DecisionPolicyDeciderKind;
+  deciderEmployeeId: string | null;
+  sortOrder: number;
+  enabled: boolean;
+  createdAt: string;
+};
+
+/**
+ * Earned autonomy (M53a). A waiver is a gate an admin switched off after an
+ * approved `autonomy_promotion` — revoking re-arms it. Served by
+ * `/api/companies/:cid/employees/:eid/autonomy`; revoke via
+ * `DELETE /autonomy-waivers/:wid` (admin, 409 when already revoked).
+ * Live-sync rides the "employee" kind, scoped by employeeId.
+ */
+export type AutonomyWaiverKind = "browser_approval" | "routine_approval";
+export type AutonomyWaiver = {
+  id: string;
+  kind: AutonomyWaiverKind;
+  /** Set on `routine_approval` waivers scoped to one Routine. */
+  routineId: string | null;
+  grantedAt: string;
+  grantedByUserId: string | null;
+  /** The server-computed evidence sentence the promotion cited. */
+  evidence: string;
+  revokedAt: string | null;
+  /** Empty string while the waiver is active. */
+  revokedReason: string;
+};
+export type AutonomyStats = {
+  windowDays: number;
+  terminalRuns: number;
+  failed: number;
+  offGoal: number;
+  browserApprovalsApproved: number;
+  browserApprovalsRejected: number;
+};
+export type AutonomyOverview = {
+  stats: AutonomyStats;
+  waivers: AutonomyWaiver[];
+};
+
+/**
+ * A monthly (UTC calendar) envelope over authorized ad-spend increases
+ * (M53b). Null `connectionId` + `employeeId` = the whole company; the
+ * tightest applicable budget binds. Exhaustion refuses the AI's mutation and
+ * pages owners once per month. Served by `/api/companies/:cid/budgets` —
+ * reads member-level, mutations admin-gated. Live-sync rides the "budget"
+ * kind.
+ */
+export type Budget = {
+  id: string;
+  name: string;
+  /** The monthly cap, in minor units (cents). */
+  amountMinor: number;
+  /** Three-letter code, e.g. "USD". */
+  currency: string;
+  /** Scopes the envelope to one Connection; null = any. */
+  connectionId: string | null;
+  /** Scopes the envelope to one AI Employee; null = any. */
+  employeeId: string | null;
+  enabled: boolean;
+  /** Authorized increases so far this UTC calendar month, in minor units. */
+  spentThisMonthMinor: number;
+  createdAt: string;
+};
+
+/**
+ * A company policy (M53b). `body` prose is injected into every employee's
+ * system prompt above the Soul; `blockedRecipientDomains` is enforced at the
+ * mail-send choke for every sender; `forbiddenTools` is refused at AI tool
+ * dispatch with an audit row (`find_tools` / `call_tool` cannot be
+ * forbidden). Served by `/api/companies/:cid/company-policies` — reads
+ * member-level, mutations admin-gated. Live-sync rides the "policy" kind.
+ */
+export type CompanyPolicy = {
+  id: string;
+  title: string;
+  body: string;
+  /** Newline-separated domains. */
+  blockedRecipientDomains: string;
+  /** Newline-separated tool names. */
+  forbiddenTools: string;
+  sortOrder: number;
+  enabled: boolean;
+  createdAt: string;
+};
+
 export type RunStatus =
   | "running"
   | "completed"
@@ -2442,7 +2556,11 @@ export type NotificationKind =
   | "goal_achieved"
   | "goal_missed"
   | "revision_pending"
-  | "revision_stale";
+  | "revision_stale"
+  /** An employee's earned-autonomy waiver was revoked — the gate re-armed. */
+  | "autonomy_revoked"
+  /** A monthly ad-spend Budget refused an increase — the envelope is spent. */
+  | "budget_exhausted";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -2457,7 +2575,9 @@ export type NotificationEntityKind =
   | "run"
   | "handoff"
   | "goal"
-  | "revision_proposal";
+  | "revision_proposal"
+  | "employee"
+  | "budget";
 
 export type NotificationActor = {
   kind: NotificationActorKind;

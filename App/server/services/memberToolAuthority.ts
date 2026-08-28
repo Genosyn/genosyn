@@ -67,6 +67,10 @@ const MEMBER_TOOLS = [
   "request_decision",
   "list_decisions",
   "cancel_decision",
+  // Answering an unassigned decision is member-level on the human route; the
+  // tool additionally requires the acting employee to be the routed decider,
+  // which is strictly narrower.
+  "decide_decision",
   // Starting a session is member-level because its human route is: any company
   // Member may send an employee at a repository from the Repository page, for
   // the reason `routes/repositoryContent.ts` gives — editing a document and

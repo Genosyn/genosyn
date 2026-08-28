@@ -37,6 +37,8 @@ import {
 } from "./tldrStandingQuestions.js";
 import { sweepStalledWork } from "./escalations.js";
 import { sweepGoals } from "./goals.js";
+import { sweepRoutedDecisions } from "./decisionRouting.js";
+import { sweepAutonomyPromotions } from "./autonomy.js";
 
 /**
  * Heartbeat-based routine scheduler.
@@ -516,6 +518,22 @@ async function tick(): Promise<void> {
       await sweepGoals(now).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] goal sweep failed:", err);
+      });
+
+      // Phase 9 — the routed-Decision fuse. A question an AI decider has held
+      // unanswered past the fuse drops back to the human flow with the bell
+      // the routing skipped; un-routing is the exactly-once claim.
+      await sweepRoutedDecisions(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] routed decision sweep failed:", err);
+      });
+
+      // Phase 10 — earned-autonomy eligibility (hourly behind its own gate).
+      // Drafts evidence-attached promotion Approvals; demotion needs no sweep
+      // because the runner revokes at the moment a Run goes bad.
+      await sweepAutonomyPromotions(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] autonomy sweep failed:", err);
       });
     });
   } finally {

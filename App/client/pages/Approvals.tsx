@@ -1,5 +1,15 @@
 import React from "react";
-import { Check, Globe, Megaphone, Plug, ShieldCheck, X, Zap } from "lucide-react";
+import {
+  Award,
+  Check,
+  Globe,
+  Megaphone,
+  Plug,
+  ShieldCheck,
+  ShieldQuestion,
+  X,
+  Zap,
+} from "lucide-react";
 import { api, Approval, ApprovalKind, ApprovalStatus, Company } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
@@ -72,6 +82,28 @@ function copyFor(a: Approval): ApprovalCopy {
         subtitle: a.summary ?? "AI employee wants to change ad spend",
         Icon: Megaphone,
         iconClass: "text-rose-500",
+      };
+    case "autonomy_promotion":
+      // The eligibility sweep's proposal, not the employee's request. The
+      // server-set summary is the evidence sentence; approving executes the
+      // settings change (an AutonomyWaiver is granted, the gate goes quiet).
+      return {
+        title: a.title ?? "Autonomy promotion",
+        subtitle: a.summary ?? "Earned autonomy — approving switches the named gate off",
+        Icon: Award,
+        iconClass: "text-emerald-600",
+      };
+    case "tainted_tool":
+      // The turn read web content before a high-risk call, so the call was
+      // held (M53b). Approving replays the recorded call verbatim — nothing
+      // is re-generated from the tainted context.
+      return {
+        title: a.title ?? "Held call from a tainted turn",
+        subtitle:
+          a.summary ??
+          "This turn read web content before a high-risk call. Approving replays it verbatim.",
+        Icon: ShieldQuestion,
+        iconClass: "text-amber-600",
       };
     case "routine":
     default:

@@ -90,6 +90,12 @@ export const config = {
       // sufficient.
       allowUnsafeHostExecution: false,
     },
+    // Taint-aware turns (M53). "web" (the default) marks a turn tainted once
+    // it ingests web content (search_web / fetch_web_page / download_web_file);
+    // a tainted turn's mail sends and Routine writes queue a human Approval
+    // instead of executing — the classic prompt-injection sinks. "off"
+    // disables the escalation entirely.
+    taintPolicy: "web" as "web" | "off",
     // The current app-owned Chromium process shares the API container. Keep it
     // off in multi-tenant mode until a separately isolated browser worker is
     // configured; startup validation enforces this boundary.

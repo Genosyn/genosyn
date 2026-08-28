@@ -87,7 +87,7 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
   decisions: {
     label: "decisions",
     blurb: "Ask a human to choose, and read back what they chose.",
-    tools: ["request_decision", "list_decisions", "cancel_decision"],
+    tools: ["request_decision", "list_decisions", "cancel_decision", "decide_decision"],
   },
   journal: {
     label: "journal",
@@ -1228,6 +1228,7 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   list_goals: ["kpi", "okr", "objective", "target", "metric", "mission"],
   get_goal: ["kpi", "okr", "objective", "target"],
   update_goal_progress: ["kpi", "okr", "report progress", "metric update", "number"],
+  decide_decision: ["routed", "answer decision", "decide for", "delegated judgment"],
   propose_revision: [
     "edit my soul",
     "improve skill",

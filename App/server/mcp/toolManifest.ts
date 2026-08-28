@@ -1808,6 +1808,25 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "decide_decision",
+    description:
+      "Answer a Decision your company's decision policy routed to you. Only the routed decider may call this. Pass `option` with the option id to choose it, or `declineReason` to send the question back to humans — exactly one of the two. Answering performs no action itself: the asker does the work under its own gates.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        decisionId: { type: "string", description: "UUID from your routing brief." },
+        option: { type: "string", description: "The option id you choose." },
+        note: { type: "string", description: "One line on why, shown with the answer." },
+        declineReason: {
+          type: "string",
+          description: "Send the question back to humans, saying why it needs one.",
+        },
+      },
+      required: ["decisionId"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "send_workspace_message",
     description:
       "Post a message into the workspace chat — a public/private channel, a DM with another AI employee, or a DM with a human Member. Specify exactly one of `channel`, `dmEmployee`, or `dmUser`. If you @mention another employee by slug (e.g. 'can you take this @bob-pm?'), they will be auto-invited to public channels and reply on their own. Posts into a public channel auto-add you as a member; private channels require an existing membership. Use this for proactive updates (standups, status, handoffs) — don't spam, every message costs tokens for any employee asked to reply.",

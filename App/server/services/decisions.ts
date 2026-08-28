@@ -89,6 +89,10 @@ export type DecisionDTO = {
   decidedByUserId: string | null;
   /** Who answered, resolved for display. Null when nobody has yet. */
   decidedBy: { id: string; name: string } | null;
+  /** The AI Employee that answered under a DecisionPolicy rule (M53). */
+  decidedByEmployee: { id: string; name: string; slug: string } | null;
+  /** The AI decider currently holding a routed pending question. */
+  routedToEmployee: { id: string; name: string; slug: string } | null;
   pickupStatus: DecisionPickupStatus;
   pickupSummary: string | null;
   pickupStartedAt: string | null;
@@ -214,6 +218,8 @@ export function serializeDecision(
     employee?: AIEmployee | null;
     assignee?: User | null;
     decidedBy?: User | null;
+    decidedByEmployee?: AIEmployee | null;
+    routedToEmployee?: AIEmployee | null;
     routine?: Routine | null;
     run?: Run | null;
     conversation?: Conversation | null;
@@ -224,6 +230,8 @@ export function serializeDecision(
   const employee = lookups.employee ?? null;
   const assignee = lookups.assignee ?? null;
   const decidedBy = lookups.decidedBy ?? null;
+  const decidedByEmployee = lookups.decidedByEmployee ?? null;
+  const routedToEmployee = lookups.routedToEmployee ?? null;
   return {
     id: decision.id,
     companyId: decision.companyId,
@@ -243,6 +251,12 @@ export function serializeDecision(
     decidedAt: decision.decidedAt?.toISOString() ?? null,
     decidedByUserId: decision.decidedByUserId,
     decidedBy: decidedBy ? { id: decidedBy.id, name: decidedBy.name || decidedBy.email } : null,
+    decidedByEmployee: decidedByEmployee
+      ? { id: decidedByEmployee.id, name: decidedByEmployee.name, slug: decidedByEmployee.slug }
+      : null,
+    routedToEmployee: routedToEmployee
+      ? { id: routedToEmployee.id, name: routedToEmployee.name, slug: routedToEmployee.slug }
+      : null,
     pickupStatus: decision.pickupStatus,
     pickupSummary: decision.pickupSummary,
     pickupStartedAt: decision.pickupStartedAt?.toISOString() ?? null,
@@ -336,7 +350,10 @@ export async function hydrateDecisions(rows: Decision[]): Promise<DecisionDTO[]>
   if (rows.length === 0) return [];
   const [employeeById, userById, routineById, runById, conversationById, mailThreadById] =
     await Promise.all([
-      findByIds(AIEmployee, ids(rows.map((r) => r.employeeId))),
+      findByIds(
+        AIEmployee,
+        ids(rows.flatMap((r) => [r.employeeId, r.decidedByEmployeeId, r.routedToEmployeeId])),
+      ),
       findByIds(User, ids(rows.flatMap((r) => [r.assigneeUserId, r.decidedByUserId]))),
       findByIds(Routine, ids(rows.map((r) => r.routineId))),
       findByIds(Run, ids(rows.map((r) => r.runId))),
@@ -352,6 +369,12 @@ export async function hydrateDecisions(rows: Decision[]): Promise<DecisionDTO[]>
       employee: employeeById.get(row.employeeId) ?? null,
       assignee: row.assigneeUserId ? (userById.get(row.assigneeUserId) ?? null) : null,
       decidedBy: row.decidedByUserId ? (userById.get(row.decidedByUserId) ?? null) : null,
+      decidedByEmployee: row.decidedByEmployeeId
+        ? (employeeById.get(row.decidedByEmployeeId) ?? null)
+        : null,
+      routedToEmployee: row.routedToEmployeeId
+        ? (employeeById.get(row.routedToEmployeeId) ?? null)
+        : null,
       routine: row.routineId ? (routineById.get(row.routineId) ?? null) : null,
       run: row.runId ? (runById.get(row.runId) ?? null) : null,
       conversation: row.conversationId ? (conversationById.get(row.conversationId) ?? null) : null,
@@ -470,7 +493,19 @@ export async function createDecision(params: {
     targetLabel: decision.title,
     metadata: { options: options.map((o) => o.label), urgency: decision.urgency },
   });
-  await notifyDecisionPending(decision);
+
+  // M53: a DecisionPolicy rule may route the question to an AI decider, which
+  // skips the human bell (a decline or the fallback fuse sends it later). The
+  // decider's kickoff session is fired by the boundary that created the row —
+  // the kickoffDecision rule — so this stays a pure database write. Imported
+  // at call time because decisionRouting itself imports this module.
+  const { tryRouteDecision } = await import("./decisionRouting.js");
+  const decider = await tryRouteDecision(decision).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error(`[decisions] routing failed for ${decision.id}:`, err);
+    return null;
+  });
+  if (!decider) await notifyDecisionPending(decision);
 
   return { decision, options };
 }
@@ -480,8 +515,11 @@ export async function createDecision(params: {
  * otherwise the company's owners and admins. Every Member can still answer an
  * unassigned decision from the stack — this only decides who gets paged, so an
  * employee asking a question does not buzz the whole company.
+ *
+ * Exported for `decisionRouting.ts`, which sends exactly this bell when a
+ * routed Decision falls back to the human flow.
  */
-async function notifyDecisionPending(decision: Decision): Promise<void> {
+export async function notifyDecisionPending(decision: Decision): Promise<void> {
   const [company, employee, memberships] = await Promise.all([
     AppDataSource.getRepository(Company).findOneBy({ id: decision.companyId }),
     AppDataSource.getRepository(AIEmployee).findOneBy({ id: decision.employeeId }),

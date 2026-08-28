@@ -198,10 +198,23 @@ don't re-litigate them.
   reply, or triage (Email section, M25). Distinct from a Handoff, which is
   AI→AI.
 - **Approval** — gate that blocks an action until a human ✓.
-- **Decision** — a question an AI employee stacked for a human, with the
-  options it will act on. The employee raises it; a Member picks one; nothing
-  is replayed. Distinct from an Approval, which the *system* raises to block a
+- **Decision** — a question an AI employee stacked with the options it will
+  act on. The employee raises it; a Member picks one — or, when a
+  `DecisionPolicy` rule routes it, an AI decider answers under its own name
+  with a human fallback on a short fuse (M53); nothing is replayed either
+  way. Distinct from an Approval, which the *system* raises to block a
   specific action it will then execute (M39).
+- **Waiver** — an earned, revocable exemption from one human gate
+  (`AutonomyWaiver`, M53): browser approvals or one Routine's approval gate.
+  Proposed by the eligibility sweep as an `autonomy_promotion` Approval,
+  granted by a human, revoked automatically by any failed or off-goal Run.
+- **Budget** — a monthly ad-spend envelope (`Budget`, M53): company-wide or
+  scoped to a Connection or employee, enforced beside the per-Connection
+  caps; the tightest applicable envelope binds.
+- **Policy** — a company-wide rule binding every employee (`CompanyPolicy`,
+  M53): prose injected above every Soul, plus mechanically-enforced blocked
+  recipient domains and forbidden tools. A decision-routing rule is a
+  `DecisionPolicy` — always said as "decision policy" so the two never blur.
 - **Goal** — a measurable objective the company steers toward (`Goal`): a
   target value with a direction, an optional deadline, an optional owning AI
   Employee, an optional parent goal, and a metric source (a manual value or
@@ -3107,25 +3120,75 @@ until an owner/admin applies it, and apply/reject is audited.
       pass before it may finalize green, with bounded remediation turns) —
       scoped, deferred to the next increment of this milestone
 
-### M53 — Distributed judgment (planned)
+### M53 — Distributed judgment ✅
 
 Replace per-action human gates with human-authored policies plus earned
 trust, so approval fatigue stops being the ceiling on autonomy. Promotion is
-evidence-backed and human-ratified; demotion is automatic.
+evidence-backed and human-ratified; demotion is automatic and only ever
+tightens. Deliberately narrow first versions throughout — every rung here
+widens what an AI may do without a human, so each ships with the smallest
+surface that is honestly useful.
 
-- [ ] Earned-autonomy profiles per employee per domain, computed from the
-      track record M50 records (verdict rates, failures, approval outcomes);
-      threshold crossings draft an evidence-attached Approval proposing the
-      specific gate widening; regression contracts the tier immediately
-- [ ] `DecisionPolicy` decision-rights matrix routing eligible Decisions to
-      AI deciders (human-only remains the default; Approvals stay human)
-- [ ] Budget envelopes enforced at the tool seam (committed-vs-actual across
-      Bills, AdSpendEvents, CardTransactions; exhaustion hard-refuses and
-      opens a Decision)
-- [ ] Company Policy layer: rules injected into every prompt and
-      machine-checked pre-dispatch, with `PolicyViolation` audit rows
-- [ ] Taint-aware turn policy (M50's named deferral) ships alongside as the
-      counterweight
+**Design calls recorded up front.** (1) Earned autonomy is not a free-form
+tier ladder: it is a closed set of **waivers**, each a concrete existing gate
+(`browserApprovalRequired` off for a proven employee; `requiresApproval` off
+for one consistently-green Routine). Eligibility is computed from the record
+M50 already keeps; a threshold crossing raises an **Approval** (kind
+`autonomy_promotion`) — the *system's* idea, admin-gated, executing a held
+settings change on ✓, which is exactly what Decision log #11 says an Approval
+is. Any failed, timed-out, or off-goal Run **immediately revokes** the
+employee's waivers and re-arms the gates, notifying the reporting line.
+(2) Decision routing never touches Approvals, and answering a Decision still
+fires no side effect — anything privileged the asker does with the answer
+meets its own gates. A `DecisionPolicy` rule names who may answer for a given
+asking employee: the asker's manager-employee via `reportsToEmployeeId`, or a
+named senior employee. Human-only remains the default; a routed Decision that
+sits unanswered falls back to the human flow on a short fuse. (3) Budgets
+start where AI money-out actually exists today: **ad spend**. A `Budget` row
+caps authorized ad-spend deltas per calendar month, company-wide or scoped to
+one Connection or one employee, enforced at the same seam as the per-Connection
+caps; exhaustion hard-refuses the mutation and tells the employee to raise a
+Decision — the system never raises a Decision itself, because a Decision is
+the employee choosing to stop. (4) The Policy layer is prose injection plus
+two mechanical clause kinds — blocked recipient domains at the mail-send
+choke point and company-wide forbidden genosyn tools at MCP dispatch — with
+violations recorded as `policy.violation` AuditEvents. (5) The taint-aware
+turn policy covers the hostile-by-construction sources first: a turn that
+ingested **web content** has its mail sends and Routine writes (the classic
+injection-persistence sinks) queue an Approval instead of executing.
+
+- [x] **Earned autonomy.** `AutonomyWaiver` entity; eligibility sweep over
+      trailing-30-day Runs and Approval outcomes; `autonomy_promotion`
+      Approval kind whose execute applies the specific waiver; automatic
+      revocation on any failed/timeout/off-goal Run, at the same runner seam
+      that triggers reflection; track record + waivers visible on the
+      employee page
+- [x] **Decision routing.** `DecisionPolicy` rules (asking employee or any →
+      manager / named employee); routed Decisions skip the initial human
+      bell, brief the decider in a background session, and settle through a
+      deferred `decide_decision` tool the routed decider alone may call
+      (answer or decline with a reason); decline or a 4-hour fuse falls back
+      to the human flow; `Decision.decidedByEmployeeId` renders "answered by
+      &lt;employee&gt;" everywhere answers show
+- [x] **Ad-spend Budgets.** `Budget` entity (monthly, company-wide or scoped
+      to a Connection or employee); enforced beside the per-Connection caps
+      wherever an `AdSpendEvent` would be authorized — approval replays
+      included; exhaustion refuses loudly and notifies owners once per budget
+      per period
+- [x] **Policy layer.** `CompanyPolicy` entity (prose injected into every
+      employee prompt, above the Soul; blocked recipient domains; forbidden
+      tools); enforcement at the mail-send choke point (every sender, the
+      Suppression stance) and at MCP dispatch; `policy.violation` AuditEvents;
+      `find_tools`/`call_tool` cannot be forbidden
+- [x] **Taint-aware turns** (M50's named deferral, narrowest honest cut):
+      web-tool dispatch taints the turn's MCP token; a tainted `send_mail` or
+      Routine create/update/delete queues an Approval (kind `tainted_tool`)
+      that replays the verbatim call server-side on ✓ through a fresh
+      employee-authority token; on by default (`config.agent.taintPolicy`)
+- [ ] Taint follow-ups, each deliberate: the connector compose tools
+      (`gmail_send_message` dispatches through the Integration surface, not
+      the static catalogue) and mail bodies as a taint source (today it
+      would gate every send-grant employee's every send)
 
 ### M54 — Reactivity & long horizons (planned)
 

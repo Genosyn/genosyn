@@ -9,6 +9,7 @@ import {
   Mail,
   Network,
   Plug,
+  Scale,
   ScrollText,
   Settings as SettingsIcon,
   TerminalSquare,
@@ -36,6 +37,7 @@ const SETTINGS_TAB_LABEL: Record<string, string> = {
   members: "Members",
   teams: "Teams",
   tags: "Tags",
+  policies: "Policies",
   integrations: "Integrations",
   browsers: "Browsers",
   email: "Email",
@@ -75,6 +77,7 @@ export default function SettingsLayout({
         <SidebarLink to={`${base}/members`} icon={<Users size={14} />} label="Members" />
         <SidebarLink to={`${base}/teams`} icon={<Network size={14} />} label="Teams" />
         <SidebarLink to={`${base}/tags`} icon={<Tags size={14} />} label="Tags" />
+        <SidebarLink to={`${base}/policies`} icon={<Scale size={14} />} label="Policies" />
         <SidebarLink to={`${base}/integrations`} icon={<Plug size={14} />} label="Integrations" />
         <SidebarLink to={`${base}/browsers`} icon={<Laptop size={14} />} label="Browsers" />
         <SidebarLink to={`${base}/email`} icon={<Mail size={14} />} label="Email" />

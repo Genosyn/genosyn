@@ -12,6 +12,8 @@ import {
   Hourglass,
   Landmark,
   Mail,
+  PiggyBank,
+  ShieldAlert,
   ShieldCheck,
   Target,
 } from "lucide-react";
@@ -344,6 +346,10 @@ function KindIcon({
       return <GitPullRequest size={size} className={className} />;
     case "revision_stale":
       return <GitPullRequest size={size} className={className} />;
+    case "autonomy_revoked":
+      return <ShieldAlert size={size} className={className} />;
+    case "budget_exhausted":
+      return <PiggyBank size={size} className={className} />;
   }
 }
 
@@ -409,6 +415,14 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
     iconFg: "text-amber-600 dark:text-amber-300",
   },
   revision_stale: {
+    iconBg: "bg-rose-100 dark:bg-rose-500/15",
+    iconFg: "text-rose-600 dark:text-rose-300",
+  },
+  autonomy_revoked: {
+    iconBg: "bg-rose-100 dark:bg-rose-500/15",
+    iconFg: "text-rose-600 dark:text-rose-300",
+  },
+  budget_exhausted: {
     iconBg: "bg-rose-100 dark:bg-rose-500/15",
     iconFg: "text-rose-600 dark:text-rose-300",
   },

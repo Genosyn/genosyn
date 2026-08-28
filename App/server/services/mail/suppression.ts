@@ -7,6 +7,7 @@ import {
   type SuppressionReason,
 } from "../../db/entities/Suppression.js";
 import { normalizeEmail, parseAddressList } from "../../lib/emailAddress.js";
+import { assertRecipientsPolicyAllowed } from "../companyPolicies.js";
 
 /**
  * The do-not-mail gate.
@@ -143,6 +144,11 @@ export async function assertRecipientsAllowed(
   if (recipients.length === 0) return;
   const blocked = await suppressedAmong(companyId, recipients);
   if (blocked.size > 0) throw new SuppressedRecipientError([...blocked].sort());
+  // The Policy layer's blocked domains (M53) ride the same choke, for the
+  // same reason this gate exists: a policy binds every sender, and the
+  // damage of getting it wrong lands on the whole company. Throws a
+  // PolicyBlockedRecipientError naming the policy.
+  await assertRecipientsPolicyAllowed(companyId, recipients);
 }
 
 /**

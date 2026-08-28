@@ -18,6 +18,7 @@ import EmployeeLayout from "./pages/EmployeeLayout";
 import EmployeeNew from "./pages/EmployeeNew";
 import EmployeeChat from "./pages/EmployeeChat";
 import {
+  AutonomySettingsPage,
   BrowserSettingsPage,
   GeneralSettingsPage,
   ModelSettingsPage,
@@ -142,6 +143,8 @@ import RevenuePartnerships from "./pages/RevenuePartnerships";
 import RevenueSetup from "./pages/RevenueSetup";
 import RevenueDataQuality from "./pages/RevenueDataQuality";
 import MarketingLayout from "./pages/MarketingLayout";
+import Budgets from "./pages/Budgets";
+import { CompanyPolicies } from "./pages/CompanyPolicies";
 import { MarketingAiAccessPage } from "./pages/MarketingAiAccess";
 import { MarketingCampaignDetailPage } from "./pages/MarketingCampaignDetail";
 import { MarketingCampaignsPage } from "./pages/MarketingCampaigns";
@@ -422,6 +425,7 @@ function CompanyRoutes({
               <Route path="connections" element={<EmployeeConnections />} />
               <Route path="mcp" element={<McpPage />} />
               <Route path="browser" element={<BrowserSettingsPage />} />
+              <Route path="autonomy" element={<AutonomySettingsPage />} />
             </Route>
           </Route>
 
@@ -577,6 +581,9 @@ function CompanyRoutes({
             <Route path="campaigns/:campaignId" element={<MarketingCampaignDetailPage />} />
             <Route path="creative" element={<MarketingCreativePage />} />
             <Route path="experiments" element={<MarketingExperimentsPage />} />
+            {/* Monthly ad-spend envelopes (M53b). The server's exhaustion
+              notification links to /marketing/budgets. */}
+            <Route path="budgets" element={<Budgets company={company} me={me} />} />
             <Route path="ai-access" element={<MarketingAiAccessPage />} />
           </Route>
 
@@ -660,6 +667,8 @@ function CompanyRoutes({
             <Route path="members" element={<SettingsMembers />} />
             <Route path="teams" element={<SettingsTeams />} />
             <Route path="tags" element={<SettingsTags />} />
+            {/* Company policies (M53b) — rules binding every AI employee. */}
+            <Route path="policies" element={<CompanyPolicies />} />
             <Route path="integrations" element={<SettingsIntegrations />} />
             <Route path="browsers" element={<SettingsMemberBrowsers />} />
             <Route path="email" element={<SettingsEmail />}>

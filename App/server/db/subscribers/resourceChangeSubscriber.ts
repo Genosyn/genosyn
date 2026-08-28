@@ -75,6 +75,12 @@ const REGISTRY: Record<string, Mapping> = {
   // reason RoutineFolder does.
   RunLesson: { kind: "routine", company: "direct", scopeFk: "routineId" },
   RevisionProposal: { kind: "revision", company: "direct" },
+  // Policy rules render on the Decisions page's routing settings, which is
+  // already the page that renders the stack — the RoutineFolder reasoning.
+  DecisionPolicy: { kind: "decision", company: "direct" },
+  AutonomyWaiver: { kind: "employee", company: "direct", scopeFk: "employeeId" },
+  Budget: { kind: "budget", company: "direct" },
+  CompanyPolicy: { kind: "policy", company: "direct" },
   TldrSettings: { kind: "tldr", company: "direct" },
   Tldr: { kind: "tldr", company: "direct" },
   // Dismissal is Member-private state. Announce only that TLDR state changed;

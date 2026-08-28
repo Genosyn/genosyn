@@ -167,6 +167,18 @@ export function Vocabulary() {
             def: "A gate that blocks an action until a human ✓. Kinds include routine, browser_action, mcp_tool, and ad_spend.",
           },
           {
+            term: "Budget",
+            def: (
+              <>
+                A monthly envelope over authorized ad-spend increases, scoped to the company, one
+                Connection, or one AI Employee — every applicable envelope must have headroom, and
+                the tightest binds. Enforced on every spend-increasing path, approval replays
+                included; never blocks a spend decrease. See{" "}
+                <DocLink to="/docs/policies#ad-spend-budgets">Company policies</DocLink>.
+              </>
+            ),
+          },
+          {
             term: "Decision",
             def: (
               <>
@@ -200,6 +212,17 @@ export function Vocabulary() {
             ),
           },
           {
+            term: "Policy",
+            def: (
+              <>
+                A company-wide rule binding every AI Employee at once: prose injected above every
+                Soul, blocked recipient domains refused at the mail-send choke point, and forbidden
+                tools refused at dispatch — each refusal a <Code>policy.violation</Code> audit
+                event. See <DocLink to="/docs/policies">Company policies</DocLink>.
+              </>
+            ),
+          },
+          {
             term: "Revision proposal",
             def: (
               <>
@@ -207,6 +230,18 @@ export function Vocabulary() {
                 Routine&apos;s brief or acceptance criteria, with a rationale and evidence Runs.
                 Nothing changes until an owner/admin applies it from the Revisions page. See{" "}
                 <DocLink to="/docs/improvement">The improvement loop</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "Waiver",
+            def: (
+              <>
+                One approval gate switched off for an AI Employee that earned it — browser submits
+                for the employee, or gated ticks for one Routine. Proposed by the eligibility sweep
+                through the Approvals inbox; revoked automatically by any failed, timed-out, or off
+                goal Run. Never &quot;trust score,&quot; &quot;tier,&quot; or &quot;level.&quot;
+                See <DocLink to="/docs/autonomy">Earned autonomy</DocLink>.
               </>
             ),
           },

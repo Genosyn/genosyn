@@ -128,6 +128,29 @@ export class Decision {
   @Column({ type: "varchar", nullable: true })
   decidedByUserId!: string | null;
 
+  /**
+   * The AI Employee that answered, when a {@link DecisionPolicy} routed the
+   * question (M53). Exactly one of this and `decidedByUserId` is set on a
+   * decided row. The safety argument is the Decision primitive's own:
+   * answering fires no side effect, so an AI answer widens nothing — the
+   * asker's privileged follow-ups still meet their own gates.
+   */
+  @Column({ type: "varchar", nullable: true })
+  decidedByEmployeeId!: string | null;
+
+  /**
+   * The AI decider currently holding this question, while pending. Set at
+   * create time by the first matching enabled DecisionPolicy rule; cleared
+   * when the decider declines or the fallback fuse fires, both of which send
+   * the human bell the routing skipped. Only this employee may call
+   * `decide_decision` on the row.
+   */
+  @Column({ type: "varchar", nullable: true })
+  routedToEmployeeId!: string | null;
+
+  @Column({ type: dateTimeColumnType, nullable: true })
+  routedAt!: Date | null;
+
   @Column({ type: dateTimeColumnType, nullable: true })
   decidedAt!: Date | null;
 

@@ -73,6 +73,7 @@ import { recordAudit } from "../services/audit.js";
 import { kickoffHandoff } from "../services/handoffKickoff.js";
 import { kickoffTodoReview } from "../services/reviewKickoff.js";
 import {
+  markTokenTainted,
   noteAttachmentForToken,
   resolveMcpToken,
   revokeMcpToken,
@@ -80,6 +81,16 @@ import {
   stageSidecarForToken,
   tokenOwnsAttachment,
 } from "../services/mcpTokens.js";
+import { config } from "../../config.js";
+import {
+  createTaintedToolApproval,
+  taintGateApplies,
+  WEB_TAINT_SOURCES,
+} from "../services/taintPolicy.js";
+import {
+  policyForbiddingTool,
+  recordToolPolicyViolation,
+} from "../services/companyPolicies.js";
 import {
   applyMailScope,
   applyMailSearchFilters,
@@ -124,6 +135,7 @@ import {
   expireStaleDecisions,
   parseDecisionOptions,
 } from "../services/decisions.js";
+import { decideDecisionAsEmployee, kickoffRoutedDecision } from "../services/decisionRouting.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
 import { PipelineRun } from "../db/entities/PipelineRun.js";
@@ -796,6 +808,61 @@ function restrictRepositoryWorkSessionTools(
 }
 
 mcpInternalRouter.use(restrictRepositoryWorkSessionTools);
+
+const TOOL_PATH_RE = /^\/tools\/([a-z0-9_]+)$/;
+
+/**
+ * The Policy layer + taint gates (M53), one middleware so every static tool
+ * dispatch meets both:
+ *
+ *  1. A company policy forbidding the tool refuses the call and records a
+ *     `policy.violation` AuditEvent. One small indexed query per call.
+ *  2. The web tools mark the turn's token tainted — at dispatch, which is
+ *     strictly more conservative than on success.
+ *  3. A tainted turn calling a high-risk sink has the verbatim call queued
+ *     as a `tainted_tool` Approval instead of executed. The body snapshot is
+ *     unvalidated here on purpose: the replay re-enters this router and the
+ *     sink's own zod schema re-validates it.
+ */
+mcpInternalRouter.use(async (req: McpRequest, res, next) => {
+  const match = req.method === "POST" ? TOOL_PATH_RE.exec(req.path) : null;
+  if (!match || !req.mcpCompany || !req.mcpEmployee) return next();
+  const toolName = match[1];
+  try {
+    const policy = await policyForbiddingTool(req.mcpCompany.id, toolName);
+    if (policy) {
+      await recordToolPolicyViolation({
+        policy,
+        toolName,
+        employeeId: req.mcpEmployee.id,
+      });
+      return res.status(403).json({
+        error: `The company policy "${policy.title}" forbids ${toolName}. Do not retry or work around it — raise a Decision if you believe the policy is wrong here.`,
+      });
+    }
+    if (config.agent.taintPolicy !== "off" && req.mcpToken) {
+      if (WEB_TAINT_SOURCES.has(toolName)) markTokenTainted(req.mcpToken);
+      if (taintGateApplies(req.mcpToken, toolName)) {
+        const approval = await createTaintedToolApproval({
+          companyId: req.mcpCompany.id,
+          employeeId: req.mcpEmployee.id,
+          tool: toolName,
+          toolArgs: (req.body as Record<string, unknown>) ?? {},
+        });
+        return res.json({
+          status: "pending_approval",
+          approvalId: approval.id,
+          note:
+            "This turn read web content, so this call is held for a human — the taint policy. " +
+            "It executes verbatim if approved; do not retry it yourself, and carry on with work that needs no held call.",
+        });
+      }
+    }
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+});
 
 // ----- Tool manifest -----
 
@@ -11808,11 +11875,22 @@ mcpInternalRouter.post(
         `Asked for a decision: ${decision.title}`,
         `Options: ${options.map((o) => o.label).join(" · ")}`,
       );
+      // M53: a DecisionPolicy rule may have routed the question to an AI
+      // decider. The kickoff session is fired here, by the boundary that
+      // created the row — the same rule the human answer's pickup follows.
+      if (decision.routedToEmployeeId) {
+        void kickoffRoutedDecision({ companyId: co.id, decisionId: decision.id }).catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error(`[decisions] decider kickoff failed for ${decision.id}:`, err);
+        });
+      }
       res.json({
         decisionId: decision.id,
         status: decision.status,
         options: options.map((o) => ({ id: o.id, label: o.label })),
-        note: "Stacked for a human. Stop this line of work and finish your turn — when someone answers, you are started again in a fresh session briefed with their answer, so you can carry on then. The answer also lands on your journal, and list_decisions reads it back.",
+        note: decision.routedToEmployeeId
+          ? "Stacked. Your company's decision policy routes this to an AI teammate, who is being briefed now; if they decline or stall, humans are paged. Stop this line of work and finish your turn — when it is answered, you are started again in a fresh session briefed with the answer."
+          : "Stacked for a human. Stop this line of work and finish your turn — when someone answers, you are started again in a fresh session briefed with their answer, so you can carry on then. The answer also lands on your journal, and list_decisions reads it back.",
       });
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
@@ -11890,6 +11968,64 @@ mcpInternalRouter.post(
       });
     }
     res.json({ decisionId: result.decision.id, status: result.decision.status });
+  },
+);
+
+const decideDecisionSchema = z
+  .object({
+    decisionId: z.string().uuid(),
+    option: z.string().min(1).max(200).optional(),
+    note: z.string().max(4_000).optional(),
+    declineReason: z.string().min(1).max(2_000).optional(),
+  })
+  .strict()
+  .refine(
+    (b) => (b.option ? !b.declineReason : !!b.declineReason),
+    "Pass exactly one of `option` and `declineReason`",
+  );
+
+mcpInternalRouter.post(
+  "/tools/decide_decision",
+  validateBody(decideDecisionSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof decideDecisionSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+    const result = await decideDecisionAsEmployee({
+      companyId: co.id,
+      decisionId: body.decisionId,
+      deciderEmployeeId: self.id,
+      optionId: body.option,
+      declineReason: body.declineReason,
+      note: body.note ?? null,
+    });
+    switch (result.outcome) {
+      case "not_found":
+        return res.status(404).json({ error: "No decision has that id." });
+      case "forbidden":
+        return res.status(403).json({
+          error:
+            "This question is not routed to you. Only the decider the company's policy named may answer it.",
+        });
+      case "conflict":
+        return res.status(409).json({ error: "That decision is no longer pending." });
+      case "unknown_option":
+        return res.status(400).json({
+          error: "That option id does not exist on this decision — use an id from your brief.",
+        });
+      case "declined":
+        return res.json({
+          ok: true,
+          note: "Declined. The humans who can answer it have been paged.",
+        });
+      case "decided":
+        return res.json({
+          decisionId: result.decision.id,
+          status: result.decision.status,
+          chose: result.decision.chosenOptionLabel,
+          note: "Recorded. The asker picks the answer up in a session of its own.",
+        });
+    }
   },
 );
 

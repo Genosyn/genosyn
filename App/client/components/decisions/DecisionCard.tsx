@@ -126,6 +126,17 @@ export function DecisionCard({
                 {badge.label}
               </span>
             )}
+            {/* A policy rule handed this question to an AI decider first. The
+                chip stays quiet: the humans only get paged if the AI declines
+                or sits on it. */}
+            {decision.routedToEmployee && (
+              <span
+                className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                title="A decision-policy rule routed this question to an AI decider. A decline or 4 hours of silence pages humans as usual."
+              >
+                Routed to {decision.routedToEmployee.name} (AI)
+              </span>
+            )}
           </div>
           <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
             {decision.employee?.name ?? "(deleted employee)"} · asked{" "}
