@@ -33,6 +33,9 @@ export function composeEmployeeSystemPrompt(args: {
   emp: AIEmployee;
   skills: Skill[];
   memoryContext: string;
+  /** The "## Goals" block from `services/goals.ts`, or "" when the company
+   * has written none. */
+  goalsContext: string;
   repositoriesContext: string;
   financeContext: string;
   signingContext: string;
@@ -55,13 +58,13 @@ export function composeEmployeeSystemPrompt(args: {
     emp,
     skills,
     memoryContext,
+    goalsContext,
     repositoriesContext,
     financeContext,
     signingContext,
     revenueContext,
     marketingContext,
   } = args;
-  void co;
   const parts: string[] = [];
 
   parts.push(args.opening);
@@ -73,9 +76,20 @@ export function composeEmployeeSystemPrompt(args: {
       args.isolatedCodingTools,
     ),
   );
+  // The company's mission and vision are the topmost layer of intent — the
+  // charter every employee steers by, with the Goals block carrying the
+  // measurable slice. Skipped entirely when onboarding left them blank: no
+  // header with nothing under it.
+  if (co.mission.trim() || co.vision.trim()) {
+    const charter = ["\n## Company\n"];
+    if (co.mission.trim()) charter.push(`Mission: ${co.mission.trim()}`);
+    if (co.vision.trim()) charter.push(`Vision: ${co.vision.trim()}`);
+    parts.push(charter.join("\n"));
+  }
   parts.push("\n## Soul\n");
   parts.push(emp.soulBody);
   if (memoryContext) parts.push(memoryContext);
+  if (goalsContext) parts.push(goalsContext);
   if (repositoriesContext) parts.push(repositoriesContext);
   if (financeContext) parts.push(financeContext);
   if (signingContext) parts.push(signingContext);

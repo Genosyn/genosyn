@@ -69,6 +69,12 @@ const REGISTRY: Record<string, Mapping> = {
   // it, so a second kind would only double the refetches.
   RoutineFolder: { kind: "routine", company: "direct" },
   Run: { kind: "run", company: { fk: "routineId", parent: "Routine" }, scopeFk: "routineId" },
+  Goal: { kind: "goal", company: "direct" },
+  // Lessons render on the Routine page, which is already the page that
+  // renders the routine's Runs — they ride the "routine" kind for the same
+  // reason RoutineFolder does.
+  RunLesson: { kind: "routine", company: "direct", scopeFk: "routineId" },
+  RevisionProposal: { kind: "revision", company: "direct" },
   TldrSettings: { kind: "tldr", company: "direct" },
   Tldr: { kind: "tldr", company: "direct" },
   // Dismissal is Member-private state. Announce only that TLDR state changed;

@@ -29,7 +29,11 @@ export type NotificationKind =
   | "run_off_goal"
   | "approval_stale"
   | "decision_stale"
-  | "handoff_overdue";
+  | "handoff_overdue"
+  | "goal_achieved"
+  | "goal_missed"
+  | "revision_pending"
+  | "revision_stale";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -42,7 +46,9 @@ export type NotificationEntityKind =
   | "mail_handover"
   | "revenue_follow_up"
   | "run"
-  | "handoff";
+  | "handoff"
+  | "goal"
+  | "revision_proposal";
 
 @Entity("notifications")
 @Index(["userId", "readAt"])

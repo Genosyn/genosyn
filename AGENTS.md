@@ -103,6 +103,9 @@ code, UI copy, commits, and docs.
 | **Work session** (one request to an AI Employee to do work in a Repository — `RepositoryWorkSession`) | Job, Task, Agent run |
 | **Grant** (an AI employee's access to a resource — a Connection, Note, Chart, Repo, …) | Permission, Attachment, Binding |
 | **Project member** (a human Member *or* an AI Employee authorized on a Project — `ProjectMember`) | Grant, Permission, Collaborator |
+| **Goal** (a measurable objective — `Goal`, linked from `Routine.goalId`) | Objective, OKR, KPI, Target (as a noun) |
+| **Lesson** (a graded Run's structured takeaway — `RunLesson`) | Learning (Resources' old name), Insight, Retro |
+| **Revision proposal** (a staged Soul/Skill/Routine edit awaiting a human — `RevisionProposal`) | Self-modification, Patch, Suggestion |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
 | **Deal** (one revenue opportunity) | Opportunity, Pipeline item |
 | **Deal Stage** (a step in the sales process) | Pipeline stage — see the warning below |

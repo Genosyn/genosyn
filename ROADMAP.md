@@ -202,6 +202,19 @@ don't re-litigate them.
   options it will act on. The employee raises it; a Member picks one; nothing
   is replayed. Distinct from an Approval, which the *system* raises to block a
   specific action it will then execute (M39).
+- **Goal** — a measurable objective the company steers toward (`Goal`): a
+  target value with a direction, an optional deadline, an optional owning AI
+  Employee, an optional parent goal, and a metric source (a manual value or
+  an Explore Chart). Routines declare what objective they serve via
+  `Routine.goalId` (M51).
+- **Lesson** — the structured takeaway a restricted reflection turn writes
+  after a failed or off-goal Run (`RunLesson`): cause plus what to do
+  differently, folded into that Routine's future Run briefs (M52).
+- **Revision proposal** — a staged edit to a Soul, Skill, or Routine body
+  that an employee authors and only a human applies (`RevisionProposal`, on
+  the `FinanceProposal` maker-checker pattern, M52). Distinct from a
+  Decision (no options, a concrete diff) and an Approval (not a replayed
+  action — apply writes prose).
 
 ---
 
@@ -235,7 +248,8 @@ genosyn/
 - **Identity & tenancy:** `User`, `WebAuthnCredential`, `Company`,
   `Membership`, `Invitation`, `Team`
 - **AI substrate:** `AIEmployee`, `AIModel`, `Skill`, `Routine`, `Run`,
-  `EmployeeMemory`, `JournalEntry`, `Handoff`
+  `EmployeeMemory`, `JournalEntry`, `Handoff`, `Goal` (M51), `RunLesson`,
+  `RevisionProposal` (M52)
 - **Conversations:** `Conversation`, `ConversationMessage` (web + Telegram
   source dispatch, action pills serialized into `actionsJson`)
 - **Workspace chat (M9):** `Channel`, `ChannelMember`, `ChannelMessage`,
@@ -3015,7 +3029,122 @@ Deliberately *not* in M50, each big enough to be its own milestone: taint-aware
 turn policy (untrusted content escalating side-effecting tools one rung),
 Approval-gated self-modification (Soul/Skill/Routine edits), Goals/KPIs, Stripe
 payment links on invoices, and bulk knowledge/CRM migration imports. They are
-the next rungs of the same ladder.
+the next rungs of the same ladder — M51 and M52 below are the first two.
+
+### M51 — Goals & Charter ✅
+
+The company's purpose becomes machine-readable. Every prioritization call an
+employee faces today requires asking a human, because nothing above a Routine
+says what the company is trying to achieve: `Company.mission` and
+`Company.vision` are shipped columns captured by onboarding and injected into
+no prompt at all, and M50's verdicts grade Runs against per-Routine criteria
+with no notion of what the work was *for*. A **Goal** is a measurable
+objective: a target value with a direction, an optional deadline, an optional
+owning AI Employee, an optional parent (cascading company → employee), and a
+metric source — manual (a number an employee or Member updates, the V1-backlog
+"Goals / KPIs" item) or an Explore Chart whose first numeric cell is the
+current value, refreshed on the scheduler heartbeat. Routines gain a nullable
+`goalId`, so scheduled work declares what objective it serves; the Run brief
+and the outcome checker both see the goal, so verdicts finally grade
+contribution and not just compliance.
+
+- [x] `Goal` entity (company-scoped; slug; title/description; parent goal;
+      owning AI Employee; metric kind `manual` | `chart` with Chart binding;
+      start/target/current values with `increase_to` / `decrease_to`
+      direction; unit label; due date; status `active` / `achieved` /
+      `missed` / `archived`) + `Routine.goalId`, in both migration streams
+- [x] Goals service: progress computation, chart-bound value refresh through
+      the Explore executor (company-scoped, first numeric cell), heartbeat
+      sweep that refreshes chart goals and settles `achieved` / `missed`
+      transitions exactly once, with owner notifications
+- [x] Mission, vision, and the employee's active Goals injected into the
+      system prompt; the Routine's linked Goal folded into the Run brief and
+      into the outcome checker's evidence
+- [x] HTTP surface under `/api/companies/:cid/goals` (zod-validated CRUD +
+      manual refresh), Members manage goal definitions
+- [x] Deferred MCP tools: `list_goals`, `get_goal`, `update_goal_progress`
+      (manual-metric goals only — employees report progress, humans set
+      intent; each write records AuditEvent + JournalEntry)
+- [x] Goals page in the AI nav group: tree with progress bars, create/edit,
+      chart binding and owner pickers; Goal picker on Routine settings;
+      command-palette entry
+- [x] Docs page at `/docs/goals`; tests over progress math, sweep
+      transitions, scoping, and prompt/brief folding
+
+### M52 — The improvement loop ✅
+
+Verdicts exist but change nothing: a bad verdict pages a human, and the human
+is the only mechanism by which a failing Routine improves — they read the
+transcript, diagnose, and edit the Skill by hand. This milestone makes the
+workforce its own first-line debugger, keeping every durable edit behind a
+human. A **Lesson** (`RunLesson`) is the structured takeaway a restricted
+zero-tool reflection turn writes after a failed or off-goal Run — cause, what
+to do differently, scope — injected into that Routine's future Run briefs so
+the next attempt starts smarter. A **Revision proposal**
+(`RevisionProposal`) is M50's deferred "Approval-gated self-modification"
+made concrete on the `FinanceProposal` maker-checker spine: an employee (or
+its reflection turn) stages a full-body edit to its own Soul, a Skill, or a
+Routine brief with rationale and evidence Runs attached; nothing changes
+until an owner/admin applies it, and apply/reject is audited.
+
+- [x] `RunLesson` entity (company/employee/routine/run-scoped; cause; advice;
+      dismissal) + restricted reflection turn after `off_goal` / `failed`
+      Runs, rate-limited per Routine; latest undismissed Lessons folded into
+      that Routine's Run briefs; Lessons visible and dismissible on the
+      Routine page
+- [x] `RevisionProposal` entity (kind `soul` / `skill` / `routine_body` /
+      `routine_criteria`; proposed full body; rationale; evidence Run ids;
+      pending / applied / rejected) modelled on `FinanceProposal`: AI
+      proposes, an owner/admin applies from a review queue with a
+      before/after view, apply writes the target body + AuditEvent +
+      JournalEntry, reject records why
+- [x] Deferred MCP tool `propose_revision` (an employee may propose edits
+      only to its own Soul, Skills, and Routines); owners/admins notified on
+      new proposals
+- [x] Docs at `/docs/improvement`; tests over reflection gating, lesson
+      folding, proposal apply/reject authorization and audit
+- [ ] Runtime checks on Routines (machine-verifiable assertions a Run must
+      pass before it may finalize green, with bounded remediation turns) —
+      scoped, deferred to the next increment of this milestone
+
+### M53 — Distributed judgment (planned)
+
+Replace per-action human gates with human-authored policies plus earned
+trust, so approval fatigue stops being the ceiling on autonomy. Promotion is
+evidence-backed and human-ratified; demotion is automatic.
+
+- [ ] Earned-autonomy profiles per employee per domain, computed from the
+      track record M50 records (verdict rates, failures, approval outcomes);
+      threshold crossings draft an evidence-attached Approval proposing the
+      specific gate widening; regression contracts the tier immediately
+- [ ] `DecisionPolicy` decision-rights matrix routing eligible Decisions to
+      AI deciders (human-only remains the default; Approvals stay human)
+- [ ] Budget envelopes enforced at the tool seam (committed-vs-actual across
+      Bills, AdSpendEvents, CardTransactions; exhaustion hard-refuses and
+      opens a Decision)
+- [ ] Company Policy layer: rules injected into every prompt and
+      machine-checked pre-dispatch, with `PolicyViolation` audit rows
+- [ ] Taint-aware turn policy (M50's named deferral) ships alongside as the
+      counterweight
+
+### M54 — Reactivity & long horizons (planned)
+
+- [ ] Event-triggered Routines on the M31 live-sync spine (subscription rows
+      with kind + filter, grant-intersected at fire time, id-only payloads)
+- [ ] Durable Run suspension with wake conditions (M39's named next step,
+      generalized: decision answered, approval granted, mail reply, handoff
+      completed, timer)
+- [ ] Workstreams: persistent, Routine-bound state documents spanning many
+      Runs, committed atomically with each Run
+- [ ] Initiatives: employees propose standing work with evidence attached;
+      one human accept materializes the Routine/Pipeline it proposed
+
+### M55 — Vertical completeness (planned, pulled by demand)
+
+Independently shippable last-mile verticals, in demand order: Bill Pay with a
+payment-rail seam and hard caps; cash-flow forecast and runway guardian;
+hosted lead forms + booking links; a Support Desk with SLAs; Monitors /
+Incidents / an AI on-call; the contract obligations ledger.
 
 ## V1 backlog (post-MVP)
 
@@ -3036,7 +3165,8 @@ of the original V1 backlog has shipped — what remains is mostly
 - [ ] **Reviews** — weekly/monthly self-review markdown an employee
       writes about its own performance
 - [ ] **Goals / KPIs** — numeric goals updated in runs, surfaced on
-      employee detail
+      employee detail — superseded by **M51 Goals & Charter**, which is this
+      item grown into the product's intent spine
 
 ### Task manager
 

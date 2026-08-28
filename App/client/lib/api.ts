@@ -355,6 +355,11 @@ export type Routine = {
    * about.
    */
   folderId: string | null;
+  /**
+   * The Goal this routine's work serves, or null when it serves none.
+   * Deleting the goal unlinks the routine rather than deleting it.
+   */
+  goalId: string | null;
   lastRunAt: string | null;
   /**
    * When the schedule next fires. Null when the routine is paused, or when
@@ -451,6 +456,88 @@ export type RoutineFolderTree = {
   folders: RoutineFolder[];
   unfiledCount: number;
   maxDepth: number;
+};
+
+// ─────────────────────────────── Goals ──────────────────────────────────
+
+export type GoalMetricKind = "manual" | "chart";
+export type GoalDirection = "increase_to" | "decrease_to";
+export type GoalStatus = "active" | "achieved" | "missed" | "archived";
+
+/**
+ * A measurable objective AI employees steer toward, as
+ * `GET /api/companies/:cid/goals` returns it. Goals nest (`parentGoalId`) and
+ * Routines link to one via `Routine.goalId`. Manual goals take reported
+ * progress (`POST /goals/:gid/progress`); chart goals read their current
+ * value from an Explore chart (`POST /goals/:gid/refresh` runs it now).
+ */
+export type Goal = {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  parentGoalId: string | null;
+  ownerEmployeeId: string | null;
+  metricKind: GoalMetricKind;
+  chartId: string | null;
+  startValue: number | null;
+  targetValue: number;
+  currentValue: number | null;
+  currentValueUpdatedAt: string | null;
+  direction: GoalDirection;
+  unit: string;
+  dueAt: string | null;
+  status: GoalStatus;
+  settledAt: string | null;
+  createdAt: string;
+  /** 0..1 toward the target, or null when it cannot be computed yet. */
+  progress: number | null;
+  met: boolean;
+};
+
+// ─────────────────────────── Improvement loop ───────────────────────────
+
+/**
+ * A graded Run's structured takeaway (M52), as
+ * `GET /api/companies/:cid/run-lessons/routine/:rid` returns it. A lesson is
+ * folded into the routine's future prompts until an admin dismisses it.
+ */
+export type RunLesson = {
+  id: string;
+  routineId: string;
+  runId: string;
+  cause: string;
+  advice: string;
+  dismissedAt: string | null;
+  createdAt: string;
+};
+
+export type RevisionProposalKind = "soul" | "skill" | "routine_body" | "routine_criteria";
+export type RevisionProposalStatus = "pending" | "applied" | "rejected";
+
+/**
+ * A staged Soul/Skill/Routine edit an AI employee proposed for itself,
+ * awaiting a human (M52). Served by `/api/companies/:cid/revision-proposals`.
+ * Apply re-reads the live target first: when it drifted from `baseBody` since
+ * the proposal was made, the server refuses with a 400 and stamps
+ * `errorMessage` on the row.
+ */
+export type RevisionProposal = {
+  id: string;
+  employeeId: string;
+  kind: RevisionProposalKind;
+  targetId: string | null;
+  targetLabel: string;
+  baseBody: string;
+  proposedBody: string;
+  rationale: string;
+  evidenceRunIds: string[];
+  status: RevisionProposalStatus;
+  errorMessage: string;
+  decidedAt: string | null;
+  decidedByUserId: string | null;
+  reviewNote: string;
+  createdAt: string;
 };
 
 /**
@@ -2351,7 +2438,11 @@ export type NotificationKind =
   | "run_off_goal"
   | "approval_stale"
   | "decision_stale"
-  | "handoff_overdue";
+  | "handoff_overdue"
+  | "goal_achieved"
+  | "goal_missed"
+  | "revision_pending"
+  | "revision_stale";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -2364,7 +2455,9 @@ export type NotificationEntityKind =
   | "mail_handover"
   | "revenue_follow_up"
   | "run"
-  | "handoff";
+  | "handoff"
+  | "goal"
+  | "revision_proposal";
 
 export type NotificationActor = {
   kind: NotificationActorKind;

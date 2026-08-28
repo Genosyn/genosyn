@@ -9,6 +9,7 @@ import { Decision } from "../db/entities/Decision.js";
 import { Handoff } from "../db/entities/Handoff.js";
 import { Membership } from "../db/entities/Membership.js";
 import { Notification, type NotificationKind } from "../db/entities/Notification.js";
+import { RevisionProposal } from "../db/entities/RevisionProposal.js";
 import { Routine } from "../db/entities/Routine.js";
 import { User } from "../db/entities/User.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
@@ -201,6 +202,51 @@ describe("stall sweep", () => {
     const rows = await notifications("handoff_overdue");
     assert.equal(rows.length, 1);
     assert.equal(rows[0].entityId, overdue.id);
+  });
+
+  test("a revision proposal pending past the threshold re-pages exactly once", async () => {
+    const { companyId, employeeId, ownerId } = await scenario();
+    const proposal = await insert(RevisionProposal, {
+      companyId,
+      employeeId,
+      kind: "soul",
+      targetLabel: "Soul",
+      baseBody: "a",
+      proposedBody: "b",
+      rationale: "r",
+      status: "pending",
+    });
+    await AppDataSource.getRepository(RevisionProposal).update(
+      { id: proposal.id },
+      { createdAt: new Date(Date.now() - 2 * DAY_MS) },
+    );
+
+    await sweepStalledWork(new Date());
+    const rows = await notifications("revision_stale");
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].userId, ownerId);
+    assert.equal(rows[0].entityId, proposal.id);
+
+    await sweepStalledWork(new Date());
+    assert.equal((await notifications("revision_stale")).length, 1);
+
+    // A decided proposal never nags, however old.
+    const decided = await insert(RevisionProposal, {
+      companyId,
+      employeeId,
+      kind: "soul",
+      targetLabel: "Soul",
+      baseBody: "a",
+      proposedBody: "c",
+      rationale: "r",
+      status: "rejected",
+    });
+    await AppDataSource.getRepository(RevisionProposal).update(
+      { id: decided.id },
+      { createdAt: new Date(Date.now() - 5 * DAY_MS) },
+    );
+    await sweepStalledWork(new Date());
+    assert.equal((await notifications("revision_stale")).length, 1);
   });
 
   test("nothing is said about rows that are still fresh or already settled", async () => {

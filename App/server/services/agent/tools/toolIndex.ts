@@ -47,6 +47,16 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     blurb: "Scheduled recurring AI work. Never call these tasks.",
     tools: ["list_routines", "get_routine", "create_routine", "update_routine", "delete_routine"],
   },
+  goals: {
+    label: "goals",
+    blurb: "The company's measurable objectives.",
+    tools: ["list_goals", "get_goal", "update_goal_progress"],
+  },
+  improvement: {
+    label: "improvement",
+    blurb: "Stage edits to your own Soul, Skills, or Routines for a human to apply.",
+    tools: ["propose_revision"],
+  },
   pipelines: {
     label: "pipelines",
     blurb:
@@ -1215,6 +1225,17 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   delete_routine: ["schedule", "stop recurring"],
   list_routines: ["schedule", "recurring", "cron"],
   get_routine: ["schedule", "recurring", "cron", "read routine", "routine brief"],
+  list_goals: ["kpi", "okr", "objective", "target", "metric", "mission"],
+  get_goal: ["kpi", "okr", "objective", "target"],
+  update_goal_progress: ["kpi", "okr", "report progress", "metric update", "number"],
+  propose_revision: [
+    "edit my soul",
+    "improve skill",
+    "rewrite routine",
+    "self-modification",
+    "change my prompt",
+    "update playbook",
+  ],
   create_project: ["board", "workstream"],
   create_todo: ["task", "ticket", "action item", "to-do"],
   update_todo: ["task", "ticket", "complete", "close", "done"],

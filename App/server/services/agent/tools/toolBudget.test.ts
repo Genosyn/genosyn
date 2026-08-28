@@ -132,8 +132,28 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * "send them a PDF copy"), which matches no other tool in the catalogue
  * lexically, and a miss here is indistinguishable to the employee from the
  * product being unable to do it.
+ *
+ * Raised to 4,910 for the three `goals` tools (M51), a new domain costing
+ * ~40 characters. Goals are the intent layer — the reason a Routine exists —
+ * and an employee told "steer toward the company's goals" that cannot
+ * discover `list_goals` concludes the company has none, which is worse than a
+ * missing tool: it silently un-grounds every prioritization the prompt asked
+ * it to make. `update_goal_progress` must be findable by name because the
+ * Goals prompt block names it. 4,910 still leaves ~3,000 characters for the
+ * six returned schemas inside the 8,000-char result envelope.
+ *
+ * Raised to 4,960 for `propose_revision` (M52), a one-tool `improvement`
+ * domain costing ~35 characters. It is the only door out of the improvement
+ * loop that changes anything durable: a reflection that diagnosed a failing
+ * Skill but cannot discover this tool ends as prose in a journal, and the
+ * fix stays human labor forever. The name must be findable by intent
+ * ("improve my skill", "edit my soul") which matches nothing else in the
+ * catalogue, and the Lessons brief block tells employees the durable-fix
+ * path exists — a discovery miss there reads as the product refusing its own
+ * instruction. Still leaves ~3,000 characters for the six returned schemas
+ * inside the 8,000-char result envelope.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 4_860;
+const DOMAIN_FOOTER_CHARS_MAX = 4_960;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

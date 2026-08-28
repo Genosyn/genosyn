@@ -6,6 +6,7 @@ import { Company } from "../db/entities/Company.js";
 import { Decision } from "../db/entities/Decision.js";
 import { Handoff } from "../db/entities/Handoff.js";
 import { Membership } from "../db/entities/Membership.js";
+import { RevisionProposal } from "../db/entities/RevisionProposal.js";
 import { Routine } from "../db/entities/Routine.js";
 import { createNotifications, type CreateNotificationInput } from "./notifications.js";
 import { managingMemberIdForEmployee } from "./reportingLine.js";
@@ -68,7 +69,7 @@ function hoursSince(from: Date, now: Date): number {
  * `stallRemindedAt` from null owns the page, and a loser writes nothing.
  */
 async function claimStallReminder(
-  entity: typeof Approval | typeof Decision | typeof Handoff,
+  entity: typeof Approval | typeof Decision | typeof Handoff | typeof RevisionProposal,
   id: string,
   now: Date,
 ): Promise<boolean> {
@@ -218,6 +219,43 @@ async function sweepOverdueHandoffs(now: Date): Promise<void> {
   }
 }
 
+async function sweepStaleRevisionProposals(now: Date): Promise<void> {
+  const cutoff = new Date(now.getTime() - STALL_AFTER_MS);
+  const stale = await AppDataSource.getRepository(RevisionProposal).find({
+    where: { status: "pending", createdAt: LessThan(cutoff), stallRemindedAt: IsNull() },
+    order: { createdAt: "ASC" },
+    take: MAX_PER_SWEEP,
+  });
+
+  for (const proposal of stale) {
+    const [company, employee] = await Promise.all([
+      AppDataSource.getRepository(Company).findOneBy({ id: proposal.companyId }),
+      AppDataSource.getRepository(AIEmployee).findOneBy({ id: proposal.employeeId }),
+    ]);
+    if (!company || !employee) continue;
+    // The create-time audience: owners/admins plus the employee's manager,
+    // re-derived from live rows for the same left-the-company reason above.
+    const userIds = new Set(await ownersAndAdmins(proposal.companyId));
+    const managerId = await managingMemberIdForEmployee(proposal.companyId, employee.id);
+    if (managerId) userIds.add(managerId);
+    if (userIds.size === 0) continue;
+    if (!(await claimStallReminder(RevisionProposal, proposal.id, now))) continue;
+    const inputs: CreateNotificationInput[] = [...userIds].map((userId) => ({
+      companyId: proposal.companyId,
+      userId,
+      kind: "revision_stale" as const,
+      title: `A revision has waited ${hoursSince(proposal.createdAt, now)}h: ${proposal.targetLabel}`,
+      body: `${employee.name} proposed this edit and cannot apply it itself — someone must apply or decline it.`,
+      link: `/c/${company.slug}/revisions`,
+      actorKind: "ai" as const,
+      actorId: employee.id,
+      entityKind: "revision_proposal" as const,
+      entityId: proposal.id,
+    }));
+    await createNotifications(inputs);
+  }
+}
+
 /**
  * One pass over every stallable human gate. Called from the scheduler
  * heartbeat; each category is independently best-effort so one broken query
@@ -235,5 +273,9 @@ export async function sweepStalledWork(now: Date = new Date()): Promise<void> {
   await sweepOverdueHandoffs(now).catch((err) => {
     // eslint-disable-next-line no-console
     console.error("[escalations] overdue handoff sweep failed:", err);
+  });
+  await sweepStaleRevisionProposals(now).catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[escalations] stale revision sweep failed:", err);
   });
 }

@@ -539,6 +539,18 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         &quot;finished&quot;. The check never changes the Run&apos;s status, and a routine with no
         criteria behaves exactly as before — no verdict, no extra model turn, no extra cost.
       </P>
+      <P>
+        A routine can also declare which company <DocLink to="/docs/goals">Goal</DocLink> its work
+        serves — the <Strong>Goal</Strong> picker on the <Strong>Settings</Strong> tab. The linked
+        goal rides into every Run&apos;s brief beside the criteria, and the checker receives it as
+        judging context: work that met the letter of the criteria while working against the
+        objective is <Code>off goal</Code>.
+      </P>
+      <P>
+        Verdicts also feed forward: a Run that fails, times out, or grades <Code>off goal</Code>{" "}
+        writes a <Strong>Lesson</Strong> into the routine&apos;s future briefs — see{" "}
+        <DocLink to="/docs/improvement">the improvement loop</DocLink>.
+      </P>
       <Callout kind="info" title="What it costs">
         One short extra model turn per completed Run, on the routine&apos;s own model. Its tokens
         are counted into the Run&apos;s totals like everything else.

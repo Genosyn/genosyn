@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   GitBranch,
+  GitPullRequest,
   Hourglass,
   Landmark,
   Mail,
@@ -335,6 +336,14 @@ function KindIcon({
       return <Hourglass size={size} className={className} />;
     case "handoff_overdue":
       return <Hourglass size={size} className={className} />;
+    case "goal_achieved":
+      return <Target size={size} className={className} />;
+    case "goal_missed":
+      return <Target size={size} className={className} />;
+    case "revision_pending":
+      return <GitPullRequest size={size} className={className} />;
+    case "revision_stale":
+      return <GitPullRequest size={size} className={className} />;
   }
 }
 
@@ -386,6 +395,22 @@ const KIND_TONE: Record<NotificationKind, { iconBg: string; iconFg: string }> = 
   handoff_overdue: {
     iconBg: "bg-amber-100 dark:bg-amber-500/15",
     iconFg: "text-amber-600 dark:text-amber-300",
+  },
+  goal_achieved: {
+    iconBg: "bg-emerald-100 dark:bg-emerald-500/15",
+    iconFg: "text-emerald-600 dark:text-emerald-300",
+  },
+  goal_missed: {
+    iconBg: "bg-rose-100 dark:bg-rose-500/15",
+    iconFg: "text-rose-600 dark:text-rose-300",
+  },
+  revision_pending: {
+    iconBg: "bg-amber-100 dark:bg-amber-500/15",
+    iconFg: "text-amber-600 dark:text-amber-300",
+  },
+  revision_stale: {
+    iconBg: "bg-rose-100 dark:bg-rose-500/15",
+    iconFg: "text-rose-600 dark:text-rose-300",
   },
 };
 

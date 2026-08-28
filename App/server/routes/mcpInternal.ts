@@ -56,6 +56,18 @@ import {
   resolveFolderPath,
   RoutineFolderError,
 } from "../services/routineFolders.js";
+import {
+  GoalError,
+  listGoals,
+  reportGoalProgress,
+  resolveGoal,
+  serializeGoal,
+} from "../services/goals.js";
+import {
+  RevisionError,
+  createRevisionProposal,
+  serializeRevisionProposal,
+} from "../services/revisionProposals.js";
 import { registerRoutine } from "../services/cron.js";
 import { recordAudit } from "../services/audit.js";
 import { kickoffHandoff } from "../services/handoffKickoff.js";
@@ -8127,6 +8139,157 @@ mcpInternalRouter.post(
       "Deleted via the built-in MCP tool.",
     );
     res.json({ ok: true });
+  },
+);
+
+// ----- Goals (M51) -----
+
+mcpInternalRouter.post("/tools/list_goals", async (req: McpRequest, res) => {
+  const co = req.mcpCompany!;
+  const goals = await listGoals(co.id);
+  res.json({
+    goals: goals.map(serializeGoal),
+    note:
+      goals.length === 0
+        ? "No goals are set. Goals are written by humans from the Goals page."
+        : "Call get_goal for one goal's full description. Report manual-goal numbers with update_goal_progress.",
+  });
+});
+
+const goalRefSchema = z.object({ goal: z.string().min(1).max(200) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_goal",
+  validateBody(goalRefSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof goalRefSchema>;
+    const co = req.mcpCompany!;
+    const goal = await resolveGoal(co.id, body.goal);
+    if (!goal) return res.status(404).json({ error: "Goal not found" });
+    res.json({ goal: serializeGoal(goal) });
+  },
+);
+
+const updateGoalProgressSchema = z
+  .object({
+    goal: z.string().min(1).max(200),
+    value: z.number().finite(),
+    note: z.string().max(500).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_goal_progress",
+  validateBody(updateGoalProgressSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updateGoalProgressSchema>;
+    const co = req.mcpCompany!;
+    const goal = await resolveGoal(co.id, body.goal);
+    if (!goal) return res.status(404).json({ error: "Goal not found" });
+    try {
+      const saved = await reportGoalProgress(co.id, goal.id, body.value);
+      await aiWriteTrail(req, {
+        action: "goal.progress",
+        targetType: "goal",
+        targetId: saved.id,
+        targetLabel: saved.title,
+        journalTitle: `Reported ${body.value}${saved.unit ? ` ${saved.unit}` : ""} on the goal "${saved.title}"`,
+        journalBody: body.note ?? "",
+        metadata: { value: body.value },
+      });
+      res.json({ goal: serializeGoal(saved) });
+    } catch (err) {
+      if (!(err instanceof GoalError)) throw err;
+      res.status(400).json({ error: err.message });
+    }
+  },
+);
+
+// ----- Revision proposals (M52) -----
+
+const proposeRevisionSchema = z
+  .object({
+    kind: z.enum(["soul", "skill", "routine_body", "routine_criteria"]),
+    target: z.string().min(1).max(200).optional(),
+    proposedBody: z.string().max(100_000),
+    rationale: z.string().min(1).max(2_000),
+    evidenceRunIds: z.array(z.string().uuid()).max(10).optional(),
+  })
+  .strict();
+
+/** Resolve a Skill or Routine of the calling employee by id, slug, or name. */
+async function resolveOwnRevisionTarget(
+  selfId: string,
+  kind: "skill" | "routine",
+  ref: string,
+): Promise<string | null> {
+  if (UUID_RE.test(ref)) {
+    const byId =
+      kind === "skill"
+        ? await AppDataSource.getRepository(Skill).findOneBy({ id: ref, employeeId: selfId })
+        : await AppDataSource.getRepository(Routine).findOneBy({ id: ref, employeeId: selfId });
+    return byId?.id ?? null;
+  }
+  const slug = toSlug(ref);
+  const rows =
+    kind === "skill"
+      ? await AppDataSource.getRepository(Skill).find({ where: { employeeId: selfId } })
+      : await AppDataSource.getRepository(Routine).find({ where: { employeeId: selfId } });
+  const match = rows.find((row) => row.slug === slug || row.name === ref);
+  return match?.id ?? null;
+}
+
+mcpInternalRouter.post(
+  "/tools/propose_revision",
+  validateBody(proposeRevisionSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof proposeRevisionSchema>;
+    const self = req.mcpEmployee!;
+    const co = req.mcpCompany!;
+    let targetId: string | null = null;
+    if (body.kind !== "soul") {
+      if (!body.target) {
+        return res.status(400).json({ error: "Name the skill or routine to revise" });
+      }
+      targetId = await resolveOwnRevisionTarget(
+        self.id,
+        body.kind === "skill" ? "skill" : "routine",
+        body.target,
+      );
+      if (!targetId) {
+        return res.status(404).json({
+          error:
+            body.kind === "skill"
+              ? "No skill of yours matches that — proposals cover only your own surfaces"
+              : "No routine of yours matches that — proposals cover only your own surfaces",
+        });
+      }
+    }
+    try {
+      const proposal = await createRevisionProposal(co.id, self.id, {
+        kind: body.kind,
+        targetId,
+        proposedBody: body.proposedBody,
+        rationale: body.rationale,
+        evidenceRunIds: body.evidenceRunIds ?? [],
+      });
+      await aiWriteTrail(req, {
+        action: "revision.propose",
+        targetType: "revision_proposal",
+        targetId: proposal.id,
+        targetLabel: proposal.targetLabel,
+        journalTitle: `Proposed a revision of ${proposal.kind === "soul" ? "my Soul" : `"${proposal.targetLabel}"`}`,
+        journalBody: body.rationale,
+        metadata: { kind: proposal.kind },
+      });
+      res.json({
+        proposal: serializeRevisionProposal(proposal),
+        note: "Pending human review — the owners and your manager have been notified. Nothing changes until someone applies it.",
+      });
+    } catch (err) {
+      if (!(err instanceof RevisionError)) throw err;
+      res.status(400).json({ error: err.message });
+    }
   },
 );
 

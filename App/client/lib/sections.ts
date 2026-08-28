@@ -7,6 +7,7 @@ import {
   FolderGit2,
   FileSignature,
   GitBranch,
+  GitPullRequest,
   Home,
   KeyRound,
   Library,
@@ -19,6 +20,7 @@ import {
   NotebookText,
   ServerCog,
   Sparkles,
+  Target,
   Video,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -48,6 +50,8 @@ export type SectionKey =
   | "employees"
   | "skills"
   | "routines"
+  | "goals"
+  | "revisions"
   | "tasks"
   | "vault"
   | "bases"
@@ -226,6 +230,32 @@ export const SECTION_GROUPS: SectionGroup[] = [
         path: "/routines",
         iconBg: "bg-purple-100 text-purple-600 dark:bg-purple-500/15 dark:text-purple-300",
         keywords: ["schedule", "cron", "job", "recurring", "runs", "logs"],
+      },
+      {
+        key: "goals",
+        label: "Goals",
+        description: "Measurable objectives your AI employees steer toward.",
+        icon: Target,
+        // Every letter A–Z is already claimed in the chord map ("G" itself by
+        // Signatures), so like Settings (",") this takes punctuation: "." is
+        // the closest thing on a keyboard to a bullseye.
+        shortcut: ".",
+        path: "/goals",
+        iconBg: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300",
+        keywords: ["goal", "kpi", "okr", "objective", "target", "metric"],
+      },
+      {
+        key: "revisions",
+        label: "Revisions",
+        description: "Soul, Skill, and Routine edits your AI employees proposed.",
+        icon: GitPullRequest,
+        // Letters A–Z are all claimed, so punctuation again (Settings ",",
+        // Goals "."): the apostrophe — a mark of quotation, for edits still
+        // being quoted back to you for review.
+        shortcut: "'",
+        path: "/revisions",
+        iconBg: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300",
+        keywords: ["revision", "proposal", "soul", "skill", "diff", "review"],
       },
     ],
   },
@@ -527,6 +557,8 @@ export function activeSection(pathname: string): SectionKey {
   if (/\/c\/[^/]+\/employees(\/|$)/.test(pathname)) return "employees";
   if (/\/c\/[^/]+\/skills(\/|$)/.test(pathname)) return "skills";
   if (/\/c\/[^/]+\/routines(\/|$)/.test(pathname)) return "routines";
+  if (/\/c\/[^/]+\/goals(\/|$)/.test(pathname)) return "goals";
+  if (/\/c\/[^/]+\/revisions(\/|$)/.test(pathname)) return "revisions";
   if (/\/c\/[^/]+\/tasks(\/|$)/.test(pathname)) return "tasks";
   if (/\/c\/[^/]+\/vault(\/|$)/.test(pathname)) return "vault";
   if (/\/c\/[^/]+\/bases(\/|$)/.test(pathname)) return "bases";

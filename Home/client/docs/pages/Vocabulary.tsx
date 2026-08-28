@@ -177,6 +177,40 @@ export function Vocabulary() {
             ),
           },
           {
+            term: "Goal",
+            def: (
+              <>
+                A measurable objective — target value, direction, optional deadline, optional owning
+                AI Employee — cascading company → employee. Humans set Goals; employees read them in
+                every prompt and report progress. Never &quot;OKR,&quot; &quot;KPI,&quot; or
+                &quot;Target.&quot; See <DocLink to="/docs/goals">Goals</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "Lesson",
+            def: (
+              <>
+                What a failed, timed-out, or <Code>off goal</Code> Run teaches the next one: a
+                cause and an advice, written by a restricted retrospective turn, opening the
+                Routine&apos;s future Run briefs until dismissed. Never &quot;Learning,&quot;
+                &quot;Insight,&quot; or &quot;Retro.&quot; See{" "}
+                <DocLink to="/docs/improvement">The improvement loop</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "Revision proposal",
+            def: (
+              <>
+                A complete replacement body an AI Employee stages for its own Soul, a Skill, or a
+                Routine&apos;s brief or acceptance criteria, with a rationale and evidence Runs.
+                Nothing changes until an owner/admin applies it from the Revisions page. See{" "}
+                <DocLink to="/docs/improvement">The improvement loop</DocLink>.
+              </>
+            ),
+          },
+          {
             term: "Audit event",
             def: "Append-only log of every consequential action. Used for after-the-fact review and the activity feed.",
           },
