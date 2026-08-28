@@ -15,7 +15,9 @@ import { issueMcpToken, revokeMcpToken } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { composeGoalsContext, goalBriefBlock } from "./goals.js";
+import { composePoliciesContext } from "./companyPolicies.js";
 import { composeLessonsBlock, reflectOnRun, shouldReflect } from "./runLessons.js";
+import { contractAutonomyOnBadRun } from "./autonomy.js";
 import { Goal } from "../db/entities/Goal.js";
 import { materializeReposForEmployee } from "./repoSync.js";
 import { composeRepositoriesContext, materializeRepositoriesForEmployee } from "./repositories.js";
@@ -328,6 +330,7 @@ export async function startRoutineRun(
       const repositoryMaterializationAllowed = shouldMaterializeRepositoriesForTurn(model.authMode);
       const memoryContext = await composeMemoryContext(emp.id);
       const goalsContext = await composeGoalsContext(co.id, emp.id);
+      const policiesContext = await composePoliciesContext(co.id);
       const repositoriesContext = repositoryMaterializationAllowed
         ? await composeRepositoriesContext(emp.id)
         : "";
@@ -347,6 +350,7 @@ export async function startRoutineRun(
         skills,
         memoryContext,
         goalsContext,
+        policiesContext,
         repositoriesContext,
         financeContext,
         signingContext,
@@ -528,7 +532,11 @@ export async function startRoutineRun(
       // The improvement loop (M52): a failed or off-goal Run earns one
       // reflection turn. After the journal so the lesson never delays the
       // page a human is owed; rate-limited inside so retry chains stay quiet.
+      // The same Runs contract earned autonomy (M53): demotion is automatic
+      // and only tightens, so it runs before the reflection spends a model
+      // turn — the gates must re-arm even if reflection cannot run.
       if (shouldReflect(saved.status, saved.outcomeVerdict)) {
+        await contractAutonomyOnBadRun({ run: saved, employee: emp });
         await reflectOnRun({ run: saved, routine, employee: emp, model });
       }
       return saved;

@@ -7,6 +7,7 @@ import {
   FlaskConical,
   Images,
   Megaphone,
+  PiggyBank,
   Target,
 } from "lucide-react";
 
@@ -33,6 +34,7 @@ export default function MarketingLayout({ company }: { company: Company }) {
           icon={<FlaskConical size={14} />}
           label="Experiments"
         />
+        <SidebarLink to={`${base}/budgets`} icon={<PiggyBank size={14} />} label="Budgets" />
         <SidebarLink to={`${base}/ai-access`} icon={<Bot size={14} />} label="AI access" />
         <SidebarLink
           to={`${base}/integrations`}

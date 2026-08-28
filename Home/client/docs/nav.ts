@@ -234,6 +234,18 @@ export const DOCS_NAV: DocsSection[] = [
           "Lessons from graded-bad Runs feed the next brief; Revision proposals stage durable fixes a human applies.",
       },
       {
+        path: "/docs/autonomy",
+        title: "Earned autonomy",
+        blurb:
+          "Waivers an AI Employee earns with a clean record — proposed via Approvals, revoked automatically on any bad Run.",
+      },
+      {
+        path: "/docs/policies",
+        title: "Company policies",
+        blurb:
+          "Standing rails that bind every AI Employee — written policies, monthly ad-spend Budgets, and held calls from tainted turns.",
+      },
+      {
         path: "/docs/pipelines",
         title: "Pipelines",
         blurb: "Build predictable trigger-to-step automations and inspect every Run.",

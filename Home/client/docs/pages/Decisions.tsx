@@ -112,6 +112,34 @@ export function Decisions() {
         does still meets its own approval gate.
       </P>
 
+      <H2 id="routing">Routing to an AI decider</H2>
+      <P>
+        By default every question waits for a human — no configuration, exactly the behavior
+        above. A <Strong>routing rule</Strong> (the <Strong>Routing</Strong> tab on the Decisions
+        page, admin-managed) changes that for one asking employee: it names who may answer on a
+        human&apos;s behalf — the employee&apos;s <Strong>manager</Strong>, via the org
+        chart&apos;s reports-to line, or a <Strong>named employee</Strong>. A decision the
+        employee addressed to a specific person is never routed.
+      </P>
+      <P>
+        A routed question skips the creation-time bell. Instead, the decider is briefed in a
+        background session under its own authority, investigates with its own tools, and answers —
+        or declines — through its <Code>decide_decision</Code> tool. A decline, or{" "}
+        <Strong>4 hours</Strong> of silence, drops the question back into the human flow with
+        exactly the bell it skipped, so routing can delay a human&apos;s attention but never lose
+        it. Any Member can still answer a routed question from the stack while it waits — a human
+        answer always wins.
+      </P>
+      <P>
+        An AI answer renders as <em>Answered by {"{name}"} (AI)</em>, is written to the audit log
+        and the asker&apos;s journal, and starts the asker&apos;s pickup session immediately, the
+        same as a human answer. And because answering fires no side effect — the section above —
+        the asker&apos;s privileged follow-ups still meet their own gates. Routing decides who
+        picks the option, never what the answer can execute. See{" "}
+        <DocLink to="/docs/autonomy">Earned autonomy</DocLink> for the other half of the
+        trust-by-evidence story.
+      </P>
+
       <Callout kind="tip" title="Nothing waiting is the normal state.">
         The stack renders only when an employee is actually blocked. A quiet Home page means your AI
         team is unblocked, not that the feature is off.

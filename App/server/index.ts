@@ -38,6 +38,10 @@ import { routineAssistantRouter } from "./routes/routineAssistant.js";
 import { routineFoldersRouter } from "./routes/routineFolders.js";
 import { goalsRouter } from "./routes/goals.js";
 import { improvementRouter } from "./routes/improvement.js";
+import { decisionPoliciesRouter } from "./routes/decisionPolicies.js";
+import { autonomyRouter } from "./routes/autonomy.js";
+import { budgetsRouter } from "./routes/budgets.js";
+import { companyPoliciesRouter } from "./routes/companyPolicies.js";
 import { modelsRouter } from "./routes/models.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
 import { projectsRouter } from "./routes/projects.js";
@@ -324,6 +328,10 @@ async function main() {
   app.use("/api/companies/:cid", routineFoldersRouter);
   app.use("/api/companies/:cid", goalsRouter);
   app.use("/api/companies/:cid", improvementRouter);
+  app.use("/api/companies/:cid", decisionPoliciesRouter);
+  app.use("/api/companies/:cid", autonomyRouter);
+  app.use("/api/companies/:cid", budgetsRouter);
+  app.use("/api/companies/:cid", companyPoliciesRouter);
   // Org chart + Handoffs (Phase B). Teams group employees; Handoffs are
   // formal AI→AI delegation with status workflow.
   app.use("/api/companies/:cid", teamsRouter);

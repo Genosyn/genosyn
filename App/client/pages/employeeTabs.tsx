@@ -2,6 +2,7 @@ import React from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import {
   ArrowUpRight,
+  Award,
   Boxes,
   BrainCircuit,
   Brain,
@@ -29,6 +30,9 @@ import {
   api,
   AIModel,
   AuthMode,
+  AutonomyOverview,
+  AutonomyWaiver,
+  AutonomyWaiverKind,
   Company,
   Employee,
   Provider,
@@ -228,6 +232,7 @@ function settingsNavGroups(company: Company, emp: Employee): { title: string; it
         { to: "connections", icon: <PlugZap size={14} />, label: "Connections" },
         { to: "mcp", icon: <Plug size={14} />, label: "MCP" },
         { to: "browser", icon: <Globe size={14} />, label: "Browser" },
+        { to: "autonomy", icon: <Award size={14} />, label: "Autonomy" },
         {
           to: `/c/${company.slug}/employees/integrations`,
           icon: <Boxes size={14} />,
@@ -363,6 +368,151 @@ export function BrowserSettingsPage() {
       <TopBar title="Browser" />
       <EmployeeBrowserAccessCard company={company} emp={emp} />
     </>
+  );
+}
+
+export function AutonomySettingsPage() {
+  const { company, emp } = useCtx();
+  return (
+    <>
+      <TopBar title="Autonomy" />
+      <EmployeeAutonomyCard company={company} emp={emp} />
+    </>
+  );
+}
+
+const WAIVER_KIND_LABEL: Record<AutonomyWaiverKind, string> = {
+  browser_approval: "Browser approvals waived",
+  routine_approval: "Routine approvals waived",
+};
+
+/**
+ * The earned-autonomy record (M53a): the 30-day track record the eligibility
+ * sweep judges, and every waiver it has ever produced — active or revoked.
+ * This card always renders; it is settings, not a queue. There is no grant
+ * button here on purpose: promotions are proposed by the sweep and approved
+ * from the Approvals inbox. Revoking is the only human write, admin-gated,
+ * and it re-arms the gate in the same act.
+ */
+function EmployeeAutonomyCard({ company, emp }: { company: Company; emp: Employee }) {
+  const dialog = useDialog();
+  const [overview, setOverview] = React.useState<AutonomyOverview | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [revoking, setRevoking] = React.useState<string | null>(null);
+  const canManage = company.role === "owner" || company.role === "admin";
+
+  const reload = React.useCallback(async () => {
+    try {
+      setOverview(
+        await api.get<AutonomyOverview>(
+          `/api/companies/${company.id}/employees/${emp.id}/autonomy`,
+        ),
+      );
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(errorMessage(err, "Could not load the autonomy record"));
+    }
+  }, [company.id, emp.id]);
+
+  React.useEffect(() => {
+    setOverview(null);
+    setLoadError(null);
+    reload();
+  }, [reload]);
+
+  // Waiver changes (grants, automatic demotions, another admin's revoke) ride
+  // the "employee" live-sync kind, scoped to this employee.
+  useLiveRefetch("employee", reload, emp.id);
+
+  async function revoke(waiver: AutonomyWaiver) {
+    const ok = await dialog.confirm({
+      title: "Revoke this waiver?",
+      message:
+        `The gate re-arms immediately — ${emp.name} goes back to asking a human before ` +
+        (waiver.kind === "browser_approval"
+          ? "submitting browser forms."
+          : "this routine's runs go ahead."),
+      confirmLabel: "Revoke",
+      variant: "danger",
+    });
+    if (!ok) return;
+    setRevoking(waiver.id);
+    try {
+      await api.del(`/api/companies/${company.id}/autonomy-waivers/${waiver.id}`);
+      await reload();
+    } catch (err) {
+      void dialog.error(err, { title: "Could not revoke the waiver" });
+    } finally {
+      setRevoking(null);
+    }
+  }
+
+  return (
+    <Card>
+      <CardBody className="flex flex-col gap-3">
+        <div>
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Autonomy</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            The gates {emp.name} has earned out of, and the track record behind them. Waivers are
+            proposed by the eligibility sweep, approved from the Approvals inbox, and revoked here.
+          </div>
+        </div>
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : overview === null ? (
+          <Spinner />
+        ) : (
+          <>
+            <div className="text-xs tabular-nums text-slate-600 dark:text-slate-300">
+              Last {overview.stats.windowDays} days: {overview.stats.terminalRuns}{" "}
+              {overview.stats.terminalRuns === 1 ? "run" : "runs"} · {overview.stats.failed} failed
+              · {overview.stats.offGoal} off-goal · {overview.stats.browserApprovalsApproved}{" "}
+              browser {overview.stats.browserApprovalsApproved === 1 ? "approval" : "approvals"}{" "}
+              granted
+            </div>
+            {overview.waivers.length === 0 ? (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                No waivers. Consistently clean work earns promotion proposals in the Approvals
+                inbox.
+              </p>
+            ) : (
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {overview.waivers.map((waiver) => (
+                  <li key={waiver.id} className="flex flex-col gap-1 py-2.5 first:pt-0 last:pb-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                        {WAIVER_KIND_LABEL[waiver.kind]}
+                      </span>
+                      <span className="text-xs text-slate-400 dark:text-slate-500">
+                        granted {new Date(waiver.grantedAt).toLocaleDateString()}
+                      </span>
+                      {waiver.revokedAt && (
+                        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                          Revoked {new Date(waiver.revokedAt).toLocaleDateString()}
+                          {waiver.revokedReason ? `: ${waiver.revokedReason}` : ""}
+                        </span>
+                      )}
+                      {canManage && !waiver.revokedAt && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ml-auto"
+                          disabled={revoking !== null}
+                          onClick={() => void revoke(waiver)}
+                        >
+                          {revoking === waiver.id ? "Revoking…" : "Revoke"}
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{waiver.evidence}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </CardBody>
+    </Card>
   );
 }
 

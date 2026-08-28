@@ -229,6 +229,12 @@ export async function enforceAdsMutation(args: {
     }
   }
 
+  // Company Budget envelopes (M53), after the per-Connection caps and before
+  // the approval gate — and NOT skipped on approval replay: like the rolling
+  // caps, an envelope that ran dry between queueing and ✓ still binds.
+  const budgetRefusal = await ctx.adSpend.checkBudgets(amount);
+  if (budgetRefusal) throw new Error(budgetRefusal);
+
   if (!ctx.bypassApprovalGate) {
     // Blank/unset = 0: every spend increase queues a human Approval. This
     // is the single highest-leverage safety default — owners must

@@ -106,6 +106,15 @@ const tokenAttachments = new Map<string, Set<string>>();
 const stagedSidecars = new Map<string, Map<string, unknown[]>>();
 
 /**
+ * Tokens whose turn has ingested untrusted web content (M53's taint policy).
+ * Once a turn is tainted it stays tainted — there is no untaint, because the
+ * model has already read whatever the page said. The high-risk sinks consult
+ * this and queue an Approval instead of executing. In-process like everything
+ * else here: a taint is a property of one live turn, not of the employee.
+ */
+const taintedTokens = new Set<string>();
+
+/**
  * Mint a fresh token for an employee + company. 32 random bytes gives ~128
  * bits of entropy — plenty for a token that lives in memory and expires on
  * the hour.
@@ -192,6 +201,16 @@ export function tokenOwnsAttachment(token: string, attachmentId: string): boolea
   return tokenAttachments.get(token)?.has(attachmentId) ?? false;
 }
 
+/** Mark this turn as having ingested untrusted web content. */
+export function markTokenTainted(token: string): void {
+  if (!tokens.has(token)) return;
+  taintedTokens.add(token);
+}
+
+export function isTokenTainted(token: string): boolean {
+  return taintedTokens.has(token);
+}
+
 export function drainAttachmentsForToken(token: string): string[] {
   const list = stagedAttachments.get(token);
   stagedAttachments.delete(token);
@@ -241,6 +260,7 @@ export function revokeMcpToken(token: string): void {
   stagedAttachments.delete(token);
   tokenAttachments.delete(token);
   stagedSidecars.delete(token);
+  taintedTokens.delete(token);
 }
 
 function sweep(): void {
@@ -263,5 +283,8 @@ function sweep(): void {
   }
   for (const k of stagedSidecars.keys()) {
     if (!tokens.has(k)) stagedSidecars.delete(k);
+  }
+  for (const k of taintedTokens) {
+    if (!tokens.has(k)) taintedTokens.delete(k);
   }
 }

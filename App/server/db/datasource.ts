@@ -17,6 +17,10 @@ import { RoutineFolder } from "./entities/RoutineFolder.js";
 import { Goal } from "./entities/Goal.js";
 import { RunLesson } from "./entities/RunLesson.js";
 import { RevisionProposal } from "./entities/RevisionProposal.js";
+import { DecisionPolicy } from "./entities/DecisionPolicy.js";
+import { AutonomyWaiver } from "./entities/AutonomyWaiver.js";
+import { Budget } from "./entities/Budget.js";
+import { CompanyPolicy } from "./entities/CompanyPolicy.js";
 import { RoutineChatMessage } from "./entities/RoutineChatMessage.js";
 import { Run } from "./entities/Run.js";
 import { Project } from "./entities/Project.js";
@@ -208,6 +212,10 @@ const entities = [
   Goal,
   RunLesson,
   RevisionProposal,
+  DecisionPolicy,
+  AutonomyWaiver,
+  Budget,
+  CompanyPolicy,
   RoutineChatMessage,
   Run,
   Project,

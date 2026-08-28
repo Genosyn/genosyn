@@ -72,10 +72,18 @@ export function DecisionOutcome({
 
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
         <span className="truncate">{decision.employee?.name ?? "(deleted employee)"} asked</span>
-        {decision.decidedBy && (
+        {/* An AI decider under a policy rule takes the human's slot in the
+            record — the same line, because it is the same fact: who answered. */}
+        {decision.decidedByEmployee ? (
           <span className="truncate">
-            · {status === "decided" ? "answered" : "closed"} by {decision.decidedBy.name}
+            · Answered by {decision.decidedByEmployee.name} (AI)
           </span>
+        ) : (
+          decision.decidedBy && (
+            <span className="truncate">
+              · {status === "decided" ? "answered" : "closed"} by {decision.decidedBy.name}
+            </span>
+          )
         )}
         <DecisionSourceLine company={company} decision={decision} />
         {expandable && (

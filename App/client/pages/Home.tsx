@@ -16,8 +16,10 @@ import {
   ListChecks,
   Mail,
   MessageSquare,
+  PiggyBank,
   Play,
   RotateCw,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Target,
@@ -960,6 +962,10 @@ function KindIcon({ kind, className }: { kind: NotificationKind; className?: str
       return <GitPullRequest size={12} className={className} />;
     case "revision_stale":
       return <GitPullRequest size={12} className={className} />;
+    case "autonomy_revoked":
+      return <ShieldAlert size={12} className={className} />;
+    case "budget_exhausted":
+      return <PiggyBank size={12} className={className} />;
   }
 }
 
@@ -1025,6 +1031,14 @@ const KIND_TONE: Record<NotificationKind, { bg: string; fg: string }> = {
     fg: "text-amber-600 dark:text-amber-300",
   },
   revision_stale: {
+    bg: "bg-rose-100 dark:bg-rose-500/15",
+    fg: "text-rose-600 dark:text-rose-300",
+  },
+  autonomy_revoked: {
+    bg: "bg-rose-100 dark:bg-rose-500/15",
+    fg: "text-rose-600 dark:text-rose-300",
+  },
+  budget_exhausted: {
     bg: "bg-rose-100 dark:bg-rose-500/15",
     fg: "text-rose-600 dark:text-rose-300",
   },

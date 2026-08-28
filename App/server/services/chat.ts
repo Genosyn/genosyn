@@ -13,6 +13,7 @@ import {
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { composeGoalsContext } from "./goals.js";
+import { composePoliciesContext } from "./companyPolicies.js";
 import { materializeReposForEmployee } from "./repoSync.js";
 import { composeRepositoriesContext, materializeRepositoriesForEmployee } from "./repositories.js";
 import { composeFinanceContext } from "./financeGrants.js";
@@ -573,6 +574,9 @@ export async function streamChatWithEmployee(
     const goalsContext = contextAccess.soulAndSkills
       ? await composeGoalsContext(co.id, emp.id)
       : "";
+    const policiesContext = contextAccess.soulAndSkills
+      ? await composePoliciesContext(co.id)
+      : "";
     const repositoriesContext =
       contextAccess.repositories && repositoryMaterializationAllowed
         ? await composeRepositoriesContext(emp.id)
@@ -595,6 +599,7 @@ export async function streamChatWithEmployee(
           skills: effectiveSkills,
           memoryContext,
           goalsContext,
+          policiesContext,
           repositoriesContext,
           financeContext,
           signingContext,

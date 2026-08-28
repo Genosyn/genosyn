@@ -36,6 +36,10 @@ export function composeEmployeeSystemPrompt(args: {
   /** The "## Goals" block from `services/goals.ts`, or "" when the company
    * has written none. */
   goalsContext: string;
+  /** The "## Company policies" block from `services/companyPolicies.ts`, or
+   * "" when none are written. Prose only — the mechanical clauses are
+   * enforced at their choke points whether or not the model reads this. */
+  policiesContext: string;
   repositoriesContext: string;
   financeContext: string;
   signingContext: string;
@@ -59,6 +63,7 @@ export function composeEmployeeSystemPrompt(args: {
     skills,
     memoryContext,
     goalsContext,
+    policiesContext,
     repositoriesContext,
     financeContext,
     signingContext,
@@ -86,6 +91,9 @@ export function composeEmployeeSystemPrompt(args: {
     if (co.vision.trim()) charter.push(`Vision: ${co.vision.trim()}`);
     parts.push(charter.join("\n"));
   }
+  // Policies sit above the Soul: they bind every employee at once, and the
+  // Soul is read inside their frame.
+  if (policiesContext) parts.push(policiesContext);
   parts.push("\n## Soul\n");
   parts.push(emp.soulBody);
   if (memoryContext) parts.push(memoryContext);

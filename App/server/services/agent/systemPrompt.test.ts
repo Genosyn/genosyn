@@ -14,13 +14,19 @@ import { composeEmployeeSystemPrompt } from "./systemPrompt.js";
 
 const employee = { name: "Ada", role: "Analyst", soulBody: "Be direct." } as AIEmployee;
 
-function compose(args: { mission?: string; vision?: string; goalsContext?: string }): string {
+function compose(args: {
+  mission?: string;
+  vision?: string;
+  goalsContext?: string;
+  policiesContext?: string;
+}): string {
   return composeEmployeeSystemPrompt({
     co: { name: "Acme", mission: args.mission ?? "", vision: args.vision ?? "" } as Company,
     emp: employee,
     skills: [],
     memoryContext: "",
     goalsContext: args.goalsContext ?? "",
+    policiesContext: args.policiesContext ?? "",
     repositoriesContext: "",
     financeContext: "",
     signingContext: "",
@@ -59,5 +65,14 @@ describe("employee system prompt charter layer", () => {
     assert.match(withGoals, /## Goals/);
     assert.match(withGoals, /Grow MRR/);
     assert.doesNotMatch(compose({}), /## Goals/);
+  });
+
+  test("company policies ride above the Soul — they frame it, not the reverse", () => {
+    const prompt = compose({
+      policiesContext: "\n## Company policies\n### No competitor mail\nNever email rivals.",
+    });
+    assert.match(prompt, /## Company policies/);
+    assert.ok(prompt.indexOf("## Company policies") < prompt.indexOf("## Soul"));
+    assert.doesNotMatch(compose({}), /## Company policies/);
   });
 });

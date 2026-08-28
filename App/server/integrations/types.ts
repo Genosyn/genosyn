@@ -275,6 +275,10 @@ export type IntegrationRuntimeContext = {
     /** Sum of positive authorized budget deltas (minor currency units)
      *  recorded on this Connection within the trailing window. */
     authorizedInWindow(windowMs: number): Promise<number>;
+    /** M53 Budget envelopes: a refusal message naming the exhausted monthly
+     *  budget, or null when every applicable envelope has headroom. Scope is
+     *  resolved host-side in the closure; providers only name the amount. */
+    checkBudgets(amountMinor: number): Promise<string | null>;
     /** Append one authorized delta to the ledger after a successful
      *  mutation. `amountMinor` is signed: increases positive, decreases
      *  negative. */

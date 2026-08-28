@@ -35,13 +35,26 @@ export type ApprovalStatus =
  *                            Connection's approval threshold. Replayed on
  *                            approve with hard caps still enforced and a
  *                            drift check against the queued snapshot.
+ *   - `autonomy_promotion` — the eligibility sweep proposing one earned
+ *                            autonomy waiver (M53), evidence in the summary.
+ *                            Approve applies the specific gate change and
+ *                            writes the `AutonomyWaiver` row; any failed or
+ *                            off-goal Run revokes it automatically.
+ *   - `tainted_tool`      — a high-risk sink (`send_mail`, Routine writes)
+ *                            called by a turn that had ingested web content
+ *                            (M53's taint policy). The verbatim call is
+ *                            snapshotted on `payloadJson` and replayed on
+ *                            approve through the loopback internal API with
+ *                            a fresh employee-authority token.
  */
 export type ApprovalKind =
   | "routine"
   | "lightning_payment"
   | "browser_action"
   | "mcp_tool"
-  | "ad_spend";
+  | "ad_spend"
+  | "autonomy_promotion"
+  | "tainted_tool";
 
 /**
  * Human-in-the-loop gate. Two flavors today (see `ApprovalKind`):

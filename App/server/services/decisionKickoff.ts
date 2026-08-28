@@ -52,7 +52,7 @@ const SUMMARY_CAP = 8_000;
 export async function kickoffDecision(args: {
   companyId: string;
   decisionId: string;
-  requesterUserId: string;
+  requesterUserId?: string;
   /**
    * The answering Member's browser auth epoch. Null when they answered with an
    * API key: delegated Member authority is only ever granted to a real browser
@@ -60,7 +60,14 @@ export async function kickoffDecision(args: {
    * programmatic caller more reach than it signed in with. Those rows record a
    * `skipped` pickup instead — the journal still carries the answer.
    */
-  requesterSessionVersion: number | null;
+  requesterSessionVersion?: number | null;
+  /**
+   * `"employee"` when the answer came from an AI decider under a
+   * DecisionPolicy rule (M53): there is no Member to delegate from, so the
+   * pickup runs under the asker's own authority — the handoff-kickoff shape,
+   * and exactly the authority its Routine Runs already have.
+   */
+  authority?: "member" | "employee";
   /**
    * Seam for tests — the real work session is a model turn. Mirrors the mail
    * assistant's `runChat` injection rather than inventing a second pattern.
@@ -92,7 +99,10 @@ export async function kickoffDecision(args: {
       await settle(decision, "skipped", "The AI employee that asked this has been deleted.");
       return;
     }
-    if (args.requesterSessionVersion === null) {
+    let chatOptions: Parameters<typeof chatWithEmployee>[4];
+    if (args.authority === "employee") {
+      chatOptions = { toolAuthority: "employee" };
+    } else if (args.requesterSessionVersion == null || !args.requesterUserId) {
       await settle(
         decision,
         "skipped",
@@ -101,6 +111,11 @@ export async function kickoffDecision(args: {
           "them on their next run.",
       );
       return;
+    } else {
+      chatOptions = {
+        requesterUserId: args.requesterUserId,
+        requesterSessionVersion: args.requesterSessionVersion,
+      };
     }
     if (!(await getActiveModel(employee.id))) {
       await settle(
@@ -113,10 +128,13 @@ export async function kickoffDecision(args: {
     }
 
     const runChat = args.runChat ?? chatWithEmployee;
-    const result = await runChat(companyId, employee.id, await composePickupBrief(decision), [], {
-      requesterUserId: args.requesterUserId,
-      requesterSessionVersion: args.requesterSessionVersion,
-    });
+    const result = await runChat(
+      companyId,
+      employee.id,
+      await composePickupBrief(decision),
+      [],
+      chatOptions,
+    );
     const reply = result.reply.trim() || "(no reply)";
     if (result.status === "ok") {
       await settle(decision, "done", reply);
@@ -166,7 +184,16 @@ async function composePickupBrief(decision: Decision): Promise<string> {
   const decider = decision.decidedByUserId
     ? await AppDataSource.getRepository(User).findOneBy({ id: decision.decidedByUserId })
     : null;
-  const who = decider ? decider.name || decider.email : "A teammate";
+  const aiDecider = decision.decidedByEmployeeId
+    ? await AppDataSource.getRepository(AIEmployee).findOneBy({
+        id: decision.decidedByEmployeeId,
+      })
+    : null;
+  const who = decider
+    ? decider.name || decider.email
+    : aiDecider
+      ? `${aiDecider.name} (your company's decision policy routed the question to them)`
+      : "A teammate";
 
   const lines = [
     `You stopped and asked: **${decision.title}**`,
