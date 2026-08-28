@@ -86,6 +86,52 @@ export function Vocabulary() {
             ),
           },
           {
+            term: "Trigger",
+            def: (
+              <>
+                An event subscription that fires a Routine when a resource family changes — id-only
+                frames, so an event routes work but never carries content. Never
+                &quot;Subscription,&quot; &quot;Listener,&quot; or &quot;Hook&quot; — and a Revenue{" "}
+                <DocLink to="/docs/signals">Signal</DocLink> stays a cron-evaluated query, never a
+                Trigger. See <DocLink to="/docs/reactivity">Reactivity</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "Wakeup",
+            def: (
+              <>
+                A timed follow-up session an AI employee schedules for itself, with a note its
+                future self reads — at most 20 pending, at most 90 days out. Never
+                &quot;Reminder,&quot; &quot;Timer,&quot; or &quot;Snooze.&quot; See{" "}
+                <DocLink to="/docs/reactivity">Reactivity</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "Workstream",
+            def: (
+              <>
+                A persistent state document for work spanning many Runs, maintained by the
+                employee and opened into every Run brief of the Routine it binds. Never
+                &quot;Thread&quot; or &quot;Epic&quot; — and &quot;Project&quot; stays reserved
+                for the humans&apos; task manager. See{" "}
+                <DocLink to="/docs/reactivity">Reactivity</DocLink>.
+              </>
+            ),
+          },
+          {
+            term: "Initiative",
+            def: (
+              <>
+                Standing work an AI employee proposes — evidence, case, and the exact Routine it
+                wants — that exists only once a human accepts it. Never &quot;Suggestion&quot; or
+                &quot;Idea&quot; — and &quot;Proposal&quot; belongs to Revision proposals. See{" "}
+                <DocLink to="/docs/reactivity">Reactivity</DocLink>.
+              </>
+            ),
+          },
+          {
             term: "AI Model",
             def: (
               <>

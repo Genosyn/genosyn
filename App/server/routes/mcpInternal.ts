@@ -136,6 +136,15 @@ import {
   parseDecisionOptions,
 } from "../services/decisions.js";
 import { decideDecisionAsEmployee, kickoffRoutedDecision } from "../services/decisionRouting.js";
+import { WakeupError, cancelWakeup, scheduleWakeup } from "../services/wakeups.js";
+import {
+  WorkstreamError,
+  createWorkstream,
+  listWorkstreams,
+  serializeWorkstream,
+  updateWorkstream,
+} from "../services/workstreams.js";
+import { InitiativeError, proposeInitiative } from "../services/initiatives.js";
 import { dispatchTodoCreated } from "../services/pipelines/events.js";
 import { Pipeline } from "../db/entities/Pipeline.js";
 import { PipelineRun } from "../db/entities/PipelineRun.js";
@@ -12025,6 +12034,208 @@ mcpInternalRouter.post(
           chose: result.decision.chosenOptionLabel,
           note: "Recorded. The asker picks the answer up in a session of its own.",
         });
+    }
+  },
+);
+
+// ----- Continuity: Wakeups + Workstreams (M54) -----
+
+const scheduleWakeupSchema = z
+  .object({
+    at: z.string().datetime({ offset: true }).optional(),
+    inHours: z.number().positive().max(24 * 90).optional(),
+    brief: z.string().min(1).max(4_000),
+  })
+  .strict()
+  .refine((b) => !!b.at !== (b.inHours !== undefined), "Pass exactly one of `at` and `inHours`");
+
+mcpInternalRouter.post(
+  "/tools/schedule_wakeup",
+  validateBody(scheduleWakeupSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof scheduleWakeupSchema>;
+    const at = body.at
+      ? new Date(body.at)
+      : new Date(Date.now() + (body.inHours ?? 0) * 60 * 60 * 1000);
+    try {
+      const wakeup = await scheduleWakeup({
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        at,
+        brief: body.brief,
+        sourceRunId: req.mcpRunId ?? null,
+        sourceRoutineId: req.mcpRoutineId ?? null,
+      });
+      await aiWriteTrail(req, {
+        action: "wakeup.schedule",
+        targetType: "wakeup",
+        targetId: wakeup.id,
+        targetLabel: wakeup.brief.slice(0, 80),
+        journalTitle: `Scheduled a wakeup for ${wakeup.at.toISOString()}`,
+        journalBody: wakeup.brief,
+      });
+      res.json({
+        wakeupId: wakeup.id,
+        at: wakeup.at.toISOString(),
+        note: "Scheduled. A fresh session of yours starts then, briefed with your note — you do not need to keep anything in mind meanwhile.",
+      });
+    } catch (err) {
+      if (!(err instanceof WakeupError)) throw err;
+      res.status(400).json({ error: err.message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/cancel_wakeup",
+  validateBody(z.object({ wakeupId: z.string().uuid() }).strict()),
+  async (req: McpRequest, res) => {
+    const body = req.body as { wakeupId: string };
+    const cancelled = await cancelWakeup(req.mcpCompany!.id, body.wakeupId, {
+      employeeId: req.mcpEmployee!.id,
+    });
+    if (!cancelled) {
+      return res.status(404).json({ error: "No pending wakeup of yours has that id." });
+    }
+    res.json({ ok: true });
+  },
+);
+
+const createWorkstreamSchema = z
+  .object({
+    title: z.string().min(1).max(140),
+    objective: z.string().max(4_000).optional(),
+    stateDoc: z.string().max(40_000).optional(),
+    routineId: z.string().uuid().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/create_workstream",
+  validateBody(createWorkstreamSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof createWorkstreamSchema>;
+    try {
+      const workstream = await createWorkstream({
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        title: body.title,
+        objective: body.objective,
+        stateDoc: body.stateDoc,
+        routineId: body.routineId ?? null,
+      });
+      await aiWriteTrail(req, {
+        action: "workstream.create",
+        targetType: "workstream",
+        targetId: workstream.id,
+        targetLabel: workstream.title,
+        journalTitle: `Opened the workstream "${workstream.title}"`,
+        journalBody: workstream.objective,
+      });
+      res.json({ workstream: serializeWorkstream(workstream) });
+    } catch (err) {
+      if (!(err instanceof WorkstreamError)) throw err;
+      res.status(400).json({ error: err.message });
+    }
+  },
+);
+
+const updateWorkstreamSchema = z
+  .object({
+    workstreamId: z.string().uuid(),
+    stateDoc: z.string().max(40_000).optional(),
+    status: z.enum(["active", "done", "abandoned"]).optional(),
+    closeReason: z.string().max(2_000).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/update_workstream",
+  validateBody(updateWorkstreamSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof updateWorkstreamSchema>;
+    try {
+      const workstream = await updateWorkstream({
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        workstreamId: body.workstreamId,
+        stateDoc: body.stateDoc,
+        status: body.status,
+        closeReason: body.closeReason,
+        lastRunId: req.mcpRunId ?? undefined,
+      });
+      res.json({
+        workstream: serializeWorkstream(workstream),
+        note:
+          workstream.status === "active"
+            ? "State committed — your next Run on the bound routine opens with exactly this."
+            : `Closed as ${workstream.status}.`,
+      });
+    } catch (err) {
+      if (!(err instanceof WorkstreamError)) throw err;
+      res.status(400).json({ error: err.message });
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/list_workstreams",
+  validateBody(z.object({ all: z.boolean().optional() }).strict()),
+  async (req: McpRequest, res) => {
+    const body = req.body as { all?: boolean };
+    const rows = await listWorkstreams(req.mcpCompany!.id, {
+      employeeId: req.mcpEmployee!.id,
+      ...(body.all ? {} : { status: "active" as const }),
+    });
+    res.json({ workstreams: rows.map(serializeWorkstream) });
+  },
+);
+
+const proposeInitiativeSchema = z
+  .object({
+    title: z.string().min(1).max(140),
+    evidence: z.string().min(1).max(20_000),
+    proposal: z.string().min(1).max(20_000),
+    routine: z
+      .object({
+        name: z.string().min(1).max(80),
+        cronExpr: z.string().min(1).max(120),
+        body: z.string().min(1).max(20_000),
+        acceptanceCriteria: z.string().max(4_000).optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/propose_initiative",
+  validateBody(proposeInitiativeSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof proposeInitiativeSchema>;
+    try {
+      const initiative = await proposeInitiative({
+        companyId: req.mcpCompany!.id,
+        employeeId: req.mcpEmployee!.id,
+        title: body.title,
+        evidence: body.evidence,
+        proposal: body.proposal,
+        routineSpec: body.routine,
+      });
+      await aiWriteTrail(req, {
+        action: "initiative.propose",
+        targetType: "initiative",
+        targetId: initiative.id,
+        targetLabel: initiative.title,
+        journalTitle: `Proposed the initiative "${initiative.title}"`,
+        journalBody: body.proposal.slice(0, 2_000),
+      });
+      res.json({
+        initiativeId: initiative.id,
+        note: "Filed for review — the admins have been paged. Nothing exists until a human accepts; carry on with your current work.",
+      });
+    } catch (err) {
+      if (!(err instanceof InitiativeError)) throw err;
+      res.status(400).json({ error: err.message });
     }
   },
 );

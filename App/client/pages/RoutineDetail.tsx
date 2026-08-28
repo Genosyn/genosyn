@@ -18,6 +18,7 @@ import {
   Timer,
   Trash2,
   Webhook,
+  Zap,
 } from "lucide-react";
 import {
   AIModel,
@@ -28,10 +29,14 @@ import {
   MemberBrowser,
   Routine,
   RoutineFolder,
+  RoutineTrigger,
+  RoutineTriggerList,
   RoutineWithMeta,
   Run,
   RunLesson,
   RunLog,
+  Workstream,
+  WorkstreamStatus,
 } from "../lib/api";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -42,7 +47,9 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { FormError, FormSuccess } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { MarkdownEditor } from "../components/MarkdownEditor";
+import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
+import { Textarea } from "../components/ui/Textarea";
 import { Spinner } from "../components/ui/Spinner";
 import { clsx } from "../components/ui/clsx";
 import { useDialog } from "../components/ui/Dialog";
@@ -65,6 +72,7 @@ import { cronHuman, cronIsReadable } from "../lib/cron";
 import { RoutinesContext } from "./RoutinesLayout";
 import { RoutineAssistant } from "./RoutineAssistant";
 import { ResourceTagPicker } from "../components/TagPicker";
+import { EnabledToggle } from "./RevenueSignals";
 
 /**
  * One routine, in full: who runs it, when, on what brain, and how every past
@@ -578,6 +586,8 @@ function OverviewTab({
 
       <LessonsCard company={company} routine={routine} compact={compact} />
 
+      <WorkstreamCard company={company} routine={routine} compact={compact} />
+
       <Card className={compact ? undefined : "md:col-span-2"}>
         <CardBody className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
@@ -724,6 +734,180 @@ function LessonsCard({
         </ul>
       </CardBody>
     </Card>
+  );
+}
+
+/**
+ * Workstream — the persistent state document for work this routine's Runs
+ * carry across sessions (M54). Only an ACTIVE workstream is news on the
+ * routine page — the card vanishes when there is none, like Lessons. Closing
+ * (admin) records done/abandoned plus a reason; the employee reads both.
+ */
+function WorkstreamCard({
+  company,
+  routine,
+  compact,
+}: {
+  company: Company;
+  routine: RoutineWithMeta;
+  compact: boolean;
+}) {
+  const [workstreams, setWorkstreams] = React.useState<Workstream[] | null>(null);
+  const [closing, setClosing] = React.useState(false);
+  const canManage = company.role === "owner" || company.role === "admin";
+
+  const reload = React.useCallback(() => {
+    api
+      .get<Workstream[]>(`/api/companies/${company.id}/workstreams`)
+      .then(setWorkstreams)
+      .catch(() => setWorkstreams([]));
+  }, [company.id]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  // A run rewriting the state document, or another admin closing the stream,
+  // lands here without a manual refresh.
+  useLiveRefetch("workstream", reload);
+
+  // The list endpoint filters by employee, not routine — narrow client-side.
+  const active =
+    (workstreams ?? []).find((w) => w.routineId === routine.id && w.status === "active") ?? null;
+
+  if (!active) return null;
+
+  return (
+    <Card className={compact ? undefined : "md:col-span-2"}>
+      <CardBody className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2">
+          <SectionLabel>Workstream</SectionLabel>
+          {canManage && (
+            <Button variant="ghost" size="sm" onClick={() => setClosing(true)}>
+              Close
+            </Button>
+          )}
+        </div>
+        <div>
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            {active.title}
+          </div>
+          {active.objective && (
+            <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              {active.objective}
+            </div>
+          )}
+        </div>
+        <div className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2 font-mono text-xs leading-5 text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+          {active.stateDoc.trim() || "The employee hasn't written the state document yet."}
+        </div>
+        <div className="text-xs text-slate-400 dark:text-slate-500">
+          last updated {new Date(active.updatedAt).toLocaleDateString()}
+        </div>
+        {closing && (
+          <CloseWorkstreamModal
+            company={company}
+            workstream={active}
+            onClose={() => setClosing(false)}
+            onClosed={() => {
+              setClosing(false);
+              reload();
+            }}
+          />
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+function CloseWorkstreamModal({
+  company,
+  workstream,
+  onClose,
+  onClosed,
+}: {
+  company: Company;
+  workstream: Workstream;
+  onClose: () => void;
+  onClosed: () => void;
+}) {
+  const [status, setStatus] = React.useState<Exclude<WorkstreamStatus, "active">>("done");
+  const [reason, setReason] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      setError("Give a reason — the employee reads it.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(`/api/companies/${company.id}/workstreams/${workstream.id}/close`, {
+        status,
+        reason: trimmed,
+      });
+      onClosed();
+    } catch (err) {
+      setError(errorMessage(err, "Could not close the workstream"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Close "${workstream.title}"?`}
+      description="The state document is kept for the record; future runs stop carrying it."
+      onSubmit={save}
+      footer={
+        <>
+          <Button variant="secondary" type="button" disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? "Closing…" : "Close workstream"}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <FormError message={error} />
+        <div className="flex flex-col gap-1.5">
+          {(
+            [
+              ["done", "Done — the objective was reached"],
+              ["abandoned", "Abandoned — stop pursuing it"],
+            ] as const
+          ).map(([value, label]) => (
+            <label
+              key={value}
+              className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200"
+            >
+              <input
+                type="radio"
+                name="workstream-close-status"
+                checked={status === value}
+                onChange={() => setStatus(value)}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+        <Textarea
+          label="Reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="min-h-[60px]"
+          placeholder="Why it's closing — the employee reads this."
+        />
+      </div>
+    </Modal>
   );
 }
 
@@ -1584,6 +1768,8 @@ function SettingsTab({
         </CardBody>
       </Card>
 
+      <TriggersCard company={company} routine={routine} />
+
       <Card>
         <CardBody className="flex flex-col gap-2">
           <SectionLabel>Webhook</SectionLabel>
@@ -1686,5 +1872,229 @@ function SettingsTab({
         </CardBody>
       </Card>
     </div>
+  );
+}
+
+// ───────────────────────────── Triggers ─────────────────────────────────
+
+/**
+ * Event subscriptions that fire this routine (M54). Like the Webhook card,
+ * everything here saves immediately through its own endpoints rather than
+ * riding the Save button — a trigger is its own row, not a field on the
+ * routine. Reads are member-level; the toggle, delete, and add form are
+ * admin-only.
+ */
+function TriggersCard({ company, routine }: { company: Company; routine: RoutineWithMeta }) {
+  const [data, setData] = React.useState<RoutineTriggerList | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [rowError, setRowError] = React.useState<string | null>(null);
+  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const canManage = company.role === "owner" || company.role === "admin";
+
+  const reload = React.useCallback(async () => {
+    try {
+      setData(
+        await api.get<RoutineTriggerList>(
+          `/api/companies/${company.id}/routine-triggers/routine/${routine.id}`,
+        ),
+      );
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(errorMessage(err, "Could not load the triggers"));
+      setData({ kinds: [], triggers: [] });
+    }
+  }, [company.id, routine.id]);
+
+  React.useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  // Trigger changes ride the routine's own live-sync kind, scoped by
+  // routineId — another admin's edit lands here without a manual refresh.
+  useLiveRefetch("routine", reload, routine.id);
+
+  async function toggle(trigger: RoutineTrigger, enabled: boolean) {
+    setBusyId(trigger.id);
+    setRowError(null);
+    try {
+      await api.patch(`/api/companies/${company.id}/routine-triggers/${trigger.id}`, { enabled });
+      await reload();
+    } catch (err) {
+      setRowError(errorMessage(err, "Could not update the trigger"));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function remove(trigger: RoutineTrigger) {
+    setBusyId(trigger.id);
+    setRowError(null);
+    try {
+      await api.del(`/api/companies/${company.id}/routine-triggers/${trigger.id}`);
+      await reload();
+    } catch (err) {
+      setRowError(errorMessage(err, "Could not delete the trigger"));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <Card>
+      <CardBody className="flex flex-col gap-3">
+        <SectionLabel>Triggers</SectionLabel>
+        <div className="text-xs text-slate-500 dark:text-slate-400">
+          Fires this routine when the chosen resource family changes anywhere in the company — an
+          approval first when the routine is gated.
+        </div>
+        {loadError ? (
+          <FormError message={loadError} />
+        ) : data === null ? (
+          <Spinner />
+        ) : (
+          <>
+            <FormError message={rowError} />
+            {data.triggers.length > 0 && (
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {data.triggers.map((trigger) => (
+                  <li key={trigger.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+                    <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                      <Zap size={10} className="mr-1 inline-block" aria-hidden="true" />
+                      {trigger.kind}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-slate-600 dark:text-slate-300">
+                      at most every {Math.round(trigger.minIntervalSec / 60)}min
+                    </span>
+                    <span
+                      className="shrink-0 text-xs text-slate-400 dark:text-slate-500"
+                      title={
+                        trigger.lastFiredAt
+                          ? new Date(trigger.lastFiredAt).toLocaleString()
+                          : undefined
+                      }
+                    >
+                      {trigger.lastFiredAt
+                        ? `last fired ${timeAgo(trigger.lastFiredAt)}`
+                        : "never fired"}
+                    </span>
+                    {canManage && (
+                      <>
+                        <EnabledToggle
+                          enabled={trigger.enabled}
+                          label={`${trigger.enabled ? "Disable" : "Enable"} the ${trigger.kind} trigger`}
+                          disabled={busyId !== null}
+                          onChange={(next) => void toggle(trigger, next)}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void remove(trigger)}
+                          disabled={busyId !== null}
+                          aria-label={`Delete the ${trigger.kind} trigger`}
+                          className="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-red-600 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-red-400"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
+                    {!canManage && !trigger.enabled && (
+                      <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                        off
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {data.triggers.length === 0 && !canManage && (
+              <div className="text-sm text-slate-400 dark:text-slate-500">
+                No triggers — this routine fires on its schedule only.
+              </div>
+            )}
+            {canManage && (
+              <AddTriggerForm
+                company={company}
+                routine={routine}
+                kinds={data.kinds}
+                onAdded={() => void reload()}
+              />
+            )}
+          </>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+function AddTriggerForm({
+  company,
+  routine,
+  kinds,
+  onAdded,
+}: {
+  company: Company;
+  routine: RoutineWithMeta;
+  kinds: string[];
+  onAdded: () => void;
+}) {
+  const [kind, setKind] = React.useState("");
+  const [minutes, setMinutes] = React.useState(15);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!kind) {
+      setError("Pick what to listen for.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post(`/api/companies/${company.id}/routine-triggers`, {
+        routineId: routine.id,
+        kind,
+        minIntervalSec: minutes * 60,
+      });
+      setKind("");
+      setMinutes(15);
+      onAdded();
+    } catch (err) {
+      setError(errorMessage(err, "Could not add the trigger"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={save} className="flex flex-col gap-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+      <FormError message={error} />
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-40 flex-1">
+          <Select label="When this changes" value={kind} onChange={(e) => setKind(e.target.value)}>
+            <option value="">Choose a resource family…</option>
+            {kinds.map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="w-40">
+          <Input
+            label="At most every (min)"
+            type="number"
+            min={1}
+            max={10080}
+            value={String(minutes)}
+            onChange={(e) =>
+              setMinutes(Math.min(10080, Math.max(1, Math.round(Number(e.target.value) || 15))))
+            }
+          />
+        </div>
+        <Button type="submit" size="sm" disabled={saving}>
+          {saving ? "Adding…" : "Add trigger"}
+        </Button>
+      </div>
+    </form>
   );
 }

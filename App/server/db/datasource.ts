@@ -21,6 +21,10 @@ import { DecisionPolicy } from "./entities/DecisionPolicy.js";
 import { AutonomyWaiver } from "./entities/AutonomyWaiver.js";
 import { Budget } from "./entities/Budget.js";
 import { CompanyPolicy } from "./entities/CompanyPolicy.js";
+import { RoutineTrigger } from "./entities/RoutineTrigger.js";
+import { EmployeeWakeup } from "./entities/EmployeeWakeup.js";
+import { Workstream } from "./entities/Workstream.js";
+import { Initiative } from "./entities/Initiative.js";
 import { RoutineChatMessage } from "./entities/RoutineChatMessage.js";
 import { Run } from "./entities/Run.js";
 import { Project } from "./entities/Project.js";
@@ -216,6 +220,10 @@ const entities = [
   AutonomyWaiver,
   Budget,
   CompanyPolicy,
+  RoutineTrigger,
+  EmployeeWakeup,
+  Workstream,
+  Initiative,
   RoutineChatMessage,
   Run,
   Project,

@@ -246,6 +246,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Standing rails that bind every AI Employee — written policies, monthly ad-spend Budgets, and held calls from tainted turns.",
       },
       {
+        path: "/docs/reactivity",
+        title: "Reactivity",
+        blurb:
+          "Event-fired Routines, self-scheduled Wakeups, Workstreams carrying state across Runs, and Initiatives a human accepts.",
+      },
+      {
         path: "/docs/pipelines",
         title: "Pipelines",
         blurb: "Build predictable trigger-to-step automations and inspect every Run.",

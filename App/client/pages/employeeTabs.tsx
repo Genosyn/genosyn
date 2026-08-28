@@ -35,6 +35,7 @@ import {
   AutonomyWaiverKind,
   Company,
   Employee,
+  EmployeeWakeup,
   Provider,
   JournalEntry as JournalEntryT,
   JournalKind,
@@ -376,7 +377,10 @@ export function AutonomySettingsPage() {
   return (
     <>
       <TopBar title="Autonomy" />
-      <EmployeeAutonomyCard company={company} emp={emp} />
+      <div className="flex flex-col gap-4">
+        <EmployeeAutonomyCard company={company} emp={emp} />
+        <EmployeeWakeupsCard company={company} emp={emp} />
+      </div>
     </>
   );
 }
@@ -511,6 +515,130 @@ function EmployeeAutonomyCard({ company, emp }: { company: Company; emp: Employe
             )}
           </>
         )}
+      </CardBody>
+    </Card>
+  );
+}
+
+/**
+ * Wakeups — the timed follow-up sessions this employee scheduled for itself
+ * (M54). Pending ones lead with when and why; fired ones stay, muted, with
+ * what the session reported back; cancelled ones keep only a chip. The card
+ * vanishes entirely while there are none — an empty queue is not news.
+ * Cancelling is the one human write, admin-gated; a 409 means the wakeup
+ * fired (or was cancelled) between render and click.
+ */
+function EmployeeWakeupsCard({ company, emp }: { company: Company; emp: Employee }) {
+  const dialog = useDialog();
+  const [wakeups, setWakeups] = React.useState<EmployeeWakeup[] | null>(null);
+  const [cancelling, setCancelling] = React.useState<string | null>(null);
+  const canManage = company.role === "owner" || company.role === "admin";
+
+  const reload = React.useCallback(() => {
+    api
+      .get<EmployeeWakeup[]>(`/api/companies/${company.id}/wakeups/employee/${emp.id}`)
+      .then(setWakeups)
+      .catch(() => setWakeups([]));
+  }, [company.id, emp.id]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  // Wakeups ride the "employee" live-sync kind, scoped to this employee — a
+  // session scheduling or firing one lands here without a manual refresh.
+  useLiveRefetch("employee", reload, emp.id);
+
+  async function cancel(wakeup: EmployeeWakeup) {
+    setCancelling(wakeup.id);
+    try {
+      await api.post(`/api/companies/${company.id}/wakeups/${wakeup.id}/cancel`, {});
+      reload();
+    } catch (err) {
+      // A 409 means it stopped being pending under us — the reload shows why.
+      void dialog.error(err, { title: "Could not cancel the wakeup" });
+      reload();
+    } finally {
+      setCancelling(null);
+    }
+  }
+
+  if (!wakeups || wakeups.length === 0) return null;
+
+  const pending = wakeups
+    .filter((w) => w.status === "pending")
+    .sort((a, b) => a.at.localeCompare(b.at));
+  const settled = wakeups
+    .filter((w) => w.status !== "pending")
+    .sort((a, b) => (b.firedAt ?? b.at).localeCompare(a.firedAt ?? a.at));
+
+  return (
+    <Card>
+      <CardBody className="flex flex-col gap-3">
+        <div>
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Wakeups</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Follow-up sessions {emp.name} scheduled for itself. Cancelling one simply never wakes
+            it.
+          </div>
+        </div>
+        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          {[...pending, ...settled].map((wakeup) => (
+            <li key={wakeup.id} className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={
+                      "text-xs tabular-nums " +
+                      (wakeup.status === "pending"
+                        ? "font-medium text-slate-900 dark:text-slate-100"
+                        : "text-slate-400 dark:text-slate-500")
+                    }
+                    title={new Date(wakeup.at).toLocaleString()}
+                  >
+                    {new Date(wakeup.at).toLocaleString()}
+                  </span>
+                  {wakeup.status === "fired" && (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                      Fired
+                    </span>
+                  )}
+                  {wakeup.status === "cancelled" && (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                      Cancelled
+                    </span>
+                  )}
+                </div>
+                <div
+                  className={
+                    "mt-0.5 text-sm " +
+                    (wakeup.status === "pending"
+                      ? "text-slate-800 dark:text-slate-200"
+                      : "text-slate-400 dark:text-slate-500")
+                  }
+                >
+                  {wakeup.brief}
+                </div>
+                {wakeup.status === "fired" && wakeup.outcomeNote && (
+                  <p className="mt-0.5 line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
+                    {wakeup.outcomeNote}
+                  </p>
+                )}
+              </div>
+              {canManage && wakeup.status === "pending" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={cancelling !== null}
+                  onClick={() => void cancel(wakeup)}
+                >
+                  {cancelling === wakeup.id ? "Cancelling…" : "Cancel"}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
       </CardBody>
     </Card>
   );

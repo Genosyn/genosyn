@@ -39,6 +39,7 @@ import { sweepStalledWork } from "./escalations.js";
 import { sweepGoals } from "./goals.js";
 import { sweepRoutedDecisions } from "./decisionRouting.js";
 import { sweepAutonomyPromotions } from "./autonomy.js";
+import { dispatchDueWakeups } from "./wakeups.js";
 
 /**
  * Heartbeat-based routine scheduler.
@@ -534,6 +535,14 @@ async function tick(): Promise<void> {
       await sweepAutonomyPromotions(now).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] autonomy sweep failed:", err);
+      });
+
+      // Phase 11 — fire due Wakeups (M54). Each is claimed with a conditional
+      // UPDATE, then briefed into a fresh employee-authority session — or the
+      // journal, when the employee has no model.
+      await dispatchDueWakeups(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] wakeup dispatch failed:", err);
       });
     });
   } finally {

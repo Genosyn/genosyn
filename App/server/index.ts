@@ -42,6 +42,8 @@ import { decisionPoliciesRouter } from "./routes/decisionPolicies.js";
 import { autonomyRouter } from "./routes/autonomy.js";
 import { budgetsRouter } from "./routes/budgets.js";
 import { companyPoliciesRouter } from "./routes/companyPolicies.js";
+import { bootRoutineTriggers } from "./services/routineTriggers.js";
+import { reactivityRouter } from "./routes/reactivity.js";
 import { modelsRouter } from "./routes/models.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
 import { projectsRouter } from "./routes/projects.js";
@@ -146,6 +148,10 @@ async function main() {
   // key ring is bound and validated, which is why it is not a migration.
   await backfillRetiredIntegrationsIntoVault();
   await bootCron();
+  // M54: Routine event Triggers subscribe to the live-sync flush. Registered
+  // here rather than imported by resourceEvents so the low-level module stays
+  // out of the runner's dependency graph.
+  bootRoutineTriggers();
   await bootDurableChatTurnRecovery();
   await bootSignatureExpirySweeper();
   await bootBackups();
@@ -332,6 +338,7 @@ async function main() {
   app.use("/api/companies/:cid", autonomyRouter);
   app.use("/api/companies/:cid", budgetsRouter);
   app.use("/api/companies/:cid", companyPoliciesRouter);
+  app.use("/api/companies/:cid", reactivityRouter);
   // Org chart + Handoffs (Phase B). Teams group employees; Handoffs are
   // formal AI→AI delegation with status workflow.
   app.use("/api/companies/:cid", teamsRouter);

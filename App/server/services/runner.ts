@@ -16,6 +16,7 @@ import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
 import { composeGoalsContext, goalBriefBlock } from "./goals.js";
 import { composePoliciesContext } from "./companyPolicies.js";
+import { composeWorkstreamBlock } from "./workstreams.js";
 import { composeLessonsBlock, reflectOnRun, shouldReflect } from "./runLessons.js";
 import { contractAutonomyOnBadRun } from "./autonomy.js";
 import { Goal } from "../db/entities/Goal.js";
@@ -367,7 +368,14 @@ export async function startRoutineRun(
       });
       const goalBlock = await goalBriefBlock(co.id, routine.goalId);
       const lessonsBlock = await composeLessonsBlock(routine.id);
-      const userMessage = composeRoutineMessage(routine, missedSlots, goalBlock, lessonsBlock);
+      const workstreamBlock = await composeWorkstreamBlock(routine.id);
+      const userMessage = composeRoutineMessage(
+        routine,
+        missedSlots,
+        goalBlock,
+        lessonsBlock,
+        workstreamBlock,
+      );
 
       const cwd = employeeDir(co.slug, emp.slug);
       ensureDir(cwd);
@@ -902,6 +910,7 @@ function composeRoutineMessage(
   missedSlots: number,
   goalBlock: string | null,
   lessonsBlock: string,
+  workstreamBlock: string,
 ): string {
   return [
     `## Routine: ${routine.name}`,
@@ -910,6 +919,9 @@ function composeRoutineMessage(
     // The objective this work serves, when the Routine declares one — folded
     // beside the criteria so the employee aims at the goal it is graded on.
     ...(goalBlock ? ["", "## Goal", goalBlock] : []),
+    // Where multi-Run work stands (M54) — the employee's own state document,
+    // so a long job resumes instead of re-deriving itself from the journal.
+    ...(workstreamBlock ? ["", workstreamBlock] : []),
     // What earlier graded-bad Runs taught (M52) — advice from the routine's
     // own retrospectives, so the next attempt starts past the last stumble.
     ...(lessonsBlock ? ["", lessonsBlock] : []),
