@@ -60,6 +60,19 @@ export class CompanySso {
   @Column({ type: "boolean", default: true })
   autoJoin!: boolean;
 
+  /**
+   * Comma-separated lowercase email domains ("acme.com,acme.co.uk"). When
+   * non-empty, an IdP-asserted email outside these domains is refused for
+   * every path that would create something new — auto-provisioning a User,
+   * auto-joining a Membership, and starting an email link-confirmation. A
+   * pair-matched existing member still signs in (they were already admitted).
+   * Empty means no restriction; the service refuses enabling the Google
+   * preset with auto-join while this is empty, because Google's public
+   * issuer vouches for every Google account on Earth.
+   */
+  @Column({ type: "text", default: "" })
+  allowedEmailDomains!: string;
+
   @CreateDateColumn()
   createdAt!: Date;
 

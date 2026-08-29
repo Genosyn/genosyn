@@ -11,5 +11,8 @@ spec:
       port: {{ .Values.service.port }}
       targetPort: http
       protocol: TCP
+  # `component: app` keeps the endpoints off the bundled Postgres pods, which
+  # share the base selectorLabels.
   selector:
     {{- include "genosyn.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: app

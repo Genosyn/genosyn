@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 
 /**
  * A minimal Stripe client (M56) — raw `fetch` against the REST API with
- * form-encoded bodies, no SDK. Only the five calls the billing lifecycle
- * needs, each returning the narrow shape the caller reads, plus the pure
+ * form-encoded bodies, no SDK. Only the calls the billing lifecycle needs,
+ * each returning the narrow shape the caller reads, plus the pure
  * webhook-signature verifier.
  */
 
@@ -24,7 +24,7 @@ export class StripeApiError extends Error {
 
 async function stripeRequest(
   secretKey: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "DELETE",
   path: string,
   params?: URLSearchParams,
 ): Promise<Record<string, unknown>> {
@@ -148,6 +148,24 @@ export async function getSubscription(
   return parseSubscription(raw);
 }
 
+/**
+ * A customer's subscriptions, every status included, newest first (Stripe's
+ * list ordering) — how `syncFromStripe` discovers a subscription the webhook
+ * has not delivered yet.
+ */
+export async function listSubscriptions(
+  secretKey: string,
+  customerId: string,
+): Promise<StripeSubscription[]> {
+  const params = new URLSearchParams();
+  params.set("customer", customerId);
+  params.set("status", "all");
+  params.set("limit", "10");
+  const body = await stripeRequest(secretKey, "GET", "/v1/subscriptions", params);
+  const data = Array.isArray(body.data) ? (body.data as Array<Record<string, unknown>>) : [];
+  return data.map(parseSubscription);
+}
+
 export async function updateSubscriptionQuantity(
   secretKey: string,
   args: { subscriptionId: string; itemId: string; quantity: number },
@@ -162,6 +180,41 @@ export async function updateSubscriptionQuantity(
     `/v1/subscriptions/${encodeURIComponent(args.subscriptionId)}`,
     params,
   );
+}
+
+/**
+ * Move an existing subscription's single item to another price — a plan
+ * change in place, prorated, so a paid→paid switch never creates a second
+ * concurrently-billing subscription. Returns the updated subscription so the
+ * caller can apply the new state locally without waiting for the webhook.
+ */
+export async function updateSubscriptionPlan(
+  secretKey: string,
+  args: {
+    subscriptionId: string;
+    itemId: string;
+    priceId: string;
+    quantity: number;
+    prorationBehavior: "create_prorations";
+  },
+): Promise<StripeSubscription> {
+  const params = new URLSearchParams();
+  params.set("items[0][id]", args.itemId);
+  params.set("items[0][price]", args.priceId);
+  params.set("items[0][quantity]", String(args.quantity));
+  params.set("proration_behavior", args.prorationBehavior);
+  const raw = await stripeRequest(
+    secretKey,
+    "POST",
+    `/v1/subscriptions/${encodeURIComponent(args.subscriptionId)}`,
+    params,
+  );
+  return parseSubscription(raw);
+}
+
+/** Cancel a subscription immediately (DELETE /v1/subscriptions/:id). */
+export async function cancelSubscription(secretKey: string, id: string): Promise<void> {
+  await stripeRequest(secretKey, "DELETE", `/v1/subscriptions/${encodeURIComponent(id)}`);
 }
 
 /**

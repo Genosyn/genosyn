@@ -48,6 +48,7 @@ type Draft = {
   clientId: string;
   clientSecret: string;
   autoJoin: boolean;
+  allowedEmailDomains: string;
 };
 
 function seedDraft(d: CompanySsoSettings): Draft {
@@ -61,6 +62,7 @@ function seedDraft(d: CompanySsoSettings): Draft {
     // the placeholder communicate whether one is stored.
     clientSecret: "",
     autoJoin: d.autoJoin,
+    allowedEmailDomains: d.allowedEmailDomains,
   };
 }
 
@@ -96,6 +98,11 @@ export function SettingsSso() {
   }, [reload]);
 
   if (!hasFeature) {
+    // On Genosyn Cloud the way up is the Scale plan and this page's
+    // per-company login URL; on a self-hosted install "Scale" does not exist —
+    // the path is a Genosyn Enterprise license, and SSO is the instance-wide
+    // sign-in a master admin configures at Admin → SSO.
+    const cloud = company.entitlements.edition === "cloud";
     return (
       <>
         <TopBar title="Single sign-on" />
@@ -103,7 +110,9 @@ export function SettingsSso() {
           <FeatureGateCard feature="sso" entitlements={company.entitlements} company={company} />
           <Card>
             <CardHeader>
-              <h2 className="text-sm font-semibold">What you get on Scale</h2>
+              <h2 className="text-sm font-semibold">
+                {cloud ? "What you get on Scale" : "What you get with Genosyn Enterprise"}
+              </h2>
             </CardHeader>
             <CardBody>
               <ul className="flex flex-col gap-1.5 text-sm text-slate-500 dark:text-slate-400">
@@ -111,17 +120,32 @@ export function SettingsSso() {
                   Members sign in through your Google Workspace or any OpenID Connect provider
                   &mdash; Okta, Keycloak, Microsoft Entra ID, Auth0.
                 </li>
-                <li>
-                  A dedicated sign-in page for your company at{" "}
-                  <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                    /login/sso/{company.slug}
-                  </code>
-                  .
-                </li>
-                <li>
-                  Optional auto-join: anyone your identity provider vouches for becomes a Member on
-                  first sign-in.
-                </li>
+                {cloud ? (
+                  <>
+                    <li>
+                      A dedicated sign-in page for your company at{" "}
+                      <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+                        /login/sso/{company.slug}
+                      </code>
+                      .
+                    </li>
+                    <li>
+                      Optional auto-join: anyone your identity provider vouches for becomes a
+                      Member on first sign-in.
+                    </li>
+                  </>
+                ) : (
+                  <>
+                    <li>
+                      Single sign-on for the whole install, configured by a master admin at Admin
+                      &rarr; SSO.
+                    </li>
+                    <li>
+                      Optional auto-provisioning: people your identity provider vouches for get an
+                      account on first sign-in.
+                    </li>
+                  </>
+                )}
               </ul>
             </CardBody>
           </Card>
@@ -148,6 +172,7 @@ export function SettingsSso() {
     (draft.provider === "oidc" && draft.issuer !== data.issuer) ||
     draft.clientId !== data.clientId ||
     draft.autoJoin !== data.autoJoin ||
+    draft.allowedEmailDomains !== data.allowedEmailDomains ||
     draft.clientSecret !== "";
 
   const save = async () => {
@@ -163,6 +188,7 @@ export function SettingsSso() {
         clientId: draft.clientId.trim(),
         clientSecret: draft.clientSecret,
         autoJoin: draft.autoJoin,
+        allowedEmailDomains: draft.allowedEmailDomains.trim(),
       });
       setData(next);
       setDraft(seedDraft(next));
@@ -406,6 +432,25 @@ export function SettingsSso() {
                 Anyone your identity provider vouches for joins this company as a Member (creating
                 a Genosyn account for unknown emails); when off, SSO only signs in existing Members.
               </p>
+
+              <div>
+                <label className={LABEL_CLASS} htmlFor="company-sso-domains">
+                  Allowed email domains
+                </label>
+                <input
+                  id="company-sso-domains"
+                  className={clsx(FIELD_CLASS, "font-mono")}
+                  placeholder="acme.com, acme.co.uk"
+                  value={draft.allowedEmailDomains}
+                  onChange={(e) => setDraft({ ...draft, allowedEmailDomains: e.target.value })}
+                />
+                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                  Comma-separated. Only emails on these domains can join or get an account through
+                  SSO; Members already linked keep signing in. Required for auto-join with Google
+                  &mdash; a Google OAuth client signs in any Google account, not just your
+                  workspace. Leave blank with a custom provider to trust whoever it vouches for.
+                </p>
+              </div>
 
               <FormError message={error} />
               <FormSuccess message={notice} />

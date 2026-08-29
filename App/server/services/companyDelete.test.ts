@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { after, before, beforeEach, describe, test } from "node:test";
+import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 import type { EntityTarget, ObjectLiteral } from "typeorm";
 
 import { AppDataSource } from "../db/datasource.js";
 import { AdSpendEvent } from "../db/entities/AdSpendEvent.js";
+import { AppSetting } from "../db/entities/AppSetting.js";
 import { Company } from "../db/entities/Company.js";
+import { CompanyBilling } from "../db/entities/CompanyBilling.js";
 import { CustomerCredit } from "../db/entities/CustomerCredit.js";
 import { CustomerCreditApplication } from "../db/entities/CustomerCreditApplication.js";
 import { CustomerCreditLine } from "../db/entities/CustomerCreditLine.js";
@@ -34,7 +36,12 @@ import { VendorCreditApplication } from "../db/entities/VendorCreditApplication.
 import { VendorCreditLine } from "../db/entities/VendorCreditLine.js";
 import { VendorRefund } from "../db/entities/VendorRefund.js";
 import { WorkloadLease } from "../db/entities/WorkloadLease.js";
+import { encryptSecret } from "../lib/secret.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testId } from "../test/dbHarness.js";
+import {
+  BILLING_SETTING_KEY,
+  invalidateBillingSettingsCache,
+} from "./billing/billingSettings.js";
 import { deleteCompanyCascade } from "./companyDelete.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -188,5 +195,93 @@ describe("company deletion integrity", () => {
     assert.equal(await AppDataSource.getRepository(CustomerCreditLine).count(), 1);
     assert.equal(await AppDataSource.getRepository(VendorCreditLine).count(), 1);
     assert.equal(await AppDataSource.getRepository(TagAssignment).count(), 1);
+  });
+});
+
+/**
+ * Deleting a company must CANCEL its live Stripe subscription outright — with
+ * the Company, Membership, and CompanyBilling rows gone, no route can ever
+ * mint a billing-portal session for that customer again, so leaving the
+ * subscription running would bill the card forever with no self-serve stop.
+ */
+describe("company deletion and Stripe", () => {
+  const originalFetch = globalThis.fetch;
+  type StripeCall = { method: string; url: string };
+  let stripeCalls: StripeCall[] = [];
+  let stripeFails = false;
+
+  beforeEach(async () => {
+    await insert(AppSetting, {
+      key: BILLING_SETTING_KEY,
+      value: JSON.stringify({
+        enabled: true,
+        growthPriceId: "price_growth",
+        scalePriceId: "price_scale",
+        encryptedSecretKey: encryptSecret("sk_test_delete"),
+        encryptedWebhookSecret: "",
+      }),
+    });
+    invalidateBillingSettingsCache();
+    stripeCalls = [];
+    stripeFails = false;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://api.stripe.com/")) {
+        stripeCalls.push({ method: init?.method ?? "GET", url });
+        if (stripeFails) {
+          return new Response(JSON.stringify({ error: { message: "boom" } }), { status: 500 });
+        }
+        return new Response(JSON.stringify({ id: "sub_del", status: "canceled" }), {
+          status: 200,
+        });
+      }
+      return originalFetch(input as RequestInfo, init);
+    }) as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    invalidateBillingSettingsCache();
+  });
+
+  async function companyWithSubscription(status: string): Promise<Company> {
+    const company = await insert(Company, {
+      name: "Billed",
+      slug: `billed-${testId("slug")}`,
+      ownerId: testId("user"),
+    });
+    await insert(CompanyBilling, {
+      companyId: company.id,
+      plan: "growth",
+      status,
+      stripeCustomerId: "cus_del",
+      stripeSubscriptionId: "sub_del",
+      stripeSubscriptionItemId: "si_del",
+      seatCount: 3,
+    });
+    return company;
+  }
+
+  test("cancels a live subscription outright on delete", async () => {
+    const company = await companyWithSubscription("active");
+    await deleteCompanyCascade({ companyId: company.id, companySlug: company.slug });
+    assert.deepEqual(stripeCalls, [
+      { method: "DELETE", url: "https://api.stripe.com/v1/subscriptions/sub_del" },
+    ]);
+    assert.equal(await AppDataSource.getRepository(Company).countBy({ id: company.id }), 0);
+  });
+
+  test("a canceled subscription is left alone", async () => {
+    const company = await companyWithSubscription("canceled");
+    await deleteCompanyCascade({ companyId: company.id, companySlug: company.slug });
+    assert.deepEqual(stripeCalls, []);
+  });
+
+  test("a Stripe failure is best-effort — the delete still completes", async () => {
+    stripeFails = true;
+    const company = await companyWithSubscription("active");
+    await deleteCompanyCascade({ companyId: company.id, companySlug: company.slug });
+    assert.equal(stripeCalls.length, 1);
+    assert.equal(await AppDataSource.getRepository(Company).countBy({ id: company.id }), 0);
   });
 });

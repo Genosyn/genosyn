@@ -201,7 +201,8 @@ import { TldrSettings } from "../db/entities/TldrSettings.js";
 import { CompanyBilling } from "../db/entities/CompanyBilling.js";
 import { CompanySso } from "../db/entities/CompanySso.js";
 import { getStripeSecrets } from "./billing/billingSettings.js";
-import { updateSubscriptionQuantity } from "./billing/stripe.js";
+import { ACTIVE_SUBSCRIPTION_STATUSES } from "./billing/companyBilling.js";
+import { cancelSubscription } from "./billing/stripe.js";
 
 /**
  * Hard-delete a company and every row that hangs off it.
@@ -591,29 +592,25 @@ export async function deleteCompanyCascade(args: {
   });
   emitMembershipAuthorizationChange(companyId);
 
-  // ── Stripe seat sync (best-effort, M56) ──────────────────────────────
-  // The company is gone but its subscription may still be live at Stripe;
-  // drop the billed quantity to the floor of 1 so the customer isn't charged
-  // for seats that no longer exist. Cancelling outright is the customer's
-  // call in the billing portal, not a side effect of an operator delete.
+  // ── Stripe cancellation (best-effort, M56) ───────────────────────────
+  // The company is gone but its subscription may still be live at Stripe —
+  // and with the Company, Membership, and CompanyBilling rows deleted, no
+  // route can ever mint a billing-portal session for this customer again.
+  // Cancel the subscription outright so the card on file stops being charged
+  // for a company that no longer exists.
   if (
     billingRowBeforeDelete?.stripeSubscriptionId &&
-    billingRowBeforeDelete.stripeSubscriptionItemId &&
     billingRowBeforeDelete.status &&
-    ["active", "trialing", "past_due"].includes(billingRowBeforeDelete.status)
+    ACTIVE_SUBSCRIPTION_STATUSES.includes(billingRowBeforeDelete.status)
   ) {
     try {
       const { secretKey } = await getStripeSecrets();
       if (secretKey) {
-        await updateSubscriptionQuantity(secretKey, {
-          subscriptionId: billingRowBeforeDelete.stripeSubscriptionId,
-          itemId: billingRowBeforeDelete.stripeSubscriptionItemId,
-          quantity: 1,
-        });
+        await cancelSubscription(secretKey, billingRowBeforeDelete.stripeSubscriptionId);
       }
     } catch (err) {
       console.warn(
-        `[companyDelete] Stripe seat sync failed for ${companyId}: ${(err as Error).message}`,
+        `[companyDelete] Stripe subscription cancel failed for ${companyId}: ${(err as Error).message}`,
       );
     }
   }

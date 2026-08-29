@@ -11,7 +11,9 @@ import {
 } from "./billingSettings.js";
 import { PLANS, planForPriceId } from "./plans.js";
 import {
+  StripeApiError,
   getSubscription,
+  listSubscriptions,
   parseSubscription,
   updateSubscriptionQuantity,
   type StripeSubscription,
@@ -24,6 +26,16 @@ import {
  * funnel through {@link applySubscriptionState} so plan/status/seat state is
  * written in exactly one place.
  */
+
+/** Subscription statuses under which the company is still paying (or Stripe
+ * is still retrying the charge) — the mirror of the entitlements resolver's
+ * active set. A subscription in one of these states must be switched or
+ * canceled, never silently duplicated. */
+export const ACTIVE_SUBSCRIPTION_STATUSES: readonly string[] = [
+  "active",
+  "trialing",
+  "past_due",
+];
 
 export async function getOrCreateBillingRow(companyId: string): Promise<CompanyBilling> {
   const repo = AppDataSource.getRepository(CompanyBilling);
@@ -126,7 +138,18 @@ export async function applySubscriptionState(
   const row = await getOrCreateBillingRow(companyId);
   const item = sub.items[0];
   const plan = item ? planForPriceId(settings, item.priceId) : null;
-  row.plan = plan ?? "free";
+  if (item && plan === null) {
+    // The subscription bills a price this install no longer knows — most
+    // likely the operator rotated a price id at Admin → Billing. Keep the
+    // row's current plan instead of silently downgrading a paying subscriber
+    // to Free entitlements.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[billing] subscription ${sub.id} for company ${companyId} carries price ${item.priceId}, which matches neither configured price id — keeping plan "${row.plan}". Were the price ids rotated at Admin → Billing?`,
+    );
+  } else {
+    row.plan = plan ?? "free";
+  }
   row.status = sub.status || null;
   row.stripeSubscriptionId = sub.id || null;
   row.stripeSubscriptionItemId = item?.id ?? null;
@@ -154,10 +177,15 @@ const HANDLED_EVENTS = new Set([
 ]);
 
 /**
- * Apply one verified webhook event. The subscription events embed the
- * subscription object; `checkout.session.completed` only names its id, so
- * that one is fetched. Events without a `companyId` in the subscription
- * metadata are ignored — they are not this install's subscriptions.
+ * Apply one verified webhook event. Every branch re-fetches the subscription
+ * from the API before applying it: Stripe does not guarantee delivery order
+ * and retries failed deliveries, so the snapshot embedded in a subscription
+ * event may be stale — a retried "active" arriving after "deleted" must not
+ * resurrect a canceled subscription. The embedded object is trusted only to
+ * name the subscription id and the company (its `metadata.companyId`); a
+ * fetch failure throws so the webhook route 500s and Stripe retries. Events
+ * without a `companyId` in the subscription metadata are ignored — they are
+ * not this install's subscriptions.
  */
 export async function handleWebhookEvent(event: {
   type: string;
@@ -168,7 +196,8 @@ export async function handleWebhookEvent(event: {
   const settings = await getBillingSettings();
 
   let sub: StripeSubscription;
-  let customerId: string | null = null;
+  let companyId: string;
+  const customerId = typeof object.customer === "string" ? object.customer : null;
   if (event.type === "checkout.session.completed") {
     const subscriptionId =
       typeof object.subscription === "string" ? object.subscription : null;
@@ -176,13 +205,16 @@ export async function handleWebhookEvent(event: {
     const { secretKey } = await getStripeSecrets();
     if (!secretKey) return { handled: false };
     sub = await getSubscription(secretKey, subscriptionId);
-    customerId = typeof object.customer === "string" ? object.customer : null;
+    companyId = sub.metadata.companyId;
   } else {
-    sub = parseSubscription(object);
-    customerId = typeof object.customer === "string" ? object.customer : null;
+    const embedded = parseSubscription(object);
+    companyId = embedded.metadata.companyId;
+    if (!embedded.id || !companyId) return { handled: false };
+    const { secretKey } = await getStripeSecrets();
+    if (!secretKey) return { handled: false };
+    sub = await getSubscription(secretKey, embedded.id);
   }
 
-  const companyId = sub.metadata.companyId;
   if (!companyId) return { handled: false };
   await applySubscriptionState(companyId, sub, settings, customerId);
   return { handled: true };
@@ -199,7 +231,7 @@ export async function syncSeatCount(companyId: string): Promise<void> {
     if (!(await billingEnabled())) return;
     const row = await AppDataSource.getRepository(CompanyBilling).findOneBy({ companyId });
     if (!row?.stripeSubscriptionId || !row.stripeSubscriptionItemId) return;
-    if (!row.status || !["active", "trialing", "past_due"].includes(row.status)) return;
+    if (!row.status || !ACTIVE_SUBSCRIPTION_STATUSES.includes(row.status)) return;
     const { secretKey } = await getStripeSecrets();
     if (!secretKey) return;
     const quantity = Math.max(1, await countCompanyAiEmployees(companyId));
@@ -209,8 +241,14 @@ export async function syncSeatCount(companyId: string): Promise<void> {
       itemId: row.stripeSubscriptionItemId,
       quantity,
     });
-    row.seatCount = quantity;
-    await AppDataSource.getRepository(CompanyBilling).save(row);
+    // Targeted write of the seat count only. Saving the full entity here
+    // would persist plan/status as read BEFORE the (up to 15s) Stripe call,
+    // clobbering any webhook write that landed in between — e.g. reverting a
+    // cancellation back to "active".
+    await AppDataSource.getRepository(CompanyBilling).update(
+      { id: row.id },
+      { seatCount: quantity },
+    );
   } catch (err) {
     // eslint-disable-next-line no-console
     console.warn(
@@ -221,17 +259,36 @@ export async function syncSeatCount(companyId: string): Promise<void> {
 
 /**
  * Re-fetch the subscription from Stripe and reconcile the local row — the
- * manual escape hatch when a webhook was missed. No-op (returns the summary
- * as-is) when the company has no subscription.
+ * escape hatch when a webhook was missed (or has not landed yet). When the
+ * row knows its Stripe customer but not yet a subscription — a first checkout
+ * whose webhook is still in flight — the customer's subscriptions are listed
+ * and the newest live one is adopted, so `?checkout=success` reconciles and a
+ * duplicate checkout cannot mint a second subscription. No-op (returns the
+ * summary as-is) when the company has never touched Stripe.
  */
 export async function syncFromStripe(companyId: string): Promise<BillingSummary> {
   const row = await AppDataSource.getRepository(CompanyBilling).findOneBy({ companyId });
-  if (row?.stripeSubscriptionId) {
+  if (row?.stripeSubscriptionId || row?.stripeCustomerId) {
     const { secretKey } = await getStripeSecrets();
     if (secretKey) {
       const settings = await getBillingSettings();
-      const sub = await getSubscription(secretKey, row.stripeSubscriptionId);
-      await applySubscriptionState(companyId, sub, settings);
+      let sub: StripeSubscription | null = null;
+      if (row.stripeSubscriptionId) {
+        try {
+          sub = await getSubscription(secretKey, row.stripeSubscriptionId);
+        } catch (err) {
+          // A 404 means the stored subscription no longer exists at Stripe —
+          // fall through to adopting whatever the customer actually has.
+          if (!(err instanceof StripeApiError) || err.status !== 404) throw err;
+        }
+      }
+      if (!sub && row.stripeCustomerId) {
+        const subscriptions = await listSubscriptions(secretKey, row.stripeCustomerId);
+        // Stripe lists newest first — adopt the newest live subscription.
+        sub =
+          subscriptions.find((s) => ACTIVE_SUBSCRIPTION_STATUSES.includes(s.status)) ?? null;
+      }
+      if (sub) await applySubscriptionState(companyId, sub, settings);
     }
   }
   return billingSummary(companyId);

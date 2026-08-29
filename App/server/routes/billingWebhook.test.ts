@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { after, before, beforeEach, describe, test } from "node:test";
+import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 
 import express from "express";
 
@@ -20,15 +20,49 @@ import { billingWebhookRouter } from "./billingWebhook.js";
 
 /**
  * The webhook receiver end to end with REAL HMAC signatures: a signed
- * `customer.subscription.updated` (which embeds the subscription object, so
- * no Stripe fetch is involved) upserts the local plan/seat state; a bad
- * signature is a 400 that writes nothing.
+ * `customer.subscription.updated` upserts the local plan/seat state from the
+ * subscription RE-FETCHED from Stripe (the embedded snapshot is only trusted
+ * to name the subscription and company — Stripe does not guarantee delivery
+ * order); a bad signature is a 400 that writes nothing.
  */
 
 const WEBHOOK_SECRET = "whsec_route_test";
+const SECRET_KEY = "sk_test_route";
 
 let server: Server;
 let baseUrl = "";
+
+// Selective fetch mock: api.stripe.com is served from `stripeSubscriptions`;
+// everything else (the test's own requests to the local server) passes
+// through to the real fetch.
+const originalFetch = globalThis.fetch;
+let stripeSubscriptions: Record<string, Record<string, unknown>> = {};
+let stripeGetCalls: string[] = [];
+let stripeFailure: { status: number } | null = null;
+
+function installStripeFetchMock(): void {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.startsWith("https://api.stripe.com/v1/subscriptions/")) {
+      const id = decodeURIComponent(url.slice(url.lastIndexOf("/") + 1));
+      stripeGetCalls.push(id);
+      if (stripeFailure) {
+        return new Response(JSON.stringify({ error: { message: "boom" } }), {
+          status: stripeFailure.status,
+        });
+      }
+      const raw = stripeSubscriptions[id];
+      if (!raw) {
+        return new Response(
+          JSON.stringify({ error: { message: `No such subscription: ${id}` } }),
+          { status: 404 },
+        );
+      }
+      return new Response(JSON.stringify(raw), { status: 200 });
+    }
+    return originalFetch(input as RequestInfo, init);
+  }) as typeof fetch;
+}
 
 before(async () => {
   await initTestDb();
@@ -58,11 +92,19 @@ beforeEach(async () => {
       enabled: true,
       growthPriceId: "price_growth",
       scalePriceId: "price_scale",
-      encryptedSecretKey: "",
+      encryptedSecretKey: encryptSecret(SECRET_KEY),
       encryptedWebhookSecret: encryptSecret(WEBHOOK_SECRET),
     }),
   });
   invalidateBillingSettingsCache();
+  stripeSubscriptions = {};
+  stripeGetCalls = [];
+  stripeFailure = null;
+  installStripeFetchMock();
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
 });
 
 function stripeHeader(rawBody: string, secret = WEBHOOK_SECRET): string {
@@ -80,31 +122,40 @@ async function post(rawBody: string, header: string): Promise<{ status: number; 
   return { status: response.status, body: await response.text() };
 }
 
+function rawSubscription(
+  companyId: string,
+  overrides: Partial<{ status: string; quantity: number }> = {},
+): Record<string, unknown> {
+  return {
+    id: "sub_123",
+    object: "subscription",
+    status: overrides.status ?? "active",
+    customer: "cus_9",
+    current_period_end: 1_900_000_000,
+    items: {
+      data: [{ id: "si_1", price: { id: "price_scale" }, quantity: overrides.quantity ?? 4 }],
+    },
+    metadata: { companyId },
+  };
+}
+
 function subscriptionEvent(companyId: string): string {
   return JSON.stringify({
     id: "evt_1",
     type: "customer.subscription.updated",
-    data: {
-      object: {
-        id: "sub_123",
-        object: "subscription",
-        status: "active",
-        customer: "cus_9",
-        current_period_end: 1_900_000_000,
-        items: { data: [{ id: "si_1", price: { id: "price_scale" }, quantity: 4 }] },
-        metadata: { companyId },
-      },
-    },
+    data: { object: rawSubscription(companyId) },
   });
 }
 
 describe("POST /api/billing/stripe/webhook", () => {
-  test("a signed subscription.updated upserts plan, seats and period end", async () => {
+  test("a signed subscription.updated re-fetches and upserts plan, seats and period end", async () => {
     const cid = testCompanyId();
+    stripeSubscriptions["sub_123"] = rawSubscription(cid);
     const raw = subscriptionEvent(cid);
     const got = await post(raw, stripeHeader(raw));
     assert.equal(got.status, 200);
     assert.deepEqual(JSON.parse(got.body), { received: true });
+    assert.deepEqual(stripeGetCalls, ["sub_123"]);
 
     const row = await AppDataSource.getRepository(CompanyBilling).findOneBy({ companyId: cid });
     assert.ok(row);
@@ -119,16 +170,66 @@ describe("POST /api/billing/stripe/webhook", () => {
 
   test("a later event updates the same row instead of adding one", async () => {
     const cid = testCompanyId();
+    stripeSubscriptions["sub_123"] = rawSubscription(cid);
     const first = subscriptionEvent(cid);
     await post(first, stripeHeader(first));
-    const second = first
-      .replace('"status":"active"', '"status":"canceled"')
-      .replace('"quantity":4', '"quantity":1');
+    stripeSubscriptions["sub_123"] = rawSubscription(cid, { status: "canceled", quantity: 1 });
+    const second = first.replace('"evt_1"', '"evt_2"');
     await post(second, stripeHeader(second));
     const rows = await AppDataSource.getRepository(CompanyBilling).findBy({ companyId: cid });
     assert.equal(rows.length, 1);
     assert.equal(rows[0].status, "canceled");
     assert.equal(rows[0].seatCount, 1);
+  });
+
+  test("a stale embedded snapshot cannot resurrect a canceled subscription", async () => {
+    const cid = testCompanyId();
+    // Stripe's current truth: the subscription is canceled. The retried event
+    // still embeds the old "active" snapshot — the fetched state must win.
+    stripeSubscriptions["sub_123"] = rawSubscription(cid, { status: "canceled", quantity: 1 });
+    const staleEvent = subscriptionEvent(cid); // embeds status "active", 4 seats
+    const got = await post(staleEvent, stripeHeader(staleEvent));
+    assert.equal(got.status, 200);
+    const row = await AppDataSource.getRepository(CompanyBilling).findOneBy({ companyId: cid });
+    assert.ok(row);
+    assert.equal(row.status, "canceled");
+    assert.equal(row.seatCount, 1);
+  });
+
+  test("a failed re-fetch is a 500 that writes nothing, so Stripe retries", async () => {
+    const cid = testCompanyId();
+    stripeFailure = { status: 500 };
+    const raw = subscriptionEvent(cid);
+    const got = await post(raw, stripeHeader(raw));
+    assert.equal(got.status, 500);
+    assert.equal(
+      await AppDataSource.getRepository(CompanyBilling).countBy({ companyId: cid }),
+      0,
+    );
+  });
+
+  test("without a stored secret key the event is acknowledged without effect", async () => {
+    const repo = AppDataSource.getRepository(AppSetting);
+    const setting = await repo.findOneByOrFail({ key: BILLING_SETTING_KEY });
+    setting.value = JSON.stringify({
+      enabled: true,
+      growthPriceId: "price_growth",
+      scalePriceId: "price_scale",
+      encryptedSecretKey: "",
+      encryptedWebhookSecret: encryptSecret(WEBHOOK_SECRET),
+    });
+    await repo.save(setting);
+    invalidateBillingSettingsCache();
+    const cid = testCompanyId();
+    stripeSubscriptions["sub_123"] = rawSubscription(cid);
+    const raw = subscriptionEvent(cid);
+    const got = await post(raw, stripeHeader(raw));
+    assert.equal(got.status, 200);
+    assert.deepEqual(stripeGetCalls, []);
+    assert.equal(
+      await AppDataSource.getRepository(CompanyBilling).countBy({ companyId: cid }),
+      0,
+    );
   });
 
   test("a bad signature is a 400 that writes nothing", async () => {
@@ -155,6 +256,8 @@ describe("POST /api/billing/stripe/webhook", () => {
     const raw = subscriptionEvent("").replace('"companyId":""', '"other":"x"');
     const got = await post(raw, stripeHeader(raw));
     assert.equal(got.status, 200);
+    // Not this install's subscription — no Stripe fetch, no row.
+    assert.deepEqual(stripeGetCalls, []);
     assert.equal(await AppDataSource.getRepository(CompanyBilling).count(), 0);
   });
 });

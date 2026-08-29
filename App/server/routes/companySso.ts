@@ -62,6 +62,8 @@ const ssoSchema = z.object({
   // Blank means "keep the client secret currently stored".
   clientSecret: z.string().max(2000),
   autoJoin: z.boolean(),
+  // Comma-separated email domains; the service normalizes and validates.
+  allowedEmailDomains: z.string().max(500),
 });
 
 companySsoRouter.put(

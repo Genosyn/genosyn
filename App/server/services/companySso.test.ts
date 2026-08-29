@@ -116,6 +116,7 @@ async function configureSso(overrides: Partial<CompanySsoInput> = {}): Promise<v
     clientId: "client-id",
     clientSecret: "client-secret",
     autoJoin: true,
+    allowedEmailDomains: "",
     ...overrides,
   });
 }
@@ -166,6 +167,93 @@ test("public status is enabled only for a configured, enabled row on a plan with
     enabled: true,
     buttonLabel: "Acme SSO",
   });
+});
+
+// ───────────────────── allowed email domains — saving ───────────────────────
+
+test("enabling the Google preset with auto-join and no domain list is refused", async () => {
+  await putOnScale();
+  await assert.rejects(
+    configureSso({ provider: "google", issuer: "", autoJoin: true, allowedEmailDomains: "" }),
+    /Google SSO signs in any Google account\. List the email domains that belong to your company before enabling auto-join\./,
+  );
+});
+
+test("the Google preset is allowed with a domain list, or with auto-join off", async () => {
+  await putOnScale();
+  const withDomains = await updateCompanySso(company.id, company.slug, {
+    enabled: true,
+    provider: "google",
+    displayName: "",
+    issuer: "",
+    clientId: "client-id",
+    clientSecret: "client-secret",
+    autoJoin: true,
+    allowedEmailDomains: "acme.com",
+  });
+  assert.equal(withDomains.enabled, true);
+  assert.equal(withDomains.allowedEmailDomains, "acme.com");
+
+  const noAutoJoin = await updateCompanySso(company.id, company.slug, {
+    enabled: true,
+    provider: "google",
+    displayName: "",
+    issuer: "",
+    clientId: "client-id",
+    clientSecret: "client-secret",
+    autoJoin: false,
+    allowedEmailDomains: "",
+  });
+  assert.equal(noAutoJoin.enabled, true);
+});
+
+test("a disabled Google draft with auto-join and no domains still saves", async () => {
+  const saved = await updateCompanySso(company.id, company.slug, {
+    enabled: false,
+    provider: "google",
+    displayName: "",
+    issuer: "",
+    clientId: "client-id",
+    clientSecret: "client-secret",
+    autoJoin: true,
+    allowedEmailDomains: "",
+  });
+  assert.equal(saved.enabled, false);
+});
+
+test("a custom oidc issuer stays allowed with auto-join and no domain list", async () => {
+  await putOnScale();
+  await configureSso({ autoJoin: true, allowedEmailDomains: "" });
+  assert.deepEqual(await getCompanySsoPublicStatus(company.slug), {
+    enabled: true,
+    buttonLabel: "Acme SSO",
+  });
+});
+
+test("domains are lowercased, trimmed, and deduped on save", async () => {
+  await putOnScale();
+  const saved = await updateCompanySso(company.id, company.slug, {
+    enabled: true,
+    provider: "oidc",
+    displayName: "",
+    issuer: "https://idp.test",
+    clientId: "client-id",
+    clientSecret: "client-secret",
+    autoJoin: true,
+    allowedEmailDomains: " Acme.COM ,, acme.com , other.io ",
+  });
+  assert.equal(saved.allowedEmailDomains, "acme.com,other.io");
+});
+
+test("an invalid domain is refused on save", async () => {
+  await putOnScale();
+  for (const bad of ["acme", "not a domain.com", "acme_corp.com", "@acme.com"]) {
+    await assert.rejects(
+      configureSso({ allowedEmailDomains: bad }),
+      /is not a valid email domain/,
+      `expected "${bad}" to be refused`,
+    );
+  }
 });
 
 // ───────────────────────── resolution rules ─────────────────────────────────
@@ -335,4 +423,92 @@ test("link confirmation with the right password binds the pair and joins the com
   const again = await ssoRoundTrip();
   assert.ok(again.kind === "signed-in");
   assert.equal(again.user.id, existing.id);
+});
+
+// ─────────────── allowed email domains — the sign-in flow ──────────────────
+
+test("an unknown email outside the allowed domains is refused — nothing is provisioned", async () => {
+  await putOnScale();
+  await configureSso({ allowedEmailDomains: "acme.com" });
+  claimEmail = "attacker@gmail.com";
+
+  await assert.rejects(ssoRoundTrip(), /Your email domain is not allowed for this company's SSO\./);
+  assert.equal(await AppDataSource.getRepository(User).count(), 1); // just the founder
+  assert.equal(await AppDataSource.getRepository(Membership).count(), 0);
+});
+
+test("an unknown email on an allowed domain is provisioned and joined", async () => {
+  await putOnScale();
+  await configureSso({ allowedEmailDomains: "example.com,other.io" });
+
+  const result = await ssoRoundTrip();
+  assert.ok(result.kind === "signed-in");
+  assert.equal(result.user.email, "member@example.com");
+  assert.ok(await membershipOf(result.user.id));
+});
+
+test("a pair-matched non-member outside the allowed domains is refused the auto-join", async () => {
+  await putOnScale();
+  await configureSso({ allowedEmailDomains: "acme.com" });
+  claimEmail = "outsider@gmail.com";
+  const paired = await insert(User, {
+    email: "outsider@gmail.com",
+    name: "Paired",
+    passwordHash: "x",
+    sessionVersion: 0,
+    ssoIssuer: "https://idp.test",
+    ssoSubject: "stable-subject",
+    emailVerifiedAt: new Date(),
+  });
+
+  await assert.rejects(ssoRoundTrip(), /Your email domain is not allowed for this company's SSO\./);
+  assert.equal(await membershipOf(paired.id), null);
+});
+
+test("a pair-matched EXISTING member outside the allowed domains still signs in", async () => {
+  await putOnScale();
+  await configureSso({ allowedEmailDomains: "acme.com" });
+  claimEmail = "grandfathered@gmail.com";
+  const paired = await insert(User, {
+    email: "grandfathered@gmail.com",
+    name: "Paired",
+    passwordHash: "x",
+    sessionVersion: 0,
+    ssoIssuer: "https://idp.test",
+    ssoSubject: "stable-subject",
+    emailVerifiedAt: new Date(),
+  });
+  await insert(Membership, { companyId: company.id, userId: paired.id, role: "member" });
+
+  const result = await ssoRoundTrip();
+  assert.ok(result.kind === "signed-in");
+  assert.equal(result.user.id, paired.id);
+});
+
+test("an email-only match outside the allowed domains is refused the link-confirmation step", async () => {
+  await putOnScale();
+  await configureSso({ allowedEmailDomains: "acme.com" });
+  claimEmail = "existing@gmail.com";
+  const existing = await insert(User, {
+    email: "existing@gmail.com",
+    name: "Existing",
+    passwordHash: await bcrypt.hash("correct-pw", 4),
+    sessionVersion: 0,
+    emailVerifiedAt: new Date(),
+  });
+
+  await assert.rejects(ssoRoundTrip(), /Your email domain is not allowed for this company's SSO\./);
+  const reloaded = await AppDataSource.getRepository(User).findOneByOrFail({ id: existing.id });
+  assert.equal(reloaded.ssoIssuer, null);
+  assert.equal(reloaded.ssoSubject, null);
+});
+
+test("the domain check matches the part after the LAST @, case-insensitively", async () => {
+  await putOnScale();
+  await configureSso({ allowedEmailDomains: "example.com" });
+  // Lowercasing happens in the claims parser; a tricky local part with an @
+  // must not fool the check into reading the wrong domain.
+  claimEmail = "spoof@example.com@gmail.com";
+
+  await assert.rejects(ssoRoundTrip(), /Your email domain is not allowed for this company's SSO\./);
 });

@@ -15,6 +15,8 @@ import {
   getStripeSecrets,
 } from "../services/billing/billingSettings.js";
 import {
+  ACTIVE_SUBSCRIPTION_STATUSES,
+  applySubscriptionState,
   billingSummary,
   countCompanyAiEmployees,
   getOrCreateBillingRow,
@@ -26,6 +28,7 @@ import {
   createCheckoutSession,
   createCustomer,
   createPortalSession,
+  updateSubscriptionPlan,
 } from "../services/billing/stripe.js";
 import { getCompanyEntitlements } from "../services/entitlements.js";
 import { getPublicUrl, isPublicUrlConfigured } from "../services/publicUrl.js";
@@ -79,6 +82,18 @@ billingRouter.post(
         error: "Set the public URL at Admin → General before starting a checkout.",
       });
     }
+    // Best-effort reconcile before the guards below: a subscription whose
+    // webhook has not landed yet (a duplicate click right after checkout)
+    // must be visible here, so the request hits the already-on-plan 400 or
+    // the in-place switch — never a second concurrently-billing subscription.
+    try {
+      await syncFromStripe(cid);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[billing] pre-checkout sync failed for company ${cid}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     const entitlements = await getCompanyEntitlements(cid);
     if (entitlements.plan === plan) {
       return res.status(400).json({ error: `This company is already on the ${plan} plan.` });
@@ -88,6 +103,36 @@ billingRouter.post(
 
     try {
       const row = await getOrCreateBillingRow(cid);
+      const base = `${getPublicUrl()}/c/${company.slug}/settings/billing`;
+      const quantity = Math.max(1, await countCompanyAiEmployees(cid));
+      if (
+        row.stripeSubscriptionId &&
+        row.stripeSubscriptionItemId &&
+        row.status &&
+        ACTIVE_SUBSCRIPTION_STATUSES.includes(row.status)
+      ) {
+        // The company already pays for a live subscription. Checkout would
+        // create a second one billing concurrently, so switch the existing
+        // subscription to the requested price in place (prorated) and land
+        // the client on the same success URL the Checkout flow uses.
+        const sub = await updateSubscriptionPlan(secretKey, {
+          subscriptionId: row.stripeSubscriptionId,
+          itemId: row.stripeSubscriptionItemId,
+          priceId,
+          quantity,
+          prorationBehavior: "create_prorations",
+        });
+        await applySubscriptionState(cid, sub, settings);
+        await recordAudit({
+          companyId: cid,
+          actorUserId: req.userId ?? null,
+          action: "billing.plan_switched",
+          targetType: "billing",
+          targetId: cid,
+          metadata: { plan, quantity },
+        });
+        return res.json({ url: `${base}?checkout=success` });
+      }
       let customerId = row.stripeCustomerId;
       if (!customerId) {
         customerId = await createCustomer(secretKey, {
@@ -97,8 +142,6 @@ billingRouter.post(
         });
         await setStripeCustomerId(cid, customerId);
       }
-      const base = `${getPublicUrl()}/c/${company.slug}/settings/billing`;
-      const quantity = Math.max(1, await countCompanyAiEmployees(cid));
       const session = await createCheckoutSession(secretKey, {
         customerId,
         priceId,

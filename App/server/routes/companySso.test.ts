@@ -118,6 +118,7 @@ const draft = {
   clientId: "client-id",
   clientSecret: "client-secret",
   autoJoin: true,
+  allowedEmailDomains: "",
 };
 
 describe("GET /sso", () => {
@@ -129,6 +130,7 @@ describe("GET /sso", () => {
     assert.equal(got.body.hasClientSecret, false);
     assert.equal(got.body.configured, false);
     assert.equal(got.body.autoJoin, true);
+    assert.equal(got.body.allowedEmailDomains, "");
     assert.match(String(got.body.callbackUrl), /\/api\/auth\/sso\/company\/callback$/);
     assert.match(String(got.body.loginUrl), /\/login\/sso\/acme$/);
   });
@@ -169,20 +171,51 @@ describe("PUT /sso", () => {
 
   test("enables on the Scale plan, and a blank secret keeps the stored one", async () => {
     await putOnScale();
-    const enabled = await call("PUT", "/sso", { ...draft, enabled: true });
+    const enabled = await call("PUT", "/sso", {
+      ...draft,
+      enabled: true,
+      allowedEmailDomains: "acme.com",
+    });
     assert.equal(enabled.status, 200);
     assert.equal(enabled.body.enabled, true);
     assert.equal(enabled.body.hasClientSecret, true);
+    assert.equal(enabled.body.allowedEmailDomains, "acme.com");
 
     const kept = await call("PUT", "/sso", {
       ...draft,
       enabled: true,
       displayName: "Acme SSO",
       clientSecret: "",
+      allowedEmailDomains: "acme.com",
     });
     assert.equal(kept.status, 200);
     assert.equal(kept.body.displayName, "Acme SSO");
     assert.equal(kept.body.hasClientSecret, true, "blank secret keeps the stored one");
+  });
+
+  test("refuses enabling the Google preset with auto-join and no allowed domains", async () => {
+    await putOnScale();
+    const got = await call("PUT", "/sso", { ...draft, enabled: true });
+    assert.equal(got.status, 400);
+    assert.equal(
+      got.body.error,
+      "Google SSO signs in any Google account. List the email domains that belong to your company before enabling auto-join.",
+    );
+  });
+
+  test("normalizes the domain list and refuses an invalid domain", async () => {
+    await putOnScale();
+    const saved = await call("PUT", "/sso", {
+      ...draft,
+      enabled: true,
+      allowedEmailDomains: " Acme.COM , acme.com, other.io ",
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.allowedEmailDomains, "acme.com,other.io");
+
+    const bad = await call("PUT", "/sso", { ...draft, allowedEmailDomains: "not-a-domain" });
+    assert.equal(bad.status, 400);
+    assert.match(String(bad.body.error), /is not a valid email domain/);
   });
 
   test("refuses enabling while unconfigured even on Scale", async () => {
@@ -202,7 +235,7 @@ describe("PUT /sso", () => {
 describe("DELETE /sso", () => {
   test("clears the stored configuration", async () => {
     await putOnScale();
-    await call("PUT", "/sso", { ...draft, enabled: true });
+    await call("PUT", "/sso", { ...draft, enabled: true, allowedEmailDomains: "acme.com" });
     const got = await call("DELETE", "/sso");
     assert.equal(got.status, 200);
     assert.equal(got.body.enabled, false);

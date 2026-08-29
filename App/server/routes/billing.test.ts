@@ -1,20 +1,24 @@
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { after, before, beforeEach, describe, test } from "node:test";
+import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 
 import express from "express";
 
+import { AppDataSource } from "../db/datasource.js";
 import { AppSetting } from "../db/entities/AppSetting.js";
 import { Company } from "../db/entities/Company.js";
+import { CompanyBilling } from "../db/entities/CompanyBilling.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { User } from "../db/entities/User.js";
+import { encryptSecret } from "../lib/secret.js";
 import { errorHandler } from "../middleware/error.js";
 import {
   BILLING_SETTING_KEY,
   invalidateBillingSettingsCache,
 } from "../services/billing/billingSettings.js";
 import { invalidateLicenseCache } from "../services/license.js";
+import { setPublicUrl } from "../services/publicUrl.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { billingRouter } from "./billing.js";
 
@@ -176,5 +180,176 @@ describe("POST /billing/sync", () => {
     const got = await call<{ plan: string }>("POST", "/billing/sync");
     assert.equal(got.status, 200);
     assert.equal(got.body.plan, "free");
+  });
+});
+
+/**
+ * The checkout route against a captured Stripe `fetch`: a company with a live
+ * subscription switches plans in place (never a second Checkout session), and
+ * the pre-checkout sync adopts a subscription whose webhook has not landed so
+ * a duplicate click is refused instead of double-billing.
+ */
+describe("POST /billing/checkout with Stripe configured", () => {
+  const originalFetch = globalThis.fetch;
+  type StripeCall = { method: string; url: string; body: string };
+  let stripeCalls: StripeCall[] = [];
+  let stripeHandler: (call: StripeCall) => Response = () =>
+    new Response(JSON.stringify({}), { status: 200 });
+
+  function rawSubscription(
+    overrides: Partial<{ id: string; status: string; priceId: string; quantity: number }> = {},
+  ): Record<string, unknown> {
+    return {
+      id: overrides.id ?? "sub_1",
+      object: "subscription",
+      status: overrides.status ?? "active",
+      current_period_end: 1_900_000_000,
+      items: {
+        data: [
+          {
+            id: "si_1",
+            price: { id: overrides.priceId ?? "price_growth" },
+            quantity: overrides.quantity ?? 1,
+          },
+        ],
+      },
+      metadata: { companyId: company.id },
+    };
+  }
+
+  beforeEach(async () => {
+    const repo = AppDataSource.getRepository(AppSetting);
+    const setting = await repo.findOneByOrFail({ key: BILLING_SETTING_KEY });
+    setting.value = JSON.stringify({
+      enabled: true,
+      growthPriceId: "price_growth",
+      scalePriceId: "price_scale",
+      encryptedSecretKey: encryptSecret("sk_test_route"),
+      encryptedWebhookSecret: "",
+    });
+    await repo.save(setting);
+    invalidateBillingSettingsCache();
+    await setPublicUrl("https://app.example.com");
+    stripeCalls = [];
+    stripeHandler = () => new Response(JSON.stringify({}), { status: 200 });
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://api.stripe.com/")) {
+        const stripeCall: StripeCall = {
+          method: init?.method ?? "GET",
+          url,
+          body: init?.body ? String(init.body) : "",
+        };
+        stripeCalls.push(stripeCall);
+        return stripeHandler(stripeCall);
+      }
+      return originalFetch(input as RequestInfo, init);
+    }) as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("a live subscription on the other paid plan is switched in place, never re-checked-out", async () => {
+    await insert(CompanyBilling, {
+      companyId: company.id,
+      plan: "growth",
+      status: "active",
+      stripeCustomerId: "cus_1",
+      stripeSubscriptionId: "sub_1",
+      stripeSubscriptionItemId: "si_1",
+      seatCount: 1,
+    });
+    stripeHandler = (stripeCall) => {
+      if (stripeCall.method === "GET" && stripeCall.url.includes("/v1/subscriptions/sub_1")) {
+        return new Response(JSON.stringify(rawSubscription()), { status: 200 });
+      }
+      if (stripeCall.method === "POST" && stripeCall.url.endsWith("/v1/subscriptions/sub_1")) {
+        return new Response(JSON.stringify(rawSubscription({ priceId: "price_scale" })), {
+          status: 200,
+        });
+      }
+      throw new Error(`unexpected Stripe call: ${stripeCall.method} ${stripeCall.url}`);
+    };
+
+    const got = await call<{ url: string }>("POST", "/billing/checkout", { plan: "scale" });
+
+    assert.equal(got.status, 200);
+    assert.equal(
+      got.body.url,
+      "https://app.example.com/c/acme/settings/billing?checkout=success",
+    );
+    const switchCall = stripeCalls.find((c) => c.method === "POST");
+    assert.ok(switchCall, "the existing subscription was updated");
+    const params = new URLSearchParams(switchCall.body);
+    assert.equal(params.get("items[0][id]"), "si_1");
+    assert.equal(params.get("items[0][price]"), "price_scale");
+    assert.equal(params.get("proration_behavior"), "create_prorations");
+    assert.ok(
+      !stripeCalls.some((c) => c.url.includes("/v1/checkout/sessions")),
+      "no second subscription is minted via Checkout",
+    );
+    const row = await AppDataSource.getRepository(CompanyBilling).findOneByOrFail({
+      companyId: company.id,
+    });
+    assert.equal(row.plan, "scale");
+  });
+
+  test("a duplicate click after checkout adopts the fresh subscription and is refused", async () => {
+    // The webhook has not landed: the row knows the customer but no
+    // subscription, and the local plan still reads free.
+    await insert(CompanyBilling, {
+      companyId: company.id,
+      plan: "free",
+      stripeCustomerId: "cus_1",
+    });
+    stripeHandler = (stripeCall) => {
+      if (stripeCall.method === "GET" && stripeCall.url.includes("customer=cus_1")) {
+        return new Response(JSON.stringify({ data: [rawSubscription()] }), { status: 200 });
+      }
+      throw new Error(`unexpected Stripe call: ${stripeCall.method} ${stripeCall.url}`);
+    };
+
+    const got = await call<{ error: string }>("POST", "/billing/checkout", { plan: "growth" });
+
+    assert.equal(got.status, 400);
+    assert.match(got.body.error, /already on the growth plan/);
+    assert.ok(!stripeCalls.some((c) => c.url.includes("/v1/checkout/sessions")));
+    const row = await AppDataSource.getRepository(CompanyBilling).findOneByOrFail({
+      companyId: company.id,
+    });
+    assert.equal(row.stripeSubscriptionId, "sub_1");
+    assert.equal(row.plan, "growth");
+  });
+
+  test("a first checkout still creates customer and session; a failed pre-sync is best-effort", async () => {
+    await insert(CompanyBilling, {
+      companyId: company.id,
+      plan: "free",
+      stripeCustomerId: "cus_1",
+    });
+    stripeHandler = (stripeCall) => {
+      if (stripeCall.method === "GET" && stripeCall.url.includes("customer=cus_1")) {
+        // The pre-checkout sync fails — it must not block the checkout.
+        return new Response(JSON.stringify({ error: { message: "boom" } }), { status: 500 });
+      }
+      if (stripeCall.url.includes("/v1/checkout/sessions")) {
+        return new Response(JSON.stringify({ url: "https://checkout.stripe.com/pay/cs_1" }), {
+          status: 200,
+        });
+      }
+      throw new Error(`unexpected Stripe call: ${stripeCall.method} ${stripeCall.url}`);
+    };
+
+    const got = await call<{ url: string }>("POST", "/billing/checkout", { plan: "growth" });
+
+    assert.equal(got.status, 200);
+    assert.equal(got.body.url, "https://checkout.stripe.com/pay/cs_1");
+    const sessionCall = stripeCalls.find((c) => c.url.includes("/v1/checkout/sessions"));
+    assert.ok(sessionCall);
+    const params = new URLSearchParams(sessionCall.body);
+    assert.equal(params.get("customer"), "cus_1");
+    assert.equal(params.get("line_items[0][price]"), "price_growth");
   });
 });

@@ -42,6 +42,10 @@ const LINK_STATE_TTL_MS = 10 * 60 * 1000;
 
 const NOT_AVAILABLE_MESSAGE = "SSO sign-in is not available for this workspace.";
 const NOT_A_MEMBER_MESSAGE = "You are not a member of this company yet";
+const DOMAIN_NOT_ALLOWED_MESSAGE = "Your email domain is not allowed for this company's SSO.";
+
+/** A bare domain like "acme.com" — lowercase, with a real TLD. */
+const EMAIL_DOMAIN_PATTERN = /^[a-z0-9.-]+\.[a-z]{2,}$/;
 
 /** The redirect URI every company registers with its identity provider —
  *  shared across companies; the state token carries the company id. */
@@ -63,6 +67,8 @@ export type CompanySsoDescriptor = {
   clientId: string;
   hasClientSecret: boolean;
   autoJoin: boolean;
+  /** Comma-separated lowercase domains; empty means no restriction. */
+  allowedEmailDomains: string;
   /** True when issuer + client id + client secret are all present. */
   configured: boolean;
   callbackUrl: string;
@@ -78,6 +84,7 @@ export type CompanySsoInput = {
   clientId: string;
   clientSecret: string;
   autoJoin: boolean;
+  allowedEmailDomains: string;
 };
 
 function normalizeProvider(value: string): SsoProvider {
@@ -100,6 +107,35 @@ function secretScope(companyId: string): string {
   return `company:${companyId}`;
 }
 
+/**
+ * Normalize the settings form's domain list: lowercased, trimmed, deduped,
+ * each a bare domain. Throws (as a form 400) on anything that is not one.
+ */
+function normalizeAllowedEmailDomains(value: string): string {
+  const domains: string[] = [];
+  for (const raw of value.split(",")) {
+    const domain = raw.trim().toLowerCase();
+    if (!domain) continue;
+    if (!EMAIL_DOMAIN_PATTERN.test(domain)) {
+      throw new Error(
+        `"${domain}" is not a valid email domain — enter bare domains like acme.com, separated by commas.`,
+      );
+    }
+    if (!domains.includes(domain)) domains.push(domain);
+  }
+  return domains.join(",");
+}
+
+function parseAllowedEmailDomains(stored: string): string[] {
+  return stored.split(",").filter(Boolean);
+}
+
+function emailDomainAllowed(allowedDomains: string[], email: string): boolean {
+  if (allowedDomains.length === 0) return true;
+  const domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase();
+  return allowedDomains.includes(domain);
+}
+
 async function findRow(companyId: string): Promise<CompanySso | null> {
   return AppDataSource.getRepository(CompanySso).findOneBy({ companyId });
 }
@@ -114,6 +150,7 @@ function emptyRow(companyId: string): CompanySso {
     clientId: "",
     encryptedClientSecret: "",
     autoJoin: true,
+    allowedEmailDomains: "",
   });
 }
 
@@ -126,6 +163,7 @@ function describeRow(row: CompanySso, companySlug: string): CompanySsoDescriptor
     clientId: row.clientId,
     hasClientSecret: Boolean(row.encryptedClientSecret),
     autoJoin: row.autoJoin,
+    allowedEmailDomains: row.allowedEmailDomains,
     configured: isConfigured(row),
     callbackUrl: companySsoCallbackUrl(),
     loginUrl: companySsoLoginUrl(companySlug),
@@ -163,6 +201,7 @@ export async function updateCompanySso(
     row.encryptedClientSecret = encryptSecret(input.clientSecret, secretScope(companyId));
   }
   row.autoJoin = input.autoJoin;
+  row.allowedEmailDomains = normalizeAllowedEmailDomains(input.allowedEmailDomains);
   if (row.provider === "oidc" && row.issuer && !/^https:\/\//.test(row.issuer)) {
     throw new Error("Issuer URL must start with https://");
   }
@@ -171,6 +210,15 @@ export async function updateCompanySso(
       row.provider === "oidc" && !row.issuer
         ? "Enter the issuer URL, client ID, and client secret before enabling SSO."
         : "Enter the client ID and client secret before enabling SSO.",
+    );
+  }
+  // The Google preset's issuer is a public IdP that vouches for every Google
+  // account on Earth — auto-join without a domain list would admit anyone. A
+  // custom "oidc" issuer stays allowed without one: the company controls that
+  // IdP and decides who it vouches for.
+  if (row.enabled && row.provider === "google" && row.autoJoin && !row.allowedEmailDomains) {
+    throw new Error(
+      "Google SSO signs in any Google account. List the email domains that belong to your company before enabling auto-join.",
     );
   }
   await repo.save(row);
@@ -192,6 +240,8 @@ type ResolvedCompanySso = {
   company: Company;
   client: OidcClientConfig;
   autoJoin: boolean;
+  /** Parsed domain allowlist; empty means no restriction. */
+  allowedEmailDomains: string[];
   buttonLabel: string;
 };
 
@@ -224,6 +274,7 @@ async function resolveForCompany(company: Company | null): Promise<ResolvedCompa
       callbackUrl: companySsoCallbackUrl(),
     },
     autoJoin: row.autoJoin,
+    allowedEmailDomains: parseAllowedEmailDomains(row.allowedEmailDomains),
     buttonLabel: row.displayName.trim() || defaultButtonLabel(provider),
   };
 }
@@ -306,6 +357,11 @@ async function createMembership(companyId: string, userId: string): Promise<void
  *  3. An existing account matches by email only (no pair, or a different
  *     pair) → never link silently; mint a single-use link-confirmation
  *     token the login page redeems with the account's password.
+ *
+ * A non-empty `allowedEmailDomains` gates every path above that would create
+ * something new — a provisioned User, a Membership, a link-confirmation —
+ * against the IdP-asserted email's domain. A pair-matched existing member
+ * still signs in: they were already admitted.
  */
 export async function finishCompanySsoLogin(args: {
   code: string;
@@ -346,6 +402,9 @@ export async function finishCompanySsoLogin(args: {
     }
     if (!(await findMembership(companyId, paired.id))) {
       if (!resolved.autoJoin) throw new SsoLoginError(NOT_A_MEMBER_MESSAGE);
+      if (!emailDomainAllowed(resolved.allowedEmailDomains, claims.email)) {
+        throw new SsoLoginError(DOMAIN_NOT_ALLOWED_MESSAGE);
+      }
       await createMembership(companyId, paired.id);
     }
     await recordAudit({
@@ -364,6 +423,9 @@ export async function finishCompanySsoLogin(args: {
   //    company allows auto-join.
   if (!byEmail) {
     if (!resolved.autoJoin) throw new SsoLoginError(NOT_A_MEMBER_MESSAGE);
+    if (!emailDomainAllowed(resolved.allowedEmailDomains, claims.email)) {
+      throw new SsoLoginError(DOMAIN_NOT_ALLOWED_MESSAGE);
+    }
     const user = await provisionSsoUser({ issuer: resolved.client.issuer, claims });
     await createMembership(companyId, user.id);
     await recordAudit({
@@ -377,7 +439,11 @@ export async function finishCompanySsoLogin(args: {
   }
 
   // 3. Email-only match (including an account bound to a DIFFERENT pair).
-  //    Never bind here — the person proves the password first.
+  //    Never bind here — the person proves the password first. Starting the
+  //    link-confirmation is itself gated on the domain allowlist.
+  if (!emailDomainAllowed(resolved.allowedEmailDomains, claims.email)) {
+    throw new SsoLoginError(DOMAIN_NOT_ALLOWED_MESSAGE);
+  }
   const token = await createAuthFlowState(
     COMPANY_SSO_LINK_STATE_KIND,
     {

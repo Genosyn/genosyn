@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { describe, test } from "node:test";
+import { afterEach, describe, test } from "node:test";
 
-import { parseSubscription, verifyStripeSignature } from "./stripe.js";
+import {
+  StripeApiError,
+  cancelSubscription,
+  listSubscriptions,
+  parseSubscription,
+  updateSubscriptionPlan,
+  verifyStripeSignature,
+} from "./stripe.js";
 
 /** The pure webhook-signature verifier, exactly as Stripe computes it. */
 
@@ -85,5 +92,90 @@ describe("parseSubscription", () => {
     assert.deepEqual(sub.items, []);
     assert.deepEqual(sub.metadata, {});
     assert.equal(sub.currentPeriodEnd, null);
+  });
+});
+
+/** The subscription-mutating client calls, against a captured `fetch`. */
+describe("subscription client calls", () => {
+  const originalFetch = globalThis.fetch;
+  type Captured = { method: string; url: string; body: string };
+  const calls: Captured[] = [];
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    calls.length = 0;
+  });
+
+  function mockStripeFetch(status: number, body: unknown): void {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        method: init?.method ?? "GET",
+        url: String(input),
+        body: init?.body ? String(init.body) : "",
+      });
+      return new Response(JSON.stringify(body), { status });
+    }) as typeof fetch;
+  }
+
+  const rawScaleSub = {
+    id: "sub_1",
+    status: "active",
+    current_period_end: 1_900_000_000,
+    items: { data: [{ id: "si_1", price: { id: "price_scale" }, quantity: 3 }] },
+    metadata: { companyId: "co_1" },
+  };
+
+  test("updateSubscriptionPlan posts the new price, quantity and proration, returning the subscription", async () => {
+    mockStripeFetch(200, rawScaleSub);
+    const sub = await updateSubscriptionPlan("sk_test", {
+      subscriptionId: "sub_1",
+      itemId: "si_1",
+      priceId: "price_scale",
+      quantity: 3,
+      prorationBehavior: "create_prorations",
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "POST");
+    assert.equal(calls[0].url, "https://api.stripe.com/v1/subscriptions/sub_1");
+    const params = new URLSearchParams(calls[0].body);
+    assert.equal(params.get("items[0][id]"), "si_1");
+    assert.equal(params.get("items[0][price]"), "price_scale");
+    assert.equal(params.get("items[0][quantity]"), "3");
+    assert.equal(params.get("proration_behavior"), "create_prorations");
+    assert.equal(sub.id, "sub_1");
+    assert.deepEqual(sub.items, [{ id: "si_1", priceId: "price_scale", quantity: 3 }]);
+  });
+
+  test("cancelSubscription issues a DELETE for the subscription", async () => {
+    mockStripeFetch(200, { id: "sub_1", status: "canceled" });
+    await cancelSubscription("sk_test", "sub_1");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "DELETE");
+    assert.equal(calls[0].url, "https://api.stripe.com/v1/subscriptions/sub_1");
+  });
+
+  test("listSubscriptions lists every status for the customer and parses the page", async () => {
+    mockStripeFetch(200, { data: [rawScaleSub, { id: "sub_0", status: "canceled" }] });
+    const subs = await listSubscriptions("sk_test", "cus_9");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "GET");
+    assert.equal(
+      calls[0].url,
+      "https://api.stripe.com/v1/subscriptions?customer=cus_9&status=all&limit=10",
+    );
+    assert.equal(subs.length, 2);
+    assert.equal(subs[0].id, "sub_1");
+    assert.equal(subs[1].status, "canceled");
+  });
+
+  test("a non-2xx response surfaces as a StripeApiError with Stripe's message", async () => {
+    mockStripeFetch(404, { error: { message: "No such subscription" } });
+    await assert.rejects(
+      cancelSubscription("sk_test", "sub_gone"),
+      (err: unknown) =>
+        err instanceof StripeApiError &&
+        err.status === 404 &&
+        err.message === "No such subscription",
+    );
   });
 });

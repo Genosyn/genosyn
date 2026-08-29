@@ -80,6 +80,12 @@ persistence:
 # there (and the cluster must actually honor the fields).
 sandbox:
   enabled: false
+  # Rendered as pod-spec `hostUsers` when sandbox.enabled. Newer Kubernetes
+  # (1.31+, ProcMountType beta) only honors procMount: Unmasked inside a
+  # user-namespaced pod — hostUsers: false, which needs the cluster's
+  # UserNamespacesSupport feature gate. Clusters without the gate can set
+  # this to null to omit the field entirely.
+  hostUsers: false
 
 config:
   db:
@@ -127,8 +133,12 @@ postgres:
   database: genosyn
   username: genosyn
   # A secret holding the password under `key`. Left empty, the chart generates
-  # a random password once and preserves it across upgrades. An explicit
-  # password must be URL-safe — it is spliced into the connection URL.
+  # a random password once and preserves it across upgrades — and across
+  # uninstall/reinstall: the generated secret carries
+  # `helm.sh/resource-policy: keep` so it outlives `helm uninstall` alongside
+  # the pgdata PVC, which Postgres only initialized with that password.
+  # An explicit password must be URL-safe — it is spliced into the
+  # connection URL.
   passwordSecret:
     name: ""
     key: ""

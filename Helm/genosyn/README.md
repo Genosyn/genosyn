@@ -84,9 +84,12 @@ securityContext:
 ```
 
 `procMount: Unmasked` needs the cluster's `ProcMountType` feature gate and,
-depending on Kubernetes version, user namespaces (`hostUsers: false`) or a
-privileged container. Pod Security admission rejects both fields below the
-`privileged` level. Left disabled (the default), Genosyn boots with command
+on newer Kubernetes (1.31+), a user-namespaced pod: the chart therefore also
+renders pod-spec `hostUsers: false` (from `sandbox.hostUsers`, default
+`false`), which needs the `UserNamespacesSupport` feature gate — set
+`sandbox.hostUsers` to `null` on clusters without that gate to omit the
+field. Pod Security admission rejects these fields below the `privileged`
+level. Left disabled (the default), Genosyn boots with command
 execution disabled and logs why — chat, Routines, Integrations, and browser
 work all still function; builds, test suites, and per-employee checkouts do
 not. Multi-tenant mode is the exception: it refuses to boot without a working
@@ -130,7 +133,10 @@ helm upgrade genosyn oci://ghcr.io/genosyn/charts/genosyn -n genosyn --reuse-val
 - `strategy: Recreate` means a short outage per upgrade on single-replica
   installs; that is the cost of an RWO volume, not a bug.
 - The bundled Postgres password is generated once and preserved across
-  upgrades (Helm `lookup`); it never rotates on its own.
+  upgrades (Helm `lookup`); it never rotates on its own. The generated secret
+  is annotated `helm.sh/resource-policy: keep`, so it also survives
+  `helm uninstall` alongside the `pgdata` volume it matches.
+- Upgrading from a pre-release install of this same unreleased chart needs a delete+install: the workload selectors gained `app.kubernetes.io/component` and selector fields are immutable.
 
 ## Backups
 

@@ -55,12 +55,21 @@ export function FeatureGateCard({
           </p>
         </div>
         {cloud ? (
-          <Link
-            to={`/c/${company.slug}/settings/billing`}
-            className={buttonClassName({ size: "sm" })}
-          >
-            View plans
-          </Link>
+          company.role === "member" ? (
+            // The Billing page is admin-gated server-side; a plain member
+            // following the link would land on a 403, so point them at a
+            // human instead.
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              Ask a company admin to upgrade the plan.
+            </p>
+          ) : (
+            <Link
+              to={`/c/${company.slug}/settings/billing`}
+              className={buttonClassName({ size: "sm" })}
+            >
+              View plans
+            </Link>
+          )
         ) : (
           <>
             <a
@@ -100,12 +109,18 @@ export function PlanLimitBanner({
         <Lock size={14} className="shrink-0 text-slate-400 dark:text-slate-500" />
         <span>{message}</span>
       </div>
-      <Link
-        to={`/c/${company.slug}/settings/billing`}
-        className="shrink-0 text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-      >
-        View plans
-      </Link>
+      {company.role === "member" ? (
+        <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
+          Ask a company admin to upgrade.
+        </span>
+      ) : (
+        <Link
+          to={`/c/${company.slug}/settings/billing`}
+          className="shrink-0 text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          View plans
+        </Link>
+      )}
     </div>
   );
 }

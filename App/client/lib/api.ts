@@ -2971,6 +2971,9 @@ export type CompanySsoSettings = {
   /** A successful IdP sign-in may join this company (and may create a brand
    *  new account for an unknown email). */
   autoJoin: boolean;
+  /** Comma-separated lowercase email domains allowed to join or be
+   *  provisioned through SSO; empty means no restriction. */
+  allowedEmailDomains: string;
   configured: boolean;
   /** The redirect URI to register with the identity provider. */
   callbackUrl: string;

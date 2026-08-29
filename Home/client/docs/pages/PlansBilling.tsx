@@ -106,6 +106,13 @@ export function PlansBilling() {
         adjust the billed quantity automatically, and Stripe prorates mid-cycle changes. The full
         comparison lives on <ExtLink href="https://genosyn.com/pricing">genosyn.com/pricing</ExtLink>.
       </P>
+      <P>
+        Scale&apos;s Single sign-on is configured per company at{" "}
+        <Strong>Settings → Single sign-on</Strong>. With the Google preset, listing your{" "}
+        <Strong>Allowed email domains</Strong> is required before auto-join can be enabled — any
+        Google account can authenticate against a Google OAuth client, and the domain list is what
+        keeps sign-in to your own company.
+      </P>
 
       <H2 id="upgrading">Upgrading your company</H2>
       <P>
