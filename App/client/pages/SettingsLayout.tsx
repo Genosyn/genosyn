@@ -4,6 +4,7 @@ import {
   Activity,
   BarChart3,
   Building2,
+  CreditCard,
   KeyRound,
   Laptop,
   Mail,
@@ -46,6 +47,8 @@ const SETTINGS_TAB_LABEL: Record<string, string> = {
   secrets: "Environment secrets",
   "api-keys": "API keys",
   usage: "Usage",
+  billing: "Billing",
+  sso: "Single sign-on",
   audit: "Audit log",
   "system-health": "System Health",
 };
@@ -88,6 +91,16 @@ export default function SettingsLayout({
         />
         <SidebarLink to={`${base}/api-keys`} icon={<TerminalSquare size={14} />} label="API keys" />
         <SidebarLink to={`${base}/usage`} icon={<BarChart3 size={14} />} label="Usage" />
+        {/* Plans exist only where the operator turned instance billing on
+          (Genosyn Cloud) — a self-hosted install has no Billing page. */}
+        {me.billingEnabled && (
+          <SidebarLink to={`${base}/billing`} icon={<CreditCard size={14} />} label="Billing" />
+        )}
+        {/* Per-company SSO exists only on Genosyn Cloud (M56 Phase B) — a
+          self-hosted install configures SSO instance-wide at Admin → SSO. */}
+        {me.billingEnabled && (
+          <SidebarLink to={`${base}/sso`} icon={<KeyRound size={14} />} label="Single sign-on" />
+        )}
         <SidebarLink to={`${base}/audit`} icon={<ScrollText size={14} />} label="Audit log" />
         <SidebarLink
           to={`${base}/system-health`}

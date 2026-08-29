@@ -1,10 +1,12 @@
 import React from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { KeyRound, ShieldCheck } from "lucide-react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Building2, KeyRound, ShieldCheck } from "lucide-react";
 import { startAuthentication } from "@simplewebauthn/browser";
 import type { PublicKeyCredentialRequestOptionsJSON } from "@simplewebauthn/browser";
 import {
   api,
+  type CompanySsoLinkResponse,
+  type CompanySsoPublicStatus,
   type LoginResponse,
   type SsoPublicStatus,
   type TwoFactorLoginMethods,
@@ -25,15 +27,21 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
   const [twoFactor, setTwoFactor] = React.useState<TwoFactorLoginMethods | null>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  // Present on the /login/sso/:companySlug route — the company-SSO entry page.
+  const { companySlug } = useParams<{ companySlug: string }>();
   // A failed SSO round-trip lands back here as /login?ssoError=… — surface it
   // in the same slot a bad password would use.
   const ssoError = searchParams.get("ssoError");
+  // A company IdP asserted an email that already belongs to a Genosyn
+  // account — the callback redirected here with a single-use confirmation
+  // token, and the person proves that account's password before linking.
+  const ssoLinkToken = searchParams.get("ssoLink");
 
   React.useEffect(() => {
     api
       .get<SsoPublicStatus>("/api/auth/sso/status")
       .then(setSso)
-      .catch(() => setSso({ enabled: false, buttonLabel: null }));
+      .catch(() => setSso({ enabled: false, buttonLabel: null, companySso: false }));
   }, []);
 
   React.useEffect(() => {
@@ -94,6 +102,22 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
     );
   }
 
+  if (ssoLinkToken) {
+    return (
+      <AuthShell title={"Confirm it's you"}>
+        <CompanySsoLinkConfirm token={ssoLinkToken} onTwoFactor={setTwoFactor} />
+      </AuthShell>
+    );
+  }
+
+  if (companySlug) {
+    return (
+      <AuthShell title="Sign in with SSO">
+        <CompanySsoEntry companySlug={companySlug} ssoError={ssoError} />
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell title="Welcome back">
       <form className="flex flex-col gap-4" onSubmit={submit}>
@@ -135,6 +159,7 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
             </a>
           </>
         )}
+        {sso?.companySso && <CompanySsoQuietEntry />}
         <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
           <Link to="/signup" className="hover:text-indigo-600">
             Create account
@@ -145,6 +170,198 @@ export default function Login({ onAuth }: { onAuth: () => Promise<void> }) {
         </div>
       </form>
     </AuthShell>
+  );
+}
+
+function companySsoStartUrl(slug: string): string {
+  return `/api/auth/sso/company/${encodeURIComponent(slug)}/start`;
+}
+
+/**
+ * The quiet "Sign in with your company's SSO" affordance under the password
+ * form on a Genosyn Cloud install. Clicking reveals a workspace-slug input;
+ * Continue is a real navigation — the server 302s off to the company's IdP.
+ */
+function CompanySsoQuietEntry() {
+  const [open, setOpen] = React.useState(false);
+  const [slug, setSlug] = React.useState("");
+
+  const go = () => {
+    const trimmed = slug.trim();
+    if (!trimmed) return;
+    window.location.assign(companySsoStartUrl(trimmed));
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="self-center text-sm text-slate-500 hover:text-indigo-600 dark:text-slate-400"
+        onClick={() => setOpen(true)}
+      >
+        Sign in with your company&apos;s SSO
+      </button>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+      <Input
+        label="Company workspace"
+        placeholder="your-company"
+        autoComplete="off"
+        value={slug}
+        onChange={(e) => setSlug(e.target.value)}
+        onKeyDown={(e) => {
+          // Enter here means "continue with SSO", not "submit the password form".
+          if (e.key === "Enter") {
+            e.preventDefault();
+            go();
+          }
+        }}
+        autoFocus
+      />
+      <p className="text-xs text-slate-400 dark:text-slate-500">
+        The workspace name from your company&apos;s Genosyn URL, e.g.{" "}
+        <code className="rounded bg-slate-100 px-1 py-0.5 font-mono dark:bg-slate-800">
+          /c/your-company
+        </code>
+        .
+      </p>
+      <Button type="button" variant="secondary" onClick={go} disabled={!slug.trim()}>
+        <Building2 size={14} /> Continue
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * The /login/sso/:companySlug entry page — probes the company's public SSO
+ * status and offers "Continue with …" directly, so companies can hand
+ * members one bookmarkable link.
+ */
+function CompanySsoEntry({
+  companySlug,
+  ssoError,
+}: {
+  companySlug: string;
+  ssoError: string | null;
+}) {
+  const [status, setStatus] = React.useState<CompanySsoPublicStatus | null>(null);
+
+  React.useEffect(() => {
+    api
+      .get<CompanySsoPublicStatus>(
+        `/api/auth/sso/company/${encodeURIComponent(companySlug)}/status`,
+      )
+      .then(setStatus)
+      .catch(() => setStatus({ enabled: false, buttonLabel: null }));
+  }, [companySlug]);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <FormError message={ssoError} />
+      {status === null ? (
+        <p className="text-center text-sm text-slate-500 dark:text-slate-400">Checking…</p>
+      ) : status.enabled ? (
+        <>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Sign in to the <span className="font-semibold">{companySlug}</span> workspace through
+            your company&apos;s identity provider.
+          </p>
+          {/* A real navigation, not a fetch — the server 302s the browser
+              off to the identity provider. */}
+          <a
+            href={companySsoStartUrl(companySlug)}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-900 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+          >
+            <KeyRound size={14} />
+            {status.buttonLabel ?? "Continue with SSO"}
+          </a>
+        </>
+      ) : (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          SSO sign-in is not available for this workspace.
+        </p>
+      )}
+      <div className="text-center text-sm">
+        <Link to="/login" className="text-slate-500 hover:text-indigo-600 dark:text-slate-400">
+          Back to password sign-in
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Shown when a company IdP asserted an email that already belongs to a
+ * Genosyn account. The email is deliberately NOT known client-side — the
+ * single-use token carries everything server-side.
+ */
+function CompanySsoLinkConfirm({
+  token,
+  onTwoFactor,
+}: {
+  token: string;
+  onTwoFactor: (methods: TwoFactorLoginMethods) => void;
+}) {
+  const [password, setPassword] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await api.post<CompanySsoLinkResponse>("/api/auth/sso/company/link", {
+        token,
+        password,
+      });
+      if ("requiresTwoFactor" in result && result.requiresTwoFactor) {
+        setPassword("");
+        onTwoFactor(result.methods);
+        return;
+      }
+      // Hard navigation so the whole app boots with the fresh session.
+      window.location.assign("/");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <form className="flex flex-col gap-4" onSubmit={submit}>
+      <div className="flex items-start gap-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60">
+        <ShieldCheck size={18} className="mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          Your company&apos;s SSO matched an existing Genosyn account. Enter that account&apos;s
+          password once to link them.
+        </p>
+      </div>
+      <FormError message={error} />
+      <Input
+        label="Password"
+        type="password"
+        autoComplete="current-password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        required
+        autoFocus
+      />
+      <Button type="submit" disabled={loading}>
+        {loading ? "Linking…" : "Link and sign in"}
+      </Button>
+      <div className="flex items-center justify-between text-sm text-slate-500 dark:text-slate-400">
+        <Link to="/login" className="hover:text-indigo-600">
+          Back to sign in
+        </Link>
+        <Link to="/forgot" className="hover:text-indigo-600">
+          Forgot password
+        </Link>
+      </div>
+    </form>
   );
 }
 

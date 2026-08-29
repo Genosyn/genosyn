@@ -41,6 +41,9 @@ duplicate content from ROADMAP.md here** — link to it.
 ```
 genosyn/
 ├── App/         # Product app: Express + TypeORM + React + Vite + Tailwind
+├── Helm/        # Official Kubernetes Helm chart (Helm/genosyn). Packaged and
+│                # published to oci://ghcr.io/genosyn/charts by
+│                # .github/workflows/chart.yml on every release tag.
 ├── Home/        # Standalone marketing site (React + Vite + Tailwind).
 │                # Deployed to genosyn.com as a Cloudflare Worker by
 │                # .github/workflows/site.yml — see RELEASING.md.
@@ -113,6 +116,9 @@ code, UI copy, commits, and docs.
 | **Goal** (a measurable objective — `Goal`, linked from `Routine.goalId`) | Objective, OKR, KPI, Target (as a noun) |
 | **Lesson** (a graded Run's structured takeaway — `RunLesson`) | Learning (Resources' old name), Insight, Retro |
 | **Revision proposal** (a staged Soul/Skill/Routine edit awaiting a human — `RevisionProposal`) | Self-modification, Patch, Suggestion |
+| **Plan** (a Genosyn Cloud pricing tier — Free / Growth / Scale on `CompanyBilling.plan`) | Tier, Package, Subscription (in product copy) |
+| **Enterprise license** (a signed key unlocking enterprise features on a self-hosted install — `EnterpriseLicense` is the issuer registry) | License key (alone), Serial, Activation code |
+| **Edition** (community / enterprise / cloud — resolved by `services/entitlements.ts`, never a build flag) | Flavor, SKU, Variant |
 | **Contact** (a person in the Revenue section) | Lead, Person, Prospect |
 | **Deal** (one revenue opportunity) | Opportunity, Pipeline item |
 | **Deal Stage** (a step in the sales process) | Pipeline stage — see the warning below |

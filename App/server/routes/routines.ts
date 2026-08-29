@@ -47,6 +47,7 @@ import {
   validateCompanyTagIds,
 } from "../services/tags.js";
 import { resolveFolderForCompany, RoutineFolderError } from "../services/routineFolders.js";
+import { PlanLimitError, assertRoutineCapacity } from "../services/entitlements.js";
 import { emitResourceChange } from "../services/resourceEvents.js";
 
 export const routinesRouter = Router({ mergeParams: true });
@@ -229,6 +230,14 @@ routinesRouter.post("/employees/:eid/routines", validateBody(createSchema), asyn
     return res
       .status(409)
       .json({ error: "A routine with that name already exists for this employee" });
+  }
+  // Plan limit (M56): a Free-plan company on a billing-enabled install caps
+  // its Routine count. 402 so the client can offer the upgrade path.
+  try {
+    await assertRoutineCapacity(co.id);
+  } catch (err) {
+    if (!(err instanceof PlanLimitError)) throw err;
+    return res.status(402).json({ error: err.message });
   }
   try {
     await validateCompanyTagIds(co.id, body.tagIds ?? []);

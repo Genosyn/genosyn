@@ -34,6 +34,8 @@ const STATE_TTL_MS = 10 * 60 * 1000;
 type SsoState = {
   browserBindingHash: string;
   codeVerifier: string;
+  /** Caller-supplied payload (e.g. the company id for per-company SSO). */
+  extra?: Record<string, unknown>;
 };
 
 function sha256Base64Url(value: string): string {
@@ -113,19 +115,37 @@ function httpsUrlField(doc: Record<string, unknown>, key: string): string {
 
 // ─────────────────────────── the handshake ─────────────────────────────────
 
-/** Build the redirect that sends the browser off to the identity provider.
- *  Throws `SsoLoginError` when SSO is disabled or misconfigured. */
-export async function startSsoLogin(): Promise<{
-  authorizeUrl: string;
-  browserBinding: string;
-}> {
-  const sso = await requireSsoRuntime();
-  const endpoints = await discoverOidcEndpoints(sso.issuer);
+/**
+ * The transport-level identity a handshake runs against. The instance flow
+ * fills this from `resolveSsoRuntime()`; per-company SSO (M56 Phase B) fills
+ * it from the company's own `CompanySso` row. The helpers below only ever
+ * read this object — they never touch the instance settings themselves.
+ */
+export type OidcClientConfig = {
+  issuer: string;
+  clientId: string;
+  clientSecret: string;
+  /** The redirect URI registered with the identity provider. */
+  callbackUrl: string;
+};
+
+/**
+ * Build the redirect that sends the browser off to the identity provider,
+ * minting a single-use encrypted state token (kind `stateKind`) that binds
+ * the eventual callback to this browser and carries `extraStatePayload`
+ * through the round-trip.
+ */
+export async function startOidcHandshake(args: {
+  client: OidcClientConfig;
+  stateKind: string;
+  extraStatePayload?: Record<string, unknown>;
+}): Promise<{ authorizeUrl: string; browserBinding: string }> {
+  const endpoints = await discoverOidcEndpoints(args.client.issuer);
   const browserBinding = crypto.randomBytes(32).toString("base64url");
   const codeVerifier = crypto.randomBytes(32).toString("base64url");
   const u = new URL(endpoints.authorizationEndpoint);
-  u.searchParams.set("client_id", sso.clientId);
-  u.searchParams.set("redirect_uri", ssoCallbackUrl());
+  u.searchParams.set("client_id", args.client.clientId);
+  u.searchParams.set("redirect_uri", args.client.callbackUrl);
   u.searchParams.set("response_type", "code");
   u.searchParams.set("scope", "openid email profile");
   u.searchParams.set("code_challenge", sha256Base64Url(codeVerifier));
@@ -133,12 +153,74 @@ export async function startSsoLogin(): Promise<{
   u.searchParams.set(
     "state",
     await createAuthFlowState(
-      "sso",
-      { browserBindingHash: sha256Base64Url(browserBinding), codeVerifier } satisfies SsoState,
+      args.stateKind,
+      {
+        browserBindingHash: sha256Base64Url(browserBinding),
+        codeVerifier,
+        ...(args.extraStatePayload ? { extra: args.extraStatePayload } : {}),
+      } satisfies SsoState,
       STATE_TTL_MS,
     ),
   );
   return { authorizeUrl: u.toString(), browserBinding };
+}
+
+/**
+ * Consume the callback's state token and enforce the browser binding. Runs
+ * BEFORE any code exchange so a stolen state can never be redeemed from a
+ * different browser. Returns the PKCE verifier plus whatever extra payload
+ * `startOidcHandshake` stashed.
+ */
+export async function consumeOidcHandshakeState(
+  stateKind: string,
+  args: { state: string; browserBinding: string },
+): Promise<{ codeVerifier: string; extra: Record<string, unknown> }> {
+  const state = await consumeAuthFlowState<SsoState>(stateKind, args.state);
+  if (!state) {
+    throw new SsoLoginError("The sign-in attempt expired or was already used — try again.");
+  }
+  if (
+    !args.browserBinding ||
+    !sameDigest(state.browserBindingHash, sha256Base64Url(args.browserBinding))
+  ) {
+    throw new SsoLoginError("The sign-in attempt did not originate in this browser — try again.");
+  }
+  return { codeVerifier: state.codeVerifier, extra: state.extra ?? {} };
+}
+
+/** Exchange the authorization code and read verified identity claims. */
+export async function completeOidcCodeExchange(args: {
+  client: OidcClientConfig;
+  code: string;
+  codeVerifier: string;
+}): Promise<SsoClaims> {
+  const endpoints = await discoverOidcEndpoints(args.client.issuer);
+  const accessToken = await exchangeCode({
+    client: args.client,
+    endpoints,
+    code: args.code,
+    codeVerifier: args.codeVerifier,
+  });
+  return fetchClaims(endpoints.userinfoEndpoint, accessToken);
+}
+
+function instanceClient(sso: ResolvedSso): OidcClientConfig {
+  return {
+    issuer: sso.issuer,
+    clientId: sso.clientId,
+    clientSecret: sso.clientSecret,
+    callbackUrl: ssoCallbackUrl(),
+  };
+}
+
+/** Build the redirect that sends the browser off to the identity provider.
+ *  Throws `SsoLoginError` when SSO is disabled or misconfigured. */
+export async function startSsoLogin(): Promise<{
+  authorizeUrl: string;
+  browserBinding: string;
+}> {
+  const sso = await requireSsoRuntime();
+  return startOidcHandshake({ client: instanceClient(sso), stateKind: "sso" });
 }
 
 /**
@@ -152,25 +234,16 @@ export async function finishSsoLogin(args: {
   state: string;
   browserBinding: string;
 }): Promise<User> {
-  const state = await consumeAuthFlowState<SsoState>("sso", args.state);
-  if (!state) {
-    throw new SsoLoginError("The sign-in attempt expired or was already used — try again.");
-  }
-  if (
-    !args.browserBinding ||
-    !sameDigest(state.browserBindingHash, sha256Base64Url(args.browserBinding))
-  ) {
-    throw new SsoLoginError("The sign-in attempt did not originate in this browser — try again.");
-  }
-  const sso = await requireSsoRuntime();
-  const endpoints = await discoverOidcEndpoints(sso.issuer);
-  const accessToken = await exchangeCode({
-    sso,
-    endpoints,
-    code: args.code,
-    codeVerifier: state.codeVerifier,
+  const { codeVerifier } = await consumeOidcHandshakeState("sso", {
+    state: args.state,
+    browserBinding: args.browserBinding,
   });
-  const claims = await fetchClaims(endpoints.userinfoEndpoint, accessToken);
+  const sso = await requireSsoRuntime();
+  const claims = await completeOidcCodeExchange({
+    client: instanceClient(sso),
+    code: args.code,
+    codeVerifier,
+  });
   return resolveSsoUser({ sso, claims });
 }
 
@@ -183,7 +256,7 @@ async function requireSsoRuntime(): Promise<ResolvedSso> {
 }
 
 async function exchangeCode(args: {
-  sso: ResolvedSso;
+  client: OidcClientConfig;
   endpoints: OidcEndpoints;
   code: string;
   codeVerifier: string;
@@ -191,9 +264,9 @@ async function exchangeCode(args: {
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code: args.code,
-    redirect_uri: ssoCallbackUrl(),
-    client_id: args.sso.clientId,
-    client_secret: args.sso.clientSecret,
+    redirect_uri: args.client.callbackUrl,
+    client_id: args.client.clientId,
+    client_secret: args.client.clientSecret,
     code_verifier: args.codeVerifier,
   });
   const res = await fetch(args.endpoints.tokenEndpoint, {
@@ -213,7 +286,7 @@ async function exchangeCode(args: {
   return access;
 }
 
-type SsoClaims = {
+export type SsoClaims = {
   subject: string;
   email: string;
   name: string;
@@ -294,6 +367,18 @@ async function resolveSsoUser(args: { sso: ResolvedSso; claims: SsoClaims }): Pr
     );
   }
 
+  return provisionSsoUser({ issuer: sso.issuer, claims });
+}
+
+/**
+ * Create a brand-new account for verified SSO claims, bound to the issuer +
+ * subject pair. The password hash is random and unusable; "forgot password"
+ * mints a real one later if the person ever needs password login. Shared by
+ * the instance auto-provision branch and per-company SSO auto-join.
+ */
+export async function provisionSsoUser(args: { issuer: string; claims: SsoClaims }): Promise<User> {
+  const { issuer, claims } = args;
+  const repo = AppDataSource.getRepository(User);
   const user = repo.create({
     email: claims.email,
     name: claims.name || claims.email.split("@")[0],
@@ -305,7 +390,7 @@ async function resolveSsoUser(args: { sso: ResolvedSso; claims: SsoClaims }): Pr
     emailVerificationTokenHash: null,
     emailVerificationExpiresAt: null,
     sessionVersion: 0,
-    ssoIssuer: sso.issuer,
+    ssoIssuer: issuer,
     ssoSubject: claims.subject,
   });
   await repo.save(user);

@@ -9,19 +9,27 @@ import { Card, CardBody } from "../components/ui/Card";
 import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { EmptyState } from "../components/ui/EmptyState";
+import { FeatureGateCard } from "../components/FeatureGateCard";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 
 /**
  * Append-only audit trail for a company. Server writes events at mutation
  * points via `recordAudit`. Here we just render them, newest-first, with a
  * friendly summary line and an expandable raw-JSON payload for forensics.
+ *
+ * The reading surface is edition/plan-gated (M56): without the `auditLog`
+ * entitlement we show the upgrade card and never fetch — the server keeps
+ * writing events regardless, so history exists the day they upgrade. The
+ * server's 402 remains the backstop.
  */
 export default function AuditLog() {
   const { company } = useOutletContext<SettingsOutletCtx>();
+  const gated = !company.entitlements.features.auditLog;
   const [rows, setRows] = React.useState<AuditEvent[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(async () => {
+    if (gated) return;
     try {
       const list = await api.get<AuditEvent[]>(`/api/companies/${company.id}/audit`);
       setRows(list);
@@ -30,7 +38,7 @@ export default function AuditLog() {
       setLoadError(errorMessage(err, "Could not load the audit log"));
       setRows([]);
     }
-  }, [company.id]);
+  }, [company.id, gated]);
 
   React.useEffect(() => {
     reload();
@@ -39,6 +47,19 @@ export default function AuditLog() {
   // The audit log is written on essentially every human/AI mutation, so it is
   // the one page that reflects the whole company's activity as it happens.
   useLiveRefetch("audit", reload);
+
+  if (gated) {
+    return (
+      <>
+        <TopBar title="Audit log" />
+        <FeatureGateCard
+          feature="auditLog"
+          entitlements={company.entitlements}
+          company={company}
+        />
+      </>
+    );
+  }
 
   return (
     <>

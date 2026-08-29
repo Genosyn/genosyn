@@ -202,6 +202,9 @@ import { TldrQuestion } from "./entities/TldrQuestion.js";
 import { TldrQuestionMessage } from "./entities/TldrQuestionMessage.js";
 import { TldrQuestionAction } from "./entities/TldrQuestionAction.js";
 import { TldrStandingQuestion } from "./entities/TldrStandingQuestion.js";
+import { CompanyBilling } from "./entities/CompanyBilling.js";
+import { CompanySso } from "./entities/CompanySso.js";
+import { EnterpriseLicense } from "./entities/EnterpriseLicense.js";
 
 const entities = [
   User,
@@ -406,6 +409,12 @@ const entities = [
   TldrQuestionMessage,
   TldrQuestionAction,
   TldrStandingQuestion,
+  // Editions, plans & billing (M56) — per-company Cloud plan state, and the
+  // issuer-side registry of signed Enterprise licenses.
+  CompanyBilling,
+  EnterpriseLicense,
+  // Per-company SSO on a Genosyn Cloud install (M56 Phase B).
+  CompanySso,
 ];
 
 // Migrations glob -- matches .ts files under server/db/migrations in dev (via tsx)

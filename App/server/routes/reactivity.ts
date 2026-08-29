@@ -35,6 +35,7 @@ import {
   listInitiatives,
   serializeInitiative,
 } from "../services/initiatives.js";
+import { PlanLimitError } from "../services/entitlements.js";
 
 /**
  * M54's human surface in one router: Triggers on a Routine, an employee's
@@ -58,6 +59,12 @@ const idParams = (key: string) =>
   z.object({ cid: z.string().uuid(), [key]: z.string().uuid() }).strict();
 
 function fail(res: import("express").Response, err: unknown): void {
+  // Accepting an initiative creates a Routine, so it can hit the plan's
+  // Routine cap (M56) — 402 so the client offers the upgrade path.
+  if (err instanceof PlanLimitError) {
+    res.status(402).json({ error: err.message });
+    return;
+  }
   if (
     err instanceof RoutineTriggerError ||
     err instanceof WakeupError ||

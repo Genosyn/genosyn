@@ -3,7 +3,9 @@ import { Outlet, useLocation } from "react-router-dom";
 import {
   Activity,
   Archive,
+  BadgeCheck,
   Building2,
+  CreditCard,
   Database,
   KeyRound,
   Layers,
@@ -45,9 +47,12 @@ const ADMIN_TAB_LABEL: Record<string, string> = {
   integrations: "Integrations",
   signups: "Sign-ups",
   sso: "SSO",
+  billing: "Billing",
+  license: "License",
   backup: "Backups",
   users: "Users",
   companies: "Companies",
+  licenses: "Enterprise Licenses",
 };
 
 export default function AdminLayout({
@@ -114,6 +119,8 @@ export default function AdminLayout({
           label="Sign-ups"
         />
         <SidebarLink to={`${base}/sso`} icon={<KeyRound size={14} />} label="SSO" />
+        <SidebarLink to={`${base}/billing`} icon={<CreditCard size={14} />} label="Billing" />
+        <SidebarLink to={`${base}/license`} icon={<BadgeCheck size={14} />} label="License" />
         <SidebarLink to={`${base}/backup`} icon={<Archive size={14} />} label="Backups" />
 
         <div className="px-2 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -124,6 +131,11 @@ export default function AdminLayout({
           to={`${base}/companies`}
           icon={<Building2 size={14} />}
           label="Companies"
+        />
+        <SidebarLink
+          to={`${base}/licenses`}
+          icon={<KeyRound size={14} />}
+          label="Enterprise Licenses"
         />
       </nav>
     </div>

@@ -15,6 +15,13 @@ function company(slug = "new-company"): Company {
     role: "owner",
     financeAccess: "full",
     requireTwoFactor: false,
+    entitlements: {
+      edition: "community",
+      plan: null,
+      maxAiEmployees: null,
+      maxRoutines: null,
+      features: { sso: false, auditLog: false },
+    },
   };
 }
 

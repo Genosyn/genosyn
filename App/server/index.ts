@@ -27,6 +27,8 @@ import { attachRealtime, bootRealtimeBridge } from "./services/realtime.js";
 import { errorHandler } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
 import { ssoRouter } from "./routes/sso.js";
+import { companySsoAuthRouter } from "./routes/companySsoAuth.js";
+import { companySsoRouter } from "./routes/companySso.js";
 import { twoFactorRouter } from "./routes/twoFactor.js";
 import { companiesRouter } from "./routes/companies.js";
 import { invitationsRouter } from "./routes/invitations.js";
@@ -103,7 +105,10 @@ import { memberBrowsersRouter } from "./routes/memberBrowsers.js";
 import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
 import { tagsRouter } from "./routes/tags.js";
 import { backfillLegacyResourceTags, backfillTagColors } from "./services/tags.js";
+import { billingRouter } from "./routes/billing.js";
+import { billingWebhookRouter } from "./routes/billingWebhook.js";
 import { requireTrustedOrigin, securityHeaders } from "./middleware/httpSecurity.js";
+import { appVersion } from "./lib/version.js";
 import {
   resolveCodingExecutionMode,
   secureSessionCookies,
@@ -210,6 +215,17 @@ async function main() {
     app.set("trust proxy", config.security.trustedProxyHops);
   }
   app.use(securityHeaders);
+  // Liveness/readiness probe — no auth, no session, no body. Mounted first so
+  // an origin or parser misconfiguration can never take the probe down with it.
+  app.get("/api/health", (_req, res) => {
+    res.json({ ok: true, version: appVersion() });
+  });
+  // Stripe webhook (M56). Mounted BEFORE express.json() because signature
+  // verification needs the raw request bytes (the router applies its own
+  // express.raw()), and before requireTrustedOrigin/session middleware because
+  // Stripe's servers send neither an Origin header nor a cookie — the signed
+  // payload is the credential.
+  app.use("/api/billing/stripe/webhook", billingWebhookRouter);
   // Signing URLs contain a bearer credential. Install these protections before
   // body parsing as well, so parser errors cannot emit a cacheable response.
   app.use("/api/sign", publicSigningSecurityHeaders);
@@ -302,7 +318,10 @@ async function main() {
   // SSO sign-in (status probe, IdP redirect, callback). Mounted before the
   // main auth router so its more-specific `/api/auth/sso/*` paths win; the
   // callback authenticates via the single-use state token, then writes the
-  // session cookie itself.
+  // session cookie itself. Per-company SSO (M56 Phase B) sits at the even
+  // more specific `/api/auth/sso/company/*` and is mounted first for the
+  // same reason.
+  app.use("/api/auth/sso/company", companySsoAuthRouter);
   app.use("/api/auth/sso", ssoRouter);
   app.use("/api/auth", twoFactorRouter);
   app.use("/api/auth", authRouter);
@@ -370,6 +389,10 @@ async function main() {
   app.use("/api/companies/:cid", secretsRouter);
   app.use("/api/companies/:cid/vault", vaultRouter);
   app.use("/api/companies/:cid", auditRouter);
+  // Company billing (M56) — plan state, Stripe checkout/portal/sync.
+  app.use("/api/companies/:cid", billingRouter);
+  // Per-company SSO settings (M56 Phase B) — Scale-plan feature.
+  app.use("/api/companies/:cid", companySsoRouter);
   app.use("/api/companies/:cid", usageRouter);
   // Per-user programmatic API keys (M14). Bearer tokens minted here
   // authenticate as the calling user, scoped to this company only.

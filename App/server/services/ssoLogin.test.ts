@@ -4,8 +4,13 @@ import { after, afterEach, before, beforeEach, test } from "node:test";
 
 import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
+import { AppSetting } from "../db/entities/AppSetting.js";
 import { User } from "../db/entities/User.js";
-import { closeTestDb, initTestDb, resetTestDb } from "../test/dbHarness.js";
+import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
+import {
+  BILLING_SETTING_KEY,
+  invalidateBillingSettingsCache,
+} from "./billing/billingSettings.js";
 import { finishSsoLogin, SsoLoginError, startSsoLogin } from "./ssoLogin.js";
 import { updateSsoSettings } from "./ssoSettings.js";
 
@@ -58,6 +63,20 @@ beforeEach(async () => {
     }
     throw new Error(`Unexpected fetch in SSO test: ${url}`);
   };
+  // Instance SSO on a billing-disabled install requires an Enterprise
+  // license (M56). These tests exercise the handshake itself, so run them as
+  // a billing-enabled install, where the operator's SSO stays ungated.
+  await insert(AppSetting, {
+    key: BILLING_SETTING_KEY,
+    value: JSON.stringify({
+      enabled: true,
+      growthPriceId: "price_growth",
+      scalePriceId: "price_scale",
+      encryptedSecretKey: "",
+      encryptedWebhookSecret: "",
+    }),
+  });
+  invalidateBillingSettingsCache();
   await updateSsoSettings({
     enabled: true,
     provider: "oidc",

@@ -22,6 +22,8 @@ declare module "express-serve-static-core" {
       totpSetupId?: string;
       totpSetupExpiresAt?: number;
       ssoBrowserBinding?: string;
+      /** Per-company SSO handshake binding — separate from the instance one. */
+      companySsoBrowserBinding?: string;
     } | null;
   }
 }

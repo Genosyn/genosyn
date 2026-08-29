@@ -9,16 +9,22 @@ import {
   requireCompanyRole,
   onRoutePaths,
 } from "../middleware/auth.js";
+import { requireCompanyFeature } from "../services/entitlements.js";
 
 /**
  * Company audit trail. Read-only — events are written by {@link recordAudit}
  * at the route seam. The list endpoint hydrates actor user info so the UI
  * can render "Alice approved routine X" without extra round-trips.
+ *
+ * READING is gated on the `auditLog` feature (Scale plan / Enterprise
+ * license, M56); `recordAudit` keeps WRITING regardless, so the history
+ * exists the day the company upgrades.
  */
 export const auditRouter = Router({ mergeParams: true });
 auditRouter.use(requireAuth);
 auditRouter.use(requireCompanyMember);
 auditRouter.use(onRoutePaths(["/audit"], requireCompanyRole("admin")));
+auditRouter.use(onRoutePaths(["/audit"], requireCompanyFeature("auditLog")));
 
 auditRouter.get("/audit", async (req, res) => {
   const { cid } = req.params as Record<string, string>;

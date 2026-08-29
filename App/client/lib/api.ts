@@ -163,6 +163,9 @@ export type Me = {
   isMasterAdmin: boolean;
   emailVerified: boolean;
   emailVerificationRequired: boolean;
+  /** True when the operator turned on per-company Plans at Admin → Billing
+   *  (Genosyn Cloud). Gates the Settings → Billing sidebar entry. */
+  billingEnabled: boolean;
 };
 export type TwoFactorLoginMethods = {
   enabled: boolean;
@@ -218,6 +221,9 @@ export type Company = {
    */
   financeAccess: FinanceAccess;
   requireTwoFactor: boolean;
+  /** Resolved edition/plan facts for this company — see "Billing & editions"
+   *  below. Present on every /api/companies row. */
+  entitlements: CompanyEntitlements;
 };
 export type Employee = {
   id: string;
@@ -2936,12 +2942,147 @@ export type SsoSettings = {
   configured: boolean;
   callbackUrl: string;
 };
-export type SsoPublicStatus = { enabled: boolean; buttonLabel: string | null };
+export type SsoPublicStatus = {
+  enabled: boolean;
+  buttonLabel: string | null;
+  /** True iff instance billing is enabled — the login page uses it to offer
+   *  company SSO sign-in (company SSO itself ships in a later phase). */
+  companySso: boolean;
+};
 export type SsoIssuerCheck = {
   ok: boolean;
   authorizationEndpoint?: string;
   tokenEndpoint?: string;
   userinfoEndpoint?: string;
+};
+
+// ───────────────────────── Company SSO ──────────────────────────────────────
+// Per-company single sign-on on a Genosyn Cloud install (M56 Phase B) — a
+// Scale-plan feature configured at Settings → Single sign-on and served by
+// /api/companies/:cid/sso. Members sign in at /login/sso/<companySlug>; the
+// public probe is /api/auth/sso/company/:companySlug/status.
+export type CompanySsoSettings = {
+  enabled: boolean;
+  provider: SsoProvider;
+  displayName: string;
+  issuer: string;
+  clientId: string;
+  hasClientSecret: boolean;
+  /** A successful IdP sign-in may join this company (and may create a brand
+   *  new account for an unknown email). */
+  autoJoin: boolean;
+  configured: boolean;
+  /** The redirect URI to register with the identity provider. */
+  callbackUrl: string;
+  /** The page members bookmark to sign in through this company's IdP. */
+  loginUrl: string;
+};
+export type CompanySsoPublicStatus = {
+  enabled: boolean;
+  buttonLabel: string | null;
+};
+/** POST /api/auth/sso/company/link — confirming an email-matched account with
+ *  its password. Mirrors the password login's 2FA handoff shape. */
+export type CompanySsoLinkResponse =
+  | { ok: true; requiresTwoFactor?: undefined }
+  | { requiresTwoFactor: true; methods: TwoFactorLoginMethods };
+
+// ───────────────────────── Billing & editions ───────────────────────────────
+// Editions, plans & billing (M56). Three deployment shapes, one codebase:
+// self-hosted Community (no license), self-hosted Enterprise (a signed
+// license activated at Admin → License), and Genosyn Cloud (instance billing
+// enabled at Admin → Billing; per-company Plans billed through Stripe).
+
+/** A Genosyn Cloud pricing tier. */
+export type PlanId = "free" | "growth" | "scale";
+
+/** Resolved server-side facts about what a company may use — carried on every
+ *  /api/companies row and on GET /api/companies/:cid. */
+export type CompanyEntitlements = {
+  edition: "cloud" | "community" | "enterprise";
+  /** Null when instance billing is disabled (self-hosted). */
+  plan: PlanId | null;
+  /** Company-wide totals; null = unlimited. */
+  maxAiEmployees: number | null;
+  maxRoutines: number | null;
+  features: { sso: boolean; auditLog: boolean };
+};
+
+/** GET /api/companies/:cid/billing — the Settings → Billing page's whole
+ *  world in one response. Also returned by POST /billing/sync. */
+export type BillingSummary = {
+  /** Instance billing enabled (Genosyn Cloud). */
+  enabled: boolean;
+  plan: PlanId;
+  /** Raw Stripe subscription status; null when none. */
+  status: string | null;
+  /** Billed quantity; null when no subscription. */
+  seatCount: number | null;
+  aiEmployeeCount: number;
+  routineCount: number;
+  /** ISO timestamp; null when no subscription. */
+  currentPeriodEnd: string | null;
+  limits: { maxAiEmployees: number | null; maxRoutines: number | null };
+  features: { sso: boolean; auditLog: boolean };
+  /** unitAmount in cents (1900 / 4900). */
+  prices: {
+    growth: { unitAmount: number; currency: "usd"; configured: boolean };
+    scale: { unitAmount: number; currency: "usd"; configured: boolean };
+  };
+  /** Secret key + both price ids present on the instance. */
+  stripeConfigured: boolean;
+  /** The company has a Stripe customer, so POST /billing/portal will work. */
+  portalAvailable: boolean;
+};
+
+/** GET/PUT /api/admin/billing — instance-wide Stripe wiring. Secrets follow
+ *  the blank-keeps-stored pattern; only their presence is reported. */
+export type AdminBillingSettings = {
+  enabled: boolean;
+  growthPriceId: string;
+  scalePriceId: string;
+  hasSecretKey: boolean;
+  hasWebhookSecret: boolean;
+};
+
+/** GET/PUT /api/admin/license — this install's enterprise license.
+ *  "expired" on a paid license means features remain enabled (soft expiry);
+ *  an expired evaluation license reports "expired" with features off. */
+export type AdminLicenseStatus = {
+  status: "none" | "valid" | "expired" | "invalid";
+  companyName: string | null;
+  email: string | null;
+  expiresAt: string | null;
+  seats: number | null;
+  evaluation: boolean;
+  /** Instance-wide AI Employee count, for the seat meter. */
+  aiEmployeeCount: number;
+};
+
+/** One row of the issuer's registry at GET /api/admin/licenses. Only a masked
+ *  keyPreview is stored — the full key appears once, in the POST response. */
+export type AdminEnterpriseLicense = {
+  id: string;
+  companyName: string;
+  email: string | null;
+  expiresAt: string;
+  seats: number | null;
+  evaluation: boolean;
+  keyPreview: string;
+  createdAt: string;
+};
+
+/** GET /api/admin/licenses — the issuer surface (Admin → Enterprise
+ *  Licenses). Issuing needs the Ed25519 signing private key configured. */
+export type AdminEnterpriseLicenses = {
+  signingConfigured: boolean;
+  licenses: AdminEnterpriseLicense[];
+};
+
+/** POST /api/admin/licenses — `key` is shown once and never stored. */
+export type AdminEnterpriseLicenseIssued = {
+  license: AdminEnterpriseLicense;
+  key: string;
 };
 
 // ───────────────────── Admin directory (Users + Companies) ───────────────────

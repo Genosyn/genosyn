@@ -21,7 +21,9 @@ don't re-litigate them.
 2. **Recurring AI work = "Routines".** "Tasks" is reserved for the human-style
    project/todo manager (now shipped — see `Project` + `Todo`).
 3. **Home site is fully standalone.** Own package.json, own UI, no shared
-   components. Open source, no pricing page.
+   components. Open source. (Amended by M56: the site now carries a
+   `/pricing` page for Genosyn Cloud plans and the self-hosted
+   Community/Enterprise split — the product itself stays open source.)
 4. **AI Models are employee-owned; an employee can hold several with one
    active.** Each `AIModel` keeps its credentials encrypted in `configJson`. An employee can
    register multiple models and flip exactly one to active (`AIModel.isActive`,
@@ -121,6 +123,22 @@ don't re-litigate them.
     one Member dismissing a TLDR hides it only for them and never deletes the
     company's preserved history or hides it from somebody else. Question cards
     are not personal — like the briefing, they belong to the company.
+14. **Editions are resolved by one seam, and licenses validate offline.**
+    (M56.) A single entitlements resolver decides what an install and a
+    company may use: when instance billing is enabled (Genosyn Cloud), the
+    company's Plan decides — Free / Growth / Scale, billed through Stripe per
+    AI Employee hired; when billing is disabled (self-hosted), the instance
+    license decides — a valid Enterprise license unlocks SSO and the Audit
+    log, and Community keeps everything else unlimited and free. Feature
+    gates never fork the codebase: same image, same source, one 402 seam.
+    Enterprise licenses are Ed25519-signed payloads verified against public
+    keys embedded in the app — no phone-home, air-gap friendly — issued from
+    Genosyn's own cloud install, which alone holds the signing key. Paid
+    licenses degrade softly at expiry (features stay on, the UI warns, the
+    pressure is commercial); evaluation licenses expire hard. Enforcement of
+    the open-source boundary is honest rather than cryptographic: the gate
+    code is MIT like everything else, and what the license sells is the
+    right, the updates, and the support.
 
 ---
 
@@ -241,6 +259,20 @@ don't re-litigate them.
   the `FinanceProposal` maker-checker pattern, M52). Distinct from a
   Decision (no options, a concrete diff) and an Approval (not a replayed
   action — apply writes prose).
+- **Edition** — which commercial shape an install runs (M56): `community`
+  (self-hosted, free), `enterprise` (self-hosted with a valid license), or
+  `cloud` (instance billing enabled). Resolved per company by
+  `services/entitlements.ts`; never a build flag — one image, one source.
+- **Plan** — a Genosyn Cloud pricing tier a company is on (M56): Free,
+  Growth, or Scale, billed through Stripe per AI Employee hired
+  (`CompanyBilling.plan`). Distinct from the customer-facing Finance and
+  Revenue "billing" vocabulary, which is always the company's own books.
+- **Enterprise license** — a signed key unlocking enterprise features on a
+  self-hosted install (M56): an Ed25519 signature over company, expiry,
+  seats, and evaluation flag, verified offline against public keys embedded
+  in the app. Issued at Admin → Enterprise Licenses (`EnterpriseLicense`
+  registry) by the install holding the signing key; activated at Admin →
+  License.
 
 ---
 
@@ -265,6 +297,8 @@ genosyn/
 │   ├── client/                   # React + Vite + Tailwind SPA
 │   │   └── pages/                # 40+ pages
 │   └── data/                     # runtime, gitignored
+├── Helm/                         # Official Helm chart (Helm/genosyn), published
+│                                 # to oci://ghcr.io/genosyn/charts on release
 ├── Home/                         # Marketing site, standalone
 └── CLI/                          # `genosyn` cluster-maintainer bash CLI
 ```
@@ -295,6 +329,9 @@ genosyn/
   `RepositoryWorkSession`
 - **Approvals + audit:** `Approval` (kind: routine | lightning_payment | …),
   `AuditEvent`, `Notification`
+- **Editions & billing (M56):** `CompanyBilling` (per-company Plan +
+  Stripe subscription state), `EnterpriseLicense` (issued-license registry
+  on the signing install), `CompanySso` (per-company OIDC on Cloud)
 - **TLDRs (M45):** `TldrSettings`, `Tldr`, `TldrDismissal`, `TldrQuestion`,
   `TldrQuestionMessage`, `TldrStandingQuestion`, `TldrQuestionAction`
 - **Email (transactional sends):** `EmailProvider`, `EmailLog`
@@ -3261,6 +3298,63 @@ Independently shippable last-mile verticals, in demand order: Bill Pay with a
 payment-rail seam and hard caps; cash-flow forecast and runway guardian;
 hosted lead forms + booking links; a Support Desk with SLAs; Monitors /
 Incidents / an AI on-call; the contract obligations ledger.
+
+### M56 — Editions, plans & billing ✅
+
+Genosyn grows a commercial spine without closing the source. Three deployment
+shapes, one codebase: **Community** (self-hosted, MIT, free, unlimited — SSO
+and the Audit log show an "available in Genosyn Enterprise" card),
+**Enterprise** (self-hosted plus a signed license activated at Admin →
+License), and **Genosyn Cloud** (the operator enables billing at Admin →
+Billing; every company picks a Plan billed through Stripe per AI Employee
+hired). See decision 14 for the model.
+
+- [x] **Plans.** Free (1 AI Employee, 2 Routines), Growth ($19 / AI Employee /
+      month, unlimited AI Employees and Routines), Scale ($49 / AI Employee /
+      month, everything in Growth plus SSO and the Audit log). Constants in
+      `services/billing/plans.ts`; `CompanyBilling` row per company.
+- [x] **Entitlements.** One resolver (`services/entitlements.ts`) answers
+      every gate: billing enabled → the company's Plan; billing disabled →
+      the instance license (valid = enterprise, else community, limits always
+      unlimited self-hosted). Plan limits enforced at the single employee-hire
+      path and every Routine-creation path (UI, template hire capped at
+      remaining capacity, MCP `create_routine`, Launch-plan batch, Initiative
+      accept); feature gates on the Audit log reader and SSO. 402 with a
+      plain-English upgrade message everywhere; `recordAudit` keeps writing
+      regardless so history exists the day a company upgrades.
+- [x] **Stripe.** Raw-REST client (no SDK): Checkout (subscription mode,
+      quantity = AI Employees hired, min 1), billing portal, webhook with
+      verified signatures updating the local row, seat quantity re-synced
+      best-effort on hire/fire plus webhook plus explicit sync. Configured by
+      the operator at Admin → Billing (secret key, webhook secret, two price
+      ids — encrypted in `AppSetting`).
+- [x] **Enterprise licenses, offline.** `genlic1.<payload>.<sig>` — an
+      Ed25519 signature over the license payload (company, email, expiry,
+      seats, evaluation), verified against public keys embedded in the app.
+      No phone-home: a license validates air-gapped. Issued at Admin →
+      Enterprise Licenses on an install holding the signing private key
+      (genosyn.com's own cloud; `npm run license:keygen` mints a pair), with
+      an issued-license registry (`EnterpriseLicense`). Activated by pasting
+      the key at Admin → License. Paid licenses degrade softly on expiry
+      (features stay on, the page warns); evaluation licenses expire hard.
+- [x] **Per-company SSO on Cloud.** `CompanySso` (Google / any OIDC issuer,
+      per-company client + encrypted secret, autoJoin), configured at
+      Settings → Single sign-on behind the Scale gate; sign-in at
+      `/login/sso/<company>`. Linking an IdP assertion to an existing account
+      requires that account's password once — a company's IdP can never
+      silently take over a user who also belongs to other companies.
+      Auto-provisioned users join as Members. Instance-wide SSO (M16) is
+      unchanged on Cloud and license-gated on self-hosted installs.
+- [x] **Helm chart.** `Helm/genosyn` — official chart published to
+      `oci://ghcr.io/genosyn/charts/genosyn` on release (chart.yml workflow):
+      single-replica Recreate default with PVC, config.js ConfigMap overlay +
+      Secret-fed env, optional bundled Postgres for evaluation, opt-in
+      bubblewrap `sandbox.enabled` (seccomp Unconfined + procMount Unmasked),
+      probes on the new unauthenticated `GET /api/health`, multi-tenant
+      checklist in the README. The Kubernetes docs page now leads with it.
+- [x] **Home.** genosyn.com/pricing — Cloud plan cards, the self-hosted
+      Community/Enterprise split, comparison table, FAQ. Docs for plans &
+      billing, enterprise licenses, and the chart.
 
 ## V1 backlog (post-MVP)
 

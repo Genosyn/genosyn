@@ -11,6 +11,7 @@ import { establishUserSession, requireAuth, requireBrowserSession } from "../mid
 import { sendEmail } from "../services/email.js";
 import { ensureUserHandle } from "../services/userHandle.js";
 import { areSignupsDisabled } from "../services/signupSettings.js";
+import { billingEnabled } from "../services/billing/billingSettings.js";
 import { generateToken, hashToken } from "../lib/token.js";
 import {
   avatarAbsPath,
@@ -258,6 +259,9 @@ authRouter.get("/me", requireAuth, requireBrowserSession, async (req, res) => {
     isMasterAdmin: u.isMasterAdmin,
     emailVerified: Boolean(u.emailVerifiedAt),
     emailVerificationRequired: emailVerificationRequired(u),
+    // Whether this install charges companies for Plans (M56) — the client
+    // shows or hides the whole billing surface on this flag.
+    billingEnabled: await billingEnabled(),
   });
 });
 

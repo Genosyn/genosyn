@@ -30,6 +30,30 @@ import {
   isRegisterableOauthApp,
   saveOauthApp,
 } from "../services/oauthApps.js";
+import {
+  billingEnabled,
+  getBillingSettings,
+  updateBillingSettings,
+} from "../services/billing/billingSettings.js";
+import {
+  clearInstanceLicenseKey,
+  clearSigningPrivateKey,
+  getInstanceLicense,
+  getSigningPrivateKey,
+  isLicenseExpired,
+  maskLicenseKey,
+  parseLicenseKey,
+  setInstanceLicenseKey,
+  setSigningPrivateKey,
+  signLicense,
+  verifyLicenseKey,
+  type InstanceLicenseStatus,
+  type LicensePayload,
+} from "../services/license.js";
+import { featureGateMessage } from "../services/entitlements.js";
+import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { EnterpriseLicense } from "../db/entities/EnterpriseLicense.js";
+import { randomUUID } from "node:crypto";
 
 /**
  * Instance-wide admin endpoints. Not company-scoped — these describe and manage
@@ -371,6 +395,15 @@ const ssoSchema = z.object({
 
 adminRouter.put("/sso", validateBody(ssoSchema), async (req, res, next) => {
   const body = req.body as z.infer<typeof ssoSchema>;
+  // Self-hosted installs (billing disabled) need an Enterprise license to turn
+  // SSO on (M56). When instance billing is enabled the SSO being configured
+  // here is the operator's own sign-in and stays ungated.
+  if (body.enabled && !(await billingEnabled())) {
+    const license = await getInstanceLicense();
+    if (!license.featureValid) {
+      return res.status(402).json({ error: featureGateMessage("sso", "community") });
+    }
+  }
   // The write is the only fallible-by-user step: an incomplete config that
   // tries to enable SSO comes back as a 400 the form renders inline.
   try {
@@ -407,6 +440,230 @@ adminRouter.post("/sso/test", validateBody(ssoTestSchema), async (req, res, next
     if (err instanceof SsoLoginError) {
       return res.status(400).json({ ok: false, error: err.message });
     }
+    next(err);
+  }
+});
+
+// ─────────────────────────── instance billing ──────────────────────────────
+//
+// M56: whether this install charges companies for Plans (Genosyn Cloud), and
+// the Stripe credentials it charges with. Secrets are write-only across this
+// boundary — the GET returns `hasSecretKey` / `hasWebhookSecret` flags only.
+
+adminRouter.get("/billing", async (_req, res, next) => {
+  try {
+    res.json(await getBillingSettings());
+  } catch (err) {
+    next(err);
+  }
+});
+
+const billingSettingsSchema = z.object({
+  enabled: z.boolean(),
+  growthPriceId: z.string().max(255),
+  scalePriceId: z.string().max(255),
+  // Blank or omitted keeps the stored secret.
+  secretKey: z.string().max(1024).optional(),
+  webhookSecret: z.string().max(1024).optional(),
+});
+
+adminRouter.put("/billing", validateBody(billingSettingsSchema), async (req, res) => {
+  const body = req.body as z.infer<typeof billingSettingsSchema>;
+  try {
+    res.json(await updateBillingSettings(body));
+  } catch (err) {
+    return res.status(400).json({
+      error: err instanceof Error ? err.message : "Failed to save billing settings",
+    });
+  }
+});
+
+// ─────────────────────────── Enterprise license ────────────────────────────
+//
+// M56: the license activated on THIS install (Admin → License). Verified
+// offline against the public keys embedded in `services/license.ts` — see
+// that module for the soft/hard expiry semantics.
+
+type AdminLicenseView = {
+  status: InstanceLicenseStatus["status"];
+  companyName: string | null;
+  email: string | null;
+  expiresAt: string | null;
+  seats: number | null;
+  evaluation: boolean;
+  aiEmployeeCount: number;
+};
+
+async function describeInstanceLicense(): Promise<AdminLicenseView> {
+  const license = await getInstanceLicense();
+  const aiEmployeeCount = await AppDataSource.getRepository(AIEmployee).count();
+  return {
+    status: license.status,
+    companyName: license.payload?.company ?? null,
+    email: license.payload?.email ?? null,
+    expiresAt: license.payload?.expiresAt ?? null,
+    seats: license.payload?.seats ?? null,
+    evaluation: license.payload?.evaluation ?? false,
+    aiEmployeeCount,
+  };
+}
+
+adminRouter.get("/license", async (_req, res, next) => {
+  try {
+    res.json(await describeInstanceLicense());
+  } catch (err) {
+    next(err);
+  }
+});
+
+const licenseKeySchema = z.object({ key: z.string().min(1).max(10_000) });
+
+adminRouter.put("/license", validateBody(licenseKeySchema), async (req, res, next) => {
+  const { key } = req.body as z.infer<typeof licenseKeySchema>;
+  const verified = verifyLicenseKey(key);
+  if (!verified) {
+    const parsed = parseLicenseKey(key);
+    return res.status(400).json({
+      error: parsed
+        ? "This license key's signature could not be verified. Check you pasted the whole key."
+        : "That is not a Genosyn Enterprise license key.",
+    });
+  }
+  // An expired paid license is accepted (features stay on, the UI warns); an
+  // expired evaluation would activate nothing, so refuse it outright.
+  if (verified.payload.evaluation && isLicenseExpired(verified.payload)) {
+    return res.status(400).json({
+      error: "This evaluation license has expired. Contact Genosyn for a new one.",
+    });
+  }
+  try {
+    await setInstanceLicenseKey(key);
+    res.json(await describeInstanceLicense());
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.delete("/license", async (_req, res, next) => {
+  try {
+    await clearInstanceLicenseKey();
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─────────────────────── Enterprise license issuance ───────────────────────
+//
+// The ISSUER's surface (Admin → Enterprise Licenses) — only useful where the
+// Ed25519 signing key is configured, i.e. on Genosyn's own cloud install. The
+// full signed key appears once, in the POST response; only a masked preview
+// is stored in the registry.
+
+function serializeIssuedLicense(row: EnterpriseLicense) {
+  return {
+    id: row.id,
+    companyName: row.companyName,
+    email: row.email,
+    expiresAt: row.expiresAt instanceof Date ? row.expiresAt.toISOString() : row.expiresAt,
+    seats: row.seats,
+    evaluation: row.evaluation,
+    keyPreview: row.keyPreview,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
+  };
+}
+
+adminRouter.get("/licenses", async (_req, res, next) => {
+  try {
+    const [signingKey, rows] = await Promise.all([
+      getSigningPrivateKey(),
+      AppDataSource.getRepository(EnterpriseLicense).find({
+        order: { createdAt: "DESC" },
+      }),
+    ]);
+    res.json({
+      signingConfigured: Boolean(signingKey),
+      licenses: rows.map(serializeIssuedLicense),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const issueLicenseSchema = z.object({
+  companyName: z.string().min(1).max(200),
+  email: z.string().email().nullable().optional(),
+  expiresAt: z
+    .string()
+    .refine((v) => !Number.isNaN(Date.parse(v)), "Invalid date")
+    .refine((v) => Date.parse(v) > Date.now(), "The expiry date must be in the future"),
+  seats: z.number().int().min(1).nullable().optional(),
+  evaluation: z.boolean(),
+});
+
+adminRouter.post("/licenses", validateBody(issueLicenseSchema), async (req, res, next) => {
+  const body = req.body as z.infer<typeof issueLicenseSchema>;
+  const signingKey = await getSigningPrivateKey();
+  if (!signingKey) {
+    return res.status(400).json({
+      error: "Configure the license signing key before issuing licenses.",
+    });
+  }
+  try {
+    const payload: LicensePayload = {
+      v: 1,
+      id: randomUUID(),
+      company: body.companyName,
+      email: body.email ?? null,
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(body.expiresAt).toISOString(),
+      seats: body.seats ?? null,
+      evaluation: body.evaluation,
+    };
+    const key = signLicense(signingKey, payload);
+    const repo = AppDataSource.getRepository(EnterpriseLicense);
+    const row = await repo.save(
+      repo.create({
+        id: payload.id,
+        companyName: payload.company,
+        email: payload.email,
+        expiresAt: new Date(payload.expiresAt),
+        seats: payload.seats,
+        evaluation: payload.evaluation,
+        keyPreview: maskLicenseKey(key),
+        createdByUserId: req.userId ?? null,
+      }),
+    );
+    // Instance-level — no companyId, so no recordAudit (which requires one).
+    res.json({ license: serializeIssuedLicense(row), key });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const signingKeySchema = z.object({ privateKey: z.string().min(1).max(10_000) });
+
+adminRouter.put(
+  "/licenses/signing-key",
+  validateBody(signingKeySchema),
+  async (req, res) => {
+    const { privateKey } = req.body as z.infer<typeof signingKeySchema>;
+    try {
+      await setSigningPrivateKey(privateKey);
+    } catch (err) {
+      return res.status(400).json({
+        error: err instanceof Error ? err.message : "Failed to save the signing key",
+      });
+    }
+    res.json({ signingConfigured: true });
+  },
+);
+
+adminRouter.delete("/licenses/signing-key", async (_req, res, next) => {
+  try {
+    await clearSigningPrivateKey();
+    res.json({ signingConfigured: false });
+  } catch (err) {
     next(err);
   }
 });

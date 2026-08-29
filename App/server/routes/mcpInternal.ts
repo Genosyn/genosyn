@@ -621,6 +621,7 @@ import {
 } from "../services/explore.js";
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 import { memberInternalCallbackPolicy, memberToolPolicy } from "../services/memberToolAuthority.js";
+import { PlanLimitError, assertRoutineCapacity } from "../services/entitlements.js";
 
 /**
  * Internal HTTP surface for the built-in `genosyn` tools.
@@ -8011,6 +8012,14 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const target = await resolveEmployee(co, self, body.employeeSlug);
     if (!target) return res.status(404).json({ error: "Employee not found" });
+
+    // Plan limit (M56) — the AI Employee sees this as the tool's error output.
+    try {
+      await assertRoutineCapacity(co.id);
+    } catch (err) {
+      if (!(err instanceof PlanLimitError)) throw err;
+      return res.status(402).json({ error: err.message });
+    }
 
     const repo = AppDataSource.getRepository(Routine);
     const dup = await repo

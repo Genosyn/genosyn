@@ -8,6 +8,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { toSlug } from "../lib/slug.js";
 import { redactApprovalSummary } from "./approvalRedaction.js";
 import { nextRunFor, registerRoutine } from "./cron.js";
+import { assertRoutineCapacity } from "./entitlements.js";
 import { recordAudit } from "./audit.js";
 import { createNotifications } from "./notifications.js";
 import { managingMemberIdForEmployee } from "./reportingLine.js";
@@ -167,6 +168,11 @@ export async function acceptInitiative(
     companyId: initiative.companyId,
   });
   if (!employee) throw new InitiativeError("The proposing employee no longer exists");
+
+  // Plan limit (M56): accepting creates a Routine — checked before the claim
+  // so a refused accept leaves the initiative pending, not half-decided.
+  // PlanLimitError propagates for the route to map to 402.
+  await assertRoutineCapacity(initiative.companyId);
 
   const claim = await AppDataSource.getRepository(Initiative).update(
     { id: initiative.id, status: "pending" },

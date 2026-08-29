@@ -1,6 +1,8 @@
 import { AppDataSource } from "../db/datasource.js";
 import { AppSetting } from "../db/entities/AppSetting.js";
 import { decryptSecret, encryptSecret } from "../lib/secret.js";
+import { billingEnabled } from "./billing/billingSettings.js";
+import { getInstanceLicense } from "./license.js";
 import { getPublicUrl } from "./publicUrl.js";
 
 /**
@@ -156,8 +158,18 @@ function isConfigured(stored: StoredSso): boolean {
 /**
  * Resolve settings for the login handshake. Returns null unless SSO is both
  * enabled and fully configured — callers treat null as "SSO is off".
+ *
+ * On a self-hosted install (billing disabled) SSO is an Enterprise feature
+ * (M56): without a feature-valid license the runtime resolves to null, which
+ * hides the login button and disables `/start`, even if settings were saved
+ * while a license was active. Billing-enabled installs are Genosyn Cloud —
+ * the instance SSO there is the operator's own and stays ungated.
  */
 export async function resolveSsoRuntime(): Promise<ResolvedSso | null> {
+  if (!(await billingEnabled())) {
+    const license = await getInstanceLicense();
+    if (!license.featureValid) return null;
+  }
   const stored = await readStoredSso();
   if (!stored.enabled || !isConfigured(stored)) return null;
   const clientSecret = decryptStoredSecret(stored.encryptedClientSecret);

@@ -19,7 +19,8 @@
     "migration:create": "npm run typeorm -- migration:create",
     "migration:run": "npm run typeorm -- migration:run -d ormconfig.ts",
     "migration:revert": "npm run typeorm -- migration:revert -d ormconfig.ts",
-    "migration:show": "npm run typeorm -- migration:show -d ormconfig.ts"
+    "migration:show": "npm run typeorm -- migration:show -d ormconfig.ts",
+    "license:keygen": "tsx server/scripts/licenseKeygen.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
