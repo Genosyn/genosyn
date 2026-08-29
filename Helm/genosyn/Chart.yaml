@@ -7,8 +7,8 @@ type: application
 # The chart version tracks the app VERSION file. The release workflow
 # (.github/workflows/chart.yml) repackages with --version/--app-version read
 # from VERSION, so this value is what you get from a source checkout.
-version: 1.155.0
-appVersion: "1.155.0"
+version: 1.156.0
+appVersion: "1.156.0"
 home: https://genosyn.com
 icon: https://genosyn.com/favicon.svg
 sources:
