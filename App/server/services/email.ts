@@ -26,9 +26,9 @@ export type { EmailAttachment } from "./emailTransports.js";
  *
  *   1. The default `EmailProvider` row for `companyId`, if one exists and
  *      is enabled.
- *   2. The global SMTP transport (see `globalEmailTransport.ts`): the
- *      Admin → Email transport override first, then the `config.ts` SMTP
- *      block. Used for system-level sends — signup welcome, password reset.
+ *   2. The global SMTP transport (see `globalEmailTransport.ts`), configured
+ *      at Admin → Email transport. Used for system-level sends — signup
+ *      welcome, password reset.
  *   3. Console fallback so dev/self-host without SMTP still surfaces the
  *      message somewhere.
  *
@@ -79,8 +79,8 @@ export type SendEmailOptions = {
   html?: string;
   /** Optional file attachments (e.g. an invoice / estimate PDF). */
   attachments?: EmailAttachment[];
-  /** Pick a company-default provider when set. Otherwise falls back to
-   *  config.ts SMTP, then console. */
+  /** Pick a company-default provider when set. Otherwise falls back to the
+   *  global SMTP transport, then console. */
   companyId?: string | null;
   /** Reason the email was sent — surfaces as a filter on the logs page. */
   purpose?: EmailLogPurpose;
@@ -167,8 +167,8 @@ export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult
     }
   }
 
-  // Resolve the install-wide global transport (Admin → Email transport override,
-  // else the config.ts SMTP block, else console).
+  // Resolve the install-wide global transport (Admin → Email transport, else
+  // console).
   const global = await getEffectiveGlobalSmtp();
   if (global.configured && global.settings.host) {
     const from = formatGlobalSmtpSender(global.settings);

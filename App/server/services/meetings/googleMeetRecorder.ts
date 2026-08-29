@@ -4,7 +4,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 
 import type { Browser, BrowserContext, Page } from "playwright-core";
 
-import { config } from "../../../config.js";
+import { getMeetingsSettings } from "../runtimeSettings.js";
 import {
   chromeMaskInitScript,
   chromeContextOptions,
@@ -65,7 +65,11 @@ const defaultDependencies: GoogleMeetRecorderDependencies = {
   waitForEnd: waitForGoogleMeetToEnd,
   now: Date.now,
   randomToken: () => randomUUID().slice(0, 8),
-  maxRecordingBytes: config.meetings.maxRecordingBytes,
+  // A getter, not a value: the defaults object is built once at module load,
+  // and the cap is an operator-editable runtime setting.
+  get maxRecordingBytes(): number {
+    return getMeetingsSettings().maxRecordingBytes;
+  },
   warn: (message) => {
     // eslint-disable-next-line no-console
     console.warn(message);

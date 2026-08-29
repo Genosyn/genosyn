@@ -3,8 +3,13 @@
 # The short version: the DEFAULT posture is production multi-tenant SaaS —
 # multiTenant on, Postgres, the bubblewrap sandbox granted, chart-generated
 # strong secrets. A bare `helm install` fails fast at template time with one
-# aggregated message listing the two values only you can supply
-# (config.bootstrapMasterAdminEmail and config.smtp.host).
+# aggregated message listing the one value only you can supply
+# (config.bootstrapMasterAdminEmail).
+#
+# There is no SMTP here on purpose. The system mail transport is configured
+# after boot at Admin → Email transport and stored encrypted in the database;
+# until it is set, boot prints a warning and verification / reset links go to
+# the pod log (`kubectl logs -n <ns> deploy/<release>`).
 #
 # Running a private single-tenant install instead? Use the commented example
 # next to this file: `helm install ... -f values-selfhost.yaml` — SQLite, no
@@ -114,22 +119,6 @@ config:
   # bootstrap). REQUIRED when multiTenant — a bare install fails at template
   # time until you set it.
   bootstrapMasterAdminEmail: ""
-  # System SMTP for verification, invite, and recovery mail. REQUIRED when
-  # multiTenant (smtp.host must be set — template-time failure otherwise); a
-  # self-host install may leave host empty, and reset links then log to the
-  # server console. The password comes from a pre-created secret via
-  # passwordSecret (injected as GENOSYN_SMTP_PASS), never from values.
-  smtp:
-    host: ""
-    port: 587
-    secure: false
-    user: ""
-    from: "no-reply@genosyn.local"
-    fromName: "Genosyn"
-    passwordSecret:
-      name: ""
-      # Defaults to "password" when name is set.
-      key: ""
   # Extra JavaScript spliced verbatim into the generated config.js, just
   # before the closing brace of the config object — so each line should be a
   # `key: value,` entry. A duplicate top-level key replaces the default block
@@ -137,7 +126,12 @@ config:
   # object so you can override one security field without losing the rest:
   #   extraJs: |
   #     security: { ...security, trustedProxyHops: 2 },
-  #     integrations: { google: { clientId: "…", clientSecret: process.env.GENOSYN_GOOGLE_SECRET ?? "" } },
+  # Overriding `agent` instead means restating that whole block, since only
+  # `security` is hoisted into a const above the object.
+  # Only boot configuration belongs here. Operational settings (web tools,
+  # mail sync, meetings, browser, agent taint policy / member browsers / tool
+  # discovery) are database-backed and edited at Admin → Runtime; SMTP is at
+  # Admin → Email transport. Adding them back here does nothing.
   extraJs: ""
 
 secrets:

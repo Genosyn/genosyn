@@ -25,6 +25,11 @@ import {
 } from "../services/globalEmailTransport.js";
 import { getPublicUrlSettings, setPublicUrl } from "../services/publicUrl.js";
 import {
+  getRuntimeSettingsSnapshot,
+  resetRuntimeSettingsGroup,
+  saveRuntimeSettingsGroup,
+} from "../services/runtimeSettings.js";
+import {
   clearOauthApp,
   describeOauthApps,
   isRegisterableOauthApp,
@@ -247,6 +252,117 @@ adminRouter.post("/email-transport/test", validateBody(testSchema), async (req, 
     });
   }
 });
+
+// ──────────────────────────── runtime settings ─────────────────────────────
+//
+// The operational knobs that used to live in `config.ts`: the web tools, mail
+// sync tuning, meetings, the container's browser, and the agent's taint policy
+// / member browsers / tool discovery. One JSON `AppSetting` row per group, read
+// through a 30s cache — see `services/runtimeSettings.ts`.
+//
+// PUT replaces a whole group rather than patching fields: the form always
+// submits every value it showed, and a partial write from a stale form would
+// otherwise silently revert whatever it did not know about. DELETE drops the
+// row so the group falls back to the shipped defaults. No secrets live in any
+// of these groups, so unlike the transport and OAuth routes the GET returns
+// every value.
+
+const runtimeGroupParams = z.object({
+  group: z.enum(["web", "mail", "meetings", "browser", "agent"]),
+});
+
+const runtimeGroupSchemas = {
+  web: z.object({
+    enabled: z.boolean(),
+    searchProvider: z.enum(["duckduckgo", "disabled"]),
+    maxSearchResults: z.number().int().min(1).max(50),
+    maxDocumentBytes: z
+      .number()
+      .int()
+      .min(1024)
+      .max(200 * 1024 * 1024),
+    maxTextChars: z.number().int().min(500).max(1_000_000),
+  }),
+  mail: z.object({
+    syncIntervalSec: z.number().int().min(10).max(86_400),
+    backfillThreadsPerPass: z.number().int().min(1).max(5_000),
+    backfillPassSeconds: z.number().int().min(1).max(600),
+    backfillDays: z.number().int().min(0).max(36_500),
+  }),
+  meetings: z.object({
+    enabled: z.boolean(),
+    syncIntervalSeconds: z.number().int().min(60).max(86_400),
+    transcriptionModel: z.string().min(1).max(200),
+    maxRecordingBytes: z
+      .number()
+      .int()
+      .min(1024)
+      .max(100 * 1024 * 1024),
+  }),
+  browser: z.object({
+    executablePath: z.string().max(1024),
+    headless: z.union([z.literal("auto"), z.boolean()]),
+    locale: z.string().max(64),
+    timezone: z.string().max(64),
+    humanize: z.boolean(),
+  }),
+  agent: z.object({
+    taintPolicy: z.enum(["web", "off"]),
+    memberBrowsersEnabled: z.boolean(),
+    toolDiscovery: z.object({
+      enabled: z.boolean(),
+      minCatalogueSize: z.number().int().min(0).max(10_000),
+    }),
+  }),
+} as const;
+
+adminRouter.get("/runtime-settings", async (_req, res, next) => {
+  try {
+    res.json(await getRuntimeSettingsSnapshot());
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.put(
+  "/runtime-settings/:group",
+  validateParams(runtimeGroupParams),
+  async (req, res, next) => {
+    const { group } = req.params as unknown as z.infer<typeof runtimeGroupParams>;
+    // The body schema depends on the path parameter, so it is validated here
+    // rather than by `validateBody`, which is bound to one schema per route.
+    const parsed = runtimeGroupSchemas[group].safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid runtime settings",
+        details: parsed.error.flatten(),
+      });
+    }
+    try {
+      await saveRuntimeSettingsGroup(
+        group,
+        parsed.data as Parameters<typeof saveRuntimeSettingsGroup>[1],
+      );
+      res.json(await getRuntimeSettingsSnapshot());
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+adminRouter.delete(
+  "/runtime-settings/:group",
+  validateParams(runtimeGroupParams),
+  async (req, res, next) => {
+    const { group } = req.params as unknown as z.infer<typeof runtimeGroupParams>;
+    try {
+      await resetRuntimeSettingsGroup(group);
+      res.json(await getRuntimeSettingsSnapshot());
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ─────────────────────── install-wide OAuth apps ───────────────────────────
 //

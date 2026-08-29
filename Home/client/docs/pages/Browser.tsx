@@ -61,9 +61,10 @@ export function Browser() {
         loopback, private, or cloud-metadata addresses inside your network. Fetched content is fed
         to the model as untrusted data, and the employee is told plainly that a web page giving it
         instructions is a stranger talking, not its teammate. Operators who want this off entirely —
-        or search off while direct fetches stay — set <Code>web.enabled</Code> and{" "}
-        <Code>web.searchProvider</Code> in <Code>config.ts</Code>. Search uses DuckDuckGo&apos;s
-        no-JavaScript endpoint by default, so no API key or account is involved.
+        or search off while direct fetches stay — flip <Strong>Web tools</Strong> and{" "}
+        <Strong>Search provider</Strong> at <Code>Admin → Runtime</Code>, which takes effect on the
+        next tool call without a restart. Search uses DuckDuckGo&apos;s no-JavaScript endpoint by
+        default, so no API key or account is involved.
       </P>
       <P>
         Everything below is about the heavier capability: a real browser that holds a session,
@@ -433,11 +434,12 @@ export function Browser() {
         <DocLink to="/docs/member-browsers">Member browser</DocLink>.
       </P>
       <P>
-        Nothing here needs configuring. The knobs exist in <Code>config.ts</Code> under{" "}
-        <Code>browser</Code> if you need them — a different Chrome binary, forced headless on a host
-        that cannot run a virtual display, a locale and timezone matching where your deployment
-        egresses from, or <Code>humanize</Code> to switch off the character-by-character typing and
-        pointer approach in a trusted environment that wants raw speed. Leave them at their
+        Nothing here needs configuring. The knobs are at <Code>Admin → Runtime</Code> under{" "}
+        <Strong>Browser</Strong> if you need them — a different Chrome binary, forced headless on a
+        host that cannot run a virtual display, a locale and timezone matching where your
+        deployment egresses from, or <Strong>humanize</Strong> to switch off the
+        character-by-character typing and pointer approach in a trusted environment that wants raw
+        speed. A changed binary path applies to the next browser launch. Leave them at their
         defaults and Chrome tells the truth about itself while behaving like a person, which is the
         setting you want. A source-managed install on a host with no Chrome falls back to whatever
         Chromium it finds, and only then does a compatibility layer start filling in the

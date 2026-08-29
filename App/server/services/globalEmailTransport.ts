@@ -1,6 +1,5 @@
 import { AppDataSource } from "../db/datasource.js";
 import { AppSetting } from "../db/entities/AppSetting.js";
-import { config } from "../../config.js";
 import { decryptSecret, encryptSecret } from "../lib/secret.js";
 
 /**
@@ -8,16 +7,17 @@ import { decryptSecret, encryptSecret } from "../lib/secret.js";
  * sends (password resets, invites, welcomes) fall back to when a company has no
  * `EmailProvider` row of its own.
  *
- * Historically this lived *only* in the static `config.ts` SMTP block, which
- * meant editing a file + restarting to change it. This service adds a
- * database-backed override (stored as a single JSON `AppSetting` row, the same
- * mechanism the Web Push VAPID keypair uses) so operators can configure it from
- * Admin → Email transport without touching the filesystem.
+ * Historically this lived in a static `config.ts` SMTP block, which meant
+ * editing a file and restarting a container to change it. The database row is
+ * now the only configured source (stored as a single JSON `AppSetting`, the
+ * same mechanism the Web Push VAPID keypair uses), written from Admin → Email
+ * transport. An install upgrading from an old-shape config has its block
+ * imported into that row once at boot — see
+ * `importLegacyConfigOverrides()` in `services/runtimeSettings.ts`.
  *
  * Resolution order for the *effective* transport:
- *   1. The DB override (Admin → Email transport), if its host is set.
- *   2. The `config.ts` SMTP block, if its host is set.
- *   3. None — sends log to the console.
+ *   1. The stored settings (Admin → Email transport), if their host is set.
+ *   2. None — sends log to the console.
  *
  * The stored password is encrypted at rest with the same key that protects
  * every other secret (see `lib/secret.ts`). It is only ever decrypted into
@@ -26,7 +26,17 @@ import { decryptSecret, encryptSecret } from "../lib/secret.js";
 
 export const GLOBAL_SMTP_SETTING_KEY = "smtp.global";
 
-export type GlobalSmtpSource = "database" | "config" | "none";
+export type GlobalSmtpSource = "database" | "none";
+
+/**
+ * What an unconfigured install says it is. These were the `config.ts` SMTP
+ * defaults, and they are still what the console fallback stamps on a skipped
+ * send and what the admin form is seeded with, so they live on as constants.
+ */
+const DEFAULT_SMTP_PORT = 587;
+const DEFAULT_SMTP_SECURE = false;
+const DEFAULT_FROM_NAME = "Genosyn";
+const DEFAULT_FROM = "no-reply@genosyn.local";
 
 /** Fully-resolved, ready-to-send settings. The password is in the clear and
  *  must never leave the server process. */
@@ -41,7 +51,7 @@ export type ResolvedGlobalSmtp = {
 };
 
 export type EffectiveGlobalSmtp = {
-  /** True when a usable SMTP host is resolved (from DB or config). */
+  /** True when a usable SMTP host is stored. */
   configured: boolean;
   source: GlobalSmtpSource;
   settings: ResolvedGlobalSmtp;
@@ -61,13 +71,6 @@ export type GlobalSmtpDescriptor = {
   from: string;
   /** Whether a password is currently in effect (never the value itself). */
   hasPassword: boolean;
-  /** What the `config.ts` fallback provides, so the UI can describe a reset. */
-  configFallback: {
-    configured: boolean;
-    host: string;
-    fromName: string;
-    from: string;
-  };
 };
 
 /** Payload the admin form submits for save / test. */
@@ -95,13 +98,21 @@ type StoredGlobalSmtp = {
   from: string;
 };
 
-// In-process cache of the resolved transport. Invalidated whenever the override
-// is written or cleared; config.ts is static within a process so a restart is
-// the only other way the resolution can change.
+// In-process cache of the resolved transport. Invalidated whenever the stored
+// settings are written or cleared.
 let effectiveCache: EffectiveGlobalSmtp | null = null;
 
 function invalidateCache(): void {
   effectiveCache = null;
+}
+
+/**
+ * Test seam. The cache is process-lifetime, so a suite that drops and rebuilds
+ * the database between tests would otherwise keep resolving a transport whose
+ * row no longer exists.
+ */
+export function resetGlobalSmtpCacheForTests(): void {
+  invalidateCache();
 }
 
 /**
@@ -117,10 +128,6 @@ function splitSender(rawFrom: string, explicitName = ""): { fromName: string; fr
     fromName: explicitName.trim() || match[1].trim().replace(/^"|"$/g, ""),
     from: match[2].trim(),
   };
-}
-
-function configSender(): { fromName: string; from: string } {
-  return splitSender(config.smtp.from, config.smtp.fromName);
 }
 
 /** Human-readable RFC-style sender used in Email Logs. */
@@ -174,14 +181,13 @@ function decryptStoredPass(encryptedPass: string): string {
 }
 
 /**
- * Resolve the effective global SMTP transport, preferring the DB override over
- * the `config.ts` block. Cached in-process; the cache is cleared on any write.
+ * Resolve the effective global SMTP transport. Cached in-process; the cache is
+ * cleared on any write.
  */
 export async function getEffectiveGlobalSmtp(): Promise<EffectiveGlobalSmtp> {
   if (effectiveCache) return effectiveCache;
 
   const override = await readStoredOverride();
-  const fallbackSender = configSender();
   if (override && override.host) {
     effectiveCache = {
       configured: true,
@@ -193,24 +199,7 @@ export async function getEffectiveGlobalSmtp(): Promise<EffectiveGlobalSmtp> {
         user: override.user,
         pass: decryptStoredPass(override.encryptedPass),
         fromName: override.fromName,
-        from: override.from || fallbackSender.from,
-      },
-    };
-    return effectiveCache;
-  }
-
-  if (config.smtp.host) {
-    effectiveCache = {
-      configured: true,
-      source: "config",
-      settings: {
-        host: config.smtp.host,
-        port: config.smtp.port,
-        secure: config.smtp.secure,
-        user: config.smtp.user,
-        pass: config.smtp.pass,
-        fromName: fallbackSender.fromName,
-        from: fallbackSender.from,
+        from: override.from || DEFAULT_FROM,
       },
     };
     return effectiveCache;
@@ -221,12 +210,12 @@ export async function getEffectiveGlobalSmtp(): Promise<EffectiveGlobalSmtp> {
     source: "none",
     settings: {
       host: "",
-      port: config.smtp.port,
-      secure: config.smtp.secure,
+      port: DEFAULT_SMTP_PORT,
+      secure: DEFAULT_SMTP_SECURE,
       user: "",
       pass: "",
-      fromName: fallbackSender.fromName,
-      from: fallbackSender.from,
+      fromName: DEFAULT_FROM_NAME,
+      from: DEFAULT_FROM,
     },
   };
   return effectiveCache;
@@ -246,25 +235,17 @@ export async function describeGlobalSmtp(): Promise<GlobalSmtpDescriptor> {
     fromName: eff.settings.fromName,
     from: eff.settings.from,
     hasPassword: Boolean(eff.settings.pass),
-    configFallback: {
-      configured: Boolean(config.smtp.host),
-      host: config.smtp.host,
-      fromName: configSender().fromName,
-      from: configSender().from,
-    },
   };
 }
 
 /**
  * Merge a form payload into a fully-resolved settings object. A blank password
- * field means "keep whatever password is currently in effect" (whether that
- * came from a previous DB override or from `config.ts`), so operators can edit
- * the host or port without re-typing the secret.
+ * field means "keep whatever password is currently in effect", so operators can
+ * edit the host or port without re-typing the secret.
  */
 export async function resolveGlobalSmtpDraft(input: GlobalSmtpInput): Promise<ResolvedGlobalSmtp> {
   const current = await getEffectiveGlobalSmtp();
   const pass = input.pass !== "" ? input.pass : current.settings.pass;
-  const fallbackSender = configSender();
   const sender = splitSender(
     input.from,
     input.fromName === undefined ? current.settings.fromName : input.fromName,
@@ -276,11 +257,11 @@ export async function resolveGlobalSmtpDraft(input: GlobalSmtpInput): Promise<Re
     user: input.user.trim(),
     pass,
     fromName: sender.fromName,
-    from: sender.from || fallbackSender.from,
+    from: sender.from || DEFAULT_FROM,
   };
 }
 
-/** Persist (or replace) the DB override and invalidate the transport cache. */
+/** Persist (or replace) the stored settings and invalidate the transport cache. */
 export async function updateGlobalSmtpOverride(input: GlobalSmtpInput): Promise<void> {
   const resolved = await resolveGlobalSmtpDraft(input);
   if (!resolved.host) {
@@ -307,7 +288,7 @@ export async function updateGlobalSmtpOverride(input: GlobalSmtpInput): Promise<
   invalidateCache();
 }
 
-/** Remove the DB override, reverting to the `config.ts` block (or console). */
+/** Remove the stored settings, reverting to the console fallback. */
 export async function clearGlobalSmtpOverride(): Promise<void> {
   const repo = AppDataSource.getRepository(AppSetting);
   await repo.delete({ key: GLOBAL_SMTP_SETTING_KEY });

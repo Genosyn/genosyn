@@ -48,7 +48,7 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import { promisify } from "node:util";
-import { config } from "../../config.js";
+import { getBrowserSettings } from "./runtimeSettings.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -127,14 +127,14 @@ function currentPlatform(): BrowserPlatform {
 }
 
 /**
- * Where to find a browser. `config.browser.executablePath` wins, then the env
+ * Where to find a browser. The Admin → Runtime executable path wins, then the env
  * vars (the Docker image sets `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to real
  * Chrome), then the usual install locations, then nothing — which leaves
  * Playwright to use the Chromium it downloaded.
  */
 export function resolveBrowserExecutable(): string | undefined {
   const configured =
-    config.browser.executablePath ||
+    getBrowserSettings().executablePath ||
     process.env.GENOSYN_CHROME_PATH ||
     process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
     "";
@@ -155,7 +155,7 @@ export function resolveBrowserExecutable(): string | undefined {
  * want when a test suite would otherwise open windows at you.
  */
 export function resolveHeaded(): boolean {
-  const configured = config.browser.headless;
+  const configured = getBrowserSettings().headless;
   if (configured === true) return false;
   if (configured === false) return true;
   return Boolean(process.env.DISPLAY);
@@ -360,8 +360,9 @@ export async function chromeContextOptions(): Promise<Record<string, unknown>> {
   // Empty means "inherit whatever Chrome derives from the container". A
   // hardcoded locale or timezone that disagrees with where this deployment
   // egresses from is read the same way a spoofed user agent is.
-  if (config.browser.locale) options.locale = config.browser.locale;
-  if (config.browser.timezone) options.timezoneId = config.browser.timezone;
+  const browserSettings = getBrowserSettings();
+  if (browserSettings.locale) options.locale = browserSettings.locale;
+  if (browserSettings.timezone) options.timezoneId = browserSettings.timezone;
 
   const spoofedUserAgent = spoofedUserAgentFor(identity);
   if (spoofedUserAgent) {

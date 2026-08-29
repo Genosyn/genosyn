@@ -1,4 +1,3 @@
-import { config } from "../../../config.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIModel } from "../../db/entities/AIModel.js";
 import { Meeting } from "../../db/entities/Meeting.js";
@@ -6,6 +5,7 @@ import { decryptSecret } from "../../lib/secret.js";
 import { assertSafeOutboundUrl } from "../../lib/outboundUrl.js";
 import { readCustomEndpoint } from "../customEndpoint.js";
 import { getActiveModel } from "../models.js";
+import { getMeetingsSettings } from "../runtimeSettings.js";
 import { extensionForMime, readRecording } from "./storage.js";
 import { replaceTranscript } from "./store.js";
 
@@ -87,7 +87,7 @@ export async function resolveTranscriptionTarget(
       target: {
         baseURL: cfg.baseURL.replace(/\/+$/, ""),
         apiKey: cfg.apiKey ?? "",
-        model: config.meetings.transcriptionModel,
+        model: getMeetingsSettings().transcriptionModel,
       },
     };
   }
@@ -107,7 +107,7 @@ export async function resolveTranscriptionTarget(
       target: {
         baseURL: "https://api.openai.com/v1",
         apiKey,
-        model: config.meetings.transcriptionModel,
+        model: getMeetingsSettings().transcriptionModel,
       },
     };
   }

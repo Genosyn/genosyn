@@ -216,9 +216,9 @@ function normalizeSourcePath(value: string): string | null {
 
 function sourcePathDenied(relative: string): boolean {
   if (relative === ".") return false;
-  // Operators edit App/config.ts directly and may put live encryption, SMTP,
-  // OAuth, or model credentials there. Environment and credential files are
-  // denied even when they remain Git-tracked.
+  // Operators edit App/config.ts directly and it holds the live session and
+  // encryption secrets. Environment and credential files are denied even when
+  // they remain Git-tracked.
   if (isDeniedSourcePath(relative)) return true;
   const components = relative.split("/");
   if (

@@ -22,9 +22,10 @@ import type { AdminOutletCtx } from "./AdminLayout";
 /**
  * Admin → Email transport. Configure the install-wide global SMTP server that
  * system-level sends (password resets, invites, welcomes) fall back to when a
- * company has no email provider of its own. Persists a database override that
- * takes precedence over the `config.ts` SMTP block, so operators never have to
- * edit a file and restart. Distinct from a company's own Settings → Email.
+ * company has no email provider of its own. This page is the only source: what
+ * is saved here is stored encrypted in the database and applies with no
+ * restart, and clearing it leaves system emails logging to the server console.
+ * Distinct from a company's own Settings → Email.
  */
 
 const FIELD_CLASS =
@@ -34,7 +35,6 @@ const LABEL_CLASS =
 
 const SOURCE_LABEL: Record<GlobalEmailTransport["source"], string> = {
   database: "Admin dashboard",
-  config: "config.ts",
   none: "Not configured",
 };
 
@@ -184,14 +184,14 @@ export function AdminEmail() {
     }
   };
 
-  const resetToDefault = async () => {
-    const fallback = data.configFallback.configured
-      ? `the config.ts SMTP block (${data.configFallback.host})`
-      : "logging system emails to the server console";
+  const clearTransport = async () => {
     const ok = await dialog.confirm({
-      title: "Reset email transport?",
-      message: `This removes the dashboard override and reverts to ${fallback}.`,
-      confirmLabel: "Reset",
+      title: "Clear email transport?",
+      message:
+        "This deletes the stored SMTP settings. System emails — password resets, " +
+        "invites, welcomes — will only be written to the server console until a " +
+        "transport is configured again.",
+      confirmLabel: "Clear",
       variant: "danger",
     });
     if (!ok) return;
@@ -203,7 +203,7 @@ export function AdminEmail() {
       setData(next);
       setDraft(seedDraft(next));
     } catch (err) {
-      void dialog.error(err, { title: "Couldn’t reset the email transport" });
+      void dialog.error(err, { title: "Couldn’t clear the email transport" });
     } finally {
       setResetting(false);
     }
@@ -231,23 +231,20 @@ export function AdminEmail() {
                 <h2 className="text-sm font-semibold">Global SMTP</h2>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   Used for system emails — password resets, invites, welcomes —
-                  when a company has no email provider of its own. Saved here,
-                  it overrides the{" "}
-                  <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                    config.ts
-                  </code>{" "}
-                  SMTP block with no restart.
+                  when a company has no email provider of its own. This is the
+                  only place it is configured; saving applies with no restart,
+                  and the password is stored encrypted.
                 </p>
               </div>
               {data.overrideActive && (
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={resetToDefault}
+                  onClick={clearTransport}
                   disabled={resetting || saving}
                 >
                   <RotateCcw size={12} />
-                  {resetting ? "Resetting…" : "Reset"}
+                  {resetting ? "Clearing…" : "Clear"}
                 </Button>
               )}
             </div>

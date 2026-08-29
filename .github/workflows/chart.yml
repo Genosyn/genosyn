@@ -34,29 +34,25 @@ jobs:
         uses: actions/checkout@v6
 
       # The default posture is multi-tenant SaaS, which requires the bootstrap
-      # admin email and SMTP host — lint renders templates, so it needs them too.
+      # admin email — lint renders templates, so it needs it too. SMTP is no
+      # longer a chart value: it is configured post-boot at Admin → Email
+      # transport, so nothing here sets it.
       - name: Helm lint
         run: |
           helm lint Helm/genosyn \
-            --set config.bootstrapMasterAdminEmail=ops@example.com \
-            --set config.smtp.host=smtp.example.com
+            --set config.bootstrapMasterAdminEmail=ops@example.com
           helm lint Helm/genosyn -f Helm/genosyn/values-selfhost.yaml
 
       # Render the shapes users actually deploy, so a template regression
       # fails the PR and not the operator's upgrade.
       - name: Helm template smoke tests
         run: |
-          # Default (multi-tenant SaaS) shape with the two required flags.
+          # Default (multi-tenant SaaS) shape with the one required flag.
+          helm template genosyn Helm/genosyn \
+            --set config.bootstrapMasterAdminEmail=ops@example.com > /dev/null
+          # Production trimmings: TLS ingress, external Postgres, own secrets.
           helm template genosyn Helm/genosyn \
             --set config.bootstrapMasterAdminEmail=ops@example.com \
-            --set config.smtp.host=smtp.example.com > /dev/null
-          # Production trimmings: TLS ingress, external Postgres, own secrets,
-          # SMTP auth.
-          helm template genosyn Helm/genosyn \
-            --set config.bootstrapMasterAdminEmail=ops@example.com \
-            --set config.smtp.host=smtp.example.com \
-            --set config.smtp.user=apikey \
-            --set config.smtp.passwordSecret.name=my-smtp \
             --set postgres.enabled=false \
             --set config.db.postgresUrlSecret.name=my-postgres \
             --set secrets.existingSecret=my-secrets \
@@ -67,7 +63,6 @@ jobs:
           # Cluster without the UserNamespacesSupport gate.
           helm template genosyn Helm/genosyn \
             --set config.bootstrapMasterAdminEmail=ops@example.com \
-            --set config.smtp.host=smtp.example.com \
             --set sandbox.hostUsers=null > /dev/null
           # Single-tenant self-host shape.
           helm template genosyn Helm/genosyn \
@@ -79,8 +74,23 @@ jobs:
             exit 1
           fi
           grep -q "config.bootstrapMasterAdminEmail is required" bare-default.err
-          grep -q "config.smtp.host is required" bare-default.err
           grep -q "values-selfhost.yaml" bare-default.err
+
+      # The rendered config.js is mounted over /app/dist/config.js and must be
+      # valid plain ESM — a template typo would otherwise crash the pod on
+      # import, not at `helm install`.
+      - name: Rendered config.js parses as ESM
+        run: |
+          # Pull the literal block out of the rendered ConfigMap: everything
+          # after `config.js: |`, de-indented by its four spaces.
+          render() {
+            helm template genosyn Helm/genosyn -s templates/configmap.yaml "$@" \
+              | awk 'f { sub(/^    /, ""); print } /^  config\.js: \|/ { f = 1 }'
+          }
+          render --set config.bootstrapMasterAdminEmail=ops@example.com > default-config.mjs
+          render -f Helm/genosyn/values-selfhost.yaml > selfhost-config.mjs
+          node --check default-config.mjs
+          node --check selfhost-config.mjs
 
   publish:
     name: Package & push to GHCR

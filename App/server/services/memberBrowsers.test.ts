@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { after, before, beforeEach, describe, test } from "node:test";
+import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 
+import { config } from "../../config.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
 import { Conversation } from "../db/entities/Conversation.js";
@@ -16,11 +17,13 @@ import { vaultUrlAllowedForEmployee } from "../routes/browserRpc.js";
 import { closeTestDb, initTestDb, insert, resetTestDb, testCompanyId } from "../test/dbHarness.js";
 import { registerBridgeSocket, resetMemberBrowserHubForTests } from "./memberBrowserHub.js";
 import { registerResourceChangeSink } from "./resourceEvents.js";
+import { overrideRuntimeSettingsForTests } from "./runtimeSettings.js";
 import { loadBrowserConfig } from "./agent/tools/mcpSources.js";
 import {
   createMemberBrowser,
   employeeHasMemberBrowserGrant,
   grantMemberBrowser,
+  memberBrowsersEnabled,
   markMemberBrowserOnline,
   memberBrowserUrlAllowed,
   memberBrowserUsableForSession,
@@ -683,5 +686,77 @@ describe("pushing the host policy to the agent", () => {
       [],
     );
     resetMemberBrowserHubForTests();
+  });
+});
+
+/**
+ * The multi-tenant invariant.
+ *
+ * The member-browser switch is an operator-editable runtime setting now, so the
+ * old boot-time refusal in `validateRuntimeSecurity` could only have checked a
+ * value that changes afterwards. The boundary lives in the resolver instead,
+ * and this is what holds it: a shared install can never turn member browsers
+ * on, whatever the setting says.
+ */
+describe("the multi-tenant kill switch", () => {
+  const mutable = config as unknown as { security: { multiTenant: boolean } };
+  const original = mutable.security.multiTenant;
+
+  afterEach(() => {
+    mutable.security.multiTenant = original;
+    overrideRuntimeSettingsForTests(null);
+  });
+
+  test("a single-tenant install follows the runtime setting", () => {
+    mutable.security.multiTenant = false;
+
+    overrideRuntimeSettingsForTests({ agent: { memberBrowsersEnabled: true } });
+    assert.equal(memberBrowsersEnabled(), true);
+
+    overrideRuntimeSettingsForTests({ agent: { memberBrowsersEnabled: false } });
+    assert.equal(memberBrowsersEnabled(), false);
+  });
+
+  test("multi-tenant forces the answer to false even when the setting says on", () => {
+    mutable.security.multiTenant = true;
+    overrideRuntimeSettingsForTests({ agent: { memberBrowsersEnabled: true } });
+
+    assert.equal(memberBrowsersEnabled(), false);
+  });
+
+  test("a browser cannot be resolved for a spawn on a multi-tenant install", async () => {
+    const emp = await employee();
+    const mine = await browser({ ownerUserId: "user_1" });
+    await grantMemberBrowser({ companyId, employeeId: emp.id, memberBrowserId: mine.id });
+    const conversation = await insert(Conversation, {
+      employeeId: emp.id,
+      ownerUserId: "user_1",
+      memberBrowserId: mine.id,
+    });
+
+    // Resolvable on a single-tenant install with the setting on …
+    mutable.security.multiTenant = false;
+    overrideRuntimeSettingsForTests({ agent: { memberBrowsersEnabled: true } });
+    assert.equal(
+      (
+        await resolveMemberBrowserForSpawn({
+          employeeId: emp.id,
+          companyId,
+          conversationId: conversation.id,
+        })
+      )?.id,
+      mine.id,
+    );
+
+    // … and refused on a shared one, with the same setting still on.
+    mutable.security.multiTenant = true;
+    assert.equal(
+      await resolveMemberBrowserForSpawn({
+        employeeId: emp.id,
+        companyId,
+        conversationId: conversation.id,
+      }),
+      null,
+    );
   });
 });

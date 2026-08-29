@@ -25,11 +25,22 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
 
    multiTenant is ON (the chart default). Only
    {{ .Values.config.bootstrapMasterAdminEmail }} may claim the master-admin
-   account, verification mail goes through {{ .Values.config.smtp.host }} —
-   and multiTenant forces Secure session cookies, so the FIRST login must
-   already happen over HTTPS: reach the app through the Ingress with TLS, not
-   a plain http:// port-forward, or the browser will drop the session cookie.
+   account — and multiTenant forces Secure session cookies, so the FIRST
+   login must already happen over HTTPS: reach the app through the Ingress
+   with TLS, not a plain http:// port-forward, or the browser will drop the
+   session cookie.
 {{- end }}
+
+   System email (verification, invites, password resets) is NOT in this
+   chart. Configure it after boot at Admin -> Email transport; it is stored
+   encrypted in the database. Until then boot prints a warning and every
+   such mail — including the bootstrap master admin's own verification link —
+   is written to the pod log instead of being sent. Read it with:
+
+     kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "genosyn.fullname" . }}
+
+   Paste that link into the browser to verify and claim the account, then set
+   up SMTP from the dashboard.
 
 3. Command execution (the coding sandbox)
 {{- if .Values.sandbox.enabled }}

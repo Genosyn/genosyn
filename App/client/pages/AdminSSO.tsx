@@ -405,11 +405,8 @@ export function AdminSSO() {
             <h2 className="text-sm font-semibold">Callback URL</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
               Register this as the authorized redirect URI on the OAuth client
-              at your identity provider. It follows{" "}
-              <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
-                publicUrl
-              </code>{" "}
-              from config.ts — update the provider if that ever changes.
+              at your identity provider. It follows the public URL set at Admin
+              → General — update the provider if that ever changes.
             </p>
           </CardHeader>
           <CardBody>

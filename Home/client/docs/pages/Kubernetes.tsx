@@ -202,8 +202,10 @@ export function Kubernetes() {
       <P>
         <Code>App/config.ts</Code> is compiled into the image at build time, so the live process
         reads <Code>/app/dist/config.js</Code>. To change values without rebuilding, mount a{" "}
-        <Code>ConfigMap</Code> over that path. The compiled shape mirrors{" "}
-        <DocLink to="/docs/self-hosting">the source</DocLink> exactly:
+        <Code>ConfigMap</Code> over that path. The mount <em>replaces</em> the whole object, so
+        every key the server still reads has to be present — which is a short list, because the
+        compiled shape mirrors <DocLink to="/docs/self-hosting">the source</DocLink> exactly and
+        that file is boot configuration only:
       </P>
       <Pre lang="yaml">{`apiVersion: v1
 kind: ConfigMap
@@ -221,13 +223,28 @@ data:
       },
       port: 8471,
       sessionSecret: process.env.GENOSYN_SESSION_SECRET,
-      smtp: {
-        host: "smtp.example.com", port: 587, secure: false,
-        user: "apikey", pass: process.env.GENOSYN_SMTP_PASS,
-        fromName: "Genosyn", from: "no-reply@example.com",
+      security: {
+        multiTenant: false,
+        encryptionSecret: process.env.GENOSYN_ENCRYPTION_SECRET,
+        previousEncryptionSecrets: [],
+        secureCookies: "auto",
+        sessionMaxAgeDays: 7,
+        trustedProxyHops: 1,
+        outboundPrivateHostAllowlist: [],
+        outboundRequestTimeoutMs: 15_000,
+        outboundMaxResponseBytes: 25 * 1024 * 1024,
+        authRateLimit: { windowMinutes: 15, maxAttempts: 10, blockMinutes: 15 },
+        bootstrapMasterAdminEmail: "operator@example.com",
       },
-      integrations: {
-        google: { clientId: "", clientSecret: "" },
+      agent: {
+        codingTools: {
+          enabled: true,
+          executionMode: "bubblewrap",
+          bubblewrapPath: "/usr/bin/bwrap",
+          allowNetwork: false,
+          allowUnsafeHostExecution: false,
+        },
+        browserEnabledInMultiTenant: false,
       },
     };`}</Pre>
       <Callout kind="tip" title="Why process.env here is fine.">
@@ -237,10 +254,21 @@ data:
         with <Code>env:</Code> or <Code>envFrom:</Code> on the pod.
       </Callout>
       <P>
-        The public URL is not part of this mounted file. After the first master admin signs in,
-        review and save <Code>https://genosyn.example.com</Code> at{" "}
-        <Code>Admin → General</Code>. The value is stored in Postgres and shared by every replica.
+        Nothing operational belongs in this file. The SMTP transport, web tools, mail sync pacing,
+        meetings, the container&apos;s browser, and the agent&apos;s taint policy, member browsers,
+        and tool discovery all live in the database and are edited at <Code>Admin → Runtime</Code>{" "}
+        and <Code>Admin → Email transport</Code> — so a settings change is a form submit, not a
+        ConfigMap edit and a rollout. Nor is the public URL here: after the first master admin signs
+        in, review and save <Code>https://genosyn.example.com</Code> at <Code>Admin → General</Code>.
+        Those values are stored in Postgres and shared by every replica.
       </P>
+      <Callout kind="info" title="Claiming the first account before SMTP exists.">
+        A fresh install has no mail transport, so the bootstrap master admin&apos;s verification
+        link is written to the pod log instead of being sent. Read it with{" "}
+        <Code>kubectl logs -n genosyn deploy/genosyn</Code>, open it in the browser to claim the
+        account, then configure SMTP at <Code>Admin → Email transport</Code>. Boot warns until you
+        do, and <Code>Admin → Instance Health</Code> flags the transport meanwhile.
+      </Callout>
       <P>
         Sensitive values go in a separate <Code>Secret</Code>:
       </P>
@@ -253,7 +281,7 @@ type: Opaque
 stringData:
   GENOSYN_POSTGRES_URL: postgresql://genosyn:****@postgres:5432/genosyn
   GENOSYN_SESSION_SECRET: "<32+ random bytes>"
-  GENOSYN_SMTP_PASS: "<smtp password or api key>"`}</Pre>
+  GENOSYN_ENCRYPTION_SECRET: "<a different 32+ random bytes>"`}</Pre>
 
       <H2 id="manifests">PVC, Deployment, Service, Ingress</H2>
       <P>

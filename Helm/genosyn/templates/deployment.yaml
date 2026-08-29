@@ -91,13 +91,6 @@ spec:
                 secretKeyRef:
                   name: {{ $instanceSecret }}
                   key: encryptionSecret
-            {{- if .Values.config.smtp.passwordSecret.name }}
-            - name: GENOSYN_SMTP_PASS
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.config.smtp.passwordSecret.name }}
-                  key: {{ .Values.config.smtp.passwordSecret.key | default "password" }}
-            {{- end }}
             {{- if .Values.config.db.postgresUrlSecret.name }}
             - name: GENOSYN_POSTGRES_URL
               valueFrom:

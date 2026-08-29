@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
-import { after, before, beforeEach, describe, test } from "node:test";
+import { after, afterEach, before, beforeEach, describe, test } from "node:test";
 
 import { AppDataSource } from "../../db/datasource.js";
 import { CalendarAccount } from "../../db/entities/CalendarAccount.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
-import { type MeetingHeartbeatDependencies, runMeetingsHeartbeat } from "./boot.js";
+import { overrideRuntimeSettingsForTests } from "../runtimeSettings.js";
+import {
+  meetingsHeartbeatTick,
+  resetMeetingsHeartbeatPacingForTests,
+  runMeetingsHeartbeat,
+  type MeetingHeartbeatDependencies,
+} from "./boot.js";
 
 before(initTestDb);
 beforeEach(resetTestDb);
@@ -85,5 +91,83 @@ describe("meeting calendar heartbeat", () => {
         .status,
       "active",
     );
+  });
+});
+
+/**
+ * The heartbeat's pacing and its master switch.
+ *
+ * Both used to be frozen at module load — the interval into a `const`, the
+ * switch into an early return from `bootMeetings()` — so changing either meant
+ * restarting the process. They are operator-editable runtime settings now, and
+ * the timer runs on a fixed short tick that re-reads them, so the tick itself
+ * has to make the decision. That is what these cover.
+ */
+describe("the heartbeat tick reads its settings every time", () => {
+  beforeEach(() => {
+    resetMeetingsHeartbeatPacingForTests();
+    overrideRuntimeSettingsForTests(null);
+  });
+
+  afterEach(() => {
+    overrideRuntimeSettingsForTests(null);
+  });
+
+  /** The tick is fire-and-forget, so wait for its effect rather than for it. */
+  async function syncStateOf(id: string): Promise<string> {
+    const row = await AppDataSource.getRepository(CalendarAccount).findOneByOrFail({ id });
+    return row.syncState;
+  }
+
+  async function waitForWork(id: string, timeoutMs = 3_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if ((await syncStateOf(id)) !== "idle") return true;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return false;
+  }
+
+  test("a tick does no work at all while meetings are turned off", async () => {
+    const row = await account("active");
+    overrideRuntimeSettingsForTests({ meetings: { enabled: false } });
+
+    meetingsHeartbeatTick();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // Turning the section off stops the heartbeat without a restart.
+    assert.equal(await syncStateOf(row.id), "idle");
+  });
+
+  test("turning meetings back on resumes work on the very next tick", async () => {
+    const row = await account("active");
+    overrideRuntimeSettingsForTests({ meetings: { enabled: false } });
+    meetingsHeartbeatTick();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(await syncStateOf(row.id), "idle");
+
+    overrideRuntimeSettingsForTests({ meetings: { enabled: true } });
+    meetingsHeartbeatTick();
+
+    assert.equal(await waitForWork(row.id), true);
+  });
+
+  test("a second tick inside the configured interval is a no-op", async () => {
+    const row = await account("active");
+    overrideRuntimeSettingsForTests({ meetings: { enabled: true, syncIntervalSeconds: 3_600 } });
+
+    meetingsHeartbeatTick();
+    assert.equal(await waitForWork(row.id), true);
+
+    // Back to idle so a second pass would be visible …
+    await AppDataSource.getRepository(CalendarAccount).update({ id: row.id }, { syncState: "idle" });
+    meetingsHeartbeatTick();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(await syncStateOf(row.id), "idle");
+
+    // … and it is, once the interval is treated as elapsed.
+    resetMeetingsHeartbeatPacingForTests();
+    meetingsHeartbeatTick();
+    assert.equal(await waitForWork(row.id), true);
   });
 });

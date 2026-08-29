@@ -93,7 +93,7 @@ export function buildRegistry(params: {
  * A registry with everything resident — the shape the runtime had before
  * deferral existed.
  *
- * This is what `config.agent.toolDiscovery.enabled = false` produces, and it is
+ * This is what turning tool discovery off at Admin → Runtime produces, and it is
  * deliberately a real code path rather than a flag checked in six places: the
  * revert has to be one branch that is obviously equivalent to the old
  * behaviour, or it isn't a revert anyone will trust at 3am.

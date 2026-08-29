@@ -14,6 +14,7 @@ import {
   type BrowserConfig,
 } from "./mcpSources.js";
 import { config } from "../../../../config.js";
+import { getAgentSettings } from "../../runtimeSettings.js";
 import type { PrivilegedToolCallAuthorizer } from "../../memberTurnAuthority.js";
 
 /**
@@ -217,7 +218,7 @@ export async function gatherEmployeeTools(params: {
   // in runEmployee is the backstop if that exceeds a provider cap — grant-dead
   // tools were already sorted to the tail for exactly this. The briefing reads
   // the same flag so it doesn't promise a `find_tools` that isn't there.
-  const discovery = config.agent.toolDiscovery;
+  const discovery = getAgentSettings().toolDiscovery;
   if (!discovery.enabled || tools.length < discovery.minCatalogueSize) {
     return {
       registry: buildRegistry({

@@ -1,4 +1,5 @@
 import { config } from "../../config.js";
+import { getAgentSettings } from "./runtimeSettings.js";
 import { AppDataSource } from "../db/datasource.js";
 import { Approval } from "../db/entities/Approval.js";
 import { isTokenTainted } from "./mcpTokens.js";
@@ -67,7 +68,7 @@ export function parseTaintedToolPayload(raw: string | null): TaintedToolPayload 
 
 /** Whether this turn's call to `toolName` must queue instead of execute. */
 export function taintGateApplies(token: string | undefined, toolName: string): boolean {
-  if (config.agent.taintPolicy === "off") return false;
+  if (getAgentSettings().taintPolicy === "off") return false;
   if (!token) return false;
   if (!TAINT_SINK_TOOLS.has(toolName)) return false;
   return isTokenTainted(token);

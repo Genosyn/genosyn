@@ -2,6 +2,7 @@ import type { AIEmployee } from "../../db/entities/AIEmployee.js";
 import type { Company } from "../../db/entities/Company.js";
 import type { Skill } from "../../db/entities/Skill.js";
 import { config } from "../../../config.js";
+import { getAgentSettings } from "../runtimeSettings.js";
 import { TOOL_DOMAINS } from "./tools/toolIndex.js";
 import { codingRuntimeAvailability } from "./codingAvailability.js";
 
@@ -137,7 +138,7 @@ export function toolsBriefing(
   // no find_tools/call_tool to reach for — so promising them would send the
   // model chasing tools that do not exist. The flag is the dominant signal: the
   // catalogue is always large enough to clear minCatalogueSize in practice.
-  const discovery = config.agent.toolDiscovery.enabled;
+  const discovery = getAgentSettings().toolDiscovery.enabled;
 
   const lines: string[] = [
     "",

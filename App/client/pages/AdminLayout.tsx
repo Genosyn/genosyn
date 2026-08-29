@@ -14,6 +14,7 @@ import {
   Plug2,
   Settings,
   ServerCog,
+  SlidersHorizontal,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -44,6 +45,7 @@ const ADMIN_TAB_LABEL: Record<string, string> = {
   db: "Database",
   migrations: "Migrations",
   email: "Email transport",
+  runtime: "Runtime",
   integrations: "Integrations",
   signups: "Sign-ups",
   sso: "SSO",
@@ -107,6 +109,11 @@ export default function AdminLayout({
           to={`${base}/email`}
           icon={<Mail size={14} />}
           label="Email transport"
+        />
+        <SidebarLink
+          to={`${base}/runtime`}
+          icon={<SlidersHorizontal size={14} />}
+          label="Runtime"
         />
         <SidebarLink
           to={`${base}/integrations`}

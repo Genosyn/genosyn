@@ -6,7 +6,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 
 import express from "express";
 
-import { config } from "../../config.js";
+import { overrideRuntimeSettingsForTests } from "../services/runtimeSettings.js";
 import { AppDataSource } from "../db/datasource.js";
 import { Account, AccountType } from "../db/entities/Account.js";
 import { Bill } from "../db/entities/Bill.js";
@@ -54,7 +54,6 @@ let actingUserId: string | null = null;
 let company: Company;
 let customer: Customer;
 
-const originalChromePath = config.browser.executablePath;
 const originalLog = console.log;
 const originalWarn = console.warn;
 
@@ -65,8 +64,9 @@ before(async () => {
   // swallows a launch failure and sends the HTML-only email instead, so
   // pointing it at a binary that does not exist keeps these tests on the code
   // path they are actually about, in milliseconds.
-  (config.browser as { executablePath: string }).executablePath =
-    "/nonexistent/chrome-for-tests";
+  overrideRuntimeSettingsForTests({
+    browser: { executablePath: "/nonexistent/chrome-for-tests" },
+  });
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -88,7 +88,7 @@ after(async () => {
     server.close((error) => (error ? reject(error) : resolve()));
   });
   await closeTestDb();
-  (config.browser as { executablePath: string }).executablePath = originalChromePath;
+  overrideRuntimeSettingsForTests(null);
 });
 
 beforeEach(async () => {

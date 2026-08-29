@@ -72,8 +72,9 @@ export function Email() {
       <Callout kind="info" title="No Google Cloud Pub/Sub required.">
         Sync is poll-based on a short interval, so there is nothing to set up beyond the Google
         connection itself. Self-hosted installs get a working inbox with zero extra ceremony. (On a
-        very large account you can cap the first import to recent mail with{" "}
-        <Code>config.mail.backfillDays</Code>; the default imports everything.)
+        very large account a master admin can cap the first import to recent mail with{" "}
+        <Strong>Backfill days</Strong> at <Code>Admin → Runtime</Code>; the default imports
+        everything.)
       </Callout>
 
       <H2 id="using">Reading and answering mail</H2>

@@ -396,18 +396,20 @@ export const config = {
     },
     browserEnabledInMultiTenant: false,
   },
-  smtp: {
-    host: "",
-    port: 587,
-    secure: false,
-    user: "",
-    pass: "",
-    fromName: "Genosyn",
-    from: "no-reply@genosyn.local",
-  },
-  integrations: { google: { clientId: "", clientSecret: "" } /* … */ },
 } as const;
 ```
+
+Secrets, database coordinates, and the fail-closed security posture — and
+nothing else. Everything operational is a database-backed runtime setting
+edited from the dashboard: the web tools, mail sync tuning, meetings, the
+container's browser, and the agent's taint policy / member browsers / tool
+discovery at **Admin → Runtime** (`services/runtimeSettings.ts`, one
+`runtime.*` `AppSetting` row per group); the global SMTP transport at
+**Admin → Email transport**; the public URL at **Admin → General**; OAuth
+app credentials at **Admin → Integrations**. An install upgrading from the
+old shape — including a Kubernetes ConfigMap still rendering the old
+`config.js` — has those blocks imported into the database once at boot by
+`importLegacyConfigOverrides()`, and they are inert afterwards.
 
 ---
 
@@ -840,8 +842,9 @@ the reply.
       content, and the system prompt says plainly that attachments, pages, and
       email bodies are data — text inside them addressing the model is the
       document's author talking, not the teammate.
-- [x] **Operator controls** in `config.ts` (`web.enabled`,
-      `web.searchProvider`, size and text caps). Search defaults to
+- [x] **Operator controls** at **Admin → Runtime** (`web.enabled`,
+      `web.searchProvider`, size and text caps — in `config.ts` until they
+      became database-backed runtime settings). Search defaults to
       DuckDuckGo's no-JavaScript HTML endpoint — the only backend a
       self-hosted install can ship with no account and no API key. The parser
       is isolated and covered against captured markup so an upstream change
@@ -3372,6 +3375,38 @@ hired). See decision 14 for the model.
       rather than failing the completing PATCH). Self-hosted stays unlimited.
       The pricing page leads with the value frame — an employee-grade hire
       for $19 a month, not thousands — instead of a bare per-unit price.
+
+### M57 — config.ts is boot only ✅
+
+An operator should not edit a file and restart a container to change how
+often a mailbox polls. `config.ts` went from 293 lines to 129: it now holds
+secrets, database coordinates, and the fail-closed security posture, and
+nothing else.
+
+- [x] **Runtime settings.** `services/runtimeSettings.ts` owns one
+      `runtime.*` `AppSetting` row per group — web tools, mail sync,
+      meetings, browser, agent (taint policy, member browsers, tool
+      discovery) — with tolerant per-field parsing (a corrupt value falls
+      back to its default rather than taking the group down) and one shared
+      30s refresh behind synchronous getters, the `publicUrl` pattern. Edited
+      at **Admin → Runtime**, per-group save and reset-to-defaults.
+- [x] **Two settings stopped being frozen at boot.** The meetings heartbeat
+      read its interval at module load and the recording cap was baked into
+      multer at route construction; both now read live, so toggling meetings
+      off stops the work without a restart.
+- [x] **Deleted rather than moved.** The `smtp` block was a legacy fallback
+      behind the DB transport — and a plaintext password in a file baked into
+      the image. `integrations.google` had no runtime consumers at all.
+- [x] **Nobody's install changes under them.** `importLegacyConfigOverrides()`
+      runs once at boot: any removed block still present in the object — an
+      unedited source install, or a Kubernetes ConfigMap rendering the old
+      `config.js` — is written into the database with that install's exact
+      effective values, then ignored forever. Extra keys are inert; nothing
+      enumerates the config object.
+- [x] **The multi-tenant SMTP requirement stopped being fatal.** It now warns
+      loudly instead of refusing to boot, because a fresh cloud install has
+      to reach the dashboard that configures SMTP. Verification links print
+      to the server log until it is set.
 
 ## V1 backlog (post-MVP)
 

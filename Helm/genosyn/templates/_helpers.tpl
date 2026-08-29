@@ -102,9 +102,12 @@ Included from deployment.yaml so it runs on every render.
 {{- if not (default "" .Values.config.bootstrapMasterAdminEmail | trim) -}}
 {{- $problems = append $problems "config.bootstrapMasterAdminEmail is required (multi-tenant bootstrap predeclares the only email allowed to claim the first master admin) — fix: --set config.bootstrapMasterAdminEmail=you@example.com" -}}
 {{- end -}}
-{{- if not (default "" .Values.config.smtp.host | trim) -}}
-{{- $problems = append $problems "config.smtp.host is required (multi-tenant boot refuses without a system SMTP for verification and recovery mail) — fix: --set config.smtp.host=smtp.example.com" -}}
-{{- end -}}
+{{/*
+No SMTP check: the system mail transport is configured after boot at
+Admin → Email transport (stored encrypted in the database), not in values.
+Boot warns loudly until it is set and mails the verification link to the pod
+log in the meantime, which is how the bootstrap master admin gets in.
+*/}}
 {{- if not .Values.sandbox.enabled -}}
 {{- $problems = append $problems "sandbox.enabled must be true (multi-tenant boot refuses without a working bubblewrap sandbox) — fix: --set sandbox.enabled=true" -}}
 {{- end -}}

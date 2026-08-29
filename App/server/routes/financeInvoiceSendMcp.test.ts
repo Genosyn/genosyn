@@ -6,7 +6,7 @@ import { after, before, beforeEach, test } from "node:test";
 
 import express from "express";
 
-import { config } from "../../config.js";
+import { overrideRuntimeSettingsForTests } from "../services/runtimeSettings.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
@@ -39,7 +39,6 @@ let company: Company;
 let customer: Customer;
 let employee: AIEmployee;
 
-const originalChromePath = config.browser.executablePath;
 const originalLog = console.log;
 const originalWarn = console.warn;
 
@@ -47,8 +46,9 @@ before(async () => {
   await initTestDb();
   // See financeSendStrandedSlug.test.ts: keep the PDF renderer from launching
   // a real browser, which costs ~24s per send and is not what this tests.
-  (config.browser as { executablePath: string }).executablePath =
-    "/nonexistent/chrome-for-tests";
+  overrideRuntimeSettingsForTests({
+    browser: { executablePath: "/nonexistent/chrome-for-tests" },
+  });
   const app = express();
   app.use(express.json());
   app.use("/internal/mcp", mcpInternalRouter);
@@ -65,7 +65,7 @@ after(async () => {
     server.close((error) => (error ? reject(error) : resolve()));
   });
   await closeTestDb();
-  (config.browser as { executablePath: string }).executablePath = originalChromePath;
+  overrideRuntimeSettingsForTests(null);
 });
 
 beforeEach(async () => {

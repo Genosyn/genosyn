@@ -5,11 +5,17 @@ import path from "node:path";
 import test, { afterEach, beforeEach } from "node:test";
 import { config } from "../../config.js";
 import { resetInstanceSecretsCacheForTests } from "../lib/instanceSecrets.js";
+import { closeTestDb, initTestDb, resetTestDb } from "../test/dbHarness.js";
+import {
+  resetGlobalSmtpCacheForTests,
+  updateGlobalSmtpOverride,
+} from "./globalEmailTransport.js";
 import {
   bubblewrapProbeError,
   resetBubblewrapProbeCacheForTests,
   resolveCodingExecutionMode,
   secureSessionCookies,
+  validateRuntimeDependencies,
   validateRuntimeSecurity,
 } from "./runtimeSecurity.js";
 
@@ -306,4 +312,66 @@ test("unsafe shared hosting reports every actionable boundary at once", () => {
     }
     return true;
   });
+});
+
+/**
+ * A fresh multi-tenant install has no SMTP row and no admin yet. It used to
+ * refuse to boot, which locked the operator out of the only screen that could
+ * fix it. It now warns, loudly, and comes up.
+ */
+test("multi-tenant boots without SMTP and warns instead of throwing", async () => {
+  await initTestDb();
+  await resetTestDb();
+  resetGlobalSmtpCacheForTests();
+  mutable.security.multiTenant = true;
+
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  // eslint-disable-next-line no-console
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
+  try {
+    await validateRuntimeDependencies();
+  } finally {
+    // eslint-disable-next-line no-console
+    console.warn = originalWarn;
+  }
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /MULTI-TENANT INSTALL WITHOUT SYSTEM SMTP/);
+  // Actionable: it says where to fix it and what happens until then.
+  assert.match(warnings[0], /Admin → Email transport/);
+  assert.match(warnings[0], /printed to this log/);
+});
+
+test("a configured transport boots multi-tenant silently", async () => {
+  await initTestDb();
+  await resetTestDb();
+  resetGlobalSmtpCacheForTests();
+  mutable.security.multiTenant = true;
+  await updateGlobalSmtpOverride({
+    host: "smtp.acme.test",
+    port: 587,
+    secure: false,
+    user: "",
+    pass: "",
+    from: "no-reply@acme.test",
+  });
+
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  // eslint-disable-next-line no-console
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map(String).join(" "));
+  };
+  try {
+    await validateRuntimeDependencies();
+  } finally {
+    // eslint-disable-next-line no-console
+    console.warn = originalWarn;
+  }
+
+  assert.deepEqual(warnings, []);
+  await closeTestDb();
 });

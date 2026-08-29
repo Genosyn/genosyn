@@ -193,7 +193,8 @@ exists to prevent.
 - **Auth:** bcrypt + `cookie-session`. No JWT libraries, no Auth0/Clerk.
 - **Email (transactional):** per-company `EmailProvider` rows pick the
   transport (SMTP via `nodemailer`, or SendGrid / Mailgun / Resend / Postmark
-  via REST). Falls back to the global SMTP block in `config.ts` for
+  via REST). Falls back to the install-wide global SMTP transport — configured
+  at **Admin → Email transport**, stored encrypted in `AppSetting` — for
   system-level sends, then to the console. Every transactional send appends an
   `EmailLog` row; company-scoped rows are visible at Settings → Email Logs
   (system sends — welcome, password reset, global SMTP test — carry a null
@@ -214,17 +215,36 @@ not, flag the addition in the PR description.
 
 ## 5. Config
 
-Boot-critical runtime settings live in `App/config.ts` as a single exported
-object with **commented JSON-shape**. There is **no `.env` file** in this
-project — do not introduce `dotenv`, `config-yaml`, `.env.*`, or
-per-environment config files. One file (`config.ts`), one object, comments
-above each field. Users who want to override boot settings edit `config.ts`
-directly.
+`App/config.ts` is **boot configuration only** — the short list of things that
+must be settled before the process can accept a request. It keeps exactly:
+`dataDir`, `db`, `port`, `sessionSecret`, the whole `security` block, and
+`agent.codingTools` + `agent.browserEnabledInMultiTenant`. That is secrets,
+database coordinates, and the fail-closed security posture, and nothing else.
+It is a single exported object with **commented JSON-shape**. There is **no
+`.env` file** in this project — do not introduce `dotenv`, `config-yaml`,
+`.env.*`, or per-environment config files.
 
-Settings that an operator can safely change while the app is running live in
-the `AppSetting` table and are managed by a master admin. The browser-facing
-public URL is stored under `instance.publicUrl` and edited at **Admin →
-General**; do not reintroduce it in `config.ts`.
+**Everything an operator can safely change while the app is running lives in
+the `AppSetting` table and is edited by a master admin in the dashboard.** Do
+not add an operational knob to `config.ts`; an operator should never edit a
+file and restart a container to change how often a mailbox polls.
+
+| What | Where it is edited | Key |
+| --- | --- | --- |
+| Web tools, mail sync, meetings, browser, agent knobs | **Admin → Runtime** | `runtime.*` (`server/services/runtimeSettings.ts`) |
+| Global SMTP transport | **Admin → Email transport** | `smtp.global` |
+| Browser-facing public URL | **Admin → General** | `instance.publicUrl` |
+| OAuth app credentials | **Admin → Integrations** | `oauth.apps` |
+
+`services/runtimeSettings.ts` owns every `runtime.*` group: types, defaults,
+tolerant per-field parsing, synchronous cached getters on a shared 30s refresh
+(the `services/publicUrl.ts` pattern), and the group writers. New runtime
+settings go in that module, not in a new one and not in `config.ts`.
+
+An install upgrading from the old, fatter `config.ts` — including a Kubernetes
+ConfigMap still rendering it — keeps its behavior: `importLegacyConfigOverrides()`
+copies any surviving block into its `AppSetting` row once at boot and never
+clobbers a row an operator has already saved.
 
 Users flip `config.db.driver` from `"sqlite"` to `"postgres"` to upgrade.
 Entities and migrations must work on both.
@@ -551,6 +571,11 @@ public site until it reaches `release`. See
   survives `toolBudget.test.ts`, or collapsing new tools into an
   `op`-dispatched family. Families are retired (ROADMAP M30) — defer the
   granular tools instead.
+- Adding an operational knob to `App/config.ts`. That file is boot
+  configuration only (secrets, database coordinates, the fail-closed security
+  posture). Anything an operator can safely change while the app runs goes in
+  `services/runtimeSettings.ts` and gets a control at Admin → Runtime. See
+  section 5.
 - Skipping the zod schema on a new endpoint.
 - Hand-writing a migration file. Always run
   `npm run migration:generate -- server/db/migrations/<Name>` and commit

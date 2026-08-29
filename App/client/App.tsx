@@ -48,6 +48,7 @@ import { AdminInstanceHealth } from "./pages/AdminInstanceHealth";
 import { AdminDbConsole } from "./pages/AdminDbConsole";
 import { AdminMigrations } from "./pages/AdminMigrations";
 import { AdminEmail } from "./pages/AdminEmail";
+import { AdminRuntime } from "./pages/AdminRuntime";
 import { AdminIntegrations } from "./pages/AdminIntegrations";
 import { AdminSignups } from "./pages/AdminSignups";
 import { AdminSSO } from "./pages/AdminSSO";
@@ -730,6 +731,7 @@ function CompanyRoutes({
             <Route path="db" element={<AdminDbConsole />} />
             <Route path="migrations" element={<AdminMigrations />} />
             <Route path="email" element={<AdminEmail />} />
+            <Route path="runtime" element={<AdminRuntime />} />
             <Route path="integrations" element={<AdminIntegrations />} />
             <Route path="signups" element={<AdminSignups />} />
             <Route path="sso" element={<AdminSSO />} />

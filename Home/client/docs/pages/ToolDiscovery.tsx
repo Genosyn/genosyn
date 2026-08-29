@@ -107,10 +107,11 @@ export function ToolDiscovery() {
 
       <H2 id="turning-it-off">Turning it off</H2>
       <P>
-        Set <Code>agent.toolDiscovery.enabled</Code> to <Code>false</Code> in{" "}
-        <Code>App/config.ts</Code> and every tool is sent on every request again, exactly as before.
-        Nothing else changes. The switch exists because a model that does not think to search is the
-        one real risk this design carries, and an operator who hits it should not need to downgrade.
+        A master admin turns <Strong>Tool discovery</Strong> off at <Code>Admin → Runtime</Code>,
+        under <Strong>Agent</Strong>, and every tool is sent on every request again, exactly as
+        before. It takes effect on the next turn — no restart. Nothing else changes. The switch
+        exists because a model that does not think to search is the one real risk this design
+        carries, and an operator who hits it should not need to downgrade.
       </P>
       <P>
         Older employees are unaffected in one specific way worth knowing: Skills written before this

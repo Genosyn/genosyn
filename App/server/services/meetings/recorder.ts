@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { UpdateQueryBuilder } from "typeorm";
 
 import { config } from "../../../config.js";
+import { getMeetingsSettings } from "../runtimeSettings.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { CalendarAccount } from "../../db/entities/CalendarAccount.js";
@@ -146,8 +147,9 @@ export async function attachRecording(args: {
   if (!meeting) return { ok: false, error: "Meeting not found." };
 
   if (args.bytes.length === 0) return { ok: false, error: "The uploaded recording is empty." };
-  if (args.bytes.length > config.meetings.maxRecordingBytes) {
-    const mb = Math.round(config.meetings.maxRecordingBytes / (1024 * 1024));
+  const maxRecordingBytes = getMeetingsSettings().maxRecordingBytes;
+  if (args.bytes.length > maxRecordingBytes) {
+    const mb = Math.round(maxRecordingBytes / (1024 * 1024));
     return { ok: false, error: `Recordings are limited to ${mb} MB.` };
   }
 
@@ -667,8 +669,9 @@ async function runClaimedNotetaker(
     // Preserve those bytes; the signal only means "leave the call", not
     // "discard everything already captured".
     if (result.bytes.length === 0) throw new Error("The notetaker returned an empty recording.");
-    if (result.bytes.length > config.meetings.maxRecordingBytes) {
-      const mb = Math.round(config.meetings.maxRecordingBytes / (1024 * 1024));
+    const maxRecordingBytes = getMeetingsSettings().maxRecordingBytes;
+    if (result.bytes.length > maxRecordingBytes) {
+      const mb = Math.round(maxRecordingBytes / (1024 * 1024));
       throw new Error(`Recordings are limited to ${mb} MB.`);
     }
     const mime = result.mime.toLowerCase();

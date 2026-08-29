@@ -104,8 +104,8 @@ export type EmailProviderCatalogEntry = {
   fields: EmailProviderField[];
   /**
    * Optional non-secret prefill for the connect form, applied only when
-   * adding a *new* provider. Used to seed the SMTP form from the global
-   * `config.ts` SMTP block so operators don't retype host / port / user.
+   * adding a *new* provider. Used to seed the SMTP form from the install-wide
+   * global SMTP transport so operators don't retype host / port / user.
    * Secrets (the password) are never included here.
    */
   prefill?: {
@@ -258,8 +258,8 @@ export function getProviderCatalogEntry(
 
 /**
  * The connect-form catalog, with the SMTP entry pre-seeded from the effective
- * global SMTP transport when the operator has configured one (the Admin →
- * Email transport override, else the `config.ts` block). Only non-secret
+ * global SMTP transport when the operator has configured one at Admin →
+ * Email transport. Only non-secret
  * fields are seeded — the password is never exposed, so the form leaves it
  * blank for the user to enter. When no global SMTP host is configured the
  * catalog is returned unchanged.

@@ -69,10 +69,20 @@ db: {
 },
 sessionSecret: "<different 32+ character random secret>",`}</Pre>
       <P>
-        A working global SMTP transport is also mandatory because new Members must verify their
-        email and account recovery must reach a mailbox. Configure{" "}
-        <Strong>Admin → Email transport</Strong> or the <Code>smtp</Code> block before enabling
-        shared SaaS mode.
+        Those are the boot settings — the whole of <Code>config.ts</Code> that matters here.
+        Operational settings are not in the file at all; they live in the database and are edited at{" "}
+        <Strong>Admin → Runtime</Strong> without a restart. Shared SaaS still forces the isolation
+        boundaries regardless of what is saved there: member browsers are refused in multi-tenant
+        mode even when the setting is on.
+      </P>
+      <P>
+        A working global SMTP transport is effectively mandatory because new Members must verify
+        their email and account recovery must reach a mailbox. It is <em>not</em> a boot
+        requirement — a fresh install has no database row and no operator yet, so boot warns loudly
+        and writes system mail to the server log rather than refusing to start. That is how the
+        bootstrap operator claims the first account. Configure{" "}
+        <Strong>Admin → Email transport</Strong> immediately afterwards, before inviting anyone
+        else; <Strong>Admin → Instance Health</Strong> keeps flagging the transport until you do.
       </P>
       <P>
         On the first operator sign-in, Genosyn detects the same-origin browser URL. Review and save
@@ -89,11 +99,12 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
           The Bubblewrap binary exists, shell networking is off, and the shared browser is off.
         </LI>
         <LI>No private outbound hostname exception is configured.</LI>
-        <LI>A bootstrap operator email and system SMTP transport are configured.</LI>
+        <LI>A bootstrap operator email is configured.</LI>
       </UL>
       <P>
         If any check fails, Genosyn exits with the exact unsafe setting instead of silently starting
-        in a partial posture.
+        in a partial posture. The system SMTP transport is the one exception: it is checked at boot
+        but only warned about, because the dashboard that configures it has to be reachable first.
       </P>
 
       <H2 id="tenancy">Tenant and identity boundaries</H2>
@@ -186,14 +197,21 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
       <H2 id="launch">Launch checklist</H2>
       <OL>
         <LI>Start with an empty Postgres database and let the Postgres migration stream apply.</LI>
-        <LI>Configure HTTPS, trusted proxy hops, strong secrets, SMTP, and the bootstrap email.</LI>
+        <LI>Configure HTTPS, trusted proxy hops, strong secrets, and the bootstrap email.</LI>
         <LI>
           Run the container with Bubblewrap/user namespaces available and shell network disabled.
         </LI>
         <LI>
-          Create the operator account using the exact bootstrap email, then verify it. The account
-          is not a master admin and cannot reach operator APIs before that verification succeeds;
-          verification revokes the pre-verification session, so sign in again.
+          Create the operator account using the exact bootstrap email, then verify it. With no
+          transport configured yet, that verification link is written to the server log — copy it
+          from there. The account is not a master admin and cannot reach operator APIs before the
+          verification succeeds; verification revokes the pre-verification session, so sign in
+          again.
+        </LI>
+        <LI>
+          Configure the system SMTP transport at <Strong>Admin → Email transport</Strong> and send
+          the test message, before inviting anyone else. Until this passes, no other Member can
+          verify an address or recover a password.
         </LI>
         <LI>
           Enroll an authenticator, passkey, or security key, then sign in again with that factor to

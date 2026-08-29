@@ -4,6 +4,20 @@ blessed Kubernetes override is mounting this file over that path (subPath) —
 the deployment does exactly that. The shape below mirrors App/config.ts
 faithfully; it must stay valid plain ESM JavaScript (no TypeScript).
 Secrets are read through process.env.* names the deployment injects.
+
+The overlay REPLACES the whole config object, so every key the server still
+reads must appear here. It is deliberately short: config.ts is now boot
+configuration only (secrets, database coordinates, the fail-closed security
+posture). Everything operational — web tools, mail sync, meetings, the
+container's browser, the agent's taint policy / member browsers / tool
+discovery, and the system SMTP transport — lives in the database and is
+edited at Admin → Runtime and Admin → Email transport.
+
+A ConfigMap rendered by an OLDER chart still carries those blocks. That stays
+harmless: nothing enumerates or validates config keys, so a stale key is
+simply never read — and on the first boot after the upgrade the server copies
+any surviving block into its AppSetting row (importLegacyConfigOverrides), so
+the install keeps its behavior without an operator touching values.yaml.
 */}}
 apiVersion: v1
 kind: ConfigMap
@@ -53,58 +67,10 @@ data:
           allowNetwork: false,
           allowUnsafeHostExecution: false,
         },
-        taintPolicy: "web",
+        // The app-owned Chromium shares the API container; multi-tenant boot
+        // validation refuses it. Member browsers are a runtime setting now
+        // (Admin → Runtime) and are forced off in multi-tenant regardless.
         browserEnabledInMultiTenant: false,
-        memberBrowsersEnabled: {{ not .Values.config.multiTenant }},
-        toolDiscovery: {
-          enabled: true,
-          minCatalogueSize: 40,
-        },
-      },
-      browser: {
-        executablePath: "",
-        headless: "auto",
-        locale: "",
-        timezone: "",
-        humanize: true,
-      },
-      smtp: {
-        host: {{ .Values.config.smtp.host | quote }},
-        port: {{ int .Values.config.smtp.port }},
-        secure: {{ .Values.config.smtp.secure }},
-        user: {{ .Values.config.smtp.user | quote }},
-        {{- if .Values.config.smtp.passwordSecret.name }}
-        pass: process.env.GENOSYN_SMTP_PASS ?? "",
-        {{- else }}
-        pass: "",
-        {{- end }}
-        fromName: {{ .Values.config.smtp.fromName | quote }},
-        from: {{ .Values.config.smtp.from | quote }},
-      },
-      integrations: {
-        google: {
-          clientId: "",
-          clientSecret: "",
-        },
-      },
-      mail: {
-        syncIntervalSec: 60,
-        backfillThreadsPerPass: 200,
-        backfillPassSeconds: 25,
-        backfillDays: 0,
-      },
-      web: {
-        enabled: true,
-        searchProvider: "duckduckgo",
-        maxSearchResults: 8,
-        maxDocumentBytes: 10 * 1024 * 1024,
-        maxTextChars: 20_000,
-      },
-      meetings: {
-        enabled: true,
-        syncIntervalSeconds: 300,
-        transcriptionModel: "whisper-1",
-        maxRecordingBytes: 25 * 1024 * 1024,
       },
       {{- if .Values.config.extraJs }}
       // ── values.yaml config.extraJs ──

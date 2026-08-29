@@ -21,9 +21,9 @@ export function SelfHosting() {
         title="Configuration"
         lead={
           <>
-            Boot settings live in <Code>App/config.ts</Code>. Settings that are safe to change while
-            Genosyn is running, including its public URL, live in the database and are managed from
-            Admin.
+            A short list of boot settings lives in <Code>App/config.ts</Code>. Everything an operator
+            can safely change while Genosyn is running lives in the database and is edited from
+            Admin, with no restart.
           </>
         }
       />
@@ -31,11 +31,16 @@ export function SelfHosting() {
       <Callout kind="warn" title="No .env, ever.">
         Genosyn doesn&apos;t use <Code>dotenv</Code>, per-environment files, or a config service. If
         a tutorial or PR adds one, it&apos;s wrong. Override boot settings in the one config object;
-        use Admin for live instance settings.
+        use Admin for everything else.
       </Callout>
 
       <H2 id="config-ts">config.ts</H2>
-      <P>The shape, with the same comments you&apos;ll see in the file:</P>
+      <P>
+        The file holds three kinds of thing and nothing else: <Strong>secrets</Strong>,{" "}
+        <Strong>database coordinates</Strong>, and the <Strong>fail-closed security posture</Strong>{" "}
+        that startup validation checks before the process accepts a request. That is the whole
+        shape, with the same comments you&apos;ll see in the file:
+      </P>
       <Pre lang="ts">{`export const config = {
   // Where all user-generated data lives.
   dataDir: "./data",
@@ -82,23 +87,12 @@ export function SelfHosting() {
       bubblewrapPath: "/usr/bin/bwrap", allowNetwork: false,
       allowUnsafeHostExecution: false,
     },
+    // The app-owned Chromium shares the API container. Startup validation
+    // enforces this boundary in shared SaaS mode.
     browserEnabledInMultiTenant: false,
   },
-
-  // Global SMTP fallback. Per-company EmailProvider rows take precedence.
-  smtp: {
-    host: "", port: 587, secure: false,
-    user: "", pass: "",
-    fromName: "Genosyn",
-    from: "no-reply@genosyn.local",
-  },
-
-  // OAuth client credentials for integrations that need them.
-  integrations: {
-    google: { clientId: "", clientSecret: "" },
-    // ...
-  },
 } as const;`}</Pre>
+
       <P>
         Genosyn does not impose a per-company ceiling on top-level AI work. Chats and Routine runs
         can overlap freely, including several conversations with one AI Employee; only replies within
@@ -144,6 +138,53 @@ export function SelfHosting() {
         receive no host shell, but the coding tools and server-owned Git children share the App
         process user&apos;s filesystem and network authority. Never use it for multiple companies or
         with untrusted Members, prompts, Skills, repositories, or content.
+      </Callout>
+
+      <H3 id="runtime-settings">Everything else is in the database</H3>
+      <P>
+        Operational settings are not in this file. An operator should never have to edit a file and
+        restart a container to change how often a mailbox polls, so those settings live in the{" "}
+        <Code>AppSetting</Code> table and are edited by a master admin in the dashboard. Changes
+        take effect immediately on the replica that saved them and within 30 seconds on every other
+        one — no restart, no redeploy.
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "Admin → Runtime",
+            def: (
+              <>
+                <Strong>Web tools</Strong> (on/off, search provider, result and document limits),{" "}
+                <Strong>Mail sync</Strong> (poll interval, backfill pacing and window),{" "}
+                <Strong>Meetings</Strong> (on/off, sync interval, transcription model, recording
+                size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
+                humanized input), and <Strong>Agent</Strong> (taint policy, member browsers, tool
+                discovery).
+              </>
+            ),
+          },
+          {
+            term: "Admin → Email transport",
+            def: <>The install-wide global SMTP server, stored encrypted. See below.</>,
+          },
+          {
+            term: "Admin → General",
+            def: <>The browser-facing public URL. See below.</>,
+          },
+          {
+            term: "Admin → Integrations",
+            def: <>OAuth client credentials for the whole install. See below.</>,
+          },
+        ]}
+      />
+      <Callout kind="tip" title="Upgrading from an older release keeps your settings.">
+        Earlier versions carried <Code>smtp</Code>, <Code>web</Code>, <Code>mail</Code>,{" "}
+        <Code>meetings</Code>, <Code>browser</Code>, and the agent knobs in{" "}
+        <Code>config.ts</Code>. If yours still does — including a Kubernetes ConfigMap rendering the
+        old file — the first boot after upgrading copies each block into its database row once and
+        logs what it imported. The values you had are the values you keep, and they are editable in
+        Admin from then on. A block already saved in Admin is never overwritten, and the leftover
+        keys in the file are simply ignored.
       </Callout>
 
       <H2 id="public-url">Public URL</H2>
@@ -264,10 +305,12 @@ export function SelfHosting() {
         system emails only log to the server console and never reach a mailbox.
       </P>
       <P>
-        A file-based default also exists: the <Code>smtp</Code> block in <Code>config.ts</Code>. The
-        dashboard override takes precedence over it; clearing the override (the <Code>Reset</Code>{" "}
-        button) reverts to whatever <Code>config.ts</Code> provides, and if that&apos;s blank too,
-        to the console. When a global transport is configured either way, adding a company SMTP
+        The dashboard is the only place this transport is configured — there is no file-based
+        fallback any more, and clearing it (the <Code>Reset</Code> button) sends system mail back to
+        the server console. That console fallback is deliberate and useful: on a brand-new install
+        the bootstrap master admin&apos;s own verification link prints there, which is how you claim
+        the first operator account before any mail server exists. When a global transport is
+        configured, adding a company SMTP
         provider at <Code>Settings → Email</Code> pre-fills the host, port, encryption, username,
         and sender address from it — you only enter the password. Every send appends an{" "}
         <Code>EmailLog</Code> row that company owners and admins can read at{" "}
@@ -404,6 +447,13 @@ export function SelfHosting() {
         <LI>
           <Strong>Email transport</Strong> — configure the install-wide global SMTP server for
           system emails (password resets, invites), with a test send. See <Code>Email</Code> above.
+        </LI>
+        <LI>
+          <Strong>Runtime</Strong> — the operational knobs that used to live in{" "}
+          <Code>config.ts</Code>: web tools, mail sync pacing, meetings, the container&apos;s
+          browser, and the agent&apos;s taint policy, member browsers, and tool discovery. Each
+          section saves independently and can be reset to its default; changes take effect within
+          30 seconds without a restart. See <Code>config.ts</Code> above.
         </LI>
         <LI>
           <Strong>Sign-ups</Strong> — an instance-wide toggle for self-service registration. See{" "}

@@ -1517,7 +1517,7 @@ export type EmailProviderCatalogEntry = {
   icon: string;
   fields: EmailProviderField[];
   /** Non-secret prefill for the connect form (new providers only) — e.g.
-   *  the SMTP entry seeded from the global config.ts SMTP block. */
+   *  the SMTP entry seeded from the install-wide global SMTP transport. */
   prefill?: {
     from?: string;
     fields?: Record<string, string | number | boolean>;
@@ -2874,7 +2874,10 @@ export type MigrationReport = {
   migrations: MigrationEntry[];
 };
 
-export type GlobalSmtpSource = "database" | "config" | "none";
+/** The dashboard is the only place a global SMTP transport comes from — the
+ *  `config.ts` SMTP block is gone, so "none" means system emails log to the
+ *  server console. */
+export type GlobalSmtpSource = "database" | "none";
 /** Non-secret view of the install-wide global email transport (Admin → Email). */
 export type GlobalEmailTransport = {
   configured: boolean;
@@ -2887,12 +2890,70 @@ export type GlobalEmailTransport = {
   fromName: string;
   from: string;
   hasPassword: boolean;
-  configFallback: {
-    configured: boolean;
-    host: string;
-    fromName: string;
-    from: string;
-  };
+};
+
+// ─────────────────────────── Admin runtime settings ────────────────────────
+// The operational knobs that used to live in `config.ts`, now one JSON
+// `AppSetting` row per group and edited at Admin → Runtime. Served by
+// /api/admin/runtime-settings; these shapes mirror
+// `server/services/runtimeSettings.ts` exactly. No secrets live in any group,
+// so the GET returns every value. PUT replaces a whole group — a body missing
+// any field of the group is rejected.
+export type RuntimeSettingsGroup = "web" | "mail" | "meetings" | "browser" | "agent";
+
+/** Open-web tools (`search_web`, `fetch_web_page`, `download_web_file`). */
+export type RuntimeWebSettings = {
+  enabled: boolean;
+  searchProvider: "duckduckgo" | "disabled";
+  maxSearchResults: number;
+  maxDocumentBytes: number;
+  maxTextChars: number;
+};
+
+/** Gmail mailbox sync tuning. */
+export type RuntimeMailSettings = {
+  syncIntervalSec: number;
+  backfillThreadsPerPass: number;
+  backfillPassSeconds: number;
+  backfillDays: number;
+};
+
+/** Calendar mirror + meeting transcription. */
+export type RuntimeMeetingsSettings = {
+  enabled: boolean;
+  syncIntervalSeconds: number;
+  transcriptionModel: string;
+  maxRecordingBytes: number;
+};
+
+/** The browser an AI Employee drives inside Genosyn's own container. */
+export type RuntimeBrowserSettings = {
+  executablePath: string;
+  /** "auto" runs headed whenever a display is available. */
+  headless: "auto" | boolean;
+  locale: string;
+  timezone: string;
+  humanize: boolean;
+};
+
+/** Agent knobs that are not part of the boot security posture. */
+export type RuntimeAgentSettings = {
+  taintPolicy: "web" | "off";
+  memberBrowsersEnabled: boolean;
+  toolDiscovery: { enabled: boolean; minCatalogueSize: number };
+};
+
+export type RuntimeSettings = {
+  web: RuntimeWebSettings;
+  mail: RuntimeMailSettings;
+  meetings: RuntimeMeetingsSettings;
+  browser: RuntimeBrowserSettings;
+  agent: RuntimeAgentSettings;
+};
+
+export type RuntimeSettingsSnapshot = RuntimeSettings & {
+  /** Whether each group is backed by a stored row rather than the defaults. */
+  overridden: Record<RuntimeSettingsGroup, boolean>;
 };
 
 // ────────────────────── Admin install-wide OAuth apps ──────────────────────

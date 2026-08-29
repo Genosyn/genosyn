@@ -685,7 +685,7 @@ function initialState(
     };
   }
   // New provider — overlay any server-supplied non-secret prefill (e.g. the
-  // SMTP form seeded from the global config.ts SMTP block). Secrets are
+  // SMTP form seeded from the install-wide global SMTP transport). Secrets are
   // never prefilled, so the password stays blank for the user to enter.
   if (entry.prefill?.fields) {
     for (const [key, value] of Object.entries(entry.prefill.fields)) {

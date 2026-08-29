@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { IsNull, Not } from "typeorm";
 
 import { config } from "../../config.js";
+import { getAgentSettings } from "./runtimeSettings.js";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { BrowserSession } from "../db/entities/BrowserSession.js";
@@ -42,10 +43,23 @@ export class MemberBrowserError extends Error {
   }
 }
 
-/** Global kill switch. Multi-tenant installs are refused at boot, not here. */
+/**
+ * The global kill switch, and the one place the multi-tenant invariant lives.
+ *
+ * Member browsers are an operator-editable runtime setting (Admin → Runtime),
+ * so a boot-time refusal could only ever check a value that changes afterwards.
+ * The `multiTenant` short-circuit here is therefore not a convenience — it is
+ * the invariant: a shared install can never turn member browsers on, whatever
+ * the setting says, because a tenant would be leaving a bearer-authenticated
+ * channel into a personal computer standing against shared infrastructure, and
+ * the operator has no way to reason about whose laptop it reaches.
+ *
+ * Every caller — the routes, the WebSocket upgrade, the internal guards below —
+ * goes through this function, so the check cannot be routed around.
+ */
 export function memberBrowsersEnabled(): boolean {
   if (config.security.multiTenant) return false;
-  return Boolean(config.agent.memberBrowsersEnabled);
+  return Boolean(getAgentSettings().memberBrowsersEnabled);
 }
 
 function repo() {

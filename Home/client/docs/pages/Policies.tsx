@@ -181,9 +181,11 @@ export function Policies() {
         </LI>
       </UL>
       <P>
-        The gate is configured by <Code>agent.taintPolicy</Code> in{" "}
-        <DocLink to="/docs/self-hosting#config-ts">config.ts</DocLink> — <Code>&quot;web&quot;</Code>{" "}
-        (the default) arms it, <Code>&quot;off&quot;</Code> disables it.
+        The gate is configured by a master admin at <Code>Admin → Runtime</Code>, under{" "}
+        <Strong>Agent</Strong> — <Code>&quot;web&quot;</Code> (the default) arms it,{" "}
+        <Code>&quot;off&quot;</Code> disables it. It is stored in the database and takes effect
+        without a restart; see{" "}
+        <DocLink to="/docs/self-hosting#runtime-settings">Configuration</DocLink>.
       </P>
       <Callout kind="info" title="Deliberately narrow, for now.">
         Two taint paths are named follow-ups rather than covered today: mail bodies as a taint

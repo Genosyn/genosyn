@@ -2,7 +2,6 @@ import { Router, type Request, type RequestHandler, type Response } from "expres
 import multer from "multer";
 import { z } from "zod";
 
-import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { CalendarEvent } from "../db/entities/CalendarEvent.js";
 import { CALENDAR_ACCESS_LEVELS } from "../db/entities/EmployeeCalendarGrant.js";
@@ -46,6 +45,7 @@ import {
   serializeSegment,
 } from "../services/meetings/serialize.js";
 import { readRecording } from "../services/meetings/storage.js";
+import { getMeetingsSettings } from "../services/runtimeSettings.js";
 import {
   addParticipants,
   armMeetingsForAccount,
@@ -137,11 +137,41 @@ function userId(req: Request): string | null {
  * app-private, outside the company tree), and multer's disk storage would need
  * `req.company` set before it runs just to put the bytes somewhere we then
  * move them from.
+ *
+ * The multer limit is a **fixed** ceiling rather than the configured cap. This
+ * router is constructed once at boot, so a limit read here would freeze
+ * whatever the cap was at startup and ignore every later change at Admin →
+ * Runtime. The ceiling exists only to stop an unbounded body from filling
+ * memory; the operator's actual cap is enforced in the handler below, against
+ * the live setting, and is what the caller is told about.
  */
+const RECORDING_UPLOAD_CEILING_BYTES = 100 * 1024 * 1024;
+
 const recordingUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: config.meetings.maxRecordingBytes, files: 1 },
+  limits: { fileSize: RECORDING_UPLOAD_CEILING_BYTES, files: 1 },
 });
+
+/** Turn multer's own refusals into the 400 the client can render. */
+const acceptRecording: RequestHandler = (req, res, next) => {
+  recordingUpload.single("file")(req, res, (err: unknown) => {
+    if (!err) {
+      next();
+      return;
+    }
+    if (err instanceof multer.MulterError) {
+      const mb = Math.round(RECORDING_UPLOAD_CEILING_BYTES / (1024 * 1024));
+      res.status(400).json({
+        error:
+          err.code === "LIMIT_FILE_SIZE"
+            ? `That recording is over the ${mb} MB upload ceiling.`
+            : "That upload could not be read. Send one recording as the `file` field.",
+      });
+      return;
+    }
+    next(err);
+  });
+};
 
 // ───────────────────────────── calendars ─────────────────────────────
 
@@ -460,12 +490,19 @@ meetingsRouter.get(
 
 meetingsRouter.post(
   "/meetings/:id/recording",
-  recordingUpload.single("file"),
+  acceptRecording,
   h(async (req, res) => {
     const id = (req.params as Record<string, string>).id;
     const file = (req as unknown as { file?: Express.Multer.File }).file;
     if (!file) {
       res.status(400).json({ error: "No recording was uploaded." });
+      return;
+    }
+    // The operator's cap, read live rather than frozen into multer at boot.
+    const maxRecordingBytes = getMeetingsSettings().maxRecordingBytes;
+    if (file.buffer.length > maxRecordingBytes) {
+      const mb = Math.round(maxRecordingBytes / (1024 * 1024));
+      res.status(400).json({ error: `Recordings are limited to ${mb} MB.` });
       return;
     }
     const result = await attachRecording({

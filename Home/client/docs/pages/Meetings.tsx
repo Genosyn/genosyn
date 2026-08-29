@@ -87,7 +87,8 @@ export function Meetings() {
         </LI>
         <LI>
           <Strong>Upload a recording</Strong> — mp3, m4a, wav, webm, ogg, flac, mp4, or mov, up to
-          25 MB. Genosyn transcribes it, then writes it up.
+          25 MB by default; a master admin can raise or lower that cap at{" "}
+          <Code>Admin → Runtime</Code>. Genosyn transcribes it, then writes it up.
         </LI>
         <LI>
           <Strong>Paste a transcript</Strong> — whatever Zoom, Meet, or Teams already produced.

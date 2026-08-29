@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 import { AppDataSource } from "../../db/datasource.js";
-import { config } from "../../../config.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { broadcastToCompany } from "../realtime.js";
+import { getMailSettings } from "../runtimeSettings.js";
 import { accessTokenForAccount, deleteMailAccount, purgeMailAccountMirror } from "./accounts.js";
 import {
   GmailApiError,
@@ -37,7 +37,7 @@ import { enqueueInboundAutomation, waitForMailAutomation } from "./automationQue
  *
  * Same heartbeat shape as `services/cron.ts`: one 30s interval, a `ticking`
  * guard against overlapping passes, and per-account due-time bookkeeping on
- * the row (`lastSyncAt` + config.mail.syncIntervalSec). Polling (rather than
+ * the row (`lastSyncAt` + the Admin → Runtime mail interval). Polling (rather than
  * Gmail Pub/Sub push) is deliberate — self-hosted installs get inbox sync
  * with zero Google Cloud ceremony beyond the OAuth client they already made.
  *
@@ -115,7 +115,7 @@ async function tick(): Promise<void> {
         where: [{ status: "active" }, { status: "error" }],
       });
       const now = Date.now();
-      const intervalMs = config.mail.syncIntervalSec * 1000;
+      const intervalMs = getMailSettings().syncIntervalSec * 1000;
       for (const account of accounts) {
         const retryReference = account.syncFinishedAt ?? account.lastSyncAt;
         const dueReference = account.status === "error" ? retryReference : account.lastSyncAt;
@@ -797,9 +797,11 @@ async function backfillPass(
   token: string,
   assertWritable: () => Promise<void>,
 ): Promise<void> {
-  const threadsBudget = config.mail.backfillThreadsPerPass;
-  const msBudget = config.mail.backfillPassSeconds * 1000;
-  const q = config.mail.backfillDays > 0 ? `newer_than:${config.mail.backfillDays}d` : undefined;
+  const mailSettings = getMailSettings();
+  const threadsBudget = mailSettings.backfillThreadsPerPass;
+  const msBudget = mailSettings.backfillPassSeconds * 1000;
+  const q =
+    mailSettings.backfillDays > 0 ? `newer_than:${mailSettings.backfillDays}d` : undefined;
 
   if (!account.historyId && !account.backfillPageToken) {
     // First pass of a fresh import — anchor the incremental cursor first.

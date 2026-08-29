@@ -190,13 +190,13 @@ export function validateRuntimeSecurity(): void {
   if (config.agent.browserEnabledInMultiTenant) {
     problems.push("the in-process browser must be disabled");
   }
-  if (config.agent.memberBrowsersEnabled) {
-    // Fails the shared-SaaS bar for a different and worse reason than the
-    // in-process browser above: a tenant would leave a bearer-authenticated
-    // channel into a personal computer standing against shared infrastructure,
-    // and the operator has no way to reason about whose laptop it reaches.
-    problems.push("config.agent.memberBrowsersEnabled must be false");
-  }
+  // Member browsers are not validated here any more: the switch moved to an
+  // operator-editable runtime setting, so a boot-time check could only be
+  // stale. The invariant instead lives where the answer is derived —
+  // `memberBrowsersEnabled()` in `services/memberBrowsers.ts` returns false in
+  // multi-tenant mode no matter what the setting says. A tenant leaving a
+  // bearer-authenticated channel into a personal computer standing against
+  // shared infrastructure is a boundary that has to hold per call, not per boot.
   if (!config.security.bootstrapMasterAdminEmail.trim()) {
     problems.push("config.security.bootstrapMasterAdminEmail is required");
   }
@@ -245,13 +245,42 @@ export function validateRuntimeSecurity(): void {
   }
 }
 
-/** Validate database-backed dependencies after migrations have run. */
+/**
+ * Validate database-backed dependencies after migrations have run.
+ *
+ * A shared multi-tenant install genuinely needs system SMTP: without it nobody
+ * can verify an address or recover an account by email. This used to throw. It
+ * no longer can — SMTP is configured at Admin → Email transport, and a fresh
+ * cloud install has no row and no admin yet, so refusing to boot would lock the
+ * operator out of the only screen that fixes it. The chicken-and-egg is broken
+ * the way the rest of bootstrap is: the server comes up, `services/email.ts`
+ * prints the verification and reset links to the console, the predeclared
+ * bootstrap master admin reads its link out of the pod log, signs in, and saves
+ * a transport. The warning below is loud so nobody mistakes that for a working
+ * deployment; Admin → Instance Health carries the same state as a warning card.
+ */
 export async function validateRuntimeDependencies(): Promise<void> {
   if (!config.security.multiTenant) return;
   const smtp = await getEffectiveGlobalSmtp();
-  if (!smtp.configured) {
-    throw new Error(
-      "Unsafe multi-tenant configuration: system SMTP is required for email verification and account recovery",
-    );
-  }
+  if (smtp.configured) return;
+  // eslint-disable-next-line no-console
+  console.warn(
+    [
+      "",
+      "  ┌──────────────────────────────────────────────────────────────────┐",
+      "  │  MULTI-TENANT INSTALL WITHOUT SYSTEM SMTP                        │",
+      "  └──────────────────────────────────────────────────────────────────┘",
+      "  No global SMTP transport is configured, so this install cannot send",
+      "  email verification or password reset messages to anyone.",
+      "",
+      "  Until it is configured:",
+      "    - every system email is skipped and its full body, including the",
+      "      link, is printed to this log;",
+      "    - the bootstrap master admin can copy its verification link from",
+      "      here to claim the first account.",
+      "",
+      "  Fix it at Admin → Email transport as soon as you can sign in.",
+      "",
+    ].join("\n"),
+  );
 }

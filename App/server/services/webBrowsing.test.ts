@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 
-import { config } from "../../config.js";
+import { overrideRuntimeSettingsForTests } from "./runtimeSettings.js";
 import {
   WebToolError,
   chooseFilename,
@@ -22,19 +22,13 @@ import {
  * employee can read and act on.
  */
 
-/** `config` is a frozen-by-convention literal; tests flip fields and restore. */
-type MutableWebConfig = {
-  enabled: boolean;
-  searchProvider: "duckduckgo" | "disabled";
-  maxSearchResults: number;
-  maxDocumentBytes: number;
-  maxTextChars: number;
-};
-const web = config.web as unknown as MutableWebConfig;
-const original = { ...web };
-
+/**
+ * The web group is a database-backed runtime setting now, so tests reach it
+ * through the service's in-process override seam rather than by mutating a
+ * config literal. `null` drops every override.
+ */
 afterEach(() => {
-  Object.assign(web, original);
+  overrideRuntimeSettingsForTests(null);
 });
 
 const RESULT_PAGE = `
@@ -92,7 +86,7 @@ describe("parsing search results", () => {
 
 describe("refusals happen before any request goes out", () => {
   test("the master switch turns all three tools off with an explanation", async () => {
-    web.enabled = false;
+    overrideRuntimeSettingsForTests({ web: { enabled: false } });
 
     for (const call of [
       () => searchWeb("w-9 form", 3),
@@ -102,14 +96,14 @@ describe("refusals happen before any request goes out", () => {
       await assert.rejects(call, (error: unknown) => {
         assert.ok(error instanceof WebToolError);
         assert.equal(error.status, 403);
-        assert.match(error.message, /web\.enabled/);
+        assert.match(error.message, /Admin → Runtime/);
         return true;
       });
     }
   });
 
   test("search can be disabled while direct fetches keep working", async () => {
-    web.searchProvider = "disabled";
+    overrideRuntimeSettingsForTests({ web: { searchProvider: "disabled" } });
 
     await assert.rejects(() => searchWeb("w-9 form", 3), (error: unknown) => {
       assert.ok(error instanceof WebToolError);

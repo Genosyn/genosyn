@@ -1,6 +1,7 @@
 import path from "node:path";
 import { config } from "../../config.js";
 import { safeFetchBuffer } from "../lib/outboundUrl.js";
+import { getWebSettings } from "./runtimeSettings.js";
 import { htmlToText, pdfBufferToText } from "./resources.js";
 import { looksLikeWordDocument } from "./docxPackage.js";
 import { docxBufferToText } from "./docxRead.js";
@@ -67,9 +68,9 @@ export type WebFile = {
 const USER_AGENT = "GenosynWebBot/1.0 (+https://genosyn.com)";
 
 function assertWebEnabled(): void {
-  if (!config.web.enabled) {
+  if (!getWebSettings().enabled) {
     throw new WebToolError(
-      "Web access is turned off on this Genosyn install. Ask an operator to set `web.enabled` in config.ts if you need it.",
+      "Web access is turned off on this Genosyn install. Ask an operator to turn it back on at Admin → Runtime if you need it.",
       403,
     );
   }
@@ -105,7 +106,7 @@ async function fetchDocument(url: URL, accept: string): Promise<{
       url,
       { headers: { "User-Agent": USER_AGENT, Accept: accept } },
       {
-        maxBytes: config.web.maxDocumentBytes,
+        maxBytes: getWebSettings().maxDocumentBytes,
         timeoutMs: config.security.outboundRequestTimeoutMs,
       },
     );
@@ -138,13 +139,14 @@ export async function searchWeb(query: string, limit: number): Promise<WebSearch
   assertWebEnabled();
   const trimmed = query.trim();
   if (!trimmed) throw new WebToolError("Give me something to search for.");
-  if (config.web.searchProvider === "disabled") {
+  const web = getWebSettings();
+  if (web.searchProvider === "disabled") {
     throw new WebToolError(
       "Web search is turned off on this Genosyn install, but `fetch_web_page` still works if you already know the URL.",
       403,
     );
   }
-  const capped = Math.max(1, Math.min(limit, config.web.maxSearchResults));
+  const capped = Math.max(1, Math.min(limit, web.maxSearchResults));
   const endpoint = new URL("https://html.duckduckgo.com/html/");
   endpoint.searchParams.set("q", trimmed);
   const doc = await fetchDocument(endpoint, "text/html,application/xhtml+xml");
@@ -244,12 +246,13 @@ export async function fetchWebPage(rawUrl: string): Promise<WebPage> {
   // those as C-string terminators and silently truncate the prompt.
   // eslint-disable-next-line no-control-regex
   const clean = text.replace(/\u0000/g, "").trim();
-  const truncated = clean.length > config.web.maxTextChars;
+  const maxTextChars = getWebSettings().maxTextChars;
+  const truncated = clean.length > maxTextChars;
   return {
     url: doc.url,
     title,
     contentType: doc.contentType,
-    text: truncated ? clean.slice(0, config.web.maxTextChars) : clean,
+    text: truncated ? clean.slice(0, maxTextChars) : clean,
     truncated,
   };
 }

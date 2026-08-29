@@ -19,8 +19,10 @@
 
 config:
   # Private single-tenant install: no shared-SaaS boot checklist, so
-  # bootstrapMasterAdminEmail and smtp.host may stay empty (password-reset
-  # links then log to the server console).
+  # bootstrapMasterAdminEmail may stay empty. System mail is configured after
+  # boot at Admin -> Email transport; until it is, verification and
+  # password-reset links log to the server console
+  # (`kubectl logs -n <namespace> deploy/<release>`).
   multiTenant: false
   db:
     # SQLite lives on the /app/data volume. Flip to postgres +

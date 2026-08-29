@@ -43,7 +43,7 @@
  * a human takes over — same contract as the rest of the browser layer.
  */
 
-import { config } from "../../config.js";
+import { getBrowserSettings } from "./runtimeSettings.js";
 
 /**
  * The parts of Playwright's Page / Locator / ElementHandle the helpers reach
@@ -130,11 +130,11 @@ export function setHumanInputEnabledForTests(value: boolean | null): void {
   humanInputEnabledForTests = value;
 }
 
-/** Whether input should be humanised. Defaults on; `config.browser.humanize`
- *  turns it off for a trusted environment that wants raw speed. */
+/** Whether input should be humanised. Defaults on; the Admin → Runtime
+ *  browser switch turns it off for a trusted environment that wants raw speed. */
 export function humanInputEnabled(): boolean {
   if (humanInputEnabledForTests !== null) return humanInputEnabledForTests;
-  return config.browser.humanize !== false;
+  return getBrowserSettings().humanize !== false;
 }
 
 function randBetween(min: number, max: number): number {

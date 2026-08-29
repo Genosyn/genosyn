@@ -308,8 +308,8 @@ async function checkBackups(now: number): Promise<InstanceCheck> {
 
 /**
  * The global SMTP transport system-level emails (password resets, invites, …)
- * fall back to when a company has no EmailProvider row of its own. Resolved
- * from the Admin → Email transport override first, then the `config.ts` block.
+ * fall back to when a company has no EmailProvider row of its own. Configured
+ * at Admin → Email transport; there is no file-based source any more.
  *
  * When nothing is configured, sends silently log to the console and never
  * reach a mailbox — a real deployment can't complete a password reset in that
@@ -317,12 +317,7 @@ async function checkBackups(now: number): Promise<InstanceCheck> {
  */
 async function checkEmailTransport(): Promise<InstanceCheck> {
   const eff = await getEffectiveGlobalSmtp();
-  const sourceLabel =
-    eff.source === "database"
-      ? "Admin dashboard"
-      : eff.source === "config"
-        ? "config.ts"
-        : "None";
+  const sourceLabel = eff.source === "database" ? "Admin dashboard" : "None";
   return {
     id: "email_transport",
     title: "Email transport",
@@ -330,9 +325,7 @@ async function checkEmailTransport(): Promise<InstanceCheck> {
       "The global SMTP transport used for system-level sends (password resets, invites) when a company has no email provider of its own.",
     severity: eff.configured ? "ok" : "warn",
     summary: eff.configured
-      ? `Global SMTP is configured via ${
-          eff.source === "database" ? "the admin dashboard" : "config.ts"
-        }.`
+      ? "Global SMTP is configured via the admin dashboard."
       : "No global SMTP configured — system emails (password resets, invites) log to the console and are not delivered. Configure it under Admin → Email transport.",
     facts: [
       {

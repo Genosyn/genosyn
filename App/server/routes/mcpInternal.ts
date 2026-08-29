@@ -81,7 +81,7 @@ import {
   stageSidecarForToken,
   tokenOwnsAttachment,
 } from "../services/mcpTokens.js";
-import { config } from "../../config.js";
+import { getAgentSettings } from "../services/runtimeSettings.js";
 import {
   createTaintedToolApproval,
   taintGateApplies,
@@ -859,7 +859,7 @@ mcpInternalRouter.use(async (req: McpRequest, res, next) => {
         error: `The company policy "${policy.title}" forbids ${toolName}. Do not retry or work around it — raise a Decision if you believe the policy is wrong here.`,
       });
     }
-    if (config.agent.taintPolicy !== "off" && req.mcpToken) {
+    if (getAgentSettings().taintPolicy !== "off" && req.mcpToken) {
       if (WEB_TAINT_SOURCES.has(toolName)) markTokenTainted(req.mcpToken);
       if (taintGateApplies(req.mcpToken, toolName)) {
         const approval = await createTaintedToolApproval({

@@ -117,6 +117,10 @@ import {
 } from "./services/runtimeSecurity.js";
 import { installOutboundNetworkPolicy } from "./services/outboundNetworkPolicy.js";
 import { bootPublicUrl } from "./services/publicUrl.js";
+import {
+  bootRuntimeSettings,
+  importLegacyConfigOverrides,
+} from "./services/runtimeSettings.js";
 import { bootDurableChatTurnRecovery } from "./services/durableChatTurns.js";
 import { bootSignatureExpirySweeper } from "./services/signing.js";
 import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
@@ -135,6 +139,12 @@ async function main() {
   await initDb();
   await bindInstanceSecretsToDatabase();
   await bootPublicUrl();
+  // An install upgrading from an old-shape config.ts (or a Kubernetes overlay
+  // that still renders one) carries the operational blocks this build reads
+  // from the database instead. Move them into their AppSetting rows once, so
+  // the upgrade preserves behavior, before anything reads a runtime setting.
+  await importLegacyConfigOverrides();
+  await bootRuntimeSettings();
   // Settle the shipped bubblewrap default against this host before validation
   // reads it, and before any tool registry, Run, or repository clone does.
   resolveCodingExecutionMode();

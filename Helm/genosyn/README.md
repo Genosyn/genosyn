@@ -11,7 +11,7 @@ an OCI artifact alongside every release, and listed on
 The chart's **default posture is production multi-tenant SaaS**: `multiTenant`
 on, Postgres, the bubblewrap sandbox granted, chart-generated strong secrets.
 A bare `helm install` fails fast at template time with one aggregated message
-listing everything missing — by design, only two values need supplying.
+listing everything missing — by design, only one value needs supplying.
 
 ### Genosyn Cloud / production (default)
 
@@ -19,20 +19,31 @@ listing everything missing — by design, only two values need supplying.
 helm install genosyn oci://ghcr.io/genosyn/charts/genosyn \
   --namespace genosyn --create-namespace \
   --set config.bootstrapMasterAdminEmail=ops@example.com \
-  --set config.smtp.host=smtp.example.com \
   --set ingress.enabled=true \
   --set ingress.host=genosyn.example.com \
   --set ingress.tls.enabled=true \
   --set ingress.tls.secretName=genosyn-tls
 ```
 
-The two `config.*` flags are the multi-tenant minimum (bootstrap admin email
-and system SMTP — see the checklist below for SMTP auth). The Ingress with
-TLS is not optional garnish: multi-tenant mode forces Secure session cookies,
-so the **first login must already happen over HTTPS**. The default install
-runs the **bundled evaluation Postgres**; real production should operate its
-own (managed instance, CloudNativePG, an operator) and point
-`config.db.postgresUrlSecret` at it with `postgres.enabled=false`.
+The one `config.*` flag is the multi-tenant minimum (the bootstrap admin
+email). The Ingress with TLS is not optional garnish: multi-tenant mode
+forces Secure session cookies, so the **first login must already happen over
+HTTPS**. The default install runs the **bundled evaluation Postgres**; real
+production should operate its own (managed instance, CloudNativePG, an
+operator) and point `config.db.postgresUrlSecret` at it with
+`postgres.enabled=false`.
+
+**System SMTP is not a chart value.** Configure the mail transport after boot
+at **Admin → Email transport**, where it is stored encrypted in the database.
+Until it is set, boot prints a warning and every system mail — including the
+bootstrap master admin's own verification link — goes to the pod log:
+
+```bash
+kubectl logs -n genosyn deploy/genosyn
+```
+
+Paste that link into the browser to verify and claim the master-admin
+account, then set SMTP up from the dashboard.
 
 ### Single-tenant self-host
 
@@ -67,7 +78,6 @@ review the public URL at **Admin → General**.
 | `secrets.existingSecret` | `""` | Secret with `sessionSecret` + `encryptionSecret` keys (≥ 32 chars each, distinct). Empty generates a kept `-instance-secrets` Secret. |
 | `config.multiTenant` | `true` | Shared SaaS mode — the default; read the checklist below. |
 | `config.bootstrapMasterAdminEmail` | `""` | The only email allowed to claim the first master admin. Required when `multiTenant`. |
-| `config.smtp.host` (+ `port`/`user`/`from`/…) | `""` | System SMTP. `host` required when `multiTenant`; password via `config.smtp.passwordSecret`. |
 | `config.extraJs` | `""` | Extra `key: value,` lines spliced into the generated `config.js`. |
 | `env` | `[]` | Extra container env vars (verbatim pod-spec syntax). |
 
@@ -79,17 +89,24 @@ replacement from `values.yaml` and mounts it over that path (`subPath`), with
 secrets injected as `GENOSYN_*` environment variables that the file reads via
 `process.env`.
 
-SMTP is first-class: `config.smtp.*` renders into the config, and an
-authenticated relay's password comes from a pre-created Secret — never from
-values:
+That file is deliberately short. It carries **boot configuration only**: the
+data directory, database coordinates, the port, the session secret, the whole
+`security` block, and the two agent isolation switches. Everything an
+operator can safely change while the app runs lives in the database and is
+edited in the dashboard, not in values:
 
-```yaml
-config:
-  smtp:
-    host: smtp.example.com
-    user: apikey
-    passwordSecret: { name: my-smtp, key: password }  # injected as GENOSYN_SMTP_PASS
-```
+| What | Where |
+| --- | --- |
+| Web tools, mail sync, meetings, browser, agent taint policy / member browsers / tool discovery | **Admin → Runtime** |
+| System SMTP transport | **Admin → Email transport** |
+| Browser-facing public URL | **Admin → General** |
+| OAuth app credentials | **Admin → Integrations** |
+
+Upgrading from an older chart is safe: a ConfigMap still rendering the fat
+old shape stays harmless (nothing enumerates config keys, so stale ones are
+never read), and on the first boot after the upgrade the server copies each
+surviving block into its database row once, so the install keeps its
+behavior. Adding those keys back to `config.extraJs` does nothing.
 
 Anything the chart does not parameterize goes through `config.extraJs`,
 spliced verbatim before the closing brace of the config object. A duplicate
@@ -100,12 +117,16 @@ one at a time:
 ```yaml
 config:
   extraJs: |
-    security: { ...security, trustedProxyHops: 2 },
-    integrations: { google: { clientId: "…", clientSecret: process.env.GENOSYN_GOOGLE_SECRET ?? "" } },
+    security: { ...security, trustedProxyHops: 2, outboundPrivateHostAllowlist: ["internal.example.com"] },
+```
+
+Anything `extraJs` reads via `process.env.*` is injected through `env`:
+
+```yaml
 env:
-  - name: GENOSYN_GOOGLE_SECRET
+  - name: GENOSYN_EXAMPLE_SECRET
     valueFrom:
-      secretKeyRef: { name: my-google-oauth, key: clientSecret }
+      secretKeyRef: { name: my-secret, key: value }
 ```
 
 ## The coding sandbox (`sandbox.enabled`)
@@ -156,10 +177,14 @@ value. The checklist, mapped to chart values:
 4. **Bootstrap admin** — `config.bootstrapMasterAdminEmail`, the only email
    allowed to claim the first master-admin account. Required; template-time
    failure when empty.
-5. **System SMTP** — `config.smtp.host` (plus `user` /
-   `config.smtp.passwordSecret` for an authenticated relay). Required;
-   template-time failure when empty. Can later be overridden at
-   Admin → Email transport.
+5. **System SMTP** — not a chart value and not a boot requirement any more:
+   set it at **Admin → Email transport** once the pod is up. Boot warns
+   loudly until it is configured, and system mail (verification, invites,
+   password resets) goes to the pod log in the meantime — which is how the
+   bootstrap master admin claims the account on a fresh install:
+   `kubectl logs -n genosyn deploy/genosyn`. Configure it before inviting
+   anyone else; a shared install without a working transport cannot verify
+   accounts or recover passwords.
 6. **HTTPS** — serve through the Ingress with TLS. Secure cookies are forced
    in this mode, so even the first login must happen over HTTPS.
 

@@ -1,10 +1,10 @@
 import { In } from "typeorm";
 
-import { config } from "../../../config.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { CalendarAccount } from "../../db/entities/CalendarAccount.js";
 import { Meeting } from "../../db/entities/Meeting.js";
 import { chatWithEmployee } from "../chat.js";
+import { getMeetingsSettings } from "../runtimeSettings.js";
 import { withSchedulerLease } from "../schedulerLeases.js";
 import { syncCalendarAccount } from "./calendarSync.js";
 import { parseWriteUp, setMeetingWriteUpAuthor } from "./followUps.js";
@@ -33,7 +33,18 @@ import { armMeetingsForAccount } from "./store.js";
  *    at boot.
  */
 
-const HEARTBEAT_INTERVAL_MS = Math.max(60, config.meetings.syncIntervalSeconds) * 1000;
+/**
+ * The scheduler tick, which is *not* the sync interval.
+ *
+ * Both the master switch and the calendar interval are operator-editable at
+ * Admin → Runtime, so neither can be frozen into a timer at boot the way they
+ * used to be: turning meetings off, or dropping the interval from five minutes
+ * to one, has to take effect without a restart. So the timer runs on a fixed
+ * short tick and every tick re-reads the settings — no-oping while the section
+ * is off, and running the heartbeat only once the configured interval has
+ * actually elapsed.
+ */
+const SCHEDULER_TICK_MS = 20_000;
 const DISPATCH_INTERVAL_MS = 20_000;
 
 /** Meetings driven per pass. Bounds a heartbeat that finds a backlog. */
@@ -43,6 +54,13 @@ let heartbeatTimer: NodeJS.Timeout | null = null;
 let dispatchTimer: NodeJS.Timeout | null = null;
 let heartbeatTicking = false;
 let dispatchTicking = false;
+/** When the last heartbeat pass started, so the tick can pace itself. */
+let lastHeartbeatStartedAt = 0;
+
+/** The configured calendar interval, floored so a typo cannot hammer Google. */
+function heartbeatIntervalMs(): number {
+  return Math.max(60, getMeetingsSettings().syncIntervalSeconds) * 1000;
+}
 
 /**
  * Ask the notetaker employee to write the meeting up.
@@ -139,7 +157,60 @@ export async function runMeetingsHeartbeat(
 }
 
 /**
- * Install the seam and start the heartbeat.
+ * One scheduler tick. Exported so a test can drive the pacing and the master
+ * switch without waiting on a timer.
+ */
+export function meetingsHeartbeatTick(): void {
+  if (!getMeetingsSettings().enabled) return;
+  if (heartbeatTicking) return;
+  const intervalMs = heartbeatIntervalMs();
+  if (Date.now() - lastHeartbeatStartedAt < intervalMs) return;
+  lastHeartbeatStartedAt = Date.now();
+  heartbeatTicking = true;
+  void withSchedulerLease("meetings-sync", intervalMs * 3, () => runMeetingsHeartbeat())
+    .catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error("[meetings] heartbeat failed:", err);
+    })
+    .finally(() => {
+      heartbeatTicking = false;
+    });
+}
+
+/**
+ * The due dispatcher. Intentionally separate from calendar sync: it runs often
+ * enough to join just before the start time, and its lease ends as soon as each
+ * durable claim is made — never after the call finishes.
+ */
+export function meetingsDispatchTick(): void {
+  if (!getMeetingsSettings().enabled) return;
+  if (dispatchTicking) return;
+  dispatchTicking = true;
+  void withSchedulerLease("meetings-notetaker-dispatch", DISPATCH_INTERVAL_MS * 3, () =>
+    dispatchDueMeetings(),
+  )
+    .catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error("[meetings] notetaker dispatch failed:", err);
+    })
+    .finally(() => {
+      dispatchTicking = false;
+    });
+}
+
+/** Test seam: forget when the last heartbeat ran, so the next tick is due. */
+export function resetMeetingsHeartbeatPacingForTests(): void {
+  lastHeartbeatStartedAt = 0;
+  heartbeatTicking = false;
+  dispatchTicking = false;
+}
+
+/**
+ * Install the seam and start the timers.
+ *
+ * The timers start whether or not the section is enabled — each tick asks. That
+ * is what lets an operator turn Meetings off (or back on) at Admin → Runtime
+ * and have the heartbeat stop (or resume) without restarting the process.
  *
  * The first pass is not awaited: a slow calendar must not gate server startup,
  * and the tick is written never to reject. The lease keeps two replicas from
@@ -148,47 +219,13 @@ export async function runMeetingsHeartbeat(
 export function bootMeetings(): void {
   setMeetingWriteUpAuthor(authorWriteUp);
   registerBuiltInMeetingRecorder();
-  if (!config.meetings.enabled) return;
 
-  const runHeartbeat = () => {
-    if (heartbeatTicking) return;
-    heartbeatTicking = true;
-    void withSchedulerLease("meetings-sync", HEARTBEAT_INTERVAL_MS * 3, () =>
-      runMeetingsHeartbeat(),
-    )
-      .catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error("[meetings] heartbeat failed:", err);
-      })
-      .finally(() => {
-        heartbeatTicking = false;
-      });
-  };
-
-  // This loop is intentionally separate from calendar sync. It runs often
-  // enough to join just before the start time, and its lease ends as soon as
-  // each durable claim is made — never after the call finishes.
-  const runDispatch = () => {
-    if (dispatchTicking) return;
-    dispatchTicking = true;
-    void withSchedulerLease("meetings-notetaker-dispatch", DISPATCH_INTERVAL_MS * 3, () =>
-      dispatchDueMeetings(),
-    )
-      .catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error("[meetings] notetaker dispatch failed:", err);
-      })
-      .finally(() => {
-        dispatchTicking = false;
-      });
-  };
-
-  runHeartbeat();
-  runDispatch();
+  meetingsHeartbeatTick();
+  meetingsDispatchTick();
   if (heartbeatTimer) clearInterval(heartbeatTimer);
-  heartbeatTimer = setInterval(runHeartbeat, HEARTBEAT_INTERVAL_MS);
+  heartbeatTimer = setInterval(meetingsHeartbeatTick, SCHEDULER_TICK_MS);
   heartbeatTimer.unref();
   if (dispatchTimer) clearInterval(dispatchTimer);
-  dispatchTimer = setInterval(runDispatch, DISPATCH_INTERVAL_MS);
+  dispatchTimer = setInterval(meetingsDispatchTick, DISPATCH_INTERVAL_MS);
   dispatchTimer.unref();
 }
