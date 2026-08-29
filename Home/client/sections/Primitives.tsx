@@ -86,7 +86,7 @@ export function Primitives() {
                   key={item}
                   className="inline-flex items-center gap-1.5 rounded-full border border-stone-900/[0.10] bg-white px-3 py-1.5 text-[11px] font-semibold text-stone-700 shadow-card"
                 >
-                  <Check aria-hidden className="h-3 w-3 text-tide-500" />
+                  <Check aria-hidden className="h-3 w-3 text-ink-500" />
                   {item}
                 </span>
               ))}

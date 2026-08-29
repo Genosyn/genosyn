@@ -9,10 +9,10 @@ import type { Config } from "tailwindcss";
  *
  * - `paper`  the canvas. Warm off-whites, never a cold clinical grey. This is
  *            the single biggest reason the site no longer reads as flat.
- * - `tide`   the brand accent. Pale aqua through deep teal (~188°). Dev tooling
- *            is a sea of indigo and slate; a saturated teal sits well clear of
- *            both, and clear of the emerald the site already spends on
- *            live/success state — see the note on that below.
+ * - `ink`    the brand accent, and it is deliberately not a hue. A warm-tinted
+ *            neutral from near-white to near-black. It carries emphasis by
+ *            tone and weight instead of colour, which is what lets the rest of
+ *            the palette stay loud — see the note below.
  * - `night`  the punctuation. A violet-cast dark used for the one section that
  *            is literally about night, the terminal, and the closing panel.
  *            Violet-cast, not near-black, so the dark bands feel alive too.
@@ -22,16 +22,25 @@ import type { Config } from "tailwindcss";
  * from the full Tailwind hue set — see products/data.ts, where every product
  * owns a hue.
  *
- * On `tide` and green: the site spends Tailwind `emerald` as a signal, not as
- * decoration — LiveDot, the "included" ticks in the pricing matrix, the
- * success line in the CLI panel — and it renders inline with the accent in the
- * hero, the footer, HowItWorks and CompanyPreview. The accent therefore has to
- * stay far enough from emerald to survive being read side by side with it.
- * At ~188° it does: tide-500 vs emerald-500 is dE2000 27.4, and the tightest
- * same-component pairing (the pale -100 tile fills) is 12.1, which the tiles'
- * text and ring colours widen further. Move this hue toward green and that
- * margin is what you spend — a jade at ~174° puts four of those pairings under
- * dE 10, which is "the same colour" at a glance. Re-measure before re-hueing.
+ * Where the colour went. A neutral accent only works if something else is
+ * carrying the life, so three things do:
+ *
+ *   - the `aurora` washes, which are now warm amber over the warm paper rather
+ *     than a tint of the accent. They are the reason the page reads lit rather
+ *     than grey, and they are the first thing to check if it ever looks flat;
+ *   - `night`, still violet-cast, so the dark bands are a colour event on
+ *     their own with no help from the accent;
+ *   - the per-product hues in products/data.ts and the emerald live/success
+ *     signal, both of which now read louder because nothing competes with them.
+ *
+ * This also retires a constraint. While the accent was a hue it had to stay
+ * clear of the emerald the site spends on live/success state, which is
+ * rendered inline with it in the hero, the footer, HowItWorks and
+ * CompanyPreview. A neutral accent cannot collide with a signal colour, so
+ * emerald is free to be as green as it likes.
+ *
+ * The one rule to keep: `ink` must stay warm-tinted (hue ~50-85 LCh, chroma
+ * 2-6). A cold grey on this warm paper reads as dirt, not as neutral.
  */
 export default {
   content: ["./client/index.html", "./client/**/*.{ts,tsx}"],
@@ -45,15 +54,15 @@ export default {
           300: "#f1e7d8",
           400: "#e5d8c4",
         },
-        tide: {
-          50: "#e6faff",
-          100: "#c3f1fa",
-          200: "#8ae0ed",
-          300: "#53c9db",
-          400: "#28afc7",
-          500: "#0e98ad",
-          600: "#078194",
-          700: "#056978",
+        ink: {
+          50: "#f9f5f1",
+          100: "#eee9e2",
+          200: "#d9d0c9",
+          300: "#bcaea9",
+          400: "#7c716a",
+          500: "#574e47",
+          600: "#453c38",
+          700: "#2f2b26",
         },
         night: {
           950: "#0f0b1e",
@@ -93,7 +102,7 @@ export default {
         lift: "0 14px 34px -14px rgba(60, 40, 25, 0.18), 0 3px 10px -3px rgba(60, 40, 25, 0.08)",
         raise: "0 28px 60px -26px rgba(60, 40, 25, 0.32), 0 6px 18px -8px rgba(60, 40, 25, 0.14)",
         float: "0 48px 96px -40px rgba(15, 11, 30, 0.55), 0 10px 28px -14px rgba(15, 11, 30, 0.3)",
-        tide: "0 12px 32px -12px rgba(14, 152, 173, 0.45)",
+        ink: "0 12px 32px -12px rgba(87, 78, 71, 0.45)",
         // Elevation on the dark bands is a lit top edge, not a drop shadow.
         panel: "inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 2px rgba(0,0,0,0.4)",
       },
@@ -103,8 +112,8 @@ export default {
           to: { opacity: "1", transform: "translateY(0)" },
         },
         halo: {
-          "0%, 100%": { boxShadow: "0 0 0 0 rgba(14, 152, 173, 0.45)" },
-          "50%": { boxShadow: "0 0 0 7px rgba(14, 152, 173, 0)" },
+          "0%, 100%": { boxShadow: "0 0 0 0 rgba(87, 78, 71, 0.45)" },
+          "50%": { boxShadow: "0 0 0 7px rgba(87, 78, 71, 0)" },
         },
         sweep: {
           from: { transform: "translateX(-100%)" },

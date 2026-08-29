@@ -182,7 +182,7 @@ export function DocLink({
   return (
     <Link
       href={to}
-      className="font-medium text-stone-800 underline decoration-tide-300 decoration-1 underline-offset-2 hover:decoration-tide-500"
+      className="font-medium text-stone-800 underline decoration-ink-300 decoration-1 underline-offset-2 hover:decoration-ink-500"
     >
       {label}
     </Link>
@@ -201,7 +201,7 @@ export function ExtLink({
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="font-medium text-stone-800 underline decoration-tide-300 decoration-1 underline-offset-2 hover:decoration-tide-500"
+      className="font-medium text-stone-800 underline decoration-ink-300 decoration-1 underline-offset-2 hover:decoration-ink-500"
     >
       {children}
     </a>

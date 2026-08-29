@@ -60,7 +60,7 @@ export const PRODUCTS: ProductDef[] = [
     name: "AI Employees",
     category: "The core",
     icon: "users",
-    accent: "bg-tide-100 text-tide-700 ring-tide-200",
+    accent: "bg-ink-100 text-ink-700 ring-ink-200",
     tagline: "Hire teammates that never log off.",
     taglineAccent: "A Soul, a set of Skills, and Routines that start without you.",
     summary:

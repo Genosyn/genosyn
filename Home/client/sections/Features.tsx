@@ -43,10 +43,10 @@ export function Features() {
             <div className="relative border-b border-stone-900/[0.08] bg-paper-100 p-7 sm:p-9 lg:border-b-0 lg:border-r">
               <div
                 aria-hidden
-                className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_60%_at_0%_0%,rgba(40,175,199,0.14),transparent_70%)]"
+                className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_60%_at_0%_0%,rgba(255,178,122,0.14),transparent_70%)]"
               />
               <div className="relative">
-                <div className="text-[11px] font-semibold text-tide-600">
+                <div className="text-[11px] font-semibold text-ink-600">
                   Shared by design
                 </div>
                 <h3 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-stone-900">
@@ -61,7 +61,7 @@ export function Features() {
                     <li key={item} className="flex items-start gap-3 text-sm leading-5 text-stone-700">
                       <span
                         aria-hidden
-                        className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-tide-100 text-tide-600"
+                        className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-ink-100 text-ink-600"
                       >
                         <Check className="h-3 w-3" />
                       </span>
@@ -93,7 +93,7 @@ export function Features() {
                       </span>
                       <ArrowRight
                         aria-hidden
-                        className="h-4 w-4 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-tide-500"
+                        className="h-4 w-4 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-ink-500"
                       />
                     </div>
                     <h3 className="mt-6 text-base font-semibold text-stone-900">{product.name}</h3>
@@ -114,7 +114,7 @@ export function Features() {
               <Link
                 key={product.slug}
                 href={`/products/${product.slug}`}
-                className="inline-flex items-center gap-2 rounded-full border border-stone-900/[0.08] bg-white py-1.5 pl-1.5 pr-3.5 text-[12px] font-semibold text-stone-600 shadow-card transition hover:-translate-y-0.5 hover:border-tide-300 hover:text-stone-900 hover:shadow-lift"
+                className="inline-flex items-center gap-2 rounded-full border border-stone-900/[0.08] bg-white py-1.5 pl-1.5 pr-3.5 text-[12px] font-semibold text-stone-600 shadow-card transition hover:-translate-y-0.5 hover:border-ink-300 hover:text-stone-900 hover:shadow-lift"
               >
                 <span
                   className={`flex h-6 w-6 items-center justify-center rounded-full ring-1 ring-inset ${product.accent}`}

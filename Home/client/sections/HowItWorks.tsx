@@ -53,8 +53,8 @@ const STEPS: Step[] = [
     title: "Keep the final say",
     body: "Sensitive actions stop for a Member. Everything else keeps moving, with a Run you can read afterwards.",
     detail: "Autonomy with an audit trail.",
-    tile: "bg-tide-100 text-tide-700 ring-tide-200",
-    numeral: "text-tide-300 group-hover:text-tide-500",
+    tile: "bg-ink-100 text-ink-700 ring-ink-200",
+    numeral: "text-ink-300 group-hover:text-ink-500",
   },
 ];
 
