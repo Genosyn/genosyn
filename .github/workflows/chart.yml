@@ -33,21 +33,54 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # The default posture is multi-tenant SaaS, which requires the bootstrap
+      # admin email and SMTP host — lint renders templates, so it needs them too.
       - name: Helm lint
-        run: helm lint Helm/genosyn
+        run: |
+          helm lint Helm/genosyn \
+            --set config.bootstrapMasterAdminEmail=ops@example.com \
+            --set config.smtp.host=smtp.example.com
+          helm lint Helm/genosyn -f Helm/genosyn/values-selfhost.yaml
 
       # Render the shapes users actually deploy, so a template regression
       # fails the PR and not the operator's upgrade.
       - name: Helm template smoke tests
         run: |
-          helm template genosyn Helm/genosyn > /dev/null
-          helm template genosyn Helm/genosyn --set postgres.enabled=true > /dev/null
+          # Default (multi-tenant SaaS) shape with the two required flags.
           helm template genosyn Helm/genosyn \
-            --set config.db.driver=postgres \
-            --set sandbox.enabled=true \
-            --set config.multiTenant=true \
+            --set config.bootstrapMasterAdminEmail=ops@example.com \
+            --set config.smtp.host=smtp.example.com > /dev/null
+          # Production trimmings: TLS ingress, external Postgres, own secrets,
+          # SMTP auth.
+          helm template genosyn Helm/genosyn \
+            --set config.bootstrapMasterAdminEmail=ops@example.com \
+            --set config.smtp.host=smtp.example.com \
+            --set config.smtp.user=apikey \
+            --set config.smtp.passwordSecret.name=my-smtp \
+            --set postgres.enabled=false \
+            --set config.db.postgresUrlSecret.name=my-postgres \
+            --set secrets.existingSecret=my-secrets \
             --set ingress.enabled=true \
-            --set ingress.host=x.example.com > /dev/null
+            --set ingress.host=x.example.com \
+            --set ingress.tls.enabled=true \
+            --set ingress.tls.secretName=x-tls > /dev/null
+          # Cluster without the UserNamespacesSupport gate.
+          helm template genosyn Helm/genosyn \
+            --set config.bootstrapMasterAdminEmail=ops@example.com \
+            --set config.smtp.host=smtp.example.com \
+            --set sandbox.hostUsers=null > /dev/null
+          # Single-tenant self-host shape.
+          helm template genosyn Helm/genosyn \
+            -f Helm/genosyn/values-selfhost.yaml > /dev/null
+          # Negative test: a bare default template must fail closed with ONE
+          # aggregated message naming everything missing at once.
+          if helm template genosyn Helm/genosyn > /dev/null 2> bare-default.err; then
+            echo "expected the bare default template to fail" >&2
+            exit 1
+          fi
+          grep -q "config.bootstrapMasterAdminEmail is required" bare-default.err
+          grep -q "config.smtp.host is required" bare-default.err
+          grep -q "values-selfhost.yaml" bare-default.err
 
   publish:
     name: Package & push to GHCR

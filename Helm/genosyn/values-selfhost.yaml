@@ -1,0 +1,34 @@
+# Single-tenant self-host shape — the chart's OLD default, kept as a one-flag
+# off-ramp now that the default posture is production multi-tenant SaaS:
+#
+#   helm install genosyn oci://ghcr.io/genosyn/charts/genosyn \
+#     --namespace genosyn --create-namespace \
+#     -f values-selfhost.yaml
+#
+# What you get: one replica, SQLite on the 20Gi /app/data volume, no bundled
+# Postgres, no securityContext demands — the same shape as the one-line Docker
+# installer. The chart still generates strong session/encryption secrets in a
+# kept Kubernetes Secret (see `secrets` in values.yaml).
+#
+# Command execution (the bubblewrap coding sandbox) is OFF in this shape
+# because it needs securityContext fields many clusters refuse (seccomp
+# Unconfined + procMount Unmasked + hostUsers: false). Genosyn boots with
+# command execution disabled and logs why — chat, Routines, Integrations, and
+# browser work all still function; builds and per-employee checkouts do not.
+# If your cluster permits the fields, flip sandbox.enabled to true.
+
+config:
+  # Private single-tenant install: no shared-SaaS boot checklist, so
+  # bootstrapMasterAdminEmail and smtp.host may stay empty (password-reset
+  # links then log to the server console).
+  multiTenant: false
+  db:
+    # SQLite lives on the /app/data volume. Flip to postgres +
+    # config.db.postgresUrlSecret (or postgres.enabled) when you outgrow it.
+    driver: sqlite
+
+sandbox:
+  enabled: false
+
+postgres:
+  enabled: false

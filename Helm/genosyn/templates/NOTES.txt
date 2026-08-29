@@ -23,20 +23,38 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
    Admin -> General.
 {{- if .Values.config.multiTenant }}
 
-   multiTenant is ON: bootstrap requires config.security.bootstrapMasterAdminEmail
-   (set it via config.extraJs) and a working system SMTP — boot refuses
-   otherwise. See the multi-tenant checklist in the chart README.
+   multiTenant is ON (the chart default). Only
+   {{ .Values.config.bootstrapMasterAdminEmail }} may claim the master-admin
+   account, verification mail goes through {{ .Values.config.smtp.host }} —
+   and multiTenant forces Secure session cookies, so the FIRST login must
+   already happen over HTTPS: reach the app through the Ingress with TLS, not
+   a plain http:// port-forward, or the browser will drop the session cookie.
 {{- end }}
 
 3. Command execution (the coding sandbox)
 {{- if .Values.sandbox.enabled }}
 
-   sandbox.enabled=true — the pod requests seccompProfile Unconfined and
-   procMount Unmasked. If your cluster's Pod Security admission or a missing
-   ProcMountType feature gate rejects the pod, either permit it in this
-   namespace or set sandbox.enabled=false (Genosyn then runs with command
-   execution disabled{{ if .Values.config.multiTenant }} — but multiTenant mode refuses to boot without a
-   working sandbox{{ end }}).
+   sandbox.enabled=true (the chart default) — the pod requests
+   seccompProfile Unconfined and procMount Unmasked{{ if not (kindIs "invalid" .Values.sandbox.hostUsers) }}, plus pod-spec
+   hostUsers: {{ .Values.sandbox.hostUsers }}{{ end }}. Your cluster must support all of it:
+   procMount Unmasked needs the ProcMountType feature gate, hostUsers: false
+   needs UserNamespacesSupport (set sandbox.hostUsers=null on clusters
+   without that gate), and Pod Security admission must permit the fields in
+   this namespace (they are rejected below the `privileged` level). If the
+   pod will not schedule, turn the sandbox off with the exact flags:
+{{- if .Values.config.multiTenant }}
+
+     # multiTenant refuses to boot without a working sandbox, so turning it
+     # off means leaving multi-tenant mode — the self-host shape:
+     helm upgrade {{ .Release.Name }} ... -f values-selfhost.yaml
+     # or explicitly:
+     helm upgrade {{ .Release.Name }} ... --set config.multiTenant=false --set sandbox.enabled=false
+{{- else }}
+
+     helm upgrade {{ .Release.Name }} ... --set sandbox.enabled=false
+{{- end }}
+
+   Genosyn then runs with command execution disabled and says why.
 {{- else }}
 
    sandbox.enabled=false — Genosyn boots with command execution disabled and
@@ -50,9 +68,14 @@ Genosyn {{ .Chart.AppVersion }} is rolling out.
 
    /app/data {{ if .Values.persistence.enabled }}is persisted on PVC {{ .Values.persistence.existingClaim | default (printf "%s-data" (include "genosyn.fullname" .)) }}{{ else }}is NOT persisted — persistence.enabled=false is only
    safe for throwaway evaluation{{ end }}. Keep the volume even on Postgres
-   installs: unless explicit strong secrets are configured via
-   secrets.existingSecret, the managed instance secrets live there and losing
-   them makes encrypted rows unreadable. Back up the volume with the database.
+   installs: it holds checkouts, browser state, and uploads.
+{{- if not .Values.secrets.existingSecret }}
+
+   The session/encryption secrets live in Secret {{ include "genosyn.instanceSecretsName" . }}
+   (generated once, kept across upgrades AND `helm uninstall` — rotating the
+   encryption secret would orphan every encrypted row). Back that Secret up
+   with the database.
+{{- end }}
 {{- if .Values.postgres.enabled }}
 
 5. Bundled Postgres

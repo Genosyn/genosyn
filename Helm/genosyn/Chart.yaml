@@ -10,6 +10,7 @@ type: application
 version: 1.155.0
 appVersion: "1.155.0"
 home: https://genosyn.com
+icon: https://genosyn.com/favicon.svg
 sources:
   - https://github.com/genosyn/genosyn
 keywords:
@@ -17,3 +18,14 @@ keywords:
   - ai-employees
   - automation
   - self-hosted
+# Rendered by Artifact Hub, where the chart is also listed.
+annotations:
+  artifacthub.io/category: ai-machine-learning
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://genosyn.com/docs/kubernetes
+    - name: Pricing
+      url: https://genosyn.com/pricing
+    - name: Releases
+      url: https://github.com/genosyn/genosyn/releases

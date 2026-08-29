@@ -3346,15 +3346,32 @@ hired). See decision 14 for the model.
       Auto-provisioned users join as Members. Instance-wide SSO (M16) is
       unchanged on Cloud and license-gated on self-hosted installs.
 - [x] **Helm chart.** `Helm/genosyn` — official chart published to
-      `oci://ghcr.io/genosyn/charts/genosyn` on release (chart.yml workflow):
-      single-replica Recreate default with PVC, config.js ConfigMap overlay +
-      Secret-fed env, optional bundled Postgres for evaluation, opt-in
-      bubblewrap `sandbox.enabled` (seccomp Unconfined + procMount Unmasked),
-      probes on the new unauthenticated `GET /api/health`, multi-tenant
-      checklist in the README. The Kubernetes docs page now leads with it.
+      `oci://ghcr.io/genosyn/charts/genosyn` on release (chart.yml workflow)
+      and listed on Artifact Hub: config.js ConfigMap overlay + Secret-fed
+      env, bundled Postgres for evaluation, bubblewrap `sandbox.enabled`
+      (seccomp Unconfined + procMount Unmasked + `hostUsers: false`), probes
+      on the new unauthenticated `GET /api/health`. The Kubernetes docs page
+      now leads with it.
+- [x] **The chart defaults to production, not to a demo.** `multiTenant`,
+      Postgres, and the sandbox are all on out of the box, with chart-managed
+      strong instance secrets (generated once, `resource-policy: keep`, never
+      rotated on upgrade — rotating the encryption key would orphan every
+      ciphertext). Because shared-SaaS boot is fail-closed, a bare
+      `helm install` refuses at *template* time with one aggregated message
+      naming everything missing at once, rather than crash-looping a pod:
+      only the bootstrap master-admin email and system SMTP need supplying.
+      The old single-tenant shape lives on in `values-selfhost.yaml`.
 - [x] **Home.** genosyn.com/pricing — Cloud plan cards, the self-hosted
       Community/Enterprise split, comparison table, FAQ. Docs for plans &
       billing, enterprise licenses, and the chart.
+- [x] **Free is a taste, not a tier.** Beyond 1 AI Employee and 2 Routines,
+      the Free plan caps 1 Base with 1 table, 3 Channels (DMs never count),
+      1 Project, and 20 Todos — enforced with the same 402-with-upgrade-copy
+      seam at every creation path (routes, MCP tools, template seeding
+      clamped, Pipeline nodes; recurring Todos stop spawning at the cap
+      rather than failing the completing PATCH). Self-hosted stays unlimited.
+      The pricing page leads with the value frame — an employee-grade hire
+      for $19 a month, not thousands — instead of a bare per-unit price.
 
 ## V1 backlog (post-MVP)
 

@@ -1,26 +1,49 @@
 # genosyn Helm chart
 
 The official chart for [Genosyn](https://genosyn.com) — one container, one
-volume, optional Postgres. Published as an OCI artifact alongside every
-release.
+volume, Postgres. Defaults to production multi-tenant SaaS, with a one-file
+off-ramp to a single-tenant self-host (`values-selfhost.yaml`). Published as
+an OCI artifact alongside every release, and listed on
+[Artifact Hub](https://artifacthub.io/packages/search?ts_query_web=genosyn).
 
 ## Quickstart
 
+The chart's **default posture is production multi-tenant SaaS**: `multiTenant`
+on, Postgres, the bubblewrap sandbox granted, chart-generated strong secrets.
+A bare `helm install` fails fast at template time with one aggregated message
+listing everything missing — by design, only two values need supplying.
+
+### Genosyn Cloud / production (default)
+
 ```bash
 helm install genosyn oci://ghcr.io/genosyn/charts/genosyn \
-  --namespace genosyn --create-namespace
-```
-
-That gives you the same shape as the one-line Docker installer: a single
-replica, SQLite, and a 20Gi volume at `/app/data`. Add an Ingress when you
-are ready for real traffic:
-
-```bash
-helm upgrade genosyn oci://ghcr.io/genosyn/charts/genosyn -n genosyn \
+  --namespace genosyn --create-namespace \
+  --set config.bootstrapMasterAdminEmail=ops@example.com \
+  --set config.smtp.host=smtp.example.com \
   --set ingress.enabled=true \
   --set ingress.host=genosyn.example.com \
   --set ingress.tls.enabled=true \
   --set ingress.tls.secretName=genosyn-tls
+```
+
+The two `config.*` flags are the multi-tenant minimum (bootstrap admin email
+and system SMTP — see the checklist below for SMTP auth). The Ingress with
+TLS is not optional garnish: multi-tenant mode forces Secure session cookies,
+so the **first login must already happen over HTTPS**. The default install
+runs the **bundled evaluation Postgres**; real production should operate its
+own (managed instance, CloudNativePG, an operator) and point
+`config.db.postgresUrlSecret` at it with `postgres.enabled=false`.
+
+### Single-tenant self-host
+
+The old default shape — SQLite, no bundled Postgres, no securityContext
+demands — lives in [`values-selfhost.yaml`](./values-selfhost.yaml):
+
+```bash
+helm pull oci://ghcr.io/genosyn/charts/genosyn --untar
+helm install genosyn ./genosyn \
+  --namespace genosyn --create-namespace \
+  -f genosyn/values-selfhost.yaml
 ```
 
 The pod becomes Ready once every migration has run (`/api/health` answers
@@ -37,12 +60,14 @@ review the public URL at **Admin → General**.
 | `ingress.enabled` / `ingress.host` | `false` / `""` | Front the app. WebSockets pass through a plain Ingress rule on nginx/Traefik. |
 | `persistence.size` | `20Gi` | The `/app/data` volume. Holds checkouts, browser state, uploads — and the managed instance secrets. |
 | `persistence.existingClaim` | `""` | Use a PVC you manage instead of the chart's. |
-| `config.db.driver` | `sqlite` | Flip to `postgres` with `config.db.postgresUrlSecret` for an external database. |
-| `config.db.postgresUrlSecret` | `{}` | Secret + key holding a full `postgresql://…` URL. |
-| `postgres.enabled` | `false` | Bundled single-node Postgres for evaluation (implies `driver: postgres`). |
-| `sandbox.enabled` | `false` | Grant the securityContext the bubblewrap coding sandbox needs (see below). |
-| `secrets.existingSecret` | `""` | Secret with `sessionSecret` + `encryptionSecret` keys (≥ 32 chars each, distinct). |
-| `config.multiTenant` | `false` | Shared SaaS mode — read the checklist below first. |
+| `config.db.driver` | `postgres` | `sqlite` for single-tenant self-host (`values-selfhost.yaml` sets it). |
+| `config.db.postgresUrlSecret` | `{}` | Secret + key holding a full `postgresql://…` URL — the production database. |
+| `postgres.enabled` | `true` | Bundled single-node Postgres, evaluation only. Turn off when using `postgresUrlSecret`. |
+| `sandbox.enabled` | `true` | Grant the securityContext the bubblewrap coding sandbox needs (see below). |
+| `secrets.existingSecret` | `""` | Secret with `sessionSecret` + `encryptionSecret` keys (≥ 32 chars each, distinct). Empty generates a kept `-instance-secrets` Secret. |
+| `config.multiTenant` | `true` | Shared SaaS mode — the default; read the checklist below. |
+| `config.bootstrapMasterAdminEmail` | `""` | The only email allowed to claim the first master admin. Required when `multiTenant`. |
+| `config.smtp.host` (+ `port`/`user`/`from`/…) | `""` | System SMTP. `host` required when `multiTenant`; password via `config.smtp.passwordSecret`. |
 | `config.extraJs` | `""` | Extra `key: value,` lines spliced into the generated `config.js`. |
 | `env` | `[]` | Extra container env vars (verbatim pod-spec syntax). |
 
@@ -54,6 +79,18 @@ replacement from `values.yaml` and mounts it over that path (`subPath`), with
 secrets injected as `GENOSYN_*` environment variables that the file reads via
 `process.env`.
 
+SMTP is first-class: `config.smtp.*` renders into the config, and an
+authenticated relay's password comes from a pre-created Secret — never from
+values:
+
+```yaml
+config:
+  smtp:
+    host: smtp.example.com
+    user: apikey
+    passwordSecret: { name: my-smtp, key: password }  # injected as GENOSYN_SMTP_PASS
+```
+
 Anything the chart does not parameterize goes through `config.extraJs`,
 spliced verbatim before the closing brace of the config object. A duplicate
 top-level key replaces the default block wholesale; the generated file defines
@@ -63,12 +100,12 @@ one at a time:
 ```yaml
 config:
   extraJs: |
-    security: { ...security, bootstrapMasterAdminEmail: "ops@example.com" },
-    smtp: { host: "smtp.example.com", port: 587, secure: false, user: "apikey", pass: process.env.GENOSYN_SMTP_PASS ?? "", fromName: "Genosyn", from: "no-reply@example.com" },
+    security: { ...security, trustedProxyHops: 2 },
+    integrations: { google: { clientId: "…", clientSecret: process.env.GENOSYN_GOOGLE_SECRET ?? "" } },
 env:
-  - name: GENOSYN_SMTP_PASS
+  - name: GENOSYN_GOOGLE_SECRET
     valueFrom:
-      secretKeyRef: { name: my-smtp, key: password }
+      secretKeyRef: { name: my-google-oauth, key: clientSecret }
 ```
 
 ## The coding sandbox (`sandbox.enabled`)
@@ -89,36 +126,46 @@ renders pod-spec `hostUsers: false` (from `sandbox.hostUsers`, default
 `false`), which needs the `UserNamespacesSupport` feature gate — set
 `sandbox.hostUsers` to `null` on clusters without that gate to omit the
 field. Pod Security admission rejects these fields below the `privileged`
-level. Left disabled (the default), Genosyn boots with command
-execution disabled and logs why — chat, Routines, Integrations, and browser
-work all still function; builds, test suites, and per-employee checkouts do
-not. Multi-tenant mode is the exception: it refuses to boot without a working
-sandbox.
+level. Disabled (`--set sandbox.enabled=false`, which `values-selfhost.yaml`
+does), Genosyn boots with command execution disabled and logs why — chat,
+Routines, Integrations, and browser work all still function; builds, test
+suites, and per-employee checkouts do not. Multi-tenant mode — the default —
+is the exception: it refuses to boot without a working sandbox, so the chart
+refuses `multiTenant` + `sandbox.enabled=false` at template time.
 
 ## Multi-tenant (shared SaaS) mode
 
-`config.multiTenant: true` makes boot validation refuse anything below the
-shared-SaaS baseline. The checklist, mapped to chart values:
+`config.multiTenant: true` — the chart default — makes boot validation refuse
+anything below the shared-SaaS baseline. The chart pre-validates its share at
+**template time** and reports every missing value in one aggregated error, so
+`helm install` fails in one round instead of one CrashLoopBackOff per missing
+value. The checklist, mapped to chart values:
 
-1. **Postgres** — `config.db.driver: postgres` + `config.db.postgresUrlSecret`
-   (or `postgres.enabled: true` for a trial run).
-2. **Explicit strong secrets** — `secrets.existingSecret` with distinct
-   `sessionSecret` and `encryptionSecret` values of at least 32 characters.
-   Managed on-disk secrets are refused in this mode.
-3. **Working sandbox** — `sandbox.enabled: true`, on a cluster that actually
-   honors the fields; multi-tenant boot probes bubblewrap and refuses on
-   failure instead of degrading.
-4. **Bootstrap admin** — predeclare the only email allowed to claim the first
-   master-admin account, via `config.extraJs`:
-   `security: { ...security, bootstrapMasterAdminEmail: "ops@example.com" },`
-5. **System SMTP** — required for verification and recovery mail. Configure it
-   via `config.extraJs` (`smtp: { ... },`) or later at Admin → Email
-   transport; boot checks that one of the two is present.
-6. **HTTPS** — serve through TLS; secure cookies are mandatory in this mode.
+1. **Postgres** — `config.db.driver: postgres` (default) + either
+   `postgres.enabled: true` (default, evaluation only) or
+   `config.db.postgresUrlSecret` pointing at a database you operate.
+2. **Explicit strong secrets** — satisfied out of the box: the chart
+   generates a `<fullname>-instance-secrets` Secret with distinct 48-char
+   values, preserved across upgrades and `helm uninstall`
+   (`helm.sh/resource-policy: keep`). Or bring your own via
+   `secrets.existingSecret` (distinct `sessionSecret` / `encryptionSecret`,
+   ≥ 32 characters each). Managed on-disk secrets are refused in this mode.
+3. **Working sandbox** — `sandbox.enabled: true` (default), on a cluster
+   that actually honors the fields; multi-tenant boot probes bubblewrap and
+   refuses on failure instead of degrading.
+4. **Bootstrap admin** — `config.bootstrapMasterAdminEmail`, the only email
+   allowed to claim the first master-admin account. Required; template-time
+   failure when empty.
+5. **System SMTP** — `config.smtp.host` (plus `user` /
+   `config.smtp.passwordSecret` for an authenticated relay). Required;
+   template-time failure when empty. Can later be overridden at
+   Admin → Email transport.
+6. **HTTPS** — serve through the Ingress with TLS. Secure cookies are forced
+   in this mode, so even the first login must happen over HTTPS.
 
 The chart already renders the remaining requirements for you when
 `config.multiTenant` is true (member browsers off, in-process browser off,
-sandbox network access off).
+sandbox network access off, private-host allowlist empty).
 
 ## Upgrading
 
@@ -132,16 +179,19 @@ helm upgrade genosyn oci://ghcr.io/genosyn/charts/genosyn -n genosyn --reuse-val
   mid-flight — do not tighten it.
 - `strategy: Recreate` means a short outage per upgrade on single-replica
   installs; that is the cost of an RWO volume, not a bug.
-- The bundled Postgres password is generated once and preserved across
-  upgrades (Helm `lookup`); it never rotates on its own. The generated secret
-  is annotated `helm.sh/resource-policy: keep`, so it also survives
-  `helm uninstall` alongside the `pgdata` volume it matches.
+- The bundled Postgres password and the generated instance secrets are each
+  generated once and preserved across upgrades (Helm `lookup`); they never
+  rotate on their own. Both secrets are annotated
+  `helm.sh/resource-policy: keep`, so they also survive `helm uninstall` —
+  the password must match the surviving `pgdata` volume, and rotating the
+  encryption secret would orphan every encrypted row.
 - Upgrading from a pre-release install of this same unreleased chart needs a delete+install: the workload selectors gained `app.kubernetes.io/component` and selector fields are immutable.
 
 ## Backups
 
-Two things, separately: the database (yours or the bundled StatefulSet's
-`pgdata` volume) and the `/app/data` PVC. `/app/data` matters even on
-Postgres installs — unless explicit secrets are configured via
-`secrets.existingSecret`, the managed instance encryption secrets live there,
-and losing them makes encrypted rows unreadable.
+Three things, separately: the database (yours or the bundled StatefulSet's
+`pgdata` volume), the `/app/data` PVC (checkouts, browser state, uploads —
+it matters even on Postgres installs), and the instance secrets — the
+generated `<fullname>-instance-secrets` Secret (or your
+`secrets.existingSecret`). Losing the encryption secret makes encrypted rows
+unreadable.

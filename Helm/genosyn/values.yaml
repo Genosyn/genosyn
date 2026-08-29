@@ -1,9 +1,15 @@
 # Default values for the genosyn chart.
 #
-# The short version: `helm install genosyn oci://ghcr.io/genosyn/charts/genosyn`
-# gives you a single-replica SQLite install with a 20Gi data volume — the same
-# shape as the one-line Docker installer. Everything below is for going past
-# that.
+# The short version: the DEFAULT posture is production multi-tenant SaaS —
+# multiTenant on, Postgres, the bubblewrap sandbox granted, chart-generated
+# strong secrets. A bare `helm install` fails fast at template time with one
+# aggregated message listing the two values only you can supply
+# (config.bootstrapMasterAdminEmail and config.smtp.host).
+#
+# Running a private single-tenant install instead? Use the commented example
+# next to this file: `helm install ... -f values-selfhost.yaml` — SQLite, no
+# bundled Postgres, no securityContext demands, the same shape as the one-line
+# Docker installer.
 
 image:
   repository: ghcr.io/genosyn/app
@@ -49,10 +55,10 @@ ingress:
   annotations: {}
 
 # The /app/data volume. This must persist even when the database is Postgres:
-# it holds materialized git checkouts, browser state, tool artifacts, uploads —
-# and, unless you configure explicit >= 32-character secrets (see `secrets`),
-# the generated instance secrets that make encrypted rows readable. Losing it
-# on a default install loses the encryption key.
+# it holds materialized git checkouts, browser state, tool artifacts, and
+# uploads. The encryption/session secrets live in a Kubernetes Secret (see
+# `secrets`), not on this volume — but back the Secret up with the database:
+# losing the encryption secret makes encrypted rows unreadable.
 persistence:
   enabled: true
   size: 20Gi
@@ -73,13 +79,14 @@ persistence:
 # or a privileged container. Pod Security admission rejects both fields below
 # the `privileged` level.
 #
-# Left disabled, Genosyn boots with command execution disabled and logs why —
+# Disabled, Genosyn boots with command execution disabled and logs why —
 # chat, Routines, Integrations and browser work all still function; builds and
 # per-employee checkouts do not. EXCEPT in multiTenant mode: shared SaaS
 # refuses to boot without a working sandbox, so sandbox.enabled is mandatory
-# there (and the cluster must actually honor the fields).
+# there (and the cluster must actually honor the fields). Enabled by default
+# because multiTenant is the default; values-selfhost.yaml turns it off.
 sandbox:
-  enabled: false
+  enabled: true
   # Rendered as pod-spec `hostUsers` when sandbox.enabled. Newer Kubernetes
   # (1.31+, ProcMountType beta) only honors procMount: Unmasked inside a
   # user-namespaced pod — hostUsers: false, which needs the cluster's
@@ -90,32 +97,58 @@ sandbox:
 config:
   db:
     # sqlite | postgres. Setting postgres.enabled below implies postgres.
-    driver: sqlite
+    driver: postgres
     # For an EXTERNAL Postgres: a secret holding the full connection URL
     # (postgresql://user:pass@host:5432/db). Takes precedence over the
     # bundled postgres below.
     postgresUrlSecret:
       name: ""
       key: ""
-  # Shared SaaS mode. Boot refuses unless the whole checklist passes — see the
-  # multi-tenant section of the chart README.
-  multiTenant: false
+  # Shared SaaS mode — the default. Boot refuses unless the whole checklist
+  # passes; the chart pre-validates its share at template time and reports
+  # every missing value in one aggregated error. See the multi-tenant section
+  # of the chart README. values-selfhost.yaml turns this off.
+  multiTenant: true
+  # The only email allowed to claim the first master-admin account (promotion
+  # happens only after email verification, closing the internet race during
+  # bootstrap). REQUIRED when multiTenant — a bare install fails at template
+  # time until you set it.
+  bootstrapMasterAdminEmail: ""
+  # System SMTP for verification, invite, and recovery mail. REQUIRED when
+  # multiTenant (smtp.host must be set — template-time failure otherwise); a
+  # self-host install may leave host empty, and reset links then log to the
+  # server console. The password comes from a pre-created secret via
+  # passwordSecret (injected as GENOSYN_SMTP_PASS), never from values.
+  smtp:
+    host: ""
+    port: 587
+    secure: false
+    user: ""
+    from: "no-reply@genosyn.local"
+    fromName: "Genosyn"
+    passwordSecret:
+      name: ""
+      # Defaults to "password" when name is set.
+      key: ""
   # Extra JavaScript spliced verbatim into the generated config.js, just
   # before the closing brace of the config object — so each line should be a
   # `key: value,` entry. A duplicate top-level key replaces the default block
   # wholesale; the generated file defines `const security = {...}` above the
-  # object so you can override one field without losing the rest:
+  # object so you can override one security field without losing the rest:
   #   extraJs: |
-  #     security: { ...security, bootstrapMasterAdminEmail: "ops@example.com" },
-  #     smtp: { host: "smtp.example.com", port: 587, secure: false, user: "apikey", pass: process.env.GENOSYN_SMTP_PASS ?? "", fromName: "Genosyn", from: "no-reply@example.com" },
+  #     security: { ...security, trustedProxyHops: 2 },
+  #     integrations: { google: { clientId: "…", clientSecret: process.env.GENOSYN_GOOGLE_SECRET ?? "" } },
   extraJs: ""
 
 secrets:
   # A pre-created secret with keys `sessionSecret` and `encryptionSecret`
   # (each a unique random string of at least 32 characters; they must differ).
-  # Optional but strongly recommended: with explicit secrets configured,
-  # Genosyn stops depending on the generated instance-secrets file under
-  # /app/data. REQUIRED for multiTenant — shared SaaS refuses managed secrets.
+  # Left empty, the chart generates a `<fullname>-instance-secrets` Secret
+  # once with strong random values and preserves it across upgrades AND
+  # uninstall/reinstall (`helm.sh/resource-policy: keep`) — rotating the
+  # encryptionSecret would orphan every encrypted row. Either way the app
+  # receives explicit strong secrets via env, which is what multiTenant
+  # requires (shared SaaS refuses the managed on-disk secrets file).
   existingSecret: ""
 
 # Extra environment variables for the app container, verbatim pod-spec syntax
@@ -123,12 +156,13 @@ secrets:
 # gets injected here.
 env: []
 
-# Bundled single-node Postgres, for evaluation. Production installs should
-# point config.db.postgresUrlSecret at a Postgres they operate (an operator,
-# CloudNativePG, a managed instance) — this StatefulSet has no HA, no backups,
-# no tuning.
+# Bundled single-node Postgres — on by default so the default install has a
+# database, but it is an evaluation database: no HA, no backups, no tuning.
+# REAL production installs should set enabled: false and point
+# config.db.postgresUrlSecret at a Postgres they operate (an operator,
+# CloudNativePG, a managed instance).
 postgres:
-  enabled: false
+  enabled: true
   image: postgres:16
   database: genosyn
   username: genosyn

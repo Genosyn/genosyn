@@ -16,7 +16,7 @@ data:
     // Rendered by the genosyn Helm chart — edit values.yaml, not this file.
     // Values-managed defaults for the security block, defined separately so
     // config.extraJs can override a single field without restating the rest:
-    //   security: { ...security, bootstrapMasterAdminEmail: "ops@example.com" },
+    //   security: { ...security, trustedProxyHops: 2 },
     const security = {
       multiTenant: {{ .Values.config.multiTenant }},
       encryptionSecret: process.env.GENOSYN_ENCRYPTION_SECRET ?? "change-me-in-production-too",
@@ -32,7 +32,7 @@ data:
         maxAttempts: 10,
         blockMinutes: 15,
       },
-      bootstrapMasterAdminEmail: "",
+      bootstrapMasterAdminEmail: {{ .Values.config.bootstrapMasterAdminEmail | quote }},
     };
 
     export const config = {
@@ -69,13 +69,17 @@ data:
         humanize: true,
       },
       smtp: {
-        host: "",
-        port: 587,
-        secure: false,
-        user: "",
+        host: {{ .Values.config.smtp.host | quote }},
+        port: {{ int .Values.config.smtp.port }},
+        secure: {{ .Values.config.smtp.secure }},
+        user: {{ .Values.config.smtp.user | quote }},
+        {{- if .Values.config.smtp.passwordSecret.name }}
+        pass: process.env.GENOSYN_SMTP_PASS ?? "",
+        {{- else }}
         pass: "",
-        fromName: "Genosyn",
-        from: "no-reply@genosyn.local",
+        {{- end }}
+        fromName: {{ .Values.config.smtp.fromName | quote }},
+        from: {{ .Values.config.smtp.from | quote }},
       },
       integrations: {
         google: {

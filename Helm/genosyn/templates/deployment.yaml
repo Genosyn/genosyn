@@ -1,3 +1,5 @@
+{{- /* Aggregated template-time boot validation — see _helpers.tpl. */ -}}
+{{- include "genosyn.validate" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -75,19 +77,26 @@ spec:
             procMount: Unmasked
           {{- end }}
           env:
-            {{- if .Values.secrets.existingSecret }}
+            # Always injected: from secrets.existingSecret when set, else the
+            # chart-generated instance secrets. Not `optional` — a missing key
+            # must block the pod, never let boot fall through to placeholders.
+            {{- $instanceSecret := .Values.secrets.existingSecret | default (include "genosyn.instanceSecretsName" .) }}
             - name: GENOSYN_SESSION_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.existingSecret }}
+                  name: {{ $instanceSecret }}
                   key: sessionSecret
-                  optional: true
             - name: GENOSYN_ENCRYPTION_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.existingSecret }}
+                  name: {{ $instanceSecret }}
                   key: encryptionSecret
-                  optional: true
+            {{- if .Values.config.smtp.passwordSecret.name }}
+            - name: GENOSYN_SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.config.smtp.passwordSecret.name }}
+                  key: {{ .Values.config.smtp.passwordSecret.key | default "password" }}
             {{- end }}
             {{- if .Values.config.db.postgresUrlSecret.name }}
             - name: GENOSYN_POSTGRES_URL
