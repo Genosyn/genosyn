@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  <a href="https://genosyn.com/docs"><img alt="Documentation" src="https://img.shields.io/badge/docs-genosyn.com-f4551d.svg?style=flat-square" /></a>
-  <a href="https://github.com/Genosyn/genosyn/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Genosyn/genosyn?style=flat-square&color=f4551d&label=release" /></a>
+  <a href="https://genosyn.com/docs"><img alt="Documentation" src="https://img.shields.io/badge/docs-genosyn.com-0e98ad.svg?style=flat-square" /></a>
+  <a href="https://github.com/Genosyn/genosyn/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Genosyn/genosyn?style=flat-square&color=0e98ad&label=release" /></a>
   <a href="./LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache_2.0-1c1917.svg?style=flat-square" /></a>
   <a href="https://github.com/Genosyn/genosyn/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Genosyn/genosyn?style=flat-square&label=stars&color=1c1917" /></a>
 </p>

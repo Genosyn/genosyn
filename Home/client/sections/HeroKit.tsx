@@ -12,7 +12,7 @@ import { Display, Lede as KitLede } from "@/sections/Kit";
  * left, a live product panel on the right from `xl` up.
  *
  * Tone used to be a prop with light and dark variants that each carried their
- * own badge, button and proof-row skins. There is one skin now; the warm
+ * own badge, button and proof-row skins. There is one skin now; the accent
  * gradient wash behind the band is what gives every hero its colour.
  */
 
@@ -120,7 +120,7 @@ export function HeroBadge({
 
 /** Decorative separator inside a badge. */
 export function HeroBadgeDot() {
-  return <span aria-hidden className="h-1 w-1 shrink-0 rounded-full bg-flame-400" />;
+  return <span aria-hidden className="h-1 w-1 shrink-0 rounded-full bg-tide-400" />;
 }
 
 /**
@@ -143,7 +143,7 @@ export function HeroTitleMuted({ children }: { children: ReactNode }) {
 /** Large secondary line under the headline (product heroes use this). */
 export function HeroTagline({ children }: { children: ReactNode }) {
   return (
-    <p className="mt-5 max-w-xl text-balance text-lg font-semibold leading-8 tracking-[-0.015em] text-flame-600 sm:text-xl">
+    <p className="mt-5 max-w-xl text-balance text-lg font-semibold leading-8 tracking-[-0.015em] text-tide-600 sm:text-xl">
       {children}
     </p>
   );
@@ -165,7 +165,7 @@ export function HeroActions({ children }: { children: ReactNode }) {
 type HeroButtonVariant = "primary" | "secondary" | "ghost";
 
 const BUTTON_SKIN: Record<HeroButtonVariant, string> = {
-  primary: "bg-flame-500 text-white shadow-card hover:bg-flame-600",
+  primary: "bg-tide-500 text-white shadow-card hover:bg-tide-600",
   secondary:
     "border border-stone-900/[0.10] bg-white text-stone-800 shadow-card hover:border-stone-900/20 hover:bg-paper-50",
   ghost: "text-stone-500 hover:text-stone-900",
@@ -210,7 +210,7 @@ export function HeroProof({ items }: { items: string[] }) {
         <li key={item} className="flex items-center gap-2.5">
           <span
             aria-hidden
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-flame-100 text-flame-600"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-tide-100 text-tide-600"
           >
             <Check className="h-3 w-3" />
           </span>
@@ -235,7 +235,7 @@ export function HeroPanel({
     <div className="relative">
       <div
         aria-hidden
-        className="pointer-events-none absolute -inset-10 -z-10 rounded-[3rem] bg-[radial-gradient(60%_55%_at_50%_40%,rgba(255,122,69,0.16),transparent_72%)] blur-2xl"
+        className="pointer-events-none absolute -inset-10 -z-10 rounded-[3rem] bg-[radial-gradient(60%_55%_at_50%_40%,rgba(40,175,199,0.16),transparent_72%)] blur-2xl"
       />
       <div className="mb-3 flex items-center justify-between gap-4 px-1 text-[11px] font-semibold text-stone-500">
         <span className="truncate">{label}</span>

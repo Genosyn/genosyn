@@ -44,7 +44,7 @@ export function InstallCta() {
           />
           <div
             aria-hidden
-            className="pointer-events-none absolute -bottom-28 -left-20 h-80 w-80 rounded-full bg-flame-500/25 blur-3xl"
+            className="pointer-events-none absolute -bottom-28 -left-20 h-80 w-80 rounded-full bg-tide-500/25 blur-3xl"
           />
           <div className="relative mx-auto max-w-2xl">
             <h2 className="text-balance text-[clamp(2rem,4.4vw,3.25rem)] font-semibold leading-[1.04] tracking-[-0.04em] text-white">
@@ -109,7 +109,7 @@ export function Footer() {
                   href={GITHUB_URL}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-stone-600 transition hover:text-flame-600"
+                  className="text-stone-600 transition hover:text-tide-600"
                 >
                   GitHub
                 </a>
@@ -119,7 +119,7 @@ export function Footer() {
                   href={ROADMAP_URL}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-stone-600 transition hover:text-flame-600"
+                  className="text-stone-600 transition hover:text-tide-600"
                 >
                   Roadmap
                 </a>
@@ -129,13 +129,13 @@ export function Footer() {
                   href={`${GITHUB_URL}/issues`}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-stone-600 transition hover:text-flame-600"
+                  className="text-stone-600 transition hover:text-tide-600"
                 >
                   Issues
                 </a>
               </li>
               <li>
-                <a href="/install.sh" className="text-stone-600 transition hover:text-flame-600">
+                <a href="/install.sh" className="text-stone-600 transition hover:text-tide-600">
                   install.sh
                 </a>
               </li>
@@ -170,7 +170,7 @@ function FooterColumn({
       <ul className="mt-5 space-y-3 text-sm">
         {links.map(([label, href]) => (
           <li key={href}>
-            <Link href={href} className="text-stone-600 transition hover:text-flame-600">
+            <Link href={href} className="text-stone-600 transition hover:text-tide-600">
               {label}
             </Link>
           </li>

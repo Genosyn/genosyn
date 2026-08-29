@@ -18,21 +18,24 @@ body {
 }
 
 ::selection {
-  background-color: #ff7a45;
+  background-color: #0e98ad;
   color: #ffffff;
 }
 
 :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline: 2px solid #f4551d;
+  outline: 2px solid #0e98ad;
   outline-offset: 3px;
   border-radius: 4px;
 }
 
-/* The dark bands paint night-950, where flame at 3px offset lands at 2.4:1 —
-   under the 3:1 WCAG 1.4.11 floor for a focus indicator. Flip it to the light
-   accent there; the ring is what has to pass, not the control. */
+/* On the dark bands the accent ring is the weakest link: tide-500 on night-950
+   is 5.62:1, but the bands are a gradient and the ring sits 3px off the
+   control, so parts of it land on much lighter chrome. Flip to the light
+   accent there — tide-200 on night-950 is 12.85:1, clear of the 3:1 WCAG
+   1.4.11 floor everywhere the gradient goes. The ring is what has to pass,
+   not the control. */
 .on-night :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline-color: #ffc7aa;
+  outline-color: #8ae0ed;
 }
 
 .tabular {
@@ -42,22 +45,23 @@ body {
 /* ---------------------------------------------------------------------------
    Canvas.
 
-   `aurora` is the reason the page reads warm rather than white: three soft
-   colour washes bled into the paper behind the hero and the closing sections.
+   `aurora` is the reason the page reads coloured rather than white: soft
+   accent and violet washes bled into the paper behind the hero and the closing
+   sections. The warmth underneath them is `paper`; the washes are the accent.
    `paper-grid` and `night-grid` give large empty areas structure, and `grain`
    keeps the big gradients from banding on 8-bit displays.
 --------------------------------------------------------------------------- */
 
 .aurora {
   background:
-    radial-gradient(64rem 34rem at 50% -10rem, rgba(255, 122, 69, 0.13), transparent 66%),
+    radial-gradient(64rem 34rem at 50% -10rem, rgba(40, 175, 199, 0.13), transparent 66%),
     radial-gradient(44rem 28rem at 88% 0%, rgba(124, 92, 252, 0.09), transparent 68%);
 }
 
 .aurora-night {
   background:
     radial-gradient(52rem 30rem at 20% 0%, rgba(124, 92, 252, 0.26), transparent 66%),
-    radial-gradient(48rem 28rem at 86% 10%, rgba(244, 85, 29, 0.14), transparent 68%);
+    radial-gradient(48rem 28rem at 86% 10%, rgba(14, 152, 173, 0.14), transparent 68%);
 }
 
 /* Barely-there structure. At 0.04 alpha and 88px the grid is felt rather than
@@ -134,9 +138,9 @@ body {
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(255, 122, 69, 0.5) 45%,
-    rgba(255, 199, 170, 0.95) 50%,
-    rgba(255, 122, 69, 0.5) 55%,
+    rgba(40, 175, 199, 0.5) 45%,
+    rgba(138, 224, 237, 0.95) 50%,
+    rgba(40, 175, 199, 0.5) 55%,
     transparent
   );
   animation: sweep 9s cubic-bezier(0.45, 0, 0.55, 1) infinite;

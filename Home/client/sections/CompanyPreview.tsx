@@ -128,7 +128,7 @@ function PreviewSidebar() {
             key={item.label}
             className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[11px] font-medium ${
               item.active
-                ? "bg-flame-100 text-flame-700 ring-1 ring-inset ring-flame-200"
+                ? "bg-tide-100 text-tide-700 ring-1 ring-inset ring-tide-200"
                 : "text-stone-600"
             }`}
           >
@@ -152,7 +152,7 @@ function PreviewSidebar() {
             <span className="text-[10px] font-medium text-stone-600">{item.name}</span>
             <span
               className={`ml-auto h-1.5 w-1.5 rounded-full ${
-                index === 2 ? "preview-live bg-flame-500" : "bg-emerald-500"
+                index === 2 ? "preview-live bg-tide-500" : "bg-emerald-500"
               }`}
             />
           </div>
@@ -184,14 +184,14 @@ function PreviewMain() {
         <Stat icon={ShieldCheck} value="3" label="Pending approvals" accent="amber" />
         <Stat icon={Clock3} value="18" label="Routines today" accent="emerald" />
         <Stat icon={ListChecks} value="5" label="Waiting for review" accent="violet" />
-        <Stat icon={Users} value="7" label="AI Employees" accent="flame" />
+        <Stat icon={Users} value="7" label="AI Employees" accent="tide" />
       </div>
 
       <div className="mt-3 grid gap-3 xl:grid-cols-[1.08fr_0.92fr]">
         <div className="overflow-hidden rounded-xl border border-stone-900/[0.08] bg-white shadow-card">
           <div className="flex items-center justify-between border-b border-stone-900/[0.06] px-4 py-3">
             <div className="text-[11px] font-semibold text-stone-900">AI activity</div>
-            <span className="text-[9px] font-semibold text-flame-600">View all Runs</span>
+            <span className="text-[9px] font-semibold text-tide-600">View all Runs</span>
           </div>
           <div className="divide-y divide-stone-900/[0.06] px-4">
             {ACTIVITY.map((item) => (
@@ -240,8 +240,8 @@ function PreviewMain() {
               tone="emerald"
             />
           </div>
-          <div className="mx-3 mb-3 rounded-lg border border-flame-200 bg-flame-50 px-3 py-2.5">
-            <div className="flex items-center gap-2 text-[10px] font-semibold text-flame-700">
+          <div className="mx-3 mb-3 rounded-lg border border-tide-200 bg-tide-50 px-3 py-2.5">
+            <div className="flex items-center gap-2 text-[10px] font-semibold text-tide-700">
               <Activity className="h-3.5 w-3.5" />
               Work keeps moving. Sensitive changes wait for you.
             </div>
@@ -256,7 +256,7 @@ const STAT_ACCENTS = {
   amber: "bg-amber-100 text-amber-700 ring-amber-200",
   emerald: "bg-emerald-100 text-emerald-700 ring-emerald-200",
   violet: "bg-violet-100 text-violet-700 ring-violet-200",
-  flame: "bg-flame-100 text-flame-700 ring-flame-200",
+  tide: "bg-tide-100 text-tide-700 ring-tide-200",
 } as const;
 
 function Stat({

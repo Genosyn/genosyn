@@ -228,13 +228,13 @@ function PlanCard({ plan }: { plan: CloudPlan }) {
   return (
     <article
       className={`flex flex-col rounded-2xl border bg-white p-6 shadow-card ${
-        plan.highlighted ? "border-flame-400 ring-1 ring-flame-400" : "border-stone-900/[0.07]"
+        plan.highlighted ? "border-tide-400 ring-1 ring-tide-400" : "border-stone-900/[0.07]"
       }`}
     >
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-stone-900">{plan.name}</h3>
         {plan.highlighted && (
-          <span className="rounded-full bg-flame-50 px-2.5 py-1 text-[11px] font-semibold text-flame-700">
+          <span className="rounded-full bg-tide-50 px-2.5 py-1 text-[11px] font-semibold text-tide-700">
             SSO + audit log
           </span>
         )}
@@ -259,7 +259,7 @@ function PlanCard({ plan }: { plan: CloudPlan }) {
           href={CLOUD_ACCESS_HREF}
           className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition ${
             plan.ctaVariant === "primary"
-              ? "bg-flame-500 text-white shadow-card hover:bg-flame-600"
+              ? "bg-tide-500 text-white shadow-card hover:bg-tide-600"
               : "border border-stone-900/[0.10] bg-white text-stone-800 hover:border-stone-900/20 hover:bg-paper-50"
           }`}
         >
@@ -312,7 +312,7 @@ function SelfHostedBand() {
             <div className="mt-auto pt-6">
               <Link
                 href="/docs/install"
-                className="inline-flex items-center gap-2 rounded-md border border-stone-900/[0.12] bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:border-flame-300 hover:bg-paper-100"
+                className="inline-flex items-center gap-2 rounded-md border border-stone-900/[0.12] bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 transition hover:border-tide-300 hover:bg-paper-100"
               >
                 <BookOpen aria-hidden className="h-4 w-4" />
                 Read the install guide
@@ -337,14 +337,14 @@ function SelfHostedBand() {
             <div className="mt-auto flex flex-col gap-3 pt-6 sm:flex-row sm:items-center">
               <a
                 href={ENTERPRISE_HREF}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-flame-500 px-5 py-3 text-sm font-semibold text-white shadow-card transition hover:bg-flame-600"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-tide-500 px-5 py-3 text-sm font-semibold text-white shadow-card transition hover:bg-tide-600"
               >
                 <Mail aria-hidden className="h-4 w-4" />
                 Talk to us
               </a>
               <Link
                 href="/enterprise"
-                className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2.5 text-sm font-semibold text-stone-600 transition hover:text-flame-600"
+                className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2.5 text-sm font-semibold text-stone-600 transition hover:text-tide-600"
               >
                 Learn about Enterprise
                 <ArrowRight aria-hidden className="h-4 w-4" />
@@ -453,7 +453,7 @@ function PricingCta() {
           <div aria-hidden className="marketing-dots pointer-events-none absolute inset-0 opacity-15" />
           <div
             aria-hidden
-            className="pointer-events-none absolute -bottom-28 -left-20 h-80 w-80 rounded-full bg-flame-500/25 blur-3xl"
+            className="pointer-events-none absolute -bottom-28 -left-20 h-80 w-80 rounded-full bg-tide-500/25 blur-3xl"
           />
           <div
             aria-hidden

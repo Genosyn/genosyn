@@ -185,7 +185,7 @@ export function Introduction() {
       <div className="mt-12">
         <Link
           href="/docs/install"
-          className="inline-flex items-center gap-2 rounded-xl bg-night-950 px-5 py-2.5 text-sm font-semibold text-white shadow-card transition hover:bg-flame-600"
+          className="inline-flex items-center gap-2 rounded-xl bg-night-950 px-5 py-2.5 text-sm font-semibold text-white shadow-card transition hover:bg-tide-600"
         >
           Install Genosyn
           <ArrowRight className="h-4 w-4" />

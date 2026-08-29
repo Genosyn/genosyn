@@ -149,12 +149,12 @@ export function Eyebrow({ night = false, children }: { night?: boolean; children
   return (
     <div
       className={`inline-flex items-center gap-2.5 text-sm font-semibold ${
-        night ? "text-flame-300" : "text-flame-600"
+        night ? "text-tide-300" : "text-tide-600"
       }`}
     >
       <span
         aria-hidden
-        className={`h-1.5 w-1.5 rounded-full ${night ? "bg-flame-300" : "bg-flame-500"}`}
+        className={`h-1.5 w-1.5 rounded-full ${night ? "bg-tide-300" : "bg-tide-500"}`}
       />
       <span>{children}</span>
     </div>
@@ -217,7 +217,7 @@ export function Heading({
  * date a site faster than anything else on it.
  */
 export function Accent({ children }: { children: ReactNode }) {
-  return <span className="text-flame-500">{children}</span>;
+  return <span className="text-tide-500">{children}</span>;
 }
 
 /** The muted half of a two-tone headline. */
@@ -270,7 +270,7 @@ export type ButtonVariant = "primary" | "secondary" | "night" | "ghost";
 const BUTTON_SKIN: Record<ButtonVariant, string> = {
   // Flat accent fill with a restrained shadow. The gradient-plus-glow version
   // this replaced shouted louder than anything it sat next to.
-  primary: "bg-flame-500 text-white shadow-card hover:bg-flame-600",
+  primary: "bg-tide-500 text-white shadow-card hover:bg-tide-600",
   secondary:
     "border border-stone-900/[0.10] bg-white text-stone-800 shadow-card hover:border-stone-900/20 hover:bg-paper-50",
   night: "border border-white/20 bg-white/[0.07] text-white hover:border-white/35 hover:bg-white/[0.14]",
@@ -329,7 +329,7 @@ export function TextLink({
   children: ReactNode;
 }) {
   const classes = `group inline-flex items-center gap-2 text-sm font-semibold transition ${
-    night ? "text-white hover:text-flame-300" : "text-stone-900 hover:text-flame-600"
+    night ? "text-white hover:text-tide-300" : "text-stone-900 hover:text-tide-600"
   } ${className}`;
   if (external) {
     return (
@@ -350,7 +350,7 @@ export function TextLink({
    Fragments
 ------------------------------------------------------------------------- */
 
-export type PillTone = "neutral" | "live" | "waiting" | "flame" | "violet";
+export type PillTone = "neutral" | "live" | "waiting" | "tide" | "violet";
 
 /** Status pill. `tone` maps to the site-wide state colours. */
 export function Pill({
@@ -368,14 +368,14 @@ export function Pill({
     neutral: "border-stone-900/[0.08] bg-white text-stone-600",
     live: "border-emerald-500/25 bg-emerald-50 text-emerald-700",
     waiting: "border-amber-500/30 bg-amber-50 text-amber-700",
-    flame: "border-flame-300 bg-flame-50 text-flame-700",
+    tide: "border-tide-300 bg-tide-50 text-tide-700",
     violet: "border-violet-300 bg-violet-50 text-violet-700",
   };
   const dark: Record<PillTone, string> = {
     neutral: "border-white/12 bg-white/[0.06] text-violet-100/80",
     live: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
     waiting: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-    flame: "border-flame-400/35 bg-flame-400/12 text-flame-200",
+    tide: "border-tide-400/35 bg-tide-400/12 text-tide-200",
     violet: "border-violet-400/35 bg-violet-400/12 text-violet-200",
   };
   return (
