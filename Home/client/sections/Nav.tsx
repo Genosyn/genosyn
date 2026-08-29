@@ -9,6 +9,7 @@ const LINKS = [
   { href: "/products", label: "Products" },
   { href: "/products/ai-employees", label: "AI Employees" },
   { href: "/docs", label: "Docs" },
+  { href: "/pricing", label: "Pricing" },
   { href: "/enterprise", label: "Enterprise" },
 ];
 
@@ -45,7 +46,7 @@ export function Nav() {
           <Logo className="h-7 w-auto" />
         </Link>
 
-        {/* lg, not md: five links plus the GitHub icon and the Install button
+        {/* lg, not md: six links plus the GitHub icon and the Install button
             need ~730px next to the logo, so at 768px the row used to wrap
             "AI Employees" onto two lines and push Install past the right edge.
             The menu button covers 768-1023px instead. */}

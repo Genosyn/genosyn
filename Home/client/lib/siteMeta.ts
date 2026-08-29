@@ -165,6 +165,29 @@ export function allRoutes(): RouteHead[] {
         ]),
       ],
     },
+    {
+      path: "/pricing",
+      title: "Pricing — Genosyn",
+      description:
+        "Self-host the free MIT-licensed community edition, run on Genosyn Cloud plans starting at $0 and priced per AI Employee, or unlock SSO and audit logging with Genosyn Enterprise.",
+      jsonLd: [
+        ORGANIZATION,
+        WEBSITE,
+        breadcrumbs([
+          { name: "Home", path: "/" },
+          { name: "Pricing", path: "/pricing" },
+        ]),
+        {
+          "@context": "https://schema.org",
+          "@type": "WebPage",
+          name: "Pricing — Genosyn",
+          url: `${SITE_URL}/pricing`,
+          description:
+            "Genosyn pricing: free self-hosted community edition, Genosyn Cloud plans from $0 priced per AI Employee, and Genosyn Enterprise for self-hosted teams.",
+          isPartOf: { "@type": "WebSite", name: "Genosyn", url: SITE_URL },
+        },
+      ],
+    },
     ...DOCS_NAV.flatMap((section) =>
       section.pages.map((page) => ({
         path: page.path,
@@ -217,6 +240,7 @@ export function llmsTxt(): string {
     "## Optional",
     "",
     `- [GitHub repository](${GITHUB_URL}): source code, issues, and roadmap`,
+    `- [Pricing](${SITE_URL}/pricing): free community edition, Genosyn Cloud plans, and Enterprise licensing`,
     `- [Enterprise](${SITE_URL}/enterprise): running Genosyn in your own environment`,
     `- [llms-full.txt](${SITE_URL}/llms-full.txt): expanded product and platform reference for LLMs`,
     "",

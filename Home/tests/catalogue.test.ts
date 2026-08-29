@@ -104,13 +104,14 @@ describe("route metadata and LLM indexes", () => {
     assert.equal(new Set(paths).size, paths.length);
     assert.equal(
       routes.length,
-      3 + PRODUCTS.length + DOCS_FLAT.length,
-      "home + products + enterprise + generated product/docs routes",
+      4 + PRODUCTS.length + DOCS_FLAT.length,
+      "home + products + enterprise + pricing + generated product/docs routes",
     );
     for (const path of [
       "/",
       "/products",
       "/enterprise",
+      "/pricing",
       ...PRODUCTS.map((product) => `/products/${product.slug}`),
       ...DOCS_FLAT.map((page) => page.path),
     ]) {

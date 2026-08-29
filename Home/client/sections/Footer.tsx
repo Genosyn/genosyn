@@ -17,6 +17,7 @@ const RESOURCE_LINKS = [
   ["Install guide", "/docs/install"],
   ["Self-hosting", "/docs/self-hosting"],
   ["CLI reference", "/docs/cli"],
+  ["Pricing", "/pricing"],
   ["Enterprise", "/enterprise"],
 ] as const;
 

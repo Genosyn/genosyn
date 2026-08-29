@@ -43,6 +43,12 @@ export const DOCS_NAV: DocsSection[] = [
         title: "Account security",
         blurb: "Optional 2FA with authenticator apps, passkeys, and USB security keys.",
       },
+      {
+        path: "/docs/plans-billing",
+        title: "Plans & billing",
+        blurb:
+          "Community, Enterprise, and Genosyn Cloud — the Free / Growth / Scale Plans, limits, and Stripe setup.",
+      },
     ],
   },
   {
@@ -310,6 +316,12 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/kubernetes",
         title: "Kubernetes",
         blurb: "Raw manifests for running Genosyn on a cluster.",
+      },
+      {
+        path: "/docs/enterprise-license",
+        title: "Enterprise licenses",
+        blurb:
+          "Unlock SSO and the Audit log on a self-hosted install with an offline-verified license key.",
       },
     ],
   },

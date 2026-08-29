@@ -452,6 +452,10 @@ export function SelfHosting() {
       </P>
 
       <H3 id="sso">SSO</H3>
+      <Callout kind="info" title="Genosyn Enterprise feature.">
+        On a self-hosted install, enabling SSO requires an Enterprise license activated at{" "}
+        <Code>Admin → License</Code> — see <DocLink to="/docs/enterprise-license" />.
+      </Callout>
       <P>
         <Code>Admin → SSO</Code> adds single sign-on to the login page —{" "}
         <Strong>disabled by default</Strong>; a fresh install only offers email + password until a

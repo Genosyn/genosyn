@@ -16,6 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { GITHUB_URL } from "@/lib/constants";
+import { Link } from "@/lib/router";
 import { SectionEyebrow } from "@/sections/Primitives";
 import {
   HeroActions,
@@ -378,6 +379,12 @@ function EnterpriseContact() {
                 Try open source first
               </a>
             </div>
+            <p className="mt-5 text-xs text-slate-400">
+              Comparing editions and Cloud plans first?{" "}
+              <Link href="/pricing" className="font-semibold text-slate-200 hover:text-white">
+                See pricing
+              </Link>
+            </p>
           </div>
         </div>
       </div>

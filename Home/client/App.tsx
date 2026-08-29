@@ -9,6 +9,7 @@ import { HowItWorks } from "@/sections/HowItWorks";
 import { CliShowcase } from "@/sections/CliShowcase";
 import { Footer, InstallCta } from "@/sections/Footer";
 import { Enterprise } from "@/sections/Enterprise";
+import { Pricing } from "@/sections/Pricing";
 import { DocsApp } from "@/docs/DocsApp";
 import { ProductsIndex } from "@/products/ProductsIndex";
 import { ProductPage } from "@/products/ProductPage";
@@ -37,6 +38,10 @@ export function App() {
 
   if (path.startsWith("/enterprise")) {
     return <EnterprisePage />;
+  }
+
+  if (path.startsWith("/pricing")) {
+    return <PricingPage />;
   }
 
   if (path.startsWith("/products")) {
@@ -70,6 +75,18 @@ function EnterprisePage() {
       <Nav />
       <main>
         <Enterprise />
+      </main>
+      <Footer />
+    </div>
+  );
+}
+
+function PricingPage() {
+  return (
+    <div className="min-h-screen bg-white text-slate-950">
+      <Nav />
+      <main>
+        <Pricing />
       </main>
       <Footer />
     </div>
