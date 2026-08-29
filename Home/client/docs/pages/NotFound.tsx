@@ -25,10 +25,10 @@ export function NotFound() {
           <li key={l.href}>
             <Link
               href={l.href}
-              className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-950 shadow-card transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lift"
+              className="flex items-center justify-between rounded-xl border border-stone-900/[0.08] bg-white px-4 py-3 text-sm font-medium text-stone-900 shadow-card transition hover:-translate-y-0.5 hover:border-stone-900/20 hover:shadow-lift"
             >
               {l.label}
-              <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
+              <ArrowRight className="h-3.5 w-3.5 text-stone-400" />
             </Link>
           </li>
         ))}

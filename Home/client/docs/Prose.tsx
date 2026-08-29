@@ -14,17 +14,17 @@ export function PageHeader({
   lead?: ReactNode;
 }) {
   return (
-    <header className="border-b border-slate-100 pb-8">
+    <header className="border-b border-stone-900/[0.06] pb-8">
       {eyebrow && (
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-950">
+        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-900">
           {eyebrow}
         </div>
       )}
-      <h1 className="mt-3 text-balance text-4xl font-semibold tracking-[-0.025em] text-slate-950 sm:text-[2.75rem]">
+      <h1 className="mt-3 text-balance text-4xl font-semibold tracking-[-0.025em] text-stone-900 sm:text-[2.75rem]">
         {title}
       </h1>
       {lead && (
-        <p className="mt-5 max-w-3xl text-balance text-lg leading-relaxed text-slate-600">
+        <p className="mt-5 max-w-3xl text-balance text-lg leading-relaxed text-stone-600">
           {lead}
         </p>
       )}
@@ -36,7 +36,7 @@ export function H2({ children, id }: WithId) {
   return (
     <h2
       id={id}
-      className="mt-14 scroll-mt-24 text-balance text-2xl font-semibold tracking-[-0.015em] text-slate-950"
+      className="mt-14 scroll-mt-24 text-balance text-2xl font-semibold tracking-[-0.015em] text-stone-900"
     >
       {children}
     </h2>
@@ -47,7 +47,7 @@ export function H3({ children, id }: WithId) {
   return (
     <h3
       id={id}
-      className="mt-8 scroll-mt-24 text-lg font-semibold text-slate-950"
+      className="mt-8 scroll-mt-24 text-lg font-semibold text-stone-900"
     >
       {children}
     </h3>
@@ -56,19 +56,19 @@ export function H3({ children, id }: WithId) {
 
 export function P({ children }: { children: ReactNode }) {
   return (
-    <p className="mt-4 text-[15px] leading-[1.75] text-slate-700">
+    <p className="mt-4 text-[15px] leading-[1.75] text-stone-700">
       {children}
     </p>
   );
 }
 
 export function Strong({ children }: { children: ReactNode }) {
-  return <span className="font-medium text-slate-950">{children}</span>;
+  return <span className="font-medium text-stone-900">{children}</span>;
 }
 
 export function UL({ children }: { children: ReactNode }) {
   return (
-    <ul className="mt-4 ml-5 list-disc space-y-2 text-[15px] leading-[1.7] text-slate-700 marker:text-slate-400">
+    <ul className="mt-4 ml-5 list-disc space-y-2 text-[15px] leading-[1.7] text-stone-700 marker:text-stone-400">
       {children}
     </ul>
   );
@@ -76,7 +76,7 @@ export function UL({ children }: { children: ReactNode }) {
 
 export function OL({ children }: { children: ReactNode }) {
   return (
-    <ol className="mt-4 ml-5 list-decimal space-y-2 text-[15px] leading-[1.7] text-slate-700 marker:text-slate-400">
+    <ol className="mt-4 ml-5 list-decimal space-y-2 text-[15px] leading-[1.7] text-stone-700 marker:text-stone-400">
       {children}
     </ol>
   );
@@ -88,7 +88,7 @@ export function LI({ children }: { children: ReactNode }) {
 
 export function Code({ children }: { children: ReactNode }) {
   return (
-    <code className="rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[12.5px] text-slate-800">
+    <code className="rounded-md bg-paper-200 px-1.5 py-0.5 font-mono text-[12.5px] text-stone-800">
       {children}
     </code>
   );
@@ -102,13 +102,13 @@ export function Pre({
   lang?: string;
 }) {
   return (
-    <div className="mt-6 overflow-hidden rounded-xl border border-slate-900 bg-slate-950 shadow-card">
+    <div className="mt-6 overflow-hidden rounded-xl border border-night-700 bg-night-950 shadow-card">
       {lang && (
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-2 font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-2 font-mono text-[10.5px] font-semibold uppercase tracking-[0.18em] text-stone-400">
           <span>{lang}</span>
         </div>
       )}
-      <pre className="overflow-x-auto px-5 py-4 font-mono text-[13px] leading-[1.7] text-slate-200">
+      <pre className="overflow-x-auto px-5 py-4 font-mono text-[13px] leading-[1.7] text-stone-200">
         <code>{children}</code>
       </pre>
     </div>
@@ -125,12 +125,12 @@ export function Callout({
   title?: string;
 }) {
   const tone = {
-    info: "border-slate-200 bg-slate-50 text-slate-700",
+    info: "border-stone-900/[0.08] bg-paper-100 text-stone-700",
     warn: "border-amber-200 bg-amber-50 text-amber-900",
     tip: "border-emerald-200 bg-emerald-50 text-emerald-900",
   }[kind];
   const titleColor = {
-    info: "text-slate-950",
+    info: "text-stone-900",
     warn: "text-amber-950",
     tip: "text-emerald-950",
   }[kind];
@@ -154,14 +154,14 @@ export function KeyList({
   rows: Array<{ term: string; def: ReactNode }>;
 }) {
   return (
-    <dl className="mt-6 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <dl className="mt-6 divide-y divide-stone-900/[0.06] overflow-hidden rounded-xl border border-stone-900/[0.08] bg-white">
       {rows.map((r) => (
         <div
           key={r.term}
           className="grid grid-cols-1 gap-1 px-5 py-4 sm:grid-cols-[180px_1fr] sm:gap-6"
         >
-          <dt className="font-mono text-[12.5px] text-slate-500">{r.term}</dt>
-          <dd className="text-[14.5px] leading-[1.65] text-slate-700">
+          <dt className="font-mono text-[12.5px] text-stone-500">{r.term}</dt>
+          <dd className="text-[14.5px] leading-[1.65] text-stone-700">
             {r.def}
           </dd>
         </div>
@@ -182,7 +182,7 @@ export function DocLink({
   return (
     <Link
       href={to}
-      className="font-medium text-slate-800 underline decoration-slate-300 decoration-1 underline-offset-2 hover:decoration-slate-700"
+      className="font-medium text-stone-800 underline decoration-flame-300 decoration-1 underline-offset-2 hover:decoration-flame-500"
     >
       {label}
     </Link>
@@ -201,7 +201,7 @@ export function ExtLink({
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="font-medium text-slate-800 underline decoration-slate-300 decoration-1 underline-offset-2 hover:decoration-slate-700"
+      className="font-medium text-stone-800 underline decoration-flame-300 decoration-1 underline-offset-2 hover:decoration-flame-500"
     >
       {children}
     </a>

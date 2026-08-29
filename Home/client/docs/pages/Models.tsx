@@ -403,23 +403,23 @@ function ProviderCard({
   connects: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-card">
+    <div className="rounded-xl border border-stone-900/[0.08] bg-white p-4 shadow-card">
       <div className="flex items-baseline justify-between gap-2">
-        <div className="font-mono text-[13px] font-semibold text-slate-950">{name}</div>
-        <div className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{vendor}</div>
+        <div className="font-mono text-[13px] font-semibold text-stone-900">{name}</div>
+        <div className="text-[11px] uppercase tracking-[0.18em] text-stone-500">{vendor}</div>
       </div>
       <dl className="mt-3 space-y-2 text-[13px] leading-[1.6]">
         <div>
-          <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
+          <dt className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
             Credentials
           </dt>
-          <dd className="text-slate-700">{creds}</dd>
+          <dd className="text-stone-700">{creds}</dd>
         </div>
         <div>
-          <dt className="text-[11px] font-medium uppercase tracking-wider text-slate-500">
+          <dt className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
             Connects to
           </dt>
-          <dd className="text-slate-700">{connects}</dd>
+          <dd className="text-stone-700">{connects}</dd>
         </div>
       </dl>
     </div>

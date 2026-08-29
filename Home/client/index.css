@@ -14,51 +14,90 @@ html {
 
 html,
 body {
-  @apply bg-white font-sans text-slate-900 antialiased;
+  @apply bg-paper-100 font-sans text-stone-700 antialiased;
 }
 
 ::selection {
-  background-color: #0f172a;
+  background-color: #ff7a45;
   color: #ffffff;
 }
 
 :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline: 2px solid #0f172a;
+  outline: 2px solid #f4551d;
   outline-offset: 3px;
+  border-radius: 4px;
 }
 
-/* The 3px offset draws the ring on the surface behind the control, so on the
-   dark sections (#020617) the slate-900 ring lands at 1.13:1 — invisible, and
-   below the 3:1 WCAG 1.4.11 floor. Flip it to white there. */
-.bg-slate-950
-  :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline-color: #ffffff;
+/* The dark bands paint night-950, where flame at 3px offset lands at 2.4:1 —
+   under the 3:1 WCAG 1.4.11 floor for a focus indicator. Flip it to the light
+   accent there; the ring is what has to pass, not the control. */
+.on-night :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
+  outline-color: #ffc7aa;
 }
 
 .tabular {
   font-variant-numeric: tabular-nums slashed-zero;
 }
 
-.marketing-grid {
-  background-image:
-    linear-gradient(to right, rgba(100, 116, 139, 0.1) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(100, 116, 139, 0.1) 1px, transparent 1px);
-  background-size: 40px 40px;
-  mask-image: linear-gradient(to bottom, black 0%, transparent 86%);
+/* ---------------------------------------------------------------------------
+   Canvas.
+
+   `aurora` is the reason the page reads warm rather than white: three soft
+   colour washes bled into the paper behind the hero and the closing sections.
+   `paper-grid` and `night-grid` give large empty areas structure, and `grain`
+   keeps the big gradients from banding on 8-bit displays.
+--------------------------------------------------------------------------- */
+
+.aurora {
+  background:
+    radial-gradient(64rem 34rem at 50% -10rem, rgba(255, 122, 69, 0.13), transparent 66%),
+    radial-gradient(44rem 28rem at 88% 0%, rgba(124, 92, 252, 0.09), transparent 68%);
 }
 
-.marketing-grid-dark {
+.aurora-night {
+  background:
+    radial-gradient(52rem 30rem at 20% 0%, rgba(124, 92, 252, 0.26), transparent 66%),
+    radial-gradient(48rem 28rem at 86% 10%, rgba(244, 85, 29, 0.14), transparent 68%);
+}
+
+/* Barely-there structure. At 0.04 alpha and 88px the grid is felt rather than
+   read — enough to keep a large empty band from looking unpainted, not enough
+   to turn the page into graph paper. */
+.paper-grid {
   background-image:
-    linear-gradient(to right, rgba(148, 163, 184, 0.12) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(148, 163, 184, 0.12) 1px, transparent 1px);
-  background-size: 40px 40px;
-  mask-image: linear-gradient(to bottom, black 0%, transparent 88%);
+    linear-gradient(to right, rgba(120, 100, 80, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(120, 100, 80, 0.04) 1px, transparent 1px);
+  background-size: 88px 88px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 4%, transparent 70%);
+}
+
+.night-grid {
+  background-image:
+    linear-gradient(to right, rgba(196, 181, 253, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(196, 181, 253, 0.05) 1px, transparent 1px);
+  background-size: 88px 88px;
+  mask-image: radial-gradient(ellipse 82% 64% at 50% 0%, black 4%, transparent 72%);
+}
+
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.022;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 .marketing-dots {
-  background-image: radial-gradient(circle, rgba(100, 116, 139, 0.28) 1px, transparent 1px);
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.28) 1px, transparent 1px);
   background-size: 18px 18px;
 }
+
+/* ---------------------------------------------------------------------------
+   Motion. Every animation is opt-in per element and disabled wholesale under
+   prefers-reduced-motion at the bottom of this file.
+--------------------------------------------------------------------------- */
 
 @keyframes preview-enter {
   from {
@@ -74,10 +113,10 @@ body {
 @keyframes preview-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(15, 23, 42, 0.2);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(15, 23, 42, 0);
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
   }
 }
 
@@ -87,6 +126,20 @@ body {
 
 .preview-live {
   animation: preview-pulse 2.4s ease-out infinite;
+}
+
+/* A slow highlight travelling along the day-strip rule, so the timeline reads
+   as a clock that is still running rather than a static ruler. */
+.day-sweep {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 122, 69, 0.5) 45%,
+    rgba(255, 199, 170, 0.95) 50%,
+    rgba(255, 122, 69, 0.5) 55%,
+    transparent
+  );
+  animation: sweep 9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
 .prototype-shell {
@@ -153,10 +206,15 @@ body {
 
   .preview-enter,
   .preview-live,
+  .day-sweep,
   .prototype-stage > :first-child,
   .prototype-activity,
   .prototype-progress,
-  .prototype-live-dot {
+  .prototype-live-dot,
+  .animate-rise,
+  .animate-halo,
+  .animate-sweep,
+  .animate-drift {
     animation: none;
   }
 }

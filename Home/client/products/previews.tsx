@@ -62,35 +62,35 @@ export function productPreview(slug: string): (() => JSX.Element) | undefined {
 function Window({ url, children }: { url: string; children: ReactNode }) {
   return (
     <div className="overflow-hidden bg-white">
-      <div className="flex h-11 items-center gap-2 border-b border-slate-200 bg-white px-3 text-slate-700">
+      <div className="flex h-11 items-center gap-2 border-b border-stone-900/[0.08] bg-white px-3 text-stone-700">
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className="h-4 w-4 rounded-full border-[1.5px] border-slate-950" />
-          <span className="hidden text-[9px] font-bold tracking-[0.2em] text-slate-950 sm:inline">
+          <span className="h-4 w-4 rounded-full border-[1.5px] border-stone-900" />
+          <span className="hidden text-[9px] font-bold tracking-[0.2em] text-stone-900 sm:inline">
             GENOSYN
           </span>
         </div>
-        <span className="h-4 w-px shrink-0 bg-slate-200" />
-        <div className="inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-slate-800">
+        <span className="h-4 w-px shrink-0 bg-stone-900/10" />
+        <div className="inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-stone-800">
           <span className="truncate">Northstar Labs</span>
-          <ChevronDown className="h-3 w-3 shrink-0 text-slate-400" />
+          <ChevronDown className="h-3 w-3 shrink-0 text-stone-400" />
         </div>
-        <span className="hidden text-slate-300 sm:inline">/</span>
+        <span className="hidden text-stone-300 sm:inline">/</span>
         <div className="hidden min-w-0 items-center gap-1.5 sm:flex">
           <span className="h-4 w-4 rounded bg-zinc-200 text-center text-[9px] font-bold leading-4 text-zinc-800">
             G
           </span>
-          <span className="max-w-48 truncate text-[10px] font-medium text-slate-600">
+          <span className="max-w-48 truncate text-[10px] font-medium text-stone-600">
             {url.replace("genosyn.com / ", "")}
           </span>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <span className="hidden rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[8px] font-medium text-slate-400 sm:inline">
+          <span className="hidden rounded border border-stone-900/[0.08] bg-paper-100 px-1.5 py-0.5 text-[8px] font-medium text-stone-400 sm:inline">
             ⌘ K
           </span>
-          <span className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400">
+          <span className="flex h-6 w-6 items-center justify-center rounded-md text-stone-400">
             <Bell className="h-3 w-3" />
           </span>
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-[8px] font-semibold text-white">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-stone-900 text-[8px] font-semibold text-white">
             ND
           </span>
         </div>
@@ -126,28 +126,28 @@ function EmployeesPreview() {
   return (
     <Window url="genosyn.com / mira — bookkeeper">
       <div className="grid grid-cols-1 gap-0 md:grid-cols-5">
-        <div className="border-b border-slate-100 p-5 md:col-span-2 md:border-b-0 md:border-r">
+        <div className="border-b border-stone-900/[0.06] p-5 md:col-span-2 md:border-b-0 md:border-r">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-sm font-semibold text-emerald-700">
               MF
             </span>
             <div>
-              <div className="text-sm font-semibold text-slate-950">Mira</div>
-              <div className="text-xs text-slate-500">Bookkeeper · AI Employee</div>
+              <div className="text-sm font-semibold text-stone-900">Mira</div>
+              <div className="text-xs text-stone-500">Bookkeeper · AI Employee</div>
             </div>
             <span className="ml-auto inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
               Running
             </span>
           </div>
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3.5 font-mono text-[11.5px] leading-5 text-slate-700">
-            <div className="flex items-center gap-1.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+          <div className="mt-4 rounded-xl border border-stone-900/[0.08] bg-paper-100/60 p-3.5 font-mono text-[11.5px] leading-5 text-stone-700">
+            <div className="flex items-center gap-1.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-stone-400">
               <BookHeart className="h-3 w-3" />
               Soul
             </div>
-            <div className="text-slate-950"># Mira</div>
-            <div className="text-slate-500">Careful, exact, allergic to drift.</div>
-            <div className="mt-1.5 font-semibold text-slate-950">## Never</div>
+            <div className="text-stone-900"># Mira</div>
+            <div className="text-stone-500">Careful, exact, allergic to drift.</div>
+            <div className="mt-1.5 font-semibold text-stone-900">## Never</div>
             <div>- Post an unbalanced entry.</div>
             <div>- Guess an exchange rate.</div>
           </div>
@@ -155,7 +155,7 @@ function EmployeesPreview() {
             {["reconcile-stripe", "close-the-month", "chase-overdue"].map((s) => (
               <span
                 key={s}
-                className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-600 ring-1 ring-slate-200/70"
+                className="inline-flex items-center gap-1 rounded-md bg-paper-200 px-1.5 py-0.5 font-mono text-[10px] font-medium text-stone-600 ring-1 ring-stone-900/[0.08]/70"
               >
                 <Sparkles className="h-2.5 w-2.5" />
                 {s}
@@ -165,33 +165,33 @@ function EmployeesPreview() {
         </div>
         <div className="p-5 md:col-span-3">
           <div className="flex items-center gap-2 text-[11px]">
-            <CalendarClock className="h-3.5 w-3.5 text-slate-500" />
-            <span className="font-medium text-slate-700">Reconcile Stripe</span>
-            <span className="font-mono text-[10px] text-slate-400">0 7 * * *</span>
-            <span className="ml-auto font-mono text-[10px] text-slate-400">Run #212 · live</span>
+            <CalendarClock className="h-3.5 w-3.5 text-stone-500" />
+            <span className="font-medium text-stone-700">Reconcile Stripe</span>
+            <span className="font-mono text-[10px] text-stone-400">0 7 * * *</span>
+            <span className="ml-auto font-mono text-[10px] text-stone-400">Run #212 · live</span>
           </div>
-          <div className="mt-3 space-y-1.5 rounded-xl border border-slate-200 bg-slate-950 p-4 font-mono text-[11px] leading-5 text-slate-300">
+          <div className="mt-3 space-y-1.5 rounded-xl border border-stone-900/[0.08] bg-night-950 p-4 font-mono text-[11px] leading-5 text-stone-300">
             <div>
-              <span className="text-slate-500">[07:00:02]</span> stripe_list_charges — 42 since
+              <span className="text-stone-500">[07:00:02]</span> stripe_list_charges — 42 since
               yesterday
             </div>
             <div>
-              <span className="text-slate-500">[07:00:19]</span> matched 41 to open invoices
+              <span className="text-stone-500">[07:00:19]</span> matched 41 to open invoices
             </div>
             <div>
-              <span className="text-slate-500">[07:00:24]</span> posting DR Bank / CR Accounts
+              <span className="text-stone-500">[07:00:24]</span> posting DR Bank / CR Accounts
               Receivable
             </div>
             <div>
-              <span className="text-slate-500">[07:00:31]</span>{" "}
+              <span className="text-stone-500">[07:00:31]</span>{" "}
               <span className="text-emerald-400">✓</span> ledger balanced — 1 charge flagged for
               review
             </div>
             <div>
-              <span className="text-slate-500">[07:00:33]</span> send_workspace_message → #finance
+              <span className="text-stone-500">[07:00:33]</span> send_workspace_message → #finance
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500">
+          <div className="mt-3 flex items-center justify-between text-[11px] text-stone-500">
             <span className="inline-flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
               211 successful runs · transcript kept for every one
@@ -209,11 +209,11 @@ function EmployeesPreview() {
 function WorkspacePreview() {
   return (
     <Window url="genosyn.com / workspace / #marketing">
-      <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-2.5 text-[11px]">
-        <Hash className="h-3.5 w-3.5 text-slate-500" />
-        <span className="font-medium text-slate-700">marketing</span>
-        <span className="text-slate-400">· Launch week comms</span>
-        <span className="ml-auto font-mono text-[10px] text-slate-400">4 online</span>
+      <div className="flex items-center gap-2 border-b border-stone-900/[0.06] px-5 py-2.5 text-[11px]">
+        <Hash className="h-3.5 w-3.5 text-stone-500" />
+        <span className="font-medium text-stone-700">marketing</span>
+        <span className="text-stone-400">· Launch week comms</span>
+        <span className="ml-auto font-mono text-[10px] text-stone-400">4 online</span>
       </div>
       <div className="space-y-4 px-5 py-5">
         <ChatLine
@@ -240,12 +240,12 @@ function WorkspacePreview() {
           }
           reaction="👍 2"
         />
-        <div className="flex items-center gap-2 pl-9 text-[11px] text-slate-400">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+        <div className="flex items-center gap-2 pl-9 text-[11px] text-stone-400">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-stone-900/[0.08] bg-paper-100 px-2.5 py-1">
             <span className="flex gap-0.5">
-              <span className="h-1 w-1 animate-pulse rounded-full bg-slate-400" />
-              <span className="h-1 w-1 animate-pulse rounded-full bg-slate-400 [animation-delay:150ms]" />
-              <span className="h-1 w-1 animate-pulse rounded-full bg-slate-400 [animation-delay:300ms]" />
+              <span className="h-1 w-1 animate-pulse rounded-full bg-white/40" />
+              <span className="h-1 w-1 animate-pulse rounded-full bg-white/40 [animation-delay:150ms]" />
+              <span className="h-1 w-1 animate-pulse rounded-full bg-white/40 [animation-delay:300ms]" />
             </span>
             Mira is typing…
           </span>
@@ -279,23 +279,23 @@ function ChatLine({
       <Avatar initials={initials} color={color} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="text-[12px] font-semibold text-slate-900">{name}</span>
+          <span className="text-[12px] font-semibold text-stone-900">{name}</span>
           {isAI && (
             <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-800 ring-1 ring-zinc-300">
               AI
             </span>
           )}
-          <span className="text-[11px] text-slate-400">{time}</span>
+          <span className="text-[11px] text-stone-400">{time}</span>
         </div>
-        <div className="mt-0.5 text-[12.5px] leading-relaxed text-slate-700">{message}</div>
+        <div className="mt-0.5 text-[12.5px] leading-relaxed text-stone-700">{message}</div>
         {attachment && (
-          <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-600">
+          <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg border border-stone-900/[0.08] bg-paper-100 px-2.5 py-1.5 text-[11px] font-medium text-stone-600">
             <Paperclip className="h-3 w-3" />
             {attachment}
           </div>
         )}
         {reaction && (
-          <div className="mt-1.5 inline-flex items-center rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] text-slate-600">
+          <div className="mt-1.5 inline-flex items-center rounded-full border border-stone-900/[0.08] bg-white px-2 py-0.5 text-[10px] text-stone-600">
             {reaction}
           </div>
         )}
@@ -377,26 +377,26 @@ function TasksPreview() {
     <Window url="genosyn.com / tasks / launch-week — board">
       <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-3">
         {cols.map((col) => (
-          <div key={col.label} className="rounded-xl bg-slate-50/70 p-2.5 ring-1 ring-slate-100">
-            <div className="flex items-center justify-between px-1 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          <div key={col.label} className="rounded-xl bg-paper-100/70 p-2.5 ring-1 ring-stone-900/[0.06]">
+            <div className="flex items-center justify-between px-1 pb-2 text-[10px] font-semibold uppercase tracking-wider text-stone-500">
               {col.label}
-              <span className="font-mono text-slate-400">{col.count}</span>
+              <span className="font-mono text-stone-400">{col.count}</span>
             </div>
             <div className="space-y-2">
               {col.cards.map((card) => (
                 <div
                   key={card.id}
-                  className="rounded-lg border border-slate-200 bg-white p-3 shadow-card"
+                  className="rounded-lg border border-stone-900/[0.08] bg-white p-3 shadow-card"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-[10px] font-medium text-slate-400">
+                    <span className="font-mono text-[10px] font-medium text-stone-400">
                       {card.id}
                     </span>
                     {card.review && (
                       <Tag tone="bg-amber-50 text-amber-700 ring-amber-200">awaiting review</Tag>
                     )}
                   </div>
-                  <div className="mt-1 text-[12.5px] font-medium leading-snug text-slate-800">
+                  <div className="mt-1 text-[12.5px] font-medium leading-snug text-stone-800">
                     {card.title}
                   </div>
                   <div className="mt-2.5 flex items-center justify-between">
@@ -467,30 +467,30 @@ function BasesPreview() {
   ];
   return (
     <Window url="genosyn.com / bases / sales-crm">
-      <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-2.5 text-[11px]">
-        <Table2 className="h-3.5 w-3.5 text-slate-500" />
-        <span className="font-medium text-slate-700">Deals</span>
-        <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+      <div className="flex items-center gap-2 border-b border-stone-900/[0.06] px-5 py-2.5 text-[11px]">
+        <Table2 className="h-3.5 w-3.5 text-stone-500" />
+        <span className="font-medium text-stone-700">Deals</span>
+        <span className="rounded-md bg-paper-200 px-1.5 py-0.5 text-[10px] font-medium text-stone-500">
           view: Pipeline
         </span>
-        <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[10px] text-slate-400">
+        <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[10px] text-stone-400">
           filtered · sorted by ACV
         </span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[340px]">
           <thead>
-            <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-500">
+            <tr className="border-b border-stone-900/[0.06] text-[10px] uppercase tracking-wider text-stone-500">
               <th className="px-5 py-2 text-left font-medium">Company</th>
               <th className="px-3 py-2 text-left font-medium">Stage</th>
               <th className="px-3 py-2 text-left font-medium">Owner</th>
               <th className="px-5 py-2 text-right font-medium">ACV</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 text-[12.5px]">
+          <tbody className="divide-y divide-stone-900/[0.06] text-[12.5px]">
             {rows.map((r) => (
               <tr key={r.name}>
-                <td className="px-5 py-2.5 font-medium text-slate-800">{r.name}</td>
+                <td className="px-5 py-2.5 font-medium text-stone-800">{r.name}</td>
                 <td className="px-3 py-2.5">
                   <Tag tone={r.tone}>{r.stage}</Tag>
                 </td>
@@ -501,16 +501,16 @@ function BasesPreview() {
                     {r.owner}
                   </span>
                 </td>
-                <td className="px-5 py-2.5 text-right tabular-nums text-slate-800">{r.acv}</td>
+                <td className="px-5 py-2.5 text-right tabular-nums text-stone-800">{r.acv}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-2.5 text-[11px] text-slate-500">
+      <div className="flex items-center gap-2 border-t border-stone-900/[0.06] bg-paper-100/60 px-5 py-2.5 text-[11px] text-stone-500">
         <Sparkles className="h-3.5 w-3.5 text-zinc-700" />
         <span>
-          <span className="font-medium text-slate-700">Alex (AI)</span> updated 3 rows from
+          <span className="font-medium text-stone-700">Alex (AI)</span> updated 3 rows from
           yesterday&apos;s calls · audit-logged
         </span>
       </div>
@@ -524,53 +524,53 @@ function NotesPreview() {
   return (
     <Window url="genosyn.com / notes / ops / incident-runbook">
       <div className="grid grid-cols-1 md:grid-cols-3">
-        <div className="border-b border-slate-100 p-4 md:border-b-0 md:border-r">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        <div className="border-b border-stone-900/[0.06] p-4 md:border-b-0 md:border-r">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">
             Ops notebook
           </div>
-          <ul className="mt-2 space-y-1 text-[12px] text-slate-600">
+          <ul className="mt-2 space-y-1 text-[12px] text-stone-600">
             <li className="flex items-center gap-1.5">
-              <StickyNote className="h-3 w-3 text-slate-400" />
+              <StickyNote className="h-3 w-3 text-stone-400" />
               Onboarding SOP
             </li>
-            <li className="flex items-center gap-1.5 rounded-md bg-slate-100 px-1.5 py-1 font-medium text-slate-900">
-              <StickyNote className="h-3 w-3 text-slate-500" />
+            <li className="flex items-center gap-1.5 rounded-md bg-paper-200 px-1.5 py-1 font-medium text-stone-900">
+              <StickyNote className="h-3 w-3 text-stone-500" />
               Incident runbook
             </li>
             <li className="flex items-center gap-1.5 pl-4">
-              <StickyNote className="h-3 w-3 text-slate-400" />
+              <StickyNote className="h-3 w-3 text-stone-400" />
               Sev-1 checklist
             </li>
             <li className="flex items-center gap-1.5 pl-4">
-              <StickyNote className="h-3 w-3 text-slate-400" />
+              <StickyNote className="h-3 w-3 text-stone-400" />
               Postmortem template
             </li>
             <li className="flex items-center gap-1.5">
-              <StickyNote className="h-3 w-3 text-slate-400" />
+              <StickyNote className="h-3 w-3 text-stone-400" />
               Vendor contacts
             </li>
           </ul>
         </div>
         <div className="p-5 md:col-span-2">
-          <div className="text-lg font-semibold text-slate-950">🚨 Incident runbook</div>
-          <div className="mt-1 text-[11px] text-slate-400">
-            Last edited by <span className="font-medium text-slate-600">Sam (AI)</span> · 2 hours
+          <div className="text-lg font-semibold text-stone-900">🚨 Incident runbook</div>
+          <div className="mt-1 text-[11px] text-stone-400">
+            Last edited by <span className="font-medium text-stone-600">Sam (AI)</span> · 2 hours
             ago · audit-logged
           </div>
-          <div className="mt-4 space-y-2.5 text-[12.5px] leading-relaxed text-slate-700">
-            <div className="font-semibold text-slate-900">## First five minutes</div>
+          <div className="mt-4 space-y-2.5 text-[12.5px] leading-relaxed text-stone-700">
+            <div className="font-semibold text-stone-900">## First five minutes</div>
             <div className="flex items-start gap-2">
-              <span className="mt-0.5 flex h-3.5 w-3.5 items-center justify-center rounded border border-slate-300 bg-white">
+              <span className="mt-0.5 flex h-3.5 w-3.5 items-center justify-center rounded border border-stone-900/[0.12] bg-white">
                 <CheckCircle2 className="h-3 w-3 text-emerald-600" />
               </span>
               Page the on-call — Sam watches p99 every 15 min
             </div>
             <div className="flex items-start gap-2">
-              <span className="mt-0.5 h-3.5 w-3.5 rounded border border-slate-300 bg-white" />
+              <span className="mt-0.5 h-3.5 w-3.5 rounded border border-stone-900/[0.12] bg-white" />
               Open a #incident channel and pin the timeline
             </div>
             <div className="flex items-start gap-2">
-              <span className="mt-0.5 h-3.5 w-3.5 rounded border border-slate-300 bg-white" />
+              <span className="mt-0.5 h-3.5 w-3.5 rounded border border-stone-900/[0.12] bg-white" />
               Snapshot dashboards before restarting anything
             </div>
           </div>
@@ -621,34 +621,34 @@ function ResourcesPreview() {
   ];
   return (
     <Window url="genosyn.com / resources">
-      <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3">
-        <div className="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-1.5 text-[12px] text-slate-500">
+      <div className="flex items-center gap-2 border-b border-stone-900/[0.06] px-5 py-3">
+        <div className="flex flex-1 items-center gap-2 rounded-lg border border-stone-900/[0.08] bg-paper-100/60 px-3 py-1.5 text-[12px] text-stone-500">
           <Search className="h-3.5 w-3.5" />
           usage-based billing
         </div>
-        <span className="font-mono text-[10px] text-slate-400">2 matches</span>
+        <span className="font-mono text-[10px] text-stone-400">2 matches</span>
       </div>
       <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
         {items.map((it) => (
           <div
             key={it.label}
-            className="flex flex-col rounded-xl border border-slate-200 bg-white p-3 shadow-card"
+            className="flex flex-col rounded-xl border border-stone-900/[0.08] bg-white p-3 shadow-card"
           >
             <Tag tone={it.tone}>
               <it.icon className="h-3 w-3" />
               {it.kind}
             </Tag>
-            <div className="mt-2.5 truncate text-[12.5px] font-medium text-slate-800">
+            <div className="mt-2.5 truncate text-[12.5px] font-medium text-stone-800">
               {it.label}
             </div>
-            <div className="mt-1 text-[10px] text-slate-400">{it.meta}</div>
+            <div className="mt-1 text-[10px] text-stone-400">{it.meta}</div>
           </div>
         ))}
       </div>
-      <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-2.5 text-[11px] text-slate-500">
+      <div className="flex items-center gap-2 border-t border-stone-900/[0.06] bg-paper-100/60 px-5 py-2.5 text-[11px] text-stone-500">
         <Sparkles className="h-3.5 w-3.5 text-zinc-700" />
         <span>
-          <span className="font-medium text-slate-700">Alex (AI)</span> cited the Stripe docs in
+          <span className="font-medium text-stone-700">Alex (AI)</span> cited the Stripe docs in
           today&apos;s pricing brief — every employee holds a read Grant
         </span>
       </div>
@@ -661,14 +661,14 @@ function ResourcesPreview() {
 function PipelinesPreview() {
   return (
     <Window url="genosyn.com / pipelines / stripe-large-charge">
-      <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-2.5 text-[11px]">
-        <Workflow className="h-3.5 w-3.5 text-slate-500" />
-        <span className="font-medium text-slate-700">stripe-large-charge</span>
+      <div className="flex items-center gap-2 border-b border-stone-900/[0.06] px-5 py-2.5 text-[11px]">
+        <Workflow className="h-3.5 w-3.5 text-stone-500" />
+        <span className="font-medium text-stone-700">stripe-large-charge</span>
         <Tag tone="bg-emerald-50 text-emerald-700 ring-emerald-200">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
           Live
         </Tag>
-        <span className="ml-auto font-mono text-[10px] text-slate-400">
+        <span className="ml-auto font-mono text-[10px] text-stone-400">
           run #88 · completed in 1.2s
         </span>
       </div>
@@ -698,10 +698,10 @@ function PipelinesPreview() {
           icon={MessageSquare}
           title="Post to #wins"
           subtitle="Message"
-          tone="bg-slate-100 text-slate-800 ring-slate-300"
+          tone="bg-paper-200 text-stone-800 ring-stone-900/[0.12]"
         />
       </div>
-      <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-2.5 font-mono text-[10.5px] text-slate-500">
+      <div className="border-t border-stone-900/[0.06] bg-paper-100/60 px-5 py-2.5 font-mono text-[10.5px] text-stone-500">
         {"{{trigger.body.amount}}"} → $4,200 · branch: true · reply captured →{" "}
         {"{{ask-alex.reply}}"}
       </div>
@@ -721,25 +721,25 @@ function PipelineNode({
   tone: string;
 }) {
   return (
-    <div className="flex min-w-[150px] flex-1 flex-col rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-card">
+    <div className="flex min-w-[150px] flex-1 flex-col rounded-xl border border-stone-900/[0.08] bg-white px-3 py-2.5 shadow-card">
       <div className="flex items-center gap-2">
         <span
           className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ring-1 ${tone}`}
         >
           <Icon className="h-3.5 w-3.5" />
         </span>
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
           {subtitle}
         </span>
       </div>
-      <div className="mt-1.5 truncate text-[12.5px] font-medium text-slate-800">{title}</div>
+      <div className="mt-1.5 truncate text-[12.5px] font-medium text-stone-800">{title}</div>
     </div>
   );
 }
 
 function PipelineConnector() {
   return (
-    <div aria-hidden className="flex shrink-0 items-center self-center text-slate-300">
+    <div aria-hidden className="flex shrink-0 items-center self-center text-stone-300">
       <ArrowRight className="h-4 w-4" />
     </div>
   );
@@ -756,12 +756,12 @@ function MarketingPreview() {
   return (
     <Window url="genosyn.com / approvals">
       <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-5">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-card sm:col-span-3">
+        <div className="rounded-xl border border-stone-900/[0.08] bg-white p-4 shadow-card sm:col-span-3">
           <div className="flex items-baseline justify-between">
-            <div className="text-[11px] font-semibold text-slate-700">
+            <div className="text-[11px] font-semibold text-stone-700">
               Daily pacing check · last 7 days
             </div>
-            <span className="font-mono text-[10px] text-slate-400">
+            <span className="font-mono text-[10px] text-stone-400">
               google-ads + meta-ads · Reese (AI)
             </span>
           </div>
@@ -769,10 +769,10 @@ function MarketingPreview() {
             {rows.map((r) => (
               <div
                 key={r.name}
-                className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2"
+                className="flex items-center justify-between rounded-lg border border-stone-900/[0.06] px-3 py-2"
               >
-                <span className="text-[11px] font-medium text-slate-800">{r.name}</span>
-                <span className="font-mono text-[10px] tabular-nums text-slate-500">{r.spend}</span>
+                <span className="text-[11px] font-medium text-stone-800">{r.name}</span>
+                <span className="font-mono text-[10px] tabular-nums text-stone-500">{r.spend}</span>
                 <span
                   className={`rounded-full px-2 py-0.5 font-mono text-[9px] ${
                     r.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
@@ -783,8 +783,8 @@ function MarketingPreview() {
               </div>
             ))}
           </div>
-          <div className="mt-3 rounded-lg bg-slate-950 p-3 font-mono text-[10px] leading-4 text-slate-400">
-            <div className="text-slate-500">-- journal · 09:02</div>
+          <div className="mt-3 rounded-lg bg-night-950 p-3 font-mono text-[10px] leading-4 text-stone-400">
+            <div className="text-stone-500">-- journal · 09:02</div>
             <div>
               Prospecting — PMax pacing 173% → <span className="text-amber-400">paused</span> (never
               gated). Proposal filed for review.
@@ -796,35 +796,35 @@ function MarketingPreview() {
             <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
               Approval pending
             </div>
-            <div className="mt-1 text-[11px] font-medium text-slate-900">
+            <div className="mt-1 text-[11px] font-medium text-stone-900">
               Google Ads · budget increase · 45.00 USD
             </div>
-            <div className="mt-0.5 text-[10px] text-slate-600">
+            <div className="mt-0.5 text-[10px] text-stone-600">
               Brand — Search: 30.00 → 45.00/day. CPA $18 vs $25 target.
             </div>
             <div className="mt-3 flex gap-2">
-              <span className="rounded-md bg-slate-900 px-2.5 py-1 text-[10px] font-medium text-white">
+              <span className="rounded-md bg-stone-900 px-2.5 py-1 text-[10px] font-medium text-white">
                 Approve
               </span>
-              <span className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-medium text-slate-600">
+              <span className="rounded-md border border-stone-900/[0.12] bg-white px-2.5 py-1 text-[10px] font-medium text-stone-600">
                 Reject
               </span>
             </div>
           </div>
-          <div className="flex-1 rounded-xl border border-slate-200 bg-white p-4 shadow-card">
-            <div className="text-[11px] font-semibold text-slate-700">Connection caps</div>
-            <div className="mt-2 flex flex-col gap-1.5 font-mono text-[10px] text-slate-500">
+          <div className="flex-1 rounded-xl border border-stone-900/[0.08] bg-white p-4 shadow-card">
+            <div className="text-[11px] font-semibold text-stone-700">Connection caps</div>
+            <div className="mt-2 flex flex-col gap-1.5 font-mono text-[10px] text-stone-500">
               <div className="flex justify-between">
                 <span>max single increase</span>
-                <span className="text-slate-800">$250</span>
+                <span className="text-stone-800">$250</span>
               </div>
               <div className="flex justify-between">
                 <span>daily increases</span>
-                <span className="text-slate-800">$120 / $500</span>
+                <span className="text-stone-800">$120 / $500</span>
               </div>
               <div className="flex justify-between">
                 <span>30-day increases</span>
-                <span className="text-slate-800">$980 / $5,000</span>
+                <span className="text-stone-800">$980 / $5,000</span>
               </div>
               <div className="flex justify-between">
                 <span>kill switch</span>
@@ -843,37 +843,37 @@ function ExplorePreview() {
   return (
     <Window url="genosyn.com / explore / dashboards / revenue">
       <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-card sm:col-span-2">
+        <div className="rounded-xl border border-stone-900/[0.08] bg-white p-4 shadow-card sm:col-span-2">
           <div className="flex items-baseline justify-between">
-            <div className="text-[11px] font-semibold text-slate-700">MRR by month</div>
-            <span className="font-mono text-[10px] text-slate-400">postgres · 8 rows</span>
+            <div className="text-[11px] font-semibold text-stone-700">MRR by month</div>
+            <span className="font-mono text-[10px] text-stone-400">postgres · 8 rows</span>
           </div>
           <div className="mt-4 flex h-28 items-end gap-2">
             {bars.map((h, i) => (
               <div
                 key={i}
-                className={`flex-1 rounded-t-md ${i === bars.length - 1 ? "bg-slate-900" : "bg-slate-200"}`}
+                className={`flex-1 rounded-t-md ${i === bars.length - 1 ? "bg-stone-900" : "bg-stone-900/10"}`}
                 style={{ height: `${h}%` }}
               />
             ))}
           </div>
-          <div className="mt-2 flex justify-between font-mono text-[9px] text-slate-400">
+          <div className="mt-2 flex justify-between font-mono text-[9px] text-stone-400">
             <span>Nov</span>
             <span>Jun</span>
           </div>
         </div>
         <div className="flex flex-col gap-3">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-card">
-            <div className="text-[11px] font-semibold text-slate-700">MRR</div>
-            <div className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-slate-950">
+          <div className="rounded-xl border border-stone-900/[0.08] bg-white p-4 shadow-card">
+            <div className="text-[11px] font-semibold text-stone-700">MRR</div>
+            <div className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-stone-900">
               $48,220
             </div>
             <div className="mt-0.5 text-[10px] font-medium text-emerald-600">
               +8.4% vs last month
             </div>
           </div>
-          <div className="flex-1 rounded-xl border border-slate-200 bg-slate-950 p-3.5 font-mono text-[10px] leading-4 text-slate-400">
-            <div className="text-slate-500">-- saved chart · run by Mira (AI)</div>
+          <div className="flex-1 rounded-xl border border-stone-900/[0.08] bg-night-950 p-3.5 font-mono text-[10px] leading-4 text-stone-400">
+            <div className="text-stone-500">-- saved chart · run by Mira (AI)</div>
             <div>
               <span className="text-sky-400">select</span> month,{" "}
               <span className="text-sky-400">sum</span>(mrr)
@@ -955,7 +955,7 @@ function RevenuePreview() {
   }> = [
     {
       icon: Mail,
-      tone: "bg-slate-100 text-slate-600",
+      tone: "bg-paper-200 text-stone-600",
       label: "email in · Lee at Globex",
       detail: "matched to a known contact by mail sync",
       time: "9:12",
@@ -985,28 +985,28 @@ function RevenuePreview() {
 
   return (
     <Window url="genosyn.com / revenue / deals — board">
-      <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-2.5 text-[11px]">
-        <TrendingUp className="h-3.5 w-3.5 text-slate-500" />
-        <span className="font-medium text-slate-700">Deals</span>
+      <div className="flex items-center gap-2 border-b border-stone-900/[0.06] px-5 py-2.5 text-[11px]">
+        <TrendingUp className="h-3.5 w-3.5 text-stone-500" />
+        <span className="font-medium text-stone-700">Deals</span>
         <Tag tone="bg-emerald-50 text-emerald-700 ring-emerald-200">7 stages</Tag>
-        <span className="ml-auto font-mono text-[10px] text-slate-400">
+        <span className="ml-auto font-mono text-[10px] text-stone-400">
           weighted $128,400 · coverage 3.2x
         </span>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-5">
-        <div className="border-b border-slate-100 p-5 md:col-span-3 md:border-b-0 md:border-r">
+        <div className="border-b border-stone-900/[0.06] p-5 md:col-span-3 md:border-b-0 md:border-r">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {stages.map((s) => (
-              <div key={s.label} className="rounded-xl bg-slate-50/70 p-2 ring-1 ring-slate-100">
-                <div className="flex items-center justify-between px-1 pb-1.5 text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">
+              <div key={s.label} className="rounded-xl bg-paper-100/70 p-2 ring-1 ring-stone-900/[0.06]">
+                <div className="flex items-center justify-between px-1 pb-1.5 text-[9.5px] font-semibold uppercase tracking-wider text-stone-500">
                   <span className="truncate">{s.label}</span>
-                  <span className="font-mono text-slate-400">{s.count}</span>
+                  <span className="font-mono text-stone-400">{s.count}</span>
                 </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-card">
-                  <div className="truncate text-[12px] font-medium text-slate-800">
+                <div className="rounded-lg border border-stone-900/[0.08] bg-white p-2.5 shadow-card">
+                  <div className="truncate text-[12px] font-medium text-stone-800">
                     {s.deal.name}
                   </div>
-                  <div className="mt-0.5 font-mono text-[10px] tabular-nums text-slate-500">
+                  <div className="mt-0.5 font-mono text-[10px] tabular-nums text-stone-500">
                     {s.deal.amount}
                   </div>
                   <div className="mt-2 flex items-center justify-between">
@@ -1025,17 +1025,17 @@ function RevenuePreview() {
               </div>
             ))}
           </div>
-          <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
+          <div className="mt-3 flex items-center gap-2 text-[11px] text-stone-500">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
             <span>Won deals bill from the same database — invoice, payment, journal entry</span>
           </div>
         </div>
         <div className="p-5 md:col-span-2">
           <div className="flex items-baseline justify-between">
-            <span className="text-[12px] font-semibold text-slate-900">
+            <span className="text-[12px] font-semibold text-stone-900">
               Globex · renewal expansion
             </span>
-            <span className="font-mono text-[10px] text-slate-400">timeline</span>
+            <span className="font-mono text-[10px] text-stone-400">timeline</span>
           </div>
           <div className="mt-3 space-y-2">
             {timeline.map((t) => (
@@ -1046,31 +1046,31 @@ function RevenuePreview() {
                   <t.icon className="h-3 w-3" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[11.5px] font-medium text-slate-800">{t.label}</div>
-                  <div className="text-[10px] leading-4 text-slate-500">{t.detail}</div>
+                  <div className="truncate text-[11.5px] font-medium text-stone-800">{t.label}</div>
+                  <div className="text-[10px] leading-4 text-stone-500">{t.detail}</div>
                 </div>
-                <span className="font-mono text-[9.5px] text-slate-400">{t.time}</span>
+                <span className="font-mono text-[9.5px] text-stone-400">{t.time}</span>
               </div>
             ))}
           </div>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 bg-slate-50/60 px-5 py-2.5 text-[10.5px] text-slate-500">
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-stone-900/[0.06] bg-paper-100/60 px-5 py-2.5 text-[10.5px] text-stone-500">
         {REVENUE_LOOP.map((step, i) => (
           <span key={step} className="inline-flex items-center gap-1.5">
-            {i > 0 && <ArrowRight aria-hidden className="h-3 w-3 text-slate-300" />}
+            {i > 0 && <ArrowRight aria-hidden className="h-3 w-3 text-stone-300" />}
             <span
               className={`rounded-md px-1.5 py-0.5 font-medium ${
                 i === REVENUE_LOOP.length - 1
-                  ? "bg-slate-900 text-white"
-                  : "bg-white text-slate-600 ring-1 ring-slate-200"
+                  ? "bg-stone-900 text-white"
+                  : "bg-white text-stone-600 ring-1 ring-stone-900/[0.08]"
               }`}
             >
               {step}
             </span>
           </span>
         ))}
-        <span className="ml-auto font-mono text-[10px] text-slate-400">one database</span>
+        <span className="ml-auto font-mono text-[10px] text-stone-400">one database</span>
       </div>
     </Window>
   );
@@ -1082,7 +1082,7 @@ function EmailPreview() {
   return (
     <Window url="genosyn.com / mail / inbox">
       <div className="grid grid-cols-1 md:grid-cols-5">
-        <div className="divide-y divide-slate-100 border-b border-slate-100 md:col-span-2 md:border-b-0 md:border-r">
+        <div className="divide-y divide-stone-900/[0.06] border-b border-stone-900/[0.06] md:col-span-2 md:border-b-0 md:border-r">
           {[
             { from: "Dana · Acme Co.", subject: "Invoice question", tag: "billing", active: true },
             { from: "signups@", subject: "3 new trials today", tag: null, active: false },
@@ -1093,26 +1093,26 @@ function EmailPreview() {
               active: false,
             },
           ].map((m) => (
-            <div key={m.subject} className={`px-4 py-3 ${m.active ? "bg-slate-50" : ""}`}>
+            <div key={m.subject} className={`px-4 py-3 ${m.active ? "bg-paper-100" : ""}`}>
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-800">{m.from}</span>
+                <span className="text-[11px] font-semibold text-stone-800">{m.from}</span>
                 {m.tag && (
                   <span className="rounded-md bg-cyan-50 px-1.5 py-0.5 text-[9px] font-medium text-cyan-700 ring-1 ring-cyan-200">
                     {m.tag}
                   </span>
                 )}
               </div>
-              <div className="mt-0.5 truncate text-[12px] text-slate-600">{m.subject}</div>
+              <div className="mt-0.5 truncate text-[12px] text-stone-600">{m.subject}</div>
             </div>
           ))}
         </div>
         <div className="p-5 md:col-span-3">
           <div className="flex items-center gap-2">
-            <Mail className="h-3.5 w-3.5 text-slate-400" />
-            <span className="text-[12.5px] font-semibold text-slate-900">Invoice question</span>
-            <span className="ml-auto font-mono text-[10px] text-slate-400">9:41 AM</span>
+            <Mail className="h-3.5 w-3.5 text-stone-400" />
+            <span className="text-[12.5px] font-semibold text-stone-900">Invoice question</span>
+            <span className="ml-auto font-mono text-[10px] text-stone-400">9:41 AM</span>
           </div>
-          <p className="mt-2.5 text-[12px] leading-relaxed text-slate-600">
+          <p className="mt-2.5 text-[12px] leading-relaxed text-stone-600">
             Hi — our March invoice shows two seats but we downgraded to one on the 3rd. Can you take
             a look?
           </p>
@@ -1121,18 +1121,18 @@ function EmailPreview() {
               <Sparkles className="h-3 w-3" />
               Draft by Mira (AI) · rule: to contains support@
             </div>
-            <p className="mt-2 text-[12px] leading-relaxed text-slate-700">
+            <p className="mt-2 text-[12px] leading-relaxed text-stone-700">
               Hi Dana — you&apos;re right, the seat change landed after the invoice was issued.
               I&apos;ve credited the difference ($29) to your April invoice…
             </p>
             <div className="mt-3 flex items-center gap-2">
-              <span className="rounded-lg bg-slate-950 px-3 py-1.5 text-[11px] font-semibold text-white">
+              <span className="rounded-lg bg-night-950 px-3 py-1.5 text-[11px] font-semibold text-white">
                 Send
               </span>
-              <span className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600">
+              <span className="rounded-lg border border-stone-900/[0.08] bg-white px-3 py-1.5 text-[11px] font-medium text-stone-600">
                 Edit draft
               </span>
-              <span className="ml-auto text-[10px] font-medium text-slate-400">
+              <span className="ml-auto text-[10px] font-medium text-stone-400">
                 grant level: draft
               </span>
             </div>
@@ -1149,39 +1149,39 @@ function CustomersPreview() {
   return (
     <Window url="genosyn.com / customers / acme-corp — statement">
       <div className="grid grid-cols-1 md:grid-cols-5">
-        <div className="border-b border-slate-100 p-5 md:col-span-2 md:border-b-0 md:border-r">
+        <div className="border-b border-stone-900/[0.06] p-5 md:col-span-2 md:border-b-0 md:border-r">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-100 text-sm font-semibold text-orange-700">
               <Building2 className="h-5 w-5" />
             </span>
             <div>
-              <div className="text-sm font-semibold text-slate-950">Acme Corp</div>
-              <div className="text-xs text-slate-500">billing@acme.com · USD</div>
+              <div className="text-sm font-semibold text-stone-900">Acme Corp</div>
+              <div className="text-xs text-stone-500">billing@acme.com · USD</div>
             </div>
           </div>
           <dl className="mt-4 space-y-2 text-[12px]">
             <div className="flex justify-between">
-              <dt className="text-slate-500">Annual Contract Value</dt>
-              <dd className="font-medium tabular-nums text-slate-900">$14,400</dd>
+              <dt className="text-stone-500">Annual Contract Value</dt>
+              <dd className="font-medium tabular-nums text-stone-900">$14,400</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-slate-500">Outstanding</dt>
-              <dd className="font-medium tabular-nums text-slate-900">$2,400</dd>
+              <dt className="text-stone-500">Outstanding</dt>
+              <dd className="font-medium tabular-nums text-stone-900">$2,400</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-slate-500">Lifetime billed</dt>
-              <dd className="font-medium tabular-nums text-slate-900">$38,800</dd>
+              <dt className="text-stone-500">Lifetime billed</dt>
+              <dd className="font-medium tabular-nums text-stone-900">$38,800</dd>
             </div>
           </dl>
-          <div className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-600">
+          <div className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-stone-900/[0.08] bg-paper-100 px-2.5 py-1.5 text-[11px] font-medium text-stone-600">
             <FileText className="h-3 w-3" />
             MSA — signed Mar 2025
           </div>
         </div>
         <div className="p-5 md:col-span-3">
           <div className="flex items-center justify-between text-[11px]">
-            <span className="font-semibold text-slate-700">Statement · year to date</span>
-            <span className="font-mono text-[10px] text-slate-400">PDF ↓</span>
+            <span className="font-semibold text-stone-700">Statement · year to date</span>
+            <span className="font-mono text-[10px] text-stone-400">PDF ↓</span>
           </div>
           <div className="mt-3 space-y-1.5 text-[12px]">
             {[
@@ -1191,12 +1191,12 @@ function CustomersPreview() {
             ].map((row) => (
               <div
                 key={row.label + row.date}
-                className="flex items-center justify-between rounded-lg border border-slate-100 bg-white px-3 py-2"
+                className="flex items-center justify-between rounded-lg border border-stone-900/[0.06] bg-white px-3 py-2"
               >
-                <span className="font-medium text-slate-700">{row.label}</span>
-                <span className="text-[10px] text-slate-400">{row.date}</span>
+                <span className="font-medium text-stone-700">{row.label}</span>
+                <span className="text-[10px] text-stone-400">{row.date}</span>
                 <span
-                  className={`tabular-nums font-medium ${row.credit ? "text-emerald-600" : "text-slate-800"}`}
+                  className={`tabular-nums font-medium ${row.credit ? "text-emerald-600" : "text-stone-800"}`}
                 >
                   {row.credit ? "−" : ""}
                   {row.amt}
@@ -1208,9 +1208,9 @@ function CustomersPreview() {
             {[
               { label: "current", amt: "$1.2k", tone: "bg-emerald-50 text-emerald-700" },
               { label: "1–30", amt: "$1.2k", tone: "bg-amber-50 text-amber-700" },
-              { label: "31–60", amt: "—", tone: "bg-slate-50 text-slate-400" },
-              { label: "61–90", amt: "—", tone: "bg-slate-50 text-slate-400" },
-              { label: "90+", amt: "—", tone: "bg-slate-50 text-slate-400" },
+              { label: "31–60", amt: "—", tone: "bg-paper-100 text-stone-400" },
+              { label: "61–90", amt: "—", tone: "bg-paper-100 text-stone-400" },
+              { label: "90+", amt: "—", tone: "bg-paper-100 text-stone-400" },
             ].map((b) => (
               <div key={b.label} className={`rounded-lg px-1 py-1.5 ${b.tone}`}>
                 <div className="text-[9px] font-semibold uppercase tracking-wide">{b.label}</div>
@@ -1230,36 +1230,36 @@ function FinancePreview() {
   return (
     <Window url="genosyn.com / finance / invoices / ACME-CORP-INV-0007">
       <div className="grid grid-cols-1 md:grid-cols-2">
-        <div className="border-b border-slate-100 p-5 md:border-b-0 md:border-r">
+        <div className="border-b border-stone-900/[0.06] p-5 md:border-b-0 md:border-r">
           <div className="flex items-center justify-between">
-            <span className="text-[12.5px] font-semibold text-slate-900">ACME-CORP-INV-0007</span>
+            <span className="text-[12.5px] font-semibold text-stone-900">ACME-CORP-INV-0007</span>
             <Tag tone="bg-emerald-50 text-emerald-700 ring-emerald-200">Paid</Tag>
           </div>
           <div className="mt-3 space-y-1.5 text-[12px]">
-            <div className="flex justify-between text-slate-600">
+            <div className="flex justify-between text-stone-600">
               <span>Pro plan · 12 seats</span>
               <span className="tabular-nums">$1,080.00</span>
             </div>
-            <div className="flex justify-between text-slate-600">
+            <div className="flex justify-between text-stone-600">
               <span>Priority support</span>
               <span className="tabular-nums">$120.00</span>
             </div>
-            <div className="flex justify-between border-t border-slate-100 pt-1.5 text-slate-500">
+            <div className="flex justify-between border-t border-stone-900/[0.06] pt-1.5 text-stone-500">
               <span>VAT 20% (exclusive)</span>
               <span className="tabular-nums">$240.00</span>
             </div>
-            <div className="flex justify-between text-[13px] font-semibold text-slate-950">
+            <div className="flex justify-between text-[13px] font-semibold text-stone-900">
               <span>Total</span>
               <span className="tabular-nums">$1,440.00</span>
             </div>
           </div>
-          <div className="mt-3 flex items-center gap-2 text-[10px] text-slate-400">
+          <div className="mt-3 flex items-center gap-2 text-[10px] text-stone-400">
             <Landmark className="h-3 w-3" />
             recurring · every month on the 1st · auto-issue + email PDF
           </div>
         </div>
         <div className="p-5">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-500">
             Auto-posted journal entry
           </div>
           <div className="mt-3 space-y-1.5 font-mono text-[11px]">
@@ -1269,11 +1269,11 @@ function FinancePreview() {
             ].map((l) => (
               <div
                 key={l.acct}
-                className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2"
+                className="flex items-center justify-between rounded-lg border border-stone-900/[0.06] bg-paper-100/60 px-3 py-2"
               >
-                <span className="text-slate-700">{l.acct}</span>
-                <span className="w-20 text-right tabular-nums text-slate-900">{l.dr}</span>
-                <span className="w-20 text-right tabular-nums text-slate-500">{l.cr}</span>
+                <span className="text-stone-700">{l.acct}</span>
+                <span className="w-20 text-right tabular-nums text-stone-900">{l.dr}</span>
+                <span className="w-20 text-right tabular-nums text-stone-500">{l.cr}</span>
               </div>
             ))}
           </div>
@@ -1282,7 +1282,7 @@ function FinancePreview() {
               <CheckCircle2 className="h-3.5 w-3.5" />
               Ledger balanced
             </span>
-            <span className="font-mono text-[10px] text-slate-400">
+            <span className="font-mono text-[10px] text-stone-400">
               trial balance ✓ · period open
             </span>
           </div>
@@ -1290,7 +1290,7 @@ function FinancePreview() {
             {["P&L", "Balance sheet", "Cash flow"].map((r) => (
               <span
                 key={r}
-                className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 font-medium text-slate-600"
+                className="rounded-lg border border-stone-900/[0.08] bg-white px-2 py-1.5 font-medium text-stone-600"
               >
                 {r}
               </span>
@@ -1308,8 +1308,8 @@ function CodePreview() {
   return (
     <Window url="genosyn.com / code / api-server">
       <div className="grid grid-cols-1 md:grid-cols-5">
-        <div className="border-b border-slate-100 p-4 md:col-span-2 md:border-b-0 md:border-r">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        <div className="border-b border-stone-900/[0.06] p-4 md:col-span-2 md:border-b-0 md:border-r">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-stone-400">
             Repositories
           </div>
           <div className="mt-2 space-y-2">
@@ -1327,47 +1327,47 @@ function CodePreview() {
               {
                 name: "infra",
                 grant: "reference only",
-                tone: "bg-slate-100 text-slate-600 ring-slate-200",
+                tone: "bg-paper-200 text-stone-600 ring-stone-900/[0.08]",
               },
             ].map((r) => (
               <div
                 key={r.name}
-                className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2"
+                className="flex items-center justify-between rounded-lg border border-stone-900/[0.08] bg-white px-3 py-2"
               >
-                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-slate-700">
-                  <GitBranch className="h-3 w-3 text-slate-400" />
+                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-stone-700">
+                  <GitBranch className="h-3 w-3 text-stone-400" />
                   {r.name}
                 </span>
                 <Tag tone={r.tone}>{r.grant}</Tag>
               </div>
             ))}
           </div>
-          <div className="mt-3 flex items-center gap-1.5 text-[10px] text-slate-400">
+          <div className="mt-3 flex items-center gap-1.5 text-[10px] text-stone-400">
             <Star className="h-3 w-3" />
             granted to Sam (AI) · SSH deploy key, encrypted
           </div>
         </div>
         <div className="p-4 md:col-span-3">
-          <div className="rounded-xl bg-slate-950 p-4 font-mono text-[11px] leading-5">
-            <div className="flex items-center gap-1.5 pb-2 text-[10px] uppercase tracking-widest text-slate-500">
+          <div className="rounded-xl bg-night-950 p-4 font-mono text-[11px] leading-5">
+            <div className="flex items-center gap-1.5 pb-2 text-[10px] uppercase tracking-widest text-stone-500">
               <Terminal className="h-3 w-3" />
               sam@genosyn · code-repos/api-server
             </div>
-            <div className="text-slate-400">$ git checkout -b fix/rate-limit-headers</div>
-            <div className="text-slate-400">
+            <div className="text-stone-400">$ git checkout -b fix/rate-limit-headers</div>
+            <div className="text-stone-400">
               $ git commit -m &quot;Return Retry-After on 429s&quot;
             </div>
-            <div className="text-slate-500">
+            <div className="text-stone-500">
               [fix/rate-limit-headers 3f2a91c] 2 files changed, 18 insertions(+)
             </div>
-            <div className="text-slate-400">$ git status --short --branch</div>
+            <div className="text-stone-400">$ git status --short --branch</div>
             <div className="text-emerald-400">✓ local commit ready for governed publishing</div>
           </div>
-          <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
+          <div className="mt-3 flex items-center gap-2 text-[11px] text-stone-500">
             <GitCommitHorizontal className="h-3.5 w-3.5" />
             <span>
               committed as{" "}
-              <span className="font-mono text-[10px] text-slate-600">
+              <span className="font-mono text-[10px] text-stone-600">
                 Sam &lt;sam@genosyn.local&gt;
               </span>{" "}
               · checkout persists between Runs

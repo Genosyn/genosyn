@@ -51,7 +51,7 @@ export function Install() {
         It&apos;s a short, readable shell script. Open{" "}
         <a
           href="/install.sh"
-          className="font-medium text-slate-950 underline decoration-slate-400 underline-offset-2"
+          className="font-medium text-stone-900 underline decoration-flame-300 underline-offset-2"
         >
           /install.sh
         </a>{" "}

@@ -53,7 +53,7 @@ export function App() {
 
 function Landing() {
   return (
-    <div className="min-h-screen bg-white text-slate-950">
+    <div className="min-h-screen bg-paper-100 text-stone-800">
       <Nav />
       <main>
         <Hero />
@@ -71,7 +71,7 @@ function Landing() {
 
 function EnterprisePage() {
   return (
-    <div className="min-h-screen bg-white text-slate-950">
+    <div className="min-h-screen bg-paper-100 text-stone-800">
       <Nav />
       <main>
         <Enterprise />
@@ -83,7 +83,7 @@ function EnterprisePage() {
 
 function PricingPage() {
   return (
-    <div className="min-h-screen bg-white text-slate-950">
+    <div className="min-h-screen bg-paper-100 text-stone-800">
       <Nav />
       <main>
         <Pricing />
@@ -113,20 +113,20 @@ function ProductsRoute({ path }: { path: string }) {
 
 function ProductNotFound() {
   return (
-    <div className="min-h-screen bg-white text-slate-950">
+    <div className="min-h-screen bg-paper-100 text-stone-800">
       <Nav />
       <main className="mx-auto flex max-w-7xl flex-col items-center px-6 py-32 text-center">
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-950">404</div>
-        <h1 className="mt-4 text-3xl font-semibold tracking-[-0.02em] text-slate-950">
+        <div className="text-xs font-semibold text-flame-600">404</div>
+        <h1 className="mt-4 text-4xl font-semibold tracking-[-0.03em] text-stone-900">
           No product lives here.
         </h1>
-        <p className="mt-3 max-w-md text-sm leading-relaxed text-slate-600">
+        <p className="mt-4 max-w-md text-base leading-relaxed text-stone-600">
           The page you were looking for does not exist — but every tool Genosyn ships is one click
           away.
         </p>
         <Link
           href="/products"
-          className="mt-8 inline-flex items-center gap-2 rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+          className="mt-8 inline-flex items-center gap-2 rounded-xl bg-flame-500 px-5 py-3.5 text-sm font-semibold text-white shadow-card transition hover:bg-flame-600"
         >
           Browse all products
           <ArrowRight className="h-4 w-4" />

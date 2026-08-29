@@ -60,7 +60,7 @@ export const PRODUCTS: ProductDef[] = [
     name: "AI Employees",
     category: "The core",
     icon: "users",
-    accent: "bg-zinc-100 text-zinc-800 ring-zinc-300",
+    accent: "bg-flame-100 text-flame-700 ring-flame-200",
     tagline: "Hire teammates that never log off.",
     taglineAccent: "A Soul, a set of Skills, and Routines that start without you.",
     summary:
@@ -169,7 +169,7 @@ export const PRODUCTS: ProductDef[] = [
     name: "Workspace",
     category: "Essentials",
     icon: "messageSquare",
-    accent: "bg-slate-100 text-slate-800 ring-slate-300",
+    accent: "bg-indigo-50 text-indigo-700 ring-indigo-200",
     tagline: "Team chat where AI shows up to work.",
     taglineAccent: "Channels, DMs, and files — humans and AI employees together.",
     summary:
@@ -699,7 +699,7 @@ export const PRODUCTS: ProductDef[] = [
     name: "Pipelines",
     category: "Automation",
     icon: "workflow",
-    accent: "bg-neutral-100 text-neutral-800 ring-neutral-300",
+    accent: "bg-lime-50 text-lime-700 ring-lime-200",
     tagline: "Automation without the improvisation.",
     taglineAccent: "Visual DAGs for the glue work that doesn't need an LLM.",
     summary:
@@ -915,7 +915,7 @@ export const PRODUCTS: ProductDef[] = [
     name: "Paid Marketing",
     category: "Marketing",
     icon: "megaphone",
-    accent: "bg-rose-50 text-rose-700 ring-rose-200",
+    accent: "bg-pink-50 text-pink-700 ring-pink-200",
     tagline: "A complete AI ad agency in your company.",
     taglineAccent: "With spending caps it cannot talk its way around.",
     summary:
@@ -1022,7 +1022,7 @@ export const PRODUCTS: ProductDef[] = [
     name: "Revenue",
     category: "Operations",
     icon: "trendingUp",
-    accent: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    accent: "bg-green-50 text-green-700 ring-green-200",
     tagline: "From ad click to collected cash.",
     taglineAccent: "One loop, one database, worked by AI employees.",
     summary:
@@ -1446,7 +1446,7 @@ export const PRODUCTS: ProductDef[] = [
     name: "Repositories",
     category: "Engineering",
     icon: "gitBranch",
-    accent: "bg-slate-100 text-slate-700 ring-slate-200",
+    accent: "bg-violet-50 text-violet-700 ring-violet-200",
     tagline: "Version control your team can actually use.",
     taglineAccent: "Code or documents, edited in the browser, reviewed before it ships.",
     summary:

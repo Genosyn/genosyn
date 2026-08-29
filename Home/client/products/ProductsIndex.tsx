@@ -30,7 +30,7 @@ export function ProductsIndex() {
   const flagship = PRODUCTS.find((product) => product.slug === "ai-employees");
 
   return (
-    <div className="min-h-screen bg-white text-slate-950">
+    <div className="min-h-screen bg-paper-100 text-stone-800">
       <Nav />
       <main>
         <HeroSection>
@@ -39,7 +39,7 @@ export function ProductsIndex() {
               <HeroBadge>
                 Genosyn products
                 <HeroBadgeDot />
-                <span className="font-medium text-slate-500">{PRODUCTS.length} built in</span>
+                <span className="font-medium text-stone-500">{PRODUCTS.length} built in</span>
               </HeroBadge>
               <HeroTitle>
                 Every tool an autonomous company{" "}
@@ -69,8 +69,8 @@ export function ProductsIndex() {
           </HeroGrid>
         </HeroSection>
 
-        <section id="product-catalog" className="bg-white">
-          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24">
+        <section id="product-catalog" className="bg-paper-50">
+          <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
             <div className="space-y-16">
               {PRODUCT_CATEGORIES.map((category) => {
                 const products = PRODUCTS.filter(
@@ -80,11 +80,11 @@ export function ProductsIndex() {
                 return (
                   <div key={category}>
                     <div className="flex items-center gap-4">
-                      <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      <h2 className="text-sm font-semibold text-stone-500">
                         {category}
                       </h2>
-                      <span className="h-px flex-1 bg-slate-200" />
-                      <span className="text-[10px] font-medium text-slate-400">
+                      <span className="h-px flex-1 bg-stone-900/10" />
+                      <span className="text-[10px] font-medium text-stone-400">
                         {products.length} {products.length === 1 ? "product" : "products"}
                       </span>
                     </div>
@@ -110,8 +110,8 @@ export function ProductsIndex() {
 function Flagship({ product }: { product: ProductDef }) {
   const Icon = productIcon(product.icon);
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 p-2 shadow-[0_32px_80px_-38px_rgba(15,23,42,0.65)] sm:p-3">
-      <div className="rounded-xl border border-white/10 bg-slate-950 p-3 sm:p-4">
+    <div className="on-night overflow-hidden rounded-3xl border border-night-700 bg-night-950 p-2 shadow-float sm:p-3">
+      <div className="rounded-2xl border border-white/10 bg-night-950 p-3 sm:p-4">
         <div className="mb-4 flex flex-col gap-4 px-1 sm:flex-row sm:items-center">
           <span
             className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ring-1 ${product.accent}`}
@@ -119,7 +119,7 @@ function Flagship({ product }: { product: ProductDef }) {
             <Icon className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+            <div className="text-[11px] font-semibold text-stone-400">
               The core of Genosyn
             </div>
             <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-white">
@@ -145,7 +145,7 @@ function ProductCard({ product }: { product: ProductDef }) {
   return (
     <Link
       href={`/products/${product.slug}`}
-      className="group flex min-h-56 flex-col rounded-xl border border-slate-200 bg-slate-50 p-5 transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-md"
+      className="group flex min-h-56 flex-col rounded-2xl border border-stone-900/[0.08] bg-paper-100 p-5 transition duration-200 hover:-translate-y-0.5 hover:border-flame-300 hover:bg-white hover:shadow-lift"
     >
       <div className="flex items-start justify-between">
         <span
@@ -153,11 +153,11 @@ function ProductCard({ product }: { product: ProductDef }) {
         >
           <Icon className="h-4 w-4" />
         </span>
-        <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-950" />
+        <ArrowRight className="h-4 w-4 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-flame-600" />
       </div>
-      <h3 className="mt-5 text-base font-semibold text-slate-900">{product.name}</h3>
-      <p className="mt-2 flex-1 text-sm leading-6 text-slate-600">{product.summary}</p>
-      <span className="mt-5 text-[11px] font-semibold text-slate-950">Explore product</span>
+      <h3 className="mt-5 text-base font-semibold text-stone-900">{product.name}</h3>
+      <p className="mt-2 flex-1 text-sm leading-6 text-stone-600">{product.summary}</p>
+      <span className="mt-5 text-[11px] font-semibold text-stone-900">Explore product</span>
     </Link>
   );
 }

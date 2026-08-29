@@ -1,13 +1,13 @@
-import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import { Link } from "@/lib/router";
 import { PRODUCTS } from "@/products/data";
 import { productIcon } from "@/products/productIcons";
-import { SectionEyebrow } from "@/sections/Primitives";
+import { Button, Container, Eyebrow, Heading, Lede, Section } from "@/sections/Kit";
 
 const FEATURED_SLUGS = ["workspace", "tasks", "revenue", "email", "finance", "repositories"];
-const FEATURED = FEATURED_SLUGS.map((slug) => PRODUCTS.find((product) => product.slug === slug)).filter(
-  (product): product is NonNullable<typeof product> => Boolean(product),
-);
+const FEATURED = FEATURED_SLUGS.map((slug) =>
+  PRODUCTS.find((product) => product.slug === slug),
+).filter((product): product is NonNullable<typeof product> => Boolean(product));
 
 const SHARED_FOUNDATION = [
   "One company-wide identity and permissions model",
@@ -16,71 +16,88 @@ const SHARED_FOUNDATION = [
   "One searchable history of what happened",
 ];
 
+/**
+ * The product suite. Every product carries its own hue from products/data.ts,
+ * which is what turns this from a grid of grey tiles into the most colourful
+ * band on the page — appropriate, since the claim it supports is that the
+ * whole company already lives in here.
+ */
 export function Features() {
   return (
-    <section id="platform" className="bg-white">
-      <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24 lg:py-28">
+    <Section id="platform">
+      <Container wide>
         <div className="mx-auto max-w-3xl text-center">
-          <SectionEyebrow>Where the autonomy runs</SectionEyebrow>
-          <h2 className="mt-5 text-balance text-4xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-5xl">
-            A company that runs itself needs a company to run.
-          </h2>
-          <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
+          <div className="flex justify-center">
+            <Eyebrow>Where the autonomy runs</Eyebrow>
+          </div>
+          <Heading className="mt-6">A company that runs itself needs a company to run.</Heading>
+          <Lede className="mx-auto mt-6">
             Autonomy stops at the edge of the tools. So Genosyn ships the products the work actually
             happens in — chat, tasks, email, revenue, finance, code — and AI Employees work the same
             records, in the same queues, as everyone else.
-          </p>
+          </Lede>
         </div>
 
-        <div className="mt-12 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm">
+        <div className="mt-14 overflow-hidden rounded-3xl border border-stone-900/[0.08] bg-white shadow-lift">
           <div className="grid lg:grid-cols-[0.72fr_1.28fr]">
-            <div className="border-b border-slate-200 bg-white p-6 sm:p-8 lg:border-b-0 lg:border-r">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-950">
-                Shared by design
+            <div className="relative border-b border-stone-900/[0.08] bg-paper-100 p-7 sm:p-9 lg:border-b-0 lg:border-r">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_60%_at_0%_0%,rgba(255,122,69,0.14),transparent_70%)]"
+              />
+              <div className="relative">
+                <div className="text-[11px] font-semibold text-flame-600">
+                  Shared by design
+                </div>
+                <h3 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-stone-900">
+                  One operating context.
+                </h3>
+                <p className="mt-4 text-sm leading-6 text-stone-600">
+                  An employee that has to ask you for context is not autonomous. Genosyn gives every
+                  role a governed way to read, write, and hand work to the next employee.
+                </p>
+                <ul className="mt-7 space-y-3.5">
+                  {SHARED_FOUNDATION.map((item) => (
+                    <li key={item} className="flex items-start gap-3 text-sm leading-5 text-stone-700">
+                      <span
+                        aria-hidden
+                        className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-flame-100 text-flame-600"
+                      >
+                        <Check className="h-3 w-3" />
+                      </span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+                <Button href="/products" className="mt-8">
+                  See every product
+                  <ArrowRight aria-hidden className="h-4 w-4" />
+                </Button>
               </div>
-              <h3 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-slate-950">
-                One operating context.
-              </h3>
-              <p className="mt-3 text-sm leading-6 text-slate-600">
-                An employee that has to ask you for context is not autonomous. Genosyn gives every
-                role a governed way to read, write, and hand work to the next employee.
-              </p>
-              <ul className="mt-6 space-y-3">
-                {SHARED_FOUNDATION.map((item) => (
-                  <li key={item} className="flex items-start gap-2.5 text-sm leading-5 text-slate-600">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-950" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/products"
-                className="mt-7 inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-              >
-                See every product
-                <ArrowRight className="h-4 w-4" />
-              </Link>
             </div>
 
-            <div className="grid gap-px bg-slate-200 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-px bg-stone-900/[0.08] sm:grid-cols-2 lg:grid-cols-3">
               {FEATURED.map((product) => {
                 const Icon = productIcon(product.icon);
                 return (
                   <Link
                     key={product.slug}
                     href={`/products/${product.slug}`}
-                    className="group min-h-48 bg-slate-50 p-5 transition hover:bg-white hover:shadow-[inset_0_0_0_1px_rgba(148,163,184,0.28)]"
+                    className="group min-h-52 bg-white p-6 transition duration-200 hover:bg-paper-100"
                   >
                     <div className="flex items-start justify-between">
                       <span
-                        className={`flex h-9 w-9 items-center justify-center rounded-lg ring-1 ${product.accent}`}
+                        className={`flex h-11 w-11 items-center justify-center rounded-xl ring-1 ring-inset transition group-hover:scale-105 ${product.accent}`}
                       >
-                        <Icon className="h-4 w-4" />
+                        <Icon aria-hidden className="h-5 w-5" />
                       </span>
-                      <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-950" />
+                      <ArrowRight
+                        aria-hidden
+                        className="h-4 w-4 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-flame-500"
+                      />
                     </div>
-                    <h3 className="mt-5 text-sm font-semibold text-slate-900">{product.name}</h3>
-                    <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-500">
+                    <h3 className="mt-6 text-base font-semibold text-stone-900">{product.name}</h3>
+                    <p className="mt-2 line-clamp-3 text-[13px] leading-5 text-stone-500">
                       {product.summary}
                     </p>
                   </Link>
@@ -90,18 +107,26 @@ export function Features() {
           </div>
         </div>
 
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-2 text-[11px] font-medium text-slate-500">
-          {PRODUCTS.filter((product) => !FEATURED_SLUGS.includes(product.slug)).map((product) => (
-            <Link
-              key={product.slug}
-              href={`/products/${product.slug}`}
-              className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition hover:border-slate-300 hover:text-slate-800"
-            >
-              {product.name}
-            </Link>
-          ))}
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+          {PRODUCTS.filter((product) => !FEATURED_SLUGS.includes(product.slug)).map((product) => {
+            const Icon = productIcon(product.icon);
+            return (
+              <Link
+                key={product.slug}
+                href={`/products/${product.slug}`}
+                className="inline-flex items-center gap-2 rounded-full border border-stone-900/[0.08] bg-white py-1.5 pl-1.5 pr-3.5 text-[12px] font-semibold text-stone-600 shadow-card transition hover:-translate-y-0.5 hover:border-flame-300 hover:text-stone-900 hover:shadow-lift"
+              >
+                <span
+                  className={`flex h-6 w-6 items-center justify-center rounded-full ring-1 ring-inset ${product.accent}`}
+                >
+                  <Icon aria-hidden className="h-3 w-3" />
+                </span>
+                {product.name}
+              </Link>
+            );
+          })}
         </div>
-      </div>
-    </section>
+      </Container>
+    </Section>
   );
 }

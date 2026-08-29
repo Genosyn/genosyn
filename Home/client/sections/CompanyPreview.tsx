@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 import { Logo, LogoMark } from "@/components/Logo";
 
@@ -29,7 +30,8 @@ const NAV_ITEMS = [
 const ACTIVITY = [
   {
     initials: "MF",
-    color: "bg-emerald-100 text-emerald-700",
+    color: "bg-emerald-100 text-emerald-700 ring-emerald-200",
+    dot: "bg-emerald-500",
     name: "Mira",
     action: "reconciled 42 payments",
     meta: "Finance · 2m ago",
@@ -37,7 +39,8 @@ const ACTIVITY = [
   },
   {
     initials: "AB",
-    color: "bg-sky-100 text-sky-700",
+    color: "bg-pink-100 text-pink-700 ring-pink-200",
+    dot: "bg-pink-500",
     name: "Alex",
     action: "prepared the launch digest",
     meta: "Marketing · 8m ago",
@@ -45,10 +48,11 @@ const ACTIVITY = [
   },
   {
     initials: "SS",
-    color: "bg-zinc-200 text-zinc-800",
+    color: "bg-violet-100 text-violet-700 ring-violet-200",
+    dot: "bg-violet-500",
     name: "Sam",
     action: "opened a reliability fix",
-    meta: "Code · 14m ago",
+    meta: "Repositories · 14m ago",
     status: "Running",
   },
 ];
@@ -60,32 +64,25 @@ const ACTIVITY = [
  * the invented navigation and copy get read out between the hero CTAs and the
  * next section — and the mock's own landmarks (it used to render a nested
  * `<main>`) collide with the page's real ones.
+ *
+ * It renders at the hero's full container width now, so there is no longer a
+ * `compact` variant hiding the activity feed.
  */
-export function CompanyPreview({ compact = false }: { compact?: boolean }) {
+export function CompanyPreview() {
   return (
-    <div className="preview-enter relative mx-auto max-w-[84rem] select-none">
+    <div className="preview-enter relative mx-auto select-none">
       <span className="sr-only">
         A Genosyn workspace showing pending approvals, scheduled Routines, and the AI Employees on
         duty at an example company.
       </span>
       <div
         aria-hidden
-        className="absolute -inset-8 -z-10 rounded-[3rem] bg-slate-300/30 blur-3xl"
-      />
-      <div
-        aria-hidden
-        className="overflow-hidden rounded-2xl border border-slate-300/90 bg-white shadow-[0_38px_90px_-38px_rgba(15,23,42,0.42)] ring-1 ring-white"
+        className="overflow-hidden rounded-2xl border border-stone-900/[0.10] bg-white shadow-raise ring-1 ring-white/80"
       >
         <PreviewHeader />
-        <div
-          className={`grid min-h-[31rem] ${
-            compact
-              ? "md:grid-cols-[10.5rem_minmax(0,1fr)]"
-              : "md:grid-cols-[12.5rem_minmax(0,1fr)]"
-          }`}
-        >
+        <div className="grid min-h-[31rem] md:grid-cols-[13rem_minmax(0,1fr)]">
           <PreviewSidebar />
-          <PreviewMain compact={compact} />
+          <PreviewMain />
         </div>
       </div>
     </div>
@@ -94,24 +91,24 @@ export function CompanyPreview({ compact = false }: { compact?: boolean }) {
 
 function PreviewHeader() {
   return (
-    <div className="flex h-14 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:gap-3 sm:px-4">
-      <LogoMark className="h-7 w-7 sm:hidden" />
-      <Logo className="hidden h-7 w-auto sm:block" />
-      <span className="h-5 w-px bg-slate-200" />
-      <span className="inline-flex min-w-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-800">
+    <div className="flex h-14 items-center gap-2 border-b border-stone-900/[0.08] bg-white px-3 sm:gap-3 sm:px-4">
+      <LogoMark className="h-7 w-7 text-stone-900 sm:hidden" />
+      <Logo className="hidden h-7 w-auto text-stone-900 sm:block" />
+      <span className="h-5 w-px bg-stone-900/10" />
+      <span className="inline-flex min-w-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-stone-800">
         <span className="truncate">Northstar Labs</span>
-        <ChevronDown className="h-3 w-3 text-slate-400" />
+        <ChevronDown className="h-3 w-3 text-stone-400" />
       </span>
-      <span className="hidden text-slate-300 sm:inline">/</span>
-      <span className="hidden text-xs font-medium text-slate-600 sm:inline">Home</span>
+      <span className="hidden text-stone-300 sm:inline">/</span>
+      <span className="hidden text-xs font-medium text-stone-500 sm:inline">Home</span>
       <div className="ml-auto flex items-center gap-2">
-        <span className="hidden rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-medium text-slate-400 sm:inline">
+        <span className="hidden rounded border border-stone-900/10 bg-paper-100 px-1.5 py-0.5 font-mono text-[9px] font-medium text-stone-400 sm:inline">
           ⌘ K
         </span>
-        <span className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500">
+        <span className="flex h-7 w-7 items-center justify-center rounded-md text-stone-400">
           <Bell className="h-3.5 w-3.5" />
         </span>
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-[9px] font-semibold text-white">
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-stone-900 text-[9px] font-bold text-white">
           ND
         </span>
       </div>
@@ -121,18 +118,18 @@ function PreviewHeader() {
 
 function PreviewSidebar() {
   return (
-    <div className="hidden border-r border-slate-200 bg-slate-50/80 p-3 md:block">
-      <div className="px-2 pb-2 pt-1 text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+    <div className="hidden border-r border-stone-900/[0.08] bg-paper-100 p-3 md:block">
+      <div className="px-2 pb-2 pt-1 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-stone-400">
         Company
       </div>
       <div className="space-y-0.5">
         {NAV_ITEMS.map((item) => (
           <div
             key={item.label}
-            className={`flex items-center gap-2 rounded-md px-2.5 py-2 text-[11px] font-medium ${
+            className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[11px] font-medium ${
               item.active
-                ? "bg-slate-100 text-slate-800 ring-1 ring-inset ring-slate-200"
-                : "text-slate-600"
+                ? "bg-flame-100 text-flame-700 ring-1 ring-inset ring-flame-200"
+                : "text-stone-600"
             }`}
           >
             <item.icon className="h-3.5 w-3.5" />
@@ -141,21 +138,21 @@ function PreviewSidebar() {
         ))}
       </div>
 
-      <div className="mt-5 px-2 pb-2 text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+      <div className="mt-6 px-2 pb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-stone-400">
         On duty
       </div>
       <div className="space-y-2 px-1">
-        {ACTIVITY.slice(0, 3).map((item, index) => (
+        {ACTIVITY.map((item, index) => (
           <div key={item.name} className="flex items-center gap-2">
             <span
-              className={`flex h-6 w-6 items-center justify-center rounded-md text-[8px] font-bold ${item.color}`}
+              className={`flex h-6 w-6 items-center justify-center rounded-lg text-[8px] font-bold ring-1 ring-inset ${item.color}`}
             >
               {item.initials}
             </span>
-            <span className="text-[10px] font-medium text-slate-600">{item.name}</span>
+            <span className="text-[10px] font-medium text-stone-600">{item.name}</span>
             <span
               className={`ml-auto h-1.5 w-1.5 rounded-full ${
-                index === 2 ? "preview-live bg-slate-900" : "bg-emerald-500"
+                index === 2 ? "preview-live bg-flame-500" : "bg-emerald-500"
               }`}
             />
           </div>
@@ -165,54 +162,50 @@ function PreviewSidebar() {
   );
 }
 
-function PreviewMain({ compact }: { compact: boolean }) {
+function PreviewMain() {
   return (
-    <div className="min-w-0 bg-slate-50 px-4 py-5 sm:px-6 sm:py-6">
+    <div className="min-w-0 bg-paper-100 px-4 py-5 sm:px-6 sm:py-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="text-lg font-semibold tracking-[-0.02em] text-slate-900">
+          <div className="text-lg font-semibold tracking-[-0.02em] text-stone-900">
             Good morning, Nawaz
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">
+          <div className="mt-1 text-[11px] text-stone-500">
             Here&apos;s what needs your attention at Northstar Labs.
           </div>
         </div>
-        <div className="inline-flex w-fit items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-medium text-emerald-700">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
+          <span className="preview-live h-1.5 w-1.5 rounded-full bg-emerald-500" />
           All systems healthy
         </div>
       </div>
 
-      <div className={`mt-5 grid grid-cols-2 gap-2.5 ${compact ? "" : "xl:grid-cols-4"}`}>
-        <Stat icon={ShieldCheck} value="3" label="Pending approvals" accent="graphite" />
+      <div className="mt-5 grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+        <Stat icon={ShieldCheck} value="3" label="Pending approvals" accent="amber" />
         <Stat icon={Clock3} value="18" label="Routines today" accent="emerald" />
-        <Stat icon={ListChecks} value="5" label="Waiting for review" accent="zinc" />
-        <Stat icon={Users} value="7" label="AI Employees" accent="sky" />
+        <Stat icon={ListChecks} value="5" label="Waiting for review" accent="violet" />
+        <Stat icon={Users} value="7" label="AI Employees" accent="flame" />
       </div>
 
-      <div className={`mt-3 grid gap-3 ${compact ? "" : "xl:grid-cols-[1.08fr_0.92fr]"}`}>
-        <div
-          className={`overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${
-            compact ? "hidden" : ""
-          }`}
-        >
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <div className="text-[11px] font-semibold text-slate-900">AI activity</div>
-            <span className="text-[9px] font-medium text-slate-950">View all Runs</span>
+      <div className="mt-3 grid gap-3 xl:grid-cols-[1.08fr_0.92fr]">
+        <div className="overflow-hidden rounded-xl border border-stone-900/[0.08] bg-white shadow-card">
+          <div className="flex items-center justify-between border-b border-stone-900/[0.06] px-4 py-3">
+            <div className="text-[11px] font-semibold text-stone-900">AI activity</div>
+            <span className="text-[9px] font-semibold text-flame-600">View all Runs</span>
           </div>
-          <div className="divide-y divide-slate-100 px-4">
+          <div className="divide-y divide-stone-900/[0.06] px-4">
             {ACTIVITY.map((item) => (
               <div key={item.name} className="flex items-center gap-3 py-3">
                 <span
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[9px] font-semibold ${item.color}`}
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[9px] font-bold ring-1 ring-inset ${item.color}`}
                 >
                   {item.initials}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[10px] text-slate-700">
-                    <span className="font-semibold text-slate-900">{item.name}</span> {item.action}
+                  <span className="block truncate text-[10px] text-stone-600">
+                    <span className="font-semibold text-stone-900">{item.name}</span> {item.action}
                   </span>
-                  <span className="mt-0.5 block text-[9px] text-slate-400">{item.meta}</span>
+                  <span className="mt-0.5 block text-[9px] text-stone-400">{item.meta}</span>
                 </span>
                 <StatusBadge status={item.status} />
               </div>
@@ -220,10 +213,10 @@ function PreviewMain({ compact }: { compact: boolean }) {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-            <div className="text-[11px] font-semibold text-slate-900">Needs your attention</div>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-semibold text-slate-950">
+        <div className="overflow-hidden rounded-xl border border-stone-900/[0.08] bg-white shadow-card">
+          <div className="flex items-center justify-between border-b border-stone-900/[0.06] px-4 py-3">
+            <div className="text-[11px] font-semibold text-stone-900">Needs your attention</div>
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-bold text-amber-700">
               3 items
             </span>
           </div>
@@ -238,7 +231,7 @@ function PreviewMain({ compact }: { compact: boolean }) {
               icon={CheckCircle2}
               title="Review checkout patch"
               detail="Sam · Repositories"
-              tone="graphite"
+              tone="violet"
             />
             <AttentionRow
               icon={Sparkles}
@@ -247,8 +240,8 @@ function PreviewMain({ compact }: { compact: boolean }) {
               tone="emerald"
             />
           </div>
-          <div className="mx-3 mb-3 rounded-lg border border-slate-200 bg-slate-100/70 px-3 py-2.5">
-            <div className="flex items-center gap-2 text-[10px] font-medium text-slate-800">
+          <div className="mx-3 mb-3 rounded-lg border border-flame-200 bg-flame-50 px-3 py-2.5">
+            <div className="flex items-center gap-2 text-[10px] font-semibold text-flame-700">
               <Activity className="h-3.5 w-3.5" />
               Work keeps moving. Sensitive changes wait for you.
             </div>
@@ -259,32 +252,34 @@ function PreviewMain({ compact }: { compact: boolean }) {
   );
 }
 
+const STAT_ACCENTS = {
+  amber: "bg-amber-100 text-amber-700 ring-amber-200",
+  emerald: "bg-emerald-100 text-emerald-700 ring-emerald-200",
+  violet: "bg-violet-100 text-violet-700 ring-violet-200",
+  flame: "bg-flame-100 text-flame-700 ring-flame-200",
+} as const;
+
 function Stat({
   icon: Icon,
   value,
   label,
   accent,
 }: {
-  icon: typeof ShieldCheck;
+  icon: LucideIcon;
   value: string;
   label: string;
-  accent: "graphite" | "emerald" | "zinc" | "sky";
+  accent: keyof typeof STAT_ACCENTS;
 }) {
-  const accents = {
-    graphite: "bg-slate-100 text-slate-950",
-    emerald: "bg-emerald-50 text-emerald-600",
-    zinc: "bg-zinc-100 text-zinc-800",
-    sky: "bg-sky-50 text-sky-600",
-  };
-
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
-      <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${accents[accent]}`}>
+    <div className="flex items-center gap-2.5 rounded-xl border border-stone-900/[0.08] bg-white px-3 py-2.5 shadow-card">
+      <span
+        className={`flex h-8 w-8 items-center justify-center rounded-lg ring-1 ring-inset ${STAT_ACCENTS[accent]}`}
+      >
         <Icon className="h-3.5 w-3.5" />
       </span>
       <span>
-        <span className="block text-sm font-semibold tabular text-slate-900">{value}</span>
-        <span className="block text-[9px] text-slate-500">{label}</span>
+        <span className="tabular block text-sm font-bold text-stone-900">{value}</span>
+        <span className="block text-[9px] text-stone-500">{label}</span>
       </span>
     </div>
   );
@@ -293,12 +288,18 @@ function Stat({
 function StatusBadge({ status }: { status: string }) {
   const style =
     status === "Complete"
-      ? "bg-emerald-50 text-emerald-700"
+      ? "bg-emerald-100 text-emerald-700"
       : status === "Review"
-        ? "bg-amber-50 text-amber-700"
-        : "bg-slate-100 text-slate-800";
-  return <span className={`rounded-md px-2 py-1 text-[8px] font-semibold ${style}`}>{status}</span>;
+        ? "bg-amber-100 text-amber-700"
+        : "bg-violet-100 text-violet-700";
+  return <span className={`rounded-md px-2 py-1 text-[8px] font-bold ${style}`}>{status}</span>;
 }
+
+const ATTENTION_TONES = {
+  amber: "bg-amber-100 text-amber-700 ring-amber-200",
+  violet: "bg-violet-100 text-violet-700 ring-violet-200",
+  emerald: "bg-emerald-100 text-emerald-700 ring-emerald-200",
+} as const;
 
 function AttentionRow({
   icon: Icon,
@@ -306,24 +307,21 @@ function AttentionRow({
   detail,
   tone,
 }: {
-  icon: typeof ShieldCheck;
+  icon: LucideIcon;
   title: string;
   detail: string;
-  tone: "amber" | "graphite" | "emerald";
+  tone: keyof typeof ATTENTION_TONES;
 }) {
-  const styles = {
-    amber: "bg-amber-50 text-amber-600",
-    graphite: "bg-slate-100 text-slate-950",
-    emerald: "bg-emerald-50 text-emerald-600",
-  };
   return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-slate-100 bg-slate-50/70 p-2.5">
-      <span className={`flex h-7 w-7 items-center justify-center rounded-md ${styles[tone]}`}>
+    <div className="flex items-center gap-2.5 rounded-lg border border-stone-900/[0.06] bg-paper-100 p-2.5">
+      <span
+        className={`flex h-7 w-7 items-center justify-center rounded-md ring-1 ring-inset ${ATTENTION_TONES[tone]}`}
+      >
         <Icon className="h-3.5 w-3.5" />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-[10px] font-medium text-slate-800">{title}</span>
-        <span className="mt-0.5 block truncate text-[9px] text-slate-400">{detail}</span>
+        <span className="block truncate text-[10px] font-semibold text-stone-800">{title}</span>
+        <span className="mt-0.5 block truncate text-[9px] text-stone-400">{detail}</span>
       </span>
     </div>
   );

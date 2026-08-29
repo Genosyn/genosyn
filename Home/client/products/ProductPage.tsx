@@ -1,7 +1,7 @@
 import { ArrowRight, BookOpen, CheckCircle2, ChevronDown } from "lucide-react";
 import { Nav } from "@/sections/Nav";
 import { Footer, InstallCta } from "@/sections/Footer";
-import { SectionEyebrow } from "@/sections/Primitives";
+import { Eyebrow } from "@/sections/Kit";
 import {
   HeroActions,
   HeroBadge,
@@ -26,7 +26,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
   const useCases = getUseCasesForProduct(product.slug).slice(0, 3);
 
   return (
-    <div className="min-h-screen bg-white text-slate-950">
+    <div className="min-h-screen bg-white text-stone-900">
       <Nav />
       <main>
         <HeroSection>
@@ -34,12 +34,12 @@ export function ProductPage({ product }: { product: ProductDef }) {
             <HeroCopy>
               <nav
                 aria-label="Breadcrumb"
-                className="flex items-center gap-2 text-xs font-medium text-slate-500"
+                className="flex items-center gap-2 text-xs font-medium text-stone-500"
               >
-                <Link href="/products" className="transition hover:text-slate-950">
+                <Link href="/products" className="transition hover:text-flame-600">
                   Products
                 </Link>
-                <span aria-hidden className="text-slate-400">
+                <span aria-hidden className="text-stone-400">
                   /
                 </span>
                 <span>{product.category}</span>
@@ -59,7 +59,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                 >
                   {product.name}
                   <HeroBadgeDot />
-                  <span className="font-medium text-slate-500">Built into Genosyn</span>
+                  <span className="font-medium text-stone-500">Built into Genosyn</span>
                 </HeroBadge>
               </div>
 
@@ -86,7 +86,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
             </HeroPanel>
           </HeroGrid>
 
-          <ul className="mt-12 grid overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:grid-cols-2 lg:grid-cols-4">
+          <ul className="mt-12 grid overflow-hidden rounded-2xl border border-stone-900/[0.08] bg-white shadow-card sm:grid-cols-2 lg:grid-cols-4">
             {product.checks.map((check, index) => (
               // Dividers are derived from the item's index against the column
               // count at each breakpoint (1 / 2 / 4), so a list whose length is
@@ -96,7 +96,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
               <li
                 key={check}
                 className={[
-                  "flex items-center gap-3 border-slate-200 px-4 py-3.5 text-xs font-medium text-slate-600",
+                  "flex items-center gap-3 border-stone-900/[0.08] px-4 py-3.5 text-xs font-medium text-stone-600",
                   index >= 1 ? "border-t" : "",
                   index >= 2 ? "sm:border-t" : "sm:border-t-0",
                   index % 2 === 1 ? "sm:border-l" : "sm:border-l-0",
@@ -108,12 +108,12 @@ export function ProductPage({ product }: { product: ProductDef }) {
               >
                 <span
                   aria-hidden
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-950"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-paper-200 text-stone-900"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </span>
                 <span>
-                  <span aria-hidden className="block text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  <span aria-hidden className="block text-[11px] font-semibold text-stone-500">
                     {String(index + 1).padStart(2, "0")}
                   </span>
                   <span className="mt-0.5 block">{check}</span>
@@ -123,14 +123,14 @@ export function ProductPage({ product }: { product: ProductDef }) {
           </ul>
         </HeroSection>
 
-        <section className="bg-white">
-          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24">
+        <section className="bg-paper-50">
+          <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
             <div className="mx-auto max-w-3xl text-center">
-              <SectionEyebrow>{product.name} in practice</SectionEyebrow>
-              <h2 className="mt-5 text-balance text-3xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-4xl">
+              <Eyebrow>{product.name} in practice</Eyebrow>
+              <h2 className="mt-5 text-balance text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-stone-900">
                 Built around outcomes, not demos.
               </h2>
-              <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
+              <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-stone-600 sm:text-lg">
                 Start with a real role and a real handoff. Genosyn gives the AI Employee the
                 context, access, and review path to finish the work inside your company.
               </p>
@@ -139,7 +139,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
               {useCases.map((useCase) => (
                 <article
                   key={useCase.role}
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-sm"
+                  className="rounded-2xl border border-stone-900/[0.08] bg-paper-100 p-5 transition hover:-translate-y-0.5 hover:border-stone-900/[0.14] hover:bg-white hover:shadow-lift"
                 >
                   <div className="flex items-center gap-3">
                     <span
@@ -148,16 +148,16 @@ export function ProductPage({ product }: { product: ProductDef }) {
                       {useCase.initials}
                     </span>
                     <div>
-                      <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      <div className="text-[11px] font-semibold text-stone-400">
                         {useCase.team}
                       </div>
-                      <h3 className="mt-0.5 text-sm font-semibold text-slate-900">
+                      <h3 className="mt-0.5 text-sm font-semibold text-stone-900">
                         {useCase.role}
                       </h3>
                     </div>
                   </div>
-                  <p className="mt-4 text-sm leading-6 text-slate-600">{useCase.objective}</p>
-                  <div className="mt-5 rounded-lg border border-slate-200 bg-slate-100/70 px-3 py-2.5 text-[11px] font-medium leading-5 text-slate-800">
+                  <p className="mt-5 text-base leading-7 text-stone-600">{useCase.objective}</p>
+                  <div className="mt-5 rounded-lg border border-stone-900/[0.08] bg-paper-200/70 px-3 py-2.5 text-[11px] font-medium leading-5 text-stone-800">
                     {useCase.outcome}
                   </div>
                 </article>
@@ -166,15 +166,15 @@ export function ProductPage({ product }: { product: ProductDef }) {
           </div>
         </section>
 
-        <section className="border-y border-slate-200 bg-slate-50">
-          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24">
+        <section className="border-y border-stone-900/[0.07] bg-paper-200">
+          <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
             <div className="grid gap-10 lg:grid-cols-[0.66fr_1.34fr] lg:gap-16">
               <div>
-                <SectionEyebrow>What ships</SectionEyebrow>
-                <h2 className="mt-5 text-3xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-4xl">
+                <Eyebrow>What ships</Eyebrow>
+                <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-stone-900">
                   {product.name}, end to end.
                 </h2>
-                <p className="mt-4 text-sm leading-6 text-slate-600">
+                <p className="mt-5 text-base leading-7 text-stone-600">
                   Every capability is built into the same operating model, with company identity,
                   access, activity, and AI Employees already connected.
                 </p>
@@ -185,15 +185,15 @@ export function ProductPage({ product }: { product: ProductDef }) {
                   return (
                     <article
                       key={feature.title}
-                      className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+                      className="rounded-2xl border border-stone-900/[0.08] bg-white p-5 shadow-card transition hover:-translate-y-0.5 hover:border-flame-300 hover:shadow-lift"
                     >
                       <span
                         className={`flex h-9 w-9 items-center justify-center rounded-lg ring-1 ${product.accent}`}
                       >
                         <FeatureIcon className="h-4 w-4" />
                       </span>
-                      <h3 className="mt-4 text-sm font-semibold text-slate-900">{feature.title}</h3>
-                      <p className="mt-2 text-xs leading-5 text-slate-500">{feature.body}</p>
+                      <h3 className="mt-4 text-sm font-semibold text-stone-900">{feature.title}</h3>
+                      <p className="mt-2 text-xs leading-5 text-stone-500">{feature.body}</p>
                     </article>
                   );
                 })}
@@ -202,32 +202,32 @@ export function ProductPage({ product }: { product: ProductDef }) {
           </div>
         </section>
 
-        <section className="bg-slate-950 text-white">
-          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-6 sm:py-24">
+        <section className="on-night relative isolate overflow-hidden bg-night-950 text-violet-100/70">
+          <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
             <div className="grid gap-10 lg:grid-cols-[0.72fr_1.28fr] lg:items-start lg:gap-16">
               <div>
-                <span className="inline-flex items-center gap-2 rounded-full border border-slate-400/25 bg-slate-400/10 px-3 py-1 text-[11px] font-semibold text-slate-300">
-                  <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                <span className="inline-flex items-center gap-2.5 text-sm font-semibold text-flame-300">
+                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-flame-300" />
                   With AI Employees
                 </span>
-                <h2 className="mt-5 text-balance text-3xl font-semibold tracking-[-0.035em] text-white sm:text-4xl">
+                <h2 className="mt-5 text-balance text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-white">
                   {product.employees.heading}
                 </h2>
-                <p className="mt-4 text-sm leading-6 text-slate-400">{product.employees.body}</p>
+                <p className="mt-5 text-base leading-7 text-violet-100/70">{product.employees.body}</p>
               </div>
               <div className="space-y-3">
                 {product.employees.bullets.map((bullet, index) => (
                   <article
                     key={bullet.title}
-                    className="rounded-xl border border-white/10 bg-white/[0.045] p-5"
+                    className="rounded-2xl border border-white/[0.10] bg-white/[0.05] p-6 shadow-panel"
                   >
                     <div className="flex items-start gap-4">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/10 font-mono text-[10px] font-semibold text-slate-300">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.08] text-xs font-semibold text-flame-300">
                         {String(index + 1).padStart(2, "0")}
                       </span>
                       <div>
                         <h3 className="text-sm font-semibold text-white">{bullet.title}</h3>
-                        <p className="mt-1.5 text-sm leading-6 text-slate-400">{bullet.body}</p>
+                        <p className="mt-2 text-sm leading-6 text-violet-100/60">{bullet.body}</p>
                       </div>
                     </div>
                   </article>
@@ -237,11 +237,11 @@ export function ProductPage({ product }: { product: ProductDef }) {
           </div>
         </section>
 
-        <section className="bg-white">
-          <div className="mx-auto max-w-3xl px-5 py-20 sm:px-6 sm:py-24">
+        <section className="bg-paper-50">
+          <div className="mx-auto max-w-3xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
             <div className="text-center">
-              <SectionEyebrow>Questions</SectionEyebrow>
-              <h2 className="mt-5 text-3xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-4xl">
+              <Eyebrow>Questions</Eyebrow>
+              <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-stone-900">
                 Frequently asked.
               </h2>
             </div>
@@ -249,13 +249,13 @@ export function ProductPage({ product }: { product: ProductDef }) {
               {product.faqs.map((faq) => (
                 <details
                   key={faq.q}
-                  className="group rounded-xl border border-slate-200 bg-white open:bg-slate-50"
+                  className="group rounded-2xl border border-stone-900/[0.08] bg-white open:bg-paper-100"
                 >
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-semibold text-stone-900 [&::-webkit-details-marker]:hidden">
                     {faq.q}
-                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-open:rotate-180" />
+                    <ChevronDown className="h-4 w-4 shrink-0 text-stone-400 transition group-open:rotate-180" />
                   </summary>
-                  <p className="px-5 pb-5 text-sm leading-6 text-slate-600">{faq.a}</p>
+                  <p className="px-5 pb-5 text-sm leading-6 text-stone-600">{faq.a}</p>
                 </details>
               ))}
             </div>
@@ -281,13 +281,13 @@ function RelatedProducts({ current }: { current: ProductDef }) {
   ].slice(0, 4);
 
   return (
-    <section className="border-t border-slate-200 bg-slate-50">
-      <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6">
+    <section className="border-t border-stone-900/[0.07] bg-paper-200">
+      <div className="mx-auto max-w-[88rem] px-5 py-16 sm:px-8 sm:py-20">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-slate-900">Explore more products</h2>
+          <h2 className="text-lg font-semibold text-stone-900">Explore more products</h2>
           <Link
             href="/products"
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-950"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-stone-900"
           >
             View all
             <ArrowRight className="h-4 w-4" />
@@ -300,7 +300,7 @@ function RelatedProducts({ current }: { current: ProductDef }) {
               <Link
                 key={product.slug}
                 href={`/products/${product.slug}`}
-                className="group rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+                className="group rounded-2xl border border-stone-900/[0.08] bg-white p-4 shadow-card transition hover:-translate-y-0.5 hover:border-flame-300 hover:shadow-lift"
               >
                 <div className="flex items-center gap-3">
                   <span
@@ -308,10 +308,10 @@ function RelatedProducts({ current }: { current: ProductDef }) {
                   >
                     <Icon className="h-4 w-4" />
                   </span>
-                  <span className="text-sm font-semibold text-slate-900">{product.name}</span>
-                  <ArrowRight className="ml-auto h-3.5 w-3.5 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-slate-950" />
+                  <span className="text-sm font-semibold text-stone-900">{product.name}</span>
+                  <ArrowRight className="ml-auto h-3.5 w-3.5 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-flame-600" />
                 </div>
-                <p className="mt-3 line-clamp-2 text-xs leading-5 text-slate-500">
+                <p className="mt-3 line-clamp-2 text-xs leading-5 text-stone-500">
                   {product.summary}
                 </p>
               </Link>

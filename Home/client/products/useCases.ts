@@ -40,7 +40,7 @@ export const PRODUCT_USE_CASES: ProductUseCase[] = [
     outcome: "A review-ready fix, with the evidence attached",
     productSlugs: ["repositories", "tasks", "workspace", "resources", "pipelines", "bases"],
     primaryProductSlug: "repositories",
-    accent: "bg-zinc-200 text-zinc-800 ring-zinc-300",
+    accent: "bg-violet-100 text-violet-700 ring-violet-200",
   },
   {
     role: "Customer Support Specialist",
@@ -111,7 +111,7 @@ export const PRODUCT_USE_CASES: ProductUseCase[] = [
       "finance",
     ],
     primaryProductSlug: "ai-employees",
-    accent: "bg-slate-200 text-slate-800 ring-slate-300",
+    accent: "bg-indigo-100 text-indigo-700 ring-indigo-200",
   },
   {
     role: "Founder & General Manager",
@@ -135,7 +135,7 @@ export const PRODUCT_USE_CASES: ProductUseCase[] = [
       "marketing",
     ],
     primaryProductSlug: "explore",
-    accent: "bg-slate-200 text-slate-800 ring-slate-300",
+    accent: "bg-indigo-100 text-indigo-700 ring-indigo-200",
   },
   {
     role: "Security Engineer",

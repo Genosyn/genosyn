@@ -274,20 +274,20 @@ export function ProductPrototype({
   return (
     <section
       aria-label={`Animated ${activeProduct.name} product preview`}
-      className={`prototype-shell pointer-events-none select-none overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-[0_30px_75px_-38px_rgba(15,23,42,0.48)] sm:p-3 ${className}`}
+      className={`prototype-shell pointer-events-none select-none overflow-hidden rounded-2xl border border-stone-900/[0.08] bg-white p-2 shadow-[0_30px_75px_-38px_rgba(15,23,42,0.48)] sm:p-3 ${className}`}
     >
       <span className="sr-only">
         Genosyn running a {activeUseCase.role} use case in {activeProduct.name}.
       </span>
 
       <div aria-hidden className="flex min-w-0 items-center gap-2 px-1 pb-2 pt-0.5 sm:px-2 sm:pb-3">
-        <LogoMark className="h-7 w-7 shrink-0 text-slate-900" />
-        <span className="h-4 w-px bg-slate-200" />
+        <LogoMark className="h-7 w-7 shrink-0 text-stone-900" />
+        <span className="h-4 w-px bg-stone-900/10" />
         <div className="min-w-0">
-          <div className="truncate text-[10px] font-semibold text-slate-800">
+          <div className="truncate text-[10px] font-semibold text-stone-800">
             Northstar Labs
           </div>
-          <div className="truncate text-[9px] text-slate-400">Company workspace</div>
+          <div className="truncate text-[9px] text-stone-400">Company workspace</div>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1.5">
           <span className="prototype-live-dot h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -299,29 +299,29 @@ export function ProductPrototype({
 
       <div
         aria-hidden
-        className="grid overflow-hidden rounded-xl border border-slate-200 bg-slate-50 lg:grid-cols-[11.5rem_minmax(0,1fr)]"
+        className="grid overflow-hidden rounded-xl border border-stone-900/[0.08] bg-paper-100 lg:grid-cols-[11.5rem_minmax(0,1fr)]"
       >
         <PrototypeSidebar useCase={activeUseCase} activeProduct={activeProduct} />
 
         <div className="min-w-0 overflow-hidden bg-[#f8fafc]">
-          <div className="flex h-12 items-center gap-3 border-b border-slate-200 bg-white px-3.5 sm:px-4">
+          <div className="flex h-12 items-center gap-3 border-b border-stone-900/[0.08] bg-white px-3.5 sm:px-4">
             <span
               className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ring-1 ${activeProduct.accent}`}
             >
               <ActiveIcon className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0">
-              <div className="truncate text-[11px] font-semibold text-slate-950">
+              <div className="truncate text-[11px] font-semibold text-stone-900">
                 {activeProduct.name}
               </div>
-              <div className="truncate text-[9px] text-slate-500">{activeUseCase.role}</div>
+              <div className="truncate text-[9px] text-stone-500">{activeUseCase.role}</div>
             </div>
-            <div className="ml-auto hidden items-center gap-1.5 text-[9px] font-medium text-slate-400 sm:flex">
+            <div className="ml-auto hidden items-center gap-1.5 text-[9px] font-medium text-stone-400 sm:flex">
               <LockKeyhole className="h-3 w-3" />
               Approval gates on
             </div>
-            <span className="hidden h-4 w-px bg-slate-200 sm:block" />
-            <div className="flex items-center gap-1.5 text-[9px] font-semibold tabular text-slate-500">
+            <span className="hidden h-4 w-px bg-stone-900/10 sm:block" />
+            <div className="flex items-center gap-1.5 text-[9px] font-semibold tabular text-stone-500">
               <Clock3 className="h-3 w-3" />
               08:42
             </div>
@@ -336,16 +336,16 @@ export function ProductPrototype({
             {story && (
               <div
                 key={`${activeProduct.slug}-${storyIndex}`}
-                className="prototype-activity absolute bottom-3 left-3 right-3 flex items-center gap-3 rounded-xl border border-slate-200 bg-white/95 px-3 py-2.5 shadow-[0_16px_38px_-18px_rgba(24,24,27,0.45)] sm:left-auto sm:max-w-[22rem]"
+                className="prototype-activity absolute bottom-3 left-3 right-3 flex items-center gap-3 rounded-xl border border-stone-900/[0.08] bg-white/95 px-3 py-2.5 shadow-[0_16px_38px_-18px_rgba(24,24,27,0.45)] sm:left-auto sm:max-w-[22rem]"
               >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-white">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-night-950 text-white">
                   <Sparkles className="h-3.5 w-3.5" />
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-[10px] font-semibold text-slate-950">
+                  <span className="block text-[10px] font-semibold text-stone-900">
                     {story.label}
                   </span>
-                  <span className="mt-0.5 block truncate text-[9px] text-slate-500 sm:text-[10px]">
+                  <span className="mt-0.5 block truncate text-[9px] text-stone-500 sm:text-[10px]">
                     {story.detail}
                   </span>
                 </span>
@@ -354,12 +354,12 @@ export function ProductPrototype({
             )}
           </div>
 
-          <div className="grid grid-cols-3 border-t border-slate-200 bg-white">
+          <div className="grid grid-cols-3 border-t border-stone-900/[0.08] bg-white">
             {stories.map((candidate, index) => (
               <div
                 key={candidate.label}
                 className={`relative min-w-0 px-2.5 py-2.5 sm:px-3 ${
-                  index === storyIndex ? "bg-slate-50 text-slate-950" : "text-slate-400"
+                  index === storyIndex ? "bg-paper-100 text-stone-900" : "text-stone-400"
                 }`}
               >
                 <span className="flex items-center gap-1.5">
@@ -368,8 +368,8 @@ export function ProductPrototype({
                       index < storyIndex
                         ? "bg-emerald-100 text-emerald-700"
                         : index === storyIndex
-                          ? "bg-slate-950 text-white"
-                          : "bg-slate-100 text-slate-400"
+                          ? "bg-night-950 text-white"
+                          : "bg-paper-200 text-stone-400"
                     }`}
                   >
                     {index < storyIndex ? <Check className="h-2.5 w-2.5" /> : index + 1}
@@ -379,7 +379,7 @@ export function ProductPrototype({
                   </span>
                 </span>
                 {index === storyIndex && motionEnabled && (
-                  <span className="prototype-progress absolute inset-x-0 bottom-0 h-0.5 origin-left bg-slate-900" />
+                  <span className="prototype-progress absolute inset-x-0 bottom-0 h-0.5 origin-left bg-stone-900" />
                 )}
               </div>
             ))}
@@ -398,23 +398,23 @@ function PrototypeSidebar({
   activeProduct: ProductDef;
 }) {
   return (
-    <aside className="hidden min-w-0 border-r border-slate-200 bg-slate-50 p-3 lg:flex lg:flex-col">
-      <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">
+    <aside className="hidden min-w-0 border-r border-stone-900/[0.08] bg-paper-100 p-3 lg:flex lg:flex-col">
+      <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-stone-400">
         Employee on duty
       </div>
-      <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm">
+      <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-stone-900/[0.08] bg-white p-2.5 shadow-card">
         <span
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[9px] font-bold ring-1 ${useCase.accent}`}
         >
           {useCase.initials}
         </span>
         <div className="min-w-0">
-          <div className="truncate text-[10px] font-semibold text-slate-900">{useCase.role}</div>
-          <div className="mt-0.5 truncate text-[9px] text-slate-400">{useCase.team}</div>
+          <div className="truncate text-[10px] font-semibold text-stone-900">{useCase.role}</div>
+          <div className="mt-0.5 truncate text-[9px] text-stone-400">{useCase.team}</div>
         </div>
       </div>
 
-      <div className="mt-5 text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400">
+      <div className="mt-5 text-[9px] font-bold uppercase tracking-[0.18em] text-stone-400">
         Working set
       </div>
       <div className="mt-2 space-y-1">
@@ -427,23 +427,23 @@ function PrototypeSidebar({
             <div
               key={slug}
               className={`flex items-center gap-2 rounded-lg px-2 py-2 text-[10px] font-medium ${
-                active ? "bg-slate-100 text-slate-800" : "text-slate-500"
+                active ? "bg-paper-200 text-stone-800" : "text-stone-500"
               }`}
             >
               <Icon className="h-3 w-3 shrink-0" />
               <span className="truncate">{candidate.name}</span>
-              {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-slate-900" />}
+              {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-stone-900" />}
             </div>
           );
         })}
       </div>
 
-      <div className="mt-auto rounded-xl border border-slate-200 bg-slate-100/70 p-2.5">
-        <div className="flex items-center gap-2 text-[9px] font-semibold text-slate-800">
-          <span className="h-1.5 w-1.5 rounded-full bg-slate-900" />
+      <div className="mt-auto rounded-xl border border-stone-900/[0.08] bg-paper-200/70 p-2.5">
+        <div className="flex items-center gap-2 text-[9px] font-semibold text-stone-800">
+          <span className="h-1.5 w-1.5 rounded-full bg-stone-900" />
           Run policy
         </div>
-        <div className="mt-1.5 text-[9px] leading-4 text-slate-500">
+        <div className="mt-1.5 text-[9px] leading-4 text-stone-500">
           Act inside Grants. Ask before sensitive changes.
         </div>
       </div>
