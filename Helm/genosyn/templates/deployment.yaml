@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "genosyn.fullname" . }}
+  labels:
+    {{- include "genosyn.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # Recreate by default: an RWO data volume can only attach to one pod, so the
+  # old pod must terminate before the new one schedules. RollingUpdate is only
+  # valid on multi-replica RWX installs.
+  strategy:
+    type: {{ .Values.strategy }}
+  selector:
+    matchLabels:
+      {{- include "genosyn.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "genosyn.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Roll the pod when the rendered config.js changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # The image runs as the unprivileged `node` user (uid 1000); fsGroup
+      # makes the data volume writable regardless of how the CSI driver
+      # mounts it.
+      securityContext:
+        fsGroup: 1000
+      # The server drains in-flight work in about 6 seconds on SIGTERM; 15
+      # leaves headroom without stalling Recreate rollouts.
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: app
+          image: {{ include "genosyn.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8471
+          {{- if .Values.sandbox.enabled }}
+          # The bubblewrap coding sandbox creates a user namespace and mounts
+          # its own /proc — the default seccomp profile rejects the namespace
+          # flags, and the runtime's masked /proc entries block the nested
+          # mount. These two fields are the cluster equivalents of the Docker
+          # options the genosyn CLI passes. procMount: Unmasked additionally
+          # needs the ProcMountType feature gate; Pod Security admission
+          # permits neither field below the `privileged` level.
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+            procMount: Unmasked
+          {{- end }}
+          env:
+            {{- if .Values.secrets.existingSecret }}
+            - name: GENOSYN_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: sessionSecret
+                  optional: true
+            - name: GENOSYN_ENCRYPTION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: encryptionSecret
+                  optional: true
+            {{- end }}
+            {{- if .Values.config.db.postgresUrlSecret.name }}
+            - name: GENOSYN_POSTGRES_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.config.db.postgresUrlSecret.name }}
+                  key: {{ .Values.config.db.postgresUrlSecret.key | default "url" }}
+            {{- else if .Values.postgres.enabled }}
+            - name: GENOSYN_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "genosyn.postgres.secretName" . }}
+                  key: {{ include "genosyn.postgres.secretKey" . }}
+            - name: GENOSYN_POSTGRES_URL
+              value: "postgresql://{{ .Values.postgres.username }}:$(GENOSYN_POSTGRES_PASSWORD)@{{ include "genosyn.postgres.fullname" . }}:5432/{{ .Values.postgres.database }}"
+            {{- end }}
+            {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: /app/data
+            {{- end }}
+            # Overlay the baked config with the rendered one. subPath so only
+            # this single file is replaced inside /app/dist.
+            - name: config
+              mountPath: /app/dist/config.js
+              subPath: config.js
+              readOnly: true
+          # /api/health answers only after boot completes — including
+          # migrations — which is exactly what readiness should wait on.
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8471
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          # Liveness is deliberately lax: migrations on upgrade can hold the
+          # port closed for a while, and a restart loop mid-migration is the
+          # worst possible outcome.
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8471
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        {{- if .Values.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-data" (include "genosyn.fullname" .)) }}
+        {{- end }}
+        - name: config
+          configMap:
+            name: {{ include "genosyn.fullname" . }}-config
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

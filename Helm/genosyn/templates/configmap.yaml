@@ -1,0 +1,109 @@
+{{/*
+Genosyn's config is compiled into the image at /app/dist/config.js. The
+blessed Kubernetes override is mounting this file over that path (subPath) —
+the deployment does exactly that. The shape below mirrors App/config.ts
+faithfully; it must stay valid plain ESM JavaScript (no TypeScript).
+Secrets are read through process.env.* names the deployment injects.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "genosyn.fullname" . }}-config
+  labels:
+    {{- include "genosyn.labels" . | nindent 4 }}
+data:
+  config.js: |
+    // Rendered by the genosyn Helm chart — edit values.yaml, not this file.
+    // Values-managed defaults for the security block, defined separately so
+    // config.extraJs can override a single field without restating the rest:
+    //   security: { ...security, bootstrapMasterAdminEmail: "ops@example.com" },
+    const security = {
+      multiTenant: {{ .Values.config.multiTenant }},
+      encryptionSecret: process.env.GENOSYN_ENCRYPTION_SECRET ?? "change-me-in-production-too",
+      previousEncryptionSecrets: [],
+      secureCookies: "auto",
+      sessionMaxAgeDays: 7,
+      trustedProxyHops: 1,
+      outboundPrivateHostAllowlist: [],
+      outboundRequestTimeoutMs: 15_000,
+      outboundMaxResponseBytes: 25 * 1024 * 1024,
+      authRateLimit: {
+        windowMinutes: 15,
+        maxAttempts: 10,
+        blockMinutes: 15,
+      },
+      bootstrapMasterAdminEmail: "",
+    };
+
+    export const config = {
+      dataDir: "/app/data",
+      db: {
+        driver: "{{ include "genosyn.dbDriver" . }}",
+        sqlitePath: "/app/data/app.sqlite",
+        postgresUrl: process.env.GENOSYN_POSTGRES_URL ?? "",
+      },
+      port: 8471,
+      sessionSecret: process.env.GENOSYN_SESSION_SECRET ?? "change-me-in-production",
+      security,
+      agent: {
+        codingTools: {
+          enabled: true,
+          executionMode: "bubblewrap",
+          bubblewrapPath: "/usr/bin/bwrap",
+          allowNetwork: false,
+          allowUnsafeHostExecution: false,
+        },
+        taintPolicy: "web",
+        browserEnabledInMultiTenant: false,
+        memberBrowsersEnabled: {{ not .Values.config.multiTenant }},
+        toolDiscovery: {
+          enabled: true,
+          minCatalogueSize: 40,
+        },
+      },
+      browser: {
+        executablePath: "",
+        headless: "auto",
+        locale: "",
+        timezone: "",
+        humanize: true,
+      },
+      smtp: {
+        host: "",
+        port: 587,
+        secure: false,
+        user: "",
+        pass: "",
+        fromName: "Genosyn",
+        from: "no-reply@genosyn.local",
+      },
+      integrations: {
+        google: {
+          clientId: "",
+          clientSecret: "",
+        },
+      },
+      mail: {
+        syncIntervalSec: 60,
+        backfillThreadsPerPass: 200,
+        backfillPassSeconds: 25,
+        backfillDays: 0,
+      },
+      web: {
+        enabled: true,
+        searchProvider: "duckduckgo",
+        maxSearchResults: 8,
+        maxDocumentBytes: 10 * 1024 * 1024,
+        maxTextChars: 20_000,
+      },
+      meetings: {
+        enabled: true,
+        syncIntervalSeconds: 300,
+        transcriptionModel: "whisper-1",
+        maxRecordingBytes: 25 * 1024 * 1024,
+      },
+      {{- if .Values.config.extraJs }}
+      // ── values.yaml config.extraJs ──
+      {{- .Values.config.extraJs | trim | nindent 6 }}
+      {{- end }}
+    };

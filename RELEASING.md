@@ -25,6 +25,9 @@ The release workflow then:
 3. Dispatches [`docker.yml`](.github/workflows/docker.yml) against the new
    tag so semver-tagged images land on GHCR
    (`ghcr.io/genosyn/app:<version>` etc. — see [Images and tags](#images-and-tags)).
+4. Dispatches [`chart.yml`](.github/workflows/chart.yml) against the same tag
+   so the Helm chart is packaged and pushed to
+   `oci://ghcr.io/genosyn/charts/genosyn` at the same version.
 
 The same push to `release` independently fires
 [`site.yml`](.github/workflows/site.yml), which builds `Home/` and publishes
@@ -283,6 +286,11 @@ gh workflow run site.yml --ref release
   builds and publishes GHCR images for `main` (dev tag) and `v*.*.*` tags
   (semver tags). Its `metadata-action` config decides the tag list — see
   [Images and tags](#images-and-tags).
+- [`.github/workflows/chart.yml`](.github/workflows/chart.yml) —
+  lints the Helm chart on PRs/pushes touching `Helm/**`, and on a release tag
+  packages `Helm/genosyn` at the `VERSION` value and pushes it to
+  `oci://ghcr.io/genosyn/charts/genosyn`. Dispatched by `release.yml` for the
+  same recursion-guard reason as `docker.yml`.
 - [`.github/workflows/site.yml`](.github/workflows/site.yml) —
   builds `Home/` and deploys genosyn.com on every push to `release`. Needs the
   `CLOUDFLARE_API_TOKEN` secret — see

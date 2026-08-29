@@ -88,3 +88,16 @@ jobs:
           gh workflow run docker.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref "$TAG"
+
+      # Same recursion-guard workaround for the Helm chart: chart.yml's
+      # `tags: v*.*.*` trigger never sees a tag created by GITHUB_TOKEN, so
+      # dispatch it explicitly to package + push the chart for this release.
+      - name: Trigger Helm chart publish for new tag
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh workflow run chart.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$TAG"

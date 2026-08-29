@@ -1,0 +1,91 @@
+name: Publish Helm chart
+
+on:
+  push:
+    tags: ["v*.*.*"]
+    branches: [main]
+    paths:
+      - "Helm/**"
+      - ".github/workflows/chart.yml"
+  pull_request:
+    paths:
+      - "Helm/**"
+      - ".github/workflows/chart.yml"
+  # release.yml creates the v*.*.* tag with GITHUB_TOKEN, which doesn't fire
+  # the push trigger above — the release flow dispatches this workflow, same
+  # as docker.yml.
+  workflow_dispatch:
+
+concurrency:
+  group: chart-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  lint:
+    name: Lint chart
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Helm lint
+        run: helm lint Helm/genosyn
+
+      # Render the shapes users actually deploy, so a template regression
+      # fails the PR and not the operator's upgrade.
+      - name: Helm template smoke tests
+        run: |
+          helm template genosyn Helm/genosyn > /dev/null
+          helm template genosyn Helm/genosyn --set postgres.enabled=true > /dev/null
+          helm template genosyn Helm/genosyn \
+            --set config.db.driver=postgres \
+            --set sandbox.enabled=true \
+            --set config.multiTenant=true \
+            --set ingress.enabled=true \
+            --set ingress.host=x.example.com > /dev/null
+
+  publish:
+    name: Package & push to GHCR
+    runs-on: ubuntu-latest
+    needs: lint
+    # Publish only from release tags (or a manual dispatch of one).
+    if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # The chart version tracks the repo VERSION file — same value the image
+      # tags carry, no `v` prefix. Chart.yaml's committed version is
+      # overridden here so a release never depends on remembering to bump two
+      # files.
+      - name: Read VERSION
+        id: ver
+        run: echo "value=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Set OCI repository (lowercase owner)
+        id: repo
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=${{ env.REGISTRY }}/${OWNER}/charts" >> "$GITHUB_OUTPUT"
+
+      - name: Package chart
+        run: |
+          helm package Helm/genosyn \
+            --version "${{ steps.ver.outputs.value }}" \
+            --app-version "${{ steps.ver.outputs.value }}"
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "${{ env.REGISTRY }}" \
+            --username "${{ github.actor }}" --password-stdin
+
+      - name: Push chart
+        run: helm push "genosyn-${{ steps.ver.outputs.value }}.tgz" "oci://${{ steps.repo.outputs.name }}"

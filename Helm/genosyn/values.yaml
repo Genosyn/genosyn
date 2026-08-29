@@ -1,0 +1,146 @@
+# Default values for the genosyn chart.
+#
+# The short version: `helm install genosyn oci://ghcr.io/genosyn/charts/genosyn`
+# gives you a single-replica SQLite install with a 20Gi data volume — the same
+# shape as the one-line Docker installer. Everything below is for going past
+# that.
+
+image:
+  repository: ghcr.io/genosyn/app
+  # Empty means "this chart's appVersion". Image tags carry no `v` prefix:
+  # the GitHub release is v1.155.0, the image is app:1.155.0.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Names of pre-created image pull secrets, e.g. [{ name: my-registry-cred }].
+# GHCR images are public, so this is normally empty.
+imagePullSecrets: []
+
+# Keep this at 1 unless you are running shared SaaS mode. More than one
+# replica requires ALL of:
+#   - config.multiTenant: true (Postgres leases + cross-replica fan-out)
+#   - config.db.driver: postgres (SQLite cannot be shared between pods)
+#   - persistence with a ReadWriteMany StorageClass, mounted on every replica
+# A second replica against an RWO volume will simply never schedule.
+replicaCount: 1
+
+# Recreate is correct for the default single-replica RWO install: the old pod
+# must release the volume before the new one can attach it. Switch to
+# RollingUpdate only for multi-replica RWX installs.
+strategy: Recreate
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  # e.g. nginx. Leave empty to use the cluster default.
+  className: ""
+  # e.g. genosyn.example.com
+  host: ""
+  tls:
+    enabled: false
+    # Name of a TLS secret in the release namespace (cert-manager or hand-fed).
+    secretName: ""
+  # WebSockets share port 8471 with everything else. nginx and Traefik pass
+  # Upgrade requests through a plain Ingress without extra annotations; add
+  # controller-specific tuning (timeouts, buffering) here if yours needs it.
+  annotations: {}
+
+# The /app/data volume. This must persist even when the database is Postgres:
+# it holds materialized git checkouts, browser state, tool artifacts, uploads —
+# and, unless you configure explicit >= 32-character secrets (see `secrets`),
+# the generated instance secrets that make encrypted rows readable. Losing it
+# on a default install loses the encryption key.
+persistence:
+  enabled: true
+  size: 20Gi
+  # Empty uses the cluster default StorageClass.
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+  # Use a claim you manage yourself instead of the chart creating one.
+  existingClaim: ""
+
+# Bubblewrap coding sandbox. Genosyn runs every command an AI Employee asks
+# for inside bubblewrap, which needs to create a user namespace and mount its
+# own /proc — a stock pod may do neither. Enabling this sets on the container:
+#     securityContext:
+#       seccompProfile: { type: Unconfined }
+#       procMount: Unmasked
+# procMount: Unmasked additionally needs the cluster's ProcMountType feature
+# gate and, depending on Kubernetes version, user namespaces (hostUsers: false)
+# or a privileged container. Pod Security admission rejects both fields below
+# the `privileged` level.
+#
+# Left disabled, Genosyn boots with command execution disabled and logs why —
+# chat, Routines, Integrations and browser work all still function; builds and
+# per-employee checkouts do not. EXCEPT in multiTenant mode: shared SaaS
+# refuses to boot without a working sandbox, so sandbox.enabled is mandatory
+# there (and the cluster must actually honor the fields).
+sandbox:
+  enabled: false
+
+config:
+  db:
+    # sqlite | postgres. Setting postgres.enabled below implies postgres.
+    driver: sqlite
+    # For an EXTERNAL Postgres: a secret holding the full connection URL
+    # (postgresql://user:pass@host:5432/db). Takes precedence over the
+    # bundled postgres below.
+    postgresUrlSecret:
+      name: ""
+      key: ""
+  # Shared SaaS mode. Boot refuses unless the whole checklist passes — see the
+  # multi-tenant section of the chart README.
+  multiTenant: false
+  # Extra JavaScript spliced verbatim into the generated config.js, just
+  # before the closing brace of the config object — so each line should be a
+  # `key: value,` entry. A duplicate top-level key replaces the default block
+  # wholesale; the generated file defines `const security = {...}` above the
+  # object so you can override one field without losing the rest:
+  #   extraJs: |
+  #     security: { ...security, bootstrapMasterAdminEmail: "ops@example.com" },
+  #     smtp: { host: "smtp.example.com", port: 587, secure: false, user: "apikey", pass: process.env.GENOSYN_SMTP_PASS ?? "", fromName: "Genosyn", from: "no-reply@example.com" },
+  extraJs: ""
+
+secrets:
+  # A pre-created secret with keys `sessionSecret` and `encryptionSecret`
+  # (each a unique random string of at least 32 characters; they must differ).
+  # Optional but strongly recommended: with explicit secrets configured,
+  # Genosyn stops depending on the generated instance-secrets file under
+  # /app/data. REQUIRED for multiTenant — shared SaaS refuses managed secrets.
+  existingSecret: ""
+
+# Extra environment variables for the app container, verbatim pod-spec syntax
+# (name/value or valueFrom). Anything config.extraJs reads via process.env.*
+# gets injected here.
+env: []
+
+# Bundled single-node Postgres, for evaluation. Production installs should
+# point config.db.postgresUrlSecret at a Postgres they operate (an operator,
+# CloudNativePG, a managed instance) — this StatefulSet has no HA, no backups,
+# no tuning.
+postgres:
+  enabled: false
+  image: postgres:16
+  database: genosyn
+  username: genosyn
+  # A secret holding the password under `key`. Left empty, the chart generates
+  # a random password once and preserves it across upgrades. An explicit
+  # password must be URL-safe — it is spliced into the connection URL.
+  passwordSecret:
+    name: ""
+    key: ""
+  persistence:
+    size: 10Gi
+    storageClass: ""
+
+resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podAnnotations: {}
+podLabels: {}

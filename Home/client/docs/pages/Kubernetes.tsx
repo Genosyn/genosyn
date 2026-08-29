@@ -21,20 +21,105 @@ export function Kubernetes() {
         title="Kubernetes"
         lead={
           <>
-            The same image that powers <Code>genosyn install</Code> runs fine on Kubernetes. You
-            trade the one-line installer for raw manifests — and you give up the{" "}
+            Genosyn ships an official Helm chart at{" "}
+            <Code>oci://ghcr.io/genosyn/charts/genosyn</Code>, versioned in lockstep with every
+            release. You trade the one-line installer for <Code>helm</Code> — and you give up the{" "}
             <Code>genosyn upgrade</Code> and <Code>genosyn backup</Code> commands, which only know
             how to drive Docker on a single host.
           </>
         }
       />
 
-      <Callout kind="warn" title="Not the recommended path.">
+      <Callout kind="warn" title="Only if you already run a cluster.">
         For most self-hosters, single-host Docker is the right answer — it&apos;s what the
         installer, the CLI, and the docs are built around. Reach for Kubernetes when you already
         operate one and want Genosyn to live next to your other workloads. Don&apos;t stand up a
         cluster for this app.
       </Callout>
+
+      <H2 id="helm">Install with Helm</H2>
+      <P>
+        The chart is an OCI artifact — no repo to add:
+      </P>
+      <Pre lang="bash">{`helm install genosyn oci://ghcr.io/genosyn/charts/genosyn \\
+  --namespace genosyn --create-namespace`}</Pre>
+      <P>
+        That gives you the same shape as the one-line Docker installer: one replica, SQLite, and a
+        20Gi volume at <Code>/app/data</Code>. The pod becomes Ready once every migration has run —{" "}
+        <Code>/api/health</Code> answers <Code>{"{ ok: true, version }"}</Code> only after boot
+        completes, so a pending readiness probe during the first minute is normal. The handful of
+        values that matter:
+      </P>
+      <KeyList
+        rows={[
+          {
+            term: "ingress.enabled + ingress.host",
+            def: (
+              <>
+                Front the app with your Ingress controller. WebSockets share port{" "}
+                <Code>8471</Code> and pass through a plain Ingress rule on nginx and Traefik — no
+                snippet annotations needed.
+              </>
+            ),
+          },
+          {
+            term: "persistence.size",
+            def: (
+              <>
+                The <Code>/app/data</Code> volume — 20Gi by default. Keep it even on Postgres
+                installs: unless explicit secrets are configured, the managed instance encryption
+                secrets live there.
+              </>
+            ),
+          },
+          {
+            term: "config.db.driver",
+            def: (
+              <>
+                <Code>sqlite</Code> or <Code>postgres</Code>. For an external Postgres, point{" "}
+                <Code>config.db.postgresUrlSecret</Code> at a Secret holding the full connection
+                URL.
+              </>
+            ),
+          },
+          {
+            term: "postgres.enabled",
+            def: "Bundled single-node Postgres for evaluation (implies driver: postgres). No HA, no backups — production installs run their own.",
+          },
+          {
+            term: "sandbox.enabled",
+            def: (
+              <>
+                Grants the securityContext the bubblewrap coding sandbox needs (seccomp{" "}
+                <Code>Unconfined</Code> + <Code>procMount: Unmasked</Code>). Off by default; see
+                the securityContext callout below for what your cluster must permit.
+              </>
+            ),
+          },
+          {
+            term: "secrets.existingSecret",
+            def: (
+              <>
+                A Secret with <Code>sessionSecret</Code> and <Code>encryptionSecret</Code> keys
+                (each 32+ characters, distinct). Strongly recommended; required for{" "}
+                <DocLink to="/docs/saas-hosting">shared SaaS mode</DocLink>.
+              </>
+            ),
+          },
+        ]}
+      />
+      <P>
+        Upgrades are plain Helm — the chart version tracks the app version, so upgrading the chart
+        upgrades Genosyn:
+      </P>
+      <Pre lang="bash">{`helm upgrade genosyn oci://ghcr.io/genosyn/charts/genosyn \\
+  -n genosyn --reuse-values`}</Pre>
+      <P>
+        The full values reference, the multi-tenant checklist, and the sandbox details live in the
+        chart&apos;s README in the <Code>Helm/genosyn</Code> directory of the repository. The rest
+        of this page explains what the chart deploys — read on if you want the raw manifests
+        instead.
+      </P>
 
       <H2 id="architecture">Architecture</H2>
       <P>
@@ -68,6 +153,13 @@ export function Kubernetes() {
           with whatever Ingress controller you already run.
         </LI>
       </UL>
+
+      <H2 id="by-hand">Doing it by hand</H2>
+      <P>
+        Everything below is what the chart renders for you, as raw manifests. Skip it if Helm
+        already did the job; use it when you want to own every object yourself or fold Genosyn
+        into an existing GitOps tree.
+      </P>
 
       <H2 id="prerequisites">Prerequisites</H2>
       <KeyList
@@ -211,9 +303,14 @@ spec:
           readinessProbe:
             httpGet: { path: /api/health, port: 8471 }
             initialDelaySeconds: 10
+            periodSeconds: 10
+          # Lax on purpose: migrations run on boot and can hold /api/health
+          # closed for a while on upgrade. Don't tighten this.
           livenessProbe:
             httpGet: { path: /api/health, port: 8471 }
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 6
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -254,6 +351,12 @@ spec:
         <Strong>Recreate</Strong> over <Strong>RollingUpdate</Strong> because an RWO volume can only
         attach to one pod at a time. The old pod must terminate before the new one schedules.
       </P>
+      <P>
+        Both probes hit <Code>GET /api/health</Code>, which returns{" "}
+        <Code>{"{ ok: true, version }"}</Code> without auth — and only once boot has finished,
+        migrations included. That makes it exactly right for readiness: traffic arrives only after
+        the schema is current.
+      </P>
       <Callout kind="info" title="The securityContext is what command execution runs on.">
         Genosyn runs every command an AI Employee asks for inside <Code>bubblewrap</Code>, which
         creates a user namespace and mounts its own <Code>/proc</Code>. A stock pod may do neither:
@@ -274,14 +377,15 @@ spec:
       <H2 id="upgrading">Upgrading</H2>
       <P>
         The <Code>genosyn upgrade</Code> CLI command drives Docker on a single host — it has no idea
-        about your cluster. Roll the Deployment instead:
+        about your cluster. Chart installs use <Code>helm upgrade</Code> (shown above); with raw
+        manifests, roll the Deployment instead:
       </P>
-      <Pre lang="bash">{`kubectl -n genosyn set image deploy/genosyn app=ghcr.io/genosyn/app:0.3.47
+      <Pre lang="bash">{`kubectl -n genosyn set image deploy/genosyn app=ghcr.io/genosyn/app:1.155.0
 kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
       <P>
         Pin a tag rather than tracking <Code>latest</Code> — that&apos;s how you get repeatable
         rollbacks. Image tags carry no <Code>v</Code> prefix, even though the matching GitHub
-        release does: the release is <Code>v0.3.47</Code>, the image is <Code>app:0.3.47</Code>.
+        release does: the release is <Code>v1.155.0</Code>, the image is <Code>app:1.155.0</Code>.
       </P>
 
       <H2 id="backups">Backups</H2>
@@ -306,19 +410,6 @@ kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
       <P>
         Restore is symmetric: load Postgres first, then rehydrate the PVC, then start the
         Deployment.
-      </P>
-
-      <H2 id="helm">A Helm chart?</H2>
-      <P>
-        Not officially shipped. The manifests above are short enough that templating them adds more
-        friction than it removes for most teams — and a chart we&apos;d have to lint, publish, and
-        version across Genosyn releases is a real maintenance surface.
-      </P>
-      <P>
-        If you build one internally, the values worth parameterising are <Code>image.tag</Code>,{" "}
-        <Code>ingress.host</Code>, <Code>persistence.size</Code>, and the contents of the config{" "}
-        <Code>ConfigMap</Code>. Open an issue if you&apos;d like to upstream it — community charts
-        are welcome.
       </P>
 
       <H3 id="next">Next steps</H3>

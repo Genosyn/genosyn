@@ -1,0 +1,63 @@
+Genosyn {{ .Chart.AppVersion }} is rolling out.
+
+1. Reach the app
+{{- if .Values.ingress.enabled }}
+
+   http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}
+{{- else }}
+
+   No Ingress is enabled. Port-forward to try it out:
+
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "genosyn.fullname" . }} 8471:{{ .Values.service.port }}
+
+   then open http://localhost:8471. For real use, set ingress.enabled=true
+   and ingress.host (WebSockets pass through a plain Ingress rule).
+{{- end }}
+
+2. First boot
+
+   The pod becomes Ready once every database migration has run — /api/health
+   answers only after boot completes, so a pending readiness probe during the
+   first minute is normal. Create the first account in the browser; the first
+   verified sign-in becomes the master admin. Then review the public URL at
+   Admin -> General.
+{{- if .Values.config.multiTenant }}
+
+   multiTenant is ON: bootstrap requires config.security.bootstrapMasterAdminEmail
+   (set it via config.extraJs) and a working system SMTP — boot refuses
+   otherwise. See the multi-tenant checklist in the chart README.
+{{- end }}
+
+3. Command execution (the coding sandbox)
+{{- if .Values.sandbox.enabled }}
+
+   sandbox.enabled=true — the pod requests seccompProfile Unconfined and
+   procMount Unmasked. If your cluster's Pod Security admission or a missing
+   ProcMountType feature gate rejects the pod, either permit it in this
+   namespace or set sandbox.enabled=false (Genosyn then runs with command
+   execution disabled{{ if .Values.config.multiTenant }} — but multiTenant mode refuses to boot without a
+   working sandbox{{ end }}).
+{{- else }}
+
+   sandbox.enabled=false — Genosyn boots with command execution disabled and
+   logs the reason. Chat, Routines, Integrations, and browser work all still
+   function; builds, test suites, and per-employee checkouts do not. Set
+   sandbox.enabled=true when your cluster can honor the required
+   securityContext (see values.yaml).
+{{- end }}
+
+4. Data
+
+   /app/data {{ if .Values.persistence.enabled }}is persisted on PVC {{ .Values.persistence.existingClaim | default (printf "%s-data" (include "genosyn.fullname" .)) }}{{ else }}is NOT persisted — persistence.enabled=false is only
+   safe for throwaway evaluation{{ end }}. Keep the volume even on Postgres
+   installs: unless explicit strong secrets are configured via
+   secrets.existingSecret, the managed instance secrets live there and losing
+   them makes encrypted rows unreadable. Back up the volume with the database.
+{{- if .Values.postgres.enabled }}
+
+5. Bundled Postgres
+
+   postgres.enabled=true runs a single-node, untuned Postgres for evaluation.
+   For production, operate your own Postgres and point
+   config.db.postgresUrlSecret at it.
+{{- end }}
