@@ -236,7 +236,7 @@ function EnterpriseReasons() {
           {REASONS.map((reason) => (
             <article
               key={reason.title}
-              className="rounded-2xl border border-stone-900/[0.08] bg-paper-100 p-5 transition hover:-translate-y-0.5 hover:border-stone-900/[0.14] hover:bg-white hover:shadow-lift"
+              className="rounded-2xl border border-stone-900/[0.08] bg-white p-5 transition hover:-translate-y-0.5 hover:border-stone-900/[0.14] hover:shadow-lift"
             >
               <reason.icon className="h-5 w-5 text-stone-900" />
               <h3 className="mt-4 text-sm font-semibold text-stone-900">{reason.title}</h3>
@@ -332,7 +332,7 @@ function EnterpriseServices() {
         </div>
         <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-stone-900/[0.08] bg-stone-900/10 sm:grid-cols-2">
           {SERVICES.map((service) => (
-            <article key={service.title} className="bg-paper-100 p-6 sm:p-7">
+            <article key={service.title} className="bg-white p-6 sm:p-7">
               <service.icon className="h-5 w-5 text-stone-900" />
               <h3 className="mt-4 text-sm font-semibold text-stone-900">{service.title}</h3>
               <p className="mt-2 text-sm leading-6 text-stone-600">{service.body}</p>
@@ -349,22 +349,27 @@ function EnterpriseContact() {
     <section className="bg-paper-50">
       <div className="mx-auto max-w-[88rem] px-5 pb-20 sm:px-8 sm:pb-24 lg:pb-28">
         <div className="on-night relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-stone-900 to-night-850 px-6 py-14 text-center shadow-raise sm:px-12 sm:py-20">
+          <div aria-hidden className="marketing-dots pointer-events-none absolute inset-0 opacity-15" />
           <div
             aria-hidden
-            className="marketing-dots pointer-events-none absolute inset-0 opacity-20"
+            className="pointer-events-none absolute -bottom-28 -left-20 h-80 w-80 rounded-full bg-flame-500/25 blur-3xl"
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -top-24 right-0 h-80 w-80 rounded-full bg-violet-500/25 blur-3xl"
           />
           <div className="relative mx-auto max-w-2xl">
             <h2 className="text-balance text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-white">
               Let&apos;s plan your Genosyn deployment.
             </h2>
-            <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-stone-200 sm:text-base">
+            <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-white/85">
               Tell us about the environment, identity model, compliance needs, and the work you want
               AI Employees to take on.
             </p>
             <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <a
                 href={CONTACT_HREF}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-white px-5 py-3 text-sm font-semibold text-stone-800 shadow-card transition hover:bg-paper-200 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-stone-900 shadow-lg transition duration-200 hover:-translate-y-0.5 hover:bg-paper-100 sm:w-auto"
               >
                 <Mail className="h-4 w-4" />
                 Email {CONTACT_EMAIL}
@@ -373,15 +378,15 @@ function EnterpriseContact() {
                 href={GITHUB_URL}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-white/25 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/40 bg-white/10 px-6 py-3.5 text-sm font-semibold text-white backdrop-blur transition duration-200 hover:-translate-y-0.5 hover:bg-white/20 sm:w-auto"
               >
                 <Github className="h-4 w-4" />
                 Try open source first
               </a>
             </div>
-            <p className="mt-5 text-xs text-stone-400">
+            <p className="mt-6 text-xs text-white/60">
               Comparing editions and Cloud plans first?{" "}
-              <Link href="/pricing" className="font-semibold text-stone-200 hover:text-white">
+              <Link href="/pricing" className="font-semibold text-white underline underline-offset-2 hover:text-flame-200">
                 See pricing
               </Link>
             </p>

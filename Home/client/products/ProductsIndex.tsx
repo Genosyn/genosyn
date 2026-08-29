@@ -145,7 +145,7 @@ function ProductCard({ product }: { product: ProductDef }) {
   return (
     <Link
       href={`/products/${product.slug}`}
-      className="group flex min-h-56 flex-col rounded-2xl border border-stone-900/[0.08] bg-paper-100 p-5 transition duration-200 hover:-translate-y-0.5 hover:border-flame-300 hover:bg-white hover:shadow-lift"
+      className="group flex min-h-56 flex-col rounded-2xl border border-stone-900/[0.07] bg-white p-6 shadow-card transition duration-200 hover:-translate-y-1 hover:border-stone-900/[0.12] hover:shadow-lift"
     >
       <div className="flex items-start justify-between">
         <span
@@ -157,7 +157,7 @@ function ProductCard({ product }: { product: ProductDef }) {
       </div>
       <h3 className="mt-5 text-base font-semibold text-stone-900">{product.name}</h3>
       <p className="mt-2 flex-1 text-sm leading-6 text-stone-600">{product.summary}</p>
-      <span className="mt-5 text-[11px] font-semibold text-stone-900">Explore product</span>
+      <span className="mt-6 text-xs font-semibold text-flame-600">Explore product</span>
     </Link>
   );
 }

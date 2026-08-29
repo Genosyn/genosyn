@@ -139,7 +139,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
               {useCases.map((useCase) => (
                 <article
                   key={useCase.role}
-                  className="rounded-2xl border border-stone-900/[0.08] bg-paper-100 p-5 transition hover:-translate-y-0.5 hover:border-stone-900/[0.14] hover:bg-white hover:shadow-lift"
+                  className="rounded-2xl border border-stone-900/[0.08] bg-white p-5 transition hover:-translate-y-0.5 hover:border-stone-900/[0.14] hover:shadow-lift"
                 >
                   <div className="flex items-center gap-3">
                     <span
@@ -203,6 +203,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
         </section>
 
         <section className="on-night relative isolate overflow-hidden bg-night-950 text-violet-100/70">
+          <div aria-hidden className="pointer-events-none absolute inset-0 aurora-night" />
           <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
             <div className="grid gap-10 lg:grid-cols-[0.72fr_1.28fr] lg:items-start lg:gap-16">
               <div>
