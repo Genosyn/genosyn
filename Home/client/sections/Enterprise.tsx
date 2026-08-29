@@ -106,7 +106,7 @@ export function Enterprise(): ReactNode {
 }
 
 const ENTERPRISE_PROOF = [
-  "MIT licensed",
+  "Apache 2.0 licensed",
   "Your model keys",
   "Approval gates on sensitive work",
   "SSO-ready",

@@ -163,4 +163,11 @@ bump version numbers or tag manually.
 
 ## License
 
-By contributing, you agree your contributions are licensed under the [MIT License](./LICENSE).
+By contributing, you agree your contributions are licensed under the [Apache License 2.0](./LICENSE).
+No separate CLA — section 5 of the license already covers the inbound grant: anything you
+intentionally submit for inclusion in Genosyn is submitted under those terms.
+
+Apache 2.0 asks for a little more than MIT did when you redistribute Genosyn or a fork of it:
+ship the [`LICENSE`](./LICENSE), keep [`NOTICE`](./NOTICE) intact and carry it with your
+distribution, and state prominently if you changed the files. Both images already carry the two
+files; if you add a new build target, carry them there too.

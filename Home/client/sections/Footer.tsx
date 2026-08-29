@@ -92,7 +92,7 @@ export function Footer() {
             </p>
             <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-stone-900/[0.10] bg-white px-3 py-1.5 text-[11px] font-semibold text-stone-600 shadow-card">
               <span aria-hidden className="preview-live h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              MIT licensed · v{__APP_VERSION__}
+              Apache 2.0 licensed · v{__APP_VERSION__}
             </div>
           </div>
 

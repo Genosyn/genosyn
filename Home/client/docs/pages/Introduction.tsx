@@ -176,8 +176,8 @@ export function Introduction() {
         see: restricted projects and private channels you aren&apos;t in stay out of the list.
       </P>
 
-      <Callout kind="tip" title="Open source, no strings.">
-        Genosyn ships under MIT. The source lives at{" "}
+      <Callout kind="tip" title="Open source, permissively licensed.">
+        Genosyn ships under Apache 2.0. The source lives at{" "}
         <ExtLink href={GITHUB_URL}>github.com/genosyn/genosyn</ExtLink>. File issues, send PRs, fork
         it — that&apos;s what it&apos;s there for.
       </Callout>

@@ -137,7 +137,7 @@ don't re-litigate them.
     licenses degrade softly at expiry (features stay on, the UI warns, the
     pressure is commercial); evaluation licenses expire hard. Enforcement of
     the open-source boundary is honest rather than cryptographic: the gate
-    code is MIT like everything else, and what the license sells is the
+    code is Apache 2.0 like everything else, and what the license sells is the
     right, the updates, and the support.
 
 ---
@@ -3302,7 +3302,7 @@ Incidents / an AI on-call; the contract obligations ledger.
 ### M56 — Editions, plans & billing ✅
 
 Genosyn grows a commercial spine without closing the source. Three deployment
-shapes, one codebase: **Community** (self-hosted, MIT, free, unlimited — SSO
+shapes, one codebase: **Community** (self-hosted, Apache 2.0, free, unlimited — SSO
 and the Audit log show an "available in Genosyn Enterprise" card),
 **Enterprise** (self-hosted plus a signed license activated at Admin →
 License), and **Genosyn Cloud** (the operator enables billing at Admin →

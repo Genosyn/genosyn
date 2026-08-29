@@ -17,7 +17,7 @@ const PROOF = [
   "Runs unattended, on schedule",
   "Escalates by exception",
   "Any AI model, your own keys",
-  "Self-hosted · MIT licensed",
+  "Self-hosted · Apache 2.0 licensed",
 ];
 
 export function Hero() {

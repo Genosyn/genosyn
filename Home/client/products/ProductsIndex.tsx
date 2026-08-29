@@ -23,7 +23,7 @@ const CHECKS = [
   "Built into one workspace",
   "Worked by Members and AI Employees alike",
   "Every product reachable by a Routine",
-  "Self-hosted · MIT licensed",
+  "Self-hosted · Apache 2.0 licensed",
 ];
 
 export function ProductsIndex() {

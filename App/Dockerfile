@@ -151,7 +151,7 @@ RUN command -v bwrap >/dev/null \
 # is deliberate: App, Home, CLI, roadmap, docs, and delivery workflows all
 # belong to the product context an AI Employee may need to explain.
 COPY --chown=node:node \
-  AGENTS.md CLAUDE.md CONTRIBUTING.md LICENSE README.md RELEASING.md ROADMAP.md VERSION \
+  AGENTS.md CLAUDE.md CONTRIBUTING.md LICENSE NOTICE README.md RELEASING.md ROADMAP.md VERSION \
   ./.genosyn-source/
 COPY --chown=node:node App ./.genosyn-source/App
 COPY --chown=node:node Home ./.genosyn-source/Home

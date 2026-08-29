@@ -134,7 +134,7 @@ const FAQS: Faq[] = [
   },
   {
     q: "Is the self-hosted version really free?",
-    a: "Yes. The community edition is MIT licensed with unlimited AI Employees and Routines, forever. Genosyn Enterprise adds SSO, the audit log, and priority support on top for self-hosted installs at work.",
+    a: "Yes. The community edition is Apache 2.0 licensed with unlimited AI Employees and Routines, forever. Genosyn Enterprise adds SSO, the audit log, and priority support on top for self-hosted installs at work.",
   },
   {
     q: "How does Enterprise licensing work?",
@@ -180,7 +180,7 @@ function PricingHero() {
             </HeroTitle>
 
             <HeroLede>
-              Self-host the MIT-licensed community edition free forever, or let us run it for you on
+              Self-host the Apache 2.0-licensed community edition free forever, or let us run it for you on
               Genosyn Cloud — an employee-grade hire for $19 a month, not the thousands a human
               costs.
             </HeroLede>
@@ -298,7 +298,7 @@ function SelfHostedBand() {
               </div>
             </div>
             <p className="mt-5 text-base leading-7 text-stone-600">
-              MIT licensed, with unlimited AI Employees and Routines and every core feature. Runs on
+              Apache 2.0 licensed, with unlimited AI Employees and Routines and every core feature. Runs on
               your hardware, from a laptop to a cluster.
             </p>
             <div className="mt-5 overflow-x-auto rounded-lg border border-night-700 bg-night-950 px-4 py-3">

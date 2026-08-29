@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "description": "Genosyn marketing site",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "sync-cli": "cp ../CLI/genosyn client/public/genosyn && cp ../CLI/install.sh client/public/install.sh && chmod +x client/public/genosyn client/public/install.sh",

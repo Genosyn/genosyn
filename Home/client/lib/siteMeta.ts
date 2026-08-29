@@ -47,7 +47,7 @@ const SOFTWARE_APPLICATION = {
   applicationCategory: "BusinessApplication",
   operatingSystem: "Linux, macOS, Windows (Docker)",
   softwareVersion: __APP_VERSION__,
-  license: "https://opensource.org/license/mit/",
+  license: "https://www.apache.org/licenses/LICENSE-2.0",
   offers: {
     "@type": "Offer",
     price: "0",
@@ -155,7 +155,7 @@ export function allRoutes(): RouteHead[] {
       path: "/enterprise",
       title: "Genosyn for Enterprise — Autonomous operations, your perimeter",
       description:
-        "Run an autonomous company inside your own environment: self-hosted AI employees on your infrastructure, your model keys, your data. MIT licensed with no vendor lock-in.",
+        "Run an autonomous company inside your own environment: self-hosted AI employees on your infrastructure, your model keys, your data. Apache 2.0 licensed with no vendor lock-in.",
       jsonLd: [
         ORGANIZATION,
         WEBSITE,
@@ -169,7 +169,7 @@ export function allRoutes(): RouteHead[] {
       path: "/pricing",
       title: "Pricing — Genosyn",
       description:
-        "Self-host the free MIT-licensed community edition, run on Genosyn Cloud plans starting at $0 and priced per AI Employee, or unlock SSO and audit logging with Genosyn Enterprise.",
+        "Self-host the free Apache 2.0-licensed community edition, run on Genosyn Cloud plans starting at $0 and priced per AI Employee, or unlock SSO and audit logging with Genosyn Enterprise.",
       jsonLd: [
         ORGANIZATION,
         WEBSITE,
@@ -221,7 +221,7 @@ export function llmsTxt(): string {
   const lines: string[] = [
     "# Genosyn",
     "",
-    `> ${SITE_DESCRIPTION} Genosyn is MIT-licensed, ships as a single Docker container, and runs on SQLite (Postgres via config). Install: \`curl -fsSL ${SITE_URL}/install.sh | bash\` — the app starts on localhost:8471.`,
+    `> ${SITE_DESCRIPTION} Genosyn is Apache 2.0-licensed, ships as a single Docker container, and runs on SQLite (Postgres via config). Install: \`curl -fsSL ${SITE_URL}/install.sh | bash\` — the app starts on localhost:8471.`,
     "",
     "Key concepts: an **AI Employee** is a persistent teammate with a **Soul** (written constitution), **Skills** (markdown playbooks), and **Routines** (cron-scheduled work whose every execution is a readable **Run**). Routines are what make a company autonomous — they start themselves, with no human trigger — while approval gates and **Decisions** send the small number of judgement calls back to a Member. Employees run on Anthropic (Claude), OpenAI (GPT), or any OpenAI-compatible endpoint (Ollama, vLLM, llama.cpp). Access to company resources is controlled per employee by **Grants**.",
     "",
@@ -254,7 +254,7 @@ export function llmsFullTxt(): string {
     "",
     `> ${SITE_DESCRIPTION}`,
     "",
-    "Genosyn is an open-source (MIT), self-hostable platform for running companies autonomously with AI Employees. The standard installer ships as a single Docker container, with SQLite by default and Postgres available through config. Anthropic, OpenAI API-key, and custom OpenAI-compatible models run through Genosyn's in-process loop. Trusted single-tenant deployments, including the standard Docker default, can use OpenAI subscription access through the official pinned Codex app-server alongside bubblewrap-isolated coding and repository work, or without coding tools where Linux namespaces are unavailable. Model credentials are AES-256-GCM encrypted in the database; managed subscription sessions are materialized only inside a locked temporary directory for a login or Run.",
+    "Genosyn is an open-source (Apache 2.0), self-hostable platform for running companies autonomously with AI Employees. The standard installer ships as a single Docker container, with SQLite by default and Postgres available through config. Anthropic, OpenAI API-key, and custom OpenAI-compatible models run through Genosyn's in-process loop. Trusted single-tenant deployments, including the standard Docker default, can use OpenAI subscription access through the official pinned Codex app-server alongside bubblewrap-isolated coding and repository work, or without coding tools where Linux namespaces are unavailable. Model credentials are AES-256-GCM encrypted in the database; managed subscription sessions are materialized only inside a locked temporary directory for a login or Run.",
     "",
     `Install: \`curl -fsSL ${SITE_URL}/install.sh | bash\` starts Genosyn on localhost:8471.`,
     "",

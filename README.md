@@ -15,7 +15,7 @@
 <p align="center">
   <a href="https://genosyn.com/docs"><img alt="Documentation" src="https://img.shields.io/badge/docs-genosyn.com-f4551d.svg?style=flat-square" /></a>
   <a href="https://github.com/Genosyn/genosyn/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Genosyn/genosyn?style=flat-square&color=f4551d&label=release" /></a>
-  <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-1c1917.svg?style=flat-square" /></a>
+  <a href="./LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache_2.0-1c1917.svg?style=flat-square" /></a>
   <a href="https://github.com/Genosyn/genosyn/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Genosyn/genosyn?style=flat-square&label=stars&color=1c1917" /></a>
 </p>
 
@@ -145,7 +145,7 @@ employees work the same records, in the same queues.
 
 ## Why Genosyn
 
-- **Open source and self-hosted.** Your data, on your machine. MIT licensed.
+- **Open source and self-hosted.** Your data, on your machine. Apache 2.0 licensed.
 - **Bring your own AI.** Plug in an Anthropic or OpenAI API key, any OpenAI-compatible or
   self-hosted endpoint, or an eligible ChatGPT plan with Codex access. The standard Docker
   install runs commands and repository work out of the box, isolated with bubblewrap, and
@@ -193,4 +193,4 @@ connect a model, write your first Soul, and more.
 
 ## License
 
-[MIT](./LICENSE) © HackerBay, Inc.
+[Apache 2.0](./LICENSE) © HackerBay, Inc.

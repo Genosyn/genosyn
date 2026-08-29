@@ -74,7 +74,7 @@ export function buildOpenApiDocument() {
           name: "Genosyn",
           url: "https://github.com/Genosyn/genosyn",
         },
-        license: { name: "MIT", url: "https://opensource.org/licenses/MIT" },
+        license: { name: "Apache 2.0", url: "https://www.apache.org/licenses/LICENSE-2.0" },
       },
     });
   }
