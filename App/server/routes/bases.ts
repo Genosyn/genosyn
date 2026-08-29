@@ -44,6 +44,12 @@ import {
   uniqueViewSlug,
 } from "../services/bases.js";
 import { findBaseTemplate } from "../services/baseTemplates.js";
+import {
+  PlanLimitError,
+  assertBaseTableCapacity,
+  assertCanCreateBase,
+  baseTableCapacityRemaining,
+} from "../services/entitlements.js";
 import { deleteTagAssignments } from "../services/tags.js";
 import {
   ALL_RESOURCE_FIELD_TYPES,
@@ -149,6 +155,15 @@ basesRouter.post("/bases", validateBody(createBaseSchema), async (req, res) => {
     return res.status(409).json({ error: "A base with that name already exists" });
   }
 
+  // Plan limit (M56): a Free-plan company on a billing-enabled install caps
+  // its Base count. 402 so the client can offer the upgrade path.
+  try {
+    await assertCanCreateBase(cid);
+  } catch (err) {
+    if (!(err instanceof PlanLimitError)) throw err;
+    return res.status(402).json({ error: err.message });
+  }
+
   const slug = await uniqueBaseSlug(cid, toSlug(body.name));
   const repo = AppDataSource.getRepository(Base);
   const b = await repo.save(
@@ -162,7 +177,16 @@ basesRouter.post("/bases", validateBody(createBaseSchema), async (req, res) => {
       createdById: req.userId ?? null,
     }),
   );
-  if (template) await seedBaseFromTemplate(b.id, template);
+  if (template) {
+    // Plan limit (M56): the base create itself never fails on table capacity —
+    // the template's table list is capped at what the plan still allows
+    // (computed before seeding; the new base holds no tables yet), and the
+    // remainder is silently skipped.
+    const capacity = await baseTableCapacityRemaining(cid);
+    const seedable =
+      capacity === null ? template : { ...template, tables: template.tables.slice(0, capacity) };
+    await seedBaseFromTemplate(b.id, seedable);
+  }
   res.json(b);
 });
 
@@ -339,6 +363,14 @@ basesRouter.post("/bases/:baseSlug/tables", validateBody(createTableSchema), asy
   const body = req.body as z.infer<typeof createTableSchema>;
   if (await findBaseTableByName(b.id, body.name)) {
     return res.status(409).json({ error: "A table with that name already exists in this base" });
+  }
+  // Plan limit (M56): a Free-plan company on a billing-enabled install caps
+  // its Base table count. 402 so the client can offer the upgrade path.
+  try {
+    await assertBaseTableCapacity(cid);
+  } catch (err) {
+    if (!(err instanceof PlanLimitError)) throw err;
+    return res.status(402).json({ error: err.message });
   }
   const slug = await uniqueTableSlug(b.id, toSlug(body.name));
   const last = await AppDataSource.getRepository(BaseTable).findOne({

@@ -52,7 +52,15 @@ export type BillingSummary = {
   aiEmployeeCount: number;
   routineCount: number;
   currentPeriodEnd: string | null;
-  limits: { maxAiEmployees: number | null; maxRoutines: number | null };
+  limits: {
+    maxAiEmployees: number | null;
+    maxRoutines: number | null;
+    maxBases: number | null;
+    maxBaseTables: number | null;
+    maxChannels: number | null;
+    maxProjects: number | null;
+    maxTodos: number | null;
+  };
   features: { sso: boolean; auditLog: boolean };
   prices: {
     growth: { unitAmount: number; currency: "usd"; configured: boolean };
@@ -101,6 +109,11 @@ export async function billingSummary(companyId: string): Promise<BillingSummary>
     limits: {
       maxAiEmployees: entitlements.maxAiEmployees,
       maxRoutines: entitlements.maxRoutines,
+      maxBases: entitlements.maxBases,
+      maxBaseTables: entitlements.maxBaseTables,
+      maxChannels: entitlements.maxChannels,
+      maxProjects: entitlements.maxProjects,
+      maxTodos: entitlements.maxTodos,
     },
     features: { ...entitlements.features },
     prices: {

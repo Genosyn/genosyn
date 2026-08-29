@@ -621,7 +621,16 @@ import {
 } from "../services/explore.js";
 import { STATIC_TOOLS } from "../mcp/toolManifest.js";
 import { memberInternalCallbackPolicy, memberToolPolicy } from "../services/memberToolAuthority.js";
-import { PlanLimitError, assertRoutineCapacity } from "../services/entitlements.js";
+import {
+  PlanLimitError,
+  assertBaseTableCapacity,
+  assertCanCreateBase,
+  assertCanCreateChannel,
+  assertCanCreateProject,
+  assertRoutineCapacity,
+  assertTodoCapacity,
+  baseTableCapacityRemaining,
+} from "../services/entitlements.js";
 
 /**
  * Internal HTTP surface for the built-in `genosyn` tools.
@@ -9287,6 +9296,13 @@ mcpInternalRouter.post(
         error: `A project named "${body.name}" already exists in this company`,
       });
     }
+    // Plan limit (M56) — the AI Employee sees this as the tool's error output.
+    try {
+      await assertCanCreateProject(co.id);
+    } catch (err) {
+      if (!(err instanceof PlanLimitError)) throw err;
+      return res.status(402).json({ error: err.message });
+    }
     const baseSlug = toSlug(body.name) || "project";
     let slug = baseSlug;
     let n = 1;
@@ -9430,6 +9446,14 @@ mcpInternalRouter.post(
     if (body.parentTodoId) {
       const parentErr = await validateParentTodo(project.id, body.parentTodoId);
       if (parentErr) return res.status(400).json({ error: parentErr });
+    }
+
+    // Plan limit (M56) — the AI Employee sees this as the tool's error output.
+    try {
+      await assertTodoCapacity(co.id);
+    } catch (err) {
+      if (!(err instanceof PlanLimitError)) throw err;
+      return res.status(402).json({ error: err.message });
     }
 
     project.todoCounter += 1;
@@ -10583,6 +10607,14 @@ mcpInternalRouter.post(
         .json({ error: `A base named "${body.name}" already exists in this company` });
     }
 
+    // Plan limit (M56) — the AI Employee sees this as the tool's error output.
+    try {
+      await assertCanCreateBase(co.id);
+    } catch (err) {
+      if (!(err instanceof PlanLimitError)) throw err;
+      return res.status(402).json({ error: err.message });
+    }
+
     const slug = await uniqueBaseSlug(co.id, toSlug(body.name));
     const repo = AppDataSource.getRepository(Base);
     const b = await repo.save(
@@ -10596,7 +10628,15 @@ mcpInternalRouter.post(
         createdById: null,
       }),
     );
-    if (template) await seedBaseFromTemplate(b.id, template);
+    if (template) {
+      // Plan limit (M56): the base create itself never fails on table
+      // capacity — the template's table list is capped at what the plan still
+      // allows (computed before seeding; the new base holds no tables yet).
+      const capacity = await baseTableCapacityRemaining(co.id);
+      const seedable =
+        capacity === null ? template : { ...template, tables: template.tables.slice(0, capacity) };
+      await seedBaseFromTemplate(b.id, seedable);
+    }
 
     // Auto-grant the creating employee so the base shows up in list_bases
     // without a second human-driven step.
@@ -10643,6 +10683,13 @@ mcpInternalRouter.post(
       return res.status(409).json({
         error: `A table named "${body.name}" already exists in base "${b.name}"`,
       });
+    }
+    // Plan limit (M56) — the AI Employee sees this as the tool's error output.
+    try {
+      await assertBaseTableCapacity(co.id);
+    } catch (err) {
+      if (!(err instanceof PlanLimitError)) throw err;
+      return res.status(402).json({ error: err.message });
     }
     const slug = await uniqueTableSlug(b.id, toSlug(body.name));
     const last = await AppDataSource.getRepository(BaseTable).findOne({
@@ -11213,6 +11260,15 @@ mcpInternalRouter.post(
     const delegatedRequesterUserId =
       req.mcpAuthority === "member" ? req.mcpRequesterMembership!.userId : null;
     const createdByUserId = delegatedRequesterUserId ?? (await companyOwnerId(co.id));
+    // Plan limit (M56) — asserted here, before createChannel, because the
+    // catch below maps every service error to 400 and would swallow the 402.
+    // The AI Employee sees this as the tool's error output.
+    try {
+      await assertCanCreateChannel(co.id);
+    } catch (err) {
+      if (!(err instanceof PlanLimitError)) throw err;
+      return res.status(402).json({ error: err.message });
+    }
     try {
       const channel = await createChannel({
         companyId: co.id,

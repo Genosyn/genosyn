@@ -47,6 +47,7 @@ import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
+import { PlanLimitBanner } from "../components/FeatureGateCard";
 import {
   ChatResourceReference,
   insertResourceReference,
@@ -603,6 +604,9 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         open={showNewChannel}
         company={company}
         directory={directory}
+        // Only real channels count toward the plan cap — the channels state
+        // still holds DM rows (kind "dm"), which are never limited.
+        channelCount={(channels ?? []).filter((c) => c.kind !== "dm").length}
         onClose={() => setShowNewChannel(false)}
         onCreated={(ch) => {
           setShowNewChannel(false);
@@ -2197,12 +2201,15 @@ function NewChannelModal({
   open,
   company,
   directory,
+  channelCount,
   onClose,
   onCreated,
 }: {
   open: boolean;
   company: Company;
   directory: WorkspaceDirectory | null;
+  /** Non-DM channels only — DMs never count toward the plan cap. */
+  channelCount: number;
   onClose: () => void;
   onCreated: (c: WorkspaceChannel) => void;
 }) {
@@ -2245,9 +2252,20 @@ function NewChannelModal({
     }
   }
 
+  const maxChannels = company.entitlements.maxChannels;
+  const atChannelCap = maxChannels !== null && channelCount >= maxChannels;
+
   return (
     <Modal open={open} onClose={onClose} title="Create a channel">
       <div className="space-y-4">
+        {/* Plan-limit upsell (M56). Informational only — creation stays
+          enabled and the server's 402 surfaces in the modal's FormError. */}
+        {atChannelCap && (
+          <PlanLimitBanner
+            message={`Your Free plan includes ${maxChannels} Channel${maxChannels === 1 ? "" : "s"}.`}
+            company={company}
+          />
+        )}
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
             Name

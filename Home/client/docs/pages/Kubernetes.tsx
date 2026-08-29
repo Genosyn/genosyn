@@ -2,6 +2,7 @@ import {
   Callout,
   Code,
   DocLink,
+  ExtLink,
   H2,
   H3,
   KeyList,
@@ -39,7 +40,11 @@ export function Kubernetes() {
 
       <H2 id="helm">Install with Helm</H2>
       <P>
-        The chart is an OCI artifact — no repo to add:
+        The chart is an OCI artifact — no repo to add — and it is also listed on{" "}
+        <ExtLink href="https://artifacthub.io/packages/search?ts_query_web=genosyn">
+          Artifact Hub
+        </ExtLink>
+        :
       </P>
       <Pre lang="bash">{`helm install genosyn oci://ghcr.io/genosyn/charts/genosyn \\
   --namespace genosyn --create-namespace`}</Pre>

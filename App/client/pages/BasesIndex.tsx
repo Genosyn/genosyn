@@ -6,13 +6,27 @@ import { Button } from "../components/ui/Button";
 import { Company } from "../lib/api";
 import { useBases } from "./BasesLayout";
 import { BaseIcon, baseAccent } from "../components/BaseIcons";
+import { PlanLimitBanner } from "../components/FeatureGateCard";
 
 export default function BasesIndex({ company }: { company: Company }) {
   const { bases } = useBases();
   const navigate = useNavigate();
 
+  const maxBases = company.entitlements.maxBases;
+  const atBaseCap = maxBases !== null && bases.length >= maxBases;
+
   return (
     <div className="flex min-h-full flex-col">
+      {/* Plan-limit upsell (M56). Informational only — the "New base" button
+        stays enabled; the server's 402 surfaces in BaseNew's own FormError. */}
+      {atBaseCap && (
+        <div className="px-6 pt-4">
+          <PlanLimitBanner
+            message={`Your Free plan includes ${maxBases} Base${maxBases === 1 ? "" : "s"}.`}
+            company={company}
+          />
+        </div>
+      )}
       <div className="border-b border-slate-200 bg-white px-6 py-4 dark:bg-slate-900 dark:border-slate-700">
         <Breadcrumbs items={[{ label: "Bases" }]} />
         <div className="mt-2 flex items-center justify-between">

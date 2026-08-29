@@ -97,6 +97,11 @@ describe("resolution matrix", () => {
       plan: null,
       maxAiEmployees: null,
       maxRoutines: null,
+      maxBases: null,
+      maxBaseTables: null,
+      maxChannels: null,
+      maxProjects: null,
+      maxTodos: null,
       features: { sso: false, auditLog: false },
     });
   });
@@ -125,6 +130,11 @@ describe("resolution matrix", () => {
       plan: "free",
       maxAiEmployees: 1,
       maxRoutines: 2,
+      maxBases: 1,
+      maxBaseTables: 1,
+      maxChannels: 3,
+      maxProjects: 1,
+      maxTodos: 20,
       features: { sso: false, auditLog: false },
     });
   });

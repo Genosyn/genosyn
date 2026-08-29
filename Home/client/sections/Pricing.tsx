@@ -41,11 +41,13 @@ const CLOUD_PLANS: CloudPlan[] = [
     name: "Free",
     price: "$0",
     priceSuffix: null,
-    tagline: "Try a real AI employee.",
+    tagline: "Try a real AI employee across every core surface.",
     bullets: [
       "1 AI Employee",
       "2 Routines",
-      "All core surfaces — Workspace, Tasks, Notes, Bases, Email and more",
+      "1 Base with 1 table",
+      "3 Channels",
+      "1 Project with 20 Todos",
       "Bring your own AI Model keys",
       "Community support",
     ],
@@ -60,10 +62,11 @@ const CLOUD_PLANS: CloudPlan[] = [
     tagline: "Your first AI department.",
     bullets: [
       "Unlimited AI Employees & Routines",
+      "Unlimited Bases, Channels, Projects & Todos",
       "Every integration",
       "Priority email support",
     ],
-    footnote: "Billed per AI Employee hired.",
+    footnote: "Billed per AI Employee hired — vs. thousands for a human hire.",
     ctaVariant: "primary",
     highlighted: false,
   },
@@ -78,7 +81,7 @@ const CLOUD_PLANS: CloudPlan[] = [
       "Audit log",
       "Priority support",
     ],
-    footnote: "Billed per AI Employee hired.",
+    footnote: "Billed per AI Employee hired — vs. thousands for a human hire.",
     ctaVariant: "primary",
     highlighted: true,
   },
@@ -107,6 +110,11 @@ function No() {
 const COMPARISON_ROWS: ComparisonRow[] = [
   { label: "AI Employees", free: "1", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
   { label: "Routines", free: "2", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
+  { label: "Bases", free: "1", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
+  { label: "Base tables", free: "1", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
+  { label: "Channels", free: "3", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
+  { label: "Projects", free: "1", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
+  { label: "Todos", free: "20", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
   { label: "SSO", free: <No />, growth: <No />, scale: <Yes />, enterprise: <Yes /> },
   { label: "Audit log", free: <No />, growth: <No />, scale: <Yes />, enterprise: <Yes /> },
   { label: "Support", free: "Community", growth: "Priority email", scale: "Priority", enterprise: "Priority" },
@@ -118,7 +126,7 @@ type Faq = { q: string; a: string };
 const FAQS: Faq[] = [
   {
     q: "What counts as an AI Employee?",
-    a: "An AI Employee is a hired teammate on your roster — a persistent role with its own Soul, Skills, and Routines. You pay per AI Employee hired; human Members are always free, on every plan.",
+    a: "An AI Employee is a hired teammate on your roster — a persistent role with its own Soul, Skills, and Routines. You pay per AI Employee hired; human Members are always free, on every plan. At $19 a month, that hire costs a fraction of what a person in the same seat would — and it works its Routines around the clock.",
   },
   {
     q: "Do I need my own AI Model API keys?",
@@ -138,7 +146,7 @@ const FAQS: Faq[] = [
   },
   {
     q: "What happens if I go over a Free plan limit?",
-    a: "Nothing breaks — Genosyn simply asks you to upgrade before hiring another AI Employee or adding a third Routine. Everything already running keeps running.",
+    a: "Nothing breaks — Genosyn simply asks you to upgrade before hiring another AI Employee, adding a third Routine, a second Base or Base table, a fourth Channel, a second Project, or the twenty-first Todo — everything already running keeps running.",
   },
 ];
 
@@ -173,7 +181,8 @@ function PricingHero() {
 
             <HeroLede>
               Self-host the MIT-licensed community edition free forever, or let us run it for you on
-              Genosyn Cloud — priced per AI Employee hired, not per human seat.
+              Genosyn Cloud — an employee-grade hire for $19 a month, not the thousands a human
+              costs.
             </HeroLede>
           </div>
         </HeroCopy>
@@ -192,6 +201,10 @@ function CloudPlans() {
             We run it. You hire.
           </h2>
           <p className="mx-auto mt-6 max-w-xl text-base leading-7 text-stone-600">
+            A human hire costs thousands a month before they start. An AI Employee on Genosyn is
+            $19 — working its Routines around the clock.
+          </p>
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-stone-500">
             A fully managed Genosyn — upgrades, backups, and hosting handled. Every plan uses your
             own AI Model keys, so model usage stays between you and your provider.
           </p>

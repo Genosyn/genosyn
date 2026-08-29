@@ -10,9 +10,42 @@
 export type PlanId = "free" | "growth" | "scale";
 
 export const PLANS = {
-  free:   { name: "Free",   unitAmount: 0,    maxAiEmployees: 1,    maxRoutines: 2,    features: { sso: false, auditLog: false } },
-  growth: { name: "Growth", unitAmount: 1900, maxAiEmployees: null, maxRoutines: null, features: { sso: false, auditLog: false } },
-  scale:  { name: "Scale",  unitAmount: 4900, maxAiEmployees: null, maxRoutines: null, features: { sso: true,  auditLog: true  } },
+  free: {
+    name: "Free",
+    unitAmount: 0,
+    maxAiEmployees: 1,
+    maxRoutines: 2,
+    maxBases: 1,
+    maxBaseTables: 1,
+    maxChannels: 3,
+    maxProjects: 1,
+    maxTodos: 20,
+    features: { sso: false, auditLog: false },
+  },
+  growth: {
+    name: "Growth",
+    unitAmount: 1900,
+    maxAiEmployees: null,
+    maxRoutines: null,
+    maxBases: null,
+    maxBaseTables: null,
+    maxChannels: null,
+    maxProjects: null,
+    maxTodos: null,
+    features: { sso: false, auditLog: false },
+  },
+  scale: {
+    name: "Scale",
+    unitAmount: 4900,
+    maxAiEmployees: null,
+    maxRoutines: null,
+    maxBases: null,
+    maxBaseTables: null,
+    maxChannels: null,
+    maxProjects: null,
+    maxTodos: null,
+    features: { sso: true, auditLog: true },
+  },
 } as const;
 
 export function isPlanId(value: string): value is PlanId {

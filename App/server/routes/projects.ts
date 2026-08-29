@@ -35,6 +35,12 @@ import {
   upsertProjectMember,
 } from "../services/projects.js";
 import { deleteTagAssignments } from "../services/tags.js";
+import {
+  PlanLimitError,
+  assertCanCreateProject,
+  assertTodoCapacity,
+  todoCapacityRemaining,
+} from "../services/entitlements.js";
 import { buildTodoMentionTurn } from "../services/todoMentionTurn.js";
 
 export const projectsRouter = Router({ mergeParams: true });
@@ -211,6 +217,14 @@ projectsRouter.post("/projects", validateBody(createProjectSchema), async (req, 
   const body = req.body as z.infer<typeof createProjectSchema>;
   if (await findProjectByName(cid, body.name)) {
     return res.status(409).json({ error: "A project with that name already exists" });
+  }
+  // Plan limit (M56): a Free-plan company on a billing-enabled install caps
+  // its Project count. 402 so the client can offer the upgrade path.
+  try {
+    await assertCanCreateProject(cid);
+  } catch (err) {
+    if (!(err instanceof PlanLimitError)) throw err;
+    return res.status(402).json({ error: err.message });
   }
   const repo = AppDataSource.getRepository(Project);
   const slug = await uniqueProjectSlug(cid, toSlug(body.name));
@@ -686,6 +700,15 @@ projectsRouter.post(
       if (parentErr) return res.status(400).json({ error: parentErr });
     }
 
+    // Plan limit (M56): a Free-plan company on a billing-enabled install caps
+    // its Todo count. 402 so the client can offer the upgrade path.
+    try {
+      await assertTodoCapacity(cid);
+    } catch (err) {
+      if (!(err instanceof PlanLimitError)) throw err;
+      return res.status(402).json({ error: err.message });
+    }
+
     // Bump the per-project sequence atomically-ish. SQLite + better-sqlite3
     // is synchronous so the read-then-write here is safe within a request;
     // if this ever moves to Postgres with concurrent writes, switch to
@@ -925,6 +948,10 @@ async function spawnNextRecurrence(project: Project, completed: Todo): Promise<v
   const anchor = completed.dueAt ?? new Date();
   const nextDue = nextOccurrence(anchor, completed.recurrence);
   if (!nextDue) return;
+
+  // Plan limit (M56): at Todo capacity the next occurrence is silently
+  // skipped — the completing PATCH must never fail because the plan is full.
+  if ((await todoCapacityRemaining(project.companyId)) === 0) return;
 
   const projRepo = AppDataSource.getRepository(Project);
   project.todoCounter += 1;

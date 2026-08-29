@@ -3008,6 +3008,14 @@ export type CompanyEntitlements = {
   /** Company-wide totals; null = unlimited. */
   maxAiEmployees: number | null;
   maxRoutines: number | null;
+  maxBases: number | null;
+  /** Non-archived tables, counted across all of the company's Bases. */
+  maxBaseTables: number | null;
+  /** Public + private channels only — DMs never count, nor do archived ones. */
+  maxChannels: number | null;
+  maxProjects: number | null;
+  /** All Todo rows across the company's Projects, regardless of status. */
+  maxTodos: number | null;
   features: { sso: boolean; auditLog: boolean };
 };
 
@@ -3025,7 +3033,15 @@ export type BillingSummary = {
   routineCount: number;
   /** ISO timestamp; null when no subscription. */
   currentPeriodEnd: string | null;
-  limits: { maxAiEmployees: number | null; maxRoutines: number | null };
+  limits: {
+    maxAiEmployees: number | null;
+    maxRoutines: number | null;
+    maxBases: number | null;
+    maxBaseTables: number | null;
+    maxChannels: number | null;
+    maxProjects: number | null;
+    maxTodos: number | null;
+  };
   features: { sso: boolean; auditLog: boolean };
   /** unitAmount in cents (1900 / 4900). */
   prices: {

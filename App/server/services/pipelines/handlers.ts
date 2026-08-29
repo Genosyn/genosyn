@@ -22,6 +22,7 @@ import { assertIntegrationAllowed, getProvider } from "../../integrations/index.
 import { unrestrictedCapabilityGate } from "../connectionCapabilities.js";
 import { makeAdSpendLedger } from "../adSpend.js";
 import type { IntegrationConfig, IntegrationRuntimeContext } from "../../integrations/types.js";
+import { assertTodoCapacity } from "../entitlements.js";
 import { executePipelineCode } from "./codeRuntime.js";
 import { PipelineNodeKind, NodeContext, NodeResult } from "./types.js";
 
@@ -111,6 +112,10 @@ export const HANDLERS: Partial<Record<PipelineNodeKind, Handler>> = {
       slug: projectSlug,
     });
     if (!project) throw new Error(`Project "${projectSlug}" not found`);
+    // Plan limit (M56): the thrown PlanLimitError surfaces as this node's
+    // failure message — acceptable; a Free-plan run at the Todo cap fails
+    // loudly rather than silently dropping the todo.
+    await assertTodoCapacity(ctx.companyId);
     project.todoCounter += 1;
     await AppDataSource.getRepository(Project).save(project);
     const last = await AppDataSource.getRepository(Todo).findOne({

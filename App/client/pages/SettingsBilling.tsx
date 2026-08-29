@@ -25,14 +25,20 @@ const PLAN_META: Record<PlanId, { name: string; blurb: string; bullets: string[]
   free: {
     name: "Free",
     blurb: "Try Genosyn with a starter team.",
-    bullets: ["1 AI Employee", "2 Routines"],
+    bullets: [
+      "1 AI Employee",
+      "2 Routines",
+      "1 Base with 1 table",
+      "3 Channels",
+      "1 Project, 20 Todos",
+    ],
   },
   growth: {
     name: "Growth",
     blurb: "For companies putting AI Employees to work.",
     bullets: [
       "Unlimited AI Employees",
-      "Unlimited Routines",
+      "Unlimited Routines, Bases, Channels, Projects and Todos",
       "Per-employee pricing",
     ],
   },
@@ -139,7 +145,7 @@ export function SettingsBilling() {
         <TopBar title="Billing" />
         <EmptyState
           title="Billing is not enabled on this install"
-          description="Self-hosted Genosyn has no per-company plans — every company runs with unlimited AI Employees and Routines. Enterprise features are unlocked with a license."
+          description="Self-hosted Genosyn has no per-company plans — every company runs with no plan limits at all. Enterprise features are unlocked with a license."
           action={
             <a
               href="https://genosyn.com/pricing"
@@ -265,6 +271,10 @@ export function SettingsBilling() {
             />
           ))}
         </div>
+
+        <p className="text-xs text-slate-400 dark:text-slate-500">
+          An AI Employee is $19 a month — not a salary.
+        </p>
 
         <FormError message={error} />
 

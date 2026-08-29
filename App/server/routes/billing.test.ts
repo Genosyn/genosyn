@@ -122,7 +122,15 @@ describe("GET /billing", () => {
       aiEmployeeCount: 0,
       routineCount: 0,
       currentPeriodEnd: null,
-      limits: { maxAiEmployees: 1, maxRoutines: 2 },
+      limits: {
+        maxAiEmployees: 1,
+        maxRoutines: 2,
+        maxBases: 1,
+        maxBaseTables: 1,
+        maxChannels: 3,
+        maxProjects: 1,
+        maxTodos: 20,
+      },
       features: { sso: false, auditLog: false },
       prices: {
         growth: { unitAmount: 1900, currency: "usd", configured: true },

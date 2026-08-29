@@ -69,6 +69,7 @@ import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { useTasks } from "./TasksLayout";
 import { clsx } from "../components/ui/clsx";
 import { AsyncResourceTagPicker } from "../components/TagPicker";
+import { PlanLimitBanner } from "../components/FeatureGateCard";
 import { ChatMarkdown } from "../components/ChatMarkdown";
 import {
   ChatResourceReference,
@@ -1000,9 +1001,25 @@ export default function ProjectDetail({ company, me }: { company: Company; me: M
 
   const summary = summarize(todos);
 
+  // Plan-limit upsell (M56). Informational only — the new-todo row stays
+  // enabled and the server's 402 surfaces in its own error handling. Note the
+  // comparison counts only THIS project's loaded todos while the cap is
+  // company-wide across every Project; on the Free plan (1 Project) the two
+  // coincide, and the server stays authoritative either way.
+  const maxTodos = company.entitlements.maxTodos;
+  const atTodoCap = maxTodos !== null && todos.length >= maxTodos;
+
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
+        {atTodoCap && (
+          <div className="px-6 pt-4">
+            <PlanLimitBanner
+              message={`Your Free plan includes ${maxTodos} Todo${maxTodos === 1 ? "" : "s"}.`}
+              company={company}
+            />
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-6 py-4 dark:bg-slate-900 dark:border-slate-700">
           <div className="min-w-0 flex-1">

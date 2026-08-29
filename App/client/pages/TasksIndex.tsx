@@ -5,13 +5,28 @@ import { Button } from "../components/ui/Button";
 import { Breadcrumbs } from "../components/AppShell";
 import { Company, Project } from "../lib/api";
 import { useTasks } from "./TasksLayout";
+import { PlanLimitBanner } from "../components/FeatureGateCard";
 
 export default function TasksIndex({ company }: { company: Company }) {
   const { projects } = useTasks();
   const navigate = useNavigate();
 
+  const maxProjects = company.entitlements.maxProjects;
+  const atProjectCap = maxProjects !== null && projects.length >= maxProjects;
+
   return (
     <div className="flex min-h-full flex-col">
+      {/* Plan-limit upsell (M56). Informational only — the "New project"
+        button stays enabled; the server's 402 surfaces in ProjectNew's own
+        FormError. */}
+      {atProjectCap && (
+        <div className="px-6 pt-4">
+          <PlanLimitBanner
+            message={`Your Free plan includes ${maxProjects} Project${maxProjects === 1 ? "" : "s"}.`}
+            company={company}
+          />
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-6 py-4 dark:bg-slate-900 dark:border-slate-700">
         <Breadcrumbs items={[{ label: "Tasks" }]} />
         {projects.length > 0 && (

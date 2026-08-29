@@ -31,6 +31,7 @@ import {
   updateChannelWebhookSettings,
 } from "../services/channelWebhooks.js";
 import { recordAudit } from "../services/audit.js";
+import { PlanLimitError, assertCanCreateChannel } from "../services/entitlements.js";
 
 /**
  * HTTP surface for the Slack-style workspace chat (channels, DMs, messages,
@@ -121,6 +122,14 @@ const createChannelSchema = z.object({
 workspaceRouter.post("/channels", validateBody(createChannelSchema), async (req, res) => {
   const co = companyOf(req as unknown as { company?: Company });
   const body = req.body as z.infer<typeof createChannelSchema>;
+  // Plan limit (M56): asserted here, before createChannel, because the catch
+  // below maps every service error to 400 and would swallow the 402.
+  try {
+    await assertCanCreateChannel(co.id);
+  } catch (err) {
+    if (!(err instanceof PlanLimitError)) throw err;
+    return res.status(402).json({ error: err.message });
+  }
   try {
     const channel = await createChannel({
       companyId: co.id,

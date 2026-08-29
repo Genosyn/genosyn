@@ -76,8 +76,10 @@ export function PlansBilling() {
             term: "Free",
             def: (
               <>
-                $0. A starter team: <Strong>1 AI Employee</Strong> and{" "}
-                <Strong>2 Routines</Strong>. No Single sign-on, no Audit log.
+                $0. A starter team: <Strong>1 AI Employee</Strong>, <Strong>2 Routines</Strong>,{" "}
+                <Strong>1 Base</Strong> with <Strong>1 table</Strong>, <Strong>3 Channels</Strong>,
+                and <Strong>1 Project</Strong> with <Strong>20 Todos</Strong>. No Single sign-on,
+                no Audit log.
               </>
             ),
           },
@@ -139,9 +141,9 @@ export function PlansBilling() {
 
       <H2 id="limits">What happens at the Free limits</H2>
       <P>
-        The Free limits are company-wide totals, enforced by the server everywhere a Routine or AI
-        Employee can be created — including when an AI Employee tries to create a Routine itself.
-        At the cap, the action is refused with the exact message:
+        The Free limits are company-wide totals, enforced by the server everywhere the resource can
+        be created — including when an AI Employee tries to create one itself. At the cap, the
+        action is refused with the exact message:
       </P>
       <UL>
         <LI>
@@ -152,7 +154,32 @@ export function PlansBilling() {
           Creating a third Routine: <em>&ldquo;Your Free plan includes 2 Routines. Upgrade to
           Growth for unlimited Routines.&rdquo;</em>
         </LI>
+        <LI>
+          Creating a second Base: <em>&ldquo;Your Free plan includes 1 Base. Upgrade to Growth for
+          unlimited Bases.&rdquo;</em>
+        </LI>
+        <LI>
+          Adding a second table across your Bases: <em>&ldquo;Your Free plan includes 1 Base
+          table. Upgrade to Growth for unlimited tables.&rdquo;</em>
+        </LI>
+        <LI>
+          Creating a fourth Channel: <em>&ldquo;Your Free plan includes 3 Channels. Upgrade to
+          Growth for unlimited Channels.&rdquo;</em>
+        </LI>
+        <LI>
+          Creating a second Project: <em>&ldquo;Your Free plan includes 1 Project. Upgrade to
+          Growth for unlimited Projects.&rdquo;</em>
+        </LI>
+        <LI>
+          Adding a twenty-first Todo: <em>&ldquo;Your Free plan includes 20 Todos. Upgrade to
+          Growth for unlimited Todos.&rdquo;</em>
+        </LI>
       </UL>
+      <P>
+        Two edges worth knowing: direct messages never count toward the Channel limit — only public
+        and private Channels do — and a recurring Todo at the cap simply stops spawning its next
+        occurrence instead of failing; deleting Todos frees capacity again.
+      </P>
       <P>
         The Employees and Routines pages also show a banner with a <Strong>View plans</Strong> link
         once you reach the cap. Gated features answer similarly — for example, opening the Audit
