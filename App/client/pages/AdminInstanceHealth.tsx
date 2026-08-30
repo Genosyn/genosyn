@@ -6,7 +6,7 @@ import {
   CheckCircle2,
   RefreshCw,
 } from "lucide-react";
-import { api, InstanceCheck, InstanceHealthReport, InstanceSeverity } from "../lib/api";
+import { api, InstanceProbe, InstanceHealthReport, InstanceSeverity } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
@@ -153,7 +153,7 @@ function OverallBanner({ report }: { report: InstanceHealthReport }) {
   );
 }
 
-function CheckCard({ check }: { check: InstanceCheck }) {
+function CheckCard({ check }: { check: InstanceProbe }) {
   const style = SEVERITY_STYLE[check.severity];
   const Icon = style.icon;
   return (

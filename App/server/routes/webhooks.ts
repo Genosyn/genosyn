@@ -18,6 +18,7 @@ import {
   type RenderedSlackIncomingWebhook,
 } from "../services/slackIncomingWebhook.js";
 import { postIncomingWebhookMessage } from "../services/workspaceChat.js";
+import { workBlocked } from "../services/standdowns.js";
 
 /**
  * Unauthenticated trigger surface. The URL itself is the credential — each
@@ -90,6 +91,15 @@ webhooksRouter.post("/r/:routineId/:token", async (req, res) => {
       console.error("[webhook] notify approval pending failed:", e);
     });
     return res.json({ status: "pending_approval", approvalId: saved.id });
+  }
+
+  // A Standdown answers the caller rather than accepting work it will not do
+  // (M58). The runner would refuse this start anyway; checking here is what
+  // turns a silent no-op behind a `200 accepted` into an honest reply the
+  // sending system can act on.
+  const stopped = workBlocked(emp.companyId, { employeeId: emp.id, routineId: routine.id });
+  if (stopped.blocked) {
+    return res.status(409).json({ status: "stood_down", reason: stopped.reason });
   }
 
   // Fire and forget. The Run row is persisted by the runner regardless.

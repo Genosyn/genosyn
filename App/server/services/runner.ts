@@ -19,7 +19,6 @@ import { composePoliciesContext } from "./companyPolicies.js";
 import { composeWorkstreamBlock } from "./workstreams.js";
 import { composeLessonsBlock, reflectOnRun, shouldReflect } from "./runLessons.js";
 import { contractAutonomyOnBadRun } from "./autonomy.js";
-import { Goal } from "../db/entities/Goal.js";
 import { materializeReposForEmployee } from "./repoSync.js";
 import { composeRepositoriesContext, materializeRepositoriesForEmployee } from "./repositories.js";
 import { composeFinanceContext } from "./financeGrants.js";
@@ -32,7 +31,7 @@ import type { CompactionInfo, ToolDeferralInfo, ToolTrimInfo, TurnUsage } from "
 import { config } from "../../config.js";
 import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
-import { DurableRunLog, RUN_LOG_MAX_BYTES } from "./runLog.js";
+import { DurableRunLog, RUN_LOG_MAX_BYTES, formatToolResultLine } from "./runLog.js";
 import { supportsParallelDelegation } from "./agent/tools/parallelDelegation.js";
 import { shouldMaterializeRepositoriesForTurn } from "./codexSubscription.js";
 import { CODING_TOOL_NAMES } from "./agent/tools/coding.js";
@@ -42,8 +41,24 @@ import {
   browserRunCreationBlocked,
   releaseBrowserRecordingRunFinalizing,
 } from "./browserRecordings.js";
-import { assessRunOutcome } from "./runVerdicts.js";
-import { notifyRunFailure, notifyRunOffGoal } from "./runAlerts.js";
+import { notifyRunFailure } from "./runAlerts.js";
+import { gradeAndPersistRunOutcome } from "./runGrading.js";
+import {
+  composeChecksBlock,
+  composeRemediationMessage,
+  listChecks,
+  runChecksForRun,
+} from "./routineChecks.js";
+import type { RunCheckResult } from "../db/entities/RunCheckResult.js";
+import {
+  StanddownError,
+  placeStanddown,
+  registerRunInterrupter,
+  unregisterRunInterrupter,
+  workBlocked,
+} from "./standdowns.js";
+import { getContainmentSettings } from "./runtimeSettings.js";
+import { priorAttemptEffects, renderPriorAttemptBlock, runEffects } from "./runEffects.js";
 import type { AIModel } from "../db/entities/AIModel.js";
 
 export { RUN_LOG_MAX_BYTES } from "./runLog.js";
@@ -70,6 +85,19 @@ export { RUN_LOG_MAX_BYTES } from "./runLog.js";
  * Max model turns before the loop stops itself (runaway-loop backstop).
  */
 const RUN_MAX_STEPS = 100;
+
+/**
+ * How many briefed rounds a Run gets to turn a failing Check green.
+ *
+ * Two, deliberately. One is often enough for the ordinary case (the employee
+ * forgot a step and is told which); a third has, in practice, nothing new to
+ * try and spends a model turn discovering that. The Run's absolute deadline
+ * bounds the whole thing regardless.
+ */
+const ROUTINE_CHECK_REMEDIATION_MAX = 2;
+
+/** A remediation round is a focused fix, not a second Run. */
+const ROUTINE_CHECK_REMEDIATION_STEPS = 30;
 
 /**
  * In-process registry of LogBuffers for runs that are still executing. The
@@ -166,6 +194,18 @@ export async function startRoutineRun(
   };
   if (browserRunCreationBlocked(runAuthority)) {
     throw new Error("This Routine is being removed.");
+  }
+  // A Standdown refuses the Run before its row exists (M58). Deliberately no
+  // `skipped` Run: a skipped row is a record of work that was attempted and
+  // could not proceed, and every consumer treats it that way — the Home panel,
+  // System Health, the Usage rollups. A stop is not a failure of this Routine,
+  // and filling a company's history with rows saying otherwise would make the
+  // stop itself look like the incident.
+  const stopped = workBlocked(co.id, { employeeId: emp.id, routineId: routine.id });
+  if (stopped.blocked) {
+    throw new StanddownError(
+      `AI work is stood down for this ${stopped.scope === "company" ? "company" : stopped.scope === "employee" ? "AI Employee" : "Routine"}: ${stopped.reason}`,
+    );
   }
   // An employee can hold several models. The routine runs on the one it pins,
   // falling back to the employee's active model when it pins none.
@@ -290,6 +330,14 @@ export async function startRoutineRun(
       if (!finalization.persisted) return saved;
       await settleAfterRun(routine.id, saved.finishedAt);
       await journalQuietly(emp.id, routine, saved);
+      // The breaker has to see this. A timeout is the *characteristic* shape of
+      // the failure it exists for — a deleted integration, a renamed report, a
+      // Connection whose token expired all hang rather than returning a tidy
+      // provider error — and every one of this function's four callers returns
+      // straight out of the completion body, so leaving the count to the happy
+      // path meant the breaker never fired on exactly the population it was
+      // built for.
+      await updateRoutineBreaker(saved, routine, co.id, emp.id);
       return saved;
     };
     try {
@@ -369,12 +417,32 @@ export async function startRoutineRun(
       const goalBlock = await goalBriefBlock(co.id, routine.goalId);
       const lessonsBlock = await composeLessonsBlock(routine.id);
       const workstreamBlock = await composeWorkstreamBlock(routine.id);
+      // What earlier attempts already did (M58). `Routine.maxAttempts`
+      // documents retries as at-least-once for side effects and warns the
+      // operator to raise it only on work that is safe to repeat — a warning
+      // that stood alone because attempt 2 had no way to know what attempt 1
+      // had done. The effect ledger is that way.
+      const priorAttemptBlock =
+        saved.attempt > 1
+          ? renderPriorAttemptBlock(
+              await priorAttemptEffects(saved).catch(() => []),
+              saved.attempt,
+            )
+          : null;
+      // The machine-verifiable bar, folded in beside the acceptance criteria so
+      // the employee aims at what it is graded against rather than discovering
+      // it in a remediation round.
+      const checksBlock = composeChecksBlock(
+        (await listChecks(routine.id, co.id).catch(() => [])).filter((c) => c.enabled),
+      );
       const userMessage = composeRoutineMessage(
         routine,
         missedSlots,
         goalBlock,
         lessonsBlock,
         workstreamBlock,
+        priorAttemptBlock,
+        checksBlock,
       );
 
       const cwd = employeeDir(co.slug, emp.slug);
@@ -422,11 +490,23 @@ export async function startRoutineRun(
         return timedOutRun;
       }
 
+      /** This Run's newest Check results, for the grader's evidence block. */
+      let checkResults: RunCheckResult[] = [];
+
       // Spend only the wall-clock budget that remains after start and context
       // setup. This timer shares the persisted Run deadline, so setup time can
       // never silently extend the configured timeout.
       const controller = new AbortController();
       let timedOut = false;
+      // A Standdown placed while this Run is in flight aborts it (M58) — a stop
+      // that only takes effect at the next slot is not a stop. The registry
+      // lives in `standdowns.ts` rather than here so the predicate and the
+      // runner do not have to import each other.
+      registerRunInterrupter(
+        saved.id,
+        { companyId: co.id, employeeId: emp.id, routineId: routine.id },
+        () => controller.abort(),
+      );
       const timer = setTimeout(() => {
         timedOut = true;
         controller.abort();
@@ -467,7 +547,11 @@ export async function startRoutineRun(
                 log.write(delta);
               },
               onToolUse: (name, input) => log.line(`\n[tool] ${name} ${previewArgs(input)}`),
-              onToolResult: (name, r) => log.line(`[tool:${name}] ${r.isError ? "error" : "ok"}`),
+              // The result, not just its shape. The loop already hands over the
+              // content and the transcript threw it away, which is why the
+              // outcome checker was told to look for "supporting tool activity"
+              // that had never been written down.
+              onToolResult: (name, r) => log.line(formatToolResultLine(name, r)),
               onUsage: (u) => {
                 // Every turn's prompt is billed in full, so the Run's cost is
                 // the sum across turns — accumulated here, persisted with the
@@ -518,6 +602,47 @@ export async function startRoutineRun(
         saved.status = "completed";
         saved.exitCode = 0;
       }
+
+      // ---- Checks (M58) ----
+      //
+      // The bar no model has a say in, run before the Run is allowed to
+      // finalize green. It sits here, above `stampRetry` and the terminal
+      // save, because a Run that failed its Checks is a Run whose retry policy
+      // should see the failure — and below the status assignment because
+      // `status` keeps meaning "the loop returned". Nothing here can change it.
+      //
+      // Remediation is a fresh briefed turn rather than a resumption of the
+      // same transcript. That is the fourth time this codebase has made that
+      // call (decision pickups, handoff and todo kickoffs, AI review sessions),
+      // and the reason is the same each time: the loop copies its message array
+      // and hands back only its final text, so "continue the same conversation"
+      // would mean threading state the runtime does not expose — and would have
+      // to be built twice, once for the direct loop and once for the Codex
+      // app-server path.
+      if (saved.status === "completed") {
+        const checkPhase = await runCheckPhase({
+          run: saved,
+          routine,
+          emp,
+          co,
+          model,
+          cwd,
+          toolEnv,
+          system,
+          mcpToken,
+          log,
+          deadlineAtMs,
+          deadlineReached,
+          skills,
+          unavailableSkillTools,
+        });
+        saved.checksVerdict = checkPhase.verdict;
+        saved.checkRemediations = checkPhase.remediations;
+        checkResults = checkPhase.results;
+        saved.tokensIn += checkPhase.tokensIn;
+        saved.tokensOut += checkPhase.tokensOut;
+      }
+
       // Before log.value(): stampRetry writes its own transcript line.
       stampRetry(saved, routine, log);
       const finalization = await finalizeRunFromRunning(runRepo, saved, log);
@@ -534,19 +659,23 @@ export async function startRoutineRun(
       // then rewind the schedule behind it, firing that slot a second time.
       await settleAfterRun(routine.id, saved.finishedAt);
       if (saved.status === "completed") {
-        await assessOutcomeQuietly(runRepo, saved, routine, emp, model);
+        await assessOutcomeQuietly(saved, routine, emp, model, checkResults);
       }
       await journalQuietly(emp.id, routine, saved);
-      // The improvement loop (M52): a failed or off-goal Run earns one
-      // reflection turn. After the journal so the lesson never delays the
-      // page a human is owed; rate-limited inside so retry chains stay quiet.
-      // The same Runs contract earned autonomy (M53): demotion is automatic
-      // and only tightens, so it runs before the reflection spends a model
-      // turn — the gates must re-arm even if reflection cannot run.
-      if (shouldReflect(saved.status, saved.outcomeVerdict)) {
+      // The improvement loop (M52): a failed, off-goal, or check-failing Run
+      // earns one reflection turn. After the journal so the lesson never
+      // delays the page a human is owed; rate-limited inside so retry chains
+      // stay quiet. The same Runs contract earned autonomy (M53): demotion is
+      // automatic and only tightens, so it runs before the reflection spends a
+      // model turn — the gates must re-arm even if reflection cannot run.
+      if (shouldReflect(saved.status, saved.outcomeVerdict, saved.checksVerdict)) {
         await contractAutonomyOnBadRun({ run: saved, employee: emp });
         await reflectOnRun({ run: saved, routine, employee: emp, model });
       }
+      // The breaker (M58). Same seam and same reasoning as the demotion above:
+      // tightening happens where the evidence appears, never on a sweep that
+      // might not run.
+      await updateRoutineBreaker(saved, routine, co.id, emp.id);
       return saved;
     } catch (err) {
       if (!agentInvocationStarted && saved.status === "running" && deadlineReached()) {
@@ -562,9 +691,14 @@ export async function startRoutineRun(
       saved = finalization.run;
       if (!finalization.persisted) return saved;
       await settleAfterRun(routine.id, saved.finishedAt);
+      // Same reason as the timeout path: a Run that threw is a failed Run, and
+      // a Routine whose every attempt throws is precisely what the breaker is
+      // watching for.
+      await updateRoutineBreaker(saved, routine, co.id, emp.id);
       return saved;
     } finally {
       if (mcpToken) revokeMcpToken(mcpToken);
+      unregisterRunInterrupter(saved.id);
       // Once the row has the final logContent, the live buffer is no longer the
       // source of truth — drop it so subsequent /log reads hit the DB.
       liveBuffers.delete(saved.id);
@@ -814,66 +948,226 @@ async function journalQuietly(employeeId: string, routine: Routine, run: Run): P
 }
 
 /**
- * Grade a completed Run against its Routine's acceptance criteria and stamp
- * the verdict on the row. Best-effort by design: the Run is already terminal
- * and persisted, and the check must never be able to change that — a checker
- * outage leaves `outcomeVerdict` null exactly as if no criteria were set.
+ * The check phase: run the Routine's Checks, and give a failing Run a bounded
+ * number of briefed rounds to fix what the server could not verify.
  *
- * Re-reads the Routine rather than trusting the object captured at start:
- * with runs allowed to last six hours, criteria edited mid-run should judge
- * (or skip) by what the row says now.
+ * Two bounds, and both matter. `ROUTINE_CHECK_REMEDIATION_MAX` stops the loop
+ * from becoming a second, unbudgeted agent run. The Run's own absolute
+ * `deadlineAtMs` stops remediation from extending `Routine.timeoutSec`, which
+ * is the hazard that forced `settleAfterRun` to run before the outcome check in
+ * the first place — a Run that quietly ran twice as long as configured would
+ * let the heartbeat dispatch its next slot underneath it.
+ */
+async function runCheckPhase(args: {
+  run: Run;
+  routine: Routine;
+  emp: AIEmployee;
+  co: Company;
+  model: AIModel;
+  cwd: string;
+  toolEnv: Record<string, string>;
+  system: string;
+  mcpToken: string;
+  log: DurableRunLog;
+  deadlineAtMs: number;
+  deadlineReached: () => boolean;
+  skills: Skill[];
+  unavailableSkillTools: string[];
+}): Promise<{
+  verdict: Run["checksVerdict"];
+  results: RunCheckResult[];
+  remediations: number;
+  tokensIn: number;
+  tokensOut: number;
+}> {
+  const { log } = args;
+  let tokensIn = 0;
+  let tokensOut = 0;
+  let remediations = 0;
+
+  const base = {
+    run: args.run,
+    routine: args.routine,
+    employee: args.emp,
+    companyId: args.co.id,
+    cwd: args.cwd,
+    toolEnv: args.toolEnv,
+    deadlineAtMs: args.deadlineAtMs,
+  };
+
+  let phase = await runChecksForRun({ ...base, attempt: 0 });
+  if (phase.verdict === "not_run") return { verdict: "not_run", results: [], remediations: 0, tokensIn, tokensOut };
+  log.line(`\n[checks] ${describeCheckPhase(phase)}`);
+
+  while (
+    phase.verdict === "failed" &&
+    remediations < ROUTINE_CHECK_REMEDIATION_MAX &&
+    !args.deadlineReached()
+  ) {
+    const remainingMs = args.deadlineAtMs - Date.now();
+    // A round with no time to work in is not a round. Say so rather than
+    // starting a turn that is certain to be aborted mid-tool-call — and break
+    // *before* counting it, because `checkRemediations` is what a human reads
+    // to judge how much trouble a Run was in, and a Run that claims a fix
+    // attempt it never made is overstating in the direction that matters.
+    if (remainingMs < 10_000) {
+      log.line("[checks] no time left in this Run's budget for another attempt.");
+      break;
+    }
+    remediations += 1;
+    log.line(`\n[checks] remediation ${remediations} of ${ROUTINE_CHECK_REMEDIATION_MAX} — asking for a fix.`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remainingMs);
+    try {
+      const result = await runEmployeeAgent({
+        model: args.model,
+        employeeId: args.emp.id,
+        system: args.system,
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: composeRemediationMessage(phase.results) }],
+          },
+        ],
+        cwd: args.cwd,
+        toolEnv: args.toolEnv,
+        genosynToken: args.mcpToken,
+        bashTimeoutMs: Math.min(remainingMs, 5 * 60 * 1000),
+        maxSteps: ROUTINE_CHECK_REMEDIATION_STEPS,
+        skillToolset: residentNamesForSkills(args.skills, args.unavailableSkillTools),
+        routineId: args.routine.id,
+        runId: args.run.id,
+        signal: controller.signal,
+        callbacks: {
+          onText: (delta) => log.write(delta),
+          onToolUse: (name, input) => log.line(`\n[tool] ${name} ${previewArgs(input)}`),
+          onToolResult: (name, r) => log.line(formatToolResultLine(name, r)),
+          onUsage: (u) => {
+            tokensIn += u.inputTokens;
+            tokensOut += u.outputTokens;
+          },
+        },
+      });
+      if (result.status === "error") log.line(`\n[checks] remediation turn failed: ${result.error}`);
+    } catch (err) {
+      // A remediation turn that throws leaves the previous verdict standing.
+      // It cannot make the Run worse, and it must not make it better.
+      log.line(`\n[checks] remediation turn failed: ${errorMessage(err)}`);
+    } finally {
+      clearTimeout(timer);
+    }
+    phase = await runChecksForRun({ ...base, attempt: remediations });
+    log.line(`\n[checks] ${describeCheckPhase(phase)}`);
+  }
+
+  return { verdict: phase.verdict, results: phase.results, remediations, tokensIn, tokensOut };
+}
+
+function describeCheckPhase(phase: {
+  verdict: Run["checksVerdict"];
+  results: RunCheckResult[];
+}): string {
+  const passed = phase.results.filter((r) => r.passed).length;
+  const failed = phase.results.filter((r) => !r.passed);
+  const head = `${passed}/${phase.results.length} passed`;
+  if (failed.length === 0) return `${head}.`;
+  return (
+    `${head}. Not passed: ` +
+    failed.map((r) => `"${r.name}"${r.required ? "" : " (advisory)"}`).join(", ") +
+    "."
+  );
+}
+
+/**
+ * The circuit breaker (M58).
+ *
+ * A Routine that is permanently broken — a deleted integration, a renamed
+ * report, a Connection whose token expired — used to fire on its cron forever,
+ * failing identically and burning model spend every slot for as long as nobody
+ * looked. The counter lives on the row so it survives a restart, and it is
+ * maintained here rather than on a sweep for the same reason autonomy demotion
+ * is: the evidence exists exactly once, at this moment.
+ */
+async function updateRoutineBreaker(
+  run: Run,
+  routine: Routine,
+  companyId: string,
+  employeeId: string,
+): Promise<void> {
+  try {
+    // A retry is still owed: the chain has not finished failing yet, and
+    // counting each attempt would trip the breaker in a single bad hour.
+    if (run.retryAt) return;
+    const clean =
+      run.status === "completed" &&
+      run.checksVerdict !== "failed" &&
+      run.outcomeVerdict !== "off_goal";
+    const repo = AppDataSource.getRepository(Routine);
+    if (clean) {
+      if (routine.consecutiveFailures === 0) return;
+      await repo.update({ id: routine.id }, { consecutiveFailures: 0 });
+      return;
+    }
+    // Defensive rather than reachable: `startRoutineRun` returns a skipped Run
+    // long before this point. Kept because "no model connected" is not a
+    // failure of the Routine's own work, and a future caller that does reach
+    // here with one must not trip the breaker on it.
+    if (run.status === "skipped") return;
+    const threshold = getContainmentSettings().routineBreakerThreshold;
+    const next = (routine.consecutiveFailures ?? 0) + 1;
+    await repo.update({ id: routine.id }, { consecutiveFailures: next });
+    if (threshold <= 0 || next < threshold) return;
+    await placeStanddown({
+      companyId,
+      scope: "routine",
+      scopeId: routine.id,
+      source: "breaker",
+      reason:
+        `${next} consecutive failed Runs — the most recent finished ${run.status}` +
+        `${run.checksVerdict === "failed" ? " with failing checks" : ""}` +
+        `${run.outcomeVerdict === "off_goal" ? " and off goal" : ""}. ` +
+        "Fix the cause and return this Routine to work.",
+      placedByUserId: null,
+    });
+  } catch (err) {
+    // The breaker is a safety net. A net that can fail a Run it was watching
+    // would be worse than no net.
+    // eslint-disable-next-line no-console
+    console.error(`[runner] breaker update failed for routine ${routine.id}:`, err);
+    void employeeId;
+  }
+}
+
+/**
+ * Grade the finished Run, without letting the check delay anything.
+ *
+ * The body moved to `services/runGrading.ts` when the re-grade sweep needed
+ * the identical path: two graders that drifted would produce two different
+ * meanings for the same verdict column.
  */
 async function assessOutcomeQuietly(
-  runRepo: Repository<Run>,
   run: Run,
   routine: Routine,
   emp: AIEmployee,
   model: AIModel,
+  checkResults: RunCheckResult[],
 ): Promise<void> {
-  try {
-    const fresh = await AppDataSource.getRepository(Routine).findOneBy({ id: routine.id });
-    if (!fresh || !fresh.acceptanceCriteria.trim()) return;
-    // The linked Goal rides into the checker as context the same way the
-    // criteria do — re-read here for the same mid-run-edit reason as `fresh`.
-    const goal = fresh.goalId
-      ? await AppDataSource.getRepository(Goal).findOneBy({ id: fresh.goalId, companyId: emp.companyId })
-      : null;
-    const assessment = await assessRunOutcome({
-      run,
-      routine: fresh,
-      employee: emp,
-      model,
-      goal: goal && goal.status === "active" ? goal : null,
-    });
-    const tokensIn = run.tokensIn + assessment.usage.inputTokens;
-    const tokensOut = run.tokensOut + assessment.usage.outputTokens;
-    // Conditional on the status this process persisted, so a row another
-    // owner has since rewritten (or a deleted Routine's cascade) is left alone.
-    const updated = await runRepo.update(
-      { id: run.id, status: "completed" },
-      {
-        routineId: run.routineId,
-        outcomeVerdict: assessment.verdict,
-        outcomeNote: assessment.note,
-        tokensIn,
-        tokensOut,
-      },
-    );
-    if (updated.affected !== 1) return;
-    run.outcomeVerdict = assessment.verdict;
-    run.outcomeNote = assessment.note;
-    run.tokensIn = tokensIn;
-    run.tokensOut = tokensOut;
-    if (assessment.verdict === "off_goal") {
-      void notifyRunOffGoal(run, assessment.note).catch((err) => {
-        // eslint-disable-next-line no-console
-        console.error(`[runner] failed to notify off-goal run ${run.id}:`, err);
-      });
-    }
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error(`[runner] outcome check failed for run ${run.id}:`, err);
-  }
+  await gradeAndPersistRunOutcome({
+    run,
+    routine,
+    employee: emp,
+    model,
+    // Both already in hand from the check phase — passing them saves the
+    // grader two reads and, more importantly, guarantees it grades against
+    // exactly the evidence the checks were evaluated on.
+    effects: await runEffects(run.id, { companyId: emp.companyId }).catch(() => undefined),
+    checkResults: checkResults.map((r) => ({
+      name: r.name,
+      required: r.required,
+      passed: r.passed,
+      detail: r.detail,
+    })),
+  });
 }
 
 /**
@@ -911,11 +1205,17 @@ function composeRoutineMessage(
   goalBlock: string | null,
   lessonsBlock: string,
   workstreamBlock: string,
+  priorAttemptBlock: string | null,
+  checksBlock: string | null,
 ): string {
   return [
     `## Routine: ${routine.name}`,
     "",
     routine.body,
+    // What an earlier attempt of this same Run already changed (M58). High in
+    // the brief on purpose: it changes what the work *is*, not merely how it
+    // should be reported.
+    ...(priorAttemptBlock ? ["", priorAttemptBlock] : []),
     // The objective this work serves, when the Routine declares one — folded
     // beside the criteria so the employee aims at the goal it is graded on.
     ...(goalBlock ? ["", "## Goal", goalBlock] : []),
@@ -937,6 +1237,10 @@ function composeRoutineMessage(
             "Make sure the transcript shows they were met — do the work, don't just claim it.",
         ]
       : []),
+    // The Checks that will grade this Run mechanically. Shown after the
+    // criteria because they are narrower: the criteria say what good work is,
+    // the Checks say what the server will be able to see of it.
+    ...(checksBlock ? ["", checksBlock] : []),
     "",
     "---",
     "Run this routine now. Produce the expected output.",

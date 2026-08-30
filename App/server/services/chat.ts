@@ -12,6 +12,7 @@ import {
 } from "./mcpTokens.js";
 import { loadCompanySecretsEnv } from "../routes/secrets.js";
 import { composeMemoryContext } from "./employeeMemory.js";
+import { workBlocked } from "./standdowns.js";
 import { composeGoalsContext } from "./goals.js";
 import { composePoliciesContext } from "./companyPolicies.js";
 import { materializeReposForEmployee } from "./repoSync.js";
@@ -376,6 +377,30 @@ export async function streamChatWithEmployee(
     return { status: "error", reply: "Employee not found.", attachmentIds: [], sidecars: {} };
   const co = await coRepo.findOneBy({ id: companyId });
   if (!co) return { status: "error", reply: "Company not found.", attachmentIds: [], sidecars: {} };
+
+  // A Standdown stops chat too (M58), at company and employee scope. This one
+  // function is the neck every system-initiated background session passes
+  // through — todo, handoff, review and decision kickoffs, mail handovers, the
+  // meetings and revenue boots, pipelines, Telegram — so one gate here covers
+  // all of them, plus the interactive seam.
+  //
+  // Routine scope deliberately does NOT stop chat: standing one Routine down is
+  // a statement about that job, not about talking to the employee. The two
+  // wider scopes do, because a stop a human can route around by opening a chat
+  // window is not a stop, and the employee reached that way holds every tool it
+  // holds anywhere else.
+  const stopped = workBlocked(companyId, { employeeId });
+  if (stopped.blocked) {
+    return {
+      status: "error",
+      reply:
+        `${emp.name} is stood down and cannot work right now.\n\nReason given: ${stopped.reason}\n\n` +
+        "An admin can return this work at Settings → Standdowns.",
+      attachmentIds: [],
+      sidecars: {},
+    };
+  }
+
   const model = await resolveChatModel(emp.id, options.modelId);
 
   const [requesterMembership, requesterUser] = options.requesterUserId

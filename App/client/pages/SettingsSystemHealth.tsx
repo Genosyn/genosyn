@@ -8,7 +8,7 @@ import {
   ChevronRight,
   RefreshCw,
 } from "lucide-react";
-import { api, HealthCheck, HealthSeverity, SystemHealthReport } from "../lib/api";
+import { api, HealthProbe, HealthSeverity, SystemHealthReport } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
@@ -169,7 +169,7 @@ function OverallBanner({ report }: { report: SystemHealthReport }) {
   );
 }
 
-function CheckCard({ check }: { check: HealthCheck }) {
+function CheckCard({ check }: { check: HealthProbe }) {
   const style = SEVERITY_STYLE[check.severity];
   const Icon = style.icon;
   return (

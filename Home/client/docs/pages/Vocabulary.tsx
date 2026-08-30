@@ -225,6 +225,19 @@ export function Vocabulary() {
             ),
           },
           {
+            term: "Check",
+            def: (
+              <>
+                A machine-verifiable assertion a Run must pass before it finalizes green — a
+                predicate over the effects the server recorded, or a command that must exit 0 in
+                the sandbox. Written by an operator, evaluated by the server, and unreachable from
+                every MCP tool. Never a &quot;test,&quot; an &quot;assertion,&quot; or a
+                &quot;gate&quot; — System Health keeps &quot;probe&quot; for its own diagnostics.
+                See <DocLink to="/docs/verification">What proves a Run worked</DocLink>.
+              </>
+            ),
+          },
+          {
             term: "Decision",
             def: (
               <>
@@ -249,8 +262,9 @@ export function Vocabulary() {
             term: "Lesson",
             def: (
               <>
-                What a failed, timed-out, or <Code>off goal</Code> Run teaches the next one: a
-                cause and an advice, written by a restricted retrospective turn, opening the
+                What a failed, timed-out, <Code>off goal</Code>, or Check-failing Run teaches the
+                next one: a cause and an advice, written by a restricted retrospective turn,
+                opening the
                 Routine&apos;s future Run briefs until dismissed. Never &quot;Learning,&quot;
                 &quot;Insight,&quot; or &quot;Retro.&quot; See{" "}
                 <DocLink to="/docs/improvement">The improvement loop</DocLink>.
@@ -280,13 +294,26 @@ export function Vocabulary() {
             ),
           },
           {
+            term: "Standdown",
+            def: (
+              <>
+                A revocable stop on all AI work at company, employee, or Routine scope, placed by
+                an admin or by the consecutive-failure breaker. The exact inverse of a Waiver —
+                imposed rather than earned, broad rather than narrow — and distinct from{" "}
+                <Code>Routine.enabled</Code>, which stays the ordinary switch. Never
+                &quot;pause,&quot; &quot;hold,&quot; &quot;suspend,&quot; or &quot;freeze.&quot;
+                See <DocLink to="/docs/standdowns">Standdowns</DocLink>.
+              </>
+            ),
+          },
+          {
             term: "Waiver",
             def: (
               <>
                 One approval gate switched off for an AI Employee that earned it — browser submits
                 for the employee, or gated ticks for one Routine. Proposed by the eligibility sweep
-                through the Approvals inbox; revoked automatically by any failed, timed-out, or off
-                goal Run. Never &quot;trust score,&quot; &quot;tier,&quot; or &quot;level.&quot;
+                through the Approvals inbox; revoked automatically by any Run that failed, timed
+                out, graded off goal, or failed a required Check. Never &quot;trust score,&quot; &quot;tier,&quot; or &quot;level.&quot;
                 See <DocLink to="/docs/autonomy">Earned autonomy</DocLink>.
               </>
             ),

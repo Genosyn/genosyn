@@ -27,6 +27,7 @@ import { routineTemplate } from "../services/files.js";
 import { getGoal } from "../services/goals.js";
 import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { startRoutineRun, getLiveRunSnapshot, RUN_LOG_MAX_BYTES } from "../services/runner.js";
+import { StanddownError } from "../services/standdowns.js";
 import { cancelPendingRetry } from "../services/runRecovery.js";
 import { recordAudit } from "../services/audit.js";
 import { getOwnedMemberBrowser } from "../services/memberBrowsers.js";
@@ -607,7 +608,27 @@ routinesRouter.post("/routines/:rid/run", async (req, res) => {
   // and poll /runs/:runId/log while the child process is still alive. The
   // completion promise is left to settle in the background; errors are
   // captured on the Run row, so we just swallow rejections here.
-  const { run, completion } = await startRoutineRun(found.routine);
+  //
+  // The *start* can refuse, though, and that has to be answered rather than
+  // thrown: Express 4 does not catch a rejected async handler, so an
+  // uncaught refusal here takes the process down. A Standdown makes that a
+  // routine occurrence rather than a theoretical one — pressing "Run now" on a
+  // stopped Routine is exactly what a person does when they have forgotten it
+  // is stopped, and they deserve the reason back, not a dead server.
+  let run: Run;
+  let completion: Promise<Run>;
+  try {
+    ({ run, completion } = await startRoutineRun(found.routine));
+  } catch (err) {
+    if (err instanceof StanddownError) {
+      return res.status(409).json({ error: err.message });
+    }
+    // eslint-disable-next-line no-console
+    console.error("[run] could not start:", err);
+    return res.status(500).json({
+      error: err instanceof Error ? err.message : "Could not start the run.",
+    });
+  }
   completion.catch((err) => {
     console.error("[run]", err);
   });

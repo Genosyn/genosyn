@@ -83,6 +83,25 @@ describe("shouldReflect", () => {
     assert.equal(shouldReflect("interrupted", null), false);
     assert.equal(shouldReflect("skipped", null), false);
   });
+
+  test("a failed required Check reflects, exactly as off_goal does", () => {
+    assert.equal(shouldReflect("completed", "achieved", "failed"), true);
+    assert.equal(shouldReflect("completed", null, "failed"), true);
+    assert.equal(shouldReflect("completed", "achieved", "passed"), false);
+    assert.equal(shouldReflect("completed", "achieved", "not_run"), false);
+  });
+
+  test("an unverified Run earns no lesson — an outage has nothing to teach", () => {
+    assert.equal(shouldReflect("completed", "unverified"), false);
+    assert.equal(shouldReflect("completed", "unverified", "passed"), false);
+    // It is still not a clean Run; that consequence lives in autonomy.ts.
+    assert.equal(shouldReflect("completed", "unverified", "failed"), true);
+  });
+
+  test("the new parameter is optional — an un-updated caller keeps the old answers", () => {
+    assert.equal(shouldReflect("completed", "off_goal"), true);
+    assert.equal(shouldReflect("completed", "achieved"), false);
+  });
 });
 
 describe("reflectOnRun", () => {
@@ -134,6 +153,24 @@ describe("reflectOnRun", () => {
     });
     assert.equal(lesson, null);
     assert.equal(await AppDataSource.getRepository(RunLesson).countBy({ routineId: routine.id }), 0);
+  });
+
+  test("a Run that failed a Check is told so, as fact rather than as a reading", async () => {
+    let seenSystem = "";
+    await reflectOnRun({
+      run: fakeRun({ status: "completed", checksVerdict: "failed" }),
+      routine,
+      employee,
+      model,
+      runRestricted: (async (params: { system: string; tools: AgentTool[] }) => {
+        seenSystem = params.system;
+        await params.tools[0].run({ cause: "No post was made", advice: "Post before finishing" });
+        return { status: "ok", finalText: "", steps: 2, stopReason: "end_turn" };
+      }) as never,
+    });
+    assert.match(seenSystem, /a required Check did not pass/);
+    assert.match(seenSystem, /## What the Checks said/);
+    assert.doesNotMatch(seenSystem, /graded off-goal/);
   });
 
   test("a reflection outage costs nothing but the lesson", async () => {

@@ -55,6 +55,7 @@ import { Spinner } from "../components/ui/Spinner";
 import { TopBar } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { MarkdownEditor } from "../components/MarkdownEditor";
+import { StanddownBanner, StanddownControl } from "../components/StanddownBanner";
 import { Modal } from "../components/ui/Modal";
 import { useDialog } from "../components/ui/Dialog";
 import { Select } from "../components/ui/Select";
@@ -170,10 +171,16 @@ const OPENAI_SUBSCRIPTION_DEFAULT_MODEL = "gpt-5.6-terra";
 export function SettingsPage() {
   const ctx = useCtx();
   return (
-    <div className="flex flex-col gap-6 md:flex-row">
-      <SettingsSideNav company={ctx.company} emp={ctx.emp} />
-      <div className="min-w-0 flex-1">
-        <Outlet context={ctx} />
+    <div className="flex flex-col gap-6">
+      {/* Above the rail, not inside a tab: a Standdown covers everything this
+          employee does, so it must be true on every settings pane rather than
+          only on the one that happens to own the button. */}
+      <StanddownBanner company={ctx.company} employeeId={ctx.emp.id} />
+      <div className="flex flex-col gap-6 md:flex-row">
+        <SettingsSideNav company={ctx.company} emp={ctx.emp} />
+        <div className="min-w-0 flex-1">
+          <Outlet context={ctx} />
+        </div>
       </div>
     </div>
   );
@@ -197,7 +204,10 @@ type SettingsNavEntry = {
  * lists filtered to this employee, and say so with a corner arrow rather than
  * pretending to be a settings pane.
  */
-function settingsNavGroups(company: Company, emp: Employee): { title: string; items: SettingsNavEntry[] }[] {
+function settingsNavGroups(
+  company: Company,
+  emp: Employee,
+): { title: string; items: SettingsNavEntry[] }[] {
   return [
     {
       title: "Employee",
@@ -275,9 +285,11 @@ function SettingsSideNav({ company, emp }: { company: Company; emp: Employee }) 
         aria-label="Employee settings"
         className="-mx-8 flex gap-1 overflow-x-auto px-8 pb-1 md:hidden"
       >
-        {groups.flatMap((g) => g.items).map((item) => (
-          <SettingsNavItem key={item.to} item={item} pill />
-        ))}
+        {groups
+          .flatMap((g) => g.items)
+          .map((item) => (
+            <SettingsNavItem key={item.to} item={item} pill />
+          ))}
       </nav>
       <nav aria-label="Employee settings" className="hidden w-48 shrink-0 md:block">
         {groups.map((group) => (
@@ -318,12 +330,7 @@ function SettingsNavItem({ item, pill }: { item: SettingsNavEntry; pill?: boolea
         : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800");
 
   const link = (
-    <NavLink
-      to={item.to}
-      end={!item.away}
-      title={item.away}
-      className={className}
-    >
+    <NavLink to={item.to} end={!item.away} title={item.away} className={className}>
       {body}
     </NavLink>
   );
@@ -379,9 +386,38 @@ export function AutonomySettingsPage() {
       <TopBar title="Autonomy" />
       <div className="flex flex-col gap-4">
         <EmployeeAutonomyCard company={company} emp={emp} />
+        <EmployeeStanddownCard company={company} emp={emp} />
         <EmployeeWakeupsCard company={company} emp={emp} />
       </div>
     </>
+  );
+}
+
+/**
+ * The stop, filed beside the autonomy record because it is the same axis read
+ * from the other end: a Waiver is earned, narrow, and widens what this
+ * employee may do without a human, while a Standdown is imposed, broad, and
+ * stops it. The banner above carries the way back to work when one is in
+ * force; this card only ever places one.
+ */
+function EmployeeStanddownCard({ company, emp }: { company: Company; emp: Employee }) {
+  return (
+    <Card>
+      <CardBody className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            Stand {emp.name} down
+          </div>
+          <div className="mt-0.5 max-w-xl text-xs text-slate-500 dark:text-slate-400">
+            A revocable stop on everything they do: Routines stop firing, Wakeups and Triggers defer
+            rather than pile up, Runs in flight are interrupted, and chat with them is refused — a
+            stop somebody can route around by opening a chat window is not a stop. Nothing is
+            deleted and no configuration changes; an admin returns them to work when it is safe.
+          </div>
+        </div>
+        <StanddownControl company={company} scope="employee" scopeId={emp.id} label={emp.name} />
+      </CardBody>
+    </Card>
   );
 }
 
@@ -658,8 +694,7 @@ function EmployeeDangerZoneCard({ company, emp }: { company: Company; emp: Emplo
   async function remove() {
     const ok = await dialog.confirm({
       title: `Fire ${emp.name}?`,
-      message:
-        "Their workspace on disk, conversations, routines, and skills will be removed.",
+      message: "Their workspace on disk, conversations, routines, and skills will be removed.",
       confirmLabel: "Delete employee",
       variant: "danger",
     });
@@ -685,8 +720,8 @@ function EmployeeDangerZoneCard({ company, emp }: { company: Company; emp: Emplo
               Delete employee
             </h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Removes {emp.name}, their workspace on disk, conversations, routines, and skills.
-              This cannot be undone.
+              Removes {emp.name}, their workspace on disk, conversations, routines, and skills. This
+              cannot be undone.
             </p>
           </div>
           <Button variant="danger" size="sm" disabled={deleting} onClick={remove}>

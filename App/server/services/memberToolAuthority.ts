@@ -22,6 +22,12 @@ const MEMBER_TOOLS = [
   "list_skills",
   "list_routines",
   "get_routine",
+  // Reading run history is member-level on the human route too:
+  // `routes/routines.ts` admin-gates the mutations and leaves
+  // `GET /routines/:rid/runs` and the run log open to every Member. These two
+  // tools are strictly narrower — they read the same rows, and neither writes.
+  "list_runs",
+  "get_run_report",
   // Goals are the company's shared direction — the human route lists them at
   // member level for the same reason.
   "list_goals",

@@ -44,6 +44,7 @@ export const RUNTIME_SETTING_KEYS = {
   meetings: "runtime.meetings",
   browser: "runtime.browser",
   agent: "runtime.agent",
+  containment: "runtime.containment",
 } as const;
 
 export type RuntimeSettingsGroup = keyof typeof RUNTIME_SETTING_KEYS;
@@ -114,12 +115,38 @@ export type RuntimeAgentSettings = {
   toolDiscovery: { enabled: boolean; minCatalogueSize: number };
 };
 
+/**
+ * Containment (M58) — the knobs on the circuit breaker that stands a Routine
+ * down after it has failed for long enough that the next slot is certain to
+ * fail too. Operational rather than boot-critical: an operator raising the
+ * threshold during an incident must not have to edit a file and restart a
+ * container, which is exactly what AGENTS.md §5 exists to prevent.
+ */
+export type RuntimeContainmentSettings = {
+  /**
+   * Consecutive bad Runs on one Routine before the runner places a
+   * `breaker`-sourced Standdown on it. 0 disables the breaker entirely, which
+   * restores the pre-M58 behaviour of a broken Routine firing forever.
+   */
+  routineBreakerThreshold: number;
+  /**
+   * How stale a completed Run's missing outcome verdict has to be before the
+   * re-grade sweep picks it up, in minutes. Long enough that the normal
+   * in-line check is never raced; short enough that a restart inside the
+   * verdict window is repaired the same hour.
+   */
+  regradeAfterMinutes: number;
+  /** Runs re-graded per heartbeat pass. Each one is a model turn. */
+  regradePerPass: number;
+};
+
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
   meetings: RuntimeMeetingsSettings;
   browser: RuntimeBrowserSettings;
   agent: RuntimeAgentSettings;
+  containment: RuntimeContainmentSettings;
 };
 
 /** Whether each group is currently backed by a stored row (vs. the default). */
@@ -167,6 +194,11 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
     taintPolicy: "web",
     memberBrowsersEnabled: true,
     toolDiscovery: { enabled: true, minCatalogueSize: 40 },
+  },
+  containment: {
+    routineBreakerThreshold: 5,
+    regradeAfterMinutes: 10,
+    regradePerPass: 10,
   },
 } satisfies RuntimeSettings);
 
@@ -407,6 +439,30 @@ export function parseAgentSettings(raw: unknown): RuntimeAgentSettings {
   };
 }
 
+export function parseContainmentSettings(raw: unknown): RuntimeContainmentSettings {
+  const o = asRecord(raw);
+  const d = RUNTIME_SETTINGS_DEFAULTS.containment;
+  return {
+    routineBreakerThreshold: intField(
+      o,
+      "containment",
+      "routineBreakerThreshold",
+      d.routineBreakerThreshold,
+      0,
+      1_000,
+    ),
+    regradeAfterMinutes: intField(
+      o,
+      "containment",
+      "regradeAfterMinutes",
+      d.regradeAfterMinutes,
+      1,
+      10_080,
+    ),
+    regradePerPass: intField(o, "containment", "regradePerPass", d.regradePerPass, 0, 200),
+  };
+}
+
 /** One parser per group, so refresh, write, and legacy import share a code path. */
 const PARSERS: {
   [G in RuntimeSettingsGroup]: (raw: unknown) => RuntimeSettings[G];
@@ -416,6 +472,7 @@ const PARSERS: {
   meetings: parseMeetingsSettings,
   browser: parseBrowserSettings,
   agent: parseAgentSettings,
+  containment: parseContainmentSettings,
 };
 
 // ────────────────────────────── the cache ──────────────────────────────────
@@ -427,6 +484,7 @@ let overridden: RuntimeSettingsOverridden = {
   meetings: false,
   browser: false,
   agent: false,
+  containment: false,
 };
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -467,6 +525,11 @@ export function getAgentSettings(): RuntimeAgentSettings {
   return effective("agent");
 }
 
+/** Containment. Read at every Run finalization and on every heartbeat pass. */
+export function getContainmentSettings(): RuntimeContainmentSettings {
+  return effective("containment");
+}
+
 function parseRow(group: RuntimeSettingsGroup, value: string): unknown {
   try {
     return JSON.parse(value);
@@ -488,6 +551,7 @@ async function refreshRuntimeSettings(): Promise<void> {
     meetings: false,
     browser: false,
     agent: false,
+    containment: false,
   };
   for (const group of RUNTIME_SETTINGS_GROUPS) {
     const raw = byKey.get(RUNTIME_SETTING_KEYS[group]);
@@ -530,6 +594,7 @@ export async function getRuntimeSettingsSnapshot(): Promise<RuntimeSettingsSnaps
     meetings: effective("meetings"),
     browser: effective("browser"),
     agent: effective("agent"),
+    containment: effective("containment"),
     overridden: { ...overridden },
   };
 }
@@ -591,7 +656,14 @@ export function overrideRuntimeSettingsForTests(patch: RuntimeSettingsOverrides 
 /** Drop the cache back to defaults, forget warnings, and clear overrides. */
 export function resetRuntimeSettingsCacheForTests(): void {
   cache = defaultRuntimeSettings();
-  overridden = { web: false, mail: false, meetings: false, browser: false, agent: false };
+  overridden = {
+    web: false,
+    mail: false,
+    meetings: false,
+    browser: false,
+    agent: false,
+    containment: false,
+  };
   testOverrides = {};
   warned.clear();
 }

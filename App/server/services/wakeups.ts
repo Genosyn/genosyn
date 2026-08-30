@@ -7,6 +7,7 @@ import { Routine } from "../db/entities/Routine.js";
 import { chatWithEmployee } from "./chat.js";
 import { getActiveModel } from "./models.js";
 import { recordAudit } from "./audit.js";
+import { workBlocked } from "./standdowns.js";
 
 /**
  * Wakeups — the timer the wake-source family lacked (M54). Everything here
@@ -118,6 +119,11 @@ export async function dispatchDueWakeups(
     take: DISPATCH_PER_SWEEP,
   });
   for (const wakeup of due) {
+    // A Standdown defers a wakeup rather than firing or cancelling it (M58):
+    // the row stays `pending` with its time in the past, so it fires on the
+    // first sweep after the lift. Dropping it would silently discard a
+    // follow-up the employee committed to, which a pause should never do.
+    if (workBlocked(wakeup.companyId, { employeeId: wakeup.employeeId }).blocked) continue;
     const claim = await repo.update(
       { id: wakeup.id, status: "pending" },
       { status: "fired", firedAt: new Date() },

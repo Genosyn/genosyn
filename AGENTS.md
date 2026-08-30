@@ -101,6 +101,9 @@ code, UI copy, commits, and docs.
 | **Member browser** (a Chrome a human connected from their own computer — `MemberBrowser`) | Connection, Browser Connection, Device |
 | **Decision** (a question an AI Employee stacked for the company to answer — a human, or the AI decider a `DecisionPolicy` rule names — `Decision`) | Approval, Question, Ask, Escalation |
 | **Waiver** (an earned, revocable exemption from one human gate — `AutonomyWaiver`) | Tier, Level, Trust score |
+| **Check** (a machine-verifiable assertion a Run must pass before it finalizes green — `RoutineCheck`, result `RunCheckResult`) | Test, Assertion, Gate, Validation |
+| **Standdown** (a revocable stop on all AI work at one scope — `Standdown`) | Pause, Hold, Suspend, Freeze, Kill switch |
+| **Effects** (what a Run actually changed, read back from the audit rows its own token wrote — `services/runEffects.ts`) | Trace, Log, Activity, History |
 | **Budget** (a monthly ad-spend envelope — `Budget`) | Cap, Limit, Allowance (as product nouns) |
 | **Trigger** (an event subscription that fires a Routine — `RoutineTrigger`; a Revenue **Signal** stays a cron-evaluated query, never a Trigger) | Subscription, Listener, Hook |
 | **Wakeup** (a timed follow-up session an employee schedules for itself — `EmployeeWakeup`) | Reminder, Timer, Snooze |
@@ -137,6 +140,35 @@ browser** (`MemberBrowser`, granted to employees through
 not least because `IntegrationAuthMode` already has a `"browser"` mode meaning
 "a Connection whose credentials the headless browser replays". Two unrelated
 meanings on one word is what this table exists to prevent.
+
+**A Check is not a health check, and a Standdown is not `Routine.enabled`.**
+The word "check" had a second meaning in this codebase — one named condition on
+the System Health page — so M58 renamed those to **probes** (`HealthProbe`,
+`InstanceProbe`) rather than let two unrelated things share a noun. A **Check**
+is now exactly one thing: a machine-verifiable assertion a Run must pass, which
+the graded party cannot author. That last clause is the whole primitive — there
+is deliberately no MCP tool that creates, edits, or deletes one, because a bar
+the graded party can write is not a bar. It may *read* its Checks, and does, in
+its Run brief.
+
+**A Standdown** is likewise not a rename of `Routine.enabled`, which stays the
+ordinary per-routine switch and is untouched. A Standdown is the emergency
+instrument: it names a scope (company / employee / routine), records who
+stopped the work and why, aborts Runs already in flight, defers rather than
+cancels what was queued, and can be placed by the circuit breaker as well as by
+a human. It is the exact inverse of a **Waiver** — a Waiver is earned, narrow,
+and widens what an AI may do without a human; a Standdown is imposed, broad, and
+stops it. Neither direction has an MCP tool: the roster must not be able to
+stand itself down and, far more importantly, must not be able to lift one.
+
+**"Unverified" is not "unclear".** `Run.outcomeVerdict` carries both and they
+are not interchangeable. `unclear` is a judgement — the checker looked at the
+evidence and could not tell. `unverified` is the absence of one — the checker
+errored, timed out, or never ran. They were one word until M58, and every
+consumer read the pair as "nothing was wrong", which meant a provider outage
+earned an employee the same credit toward unattended work as a graded success.
+Do not collapse them again, and do not let a new consumer treat a null verdict
+as a clean one.
 
 **"Decision" and "Approval" are not synonyms**, and the split is the whole
 point of both. An **Approval** is the *system* interposing on an action an
@@ -576,6 +608,13 @@ public site until it reaches `release`. See
   posture). Anything an operator can safely change while the app runs goes in
   `services/runtimeSettings.ts` and gets a control at Admin → Runtime. See
   section 5.
+- Giving an AI Employee a tool that writes a **Check** or lifts a
+  **Standdown**. A bar the graded party can author is not a bar, and a stop the
+  stopped party can lift is not a stop. Read-only exposure is fine and already
+  exists — an employee sees its Routine's Checks in its Run brief and can read
+  a Run's report — but the write side belongs to a human at an admin-gated
+  route, permanently.
+- Treating a null or `unverified` outcome verdict as a clean Run. See §3.
 - Skipping the zod schema on a new endpoint.
 - Hand-writing a migration file. Always run
   `npm run migration:generate -- server/db/migrations/<Name>` and commit

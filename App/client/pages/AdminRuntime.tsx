@@ -7,6 +7,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  ShieldAlert,
   Video,
 } from "lucide-react";
 import { api, type RuntimeSettingsGroup, type RuntimeSettingsSnapshot } from "../lib/api";
@@ -23,8 +24,9 @@ import { clsx } from "../components/ui/clsx";
 /**
  * Admin → Runtime. The operational knobs an operator used to change by editing
  * `config.ts` and restarting the container: the open-web tools, mail sync
- * pacing, meetings, the browser Genosyn drives itself, and the agent's taint
- * policy / member browsers / tool discovery.
+ * pacing, meetings, the browser Genosyn drives itself, the agent's taint
+ * policy / member browsers / tool discovery, and containment — the circuit
+ * breaker and the re-grade sweep.
  *
  * Each section is one group, stored as a single JSON row in `app_settings` and
  * read through a 30s cache on the server, so a save reaches every replica
@@ -39,8 +41,8 @@ const LABEL_CLASS = "mb-1 block text-xs font-medium text-slate-600 dark:text-sla
 
 // ────────────────────────────── field model ────────────────────────────────
 //
-// The five groups are the same kind of form five times over, so they are
-// described as data rather than written out five times. A draft holds one
+// The groups are the same kind of form several times over, so they are
+// described as data rather than written out once each. A draft holds one
 // entry per field keyed by its dotted path (`toolDiscovery.minCatalogueSize`
 // is the only nested one): booleans stay booleans, everything else is the
 // string the person is typing, so a half-entered number never rounds itself
@@ -102,8 +104,7 @@ const GROUPS: GroupSpec[] = [
     group: "web",
     title: "Web tools",
     icon: <Globe2 size={16} className="text-indigo-500" />,
-    blurb:
-      "The open-web tools an AI Employee uses to search, read a page, and download a file.",
+    blurb: "The open-web tools an AI Employee uses to search, read a page, and download a file.",
     fields: [
       {
         kind: "boolean",
@@ -312,6 +313,42 @@ const GROUPS: GroupSpec[] = [
       },
     ],
   },
+  {
+    group: "containment",
+    title: "Containment",
+    icon: <ShieldAlert size={16} className="text-indigo-500" />,
+    blurb:
+      "When Genosyn stops a Routine by itself, and how it finishes grading Runs the runner never got to.",
+    fields: [
+      {
+        kind: "int",
+        path: "routineBreakerThreshold",
+        label: "Routine breaker threshold",
+        min: 0,
+        max: 1_000,
+        unit: "consecutive bad Runs",
+        help: "After this many consecutive failed or off-goal Runs, the breaker stands the Routine down and an admin has to return it to work. 0 turns the breaker off, so a permanently broken Routine keeps firing on every slot.",
+      },
+      {
+        kind: "int",
+        path: "regradeAfterMinutes",
+        label: "Re-grade after",
+        min: 1,
+        max: 10_080,
+        unit: "minutes",
+        help: "How long a finished Run may sit without a verdict before the sweep grades it. Long enough that it never races the check the runner is already running.",
+      },
+      {
+        kind: "int",
+        path: "regradePerPass",
+        label: "Re-grades per pass",
+        min: 0,
+        max: 200,
+        unit: "Runs",
+        help: "Ceiling per heartbeat pass. Each re-grade spends a model turn, so this is the knob to lower during an incident.",
+      },
+    ],
+  },
 ];
 
 // ─────────────────────────── draft ⇄ value plumbing ────────────────────────
@@ -346,9 +383,7 @@ function seedDraft(fields: FieldSpec[], value: unknown): Draft {
   return draft;
 }
 
-type BuildResult =
-  | { ok: true; value: Record<string, unknown> }
-  | { ok: false; error: string };
+type BuildResult = { ok: true; value: Record<string, unknown> } | { ok: false; error: string };
 
 /** Turn a draft back into the group payload, reporting the first bad field. */
 function buildValue(fields: FieldSpec[], draft: Draft): BuildResult {
@@ -398,7 +433,8 @@ function sameValue(a: unknown, b: unknown): boolean {
 function humanBytes(raw: DraftValue): string | null {
   const bytes = Number(String(raw).trim());
   if (!Number.isFinite(bytes) || bytes <= 0) return null;
-  if (bytes >= 1024 * 1024) return `≈ ${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MB`;
+  if (bytes >= 1024 * 1024)
+    return `≈ ${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MB`;
   if (bytes >= 1024) return `≈ ${(bytes / 1024).toFixed(0)} KB`;
   return `${bytes} bytes`;
 }
@@ -734,7 +770,5 @@ function Field({
 }
 
 function FieldHelp({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{children}</p>
-  );
+  return <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{children}</p>;
 }

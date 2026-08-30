@@ -163,8 +163,21 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * block names `update_workstream` as an instruction, so a discovery miss
  * there reads as the product refusing its own brief. ~2,900 characters
  * remain for the six returned schemas inside the 8,000-char envelope.
+ *
+ * Raised to 5,120 for M58's two-tool `runs` domain (`list_runs`,
+ * `get_run_report`) — 31 characters. Unlike every raise above it, this domain's
+ * absence would not be a worse tool but a blind spot: there was no run-reading
+ * tool in this product at all, so an employee briefed about a Routine that has
+ * been stood down for repeated failure, or a manager asked why a colleague's
+ * work is not landing, has nothing to open. An employee that misses `list_runs`
+ * does not conclude the record is undiscovered; it concludes the record is
+ * unreadable, and answers from the transcript it happens to remember — which is
+ * precisely the substitution M58 exists to stop. `get_run_report` has to appear
+ * by name because "why did it fail" and "what did that run actually change"
+ * match nothing else lexically. ~2,880 characters remain for the six returned
+ * schemas inside the 8,000-char envelope.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 5_080;
+const DOMAIN_FOOTER_CHARS_MAX = 5_120;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

@@ -217,6 +217,23 @@ export class Routine {
   @Column({ type: "boolean", default: false })
   retryOnTimeout!: boolean;
 
+  /**
+   * Consecutive bad Runs with no retry still owed — the circuit breaker's
+   * counter. "Bad" is any terminal Run that is not `completed`, or a completed
+   * Run whose required Checks failed or whose outcome went off-goal. Reset to
+   * 0 by the first Run that is clean on every axis.
+   *
+   * Maintained at the same runner seam as `contractAutonomyOnBadRun`, and for
+   * the same reason: tightening happens at the moment the evidence appears,
+   * never on a sweep that might not run. On crossing
+   * `runtime.containment.routineBreakerThreshold` the runner places a
+   * `breaker`-sourced Standdown on this Routine, so a permanently broken
+   * Routine stops burning model spend every slot for thirty days instead of
+   * failing quietly forever.
+   */
+  @Column({ type: "integer", default: 0 })
+  consecutiveFailures!: number;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

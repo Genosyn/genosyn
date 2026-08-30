@@ -17,6 +17,7 @@ import { EmailLog } from "../db/entities/EmailLog.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
+import { Standdown } from "../db/entities/Standdown.js";
 
 /**
  * System Health — a company-scoped roll-up of "is anything broken?" signals,
@@ -25,10 +26,18 @@ import { Run } from "../db/entities/Run.js";
  * example items + deep-links) and a compact summary embedded on the Home page
  * card. Both call into {@link computeChecks} so the two views never disagree.
  *
- * A "check" is one named condition (failed runs, stuck runs, broken
+ * A **probe** is one named condition (failed runs, stuck runs, broken
  * integrations, …). Each reports a severity, a count of affected things, a
  * one-line human summary, and up to {@link MAX_ITEMS} example rows that each
  * deep-link to where the member can act.
+ *
+ * It used to be called a "check", and was renamed when M58 gave **Check** a
+ * product meaning — a machine-verifiable assertion a Run must pass. Two
+ * unrelated meanings on one word is exactly what AGENTS.md §3 exists to
+ * prevent, and a reader seeing "checks" on a Routine page and "checks" here
+ * would have had no way to know they were unrelated. The wire field is still
+ * `checks`, deliberately: renaming a published JSON key buys nothing and would
+ * break any client mid-upgrade.
  */
 
 export type HealthSeverity = "ok" | "warn" | "error";
@@ -44,7 +53,7 @@ export type HealthItem = {
   link?: string;
 };
 
-export type HealthCheck = {
+export type HealthProbe = {
   /** Stable key, e.g. "failed_runs". */
   id: string;
   title: string;
@@ -66,7 +75,7 @@ export type SystemHealthReport = {
   status: HealthSeverity;
   /** How many checks are not "ok". */
   issueCount: number;
-  checks: HealthCheck[];
+  checks: HealthProbe[];
 };
 
 /** Trimmed shape embedded in HomeData for the Home page card. */
@@ -144,7 +153,7 @@ async function sampleOrCount<T extends ObjectLiteral>(
 async function computeChecks(
   companyId: string,
   itemLimit: number,
-): Promise<HealthCheck[]> {
+): Promise<HealthProbe[]> {
   const company = await AppDataSource.getRepository(Company).findOneBy({
     id: companyId,
   });
@@ -165,7 +174,7 @@ async function computeChecks(
   const routines = empIds.length
     ? await AppDataSource.getRepository(Routine).find({
         where: { employeeId: In(empIds) },
-        select: ["id", "name", "slug", "employeeId", "enabled"],
+        select: ["id", "name", "slug", "employeeId", "enabled", "acceptanceCriteria"],
       })
     : [];
   const routineIds = routines.map((r) => r.id);
@@ -185,7 +194,15 @@ async function computeChecks(
   const empName = (routineId: string): string =>
     empById.get(routineById.get(routineId)?.employeeId ?? "")?.name ?? "";
 
+  // Only a Routine that declares acceptance criteria is ever graded, so only
+  // those can be *un*graded. A Routine with no criteria is not "unverified" —
+  // it never asked to be verified.
+  const criteriaRoutineIds = routines
+    .filter((r) => r.acceptanceCriteria.trim().length > 0)
+    .map((r) => r.id);
+
   const runRepo = AppDataSource.getRepository(Run);
+  const standdownRepo = AppDataSource.getRepository(Standdown);
   const approvalRepo = AppDataSource.getRepository(Approval);
   const emailRepo = AppDataSource.getRepository(EmailLog);
   const integrationRepo = AppDataSource.getRepository(IntegrationConnection);
@@ -200,6 +217,8 @@ async function computeChecks(
     failedEmails,
     brokenIntegrations,
     modelRows,
+    unverified,
+    activeStanddowns,
   ] = await Promise.all([
     routineIds.length
       ? sampleOrCount(
@@ -298,6 +317,42 @@ async function computeChecks(
           select: ["employeeId"],
         })
       : Promise.resolve([] as AIModel[]),
+    // Runs that finished green and were never actually graded (M58). Before
+    // this, a checker outage was indistinguishable from a clean record —
+    // `unverified` and a null verdict both read as "nothing wrong", and both
+    // counted toward earning the right to work unattended.
+    criteriaRoutineIds.length
+      ? sampleOrCount(
+          runRepo,
+          {
+            where: [
+              {
+                routineId: In(criteriaRoutineIds),
+                status: "completed",
+                startedAt: MoreThanOrEqual(recentSince),
+                outcomeVerdict: "unverified",
+              },
+              {
+                routineId: In(criteriaRoutineIds),
+                status: "completed",
+                startedAt: MoreThanOrEqual(recentSince),
+                outcomeVerdict: IsNull(),
+                outcomeCheckedAt: IsNull(),
+              },
+            ],
+            order: { startedAt: "DESC" },
+          },
+          itemLimit,
+        )
+      : Promise.resolve([[], 0] as [Run[], number]),
+    sampleOrCount(
+      standdownRepo,
+      {
+        where: { companyId, liftedAt: IsNull() },
+        order: { placedAt: "DESC" },
+      },
+      itemLimit,
+    ),
   ]);
 
   const [failedRows, failedCount] = failed;
@@ -307,6 +362,8 @@ async function computeChecks(
   const [staleRows, staleCount] = staleApprovals;
   const [emailRows, emailCount] = failedEmails;
   const [integrationRows, integrationCount] = brokenIntegrations;
+  const [unverifiedRows, unverifiedCount] = unverified;
+  const [standdownRows, standdownCount] = activeStanddowns;
 
   // Employees that own at least one enabled routine but have no AI model row
   // at all — their routines will silently skip every time they fire.
@@ -318,7 +375,7 @@ async function computeChecks(
     (id) => !empWithModel.has(id),
   );
 
-  const checks: HealthCheck[] = [];
+  const checks: HealthProbe[] = [];
 
   checks.push({
     id: "failed_runs",
@@ -344,6 +401,58 @@ async function computeChecks(
               ? `exit ${r.exitCode}`
               : "failed",
       link: routineLink(r.routineId, r.id),
+    })),
+  });
+
+  checks.push({
+    id: "unverified_runs",
+    title: "Runs nobody verified",
+    // The gap this closes: a Run whose outcome check errored, timed out, or
+    // never ran at all used to be indistinguishable from a graded success, and
+    // earned the employee the same credit toward working unattended.
+    description:
+      `Runs in the last ${RECENT_WINDOW_HOURS} hours that finished on a Routine with acceptance ` +
+      `criteria but were never actually graded — the outcome check errored, timed out, or has ` +
+      `not run. Unverified is not the same as fine, and it no longer earns autonomy.`,
+    severity: unverifiedCount > 0 ? "warn" : "ok",
+    count: unverifiedCount,
+    summary:
+      unverifiedCount > 0
+        ? `${plural(unverifiedCount, "run", "runs")} finished without a verdict in the last ${RECENT_WINDOW_HOURS} hours.`
+        : `Every graded run in the last ${RECENT_WINDOW_HOURS} hours got a verdict.`,
+    items: unverifiedRows.map((r) => ({
+      label: routineById.get(r.routineId)?.name ?? "Unknown routine",
+      sublabel: `${empName(r.routineId)} · ${relativeTime(r.startedAt)}`,
+      badge: r.outcomeVerdict === "unverified" ? "unverified" : "not graded",
+      link: routineLink(r.routineId, r.id),
+    })),
+  });
+
+  checks.push({
+    id: "standdowns",
+    title: "Work stood down",
+    description:
+      "Standdowns currently in force. Nothing under one runs — no scheduled runs, no retries, " +
+      "no wakeups, and (at company or employee scope) no chat. An admin lifts one.",
+    // Deliberately `warn`, never `error`: a standdown a human placed on purpose
+    // is the system working. What matters is that it stays visible, because a
+    // stop nobody remembers placing is how a company quietly stops running.
+    severity: standdownCount > 0 ? "warn" : "ok",
+    count: standdownCount,
+    summary:
+      standdownCount > 0
+        ? `${plural(standdownCount, "standdown", "standdowns")} in force.`
+        : "Nothing is stood down.",
+    items: standdownRows.map((s) => ({
+      label:
+        s.scope === "company"
+          ? "The whole company"
+          : s.scope === "employee"
+            ? (empById.get(s.scopeId ?? "")?.name ?? "An AI employee")
+            : (routineById.get(s.scopeId ?? "")?.name ?? "A routine"),
+      sublabel: `${s.source === "breaker" ? "Circuit breaker" : "Stood down"} ${relativeTime(s.placedAt)} · ${s.reason}`,
+      badge: s.scope,
+      link: `/c/${slug}/settings/standdowns`,
     })),
   });
 

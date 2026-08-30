@@ -25,6 +25,9 @@ import { RoutineTrigger } from "./entities/RoutineTrigger.js";
 import { EmployeeWakeup } from "./entities/EmployeeWakeup.js";
 import { Workstream } from "./entities/Workstream.js";
 import { Initiative } from "./entities/Initiative.js";
+import { RoutineCheck } from "./entities/RoutineCheck.js";
+import { RunCheckResult } from "./entities/RunCheckResult.js";
+import { Standdown } from "./entities/Standdown.js";
 import { RoutineChatMessage } from "./entities/RoutineChatMessage.js";
 import { Run } from "./entities/Run.js";
 import { Project } from "./entities/Project.js";
@@ -227,6 +230,9 @@ const entities = [
   EmployeeWakeup,
   Workstream,
   Initiative,
+  RoutineCheck,
+  RunCheckResult,
+  Standdown,
   RoutineChatMessage,
   Run,
   Project,

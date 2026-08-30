@@ -47,6 +47,12 @@ export const TOOL_DOMAINS: Record<string, ToolDomain> = {
     blurb: "Scheduled recurring AI work. Never call these tasks.",
     tools: ["list_routines", "get_routine", "create_routine", "update_routine", "delete_routine"],
   },
+  runs: {
+    label: "runs",
+    blurb:
+      "The record of scheduled work: what each Run did, how it was graded, and the evidence behind the verdict.",
+    tools: ["list_runs", "get_run_report"],
+  },
   goals: {
     label: "goals",
     blurb: "The company's measurable objectives.",
@@ -1236,6 +1242,12 @@ export const TOOL_KEYWORDS: Record<string, string[]> = {
   delete_routine: ["schedule", "stop recurring"],
   list_routines: ["schedule", "recurring", "cron"],
   get_routine: ["schedule", "recurring", "cron", "read routine", "routine brief"],
+  // A Run is asked about by its outcome, never by the word "run": nothing in
+  // either description matches "did it work" or "why did it fail", and before
+  // these tools existed the answer to both was that the employee could not
+  // look at all.
+  list_runs: ["run history", "did it work", "last run", "what happened"],
+  get_run_report: ["run evidence", "why did it fail", "check results", "what did it change"],
   list_goals: ["kpi", "okr", "objective", "target", "metric", "mission"],
   get_goal: ["kpi", "okr", "objective", "target"],
   update_goal_progress: ["kpi", "okr", "report progress", "metric update", "number"],

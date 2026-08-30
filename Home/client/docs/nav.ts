@@ -234,6 +234,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Measurable objectives, cascaded company → employee — in every AI prompt, checked against every Run.",
       },
       {
+        path: "/docs/verification",
+        title: "What proves a Run worked",
+        blurb:
+          "Status, Checks, and the outcome verdict — plus the effect ledger the server writes and the model cannot narrate.",
+      },
+      {
         path: "/docs/improvement",
         title: "The improvement loop",
         blurb:
@@ -244,6 +250,12 @@ export const DOCS_NAV: DocsSection[] = [
         title: "Earned autonomy",
         blurb:
           "Waivers an AI Employee earns with a clean record — proposed via Approvals, revoked automatically on any bad Run.",
+      },
+      {
+        path: "/docs/standdowns",
+        title: "Standdowns",
+        blurb:
+          "A revocable stop on all AI work at company, employee, or Routine scope — placed by a human, or tripped by the failure breaker.",
       },
       {
         path: "/docs/policies",
