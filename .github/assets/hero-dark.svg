@@ -1,17 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400" role="img" aria-label="Genosyn — companies can now run themselves">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400" role="img" aria-label="Genosyn — your company can now run autonomously">
   <defs>
     <linearGradient id="wash" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#ffb27a" stop-opacity="0.20" />
-      <stop offset="55%" stop-color="#ffa86e" stop-opacity="0.16" />
-      <stop offset="100%" stop-color="#7c5cfc" stop-opacity="0.26" />
+      <stop offset="0%" stop-color="#ff727c" stop-opacity="0.24" />
+      <stop offset="55%" stop-color="#ff3c5c" stop-opacity="0.16" />
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.14" />
     </linearGradient>
     <radialGradient id="glowA" cx="50%" cy="50%" r="50%">
       <stop offset="0%" stop-color="#7c5cfc" stop-opacity="0.34" />
       <stop offset="100%" stop-color="#7c5cfc" stop-opacity="0" />
     </radialGradient>
     <radialGradient id="glowB" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#ffb27a" stop-opacity="0.34" />
-      <stop offset="100%" stop-color="#ffb27a" stop-opacity="0" />
+      <stop offset="0%" stop-color="#ff3c5c" stop-opacity="0.30" />
+      <stop offset="100%" stop-color="#ff3c5c" stop-opacity="0" />
     </radialGradient>
     <clipPath id="card">
       <rect width="1200" height="400" rx="24" />
@@ -32,8 +32,8 @@
   </g>
 
   <g font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
-    <text x="72" y="212" font-size="72" font-weight="700" letter-spacing="-3" fill="#ffffff">Companies can now</text>
-    <text x="72" y="290" font-size="72" font-weight="700" letter-spacing="-3" fill="#bcaea9">run themselves.</text>
+    <text x="72" y="212" font-size="72" font-weight="700" letter-spacing="-3" fill="#ffffff">Your company can now</text>
+    <text x="72" y="290" font-size="72" font-weight="700" letter-spacing="-3" fill="#ff9ab2">run autonomously.</text>
     <text x="72" y="344" font-size="21" font-weight="500" fill="#a9a2c4">The open-source operating system for autonomous companies.</text>
   </g>
 </svg>

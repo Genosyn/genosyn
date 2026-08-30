@@ -78,7 +78,7 @@ export function Nav() {
           </a>
           <a
             href="/#quickstart"
-            className="group hidden items-center gap-1.5 rounded-xl bg-ink-500 px-4 py-2 text-sm font-semibold text-white shadow-card transition duration-200 hover:bg-ink-600 sm:inline-flex"
+            className="group hidden items-center gap-1.5 rounded-xl bg-bloom-500 px-4 py-2 text-sm font-semibold text-white shadow-card transition duration-200 hover:bg-bloom-600 sm:inline-flex"
           >
             Install
             <ArrowRight
@@ -126,7 +126,7 @@ export function Nav() {
             <a
               href="/#quickstart"
               onClick={() => setOpen(false)}
-              className="mt-1 inline-flex items-center justify-center rounded-xl bg-ink-500 px-3 py-2.5 text-sm font-semibold text-white shadow-card"
+              className="mt-1 inline-flex items-center justify-center rounded-xl bg-bloom-500 px-3 py-2.5 text-sm font-semibold text-white shadow-card"
             >
               Install Genosyn
             </a>

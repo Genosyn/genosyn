@@ -303,7 +303,7 @@ function DeploymentRow({
   body: string;
 }) {
   return (
-    <article className="rounded-2xl border border-stone-900/[0.08] bg-white p-5 shadow-card transition hover:-translate-y-0.5 hover:border-ink-300 hover:shadow-lift">
+    <article className="rounded-2xl border border-stone-900/[0.08] bg-white p-5 shadow-card transition hover:-translate-y-0.5 hover:border-bloom-300 hover:shadow-lift">
       <div className="flex items-start gap-4">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-paper-200 text-stone-900">
           <Icon className="h-4 w-4" />
@@ -352,7 +352,7 @@ function EnterpriseContact() {
           <div aria-hidden className="marketing-dots pointer-events-none absolute inset-0 opacity-15" />
           <div
             aria-hidden
-            className="pointer-events-none absolute -bottom-28 -left-20 h-80 w-80 rounded-full bg-ink-500/25 blur-3xl"
+            className="pointer-events-none absolute -bottom-28 -left-20 h-80 w-80 rounded-full bg-bloom-500/25 blur-3xl"
           />
           <div
             aria-hidden
@@ -386,7 +386,7 @@ function EnterpriseContact() {
             </div>
             <p className="mt-6 text-xs text-white/60">
               Comparing editions and Cloud plans first?{" "}
-              <Link href="/pricing" className="font-semibold text-white underline underline-offset-2 hover:text-ink-200">
+              <Link href="/pricing" className="font-semibold text-white underline underline-offset-2 hover:text-bloom-200">
                 See pricing
               </Link>
             </p>

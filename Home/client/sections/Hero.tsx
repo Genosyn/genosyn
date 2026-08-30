@@ -27,18 +27,18 @@ export function Hero() {
       <div aria-hidden className="pointer-events-none absolute inset-0 paper-grid" />
 
       <div className="relative z-10 mx-auto max-w-[88rem] px-5 pb-20 pt-16 sm:px-8 sm:pb-24 sm:pt-24 lg:pb-28">
-        <div className="mx-auto flex max-w-4xl flex-col items-center text-center">
+        <div className="mx-auto flex max-w-5xl flex-col items-center text-center">
           <a
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="group inline-flex items-center gap-2.5 rounded-full border border-stone-900/[0.10] bg-white/85 py-1.5 pl-3 pr-3 text-xs font-semibold text-stone-600 shadow-card backdrop-blur transition hover:border-ink-300 hover:text-ink-700"
+            className="group inline-flex items-center gap-2.5 rounded-full border border-stone-900/[0.10] bg-white/85 py-1.5 pl-3 pr-3 text-xs font-semibold text-stone-600 shadow-card backdrop-blur transition hover:border-bloom-300 hover:text-bloom-700"
           >
             <span aria-hidden className="preview-live h-1.5 w-1.5 rounded-full bg-emerald-500" />
             Open source
-            <span aria-hidden className="h-1 w-1 rounded-full bg-ink-400" />
+            <span aria-hidden className="h-1 w-1 rounded-full bg-bloom-400" />
             Self-hosted
-            <span aria-hidden className="h-1 w-1 rounded-full bg-ink-400" />
+            <span aria-hidden className="h-1 w-1 rounded-full bg-bloom-400" />
             <span className="text-stone-500">v{__APP_VERSION__}</span>
             <ArrowRight
               aria-hidden
@@ -47,11 +47,14 @@ export function Hero() {
             <span className="sr-only">{"(opens in a new tab)"}</span>
           </a>
 
-          <Display className="mt-8 text-[clamp(2.75rem,8.2vw,6rem)]">
-            Companies can now <Accent>run themselves.</Accent>
+          {/* balance={false}: balancing orphans "now" onto the second line and
+              splits the accent mid-line. Greedy wrapping breaks at the accent
+              instead — setup on one line, payoff on the next. */}
+          <Display balance={false} className="mt-8 text-[clamp(2.75rem,8.2vw,6rem)]">
+            Your company can now <Accent>run autonomously.</Accent>
           </Display>
 
-          <Lede className="mt-7 max-w-3xl text-balance">
+          <Lede className="mt-7 max-w-2xl text-balance">
             Genosyn is the operating system for autonomous companies. AI Employees hold real roles,
             work through the night on their own schedule, and bring you only the decisions that
             actually need a human.
@@ -64,7 +67,7 @@ export function Hero() {
             </Button>
             <Button href="/#autonomy" variant="secondary">
               Watch a day it ran alone
-              <ArrowRight aria-hidden className="h-4 w-4 text-ink-500" />
+              <ArrowRight aria-hidden className="h-4 w-4 text-bloom-500" />
             </Button>
             <Button href={GITHUB_URL} external variant="ghost">
               <Github aria-hidden className="h-4 w-4" />
@@ -75,7 +78,7 @@ export function Hero() {
           <ul className="mt-11 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs font-semibold text-stone-500">
             {PROOF.map((item, index) => (
               <li key={item} className="flex items-center gap-3">
-                {index > 0 && <span aria-hidden className="h-1 w-1 rounded-full bg-ink-400" />}
+                {index > 0 && <span aria-hidden className="h-1 w-1 rounded-full bg-bloom-400" />}
                 {item}
               </li>
             ))}
@@ -98,7 +101,7 @@ function ProductStage() {
     <div className="relative mt-16 sm:mt-20">
       <div
         aria-hidden
-        className="pointer-events-none absolute -inset-x-10 -top-12 bottom-0 -z-10 rounded-[4rem] bg-[radial-gradient(60%_50%_at_50%_0%,rgba(255,178,122,0.28),transparent_70%)] blur-2xl"
+        className="pointer-events-none absolute -inset-x-10 -top-12 bottom-0 -z-10 rounded-[4rem] bg-[radial-gradient(60%_50%_at_50%_0%,rgba(255,114,124,0.28),transparent_70%)] blur-2xl"
       />
 
       <div className="mb-4 flex flex-col gap-2 px-1 text-[11px] font-semibold text-stone-500 sm:flex-row sm:items-center sm:justify-between">
@@ -113,7 +116,7 @@ function ProductStage() {
         <CompanyPreview />
 
         <div className="absolute -bottom-6 right-3 hidden items-center gap-3 rounded-2xl border border-stone-900/[0.08] bg-white/95 px-4 py-3 shadow-raise backdrop-blur-xl sm:flex lg:-right-4">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-ink-50 text-ink-600 ring-1 ring-inset ring-ink-200">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-bloom-50 text-bloom-600 ring-1 ring-inset ring-bloom-200">
             <ShieldCheck aria-hidden className="h-4 w-4" />
           </span>
           <span>

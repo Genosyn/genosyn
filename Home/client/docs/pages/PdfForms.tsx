@@ -30,7 +30,7 @@ export function PdfForms() {
       <P>
         A PDF that was exported from a form builder carries an <Strong>AcroForm</Strong>: named
         fields a program can set. A PDF that was printed, scanned, or exported from a word
-        processor carries none — the boxes and ruled lines on it are just ink. The two need
+        processor carries none — the boxes and ruled lines on it are just bloom. The two need
         different tools, and the first thing an employee does is find out which it is holding.
       </P>
       <UL>

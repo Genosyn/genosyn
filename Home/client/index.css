@@ -18,24 +18,24 @@ body {
 }
 
 ::selection {
-  background-color: #574e47;
+  background-color: #ff3c5c;
   color: #ffffff;
 }
 
 :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline: 2px solid #574e47;
+  outline: 2px solid #ff3c5c;
   outline-offset: 3px;
   border-radius: 4px;
 }
 
-/* On the dark bands the accent ring is the weakest link: ink-500 on night-950
+/* On the dark bands the accent ring is the weakest link: bloom-500 on night-950
    is 5.62:1, but the bands are a gradient and the ring sits 3px off the
    control, so parts of it land on much lighter chrome. Flip to the light
-   accent there — ink-200 on night-950 is 12.85:1, clear of the 3:1 WCAG
+   accent there — bloom-200 on night-950 is 12.85:1, clear of the 3:1 WCAG
    1.4.11 floor everywhere the gradient goes. The ring is what has to pass,
    not the control. */
 .on-night :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline-color: #d9d0c9;
+  outline-color: #ffc2ce;
 }
 
 .tabular {
@@ -54,14 +54,15 @@ body {
 
 .aurora {
   background:
-    radial-gradient(64rem 34rem at 50% -10rem, rgba(255, 178, 122, 0.16), transparent 66%),
-    radial-gradient(44rem 28rem at 88% 0%, rgba(124, 92, 252, 0.09), transparent 68%);
+    radial-gradient(64rem 34rem at 50% -10rem, rgba(255, 114, 124, 0.17), transparent 66%),
+    radial-gradient(44rem 28rem at 88% 0%, rgba(167, 139, 250, 0.13), transparent 68%),
+    radial-gradient(38rem 24rem at 6% 4%, rgba(56, 189, 248, 0.11), transparent 70%);
 }
 
 .aurora-night {
   background:
-    radial-gradient(52rem 30rem at 20% 0%, rgba(124, 92, 252, 0.26), transparent 66%),
-    radial-gradient(48rem 28rem at 86% 10%, rgba(255, 168, 110, 0.10), transparent 68%);
+    radial-gradient(52rem 30rem at 20% 0%, rgba(124, 92, 252, 0.30), transparent 66%),
+    radial-gradient(48rem 28rem at 86% 10%, rgba(255, 60, 92, 0.20), transparent 68%);
 }
 
 /* Barely-there structure. At 0.04 alpha and 88px the grid is felt rather than
@@ -138,9 +139,9 @@ body {
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(233, 224, 214, 0.45) 45%,
-    rgba(255, 252, 248, 0.95) 50%,
-    rgba(233, 224, 214, 0.45) 55%,
+    rgba(255, 114, 124, 0.5) 45%,
+    rgba(255, 194, 206, 0.95) 50%,
+    rgba(255, 114, 124, 0.5) 55%,
     transparent
   );
   animation: sweep 9s cubic-bezier(0.45, 0, 0.55, 1) infinite;

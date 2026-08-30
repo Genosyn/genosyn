@@ -149,12 +149,12 @@ export function Eyebrow({ night = false, children }: { night?: boolean; children
   return (
     <div
       className={`inline-flex items-center gap-2.5 text-sm font-semibold ${
-        night ? "text-ink-300" : "text-ink-600"
+        night ? "text-bloom-300" : "text-bloom-600"
       }`}
     >
       <span
         aria-hidden
-        className={`h-1.5 w-1.5 rounded-full ${night ? "bg-ink-300" : "bg-ink-500"}`}
+        className={`h-1.5 w-1.5 rounded-full ${night ? "bg-bloom-300" : "bg-bloom-500"}`}
       />
       <span>{children}</span>
     </div>
@@ -169,17 +169,25 @@ export function Eyebrow({ night = false, children }: { night?: boolean; children
 export function Display({
   as: Tag = "h1",
   night = false,
+  /**
+   * `text-balance` evens the line lengths, which is right for most headlines
+   * but wrong for a two-tone one: it can orphan a word onto the second line
+   * and split the accent mid-line. Pass false to wrap greedily so the break
+   * falls at the accent instead.
+   */
+  balance = true,
   className = "",
   children,
 }: {
   as?: "h1" | "h2";
   night?: boolean;
+  balance?: boolean;
   className?: string;
   children: ReactNode;
 }) {
   return (
     <Tag
-      className={`text-balance text-[clamp(2.5rem,6vw,4.5rem)] font-semibold leading-[0.98] tracking-[-0.045em] ${
+      className={`${balance ? "text-balance" : ""} text-[clamp(2.5rem,6vw,4.5rem)] font-semibold leading-[0.98] tracking-[-0.045em] ${
         night ? "text-white" : "text-stone-900"
       } ${className}`}
     >
@@ -216,13 +224,15 @@ export function Heading({
  * words the page is actually about. Solid, not a gradient: gradient headlines
  * date a site faster than anything else on it.
  *
- * This is ink-400, not the ink-500 the buttons use. With a neutral accent the
- * two halves are separated by tone alone, and ink-500 against a stone-900
- * heading is too close to read as two halves at display size. ink-400 is
- * 3.69:1 against the heading and still 4.52:1 on paper.
+ * bloom-500, the same step the buttons fill with. A coloured accent against a
+ * stone-900 heading separates by hue, so it can sit at full strength and still
+ * read as the loud half — which is the whole job. A neutral accent cannot do
+ * that: it has to go lighter than the heading to be distinguishable, and a
+ * lighter word reads as de-emphasis, exactly backwards for the words the page
+ * is about.
  */
 export function Accent({ children }: { children: ReactNode }) {
-  return <span className="text-ink-400">{children}</span>;
+  return <span className="text-bloom-500">{children}</span>;
 }
 
 /** The muted half of a two-tone headline. */
@@ -275,7 +285,7 @@ export type ButtonVariant = "primary" | "secondary" | "night" | "ghost";
 const BUTTON_SKIN: Record<ButtonVariant, string> = {
   // Flat accent fill with a restrained shadow. The gradient-plus-glow version
   // this replaced shouted louder than anything it sat next to.
-  primary: "bg-ink-500 text-white shadow-card hover:bg-ink-600",
+  primary: "bg-bloom-500 text-white shadow-card hover:bg-bloom-600",
   secondary:
     "border border-stone-900/[0.10] bg-white text-stone-800 shadow-card hover:border-stone-900/20 hover:bg-paper-50",
   night: "border border-white/20 bg-white/[0.07] text-white hover:border-white/35 hover:bg-white/[0.14]",
@@ -334,7 +344,7 @@ export function TextLink({
   children: ReactNode;
 }) {
   const classes = `group inline-flex items-center gap-2 text-sm font-semibold transition ${
-    night ? "text-white hover:text-ink-300" : "text-stone-900 hover:text-ink-600"
+    night ? "text-white hover:text-bloom-300" : "text-stone-900 hover:text-bloom-600"
   } ${className}`;
   if (external) {
     return (
@@ -355,7 +365,7 @@ export function TextLink({
    Fragments
 ------------------------------------------------------------------------- */
 
-export type PillTone = "neutral" | "live" | "waiting" | "ink" | "violet";
+export type PillTone = "neutral" | "live" | "waiting" | "bloom" | "violet";
 
 /** Status pill. `tone` maps to the site-wide state colours. */
 export function Pill({
@@ -373,14 +383,14 @@ export function Pill({
     neutral: "border-stone-900/[0.08] bg-white text-stone-600",
     live: "border-emerald-500/25 bg-emerald-50 text-emerald-700",
     waiting: "border-amber-500/30 bg-amber-50 text-amber-700",
-    ink: "border-ink-300 bg-ink-50 text-ink-700",
+    bloom: "border-bloom-300 bg-bloom-50 text-bloom-700",
     violet: "border-violet-300 bg-violet-50 text-violet-700",
   };
   const dark: Record<PillTone, string> = {
     neutral: "border-white/12 bg-white/[0.06] text-violet-100/80",
     live: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
     waiting: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-    ink: "border-ink-400/35 bg-ink-400/12 text-ink-200",
+    bloom: "border-bloom-400/35 bg-bloom-400/12 text-bloom-200",
     violet: "border-violet-400/35 bg-violet-400/12 text-violet-200",
   };
   return (

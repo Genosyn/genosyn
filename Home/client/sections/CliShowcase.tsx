@@ -88,7 +88,7 @@ export function CliShowcase() {
             </div>
             <div className="px-5 py-6 font-mono text-xs leading-7 sm:px-7 sm:text-[13px]">
               <div>
-                <span className="text-ink-400">$ </span>
+                <span className="text-bloom-400">$ </span>
                 <span className="text-white">curl -fsSL </span>
                 <span className="text-sky-300">https://genosyn.com/install.sh</span>
                 <span className="text-white"> | bash</span>

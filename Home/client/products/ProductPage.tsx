@@ -36,7 +36,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                 aria-label="Breadcrumb"
                 className="flex items-center gap-2 text-xs font-medium text-stone-500"
               >
-                <Link href="/products" className="transition hover:text-ink-600">
+                <Link href="/products" className="transition hover:text-bloom-600">
                   Products
                 </Link>
                 <span aria-hidden className="text-stone-400">
@@ -185,7 +185,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                   return (
                     <article
                       key={feature.title}
-                      className="rounded-2xl border border-stone-900/[0.08] bg-white p-5 shadow-card transition hover:-translate-y-0.5 hover:border-ink-300 hover:shadow-lift"
+                      className="rounded-2xl border border-stone-900/[0.08] bg-white p-5 shadow-card transition hover:-translate-y-0.5 hover:border-bloom-300 hover:shadow-lift"
                     >
                       <span
                         className={`flex h-9 w-9 items-center justify-center rounded-lg ring-1 ${product.accent}`}
@@ -207,8 +207,8 @@ export function ProductPage({ product }: { product: ProductDef }) {
           <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
             <div className="grid gap-10 lg:grid-cols-[0.72fr_1.28fr] lg:items-start lg:gap-16">
               <div>
-                <span className="inline-flex items-center gap-2.5 text-sm font-semibold text-ink-300">
-                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-ink-300" />
+                <span className="inline-flex items-center gap-2.5 text-sm font-semibold text-bloom-300">
+                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-bloom-300" />
                   With AI Employees
                 </span>
                 <h2 className="mt-5 text-balance text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-white">
@@ -223,7 +223,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                     className="rounded-2xl border border-white/[0.10] bg-white/[0.05] p-6 shadow-panel"
                   >
                     <div className="flex items-start gap-4">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.08] text-xs font-semibold text-ink-300">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.08] text-xs font-semibold text-bloom-300">
                         {String(index + 1).padStart(2, "0")}
                       </span>
                       <div>
@@ -301,7 +301,7 @@ function RelatedProducts({ current }: { current: ProductDef }) {
               <Link
                 key={product.slug}
                 href={`/products/${product.slug}`}
-                className="group rounded-2xl border border-stone-900/[0.08] bg-white p-4 shadow-card transition hover:-translate-y-0.5 hover:border-ink-300 hover:shadow-lift"
+                className="group rounded-2xl border border-stone-900/[0.08] bg-white p-4 shadow-card transition hover:-translate-y-0.5 hover:border-bloom-300 hover:shadow-lift"
               >
                 <div className="flex items-center gap-3">
                   <span
@@ -310,7 +310,7 @@ function RelatedProducts({ current }: { current: ProductDef }) {
                     <Icon className="h-4 w-4" />
                   </span>
                   <span className="text-sm font-semibold text-stone-900">{product.name}</span>
-                  <ArrowRight className="ml-auto h-3.5 w-3.5 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-ink-600" />
+                  <ArrowRight className="ml-auto h-3.5 w-3.5 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-bloom-600" />
                 </div>
                 <p className="mt-3 line-clamp-2 text-xs leading-5 text-stone-500">
                   {product.summary}

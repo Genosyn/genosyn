@@ -153,11 +153,11 @@ function ProductCard({ product }: { product: ProductDef }) {
         >
           <Icon className="h-4 w-4" />
         </span>
-        <ArrowRight className="h-4 w-4 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-ink-600" />
+        <ArrowRight className="h-4 w-4 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-bloom-600" />
       </div>
       <h3 className="mt-5 text-base font-semibold text-stone-900">{product.name}</h3>
       <p className="mt-2 flex-1 text-sm leading-6 text-stone-600">{product.summary}</p>
-      <span className="mt-6 text-xs font-semibold text-ink-600">Explore product</span>
+      <span className="mt-6 text-xs font-semibold text-bloom-600">Explore product</span>
     </Link>
   );
 }

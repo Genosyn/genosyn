@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/hero-dark.svg" />
     <source media="(prefers-color-scheme: light)" srcset=".github/assets/hero-light.svg" />
-    <img alt="Genosyn — companies can now run themselves" src=".github/assets/hero-light.svg" width="900" />
+    <img alt="Genosyn — your company can now run autonomously" src=".github/assets/hero-light.svg" width="900" />
   </picture>
 </p>
 
@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  <a href="https://genosyn.com/docs"><img alt="Documentation" src="https://img.shields.io/badge/docs-genosyn.com-574e47.svg?style=flat-square" /></a>
-  <a href="https://github.com/Genosyn/genosyn/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Genosyn/genosyn?style=flat-square&color=574e47&label=release" /></a>
+  <a href="https://genosyn.com/docs"><img alt="Documentation" src="https://img.shields.io/badge/docs-genosyn.com-e30245.svg?style=flat-square" /></a>
+  <a href="https://github.com/Genosyn/genosyn/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Genosyn/genosyn?style=flat-square&color=e30245&label=release" /></a>
   <a href="./LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache_2.0-1c1917.svg?style=flat-square" /></a>
   <a href="https://github.com/Genosyn/genosyn/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Genosyn/genosyn?style=flat-square&label=stars&color=1c1917" /></a>
 </p>

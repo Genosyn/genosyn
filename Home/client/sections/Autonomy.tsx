@@ -108,7 +108,7 @@ const ARRIVAL = 9.5;
 const HOURS = [0, 6, 12, 18, 24];
 
 const STATS = [
-  { value: "18", label: "Routines ran overnight", hue: "text-ink-300" },
+  { value: "18", label: "Routines ran overnight", hue: "text-bloom-300" },
   { value: "0", label: "People signed in before 09:30", hue: "text-teal-300" },
   { value: "3", label: "Decisions that needed a human", hue: "text-amber-300" },
 ];
@@ -160,7 +160,7 @@ const LEVELS: Level[] = [
     title: "The company keeps moving",
     tag: "Human by exception",
     body: "Employees pick up each other's handoffs across Tasks, Email, Revenue, and Repositories. What reaches you is the short list that genuinely needs a person.",
-    hue: "bg-ink-400/15 text-ink-300 ring-ink-400/25",
+    hue: "bg-bloom-400/15 text-bloom-300 ring-bloom-400/25",
   },
 ];
 
@@ -205,7 +205,7 @@ export function Autonomy() {
         <div className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
           <NightPanel className="flex flex-col justify-between gap-8 p-6 sm:p-8">
             <div>
-              <div className="text-xs font-semibold text-ink-300">
+              <div className="text-xs font-semibold text-bloom-300">
                 The part people get wrong
               </div>
               <p className="mt-5 text-balance text-2xl font-semibold leading-[1.25] tracking-[-0.025em] text-white sm:text-[1.75rem]">
@@ -264,7 +264,7 @@ export function Autonomy() {
                   </span>
                 </div>
                 <h3 className="mt-6 text-base font-semibold text-white">{level.title}</h3>
-                <div className="mt-2 text-[11px] font-semibold text-ink-300/90">
+                <div className="mt-2 text-[11px] font-semibold text-bloom-300/90">
                   {level.tag}
                 </div>
                 <p className="mt-4 text-sm leading-6 text-violet-100/60">{level.body}</p>
@@ -317,9 +317,9 @@ function DayStrip() {
           >
             <span
               aria-hidden
-              className="block h-full w-px bg-gradient-to-b from-transparent via-ink-400 to-transparent"
+              className="block h-full w-px bg-gradient-to-b from-transparent via-bloom-400 to-transparent"
             />
-            <span className="absolute -top-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-ink-400/40 bg-ink-500/15 px-3 py-1 text-[11px] font-semibold text-ink-200 backdrop-blur">
+            <span className="absolute -top-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-bloom-400/40 bg-bloom-500/15 px-3 py-1 text-[11px] font-semibold text-bloom-200 backdrop-blur">
               09:30 · you sign in
             </span>
           </div>
