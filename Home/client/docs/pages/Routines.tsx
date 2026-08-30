@@ -130,7 +130,14 @@ export function Routines() {
           },
           {
             term: "enabled",
-            def: "Boolean. Disabling pauses the schedule without losing the row.",
+            def: (
+              <>
+                Boolean. Disabling stops the schedule without losing the row — the ordinary
+                housekeeping switch. To stop work during an incident, place a{" "}
+                <DocLink to="/docs/standdowns">Standdown</DocLink> instead; it records who and why,
+                and reaches surfaces this switch does not.
+              </>
+            ),
           },
           {
             term: "approvalRequired",
@@ -433,9 +440,16 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         Every cron tick — and every manual trigger — creates a <Code>Run</Code> row. The runner runs
         the in-process agent in the employee&apos;s directory and stores the agent transcript — the
         model&apos;s messages and tool trace, not captured CLI stdout — on{" "}
-        <Code>Run.logContent</Code> (capped at 256 KB; longer logs are head-truncated with a
-        notice). While the Run is active, Genosyn checkpoints that transcript to the database about
-        once a second, so it survives a server or container crash.
+        <Code>Run.logContent</Code>. It records what each tool <Strong>returned</Strong>, not only
+        what was called, and an oversized transcript is elided in the middle rather than cut off at
+        the cap: the ending is where a Run says what it did, and it is the last thing worth losing.
+        While the Run is active, Genosyn checkpoints that transcript to the database about once a
+        second, so it survives a server or container crash.
+      </P>
+      <P>
+        The transcript is still the model&apos;s account of its own work. What the server recorded
+        the Run actually changing is the separate <Strong>Effects</Strong> list beside it — see{" "}
+        <DocLink to="/docs/verification">what proves a Run worked</DocLink>.
       </P>
       <P>
         A routine&apos;s full run history lives on its <Strong>Runs</Strong> tab — every Run,
@@ -466,9 +480,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           connected), <Code>timeout</Code>, or <Code>interrupted</Code> (the server stopped
           mid-run). A Run stopped by the step-limit backstop — the model kept calling tools
           without ever finishing — is marked <Code>failed</Code>, with the reason in the
-          transcript. Completed only ever means the loop returned cleanly; whether the work
-          met its bar is the <DocLink to="/docs/routines#outcome-check">outcome check</DocLink>
-          &apos;s answer, not the status&apos;s.
+          transcript. Completed only ever means the loop returned cleanly; whether the work met
+          its bar is answered by the other two axes — this routine&apos;s{" "}
+          <DocLink to="/docs/routines#checks">Checks</DocLink> and its{" "}
+          <DocLink to="/docs/routines#outcome-check">outcome check</DocLink> — never by the status.
         </LI>
         <LI>
           Each Run also records the <Strong>tokens</Strong> it consumed — the provider&apos;s own
@@ -532,11 +547,13 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
         <LI>
           After a completed Run, a restricted checker — a zero-tool model turn on the same brain,
-          reading the transcript as untrusted evidence — grades the work and stamps a verdict on
-          the Run: <Code>achieved</Code>, <Code>unclear</Code> (not enough evidence either way,
-          the honest default), or <Code>off goal</Code>. The verdict shows as a chip beside the
-          status everywhere Runs render, with the checker&apos;s one-line reason on hover and in
-          the log view.
+          reading the transcript as untrusted evidence beside the server-written{" "}
+          <DocLink to="/docs/verification#effects">Effects</DocLink> list — grades the work and
+          stamps a verdict on the Run: <Code>achieved</Code>, <Code>unclear</Code> (it looked and
+          could not tell), <Code>off goal</Code>, or <Code>unverified</Code> (no judgement was ever
+          produced — the checker errored or never submitted). The verdict shows as a chip beside
+          the status everywhere Runs render, with the checker&apos;s one-line reason on hover and
+          in the log view.
         </LI>
       </UL>
       <P>
@@ -563,6 +580,34 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         One short extra model turn per completed Run, on the routine&apos;s own model. Its tokens
         are counted into the Run&apos;s totals like everything else.
       </Callout>
+
+      <H2 id="checks">Checks</H2>
+      <P>
+        The outcome check is still a model reading a transcript another model wrote. A{" "}
+        <Strong>Check</Strong> is the third axis and the only one with no model in it: a
+        machine-verifiable assertion the Run must pass before it finalizes green, written by an
+        operator on the routine&apos;s <Strong>Settings → Checks</Strong> panel.
+      </P>
+      <UL>
+        <LI>
+          An <Strong>effect</Strong> Check counts what the server recorded this Run changing — at
+          least one <Code>mail.send</Code>, at most three. No shell, no model, no extra cost.
+        </LI>
+        <LI>
+          A <Strong>command</Strong> Check runs a shell command in the sandbox and passes on exit{" "}
+          <Code>0</Code> — a test suite, a <Code>git diff --exit-code</Code>, a script that checks
+          the thing was deployed.
+        </LI>
+      </UL>
+      <P>
+        Every Check&apos;s result lands on the Run with its detail and how long it took, and the
+        Run carries a <Strong>checks verdict</Strong> chip beside its status. A failing required
+        Check earns the employee up to two more briefed attempts inside the routine&apos;s existing
+        timeout — never more time, never a third round — and then finalizes as a failure that
+        revokes waivers and writes a Lesson like any other. Checks ride into the Run brief, so the
+        employee aims at the bar; no MCP tool can create, edit, or delete one. See{" "}
+        <DocLink to="/docs/verification">what proves a Run worked</DocLink>.
+      </P>
 
       <H2 id="recovery">Downtime and recovery</H2>
       <P>
@@ -630,6 +675,14 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         Make routine actions safe to repeat, or use <Strong>Cancel retry</Strong> on the Run before
         its retry becomes due.
       </Callout>
+      <P>
+        The retry itself is no longer blind about it. Attempt 2 opens with the{" "}
+        <DocLink to="/docs/verification#effects">Effects</DocLink> the server recorded during every
+        earlier attempt in the chain — the emails that went out, the rows that moved — and is told
+        to verify each one before doing it again. Deliberately &quot;verify before redoing&quot;
+        rather than &quot;skip&quot;: the ledger proves an action was recorded, not that whatever it
+        touched downstream actually landed.
+      </P>
       <UL>
         <LI>
           Only <Strong>scheduled</Strong> Runs and Runs created by an automatic retry are eligible.

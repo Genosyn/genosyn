@@ -104,7 +104,10 @@ describe("audit feature gate", () => {
     await insert(CompanyBilling, { companyId: company.id, plan: "scale", status: "active" });
     const got = await getAudit();
     assert.equal(got.status, 200);
-    assert.ok(Array.isArray(got.body));
+    // The endpoint returns `{items, nextCursor}` since M58 gave it filters and
+    // a keyset cursor; a bare array left nowhere to put the cursor.
+    assert.ok(Array.isArray(got.body.items));
+    assert.equal(got.body.nextCursor, null);
   });
 
   test("self-hosted community → 402 with the Enterprise message", async () => {

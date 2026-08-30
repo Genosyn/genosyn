@@ -815,6 +815,39 @@ export const STATIC_TOOLS: McpToolSpec[] = [
     },
   },
   {
+    name: "list_runs",
+    description:
+      "List finished Runs — what a Routine's schedule actually did, newest first. Each row carries the Run's `id`, `status`, `checksVerdict` (whether its required Checks passed), `outcomeVerdict` and `outcomeNote` (how the finished work was graded), `startedAt`/`finishedAt`, `attempt` within its retry chain, and token cost. Pass `routine` to read one Routine's history; omit it for your own recent Runs across every Routine you own. This is the record of the work, not the work itself — call `get_run_report` for one Run's Check results and the changes it actually made.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        routine: {
+          type: "string",
+          description:
+            "The routine's `id` UUID from `list_routines`, its `slug`, or its exact name. Omit to list your own recent Runs across all your Routines.",
+        },
+        limit: {
+          type: "number",
+          description: "How many Runs to return, 1-50. Defaults to 20.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_run_report",
+    description:
+      "Read the evidence behind one Run: every Check result (name, kind, whether it was required, whether it passed, and the detail explaining why), including the earlier remediation rounds, plus the effects the server itself recorded that Run causing — the writes, sends and changes, rather than the transcript's account of them. Use it when a Routine failed its Checks, was stood down, or when you need to know what a previous attempt already did before repeating it. Pass the `runId` from `list_runs`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        runId: { type: "string", description: "The Run's `id` UUID from `list_runs`." },
+      },
+      required: ["runId"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_goals",
     description:
       "List the company's Goals — the measurable objectives the company is steering toward. Each row carries the goal's `id`, `slug`, target, current value, direction, deadline, owner, and computed progress. Goals you own are your accountability; a Routine may declare the goal it serves.",

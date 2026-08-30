@@ -16,7 +16,12 @@ import { Company } from "../db/entities/Company.js";
 import { User } from "../db/entities/User.js";
 import { Routine } from "../db/entities/Routine.js";
 import { RoutineChatMessage } from "../db/entities/RoutineChatMessage.js";
-import { Run } from "../db/entities/Run.js";
+import { Run, type RunStatus } from "../db/entities/Run.js";
+import { RoutineCheck } from "../db/entities/RoutineCheck.js";
+import { RunCheckResult } from "../db/entities/RunCheckResult.js";
+import { listChecks, serializeCheckResult } from "../services/routineChecks.js";
+import { latestCheckResultsForRun } from "../services/runGrading.js";
+import { RUN_EFFECT_ROW_CAP, countEffects, runEffects } from "../services/runEffects.js";
 import {
   deleteBrowserRecordingsForRunIds,
   markBrowserRecordingRoutineDeleting,
@@ -69,7 +74,7 @@ import {
   serializeRevisionProposal,
 } from "../services/revisionProposals.js";
 import { registerRoutine } from "../services/cron.js";
-import { recordAudit } from "../services/audit.js";
+import { currentAuditContext, recordAudit, withAuditContext } from "../services/audit.js";
 import { kickoffHandoff } from "../services/handoffKickoff.js";
 import { kickoffTodoReview } from "../services/reviewKickoff.js";
 import {
@@ -726,7 +731,24 @@ async function requireMcpToken(req: McpRequest, res: Response, next: NextFunctio
     }
     req.mcpRequesterMembership = requesterMembership;
   }
-  next();
+  // Ambient audit provenance for everything this tool call touches (M58).
+  //
+  // The `runId` is known here and nowhere else, and the ~150 write seams below
+  // this line are spread across handlers *and* the services they call, which
+  // have no request to thread it through. Stamping it at each of them by hand
+  // would cover most of them and quietly miss the rest — and a ledger that is
+  // silently missing a third of its rows is worse than no ledger, because a
+  // Check reading it would pass a Run that never did the work. So the
+  // provenance is ambient for the duration of the call; an explicit value at
+  // any call site still wins. See `services/audit.ts`.
+  withAuditContext(
+    {
+      runId: req.mcpRunId ?? null,
+      routineId: req.mcpRoutineId ?? null,
+      conversationId: req.mcpConversationId ?? null,
+    },
+    next,
+  );
 }
 
 mcpInternalRouter.use(requireMcpToken);
@@ -899,14 +921,19 @@ mcpInternalRouter.post("/manifest", (_req: McpRequest, res: Response) => {
 async function journal(employeeId: string, title: string, body = ""): Promise<void> {
   try {
     const repo = AppDataSource.getRepository(JournalEntry);
+    // The Run and Routine behind this call, from the same ambient provenance
+    // the audit ledger reads (M58). These two columns existed and were written
+    // `null` by every AI-authored entry, so an employee's own diary could not
+    // say which Run wrote a line — and the Runs UI had nothing to cross-link.
+    const provenance = currentAuditContext();
     await repo.save(
       repo.create({
         employeeId,
         kind: "system",
         title,
         body,
-        runId: null,
-        routineId: null,
+        runId: provenance?.runId ?? null,
+        routineId: provenance?.routineId ?? null,
         authorUserId: null,
       }),
     );
@@ -922,7 +949,54 @@ function serializeEmployee(e: AIEmployee) {
   return { id: e.id, slug: e.slug, name: e.name, role: e.role };
 }
 
-function serializeRoutine(r: Routine, tags: string[] = [], folder: string | null = null) {
+/**
+ * The bar a Routine is graded against, as the graded party is allowed to see it.
+ *
+ * Read-only, and the omission is the whole point: there is no MCP tool that
+ * creates, edits, deletes or reorders a Check, and there must not be one. A bar
+ * the graded party can write is not a bar — an employee that could relax a
+ * Check it kept failing would turn `checksVerdict` back into the self-report
+ * that Checks exist to replace. Humans set them from the Routine page; an
+ * employee may only know what they are, which is what lets it fix the work
+ * rather than guess at why a Run was marked failed.
+ */
+function summarizeChecks(checks: RoutineCheck[]) {
+  return checks.map((c) => ({ name: c.name, kind: c.kind, required: c.required }));
+}
+
+/**
+ * Every Check on a set of Routines, keyed by routine id.
+ *
+ * `listChecks` answers for one Routine, which is the right shape everywhere
+ * except the listing: `list_routines` is the tool an employee calls to orient
+ * itself, so a lookup per row would put an N+1 on the hot path for a field
+ * that is three short strings. One query, ordered the way the runner will run
+ * them, mirrors what `tagsByResourceIds` does for the same listing.
+ */
+async function checksByRoutineIds(
+  companyId: string,
+  routineIds: string[],
+): Promise<Map<string, RoutineCheck[]>> {
+  const byRoutine = new Map<string, RoutineCheck[]>();
+  if (routineIds.length === 0) return byRoutine;
+  const rows = await AppDataSource.getRepository(RoutineCheck).find({
+    where: { companyId, routineId: In(routineIds) },
+    order: { position: "ASC", createdAt: "ASC" },
+  });
+  for (const row of rows) {
+    const existing = byRoutine.get(row.routineId);
+    if (existing) existing.push(row);
+    else byRoutine.set(row.routineId, [row]);
+  }
+  return byRoutine;
+}
+
+function serializeRoutine(
+  r: Routine,
+  tags: string[] = [],
+  folder: string | null = null,
+  checks: RoutineCheck[] = [],
+) {
   return {
     id: r.id,
     employeeId: r.employeeId,
@@ -932,6 +1006,13 @@ function serializeRoutine(r: Routine, tags: string[] = [], folder: string | null
     enabled: r.enabled,
     lastRunAt: r.lastRunAt,
     brief: r.body,
+    /**
+     * The Goal this Routine serves, or null. M51 put the column on the row and
+     * every AI-facing projection dropped it, so an employee could read its own
+     * brief and still not know which objective the work was meant to move.
+     */
+    goalId: r.goalId,
+    checks: summarizeChecks(checks),
     tags,
     /** Slash-joined folder path this routine is filed under; null = unfiled. */
     folder,
@@ -951,7 +1032,12 @@ function serializeRoutine(r: Routine, tags: string[] = [], folder: string | null
  */
 const ROUTINE_BRIEF_PREVIEW_CHARS = 280;
 
-function serializeRoutineSummary(r: Routine, tags: string[] = [], folder: string | null = null) {
+function serializeRoutineSummary(
+  r: Routine,
+  tags: string[] = [],
+  folder: string | null = null,
+  checks: RoutineCheck[] = [],
+) {
   const brief = r.body ?? "";
   const truncated = brief.length > ROUTINE_BRIEF_PREVIEW_CHARS;
   return {
@@ -965,6 +1051,10 @@ function serializeRoutineSummary(r: Routine, tags: string[] = [], folder: string
     briefPreview: truncated ? brief.slice(0, ROUTINE_BRIEF_PREVIEW_CHARS) + "…" : brief,
     briefChars: brief.length,
     briefTruncated: truncated,
+    goalId: r.goalId,
+    // Names only, and only three fields of each — a listing says what the bar
+    // is, `get_routine` says nothing more about it, and no tool moves it.
+    checks: summarizeChecks(checks),
     tags,
     folder,
   };
@@ -7955,6 +8045,10 @@ mcpInternalRouter.post(
     const folderPaths = new Map(
       (await listFoldersWithMeta(co.id)).map((folder) => [folder.id, folder.path]),
     );
+    const checksById = await checksByRoutineIds(
+      co.id,
+      routines.map((r) => r.id),
+    );
     res.json({
       employee: serializeEmployee(target),
       routines: routines.map((r) =>
@@ -7962,6 +8056,7 @@ mcpInternalRouter.post(
           r,
           (tagsById.get(r.id) ?? []).map((tag) => tag.name),
           r.folderId ? (folderPaths.get(r.folderId) ?? null) : null,
+          checksById.get(r.id) ?? [],
         ),
       ),
       note:
@@ -7993,6 +8088,7 @@ mcpInternalRouter.post(
         found.routine,
         tags.map((tag) => tag.name),
         await folderPathFor(co.id, found.routine.folderId),
+        await listChecks(found.routine.id, co.id),
       ),
     });
   },
@@ -8092,7 +8188,14 @@ mcpInternalRouter.post(
       `Cron: \`${r.cronExpr}\`\n\nCreated via the built-in MCP tool.`,
     );
 
-    res.json({ routine: serializeRoutine(r, tags, await folderPathFor(co.id, r.folderId)) });
+    res.json({
+      routine: serializeRoutine(
+        r,
+        tags,
+        await folderPathFor(co.id, r.folderId),
+        await listChecks(r.id, co.id),
+      ),
+    });
   },
 );
 
@@ -8179,6 +8282,7 @@ mcpInternalRouter.post(
         routine,
         tags.map((tag) => tag.name),
         await folderPathFor(co.id, routine.folderId),
+        await listChecks(routine.id, co.id),
       ),
     });
   },
@@ -8233,6 +8337,166 @@ mcpInternalRouter.post(
       "Deleted via the built-in MCP tool.",
     );
     res.json({ ok: true });
+  },
+);
+
+// ----- Runs: the record of what scheduled work actually did (M58) -----
+
+/*
+ * Until now there was no run-reading tool in the product at all. An employee
+ * could create a Routine, edit its brief and delete it, and had no way to look
+ * at a single thing any of its Runs had done — so a manager briefed that one of
+ * its Routines had been stood down could read the schedule that caused the
+ * standdown and nothing about the failures behind it. These two tools close
+ * that, and only that: both are reads, both scope through `resolveRoutine`, and
+ * neither writes anything.
+ */
+
+/** Runs that have stopped. A `running` row's verdicts are not written yet. */
+const TERMINAL_RUN_STATUSES: RunStatus[] = [
+  "completed",
+  "failed",
+  "skipped",
+  "timeout",
+  "interrupted",
+];
+
+/** Rows returned when the caller does not say. Well inside one tool result. */
+const DEFAULT_RUN_ROWS = 20;
+
+function serializeRunRow(run: Run, routineName: string | null) {
+  return {
+    id: run.id,
+    routineId: run.routineId,
+    routineName,
+    status: run.status,
+    /** Did its required Checks pass. The one axis no model has a say in. */
+    checksVerdict: run.checksVerdict,
+    outcomeVerdict: run.outcomeVerdict,
+    outcomeNote: run.outcomeNote,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    attempt: run.attempt,
+    tokensIn: run.tokensIn,
+    tokensOut: run.tokensOut,
+  };
+}
+
+const listRunsSchema = z
+  .object({
+    routine: z.string().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/list_runs",
+  validateBody(listRunsSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof listRunsSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+
+    // Scoping is `resolveRoutine`'s job in both branches rather than a second
+    // rule written here: a Run is reachable exactly when its Routine is, which
+    // is what keeps another company's history out without a separate guard to
+    // keep in step with the first one.
+    const names = new Map<string, string>();
+    let routineIds: string[];
+    if (body.routine) {
+      const found = await resolveRoutine(co, self, body.routine);
+      if (!found.ok) return res.status(found.status).json({ error: found.error });
+      routineIds = [found.routine.id];
+      names.set(found.routine.id, found.routine.name);
+    } else {
+      const own = await AppDataSource.getRepository(Routine).find({
+        where: { employeeId: self.id },
+        select: { id: true, name: true },
+      });
+      routineIds = own.map((r) => r.id);
+      for (const r of own) names.set(r.id, r.name);
+    }
+
+    if (routineIds.length === 0) {
+      return res.json({
+        runs: [],
+        note: "You own no Routines yet, so there is no run history to read.",
+      });
+    }
+
+    const runs = await AppDataSource.getRepository(Run).find({
+      where: { routineId: In(routineIds), status: In(TERMINAL_RUN_STATUSES) },
+      order: { startedAt: "DESC" },
+      take: body.limit ?? DEFAULT_RUN_ROWS,
+    });
+
+    res.json({
+      runs: runs.map((run) => serializeRunRow(run, names.get(run.routineId) ?? null)),
+      note:
+        "Newest first. `checksVerdict` is the Checks the Routine declares; " +
+        "`outcomeVerdict` is how the finished work was graded. " +
+        "Call get_run_report for one Run's check results and what it changed.",
+    });
+  },
+);
+
+const getRunReportSchema = z.object({ runId: z.string().min(1).max(200) }).strict();
+
+mcpInternalRouter.post(
+  "/tools/get_run_report",
+  validateBody(getRunReportSchema),
+  async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof getRunReportSchema>;
+    const co = req.mcpCompany!;
+    const self = req.mcpEmployee!;
+
+    const handle = body.runId.trim();
+    const run = UUID_RE.test(handle)
+      ? await AppDataSource.getRepository(Run).findOneBy({ id: handle })
+      : null;
+    // One message for "no such Run" and "not your Run" alike: a distinguishable
+    // refusal would confirm the existence of another company's Run id.
+    if (!run) return res.status(404).json({ error: "Run not found" });
+    const found = await resolveRoutine(co, self, run.routineId);
+    if (!found.ok) return res.status(404).json({ error: "Run not found" });
+
+    // The final round is what the Run was graded on; the earlier rounds are
+    // what makes the record honest about a Run that only went green on the
+    // second try. Both come from the same indexed read, so keeping the history
+    // costs nothing over dropping it.
+    const latest = await latestCheckResultsForRun(run.id, co.id);
+    const rounds = await AppDataSource.getRepository(RunCheckResult).find({
+      where: { runId: run.id, companyId: co.id },
+      order: { attempt: "ASC", createdAt: "ASC" },
+    });
+
+    const effects = await runEffects(run.id, { companyId: co.id, limit: RUN_EFFECT_ROW_CAP });
+    const effectTotal = await countEffects(run.id);
+
+    res.json({
+      run: {
+        ...serializeRunRow(run, found.routine.name),
+        triggerKind: run.triggerKind,
+        exitCode: run.exitCode,
+        parentRunId: run.parentRunId,
+        checkRemediations: run.checkRemediations,
+      },
+      checks: {
+        verdict: run.checksVerdict,
+        remediationRounds: run.checkRemediations,
+        latest,
+        rounds: rounds.map(serializeCheckResult),
+      },
+      effects: {
+        rows: effects,
+        total: effectTotal,
+        truncated: effectTotal > effects.length,
+      },
+      note:
+        "`effects` is what the server recorded this Run changing — not what the " +
+        "transcript says it did. Checks are set by humans on the Routine; there is " +
+        "no tool to change them.",
+    });
   },
 );
 

@@ -921,6 +921,10 @@ export type Run = {
   outcomeVerdict?: RunOutcomeVerdict | null;
   /** The checker's one-or-two-sentence reason for the verdict. */
   outcomeNote?: string | null;
+  /** How the run measured against its Routine's Checks. */
+  checksVerdict?: RunChecksVerdict | null;
+  /** Remediation rounds the runner spent trying to turn a failed Check green. */
+  checkRemediations?: number;
   /** Prompt tokens billed across every model turn of this run. */
   tokensIn?: number;
   /** Completion tokens billed across every model turn of this run. */
@@ -928,11 +932,17 @@ export type Run = {
 };
 /**
  * `achieved` — the transcript shows the criteria were met. `off_goal` — the
- * run finished but missed them. `unclear` — not enough evidence either way
- * (including when the check itself failed). Null/absent when the Routine
- * declares no criteria.
+ * run finished but missed them. `unclear` — the grader read the evidence and
+ * could not tell either way. `unverified` — no grader ever reached a
+ * judgement: it errored, the model was gone, the process died inside the
+ * verdict window. Null/absent when the Routine declares no criteria.
+ *
+ * `unclear` and `unverified` used to be the same value, which is the bug M58
+ * exists to remove: "we looked and could not tell" and "nobody looked" are
+ * different facts, and collapsing them let an ungraded Run bank the same
+ * credit as a graded one.
  */
-export type RunOutcomeVerdict = "achieved" | "unclear" | "off_goal";
+export type RunOutcomeVerdict = "achieved" | "unclear" | "off_goal" | "unverified";
 export type RunBrowserRecordingStatus = "recording" | "finalizing" | "ready" | "failed";
 export type RunBrowserRecording = {
   /** BrowserSession id; one Run may have several when it delegates browser work. */
@@ -957,6 +967,8 @@ export type RunLog = {
   attempt?: number;
   outcomeVerdict?: RunOutcomeVerdict | null;
   outcomeNote?: string | null;
+  checksVerdict?: RunChecksVerdict | null;
+  checkRemediations?: number;
   tokensIn?: number;
   tokensOut?: number;
   /** A verdict is still owed: the run completed and its check hasn't landed. */
@@ -1285,13 +1297,21 @@ export type UsageSummary = {
   byRoutine: UsageRoutineRow[];
 };
 
-export type AuditActorKind = "user" | "system" | "webhook" | "cron";
+/** `"ai"` was missing here, which is why every AI Employee's action rendered
+ *  as "System" on the audit page — the column has carried `actorEmployeeId`
+ *  since M2 and no reader knew to look at it. */
+export type AuditActorKind = "user" | "system" | "webhook" | "cron" | "ai";
 export type AuditEvent = {
   id: string;
   companyId: string;
   actorKind: AuditActorKind;
   actorUserId: string | null;
   actor: { id: string; name: string; email: string } | null;
+  actorEmployeeId: string | null;
+  actorEmployee: { id: string; slug: string; name: string; role: string } | null;
+  /** The Run this mutation happened inside (M58). Null for human and chat work. */
+  runId: string | null;
+  conversationId: string | null;
   action: string;
   targetType: string;
   targetId: string | null;
@@ -1299,6 +1319,173 @@ export type AuditEvent = {
   metadata: Record<string, unknown> | null;
   createdAt: string;
 };
+
+export type AuditPage = { items: AuditEvent[]; nextCursor: string | null };
+
+export type AuditFilters = {
+  actorKind?: AuditActorKind;
+  actorEmployeeId?: string;
+  actorUserId?: string;
+  /** Prefix match over the dotted action namespace, e.g. `invoice.`. */
+  action?: string;
+  runId?: string;
+  since?: string;
+  until?: string;
+  cursor?: string;
+  take?: number;
+};
+
+/** Build the audit query string, dropping empty values so a cleared filter
+ *  control does not narrow the list to nothing. */
+export function auditQuery(filters: AuditFilters): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === "") continue;
+    params.set(key, String(value));
+  }
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+// ──────────────────────────── Checks (M58) ─────────────────────────────────
+// A **Check** is a machine-verifiable assertion a Run must pass before it may
+// finalize green. It sits beside the acceptance criteria on the Routine and is
+// the other half of the same question: the criteria are the bar a model judges,
+// a Check is the bar the server judges. The graded party cannot author one —
+// every mutation here is admin-gated at the route and no MCP tool writes them.
+
+export type RoutineCheckKind = "command" | "effect";
+
+/**
+ * The `effect` predicate, stored as JSON in `RoutineCheck.spec`.
+ *
+ * Deliberately arithmetic rather than expressive: it counts rows the server
+ * wrote in the Run's effect ledger and compares the count to a window. A
+ * predicate language would invite Checks that are themselves programs needing
+ * their own review.
+ */
+export type EffectCheckSpec = {
+  action: string;
+  targetType?: string;
+  min: number;
+  max?: number;
+};
+
+export type RoutineCheck = {
+  id: string;
+  routineId: string;
+  name: string;
+  kind: RoutineCheckKind;
+  /** The command verbatim, or a JSON {@link EffectCheckSpec}. */
+  spec: string;
+  /** A failed required Check fails the Run. A non-required one only reports. */
+  required: boolean;
+  enabled: boolean;
+  /** Wall-clock ceiling for a `command` Check. Inert for `effect`. */
+  timeoutSec: number;
+  position: number;
+  createdById: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+/**
+ * Whether a `command` Check can run on this installation, and why not.
+ *
+ * Command Checks need the same bubblewrap boundary `bash` runs in, so on a
+ * host-mode or sandbox-less install they can never pass. The editor disables
+ * the option and shows this reason rather than letting somebody author a Check
+ * that is guaranteed to fail.
+ */
+export type CommandChecksAvailability = { available: boolean; reason?: string | null };
+
+export type RoutineCheckList = {
+  checks: RoutineCheck[];
+  commandChecks: CommandChecksAvailability;
+};
+
+/** Mirrors `MAX_CHECKS_PER_ROUTINE` on the server. */
+export const MAX_CHECKS_PER_ROUTINE = 10;
+
+/**
+ * One Check's result on one Run. `name` / `kind` / `required` are denormalized
+ * server-side so a result stays readable after its Check is edited or deleted —
+ * which is also why `checkId` can be null on an old row.
+ */
+export type RunCheckResult = {
+  id: string;
+  runId: string;
+  checkId: string | null;
+  name: string;
+  kind: RoutineCheckKind;
+  required: boolean;
+  passed: boolean;
+  /** Exit status for a `command` Check; null for `effect` and for one that
+   *  could not be run at all. */
+  exitCode: number | null;
+  detail: string;
+  durationMs: number;
+  /** 0 is the first pass; 1 and 2 are the bounded remediation rounds. */
+  attempt: number;
+  createdAt: string | null;
+};
+
+export type RunCheckResultList = { results: RunCheckResult[] };
+
+/**
+ * `passed` / `failed` — the server ran this Run's Checks and they did or did
+ * not hold. `not_run` — the Routine declares none, so nothing was asserted.
+ */
+export type RunChecksVerdict = "passed" | "failed" | "not_run";
+
+// ─────────────────────────── Effects (M58) ─────────────────────────────────
+// One row per write the server recorded while the Run held its token. Not a
+// model narration — the ledger is written at each write seam, which is the
+// entire reason a Check can assert over it.
+
+export type RunEffect = {
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  targetLabel: string;
+  at: string;
+};
+
+export type RunEffectList = {
+  effects: RunEffect[];
+  /** Rows recorded, which exceeds `effects.length` on a capped read. */
+  total: number;
+};
+
+// ────────────────────────── Standdowns (M58) ───────────────────────────────
+// A **Standdown** is a revocable stop on all AI work at one scope. Reads are
+// member-level — everybody is entitled to know the work they depend on has
+// stopped, and why — while placing and lifting are admin-only.
+
+export type StanddownScope = "company" | "employee" | "routine";
+/** `breaker` is the consecutive-failure circuit breaker in the runner. */
+export type StanddownSource = "human" | "breaker";
+
+export type Standdown = {
+  id: string;
+  scope: StanddownScope;
+  /** The employee or Routine id. Null for `company` scope. */
+  scopeId: string | null;
+  reason: string;
+  source: StanddownSource;
+  placedByUserId: string | null;
+  placedAt: string;
+  liftedAt: string | null;
+  liftedByUserId: string | null;
+  liftedReason: string;
+  active: boolean;
+  createdAt: string;
+};
+
+export type StanddownList = { standdowns: Standdown[] };
+
+/** The banner's query: the widest Standdown covering one target, or none. */
+export type ActiveStanddown = { standdown: Standdown | null };
 
 export type IntegrationAuthMode =
   | "apikey"
@@ -2763,7 +2950,7 @@ export type HealthItem = {
   badge?: string;
   link?: string;
 };
-export type HealthCheck = {
+export type HealthProbe = {
   id: string;
   title: string;
   description: string;
@@ -2777,7 +2964,7 @@ export type SystemHealthReport = {
   windowHours: number;
   status: HealthSeverity;
   issueCount: number;
-  checks: HealthCheck[];
+  checks: HealthProbe[];
 };
 export type SystemHealthSummary = {
   status: HealthSeverity;
@@ -2795,7 +2982,7 @@ export type SystemHealthSummary = {
 // company-scoped System Health above. Served by /api/admin/instance-health.
 export type InstanceSeverity = "ok" | "warn" | "error";
 export type InstanceFact = { label: string; value: string; mono?: boolean };
-export type InstanceCheck = {
+export type InstanceProbe = {
   id: string;
   title: string;
   description: string;
@@ -2817,7 +3004,7 @@ export type InstanceHealthReport = {
   generatedAt: string;
   status: InstanceSeverity;
   issueCount: number;
-  checks: InstanceCheck[];
+  checks: InstanceProbe[];
   instance: InstanceInfo;
 };
 
@@ -2899,7 +3086,13 @@ export type GlobalEmailTransport = {
 // `server/services/runtimeSettings.ts` exactly. No secrets live in any group,
 // so the GET returns every value. PUT replaces a whole group — a body missing
 // any field of the group is rejected.
-export type RuntimeSettingsGroup = "web" | "mail" | "meetings" | "browser" | "agent";
+export type RuntimeSettingsGroup =
+  | "web"
+  | "mail"
+  | "meetings"
+  | "browser"
+  | "agent"
+  | "containment";
 
 /** Open-web tools (`search_web`, `fetch_web_page`, `download_web_file`). */
 export type RuntimeWebSettings = {
@@ -2943,12 +3136,28 @@ export type RuntimeAgentSettings = {
   toolDiscovery: { enabled: boolean; minCatalogueSize: number };
 };
 
+/**
+ * How hard the install leans on the two containment instruments M58 added: the
+ * circuit breaker that stands a permanently broken Routine down, and the sweep
+ * that finishes grading Runs the runner never got to.
+ */
+export type RuntimeContainmentSettings = {
+  /** Consecutive bad Runs on one Routine before the breaker stands it down.
+   *  0 disables the breaker entirely. */
+  routineBreakerThreshold: number;
+  /** How stale a Run's missing verdict must be before the sweep re-grades it. */
+  regradeAfterMinutes: number;
+  /** Runs re-graded per heartbeat pass. Each one is a model turn. */
+  regradePerPass: number;
+};
+
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
   meetings: RuntimeMeetingsSettings;
   browser: RuntimeBrowserSettings;
   agent: RuntimeAgentSettings;
+  containment: RuntimeContainmentSettings;
 };
 
 export type RuntimeSettingsSnapshot = RuntimeSettings & {

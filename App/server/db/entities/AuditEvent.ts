@@ -17,6 +17,11 @@ export type AuditActorKind = "user" | "system" | "webhook" | "cron" | "ai";
 
 @Entity("audit_events")
 @Index(["companyId", "createdAt"])
+// The per-Run effect digest: everything one Run changed, in order.
+@Index(["runId"])
+// "What did this employee do, and when" — the filter the audit page grew and
+// the query the reporting line needs to review a bad autonomous window.
+@Index(["companyId", "actorEmployeeId", "createdAt"])
 export class AuditEvent {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -38,6 +43,24 @@ export class AuditEvent {
    */
   @Column({ type: "varchar", nullable: true })
   actorEmployeeId!: string | null;
+
+  /**
+   * The Run this mutation happened inside, when a Routine's MCP token
+   * authorized it. Provenance the token has carried since it was minted
+   * (`services/mcpTokens.ts`) and that `recordAudit` used to drop one
+   * statement before writing the row.
+   *
+   * This column is what turns the audit log into an **effect ledger**: the
+   * ordered list of what a Run actually changed, written by the server at each
+   * write seam rather than narrated by the model afterwards. Null for chat
+   * turns, human actions, and external MCP sessions.
+   */
+  @Column({ type: "varchar", nullable: true })
+  runId!: string | null;
+
+  /** The conversation this mutation happened inside, from the same seam. */
+  @Column({ type: "varchar", nullable: true })
+  conversationId!: string | null;
 
   /** Dotted name — `employee.create`, `routine.update`, `approval.approve`. */
   @Column({ type: "varchar" })

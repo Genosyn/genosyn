@@ -4,7 +4,7 @@ import { AppDataSource } from "../db/datasource.js";
 import type { AIEmployee } from "../db/entities/AIEmployee.js";
 import type { AIModel } from "../db/entities/AIModel.js";
 import type { Routine } from "../db/entities/Routine.js";
-import type { Run, RunOutcomeVerdict, RunStatus } from "../db/entities/Run.js";
+import type { Run, RunChecksVerdict, RunOutcomeVerdict, RunStatus } from "../db/entities/Run.js";
 import { RunLesson } from "../db/entities/RunLesson.js";
 import { runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
 import type { AgentTool } from "./agent/types.js";
@@ -46,15 +46,39 @@ const BRIEF_LESSONS_MAX = 5;
 /**
  * Which terminal Runs earn a reflection. Pure so the runner's trigger is
  * testable without driving the runner: outright failures and timeouts, plus
- * completed Runs the outcome check graded off-goal. `interrupted` is excluded
- * — recovery owns those, and their transcripts end mid-thought.
+ * completed Runs the outcome check graded off-goal or whose required Checks
+ * failed. `interrupted` is excluded — recovery owns those, and their
+ * transcripts end mid-thought.
+ *
+ * A failed Check is the strongest reflection trigger there is, because it is
+ * the only one no model authored: the server asserted something about the work
+ * and the assertion did not hold. It sits beside `off_goal` rather than under
+ * it precisely because the two can disagree — a checker can read a persuasive
+ * transcript as `achieved` while the ledger shows the write never happened.
+ *
+ * `unverified` deliberately earns nothing. There is no lesson in a provider
+ * outage, and asking a model to extract one produces a plausible fiction about
+ * work that was never graded. It must not read as success either — that is
+ * `autonomy.ts`'s job, where an ungraded Run stops counting as a clean one.
+ *
+ * `checksVerdict` is optional so the parameter could be added without touching
+ * `runner.ts`, which is the caller that passes it in production.
  */
 export function shouldReflect(
   status: RunStatus,
   outcomeVerdict: RunOutcomeVerdict | null,
+  checksVerdict: RunChecksVerdict | null = null,
 ): boolean {
   if (status === "failed" || status === "timeout") return true;
-  return status === "completed" && outcomeVerdict === "off_goal";
+  if (status !== "completed") return false;
+  return checksVerdict === "failed" || outcomeVerdict === "off_goal";
+}
+
+/** How the retrospective is told why it was convened. */
+function describeEnding(run: Run): string {
+  if (run.status !== "completed") return `ended with status "${run.status}"`;
+  if (run.checksVerdict === "failed") return "finished, but a required Check did not pass";
+  return "finished but was graded off-goal";
 }
 
 const submittedLessonSchema = z
@@ -66,7 +90,7 @@ const submittedLessonSchema = z
 
 function reflectionSystemPrompt(employee: AIEmployee, routine: Routine, run: Run): string {
   return [
-    `You are the retrospective on a scheduled Run that ${employee.name} (${employee.role}) just finished for the Routine "${routine.name}". The Run ${run.status === "completed" ? "finished but was graded off-goal" : `ended with status "${run.status}"`}.`,
+    `You are the retrospective on a scheduled Run that ${employee.name} (${employee.role}) just finished for the Routine "${routine.name}". The Run ${describeEnding(run)}.`,
     "Extract one lesson the NEXT Run of this routine should start with.",
     "",
     ...(routine.acceptanceCriteria.trim()
@@ -74,6 +98,13 @@ function reflectionSystemPrompt(employee: AIEmployee, routine: Routine, run: Run
       : []),
     ...(run.outcomeNote
       ? ["## What the outcome check said", run.outcomeNote, ""]
+      : []),
+    ...(run.checksVerdict === "failed"
+      ? [
+          "## What the Checks said",
+          "At least one required Check on this Routine did not pass. A Check is the server's own assertion about the work, not a reading of your transcript — treat its failure as fact and find the cause behind it.",
+          "",
+        ]
       : []),
     "## How to reflect",
     "- `cause`: what actually went wrong, in evidence from the transcript — a wrong channel, a missing input, a tool that errored. Not a platitude.",

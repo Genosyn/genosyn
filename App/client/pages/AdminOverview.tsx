@@ -19,7 +19,7 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
-import { api, InstanceCheck, InstanceHealthReport, InstanceSeverity } from "../lib/api";
+import { api, InstanceProbe, InstanceHealthReport, InstanceSeverity } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
@@ -358,7 +358,7 @@ function StatTile({
   return <div className={base}>{body}</div>;
 }
 
-function CheckRow({ check, to }: { check: InstanceCheck; to: string }) {
+function CheckRow({ check, to }: { check: InstanceProbe; to: string }) {
   return (
     <li>
       <Link

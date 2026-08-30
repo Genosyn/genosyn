@@ -1,17 +1,34 @@
 import React from "react";
-import { AlertTriangle, Ban, Download, Loader2, RotateCcw, Video } from "lucide-react";
+import {
+  AlertTriangle,
+  Ban,
+  CheckCircle2,
+  Download,
+  Loader2,
+  Receipt,
+  RotateCcw,
+  Video,
+  XCircle,
+} from "lucide-react";
 import {
   api,
   Company,
   Routine,
   Run,
   RunBrowserRecording,
+  RunCheckResult,
+  RunCheckResultList,
+  RunChecksVerdict,
+  RunEffect,
+  RunEffectList,
   RunLog,
   RunOutcomeVerdict,
   RunStatus,
 } from "../../lib/api";
 import { Button } from "../ui/Button";
+import { FormError } from "../ui/FormError";
 import { Modal } from "../ui/Modal";
+import { errorMessage } from "../../lib/errors";
 
 /**
  * Shared rendering for Runs — one execution of a Routine. Lives here rather
@@ -63,12 +80,33 @@ const OUTCOME_STYLE: Record<RunOutcomeVerdict, string> = {
     "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-500/10 dark:text-slate-300 dark:border-slate-500/30",
   off_goal:
     "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/30",
+  // Dashed, and amber rather than slate: `unclear` is a quiet result, this is
+  // a gap. Nothing about this run was graded, and it must not read as one of
+  // the three verdicts a grader can reach.
+  unverified:
+    "border-dashed bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-500/10 dark:text-amber-300 dark:border-amber-500/40",
 };
 
 const OUTCOME_LABEL: Record<RunOutcomeVerdict, string> = {
   achieved: "achieved",
   unclear: "unclear",
   off_goal: "off goal",
+  unverified: "unverified",
+};
+
+/**
+ * What the chip means on hover, when the grader left no note of its own.
+ *
+ * The pair that has to stay apart is `unclear` and `unverified`. `unclear` is
+ * a judgement — a grader read the evidence and could not tell. `unverified` is
+ * the absence of one: no grader ever reached a verdict. They used to be the
+ * same value, which let an ungraded run bank the same credit as a graded one.
+ */
+const OUTCOME_HINT: Record<RunOutcomeVerdict, string> = {
+  achieved: "A grader read the evidence and found the acceptance criteria met.",
+  unclear: "A grader read the evidence and could not tell either way.",
+  off_goal: "A grader read the evidence and found the acceptance criteria missed.",
+  unverified: "Nobody graded this run. This is the absence of a verdict, not a verdict.",
 };
 
 /**
@@ -87,7 +125,7 @@ export function RunOutcomeChip({
 }) {
   return (
     <span
-      title={note ?? undefined}
+      title={note ?? OUTCOME_HINT[verdict]}
       className={
         "inline-flex shrink-0 items-center gap-1 rounded border font-medium uppercase tracking-wide " +
         (size === "xs" ? "px-1.5 py-0.5 text-[10px] " : "px-2 py-0.5 text-xs ") +
@@ -95,6 +133,51 @@ export function RunOutcomeChip({
       }
     >
       {OUTCOME_LABEL[verdict]}
+    </span>
+  );
+}
+
+const CHECKS_STYLE: Record<RunChecksVerdict, string> = {
+  passed:
+    "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30",
+  failed:
+    "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:border-rose-500/30",
+  not_run: "",
+};
+
+/**
+ * The third axis: the outcome verdict is a model reading a transcript, this is
+ * the server observing something the model cannot narrate — a command exited
+ * 0, or the effect ledger really contains the write the run claims.
+ *
+ * `not_run` renders nothing on purpose. It means the Routine declares no
+ * Checks, which is the common case; a chip saying so on every run would be a
+ * permanent reminder of a feature nobody here uses, on the row where the
+ * reader is trying to see what happened.
+ */
+export function RunChecksChip({
+  verdict,
+  size = "sm",
+}: {
+  verdict: RunChecksVerdict;
+  size?: "xs" | "sm";
+}) {
+  if (verdict === "not_run") return null;
+  return (
+    <span
+      title={
+        verdict === "passed"
+          ? "Every required Check on this Routine held."
+          : "A required Check did not hold, so this run is not green however its transcript reads."
+      }
+      className={
+        "inline-flex shrink-0 items-center gap-1 rounded border font-medium uppercase tracking-wide " +
+        (size === "xs" ? "px-1.5 py-0.5 text-[10px] " : "px-2 py-0.5 text-xs ") +
+        CHECKS_STYLE[verdict]
+      }
+    >
+      {verdict === "passed" ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
+      checks {verdict}
     </span>
   );
 }
@@ -384,8 +467,8 @@ export function RunBrowserRecordingsPane({
                   className="font-medium text-indigo-300 underline underline-offset-2 hover:text-indigo-200"
                 >
                   downloading the MP4
-                </a>
-                {" "}instead.
+                </a>{" "}
+                instead.
               </>
             }
           />
@@ -453,6 +536,271 @@ function RecordingState({
   );
 }
 
+/* ------------------------------------------------------------------------ *
+ * Evidence — the two panels that are not the transcript
+ *
+ * The Run log is what the model said it did. These two are what the server
+ * saw: the Checks it ran, and the writes it recorded. Keeping them next to the
+ * transcript rather than on a page of their own is the point — the reader who
+ * needs them is the reader deciding whether to believe the transcript.
+ * ------------------------------------------------------------------------ */
+
+function EvidenceSection({
+  title,
+  icon,
+  meta,
+  children,
+  className = "",
+}: {
+  title: string;
+  icon: React.ReactNode;
+  meta?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section
+      aria-label={title}
+      className={
+        "flex min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950 " +
+        className
+      }
+    >
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+        <span className="shrink-0 text-slate-400 dark:text-slate-500">{icon}</span>
+        <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{title}</span>
+        {meta && <span className="text-[11px] text-slate-400 dark:text-slate-500">{meta}</span>}
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+    </section>
+  );
+}
+
+function EvidenceLoading({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-4 text-xs text-slate-400 dark:text-slate-500">
+      <Loader2 size={13} className="animate-spin" /> {label}
+    </div>
+  );
+}
+
+/**
+ * Every Check result on one Run, in the order they ran.
+ *
+ * Renders nothing when the Run produced none. That is not a missing empty
+ * state: it means the Routine declares no Checks, which is most Routines, and
+ * a panel explaining its own absence under every Run log would cost more
+ * attention than it returns. The Checks verdict chip is hidden for the same
+ * reason, so the two agree.
+ */
+export function RunChecksStrip({
+  companyId,
+  runId,
+  /** Change this to re-read — a live Run lands its results at the very end. */
+  reloadKey,
+  className = "",
+}: {
+  companyId: string;
+  runId: string;
+  reloadKey?: string;
+  className?: string;
+}) {
+  const [results, setResults] = React.useState<RunCheckResult[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    api
+      .get<RunCheckResultList>(`/api/companies/${companyId}/routines/runs/${runId}/checks`)
+      .then((data) => {
+        if (cancelled) return;
+        setResults(data.results ?? []);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setResults([]);
+        setError(errorMessage(err, "Could not load this run's Checks"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, runId, reloadKey]);
+
+  if (error) return <FormError message={error} className={className} />;
+  // Nothing at all until the read lands, rather than a loading box. This panel
+  // cannot know whether it has anything to show until then, and most Routines
+  // declare no Checks — a box that appears for a tenth of a second and then
+  // vanishes on every Run is worse than one that arrives a moment late. The
+  // Effects panel beside it is always present and carries the wait for both.
+  if (results === null || results.length === 0) return null;
+
+  const rounds = new Set(results.map((r) => r.attempt)).size;
+
+  return (
+    <EvidenceSection
+      title="Checks"
+      icon={<CheckCircle2 size={14} />}
+      meta={`${results.length} result${results.length === 1 ? "" : "s"}${rounds > 1 ? ` across ${rounds} rounds` : ""}`}
+      className={className}
+    >
+      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        {results.map((result) => (
+          <li key={result.id} className="flex items-start gap-2 px-3 py-2">
+            <span className="mt-0.5 shrink-0">
+              {result.passed ? (
+                <CheckCircle2 size={14} className="text-emerald-600 dark:text-emerald-400" />
+              ) : (
+                <XCircle
+                  size={14}
+                  className={
+                    result.required
+                      ? "text-rose-600 dark:text-rose-400"
+                      : "text-amber-600 dark:text-amber-400"
+                  }
+                />
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-xs font-medium text-slate-800 dark:text-slate-100">
+                  {result.name}
+                </span>
+                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  {result.required ? "required" : "advisory"}
+                </span>
+                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                  {result.kind}
+                </span>
+                {/* Which round this came from. A run that only went green on
+                      the second try should say so — that is the difference
+                      between a Routine that works and one that is nursed. */}
+                <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                  {result.attempt === 0 ? "first pass" : `remediation round ${result.attempt}`}
+                </span>
+                {result.exitCode !== null && (
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                    exit {result.exitCode}
+                  </span>
+                )}
+              </div>
+              {result.detail && (
+                <p className="mt-0.5 whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+                  {result.detail}
+                </p>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </EvidenceSection>
+  );
+}
+
+/**
+ * Everything one Run changed, as rows.
+ *
+ * The lead sentence is load-bearing, not decoration. Every other block on this
+ * screen is the model's own account of its work, and a reader who does not
+ * know where these rows came from will read them as more of the same — a list
+ * the model wrote about itself. They are the opposite: the server wrote one at
+ * each write seam while the Run held its token, which is what makes them
+ * usable as evidence and what an `effect` Check asserts over.
+ *
+ * Rows rather than prose for the same reason. A paragraph summarizing "sent
+ * three emails and updated the deal" is a narration again; five lines naming
+ * the action, the thing, and the minute are a ledger.
+ */
+export function RunEffectsPane({
+  companyId,
+  runId,
+  reloadKey,
+  className = "",
+}: {
+  companyId: string;
+  runId: string;
+  reloadKey?: string;
+  className?: string;
+}) {
+  const [data, setData] = React.useState<RunEffectList | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    api
+      .get<RunEffectList>(`/api/companies/${companyId}/routines/runs/${runId}/effects`)
+      .then((next) => {
+        if (cancelled) return;
+        setData({ effects: next.effects ?? [], total: next.total ?? 0 });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(errorMessage(err, "Could not load this run's effects"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, runId, reloadKey]);
+
+  const shown = data?.effects.length ?? 0;
+  const hidden = Math.max(0, (data?.total ?? 0) - shown);
+
+  return (
+    <EvidenceSection
+      title="Effects"
+      icon={<Receipt size={14} />}
+      meta={data ? `${data.total} recorded` : undefined}
+      className={className}
+    >
+      <p className="border-b border-slate-100 px-3 py-2 text-[11px] leading-relaxed text-slate-500 dark:border-slate-800 dark:text-slate-400">
+        These rows were written by the server at each write seam this run passed through — they are
+        not the model&apos;s account of what it did.
+      </p>
+      <FormError message={error} className="m-3" />
+      {!error && data === null && <EvidenceLoading label="Loading effects…" />}
+      {!error && data !== null && shown === 0 && (
+        <p className="px-3 py-4 text-xs text-slate-400 dark:text-slate-500">
+          This run changed nothing. Nothing it may have read, said, or decided appears here — only
+          writes do.
+        </p>
+      )}
+      {!error && data !== null && shown > 0 && (
+        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          {data.effects.map((effect, index) => (
+            <EffectRow key={`${effect.at}-${effect.action}-${index}`} effect={effect} />
+          ))}
+        </ul>
+      )}
+      {hidden > 0 && (
+        <p className="border-t border-slate-100 px-3 py-2 text-[11px] text-slate-400 dark:border-slate-800 dark:text-slate-500">
+          and {hidden.toLocaleString()} more not shown
+        </p>
+      )}
+    </EvidenceSection>
+  );
+}
+
+function EffectRow({ effect }: { effect: RunEffect }) {
+  const at = new Date(effect.at);
+  return (
+    <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-1.5 text-[11px]">
+      <span className="shrink-0 font-mono font-medium text-slate-700 dark:text-slate-200">
+        {effect.action}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">
+        {effect.targetLabel || effect.targetType}
+      </span>
+      <span
+        className="shrink-0 tabular-nums text-slate-400 dark:text-slate-500"
+        title={at.toLocaleString()}
+      >
+        {at.toLocaleTimeString()}
+      </span>
+    </li>
+  );
+}
+
 /**
  * Live tail for a run that was just kicked off. Polls `/runs/:runId/log` until
  * the server reports a terminal status and every browser recording has left
@@ -481,6 +829,11 @@ export function RunLiveModal({
   const status: RunStatus = log?.status ?? initialRun.status;
   const isTerminal = status !== "running";
   const recordings = visibleBrowserRecordings(log?.browserRecordings);
+  // Both evidence panels are one-shot reads, so they need a reason to look
+  // again. Checks land as the loop returns and the ledger keeps growing until
+  // it does, which makes the terminal status — and the checks verdict written
+  // just before it — the only re-read this modal needs.
+  const evidenceKey = `${status}:${log?.checksVerdict ?? ""}`;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -540,10 +893,20 @@ export function RunLiveModal({
   return (
     <Modal open onClose={onClose} title={`Run: ${routine.name}`} size="xl">
       <div className="flex flex-col gap-3" style={{ minHeight: 420 }}>
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           <RunStatusChip status={status} />
           {log?.outcomeVerdict && (
             <RunOutcomeChip verdict={log.outcomeVerdict} note={log.outcomeNote} />
+          )}
+          {log?.checksVerdict && <RunChecksChip verdict={log.checksVerdict} />}
+          {(log?.checkRemediations ?? 0) > 0 && (
+            <span
+              className="text-slate-500 dark:text-slate-400"
+              title="Rounds the runner spent trying to turn a failed Check green before finalizing"
+            >
+              {log?.checkRemediations} remediation
+              {log?.checkRemediations === 1 ? "" : "s"}
+            </span>
           )}
           {log?.exitCode !== null && log?.exitCode !== undefined && (
             <span className="text-slate-500 dark:text-slate-400">exit {log.exitCode}</span>
@@ -576,9 +939,7 @@ export function RunLiveModal({
           <p className="text-xs text-slate-500 dark:text-slate-400">{log.outcomeNote}</p>
         )}
         <div
-          className={
-            "grid min-w-0 flex-1 gap-3 " + (recordings.length > 0 ? "xl:grid-cols-2" : "")
-          }
+          className={"grid min-w-0 flex-1 gap-3 " + (recordings.length > 0 ? "xl:grid-cols-2" : "")}
         >
           <RunLogPane
             log={log}
@@ -594,6 +955,24 @@ export function RunLiveModal({
               recordings={recordings}
             />
           )}
+        </div>
+        {/* Evidence sits under the transcript, not beside it: it is what you
+            read once the transcript has told you what to doubt. Both panels
+            re-read when the run reaches a terminal status, because Checks run
+            after the loop returns and the ledger is only complete then. */}
+        <div className="grid min-w-0 gap-3 xl:grid-cols-2">
+          <RunChecksStrip
+            companyId={company.id}
+            runId={initialRun.id}
+            reloadKey={evidenceKey}
+            className="max-h-64"
+          />
+          <RunEffectsPane
+            companyId={company.id}
+            runId={initialRun.id}
+            reloadKey={evidenceKey}
+            className="max-h-64"
+          />
         </div>
         <div className="flex justify-end gap-2">
           {log?.retryAt && (

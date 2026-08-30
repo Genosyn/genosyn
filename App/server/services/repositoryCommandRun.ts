@@ -1,10 +1,13 @@
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { StringDecoder } from "node:string_decoder";
 import { config } from "../../config.js";
 import type { Repository } from "../db/entities/Repository.js";
 import { codingRuntimeAvailability } from "./agent/codingAvailability.js";
+import {
+  messageOf,
+  spawnSandboxedCommand,
+  type SandboxCommandResult,
+} from "./agent/sandboxCommandRun.js";
 import { buildSandboxShellInvocation } from "./agent/sandboxShell.js";
 import { decideRepositoryCommand } from "./repositoryCommandPolicy.js";
 
@@ -40,24 +43,14 @@ export const DEFAULT_SESSION_COMMAND_MS = 5 * 60 * 1000;
 export const MAX_SESSION_COMMAND_MS = 10 * 60 * 1000;
 
 /**
- * Output kept from one command.
- *
- * Both ends are kept when a command overruns it, because both ends matter and
- * for opposite reasons: a compiler prints the first error at the top, and a
- * test runner prints the failure summary at the bottom. Keeping only the head,
- * the way the employee's `bash` tool does, throws away the half that usually
- * says what went wrong.
+ * Output kept from one command. Generous, because the thing a human is about
+ * to read the diff for is usually the failing test that scrolled past.
+ * `sandboxCommandRun.ts` explains why both ends of it survive truncation.
  */
 export const MAX_SESSION_COMMAND_OUTPUT = 120 * 1024;
 const HEAD_OUTPUT_BYTES = 40 * 1024;
 
-export type SessionCommandResult = {
-  output: string;
-  exitCode: number | null;
-  timedOut: boolean;
-  aborted: boolean;
-  truncated: boolean;
-};
+export type SessionCommandResult = SandboxCommandResult;
 
 export type SessionCommandRefusal = { refused: string };
 
@@ -156,13 +149,16 @@ export async function runWorkSessionCommand(args: {
     return { refused: `Could not prepare the command: ${messageOf(error)}` };
   }
 
-  return spawnSessionCommand({
+  return spawnSandboxedCommand({
     executable,
     args: spawnArgs,
     cwd: args.directory,
     env: childEnv,
     timeoutMs,
     signal: args.signal,
+    maxOutputBytes: MAX_SESSION_COMMAND_OUTPUT,
+    headOutputBytes: HEAD_OUTPUT_BYTES,
+    abortedMessage: "The command was stopped because the work session ended.",
   });
 }
 
@@ -183,179 +179,4 @@ function gitPointerOverlay(directory: string): string[] {
   } catch {
     return [];
   }
-}
-
-/**
- * Spawn, collect bounded output, and make sure nothing survives the call.
- *
- * Deliberately simpler than the employee `bash` tool's process handling, which
- * carries machinery for keeping a background process — a dev server — alive
- * until the model turn closes. Nothing a work session starts should outlive
- * the command that started it: the worktree it runs in may be pruned the
- * moment the turn ends. So the process group is killed unconditionally once
- * the shell closes.
- */
-function spawnSessionCommand(options: {
-  executable: string;
-  args: string[];
-  cwd: string;
-  env: Record<string, string>;
-  timeoutMs: number;
-  signal?: AbortSignal;
-}): Promise<SessionCommandResult> {
-  return new Promise((resolve) => {
-    if (options.signal?.aborted) {
-      resolve({
-        output: "",
-        exitCode: null,
-        timedOut: false,
-        aborted: true,
-        truncated: false,
-      });
-      return;
-    }
-
-    let child: ReturnType<typeof spawn>;
-    try {
-      child = spawn(options.executable, options.args, {
-        cwd: options.cwd,
-        env: options.env,
-        // Own process group so the kill below reaches anything the command
-        // forked or backgrounded, rather than orphaning it.
-        detached: true,
-      });
-    } catch (error) {
-      resolve({
-        output: `Could not run the command: ${messageOf(error)}`,
-        exitCode: null,
-        timedOut: false,
-        aborted: false,
-        truncated: false,
-      });
-      return;
-    }
-
-    const collector = boundedOutput();
-    child.stdout?.on("data", collector.append);
-    child.stderr?.on("data", collector.append);
-
-    const killGroup = (): void => {
-      if (child.pid === undefined) return;
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch {
-        try {
-          process.kill(child.pid, "SIGKILL");
-        } catch {
-          // already gone
-        }
-      }
-    };
-
-    let timedOut = false;
-    let aborted = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killGroup();
-    }, options.timeoutMs);
-    const onAbort = (): void => {
-      aborted = true;
-      killGroup();
-    };
-    options.signal?.addEventListener("abort", onAbort, { once: true });
-
-    const finish = (exitCode: number | null, prefix = ""): void => {
-      clearTimeout(timer);
-      options.signal?.removeEventListener("abort", onAbort);
-      killGroup();
-      const collected = collector.text();
-      resolve({
-        output: prefix ? `${prefix}${collected.text ? `\n${collected.text}` : ""}` : collected.text,
-        exitCode,
-        timedOut,
-        aborted,
-        truncated: collected.truncated,
-      });
-    };
-
-    child.on("error", (error) => finish(null, `Could not run the command: ${error.message}`));
-    child.on("close", (code) => {
-      if (timedOut) {
-        finish(null, `The command was stopped after ${Math.round(options.timeoutMs / 1000)}s.`);
-        return;
-      }
-      if (aborted) {
-        finish(null, "The command was stopped because the work session ended.");
-        return;
-      }
-      finish(code);
-    });
-  });
-}
-
-/** Keep the head and the tail of a command's output, and say what was cut. */
-function boundedOutput(): {
-  append: (chunk: Buffer) => void;
-  text: () => { text: string; truncated: boolean };
-} {
-  const head: Buffer[] = [];
-  const tail: Buffer[] = [];
-  let headBytes = 0;
-  let tailBytes = 0;
-  let droppedBytes = 0;
-  const tailCapacity = MAX_SESSION_COMMAND_OUTPUT - HEAD_OUTPUT_BYTES;
-
-  const append = (chunk: Buffer): void => {
-    let rest = chunk;
-    if (headBytes < HEAD_OUTPUT_BYTES) {
-      const take = Math.min(HEAD_OUTPUT_BYTES - headBytes, rest.length);
-      head.push(rest.subarray(0, take));
-      headBytes += take;
-      rest = rest.subarray(take);
-    }
-    if (rest.length === 0) return;
-    tail.push(rest);
-    tailBytes += rest.length;
-    while (tailBytes > tailCapacity && tail.length > 0) {
-      const oldest = tail[0];
-      const excess = tailBytes - tailCapacity;
-      if (oldest.length <= excess) {
-        tail.shift();
-        tailBytes -= oldest.length;
-        droppedBytes += oldest.length;
-      } else {
-        tail[0] = oldest.subarray(excess);
-        tailBytes -= excess;
-        droppedBytes += excess;
-      }
-    }
-  };
-
-  const decode = (buffer: Buffer): string => {
-    const decoder = new StringDecoder("utf8");
-    return decoder.write(buffer) + decoder.end();
-  };
-
-  const text = (): { text: string; truncated: boolean } => {
-    // Nothing was dropped, so the two halves are contiguous bytes and must be
-    // decoded as one. Decoding them separately would split any multi-byte
-    // character that happens to straddle the head ceiling into two replacement
-    // characters, in output that was never truncated at all.
-    if (droppedBytes === 0) {
-      return {
-        text: decode(Buffer.concat([...head, ...tail], headBytes + tailBytes)),
-        truncated: false,
-      };
-    }
-    return {
-      text: `${decode(Buffer.concat(head, headBytes))}\n… [${droppedBytes} bytes of output omitted] …\n${decode(Buffer.concat(tail, tailBytes))}`,
-      truncated: true,
-    };
-  };
-
-  return { append, text };
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -15,6 +15,7 @@ import { Modal } from "../components/ui/Modal";
 import { EmptyState } from "../components/ui/EmptyState";
 import { TopBar } from "../components/AppShell";
 import { useDialog } from "../components/ui/Dialog";
+import { StanddownBanner, StanddownControl } from "../components/StanddownBanner";
 import type { SettingsOutletCtx } from "./SettingsLayout";
 import { useLiveRefetch } from "../components/CompanySocket";
 
@@ -201,8 +202,52 @@ export function SettingsCompany() {
           </form>
         </CardBody>
       </Card>
+      <CompanyStanddownCard />
       <DangerZoneCard />
     </>
+  );
+}
+
+/**
+ * The company-wide stop.
+ *
+ * It lives on the company settings page rather than in a corner of the Admin
+ * section because the person who needs it is not debugging an installation —
+ * they have just watched the roster do something they do not trust, and the
+ * page they are already on is the company. The banner it produces renders for
+ * every Member, not only admins: everybody is entitled to know that the work
+ * they depend on has stopped, and why.
+ *
+ * It is not the Danger zone and is deliberately not styled as one. Deleting a
+ * company is irreversible; a Standdown is the opposite — it exists to be
+ * lifted, and hesitating over it is the failure mode, not pressing it.
+ */
+function CompanyStanddownCard() {
+  const { company } = useCtx();
+  return (
+    <Card className="mt-4">
+      <CardHeader>
+        <h2 className="text-sm font-semibold">Standdown</h2>
+        <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+          Stop every AI Employee in {company.name} at once. Routines stop firing, Wakeups and
+          Triggers defer rather than pile up, Runs in flight are interrupted and finish as{" "}
+          <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+            interrupted
+          </code>
+          , and chat with every employee is refused. Nothing is deleted and no configuration changes
+          — skipped schedule slots still advance, so lifting a month-old standdown produces no
+          catch-up storm.
+        </p>
+      </CardHeader>
+      <CardBody className="flex flex-wrap items-center justify-between gap-3">
+        <StanddownBanner company={company} className="w-full" />
+        <div className="text-xs text-slate-500 dark:text-slate-400">
+          Placing and lifting are admin-only, and both are recorded against the person who did them.
+          No AI Employee can do either.
+        </div>
+        <StanddownControl company={company} scope="company" label={company.name} />
+      </CardBody>
+    </Card>
   );
 }
 

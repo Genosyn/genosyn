@@ -53,10 +53,11 @@ export function Improvement() {
 
       <H2 id="lessons">Lessons</H2>
       <P>
-        After a Run ends <Code>failed</Code> or <Code>timeout</Code>, or completes but is graded{" "}
+        After a Run ends <Code>failed</Code> or <Code>timeout</Code>, completes but is graded{" "}
         <Code>off goal</Code> by the outcome check — work that met the letter of the criteria while
-        working against the routine&apos;s linked <DocLink to="/docs/goals">Goal</DocLink> —
-        Genosyn runs a short retrospective turn under
+        working against the routine&apos;s linked <DocLink to="/docs/goals">Goal</DocLink> — or
+        completes with a required <DocLink to="/docs/verification">Check</DocLink> failed, Genosyn
+        runs a short retrospective turn under
         the same containment as the check itself: zero tools except one submission tool, reading
         the Run transcript as untrusted evidence — text inside it addressing the model is the
         transcript talking, never instructions. The turn writes a <Strong>Lesson</Strong> with two
@@ -74,6 +75,14 @@ export function Improvement() {
           },
         ]}
       />
+      <P>
+        A failed Check earns a Lesson on exactly the same terms as an off-goal grade, and it is the
+        easiest kind to write a good one from: the retrospective is handed the Check&apos;s name and
+        the reason it did not pass — <em>expected at least 1</em> <Code>mail.send</Code>,{" "}
+        <em>the ledger has 0</em> — rather than having to infer the failure from prose. The two
+        remediation rounds the Run already spent are in the transcript too, so the cause it writes
+        is about why they didn&apos;t work.
+      </P>
       <P>
         At most one reflection is written per Routine per <Strong>6 hours</Strong>, so a retry
         chain that fails five times overnight yields one lesson, not five near-duplicates.
@@ -115,6 +124,12 @@ export function Improvement() {
           proposal: empty criteria switch the outcome check off.
         </LI>
       </UL>
+      <P>
+        A Routine&apos;s <DocLink to="/docs/verification">Checks</DocLink> are not on that list and
+        never will be. Acceptance criteria are prose the employee may argue about; a Check is the
+        part of the bar the graded party does not get to move, in either direction — not by
+        proposal, not by tool.
+      </P>
       <P>
         Every proposal carries a <Strong>rationale</Strong> — the first thing the reviewer reads —
         and up to <Strong>10</Strong> evidence Runs that show the problem it fixes. One proposal

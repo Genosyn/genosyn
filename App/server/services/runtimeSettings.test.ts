@@ -134,6 +134,7 @@ describe("defaults", () => {
       meetings: false,
       browser: false,
       agent: false,
+      containment: false,
     });
   });
 

@@ -6,13 +6,38 @@ export type RunStatus = "running" | "completed" | "failed" | "skipped" | "timeou
 /**
  * How a completed Run measured against its Routine's acceptance criteria,
  * judged by a restricted zero-tool checker after the transcript was final.
- * `achieved` — the transcript shows the criteria were met. `off_goal` — the
- * Run finished but the work does not satisfy the criteria. `unclear` — the
- * transcript does not show enough either way (including when the checker
- * itself failed; the note says which). Null when the Routine declares no
- * criteria, or for Runs that predate the column.
+ *
+ * `achieved` — the evidence shows the criteria were met.
+ * `off_goal`  — the Run finished but the work does not satisfy the criteria.
+ * `unclear`   — the checker looked and could not tell either way.
+ * `unverified`— **the check never produced a judgement**: the checker errored,
+ *               timed out, or ended without submitting.
+ *
+ * The last two used to be the same word, and that collision was load-bearing
+ * in the wrong direction: every consumer downstream read "we could not verify"
+ * as "nothing was wrong", so a checker outage quietly earned an employee the
+ * same credit as a graded success. They are now separate, and `unverified`
+ * counts against promotion exactly like a bad Run.
+ *
+ * Null when the Routine declares no criteria, or for Runs that predate the
+ * column.
  */
-export type RunOutcomeVerdict = "achieved" | "unclear" | "off_goal";
+export type RunOutcomeVerdict = "achieved" | "unclear" | "off_goal" | "unverified";
+
+/**
+ * Whether this Run's **required Checks** passed — the third axis, and the only
+ * one no model has a say in.
+ *
+ * `passed`  — every required Check passed (possibly after remediation).
+ * `failed`  — at least one required Check did not pass, or could not be run.
+ * `not_run` — the Routine declares no enabled Checks.
+ *
+ * Null for Runs that never reached the check phase (a failure, a timeout, a
+ * Run that predates the column). Like `outcomeVerdict`, it never changes
+ * `status`: `completed` keeps meaning "the loop returned", and the
+ * consequences attach to the axis rather than to the status.
+ */
+export type RunChecksVerdict = "passed" | "failed" | "not_run";
 
 /**
  * What caused a Run to start. Only `schedule` and `retry` runs are ever
@@ -128,6 +153,29 @@ export class Run {
    */
   @Column({ type: "text", nullable: true })
   outcomeNote!: string | null;
+
+  /**
+   * When the outcome check last reached a judgement of any kind — including
+   * `unverified`. This is the predicate the re-grade sweep keys on: a process
+   * that died inside the two-minute verdict window used to strand its Run with
+   * a null verdict forever, and a null verdict counted as clean. Null means
+   * "nobody has graded this yet", which is now a thing the platform notices
+   * rather than a thing it rewards.
+   */
+  @Column({ type: dateTimeColumnType, nullable: true })
+  outcomeCheckedAt!: Date | null;
+
+  /** See {@link RunChecksVerdict}. Written before the terminal status save. */
+  @Column({ type: "varchar", nullable: true })
+  checksVerdict!: RunChecksVerdict | null;
+
+  /**
+   * How many bounded remediation rounds the runner spent trying to turn a
+   * failing check green. 0 when the checks passed first time or the Routine
+   * declares none.
+   */
+  @Column({ type: "integer", default: 0 })
+  checkRemediations!: number;
 
   /**
    * Prompt tokens this Run consumed, summed across every model turn from the

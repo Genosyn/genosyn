@@ -9,6 +9,7 @@ import { registerRoutineTriggerSink } from "./resourceEvents.js";
 import { runRoutine } from "./runner.js";
 import { recordAudit } from "./audit.js";
 import { notifyApprovalPending } from "./notifications.js";
+import { workBlocked } from "./standdowns.js";
 
 /**
  * Triggers — event-fired Routines on the live-sync spine (M54).
@@ -64,6 +65,10 @@ export async function dispatchTriggerEvent(
   const triggers = await AppDataSource.getRepository(RoutineTrigger).find({
     where: { companyId, kind, enabled: true },
   });
+  // A company-wide Standdown stops every trigger without a per-trigger lookup
+  // (M58). The narrower scopes are checked inside `fireTrigger`, where the
+  // Routine and its employee are already in hand.
+  if (workBlocked(companyId).blocked) return;
   for (const trigger of triggers) {
     // An empty scope set means "the specifics overflowed — treat as
     // company-wide", exactly as the client's refetch does.
@@ -97,6 +102,12 @@ async function fireTrigger(trigger: RoutineTrigger): Promise<void> {
     companyId: trigger.companyId,
   });
   if (!emp) return;
+  // Checked after the interval claim rather than before it: a fire that is
+  // stopped should still consume its slot, so lifting a standdown does not
+  // release a burst of triggers that all became due while work was stopped.
+  if (workBlocked(trigger.companyId, { employeeId: emp.id, routineId: routine.id }).blocked) {
+    return;
+  }
 
   await recordAudit({
     companyId: trigger.companyId,

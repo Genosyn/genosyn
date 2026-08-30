@@ -39,6 +39,8 @@ import { sweepStalledWork } from "./escalations.js";
 import { sweepGoals } from "./goals.js";
 import { sweepRoutedDecisions } from "./decisionRouting.js";
 import { sweepAutonomyPromotions } from "./autonomy.js";
+import { workBlockedForRoutine } from "./standdowns.js";
+import { sweepUngradedRuns } from "./runGrading.js";
 import { dispatchDueWakeups } from "./wakeups.js";
 
 /**
@@ -311,6 +313,20 @@ export async function dispatchDueRetries(now: Date): Promise<RetryDispatchResult
       continue;
     }
 
+    // A Standdown DEFERS a retry; it never cancels one (M58). `retryAt` is put
+    // back where it was, so the attempt this Routine is still owed survives the
+    // stop and fires after the lift. Cancelling would quietly convert a pause
+    // into a decision nobody made.
+    if ((await workBlockedForRoutine(routine)).blocked) {
+      await settleRetryDispatchClaim(
+        parent.id,
+        parent.routineId,
+        claim,
+        new Date(now.getTime() + BUSY_RETRY_MS),
+      );
+      continue;
+    }
+
     // A child row proves this retry was already dispatched. This closes the
     // crash window between creating the child and clearing retryAt.
     const existingChild = await runRepo.findOneBy({ parentRunId: parent.id });
@@ -447,6 +463,13 @@ async function tick(): Promise<void> {
         // Advance BEFORE firing so a long-running routine doesn't re-trigger.
         r.nextRunAt = nextRunFor(r.cronExpr, now);
         await repo.save(r);
+        // A Standdown skips the slot but keeps the schedule moving (M58).
+        // Holding `nextRunAt` still would turn a month-old stop into a
+        // catch-up storm the moment somebody lifted it, which is the opposite
+        // of what the person pressing the button asked for. Deliberately
+        // silent per slot: placement already journalled every covered
+        // employee once, and a line per skipped tick would bury that.
+        if ((await workBlockedForRoutine(r)).blocked) continue;
         if (r.catchUpPolicy === "skip" && stale) {
           // `count` excludes the due slot itself, which is also not being run.
           await journalSkippedCatchUp(r, slot, count + 1, capped);
@@ -543,6 +566,17 @@ async function tick(): Promise<void> {
       await dispatchDueWakeups(now).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[cron] wakeup dispatch failed:", err);
+      });
+
+      // Phase 12 — grade the Runs nobody graded (M58). The outcome check runs
+      // in-line right after a Run finalizes; a process that dies inside that
+      // two-minute window used to strand the Run ungraded forever, and an
+      // ungraded Run counted as a clean one toward earning autonomy. Claimed
+      // with a conditional UPDATE on `outcomeCheckedAt IS NULL`, so the sweep
+      // and a slow in-line check cannot both spend a model turn on one Run.
+      await sweepUngradedRuns(now).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[cron] ungraded run sweep failed:", err);
       });
     });
   } finally {

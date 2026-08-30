@@ -30,7 +30,7 @@ export type InstanceSeverity = "ok" | "warn" | "error";
 /** A single labelled fact rendered as a key/value row under a check. */
 export type InstanceFact = { label: string; value: string; mono?: boolean };
 
-export type InstanceCheck = {
+export type InstanceProbe = {
   /** Stable key, e.g. "database". */
   id: string;
   title: string;
@@ -59,7 +59,7 @@ export type InstanceHealthReport = {
   generatedAt: string;
   status: InstanceSeverity;
   issueCount: number;
-  checks: InstanceCheck[];
+  checks: InstanceProbe[];
   instance: InstanceInfo;
 };
 
@@ -100,7 +100,7 @@ function relativeAge(from: Date, now: number): string {
  * Probe the database: run a trivial round-trip query and time it. Reports the
  * driver, connection state, and (for SQLite) the on-disk file size.
  */
-async function checkDatabase(): Promise<InstanceCheck> {
+async function checkDatabase(): Promise<InstanceProbe> {
   const facts: InstanceFact[] = [
     { label: "Driver", value: config.db.driver },
   ];
@@ -160,7 +160,7 @@ async function checkDatabase(): Promise<InstanceCheck> {
  * automatically, so a healthy instance has none — a pending count usually means
  * a boot-time migration failure that needs a look.
  */
-async function checkMigrations(): Promise<InstanceCheck> {
+async function checkMigrations(): Promise<InstanceProbe> {
   const total = AppDataSource.migrations.length;
   try {
     const pending = await AppDataSource.showMigrations();
@@ -196,7 +196,7 @@ async function checkMigrations(): Promise<InstanceCheck> {
  * — the SQLite file, per-employee credentials, uploads, backups — lives here,
  * so a read-only mount is a hard failure.
  */
-function checkDataDirectory(): InstanceCheck {
+function checkDataDirectory(): InstanceProbe {
   const root = dataRoot();
   const facts: InstanceFact[] = [{ label: "Path", value: root, mono: true }];
   const probe = path.join(root, `.health-check-${process.pid}`);
@@ -237,7 +237,7 @@ function checkDataDirectory(): InstanceCheck {
  * succeed, and did any recent run fail? A never-backed-up instance with no
  * schedule earns a warning — the operator should know their data isn't covered.
  */
-async function checkBackups(now: number): Promise<InstanceCheck> {
+async function checkBackups(now: number): Promise<InstanceProbe> {
   const repo = AppDataSource.getRepository(Backup);
   const [schedule, recent] = await Promise.all([
     getBackupSchedule(),
@@ -315,7 +315,7 @@ async function checkBackups(now: number): Promise<InstanceCheck> {
  * reach a mailbox — a real deployment can't complete a password reset in that
  * state, so we surface it as a warning rather than pretending it's healthy.
  */
-async function checkEmailTransport(): Promise<InstanceCheck> {
+async function checkEmailTransport(): Promise<InstanceProbe> {
   const eff = await getEffectiveGlobalSmtp();
   const sourceLabel = eff.source === "database" ? "Admin dashboard" : "None";
   return {
@@ -344,7 +344,7 @@ async function checkEmailTransport(): Promise<InstanceCheck> {
  * the persisted setting directly rather than the mint-on-demand loader so the
  * health check stays side-effect free.
  */
-async function checkWebPush(): Promise<InstanceCheck> {
+async function checkWebPush(): Promise<InstanceProbe> {
   const repo = AppDataSource.getRepository(AppSetting);
   const pub = await repo.findOneBy({ key: "push.vapid.publicKey" });
   const configured = Boolean(pub?.value);
@@ -399,7 +399,7 @@ export async function getInstanceHealthReport(): Promise<InstanceHealthReport> {
       gatherInstanceInfo(),
     ]);
 
-  const checks: InstanceCheck[] = [
+  const checks: InstanceProbe[] = [
     database,
     migrations,
     checkDataDirectory(),

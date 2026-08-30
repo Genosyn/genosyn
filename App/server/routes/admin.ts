@@ -29,6 +29,10 @@ import {
   resetRuntimeSettingsGroup,
   saveRuntimeSettingsGroup,
 } from "../services/runtimeSettings.js";
+import type {
+  RuntimeSettings,
+  RuntimeSettingsGroup,
+} from "../services/runtimeSettings.js";
 import {
   clearOauthApp,
   describeOauthApps,
@@ -268,7 +272,7 @@ adminRouter.post("/email-transport/test", validateBody(testSchema), async (req, 
 // every value.
 
 const runtimeGroupParams = z.object({
-  group: z.enum(["web", "mail", "meetings", "browser", "agent"]),
+  group: z.enum(["web", "mail", "meetings", "browser", "agent", "containment"]),
 });
 
 const runtimeGroupSchemas = {
@@ -314,6 +318,17 @@ const runtimeGroupSchemas = {
       minCatalogueSize: z.number().int().min(0).max(10_000),
     }),
   }),
+  containment: z.object({
+    // 0 disables the breaker. The upper bound is nominal — anything past a
+    // few dozen consecutive failures is a Routine nobody is watching anyway.
+    routineBreakerThreshold: z.number().int().min(0).max(1_000),
+    regradeAfterMinutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(7 * 24 * 60),
+    regradePerPass: z.number().int().min(0).max(200),
+  }),
 } as const;
 
 adminRouter.get("/runtime-settings", async (_req, res, next) => {
@@ -339,10 +354,9 @@ adminRouter.put(
       });
     }
     try {
-      await saveRuntimeSettingsGroup(
-        group,
-        parsed.data as Parameters<typeof saveRuntimeSettingsGroup>[1],
-      );
+      // The body schema is chosen by the path parameter, so the correlation
+      // between `group` and the parsed value is one TypeScript cannot follow.
+      await saveRuntimeSettingsGroup(group, parsed.data as RuntimeSettings[RuntimeSettingsGroup]);
       res.json(await getRuntimeSettingsSnapshot());
     } catch (err) {
       next(err);

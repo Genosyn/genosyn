@@ -173,6 +173,9 @@ import { RoutineTrigger } from "../db/entities/RoutineTrigger.js";
 import { EmployeeWakeup } from "../db/entities/EmployeeWakeup.js";
 import { Workstream } from "../db/entities/Workstream.js";
 import { Initiative } from "../db/entities/Initiative.js";
+import { RoutineCheck } from "../db/entities/RoutineCheck.js";
+import { RunCheckResult } from "../db/entities/RunCheckResult.js";
+import { Standdown } from "../db/entities/Standdown.js";
 import { Run } from "../db/entities/Run.js";
 import { Secret } from "../db/entities/Secret.js";
 import { VaultItem } from "../db/entities/VaultItem.js";
@@ -579,6 +582,11 @@ export async function deleteCompanyCascade(args: {
     await m.delete(EmployeeWakeup, { companyId });
     await m.delete(Workstream, { companyId });
     await m.delete(Initiative, { companyId });
+    // M58. `RunCheckResult` before `RoutineCheck` only for readability — both
+    // carry `companyId` directly, so neither depends on the other surviving.
+    await m.delete(RunCheckResult, { companyId });
+    await m.delete(RoutineCheck, { companyId });
+    await m.delete(Standdown, { companyId });
     await m.delete(Tag, { companyId });
     await m.delete(Team, { companyId });
     await m.delete(Channel, { companyId });

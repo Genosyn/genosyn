@@ -36,7 +36,8 @@ export type NotificationKind =
   | "revision_stale"
   | "autonomy_revoked"
   | "budget_exhausted"
-  | "initiative_pending";
+  | "initiative_pending"
+  | "standdown_placed";
 
 export type NotificationActorKind = "user" | "ai" | "system";
 
@@ -54,7 +55,8 @@ export type NotificationEntityKind =
   | "revision_proposal"
   | "employee"
   | "budget"
-  | "initiative";
+  | "initiative"
+  | "standdown";
 
 @Entity("notifications")
 @Index(["userId", "readAt"])

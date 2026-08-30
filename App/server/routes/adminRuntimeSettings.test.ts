@@ -111,6 +111,7 @@ describe("GET /api/admin/runtime-settings", () => {
       meetings: false,
       browser: false,
       agent: false,
+      containment: false,
     });
   });
 

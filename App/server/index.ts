@@ -9,6 +9,7 @@ import { config } from "../config.js";
 import { initDb } from "./db/datasource.js";
 import { ensureBootstrapMasterAdmin } from "./services/masterAdmin.js";
 import { bootCron } from "./services/cron.js";
+import { bootStanddowns } from "./services/standdowns.js";
 import { bootBackups } from "./services/backups.js";
 import { bootPipelineCron } from "./services/pipelines/index.js";
 import { bootContextWindowRefresh } from "./services/agent/contextWindowRefresh.js";
@@ -46,6 +47,8 @@ import { budgetsRouter } from "./routes/budgets.js";
 import { companyPoliciesRouter } from "./routes/companyPolicies.js";
 import { bootRoutineTriggers } from "./services/routineTriggers.js";
 import { reactivityRouter } from "./routes/reactivity.js";
+import { routineChecksRouter } from "./routes/routineChecks.js";
+import { standdownsRouter } from "./routes/standdowns.js";
 import { modelsRouter } from "./routes/models.js";
 import { employeeSurfaceRouter } from "./routes/employeeSurface.js";
 import { projectsRouter } from "./routes/projects.js";
@@ -145,6 +148,9 @@ async function main() {
   // the upgrade preserves behavior, before anything reads a runtime setting.
   await importLegacyConfigOverrides();
   await bootRuntimeSettings();
+  // The standdown cache before the scheduler: a heartbeat that ran with an
+  // empty cache would dispatch work a human had already stopped.
+  await bootStanddowns();
   // Settle the shipped bubblewrap default against this host before validation
   // reads it, and before any tool registry, Run, or repository clone does.
   resolveCodingExecutionMode();
@@ -368,6 +374,10 @@ async function main() {
   app.use("/api/companies/:cid", budgetsRouter);
   app.use("/api/companies/:cid", companyPoliciesRouter);
   app.use("/api/companies/:cid", reactivityRouter);
+  // M58 — the bar a Run has to clear, and the evidence that it did.
+  app.use("/api/companies/:cid", routineChecksRouter);
+  // M58 — the stop button. No MCP tool in either direction; see the router.
+  app.use("/api/companies/:cid", standdownsRouter);
   // Org chart + Handoffs (Phase B). Teams group employees; Handoffs are
   // formal AI→AI delegation with status workflow.
   app.use("/api/companies/:cid", teamsRouter);

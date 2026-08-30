@@ -140,6 +140,29 @@ don't re-litigate them.
     code is Apache 2.0 like everything else, and what the license sells is the
     right, the updates, and the support.
 
+15. **Evidence the model did not write, and a stop it cannot lift.** (M58.)
+    Three axes now describe a Run and none of them is redundant: `status` says
+    the agent loop returned, `checksVerdict` says whether the server's own
+    machine-verifiable assertions passed, and `outcomeVerdict` says how a
+    restricted checker graded the evidence. The middle one exists because the
+    other two were both, ultimately, a model's account of a model's work — the
+    checker read a transcript the graded model wrote, which recorded no tool
+    results and lost its ending to truncation. The **effect ledger** is the
+    other half of the fix: the audit rows a Run's own token authorized, written
+    by the server after each change succeeded, are the one account the model had
+    no hand in. Provenance is ambient (`withAuditContext`) rather than threaded,
+    because partial coverage would make the ledger lie by omission and a Check
+    reading it would pass a Run that never did the work — but it carries
+    provenance only, never actor fields, since an ambient `actorEmployeeId`
+    would reclassify a member-authority call from `user` to `ai`. `unverified`
+    was split from `unclear` for the same reason the axes are separate: the two
+    had been one word, and every consumer read the pair as "nothing was wrong",
+    so a checker outage earned an employee the same credit as a graded success.
+    Finally, a **Standdown** is the inverse of a Waiver and the first guardrail
+    in this codebase that is not per-action and pre-authorization — and neither
+    placing nor lifting one is available to an AI Employee, because a stop the
+    stopped party can lift is not a stop.
+
 ---
 
 ## Vocabulary
@@ -170,9 +193,32 @@ don't re-litigate them.
   outcome check runs.
 - **Outcome verdict** — how a completed Run measured against its Routine's
   acceptance criteria (`Run.outcomeVerdict`: `achieved` / `unclear` /
-  `off_goal`), judged by a restricted zero-tool checker after the transcript is
-  final. A separate axis from Run status, which only ever says the loop
-  returned.
+  `off_goal` / `unverified`), judged by a restricted zero-tool checker after
+  the transcript is final. A separate axis from Run status, which only ever
+  says the loop returned. `unclear` means the checker looked and could not
+  tell; `unverified` means it never reached a judgement at all — an outage, a
+  timeout, a turn that ended without answering. M58 split the two because
+  every consumer downstream had been reading "we could not verify" as
+  "verified".
+- **Check** — a machine-verifiable assertion a Run must pass before it may
+  finalize green (`RoutineCheck`), and its result on one Run
+  (`RunCheckResult`). Two kinds: `command` (a shell command in the sandbox,
+  passing on exit 0) and `effect` (a predicate over the Run's effect ledger).
+  The graded party cannot author one — there is no MCP tool that creates,
+  edits, or deletes a Check, only serializers that let an employee read the
+  bar it is aimed at. `Run.checksVerdict` (`passed` / `failed` / `not_run`) is
+  the third axis, beside status and the outcome verdict.
+- **Effect ledger** — the `AuditEvent` rows a Run's own token authorized,
+  read back in order (`services/runEffects.ts`). The server wrote them at each
+  write seam after each change succeeded, which makes them the one account of
+  a Run the model had no hand in producing. Rendered as **Effects** on the Run,
+  fed to the outcome checker as trusted evidence, asserted over by `effect`
+  Checks, and shown to a retrying Run so attempt 2 stops starting blind.
+- **Standdown** — a revocable stop on all AI work at one scope (`Standdown`:
+  `company` / `employee` / `routine`), placed by an admin or by the
+  consecutive-failure circuit breaker, and lifted only by an admin. The exact
+  inverse of an **Autonomy waiver**, and deliberately without an MCP tool in
+  either direction. `Routine.enabled` remains the ordinary per-routine switch.
 - **TLDR** — one company-wide, AI-written recap of public Workspace messages,
   company-visible journal entries, and terminal Routine Run output from a
   bounded period. Generated on a fixed
@@ -3169,9 +3215,10 @@ until an owner/admin applies it, and apply/reject is audited.
       new proposals
 - [x] Docs at `/docs/improvement`; tests over reflection gating, lesson
       folding, proposal apply/reject authorization and audit
-- [ ] Runtime checks on Routines (machine-verifiable assertions a Run must
+- [x] Runtime checks on Routines (machine-verifiable assertions a Run must
       pass before it may finalize green, with bounded remediation turns) —
-      scoped, deferred to the next increment of this milestone
+      shipped as **Checks** in M58 below, alongside the effect ledger that
+      gives the `effect` kind something to assert over
 
 ### M53 — Distributed judgment ✅
 
@@ -3294,6 +3341,145 @@ accepts — the TldrQuestionAction authority stance.
       with per-employee pending caps and duplicate refusal; admin
       accept/decline queue with bells; accept creates the Routine owned by
       the proposer, audited and journaled
+
+### M58 — Evidence and the stop ✅
+
+Everything the company believed about its own work was a story the model told
+about itself. A Run was green because the agent loop returned; M50 was honest
+about that and added a second axis, but the checker on that axis was a model
+reading a transcript the *first* model wrote — a transcript that recorded no
+tool results at all, and that was head-truncated, so on a long Run the ending
+did not exist. Worse, the checker's own outage was recorded with the same word
+as an honest ambiguity: `unclear`. Every consumer downstream read "we could not
+verify" as "verified", so the earned-autonomy sweep counted a provider outage —
+and a completed Run nobody ever graded — as clean evidence toward letting an
+employee work unattended. A restart at the wrong moment was, literally, a way
+to earn trust.
+
+The audit log knew which AI Employee made each mutation and threw it away at
+the read seam, carried no Run id at all, and could not be filtered — so "what
+did last night touch", the first question anyone asks after a bad autonomous
+night, was not a question this product could answer. And when the answer should
+have been *stop*, there was nothing to press: a wrong Routine kept firing on its
+cron for thirty days, a running Run held its tools until `timeoutSec` expired,
+and the only remedies were toggling `enabled` one row at a time — which stops
+neither Wakeups, Triggers, mail automations, sequence ticks nor chat — or
+deleting the employee outright.
+
+M58 closes the loop the four milestones before it assumed. The server starts
+recording what it observed rather than what was narrated; a Routine gets a bar
+a model cannot talk its way past; unverified stops counting as verified; and
+work gets a stop. The composition is the point: a Routine whose Checks fail is
+graded honestly, contracts its own autonomy, earns a Lesson, and after repeated
+failure is **stood down** by the same primitive a human presses in a panic —
+with the ledger of exactly what the bad window touched one click away.
+
+**Design calls recorded up front.** (1) `Run.status` stays untouched, again.
+`completed` keeps meaning "the loop returned" — M50 refused to overload it with
+the verdict and this milestone refuses to overload it with Checks.
+`checksVerdict` is a third honest axis, and the consequences attach to the axis,
+not the status. (2) Checks run **before** finalization and get bounded
+remediation rounds, but a remediation round is a *fresh briefed turn*, not a
+resumption of the same transcript — the fifth time this codebase has made that
+call, and for the same reason: the agent loop copies its message array and
+returns only its final text, so same-transcript resume would have to be built
+twice, once for the direct loop and once for the Codex app-server. The Run's
+existing absolute deadline bounds the whole phase, so `timeoutSec` still means
+what it says. (3) An unrunnable required Check is a **failed** Check, never a
+skipped one. "We could not verify" reading as "verified" is the bug this
+milestone exists to fix; reintroducing it inside the fix would be absurd.
+(4) A **Standdown** has no MCP tool in either direction. The roster must not be
+able to stand itself down and, far more importantly, must not be able to lift
+one. (5) The company-wide **Audit log** stays gated on the `auditLog`
+entitlement (M56); a Run's own **Effects** do not. Browsing the whole history is
+the paid feature — reading what one Run did is part of trusting the Run at all,
+and the thesis fails on Community if the evidence is an upsell. (6) Two new
+deferred read-only MCP tools and no new resident ones; `toolBudget.test.ts` is
+untouched.
+
+- [x] **The effect ledger.** `AuditEvent` gains `runId` + `conversationId` and
+      two indexes. Provenance is **ambient** for the duration of an MCP request
+      (`withAuditContext`, `node:async_hooks`) rather than a parameter threaded
+      through ~150 write seams, because those seams live in the services the
+      handlers call, not only in the handlers — and a ledger silently missing a
+      third of its rows is worse than none, since a Check reading it would pass
+      a Run that never did the work. The context carries provenance only, never
+      actor fields: an ambient `actorEmployeeId` would reclassify a
+      member-authority tool call from `user` to `ai`, and a log that blames the
+      wrong principal is worse than a thin one. `services/runEffects.ts` reads
+      it back; AI-written `JournalEntry` rows finally carry their Run too.
+- [x] **The audit log becomes investigable.** `GET /audit` grows its first zod
+      query schema — actor kind, AI Employee, action prefix, Run id, date
+      window, keyset cursor — hydrates the acting employee's name, and returns
+      `{items, nextCursor}`. `AuditActorKind` gains `"ai"`, which is why every
+      AI action rendered as "System" until now.
+- [x] **Checks.** `RoutineCheck` + `RunCheckResult`, run before finalization
+      with up to two bounded remediation rounds inside the Run's own deadline.
+      `command` runs in the same bubblewrap boundary as `bash` and
+      `repository_run_command` (the spawn is extracted to
+      `agent/sandboxCommandRun.ts` so the three cannot drift); `effect` is a
+      declarative predicate over the ledger, so Checks are usable on a stock
+      `disabled`-mode install rather than being a bubblewrap-only luxury.
+      Admin-authored at the route, readable by the employee in its Run brief,
+      writable by no tool.
+- [x] **The honest green.** The transcript keeps a head *and* a rolling tail,
+      so the ending exists; tool results carry a bounded preview instead of
+      `ok`; `unverified` becomes a distinct verdict and `Run.outcomeCheckedAt`
+      records that a grader ran at all; the verdict prompt opens with a
+      server-written evidence block (the ledger + this Run's Check results)
+      above the untrusted transcript, and says which is which.
+- [x] **Unverified stops earning autonomy.** The trailing-window record counts
+      `unverified` and check failures; the promotion gate requires them at
+      zero; the per-Routine waiver predicate requires `achieved` rather than
+      merely "not off-goal", so a Routine declaring neither criteria nor Checks
+      is simply not promotable — the honest answer the old predicate dodged.
+      A failed Check contracts autonomy and earns a Lesson exactly like an
+      off-goal Run.
+- [x] **The re-grade sweep.** Heartbeat phase 12 finishes grading Runs the
+      runner never got to — a process that died inside the two-minute verdict
+      window used to strand a Run ungraded forever, and an ungraded Run counted
+      as clean. Claimed on `outcomeCheckedAt IS NULL` so the sweep and a slow
+      in-line check cannot both spend a model turn on one Run. Two new System
+      Health probes: `unverified_runs` and `standdowns`.
+- [x] **Standdown.** A revocable stop at company / employee / routine scope,
+      enforced through a synchronous cached predicate at the two necks every
+      wake passes through — `startRoutineRun` and `streamChatWithEmployee` —
+      plus retries, Wakeups and Triggers. In-flight Runs are aborted and
+      finalize `interrupted`; retries and Wakeups **defer** rather than cancel;
+      a skipped scheduled slot still advances `nextRunAt`, so lifting a
+      month-old standdown produces no catch-up storm. A `routine` standdown
+      does not stop chat; the two wider scopes do, because a stop a human can
+      route around by opening a chat window is not a stop.
+- [x] **The circuit breaker.** `Routine.consecutiveFailures`, maintained at the
+      same runner seam as autonomy demotion — where the evidence exists, not on
+      a sweep that might not run. Crossing
+      `runtime.containment.routineBreakerThreshold` (default 5, `0` disables,
+      edited at Admin → Runtime) stands the Routine down, so a permanently
+      broken Routine stops burning model spend every slot for a month.
+- [x] **Two deferred read-only tools** — `list_runs` and `get_run_report`. There
+      was no run-reading tool in the product at all, so a manager employee
+      briefed about a stood-down Routine had nothing to look at. Routine
+      serializers also finally expose `checks` and the `goalId` M51 added.
+- [x] Docs at `/docs/verification` and `/docs/standdowns`; edits to Routines,
+      Autonomy, Improvement and Vocabulary. `HealthCheck` / `InstanceCheck`
+      renamed to `HealthProbe` / `InstanceProbe` so **Check** means one thing.
+
+Deliberately **not** in M58, each its own thesis: out-of-band alert delivery (a
+company nobody has logged into for thirty days is still unreachable — that is a
+*delivery* problem, not an evidence one); aggregate model-spend and throughput
+envelopes (the enforcement action a spend envelope needs is now built, so the
+seam exists); required Checks on Repository work sessions (same primitive,
+different lifecycle); declaring a Routine safe to repeat and gating
+effect-bearing retries; the org control loop — goal-drift detection, an
+AI-writable `Routine.goalId`, goal-ownership audits, retiring Routines whose
+Goal has settled; offboarding an AI Employee; the obligations ledger; a
+delegation load meter; company-wide knowledge grant defaults; cash runway and
+receivables dunning. Ownership scoping on `delete_routine` is left alone on
+purpose: `routinesMcp.test.ts` deliberately pins the opposite behaviour, so
+narrowing it is an authority-boundary argument to be made properly rather than
+smuggled in — what M58 gives it is that the deletion is now attributable to a
+named employee and a specific Run through a filterable read surface, which is
+the precondition for having the argument at all.
 
 ### M55 — Vertical completeness (planned, pulled by demand)
 
