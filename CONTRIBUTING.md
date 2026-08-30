@@ -168,6 +168,6 @@ No separate CLA — section 5 of the license already covers the inbound grant: a
 intentionally submit for inclusion in Genosyn is submitted under those terms.
 
 Apache 2.0 asks for a little more than MIT did when you redistribute Genosyn or a fork of it:
-ship the [`LICENSE`](./LICENSE), keep [`NOTICE`](./NOTICE) intact and carry it with your
-distribution, and state prominently if you changed the files. Both images already carry the two
-files; if you add a new build target, carry them there too.
+ship the [`LICENSE`](./LICENSE) with your distribution, and state prominently if you changed
+the files. Both images already carry the license; if you add a new build target, carry it
+there too.

@@ -37,9 +37,9 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=build /build/Home/dist ./dist
 
-# Apache-2.0 sections 4(a) and 4(d): the published image is a redistribution,
-# so it has to carry the license and the NOTICE text.
-COPY LICENSE NOTICE ./
+# Apache-2.0 section 4(a): the published image is a redistribution, so it has
+# to carry the license.
+COPY LICENSE ./
 
 RUN chown -R node:node /app
 USER node
