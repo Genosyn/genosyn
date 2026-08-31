@@ -100,8 +100,15 @@ export type SessionActions = {
 export type SessionCapabilities = {
   /** The repository has somewhere to send work at all. */
   remote: boolean;
-  /** That remote is one we can open a pull request against. */
-  github: boolean;
+  /**
+   * A forge Connection can speak for this remote's host, so there is an API to
+   * open a pull request through. This is not "the remote is on github.com" any
+   * more: a self-hosted Forgejo the company connected is just as answerable,
+   * and a github.com remote is only answerable because github.com is the one
+   * host Genosyn knows without being told. The server decides — the browser
+   * never sees a Connection's base URL — and sends the answer on the row.
+   */
+  pullRequests: boolean;
   /**
    * The viewer is an owner or admin. Both routes that reach the remote —
    * pushing and opening a pull request — are gated on it server-side, so a
@@ -113,9 +120,9 @@ export type SessionCapabilities = {
 /**
  * The action set for one session.
  *
- * `remote` and `github` are separate because a self-hosted GitLab remote can
- * be pushed to and cannot be given a pull request from here, and offering the
- * button anyway would be a lie. `admin` is separate again because it is about
+ * `remote` and `pullRequests` are separate because a self-hosted GitLab remote
+ * can be pushed to and cannot be given a pull request from here, and offering
+ * the button anyway would be a lie. `admin` is separate again because it is about
  * the person rather than the repository: the server refuses both outward
  * actions to an ordinary Member, and a button that always 403s is worse than
  * no button at all.
@@ -128,7 +135,7 @@ export function sessionActions(
   return {
     accept: reviewable,
     acceptAndSend: reviewable && repo.remote && repo.admin,
-    pullRequest: reviewable && repo.remote && repo.github && repo.admin,
+    pullRequest: reviewable && repo.remote && repo.pullRequests && repo.admin,
     pullRequestIsUpdate: !!session.pullRequestUrl,
     // Not while a turn is in flight: it owns the worktree, and throwing the
     // branch away underneath it makes the turn fail on a directory that
@@ -146,25 +153,6 @@ export function sessionActions(
 /** Whether a session has been filed away out of the inbox. */
 export function isArchived(session: Pick<RepositoryWorkSession, "archivedAt">): boolean {
   return session.archivedAt !== null;
-}
-
-/**
- * Whether a pull request can be opened against this remote.
- *
- * Mirrors the server's `isGithubHttpsUrl` exactly, by parsing the URL rather
- * than matching a prefix. A regex anchored on `https://github.com/` disagrees
- * with the server about a URL carrying a port or userinfo, and every
- * disagreement is either a button that 400s or — worse, because there is
- * nothing on screen to explain it — a button that never appears.
- */
-export function isGithubRemote(gitUrl: string | null | undefined): boolean {
-  if (!gitUrl) return false;
-  try {
-    const parsed = new URL(gitUrl);
-    return parsed.protocol === "https:" && parsed.hostname.toLowerCase() === "github.com";
-  } catch {
-    return false;
-  }
 }
 
 /**

@@ -4,6 +4,8 @@ import type {
   IntegrationRuntimeContext,
 } from "../types.js";
 import { maskSecret } from "../../lib/secret.js";
+import { GITHUB_ENDPOINT, forgeFetch } from "./forge/client.js";
+import { forgeToolDefinitions, invokeForgeTool } from "./forge/tools.js";
 import {
   GITHUB_SCOPE_GROUPS,
   refreshGithubToken,
@@ -15,7 +17,6 @@ import {
   ensureInstallationToken,
   type GithubAppConfig,
 } from "./github-app.js";
-
 /**
  * GitHub — repos, issues, pull requests, code search.
  *
@@ -38,9 +39,15 @@ import {
  * Connection can clone into their working directory. The allowlist is
  * editable from Settings → Integrations and lives inside the encrypted
  * config blob (no schema change).
+ *
+ * The tools themselves live in `forge/`, shared with the Forgejo/Gitea
+ * connector: the two REST surfaces differ only in where the API root is, how
+ * a token is presented, and what the page-size parameter is called, and one
+ * implementation of `list_issues` is worth more than two that agree until
+ * somebody edits one. What stays here is everything GitHub does not share —
+ * three auth modes, OAuth refresh, App installation tokens, and the repo
+ * allowlist those modes each persist differently.
  */
-
-const GITHUB_API = "https://api.github.com";
 
 /** Persisted shape for `authMode="apikey"` connections. */
 export type GithubApiKeyConfig = {
@@ -51,61 +58,6 @@ export type GithubApiKeyConfig = {
   userType?: string;
   repos?: GithubRepoRef[];
 };
-
-type FetchInit = {
-  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
-  query?: Record<string, string | number | boolean | undefined>;
-  body?: unknown;
-};
-
-async function githubFetch(
-  accessToken: string,
-  path: string,
-  init: FetchInit = {},
-): Promise<unknown> {
-  const qs = init.query
-    ? "?" +
-      Object.entries(init.query)
-        .filter(([, v]) => v !== undefined && v !== "")
-        .map(
-          ([k, v]) =>
-            `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`,
-        )
-        .join("&")
-    : "";
-  const url = `${GITHUB_API}${path}${qs}`;
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-    "User-Agent": "genosyn",
-  };
-  if (init.body !== undefined) headers["Content-Type"] = "application/json";
-
-  const res = await fetch(url, {
-    method: init.method ?? "GET",
-    headers,
-    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-  });
-  const text = await res.text();
-  let parsed: unknown = null;
-  try {
-    parsed = text ? JSON.parse(text) : null;
-  } catch {
-    parsed = text;
-  }
-  if (!res.ok) {
-    const msg =
-      (parsed &&
-      typeof parsed === "object" &&
-      "message" in parsed &&
-      typeof (parsed as { message?: unknown }).message === "string"
-        ? (parsed as { message: string }).message
-        : null) ?? `GitHub ${res.status} ${res.statusText}`;
-    throw new Error(msg);
-  }
-  return parsed;
-}
 
 /**
  * Resolve the access token for the current request, refreshing the OAuth
@@ -153,87 +105,6 @@ async function ensureGithubAccessToken(
   throw new Error(`GitHub connector does not support authMode "${ctx.authMode}"`);
 }
 
-function clampInt(v: unknown, min: number, max: number, fallback: number): number {
-  if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
-  const i = Math.floor(v);
-  if (i < min) return min;
-  if (i > max) return max;
-  return i;
-}
-
-function requireString(v: unknown, name: string): string {
-  if (typeof v !== "string" || !v.trim()) {
-    throw new Error(`${name} is required`);
-  }
-  return v.trim();
-}
-
-function requireOwnerRepo(args: Record<string, unknown>): {
-  owner: string;
-  repo: string;
-} {
-  return {
-    owner: requireString(args.owner, "owner"),
-    repo: requireString(args.repo, "repo"),
-  };
-}
-
-/**
- * GitHub's repository issues endpoint also returns pull requests. The REST
- * payload distinguishes them by adding a `pull_request` property, so keep the
- * Integration tool's issue-only contract explicit at this boundary.
- */
-function issueRows(payload: unknown): unknown[] {
-  if (!Array.isArray(payload)) {
-    throw new Error(
-      "GitHub returned an invalid response while listing issues (expected an array).",
-    );
-  }
-  return payload.filter(
-    (item) =>
-      !(
-        item !== null &&
-        typeof item === "object" &&
-        Object.prototype.hasOwnProperty.call(item, "pull_request")
-      ),
-  );
-}
-
-const MAX_ISSUE_API_PAGES_PER_REQUEST = 10;
-
-/**
- * Return a logical page of issues even though GitHub paginates issues and pull
- * requests together. Scan only the API pages needed to fill the requested
- * issue page, with a hard cap so a PR-only repository cannot create an
- * unbounded request fan-out.
- */
-async function listIssues(
-  accessToken: string,
-  owner: string,
-  repo: string,
-  query: Record<string, string | number>,
-): Promise<unknown[]> {
-  const perPage = Number(query.per_page);
-  const logicalPage = Number(query.page);
-  const apiPerPage = 100;
-  const start = (logicalPage - 1) * perPage;
-  const end = start + perPage;
-  const issues: unknown[] = [];
-
-  for (let apiPage = 1; apiPage <= MAX_ISSUE_API_PAGES_PER_REQUEST; apiPage += 1) {
-    const payload = await githubFetch(
-      accessToken,
-      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`,
-      { query: { ...query, per_page: apiPerPage, page: apiPage } },
-    );
-    const rows = payload as unknown[];
-    issues.push(...issueRows(rows));
-    if (issues.length >= end || rows.length < apiPerPage) break;
-  }
-
-  return issues.slice(start, end);
-}
-
 export const githubProvider: IntegrationProvider = {
   catalog: {
     provider: "github",
@@ -271,304 +142,12 @@ export const githubProvider: IntegrationProvider = {
     enabled: true,
   },
 
-  tools: [
-    {
-      name: "get_authenticated_user",
-      description:
-        "Return the GitHub user this connection is authenticated as (login, name, email if visible).",
-      inputSchema: {
-        type: "object",
-        properties: {},
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "list_repos",
-      description:
-        "List repositories the authenticated user has access to. Sorted by `sort` (default: updated desc).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          visibility: {
-            type: "string",
-            enum: ["all", "public", "private"],
-            description: "Filter by visibility.",
-          },
-          affiliation: {
-            type: "string",
-            description:
-              "Comma-separated: owner, collaborator, organization_member. Default covers all three.",
-          },
-          sort: {
-            type: "string",
-            enum: ["created", "updated", "pushed", "full_name"],
-          },
-          direction: { type: "string", enum: ["asc", "desc"] },
-          per_page: {
-            type: "integer",
-            minimum: 1,
-            maximum: 100,
-            description: "Max rows per page (1-100, default 30).",
-          },
-          page: { type: "integer", minimum: 1, description: "1-indexed page." },
-        },
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "get_repo",
-      description: "Fetch one repository by owner + name.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          owner: { type: "string", description: "Org or user login." },
-          repo: { type: "string", description: "Repo name." },
-        },
-        required: ["owner", "repo"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "search_repos",
-      description:
-        "Search repositories by GitHub search syntax (e.g. `language:typescript stars:>100`).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          q: { type: "string", description: "GitHub search query." },
-          sort: {
-            type: "string",
-            enum: ["stars", "forks", "help-wanted-issues", "updated"],
-          },
-          order: { type: "string", enum: ["asc", "desc"] },
-          per_page: { type: "integer", minimum: 1, maximum: 100 },
-          page: { type: "integer", minimum: 1 },
-        },
-        required: ["q"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "get_file_contents",
-      description:
-        "Read a file or list a directory at `path` in the given repo. For files, the `content` field is base64; decode before showing.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          owner: { type: "string" },
-          repo: { type: "string" },
-          path: {
-            type: "string",
-            description: "Relative path inside the repo. Empty for repo root.",
-          },
-          ref: {
-            type: "string",
-            description: "Branch, tag, or commit SHA. Defaults to the repo's default branch.",
-          },
-        },
-        required: ["owner", "repo"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "list_issues",
-      description: "List issues in a repo. Excludes pull requests. Use `state` to filter.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          owner: { type: "string" },
-          repo: { type: "string" },
-          state: { type: "string", enum: ["open", "closed", "all"] },
-          labels: {
-            type: "string",
-            description: "Comma-separated list of label names.",
-          },
-          assignee: { type: "string", description: "Login, `none`, or `*`." },
-          creator: { type: "string" },
-          since: {
-            type: "string",
-            description: "ISO 8601 timestamp; only issues updated at/after this time.",
-          },
-          per_page: { type: "integer", minimum: 1, maximum: 100 },
-          page: { type: "integer", minimum: 1 },
-        },
-        required: ["owner", "repo"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "get_issue",
-      description: "Fetch one issue by number, including labels and assignees.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          owner: { type: "string" },
-          repo: { type: "string" },
-          number: { type: "integer", minimum: 1 },
-        },
-        required: ["owner", "repo", "number"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "create_issue",
-      description: "Create a new issue in the given repo. Requires `issues:write` on the token.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          owner: { type: "string" },
-          repo: { type: "string" },
-          title: { type: "string" },
-          body: { type: "string", description: "Markdown body." },
-          labels: {
-            type: "array",
-            items: { type: "string" },
-            description: "Existing label names to apply.",
-          },
-          assignees: {
-            type: "array",
-            items: { type: "string" },
-            description: "GitHub logins to assign.",
-          },
-        },
-        required: ["owner", "repo", "title"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "add_issue_comment",
-      description:
-        "Comment on an existing issue or pull request. Requires `issues:write` on the token.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          owner: { type: "string" },
-          repo: { type: "string" },
-          number: { type: "integer", minimum: 1 },
-          body: { type: "string", description: "Markdown comment body." },
-        },
-        required: ["owner", "repo", "number", "body"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "list_pull_requests",
-      description: "List pull requests in a repo. Use `state` to filter.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          owner: { type: "string" },
-          repo: { type: "string" },
-          state: { type: "string", enum: ["open", "closed", "all"] },
-          head: {
-            type: "string",
-            description: "Filter by head branch (`user:branch` or `org:branch`).",
-          },
-          base: { type: "string", description: "Filter by base branch." },
-          sort: {
-            type: "string",
-            enum: ["created", "updated", "popularity", "long-running"],
-          },
-          direction: { type: "string", enum: ["asc", "desc"] },
-          per_page: { type: "integer", minimum: 1, maximum: 100 },
-          page: { type: "integer", minimum: 1 },
-        },
-        required: ["owner", "repo"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "get_pull_request",
-      description: "Fetch one pull request by number, including merge state and review counts.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          owner: { type: "string" },
-          repo: { type: "string" },
-          number: { type: "integer", minimum: 1 },
-        },
-        required: ["owner", "repo", "number"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "create_pull_request",
-      description:
-        "Open a pull request from `head` (a branch you already pushed) into `base`. First use the built-in coding tools and plain `git` to edit, test, commit, and push from the matching `repos/<owner>/<name>/` or `repositories/<slug>/` checkout, then call this tool to finish the requested delivery. Set `draft: true` to open a draft PR. Never claim a PR exists unless this call succeeds.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          owner: { type: "string", description: "Repo owner (org or user)." },
-          repo: { type: "string", description: "Repo name." },
-          title: { type: "string", description: "PR title." },
-          body: {
-            type: "string",
-            description: "Markdown PR description. Optional but strongly recommended.",
-          },
-          head: {
-            type: "string",
-            description:
-              "Source branch. For same-repo PRs, just the branch name; for forks use `user:branch`.",
-          },
-          base: {
-            type: "string",
-            description: "Target branch (usually the repo's default branch).",
-          },
-          draft: {
-            type: "boolean",
-            description: "Open as a draft PR.",
-          },
-          maintainer_can_modify: {
-            type: "boolean",
-            description:
-              "Allow maintainers to push to the head branch. Defaults to true.",
-          },
-        },
-        required: ["owner", "repo", "title", "head", "base"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "list_commits",
-      description: "List commits in a repo. Filter by branch (`sha`), path, author, or `since`.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          owner: { type: "string" },
-          repo: { type: "string" },
-          sha: { type: "string", description: "Branch name, tag, or commit SHA." },
-          path: { type: "string", description: "Only commits touching this path." },
-          author: { type: "string", description: "GitHub login or email." },
-          since: { type: "string", description: "ISO 8601 timestamp." },
-          until: { type: "string", description: "ISO 8601 timestamp." },
-          per_page: { type: "integer", minimum: 1, maximum: 100 },
-          page: { type: "integer", minimum: 1 },
-        },
-        required: ["owner", "repo"],
-        additionalProperties: false,
-      },
-    },
-    {
-      name: "search_code",
-      description:
-        "Search code across repos the token can see. Use GitHub code-search syntax (e.g. `repo:org/name path:src/ encryptSecret`).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          q: { type: "string", description: "GitHub code-search query." },
-          per_page: { type: "integer", minimum: 1, maximum: 100 },
-          page: { type: "integer", minimum: 1 },
-        },
-        required: ["q"],
-        additionalProperties: false,
-      },
-    },
-  ],
+  tools: forgeToolDefinitions("github"),
 
   async validateApiKey(input) {
     const apiKey = (input.apiKey ?? "").trim();
     if (!apiKey) throw new Error("Personal access token is required");
-    const user = (await githubFetch(apiKey, "/user")) as {
+    const user = (await forgeFetch(GITHUB_ENDPOINT, apiKey, "/user")) as {
       id?: number;
       login?: string;
       name?: string;
@@ -628,7 +207,7 @@ export const githubProvider: IntegrationProvider = {
   async checkStatus(ctx) {
     try {
       const token = await ensureGithubAccessToken(ctx);
-      await githubFetch(token, "/user");
+      await forgeFetch(GITHUB_ENDPOINT, token, "/user");
       return { ok: true };
     } catch (err) {
       return {
@@ -639,187 +218,10 @@ export const githubProvider: IntegrationProvider = {
   },
 
   async invokeTool(name, args, ctx) {
-    const accessToken = await ensureGithubAccessToken(ctx);
-    const a = (args as Record<string, unknown>) ?? {};
-
-    switch (name) {
-      case "get_authenticated_user":
-        return githubFetch(accessToken, "/user");
-
-      case "list_repos": {
-        const query: Record<string, string | number> = {
-          per_page: clampInt(a.per_page, 1, 100, 30),
-          page: clampInt(a.page, 1, 1_000_000, 1),
-          sort: typeof a.sort === "string" ? a.sort : "updated",
-          direction: typeof a.direction === "string" ? a.direction : "desc",
-        };
-        if (typeof a.visibility === "string") query.visibility = a.visibility;
-        if (typeof a.affiliation === "string") query.affiliation = a.affiliation;
-        return githubFetch(accessToken, "/user/repos", { query });
-      }
-
-      case "get_repo": {
-        const { owner, repo } = requireOwnerRepo(a);
-        return githubFetch(
-          accessToken,
-          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
-        );
-      }
-
-      case "search_repos": {
-        const q = requireString(a.q, "q");
-        const query: Record<string, string | number> = {
-          q,
-          per_page: clampInt(a.per_page, 1, 100, 30),
-          page: clampInt(a.page, 1, 1_000_000, 1),
-        };
-        if (typeof a.sort === "string") query.sort = a.sort;
-        if (typeof a.order === "string") query.order = a.order;
-        return githubFetch(accessToken, "/search/repositories", { query });
-      }
-
-      case "get_file_contents": {
-        const { owner, repo } = requireOwnerRepo(a);
-        const path = typeof a.path === "string" ? a.path.replace(/^\/+/, "") : "";
-        const query: Record<string, string> = {};
-        if (typeof a.ref === "string" && a.ref.trim()) query.ref = a.ref.trim();
-        return githubFetch(
-          accessToken,
-          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path
-            .split("/")
-            .map(encodeURIComponent)
-            .join("/")}`,
-          { query },
-        );
-      }
-
-      case "list_issues": {
-        const { owner, repo } = requireOwnerRepo(a);
-        const query: Record<string, string | number> = {
-          per_page: clampInt(a.per_page, 1, 100, 30),
-          page: clampInt(a.page, 1, 1_000_000, 1),
-          state: typeof a.state === "string" ? a.state : "open",
-        };
-        if (typeof a.labels === "string") query.labels = a.labels;
-        if (typeof a.assignee === "string") query.assignee = a.assignee;
-        if (typeof a.creator === "string") query.creator = a.creator;
-        if (typeof a.since === "string") query.since = a.since;
-        return listIssues(accessToken, owner, repo, query);
-      }
-
-      case "get_issue": {
-        const { owner, repo } = requireOwnerRepo(a);
-        const number = clampInt(a.number, 1, Number.MAX_SAFE_INTEGER, 0);
-        if (!number) throw new Error("number is required");
-        return githubFetch(
-          accessToken,
-          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}`,
-        );
-      }
-
-      case "create_issue": {
-        const { owner, repo } = requireOwnerRepo(a);
-        const title = requireString(a.title, "title");
-        const body: Record<string, unknown> = { title };
-        if (typeof a.body === "string") body.body = a.body;
-        if (Array.isArray(a.labels)) body.labels = a.labels;
-        if (Array.isArray(a.assignees)) body.assignees = a.assignees;
-        return githubFetch(
-          accessToken,
-          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`,
-          { method: "POST", body },
-        );
-      }
-
-      case "add_issue_comment": {
-        const { owner, repo } = requireOwnerRepo(a);
-        const number = clampInt(a.number, 1, Number.MAX_SAFE_INTEGER, 0);
-        if (!number) throw new Error("number is required");
-        const commentBody = requireString(a.body, "body");
-        return githubFetch(
-          accessToken,
-          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/comments`,
-          { method: "POST", body: { body: commentBody } },
-        );
-      }
-
-      case "list_pull_requests": {
-        const { owner, repo } = requireOwnerRepo(a);
-        const query: Record<string, string | number> = {
-          per_page: clampInt(a.per_page, 1, 100, 30),
-          page: clampInt(a.page, 1, 1_000_000, 1),
-          state: typeof a.state === "string" ? a.state : "open",
-        };
-        if (typeof a.head === "string") query.head = a.head;
-        if (typeof a.base === "string") query.base = a.base;
-        if (typeof a.sort === "string") query.sort = a.sort;
-        if (typeof a.direction === "string") query.direction = a.direction;
-        return githubFetch(
-          accessToken,
-          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,
-          { query },
-        );
-      }
-
-      case "get_pull_request": {
-        const { owner, repo } = requireOwnerRepo(a);
-        const number = clampInt(a.number, 1, Number.MAX_SAFE_INTEGER, 0);
-        if (!number) throw new Error("number is required");
-        return githubFetch(
-          accessToken,
-          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`,
-        );
-      }
-
-      case "create_pull_request": {
-        const { owner, repo } = requireOwnerRepo(a);
-        const title = requireString(a.title, "title");
-        const head = requireString(a.head, "head");
-        const base = requireString(a.base, "base");
-        const body: Record<string, unknown> = { title, head, base };
-        if (typeof a.body === "string") body.body = a.body;
-        if (typeof a.draft === "boolean") body.draft = a.draft;
-        if (typeof a.maintainer_can_modify === "boolean") {
-          body.maintainer_can_modify = a.maintainer_can_modify;
-        }
-        return githubFetch(
-          accessToken,
-          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,
-          { method: "POST", body },
-        );
-      }
-
-      case "list_commits": {
-        const { owner, repo } = requireOwnerRepo(a);
-        const query: Record<string, string | number> = {
-          per_page: clampInt(a.per_page, 1, 100, 30),
-          page: clampInt(a.page, 1, 1_000_000, 1),
-        };
-        if (typeof a.sha === "string") query.sha = a.sha;
-        if (typeof a.path === "string") query.path = a.path;
-        if (typeof a.author === "string") query.author = a.author;
-        if (typeof a.since === "string") query.since = a.since;
-        if (typeof a.until === "string") query.until = a.until;
-        return githubFetch(
-          accessToken,
-          `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits`,
-          { query },
-        );
-      }
-
-      case "search_code": {
-        const q = requireString(a.q, "q");
-        const query: Record<string, string | number> = {
-          q,
-          per_page: clampInt(a.per_page, 1, 100, 30),
-          page: clampInt(a.page, 1, 1_000_000, 1),
-        };
-        return githubFetch(accessToken, "/search/code", { query });
-      }
-
-      default:
-        throw new Error(`Unknown GitHub tool: ${name}`);
-    }
+    return invokeForgeTool(name, args as Record<string, unknown> | undefined, {
+      endpoint: GITHUB_ENDPOINT,
+      token: await ensureGithubAccessToken(ctx),
+    });
   },
 };
 

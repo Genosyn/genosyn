@@ -151,8 +151,8 @@ export default function RepositoryAccess() {
         />
         <ReadinessCard
           icon={<GitPullRequest size={17} />}
-          title="PRs use a GitHub Connection"
-          detail="After a Member or governed delivery flow publishes the branch, a GitHub Connection can expose the create_pull_request tool."
+          title="Pull requests use a Connection"
+          detail="After a Member or governed delivery flow publishes the branch, a Connection to the git host — GitHub, or a Forgejo / Gitea server — can expose the create_pull_request tool."
           to={`/c/${company.slug}/repositories/integrations`}
           linkLabel="Manage integrations"
         />
@@ -274,7 +274,7 @@ export default function RepositoryAccess() {
                           to={`/c/${company.slug}/employees/${grant.employee.slug}/settings/connections`}
                           className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                           aria-label={`Manage ${grant.employee.name}'s Connections`}
-                          title="Grant a GitHub Connection"
+                          title="Grant a Connection for the git host"
                         >
                           <PlugZap size={15} />
                         </Link>

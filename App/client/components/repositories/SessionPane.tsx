@@ -259,7 +259,7 @@ export function SessionPane({
 
   const actions = sessionActions(session, {
     remote: allowPush,
-    github: allowPullRequest,
+    pullRequests: allowPullRequest,
     admin: canReachRemote,
   });
   const tone = SESSION_STATUS_TONE[session.status];

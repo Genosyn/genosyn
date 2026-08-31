@@ -89,18 +89,18 @@ export function Repositories() {
         <LI>
           Open the repository. For a remote one, <Strong>Test connection</Strong> confirms Genosyn
           can reach it and detects the default branch. The check uses the repository&apos;s token or
-          SSH key when one is stored; otherwise it uses a pinned or sole GitHub Connection when one
-          is available, and anonymous access when none is available.
+          SSH key when one is stored; otherwise it uses a pinned or sole Connection for that
+          server when one is available, and anonymous access when none is available.
         </LI>
       </OL>
       <P>
         A local repository is created with <Code>git init</Code> on the default branch you chose,
         plus one empty commit, so there is a revision to branch from and diff against before you
         write your first file. It has no remote and uses no authentication. It does not have to stay
-        that way — see <Strong>Connect a local repository to GitHub</Strong> below.
+        that way — see <Strong>Connect a local repository to a git host</Strong> below.
       </P>
 
-      <H2 id="connect">Connect a local repository to GitHub</H2>
+      <H2 id="connect">Connect a local repository to a git host</H2>
       <P>
         A repository that started life inside Genosyn can be given a real remote later, and its
         existing history is pushed into it rather than re-created. Nobody mints or pastes a personal
@@ -110,18 +110,21 @@ export function Repositories() {
       </P>
       <OL>
         <LI>
-          Pick one of the company&apos;s connected GitHub Connections. The account each one
+          Pick one of the company&apos;s connected GitHub or Forgejo / Gitea Connections. Each
+          option names its server, so a company with more than one git host can tell them apart
+          before
+          creating a repository on the wrong one. The account each one
           authenticates as is shown, so a personal and an organisation Connection are told apart.
         </LI>
         <LI>
-          Give the repository a name on GitHub and, optionally, an organisation to own it. Left
+          Give the repository a name on that server and, optionally, an organisation to own it. Left
           blank, it is created under the account the Connection authenticates as.
         </LI>
         <LI>
           Choose <Strong>private</Strong> or public. Private is the default.
         </LI>
         <LI>
-          Genosyn creates it through the GitHub API — empty, with no README, licence, or{" "}
+          Genosyn creates it through that server&apos;s API — empty, with no README, licence, or{" "}
           <Code>.gitignore</Code>, so the first push is a clean fast-forward — and pushes the
           history into it.
         </LI>
@@ -129,7 +132,8 @@ export function Repositories() {
       <P>
         The other route is to paste the clone URL of an <Strong>empty</Strong> repository you made
         yourself — on GitLab, Bitbucket, a self-hosted Gitea, anywhere — and let Genosyn push into
-        that. A github.com HTTPS URL authenticates through a Connection as above; for any other host
+        that. An HTTPS URL on a server the company has connected authenticates through that
+        Connection as above; for any other host
         you can supply an HTTPS token or an SSH key in the same step, and it is stored encrypted
         exactly as it would be on a repository you cloned. Leave the credentials blank for a remote
         that accepts anonymous writes. A remote that already has commits is refused with an
@@ -147,7 +151,7 @@ export function Repositories() {
           push, pull, and refresh behave exactly as they do for a repository that was cloned.
         </LI>
         <LI>
-          Pushes to that github.com HTTPS remote keep authenticating through the same Connection, so
+          Pushes to that HTTPS remote keep authenticating through the same Connection, so
           the repository still stores no credential of its own. The token is resolved for each
           operation and never written to the repository.
         </LI>
@@ -520,14 +524,15 @@ export function Repositories() {
 
       <H3 id="pull-requests">Opening a pull request</H3>
       <P>
-        For a repository whose remote is on GitHub, <Strong>Open pull request</Strong> is the third
+        For a repository whose remote is on a connected git host — GitHub, or a Forgejo / Gitea
+        server you host — <Strong>Open pull request</Strong> is the third
         thing you can do with reviewed work — instead of merging it here or pushing it straight on,
         it pushes the session&apos;s branch and opens a pull request against the repository&apos;s
         default branch, so the work enters whatever review your team already runs. The description
         is the employee&apos;s own report unless you write your own.
       </P>
       <P>
-        The branch it opens against comes from GitHub, not from the value stored on the repository:
+        The branch it opens against comes from the server, not from the value stored on the repository:
         Genosyn asks the API what the repository&apos;s default branch is and corrects its own
         record when they disagree. That matters for a repository whose trunk is not{" "}
         <Code>main</Code> — <Code>master</Code>, <Code>develop</Code>, a release branch — because
@@ -540,7 +545,7 @@ export function Repositories() {
         new commits are pushed onto the same branch and the pull request that is already open picks
         them up. Genosyn never opens a second one for the same branch. The credential comes from the
         repository&apos;s stored token or the company&apos;s{" "}
-        <DocLink to="/docs/integrations">GitHub Connection</DocLink>, is used only by the server,
+        <DocLink to="/docs/integrations">GitHub or Forgejo Connection</DocLink>, is used only by the server,
         and — like every push — this is owner and admin only.
       </P>
 
@@ -622,18 +627,21 @@ export function Repositories() {
       <H3 id="auth">Authentication modes</H3>
       <UL>
         <LI>
-          <Strong>None / GitHub Connection.</Strong> Public repositories clone anonymously. For an
-          HTTPS github.com URL, Genosyn authenticates through one of the company&apos;s GitHub{" "}
-          <DocLink to="/docs/integrations">Connections</DocLink> instead of a stored credential —
-          the one the repository was connected with, or the only one there is. With several and
-          nothing pinned it refuses rather than guessing which account should push the
-          company&apos;s work. <Strong>Test connection</Strong> follows the same rule. Local
-          repositories always use this mode; there is no remote to authenticate to.
+          <Strong>None / Connection.</Strong> Public repositories clone anonymously. For an
+          HTTPS URL on a server the company has connected — github.com, or the Forgejo / Gitea
+          server a Connection names — Genosyn authenticates through that{" "}
+          <DocLink to="/docs/integrations">Connection</DocLink> instead of a stored credential —
+          the one the repository was connected with, or the only one that can reach that server.
+          With several on one server and nothing pinned it refuses rather than guessing which
+          account should push the company&apos;s work. <Strong>Test connection</Strong> follows the
+          same rule. Local repositories always use this mode; there is no remote to authenticate
+          to.
         </LI>
         <LI>
           <Strong>HTTPS token / password.</Strong> A username plus a token:{" "}
-          <Code>x-access-token</Code> for GitHub, <Code>oauth2</Code> for GitLab, your account name
-          for Bitbucket. Use the narrowest repository scope your host offers.
+          <Code>x-access-token</Code> for GitHub, your own login for Forgejo / Gitea,{" "}
+          <Code>oauth2</Code> for GitLab, your account name for Bitbucket. Use the narrowest
+          repository scope your host offers.
         </LI>
         <LI>
           <Strong>SSH private key.</Strong> A private key whose public half is a deploy key on your
@@ -714,15 +722,23 @@ export function Repositories() {
         <Code>AGENTS.md</Code>, the employee is told to read it before changing anything there.
       </P>
 
-      <H3 id="vs-github">Repositories vs. the GitHub integration</H3>
+      <H3 id="vs-github">Repositories vs. the GitHub and Forgejo integrations</H3>
       <P>
-        The <DocLink to="/docs/integrations">GitHub integration</DocLink> is the right tool when an
-        employee should call the GitHub API — open an issue, raise a pull request, leave a review —
-        against repositories on a connected GitHub account. A Repository is the workspace itself: a
-        real working tree that people and AI Employees edit and commit in, on any git host or on
-        none. They compose, and the same Connection serves both: it can create the repository on
-        GitHub in the first place, and once the change is prepared in the Repository and the branch
-        is published, open the pull request for it.
+        The <DocLink to="/docs/integrations">GitHub</DocLink> and Forgejo / Gitea integrations are
+        the right tool when an employee should call the server&apos;s API — open an issue, raise a
+        pull request, leave a review — against repositories on a connected account. A Repository is
+        the workspace itself: a real working tree that people and AI Employees edit and commit in,
+        on any git host or on none. They compose, and the same Connection serves both: it can
+        create the repository on the server in the first place, and once the change is prepared in
+        the Repository and the branch is published, open the pull request for it.
+      </P>
+      <P>
+        Which one is available is decided by the Connection, not by the URL. Genosyn knows how to
+        talk to github.com because that is a constant; it knows how to talk to your own Forgejo
+        because a Connection carries its server URL, and it matches scheme, host, port and path
+        prefix exactly before sending a token anywhere. A remote on a host nothing is connected to
+        stays an ordinary git remote — clone, commit, push, and no{" "}
+        <Strong>Open pull request</Strong> button, because there is no API to open one with.
       </P>
 
       <Callout kind="warn" title="Least privilege.">

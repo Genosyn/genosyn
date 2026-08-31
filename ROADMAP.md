@@ -1423,11 +1423,28 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       promise. The fix is a cache the session can mount rather than switching
       the network on by default; until then `allowNetwork` is the answer, and
       the UI and docs say so.
+- [x] **Forgejo / Gitea, on par with GitHub.** A Repository could always be
+      *cloned* from a self-hosted forge; it could not be *talked to*. Browsing
+      repositories, triaging issues, leaving a comment and opening a pull
+      request all went through `api.github.com`, so a company running its own
+      server got an AI Employee that could write the code and had no way to
+      hand it over. The three surfaces now share one implementation:
+      `integrations/providers/forge/` holds a `ForgeClient` parameterised by
+      API root, auth header style and page-size parameter, and the thirteen
+      tools written once against it; `github.ts` and the new `forgejo.ts` are
+      catalogue entries plus their own auth over the top. `search_code` stays
+      GitHub-only — Forgejo has no code-search endpoint, so the tool is absent
+      from that Connection rather than emulated. The `github.com` hostname
+      check that gated pull requests became a resolver over the base URLs of
+      the company's forge Connections, matching scheme, host, port and path
+      prefix exactly — which is also what authorises sending a token to a host
+      at all. See `services/repositoryForge.ts`.
 - [ ] Conflict resolution in the browser (a conflicting merge is refused, not
       surfaced for editing)
 - [ ] Streaming a work session's progress instead of polling it
-- [ ] Connecting to GitLab / Bitbucket the same way (today only GitHub has a
-      Connection that can create a repository)
+- [ ] Connecting to GitLab / Bitbucket the same way (the forge client's three
+      axes should carry GitLab too, but its REST shape is further from
+      GitHub's than Forgejo's is and nothing has been tested against it)
 
 ### M13 — Lightning ✅ → retired in 1.132.0
 

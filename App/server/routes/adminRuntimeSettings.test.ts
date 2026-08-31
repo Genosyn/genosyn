@@ -92,6 +92,7 @@ type Snapshot = {
   meetings: typeof RUNTIME_SETTINGS_DEFAULTS.meetings;
   browser: typeof RUNTIME_SETTINGS_DEFAULTS.browser;
   agent: typeof RUNTIME_SETTINGS_DEFAULTS.agent;
+  network: typeof RUNTIME_SETTINGS_DEFAULTS.network;
   overridden: Record<string, boolean>;
 };
 
@@ -112,6 +113,7 @@ describe("GET /api/admin/runtime-settings", () => {
       browser: false,
       agent: false,
       containment: false,
+      network: false,
     });
   });
 
@@ -195,6 +197,67 @@ describe("PUT /api/admin/runtime-settings/:group", () => {
     });
   });
 
+  test("the network allowlist round-trips normalized, and an empty list still saves", async () => {
+    const saved = await call<Snapshot>("PUT", "/runtime-settings/network", {
+      privateHostAllowlist: ["GIT.Internal.", "git.internal", "10.0.0.5"],
+    });
+
+    assert.equal(saved.status, 200);
+    // Stored the way `privateHostAllowed()` compares, and deduped.
+    assert.deepEqual(saved.body.network.privateHostAllowlist, ["git.internal", "10.0.0.5"]);
+    assert.equal(saved.body.overridden.network, true);
+
+    const stored = await AppDataSource.getRepository(AppSetting).findOneBy({
+      key: RUNTIME_SETTING_KEYS.network,
+    });
+    assert.deepEqual(JSON.parse(stored!.value).privateHostAllowlist, ["git.internal", "10.0.0.5"]);
+
+    // An empty list is a legitimate save, not a reset: the row stays.
+    const emptied = await call<Snapshot>("PUT", "/runtime-settings/network", {
+      privateHostAllowlist: [],
+    });
+    assert.deepEqual(emptied.body.network.privateHostAllowlist, []);
+    assert.equal(emptied.body.overridden.network, true);
+  });
+
+  test("the network allowlist refuses a body that is not a list of hosts", async () => {
+    for (const body of [
+      { privateHostAllowlist: "git.internal" },
+      { privateHostAllowlist: [42] },
+      { privateHostAllowlist: [""] },
+      { privateHostAllowlist: [`${"a".repeat(254)}.internal`] },
+    ]) {
+      const { status } = await call("PUT", "/runtime-settings/network", body);
+      assert.equal(status, 400, JSON.stringify(body).slice(0, 60));
+    }
+
+    assert.equal(
+      await AppDataSource.getRepository(AppSetting).findOneBy({
+        key: RUNTIME_SETTING_KEYS.network,
+      }),
+      null,
+    );
+  });
+
+  test("the network allowlist refuses a list past the cap", async () => {
+    const { status } = await call("PUT", "/runtime-settings/network", {
+      privateHostAllowlist: Array.from(
+        { length: 101 },
+        (_value, index) => `host-${index}.internal`,
+      ),
+    });
+
+    // Truncating silently would leave the operator believing a host is exempt
+    // when it is not, so the whole write is refused instead.
+    assert.equal(status, 400);
+    assert.equal(
+      await AppDataSource.getRepository(AppSetting).findOneBy({
+        key: RUNTIME_SETTING_KEYS.network,
+      }),
+      null,
+    );
+  });
+
   test('the browser group accepts "auto" and an explicit boolean for headless', async () => {
     assert.equal(
       (
@@ -243,6 +306,24 @@ describe("DELETE /api/admin/runtime-settings/:group", () => {
     assert.equal(
       await AppDataSource.getRepository(AppSetting).findOneBy({
         key: RUNTIME_SETTING_KEYS.meetings,
+      }),
+      null,
+    );
+  });
+
+  test("resetting the network allowlist drops every host it was exempting", async () => {
+    await call("PUT", "/runtime-settings/network", {
+      privateHostAllowlist: ["git.internal"],
+    });
+
+    const { status, body } = await call<Snapshot>("DELETE", "/runtime-settings/network");
+
+    assert.equal(status, 200);
+    assert.equal(body.overridden.network, false);
+    assert.deepEqual(body.network, RUNTIME_SETTINGS_DEFAULTS.network);
+    assert.equal(
+      await AppDataSource.getRepository(AppSetting).findOneBy({
+        key: RUNTIME_SETTING_KEYS.network,
       }),
       null,
     );

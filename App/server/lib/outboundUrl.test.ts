@@ -1,19 +1,43 @@
 import assert from "node:assert/strict";
 import test, { afterEach, beforeEach } from "node:test";
 import { config } from "../../config.js";
-import { assertSafeOutboundUrl, isPublicIp, safeFetchBuffer } from "./outboundUrl.js";
+import {
+  overrideRuntimeSettingsForTests,
+  resetRuntimeSettingsCacheForTests,
+} from "../services/runtimeSettings.js";
+import {
+  assertSafeOutboundUrl,
+  isPublicIp,
+  privateHostAllowed,
+  safeFetchBuffer,
+} from "./outboundUrl.js";
 
 const originalFetch = globalThis.fetch;
+// `config` is exported `as const`, so the shared-hosting switch is flipped
+// through a cast — the same seam `runtimeSecurity.test.ts` and
+// `companySso.test.ts` use.
+const mutableSecurity = config.security as unknown as { multiTenant: boolean };
 let originalPrivateHosts: string[];
+let originalMultiTenant: boolean;
 
 beforeEach(() => {
   originalPrivateHosts = [...config.security.outboundPrivateHostAllowlist];
+  originalMultiTenant = mutableSecurity.multiTenant;
 });
 
 afterEach(() => {
   config.security.outboundPrivateHostAllowlist.splice(0, Infinity, ...originalPrivateHosts);
+  mutableSecurity.multiTenant = originalMultiTenant;
+  // The runtime half of the allowlist is a module-level cache shared by every
+  // test in this process, so it is dropped here rather than per test.
+  resetRuntimeSettingsCacheForTests();
   globalThis.fetch = originalFetch;
 });
+
+/** Put a host on the operator-editable list without a database round-trip. */
+function runtimeAllowlist(...hosts: string[]): void {
+  overrideRuntimeSettingsForTests({ network: { privateHostAllowlist: hosts } });
+}
 
 test("classifies non-public IPv4 and IPv6 ranges", () => {
   for (const address of [
@@ -57,6 +81,65 @@ test("rejects loopback URLs and embedded credentials", async () => {
 test("accepts a literal public address without DNS", async () => {
   const url = await assertSafeOutboundUrl("https://8.8.8.8/example");
   assert.equal(url.hostname, "8.8.8.8");
+});
+
+test("the allowlist is the union of the config list and the runtime one", () => {
+  // Boot configuration on its own. This is the half that still has to work:
+  // the socket-level policy is installed before the database is open, so in
+  // that window the runtime cache is still on its defaults.
+  config.security.outboundPrivateHostAllowlist.splice(0, Infinity, "git.internal");
+  assert.equal(privateHostAllowed("git.internal"), true);
+  assert.equal(privateHostAllowed("ollama.lan"), false);
+
+  // Admin → Runtime on its own, with nothing in config.ts at all.
+  config.security.outboundPrivateHostAllowlist.splice(0, Infinity);
+  runtimeAllowlist("ollama.lan");
+  assert.equal(privateHostAllowed("ollama.lan"), true);
+  assert.equal(privateHostAllowed("git.internal"), false);
+
+  // Both, together, and a host on neither list is still refused.
+  config.security.outboundPrivateHostAllowlist.splice(0, Infinity, "git.internal");
+  assert.equal(privateHostAllowed("git.internal"), true);
+  assert.equal(privateHostAllowed("ollama.lan"), true);
+  assert.equal(privateHostAllowed("metadata.internal"), false);
+});
+
+test("a runtime-allowed private address is reachable, and an unlisted one is not", async () => {
+  await assert.rejects(assertSafeOutboundUrl("http://10.0.0.5/api/v1"), /non-public/);
+
+  runtimeAllowlist("10.0.0.5");
+
+  const url = await assertSafeOutboundUrl("http://10.0.0.5/api/v1");
+  assert.equal(url.hostname, "10.0.0.5");
+});
+
+test("both halves match on the normalized host, not the typed one", () => {
+  config.security.outboundPrivateHostAllowlist.splice(0, Infinity, " Git.Internal. ");
+  runtimeAllowlist("OLLAMA.Lan.");
+
+  for (const host of ["git.internal", "GIT.INTERNAL", "Git.Internal."]) {
+    assert.equal(privateHostAllowed(host), true, host);
+  }
+  for (const host of ["ollama.lan", "OLLAMA.LAN.", "Ollama.Lan"]) {
+    assert.equal(privateHostAllowed(host), true, host);
+  }
+  assert.equal(privateHostAllowed("git.internal.example.com"), false);
+});
+
+test("a multi-tenant install ignores the runtime half entirely", () => {
+  // A boot check cannot govern a value an operator can edit at any moment, so
+  // the invariant lives here — the same shape as `memberBrowsersEnabled()`.
+  // The config list keeps its own boot-time refusal in `runtimeSecurity.ts`.
+  mutableSecurity.multiTenant = true;
+  runtimeAllowlist("ollama.lan");
+
+  assert.equal(privateHostAllowed("ollama.lan"), false);
+
+  config.security.outboundPrivateHostAllowlist.splice(0, Infinity, "git.internal");
+  assert.equal(privateHostAllowed("git.internal"), true);
+
+  mutableSecurity.multiTenant = false;
+  assert.equal(privateHostAllowed("ollama.lan"), true);
 });
 
 test("safe fetch can require HTTPS before issuing a request", async () => {

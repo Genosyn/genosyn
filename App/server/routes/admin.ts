@@ -260,9 +260,10 @@ adminRouter.post("/email-transport/test", validateBody(testSchema), async (req, 
 // ──────────────────────────── runtime settings ─────────────────────────────
 //
 // The operational knobs that used to live in `config.ts`: the web tools, mail
-// sync tuning, meetings, the container's browser, and the agent's taint policy
-// / member browsers / tool discovery. One JSON `AppSetting` row per group, read
-// through a 30s cache — see `services/runtimeSettings.ts`.
+// sync tuning, meetings, the container's browser, the agent's taint policy /
+// member browsers / tool discovery, containment, and the outbound network
+// allowlist. One JSON `AppSetting` row per group, read through a 30s cache —
+// see `services/runtimeSettings.ts`.
 //
 // PUT replaces a whole group rather than patching fields: the form always
 // submits every value it showed, and a partial write from a stale form would
@@ -272,7 +273,7 @@ adminRouter.post("/email-transport/test", validateBody(testSchema), async (req, 
 // every value.
 
 const runtimeGroupParams = z.object({
-  group: z.enum(["web", "mail", "meetings", "browser", "agent", "containment"]),
+  group: z.enum(["web", "mail", "meetings", "browser", "agent", "containment", "network"]),
 });
 
 const runtimeGroupSchemas = {
@@ -328,6 +329,12 @@ const runtimeGroupSchemas = {
       .min(1)
       .max(7 * 24 * 60),
     regradePerPass: z.number().int().min(0).max(200),
+  }),
+  network: z.object({
+    // Hostnames, so 253 characters each and a list an operator can still read.
+    // The service normalizes and dedupes on the way in; this is only the outer
+    // bound, and an empty list is the shipped default.
+    privateHostAllowlist: z.array(z.string().trim().min(1).max(253)).max(100),
   }),
 } as const;
 

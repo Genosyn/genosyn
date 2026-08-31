@@ -6,7 +6,6 @@ import { repositoryWorkHref, type RepositoryWorkTarget } from "../lib/repository
 import { useLiveRefetch } from "./CompanySocket";
 import { SessionPane } from "./repositories/SessionPane";
 import { InlineRetry } from "./repositories/sessionChrome";
-import { isGithubRemote } from "./repositories/sessionState";
 import {
   SidePanelCollapseIcon,
   SidePanelResizeHandle,
@@ -252,7 +251,7 @@ export function RepositoryWorkPanel({
             sessionId={target.sessionId}
             repoName={repo.name}
             allowPush={repo.origin === "remote"}
-            allowPullRequest={repo.origin === "remote" && isGithubRemote(repo.gitUrl)}
+            allowPullRequest={repo.origin === "remote" && !!repo.forge}
             canReachRemote={companyRole === "owner" || companyRole === "admin"}
             checkoutBranch={checkoutBranch}
             dialog={dialog}

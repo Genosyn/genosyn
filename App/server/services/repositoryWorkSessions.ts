@@ -34,16 +34,15 @@ import {
   type RepositoryTreeEntry,
 } from "./repositoryWorkspace.js";
 import {
-  GithubApiError,
-  createGithubPullRequest,
-  findOpenGithubPullRequest,
-  githubDefaultBranch,
-  isGithubHttpsUrl,
-  parseGithubRemote,
-  resolveConnectionForRemote,
+  createForgePullRequest,
+  findOpenForgePullRequest,
+  forgeDefaultBranch,
   resolveConnectionToken,
-  type GithubPullRequest,
-} from "./repositoryGithub.js";
+  resolveForgeRemote,
+  type ForgePullRequest,
+} from "./repositoryForge.js";
+import { ForgeApiError, type ForgeEndpoint } from "../integrations/providers/forge/client.js";
+import { forgeProviderName } from "../integrations/providers/forge/connection.js";
 import { decryptRepositorySecret } from "./repositories.js";
 import { workSessionCommandAvailability } from "./repositoryCommandRun.js";
 import { toSlug } from "../lib/slug.js";
@@ -1041,26 +1040,26 @@ export async function publishRepositoryWorkSession(
  *
  * The credential still never leaves the server, and it is still a Member who
  * decides: the employee can commit onto its branch and nothing else. Calling
- * it again after a revision pushes the new commits — GitHub attaches them to
- * the pull request that is already open, so the same button is both "open"
+ * it again after a revision pushes the new commits — the forge attaches them
+ * to the pull request that is already open, so the same button is both "open"
  * and "update" and the row records only the one pull request that exists.
  */
 export type WorkSessionPullRequestDeps = {
   push: typeof pushRepositoryBranch;
-  resolveToken: (repo: Repository) => Promise<string>;
-  createPullRequest: typeof createGithubPullRequest;
-  findOpenPullRequest: typeof findOpenGithubPullRequest;
-  remoteDefaultBranch: typeof githubDefaultBranch;
+  resolveForge: (repo: Repository) => Promise<ResolvedRepositoryForge>;
+  createPullRequest: typeof createForgePullRequest;
+  findOpenPullRequest: typeof findOpenForgePullRequest;
+  remoteDefaultBranch: typeof forgeDefaultBranch;
   localDefaultBranch: typeof detectRemoteDefaultBranch;
   branchExists: typeof remoteBranchExists;
 };
 
 export const defaultPullRequestDeps: WorkSessionPullRequestDeps = {
   push: pushRepositoryBranch,
-  resolveToken: resolveRepositoryGithubToken,
-  createPullRequest: createGithubPullRequest,
-  findOpenPullRequest: findOpenGithubPullRequest,
-  remoteDefaultBranch: githubDefaultBranch,
+  resolveForge: resolveRepositoryForge,
+  createPullRequest: createForgePullRequest,
+  findOpenPullRequest: findOpenForgePullRequest,
+  remoteDefaultBranch: forgeDefaultBranch,
   localDefaultBranch: detectRemoteDefaultBranch,
   branchExists: remoteBranchExists,
 };
@@ -1070,19 +1069,18 @@ export const defaultPullRequestDeps: WorkSessionPullRequestDeps = {
  *
  * `Repository.defaultBranch` is not trustworthy for this. The create form
  * pre-fills it with `main`, a plain `git clone` never contradicts it, and
- * nothing else in the product has ever had to name the branch to GitHub — so a
- * repository whose trunk is `master` has been carrying `main` since the day it
- * was added, silently, and the first thing to notice is this function's caller
- * failing with a bare "Validation Failed".
+ * nothing else in the product has ever had to name the branch to the forge —
+ * so a repository whose trunk is `master` has been carrying `main` since the
+ * day it was added, silently, and the first thing to notice is this function's
+ * caller failing with a bare "Validation Failed".
  *
- * Ask the people who know, in order: GitHub itself, then the clone's own
+ * Ask the people who know, in order: the forge itself, then the clone's own
  * `origin/HEAD`, then the row. The answer is written back so every other
  * surface that reads `defaultBranch` stops being wrong too.
  */
 async function resolvePullRequestBase(
   repo: Repository,
-  remote: { owner: string; repo: string },
-  token: string,
+  forge: ResolvedRepositoryForge,
   deps: WorkSessionPullRequestDeps,
 ): Promise<string> {
   const stored = (repo.defaultBranch || "").trim();
@@ -1094,8 +1092,12 @@ async function resolvePullRequestBase(
     return stored;
   }
   const found =
-    (await deps.remoteDefaultBranch(token, remote.owner, remote.repo)) ??
-    (await deps.localDefaultBranch(repo).catch(() => null));
+    (await deps.remoteDefaultBranch(
+      forge.endpoint,
+      forge.token,
+      forge.remote.owner,
+      forge.remote.repo,
+    )) ?? (await deps.localDefaultBranch(repo).catch(() => null));
   // The local reader validates its own answer; the API one cannot, and its
   // result is written straight onto the row that `checkoutRepositoryBranch`
   // and `createRepositoryBranch` will later refuse if it is not a legal name.
@@ -1142,15 +1144,11 @@ export async function openRepositoryWorkSessionPullRequest(args: {
       "This repository lives only in Genosyn, so there is nowhere to open a pull request. Connect it to a remote in settings first.",
     );
   }
-  const remote = parseGithubRemote(repo.gitUrl);
-  if (!remote) {
-    throw new Error(
-      "Pull requests are only supported for GitHub remotes. Accept the work here and push it instead.",
-    );
-  }
-
-  const token = await deps.resolveToken(repo);
-  // Push before asking for the pull request: GitHub cannot open one for a
+  // One resolution, used for both the API calls and the push, so the token and
+  // the endpoint cannot disagree about which Connection owns this remote.
+  const forge = await deps.resolveForge(repo);
+  const remote = forge.remote;
+  // Push before asking for the pull request: no forge can open one for a
   // branch it has never seen, and a revision's new commits have to be up there
   // before the existing pull request can pick them up.
   try {
@@ -1160,6 +1158,7 @@ export async function openRepositoryWorkSessionPullRequest(args: {
       owner: remote.owner,
       repo: remote.repo,
       branch: session.branch,
+      forgeName: forge.name,
     });
   }
   // Recorded immediately, not with the pull request at the end. The push has
@@ -1170,22 +1169,22 @@ export async function openRepositoryWorkSessionPullRequest(args: {
   session.publishedBranch = session.branch;
   await sessionRepo.save(session);
 
-  const existing = await deps.findOpenPullRequest(token, {
+  const existing = await deps.findOpenPullRequest(forge.endpoint, forge.token, {
     owner: remote.owner,
     repo: remote.repo,
     head: session.branch,
     number: session.pullRequestNumber,
   });
-  let pull: GithubPullRequest;
+  let pull: ForgePullRequest;
   if (existing) {
     // Updating one that is already open: the push above is the whole update,
-    // and GitHub keeps the base it was opened with. Nothing here needs to know
-    // what the trunk is called, so it does not go and ask.
+    // and the forge keeps the base it was opened with. Nothing here needs to
+    // know what the trunk is called, so it does not go and ask.
     pull = existing;
   } else {
-    const base = await resolvePullRequestBase(repo, remote, token, deps);
+    const base = await resolvePullRequestBase(repo, forge, deps);
     try {
-      pull = await deps.createPullRequest(token, {
+      pull = await deps.createPullRequest(forge.endpoint, forge.token, {
         owner: remote.owner,
         repo: remote.repo,
         head: session.branch,
@@ -1200,6 +1199,7 @@ export async function openRepositoryWorkSessionPullRequest(args: {
         repo: remote.repo,
         head: session.branch,
         base,
+        forgeName: forge.name,
       });
     }
   }
@@ -1224,16 +1224,17 @@ export async function openRepositoryWorkSessionPullRequest(args: {
  */
 function describePushFailure(
   error: unknown,
-  context: { owner: string; repo: string; branch: string },
+  context: { owner: string; repo: string; branch: string; forgeName: string },
 ): Error {
   const raw = error instanceof Error ? error.message : String(error);
   const slug = `${context.owner}/${context.repo}`;
   const detail = ` (${raw})`;
+  const forge = context.forgeName;
 
   const denied = raw.match(/Permission to \S+ denied to ([^.\s]+)/i);
   if (denied) {
     return new Error(
-      `GitHub refused the push to ${slug}: the credential Genosyn used authenticates as "${denied[1]}", which cannot write to this repository. ` +
+      `${forge} refused the push to ${slug}: the credential Genosyn used authenticates as "${denied[1]}", which cannot write to this repository. ` +
         `Give the repository a token for an account with push access, or connect that account in Settings → Integrations.`,
     );
   }
@@ -1243,12 +1244,20 @@ function describePushFailure(
     )
   ) {
     return new Error(
-      `${slug} rejected the credential Genosyn pushed with. Check the repository's token has not expired, or reconnect GitHub in Settings → Integrations.${detail}`,
+      `${slug} rejected the credential Genosyn pushed with. Check the repository's token has not expired, or reconnect ${forge} in Settings → Integrations.${detail}`,
     );
   }
-  if (/\bGH006\b|\bGH013\b|protected branch|push declined|ruleset/i.test(raw)) {
+  // GH006 / GH013 / "ruleset" are GitHub's own vocabulary. Forgejo refuses a
+  // protected branch with its own wording, so both are matched here — the one
+  // failure this function exists to explain is exactly the one that would
+  // otherwise fall through to raw git stderr.
+  if (
+    /\bGH006\b|\bGH013\b|protected branch|push declined|ruleset|branch is protected|protected_branch/i.test(
+      raw,
+    )
+  ) {
     return new Error(
-      `${slug} has a rule that refuses this push — commonly a ruleset that blocks creating branches like "${context.branch}". ` +
+      `${slug} has a rule that refuses this push — commonly a protected-branch rule that blocks creating branches like "${context.branch}". ` +
         `Ask whoever owns the repository's rules to allow it, or accept the work here instead.${detail}`,
     );
   }
@@ -1260,7 +1269,7 @@ function describePushFailure(
   }
   if (/Repository not found|does not appear to be a git repository|remote: Not Found/i.test(raw)) {
     return new Error(
-      `GitHub cannot find ${slug} with this credential. Check the clone URL, and that the token or GitHub Connection can see the repository.${detail}`,
+      `${forge} cannot find ${slug} with this credential. Check the clone URL, and that the token or ${forge} Connection can see the repository.${detail}`,
     );
   }
   return error instanceof Error ? error : new Error(raw);
@@ -1273,55 +1282,80 @@ function describePushFailure(
  * triple like `{field: "base", code: "invalid"}`. That is unreadable wherever
  * the browser shows it, and it is the reason this button looked broken rather
  * than misconfigured. Every branch below says which branch was wrong and where to
- * fix it; anything unrecognised keeps GitHub's own wording rather than being
+ * fix it; anything unrecognised keeps the forge's own wording rather than being
  * flattened into a generic failure.
+ *
+ * Forgejo carries the same information in a different envelope: a flat
+ * `{message}` with no `errors` array, so `fieldCode` never matches there and
+ * every branch that only tested it would fall through to a bare validation
+ * string — which is the exact failure this function was written to end. Each
+ * case therefore tests the structured field *and* the message text, and the
+ * duplicate-pull-request case additionally tests Forgejo's 409, because
+ * pressing the button twice is the most common way to reach any of this.
  */
 function describePullRequestFailure(
   error: unknown,
-  context: { owner: string; repo: string; head: string; base: string },
+  context: { owner: string; repo: string; head: string; base: string; forgeName: string },
 ): Error {
-  if (!(error instanceof GithubApiError)) {
+  if (!(error instanceof ForgeApiError)) {
     return error instanceof Error ? error : new Error(String(error));
   }
   const slug = `${context.owner}/${context.repo}`;
-  const detail = error.errorMessages();
+  const forge = context.forgeName;
+  // Forgejo puts everything in `message`; GitHub puts the useful half in the
+  // nested array and a generic headline in `message`. Searching both means one
+  // set of patterns covers the two shapes.
+  const detail = [error.errorMessages(), error.message].filter(Boolean).join(" ");
 
-  if (error.status === 422) {
-    if (error.fieldCode("base") === "invalid") {
+  const duplicate = /already exists|pull request already exists|has already been created/i;
+  if (error.status === 409 && duplicate.test(detail)) {
+    return new Error(
+      `A pull request for "${context.head}" already exists on ${slug}. Open it on ${forge} — the push above brought it up to date.`,
+    );
+  }
+  if (error.status === 422 || error.status === 409) {
+    if (error.fieldCode("base") === "invalid" || /base.*(invalid|not exist)/i.test(detail)) {
       return new Error(
         `${slug} has no branch called "${context.base}", so there is nothing to open the pull request against. ` +
-          `Genosyn asks GitHub for the repository's default branch, so this usually means the clone URL points at a ` +
+          `Genosyn asks ${forge} for the repository's default branch, so this usually means the clone URL points at a ` +
           `different repository than you expect — check it in repository settings.`,
       );
     }
-    if (error.fieldCode("head") === "invalid") {
+    if (error.fieldCode("head") === "invalid" || /head.*(invalid|not exist)/i.test(detail)) {
       return new Error(
-        `GitHub cannot see the branch "${context.head}" on ${slug}. The push may have been rejected — ` +
+        `${forge} cannot see the branch "${context.head}" on ${slug}. The push may have been rejected — ` +
           `check that the repository's credential is allowed to push branches.`,
       );
     }
-    if (/no commits between/i.test(detail)) {
+    if (/no commits between|identical|nothing to compare/i.test(detail)) {
       return new Error(
         `There is nothing to propose: "${context.head}" holds no commits that "${context.base}" does not already have.`,
       );
     }
-    if (/already exists/i.test(detail)) {
+    if (duplicate.test(detail)) {
       return new Error(
-        `A pull request for "${context.head}" already exists on ${slug}. Open it on GitHub — the push above brought it up to date.`,
+        `A pull request for "${context.head}" already exists on ${slug}. Open it on ${forge} — the push above brought it up to date.`,
       );
     }
     if (detail) return new Error(detail);
   }
+  // Forgejo answers a pull request against an archived repository with its own
+  // status rather than folding it into the 403.
+  if (error.status === 423) {
+    return new Error(
+      `${slug} is archived on ${forge}, so no pull request can be opened against it. (${error.message})`,
+    );
+  }
   if (error.status === 403) {
     return new Error(
-      `GitHub refused to open a pull request on ${slug}. The credential needs pull-request write access, ` +
+      `${forge} refused to open a pull request on ${slug}. The credential needs pull-request write access, ` +
         `and the repository must not be archived. (${error.message})`,
     );
   }
   if (error.status === 404) {
     return new Error(
-      `GitHub cannot find ${slug} with this credential. Check the clone URL, and that the token or ` +
-        `GitHub Connection can see the repository.`,
+      `${forge} cannot find ${slug} with this credential. Check the clone URL, and that the token or ` +
+        `${forge} Connection can see the repository.`,
     );
   }
   return error;
@@ -1343,57 +1377,93 @@ function composePullRequestBody(session: RepositoryWorkSession, override?: strin
   return clampPullRequestBody(parts.join("\n"));
 }
 
-/** GitHub rejects a body over this, and an employee's report can be long. */
-const GITHUB_PR_BODY_MAX = 65_536;
+/**
+ * Both forges reject a body over this, and an employee's report can be long.
+ * GitHub documents 65536; Forgejo's column is larger, so the smaller number is
+ * the safe one to hold everyone to.
+ */
+const PR_BODY_MAX = 65_536;
 
 function clampPullRequestBody(body: string): string {
-  if (body.length <= GITHUB_PR_BODY_MAX) return body;
+  if (body.length <= PR_BODY_MAX) return body;
   const notice = "\n\n_Truncated — the full report is on the session in Genosyn._";
-  return body.slice(0, GITHUB_PR_BODY_MAX - notice.length) + notice;
+  return body.slice(0, PR_BODY_MAX - notice.length) + notice;
 }
 
 /**
- * A GitHub token that may push to this repository and open pull requests on
- * it.
- *
- * Two shapes are supported because both already exist in the product: a
- * repository carrying its own HTTPS token, and a repository authenticated by
- * the company's GitHub Connection. Anything else is refused with the reason,
- * because failing later inside the API call would report it as a GitHub error
- * rather than a missing credential.
+ * Everything one pull-request operation needs: where the forge's API is, a
+ * token for it, and which repository on it this is.
  */
-export async function resolveRepositoryGithubToken(repo: Repository): Promise<string> {
-  if (!isGithubHttpsUrl(repo.gitUrl)) {
-    throw new Error("Pull requests are only supported for https://github.com remotes.");
+export type ResolvedRepositoryForge = {
+  endpoint: ForgeEndpoint;
+  token: string;
+  remote: { owner: string; repo: string };
+  /** "GitHub" / "Forgejo", for the sentences a Member reads. */
+  name: string;
+};
+
+/**
+ * The forge a Repository's pull requests go to, and a credential for it.
+ *
+ * Resolution is in two independent halves, and keeping them separate is what
+ * makes a self-hosted forge work at all:
+ *
+ *   • *Where* comes from the host. github.com is always known; any other host
+ *     is known only because a Forgejo Connection carries its base URL.
+ *   • *Which credential* is the existing rule, unchanged: a repository
+ *     carrying its own HTTPS token uses that one, and a repository with none
+ *     borrows the Connection's.
+ *
+ * The halves used to be one check against `github.com`, which is why a
+ * repository on a company's own Forgejo could be cloned, worked in, committed
+ * to — and then told that pull requests are a GitHub feature.
+ */
+export async function resolveRepositoryForge(
+  repo: Repository,
+): Promise<ResolvedRepositoryForge> {
+  const match = await resolveForgeRemote(repo);
+  if (!match) {
+    throw new Error(
+      "Genosyn does not know how to open a pull request on this repository's host. " +
+        "Connect it in Settings → Integrations — GitHub, or Forgejo / Gitea for a server you host — and make sure the server URL there matches this clone URL. " +
+        "You can still accept the work here and push it instead.",
+    );
   }
+  const name = forgeProviderName(match.provider);
+  const forge = { endpoint: match.endpoint, remote: match.remote, name };
+
   if (repo.authMode === "https") {
     const token = decryptRepositorySecret(repo.encryptedToken);
-    if (token) return token;
+    if (token) return { ...forge, token };
     // Falling through to the Connection here used to report "no credential at
-    // all" and send someone to connect GitHub — which would not have helped,
-    // because `findConnectionForRemote` only answers for `authMode: "none"`.
-    // A repository that has a token which will not decrypt has exactly one
-    // remedy, and it is not that one.
+    // all" and send someone to connect the forge — which would not have
+    // helped, because the Connection lookup only answers for
+    // `authMode: "none"`. A repository that has a token which will not decrypt
+    // has exactly one remedy, and it is not that one.
     throw new Error(
       "The HTTPS token on this repository is missing or could not be decrypted. Re-enter it in repository settings.",
     );
   }
-  const resolved = await resolveConnectionForRemote(repo);
-  if (resolved.kind === "one") return (await resolveConnectionToken(resolved.connection)).token;
-  if (resolved.kind === "ambiguous") {
-    const names = resolved.connections.map((row) => row.label || "GitHub").join(", ");
+  if (match.connection) {
+    const resolved = await resolveConnectionToken(match.connection);
+    return { ...forge, token: resolved.token };
+  }
+  if (match.ambiguous) {
+    const names = match.connections
+      .map((row) => row.label || forgeProviderName(match.provider))
+      .join(", ");
     throw new Error(
-      `This company has ${resolved.connections.length} connected GitHub accounts (${names}) and nothing says which one owns this repository. ` +
+      `This company has ${match.connections.length} ${name} Connections that could reach this server (${names}) and nothing says which one owns this repository. ` +
         `Connect the repository through Settings → Integrations, or give it its own HTTPS token in repository settings.`,
     );
   }
   if (repo.authMode === "ssh") {
     throw new Error(
-      "This repository authenticates with an SSH key, which cannot open a pull request. Give it an HTTPS clone URL with a token, or connect GitHub in Settings → Integrations.",
+      `This repository authenticates with an SSH key, which cannot open a pull request. Give it an HTTPS clone URL with a token, or connect ${name} in Settings → Integrations.`,
     );
   }
   throw new Error(
-    "No GitHub credential is available for this repository. Add a token in its settings, or connect GitHub in Settings → Integrations.",
+    `No ${name} credential is available for this repository. Add a token in its settings, or connect ${name} in Settings → Integrations.`,
   );
 }
 

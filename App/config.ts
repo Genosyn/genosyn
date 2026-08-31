@@ -16,13 +16,19 @@
  *
  * **Everything operational now lives in the database and is edited in the
  * dashboard, not here**: the web tools, mail sync tuning, meetings, the
- * container's browser, and the agent's taint policy / member browsers / tool
- * discovery are at **Admin → Runtime** (see
+ * container's browser, the agent's taint policy / member browsers / tool
+ * discovery, and containment are at **Admin → Runtime** (see
  * `server/services/runtimeSettings.ts`); the global SMTP transport is at
  * **Admin → Email transport**; the browser-facing public URL is at
  * **Admin → General**; OAuth app credentials are at **Admin → Integrations**.
  * Do not reintroduce any of them here — an operator should not have to edit a
  * file and restart a container to change how often a mailbox polls.
+ *
+ * `security.outboundPrivateHostAllowlist` is the one setting that lives in both
+ * places, and deliberately so: the outbound policy is installed before the
+ * database is open, so this copy is what holds during boot, while Admin →
+ * Runtime carries an editable list that is unioned with it. See the note on the
+ * field.
  *
  * An install upgrading from the old shape keeps its behavior: any of those
  * blocks still present in this object (or in a Kubernetes ConfigMap overlay
@@ -73,6 +79,13 @@ export const config = {
     // private, link-local, or other non-public addresses. Leave empty for a
     // public SaaS. Add an internal hostname only when the operator explicitly
     // intends tenants to reach it.
+    //
+    // This stays here because the outbound policy is installed before the
+    // database is open, so it is the only list that holds during boot. The
+    // same exemption is also editable at **Admin → Runtime** under Outbound
+    // network, and the two lists are unioned — so a self-hosted Forgejo can be
+    // allowed without a restart, and a multi-tenant install ignores the
+    // editable half entirely (`privateHostAllowed()` in lib/outboundUrl.ts).
     outboundPrivateHostAllowlist: [] as string[],
     outboundRequestTimeoutMs: 15_000,
     outboundMaxResponseBytes: 25 * 1024 * 1024,

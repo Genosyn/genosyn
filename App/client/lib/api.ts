@@ -2506,6 +2506,32 @@ export type RepositoryAuthor = {
   email: string | null;
 };
 
+/**
+ * The git forge a repository's remote lives on, mirrored from
+ * `server/services/repositoryForge.ts`.
+ *
+ * The client used to work this out itself, by parsing the clone URL and
+ * comparing the hostname to `github.com`. That answer is no longer in the
+ * browser: whether a host is a forge Genosyn can talk to depends on the base
+ * URL configured on each Connection, and a Connection's config never leaves
+ * the server. Null means nothing here can speak for this remote — the
+ * repository still clones, commits, and pushes, it just has no pull requests.
+ */
+export type RepositoryForgeInfo = {
+  provider: "github" | "forgejo";
+  /** "GitHub" / "Forgejo" — what to call it in a sentence. */
+  name: string;
+  /**
+   * How a credential for this remote is found:
+   * `pinned` — a specific Connection is pinned on the repository;
+   * `sole` — exactly one Connection can reach this host;
+   * `ambiguous` — several could and none is pinned;
+   * `none` — a known forge no Connection covers (public, or the repository
+   * carries its own stored credential).
+   */
+  credential: "pinned" | "sole" | "ambiguous" | "none";
+};
+
 export type Repository = {
   id: string;
   companyId: string;
@@ -2516,7 +2542,13 @@ export type Repository = {
   gitUrl: string;
   origin: RepositoryOrigin;
   kind: RepositoryKind;
-  /** The GitHub Connection pinned when Genosyn published this repository. */
+  /**
+   * The forge Connection this repository publishes through, pinned when
+   * Genosyn created the remote for it.
+   *
+   * The name is the TypeORM property the server spreads onto the response, so
+   * it is also the wire key — renaming it here would simply stop matching.
+   */
   githubConnectionId: string | null;
   defaultBranch: string;
   authMode: RepositoryAuthMode;
@@ -2530,6 +2562,11 @@ export type Repository = {
   hasToken: boolean;
   hasSshKey: boolean;
   grantCount: number;
+  /**
+   * The forge behind this remote, or null when no Connection can speak for it.
+   * Null is what hides the "Open pull request" button.
+   */
+  forge: RepositoryForgeInfo | null;
   lastSyncedAt: string | null;
   lastSyncStatus: RepositorySyncStatus;
   lastSyncError: string;
@@ -2545,7 +2582,10 @@ export type RepositoryGrantEmployee = {
   slug: string;
   role: string;
   avatarKey: string | null;
-  /** True when a connected GitHub Connection grant exposes the PR tool. */
+  /**
+   * True when a grant on a connected forge Connection — GitHub, or a Forgejo /
+   * Gitea server — exposes the pull request tool to this employee.
+   */
   pullRequestReady: boolean;
 };
 
@@ -2571,22 +2611,31 @@ export type RepositoryTestResult = {
 };
 
 /**
- * A GitHub Integration Connection the company has already authorised. Listing
- * them is what turns "connect this repository to GitHub" into a choice rather
+ * A git forge Connection the company has already authorised. Listing them is
+ * what turns "give this repository somewhere to live" into a choice rather
  * than another credential form — the token is already stored and never leaves
  * the server.
+ *
+ * The list can now hold two kinds at once, so an option carries the forge it
+ * belongs to and the server it points at: two Connections on the same forge
+ * are told apart by their host and nothing else.
  */
-export type RepositoryGithubConnection = {
+export type RepositoryForgeConnection = {
   id: string;
   label: string;
+  provider: "github" | "forgejo";
+  /** "GitHub" / "Forgejo". */
+  providerName: string;
   accountLogin: string | null;
+  /** `github.com`, or the self-hosted server's host. */
+  host: string;
 };
 
-export type RepositoryGithubConnectionsResponse = {
-  connections: RepositoryGithubConnection[];
+export type RepositoryForgeConnectionsResponse = {
+  connections: RepositoryForgeConnection[];
 };
 
-export type RepositoryConnectGithubResult = {
+export type RepositoryConnectForgeResult = {
   gitUrl: string;
   /** The browsable page, when the host exposes one. */
   htmlUrl: string | null;
@@ -3092,7 +3141,8 @@ export type RuntimeSettingsGroup =
   | "meetings"
   | "browser"
   | "agent"
-  | "containment";
+  | "containment"
+  | "network";
 
 /** Open-web tools (`search_web`, `fetch_web_page`, `download_web_file`). */
 export type RuntimeWebSettings = {
@@ -3151,6 +3201,16 @@ export type RuntimeContainmentSettings = {
   regradePerPass: number;
 };
 
+/**
+ * Hosts Genosyn may reach even though they resolve to a private address. The
+ * server unions this list with the one in `config.security`, and ignores this
+ * half entirely on a multi-tenant install.
+ */
+export type RuntimeNetworkSettings = {
+  /** Exact hostnames or IP literals, normalized and deduped by the server. */
+  privateHostAllowlist: string[];
+};
+
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
@@ -3158,6 +3218,7 @@ export type RuntimeSettings = {
   browser: RuntimeBrowserSettings;
   agent: RuntimeAgentSettings;
   containment: RuntimeContainmentSettings;
+  network: RuntimeNetworkSettings;
 };
 
 export type RuntimeSettingsSnapshot = RuntimeSettings & {

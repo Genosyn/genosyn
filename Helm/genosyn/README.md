@@ -97,7 +97,7 @@ edited in the dashboard, not in values:
 
 | What | Where |
 | --- | --- |
-| Web tools, mail sync, meetings, browser, agent taint policy / member browsers / tool discovery | **Admin → Runtime** |
+| Web tools, mail sync, meetings, browser, agent taint policy / member browsers / tool discovery, containment, the outbound private-host allowlist | **Admin → Runtime** |
 | System SMTP transport | **Admin → Email transport** |
 | Browser-facing public URL | **Admin → General** |
 | OAuth app credentials | **Admin → Integrations** |
@@ -119,6 +119,13 @@ config:
   extraJs: |
     security: { ...security, trustedProxyHops: 2, outboundPrivateHostAllowlist: ["internal.example.com"] },
 ```
+
+`outboundPrivateHostAllowlist` still works exactly as shown, but it no longer
+needs a values edit and a rollout: the same list is editable under **Outbound
+network** at **Admin → Runtime**, and the two are combined, so a self-hosted
+Forgejo or an in-cluster model endpoint can be allowed in the dashboard while
+the file stays as it is. Shared multi-tenant installs ignore the dashboard list
+and still refuse to boot with a non-empty one in values.
 
 Anything `extraJs` reads via `process.env.*` is injected through `env`:
 

@@ -11,12 +11,17 @@ import {
 /**
  * Operational settings an operator changes while the app is running.
  *
- * These five groups used to live in `config.ts`, which meant editing a file and
- * restarting a container to change how often mail syncs or whether the web
+ * Most of these groups used to live in `config.ts`, which meant editing a file
+ * and restarting a container to change how often mail syncs or whether the web
  * tools are on. `config.ts` is now only the things that must be settled before
  * the process can safely accept a request — secrets, database coordinates, and
  * the fail-closed security posture. Everything here is edited at
  * **Admin → Runtime** and stored as one JSON `AppSetting` row per group.
+ *
+ * `network` is the one group that did not move: its `config.security`
+ * counterpart stays in the file and keeps working, because the outbound policy
+ * is installed before the database is open. The two lists are unioned where the
+ * question is asked — see `privateHostAllowed()` in `lib/outboundUrl.ts`.
  *
  * ## Read pattern
  *
@@ -45,6 +50,7 @@ export const RUNTIME_SETTING_KEYS = {
   browser: "runtime.browser",
   agent: "runtime.agent",
   containment: "runtime.containment",
+  network: "runtime.network",
 } as const;
 
 export type RuntimeSettingsGroup = keyof typeof RUNTIME_SETTING_KEYS;
@@ -140,6 +146,22 @@ export type RuntimeContainmentSettings = {
   regradePerPass: number;
 };
 
+/**
+ * Outbound network — the hosts Genosyn may reach even though they resolve to a
+ * loopback, private, or otherwise non-public address.
+ *
+ * The escape hatch itself is not new; being able to change it without a restart
+ * is. `config.security.outboundPrivateHostAllowlist` is still read and still
+ * authoritative, because `installOutboundNetworkPolicy()` runs before the
+ * database is open and this cache is still on its defaults in that window. This
+ * list is unioned with it rather than replacing it, and a multi-tenant install
+ * ignores this half entirely — both in `privateHostAllowed()`.
+ */
+export type RuntimeNetworkSettings = {
+  /** Exact hostnames or IP literals, stored normalized and deduped. */
+  privateHostAllowlist: string[];
+};
+
 export type RuntimeSettings = {
   web: RuntimeWebSettings;
   mail: RuntimeMailSettings;
@@ -147,6 +169,7 @@ export type RuntimeSettings = {
   browser: RuntimeBrowserSettings;
   agent: RuntimeAgentSettings;
   containment: RuntimeContainmentSettings;
+  network: RuntimeNetworkSettings;
 };
 
 /** Whether each group is currently backed by a stored row (vs. the default). */
@@ -199,6 +222,9 @@ export const RUNTIME_SETTINGS_DEFAULTS: Readonly<RuntimeSettings> = Object.freez
     routineBreakerThreshold: 5,
     regradeAfterMinutes: 10,
     regradePerPass: 10,
+  },
+  network: {
+    privateHostAllowlist: [],
   },
 } satisfies RuntimeSettings);
 
@@ -304,6 +330,63 @@ function headlessField(raw: Record<string, unknown>, fallback: "auto" | boolean)
   if (value === "auto" || typeof value === "boolean") return value;
   warnOnce("browser.headless", 'browser.headless must be "auto", true, or false; using "auto"');
   return fallback;
+}
+
+/**
+ * The one list field, and the only one whose bad values are dropped rather than
+ * taking the whole field back to its default.
+ *
+ * Entries are normalized the way `privateHostAllowed()` normalizes the
+ * hostname it is asked about — trimmed, lowercased, trailing dot removed — so a
+ * row hand-edited to `GIT.Internal.` still matches the lookup. A single junk
+ * line then loses one host rather than the list: an operator who pasted one bad
+ * entry should not discover it by way of every self-hosted Forgejo in the
+ * install going unreachable at once. A value that is not an array at all is a
+ * different thing — nothing in it is salvageable — and falls back like any
+ * other field.
+ */
+function hostListField(
+  raw: Record<string, unknown>,
+  group: RuntimeSettingsGroup,
+  key: string,
+  fallback: readonly string[],
+  maxEntries = 100,
+  maxLength = 253,
+): string[] {
+  const value = raw[key];
+  if (value === undefined) return [...fallback];
+  if (!Array.isArray(value)) {
+    warnOnce(`${group}.${key}`, `${group}.${key} is not an array; using the default`);
+    return [...fallback];
+  }
+  const hosts: string[] = [];
+  let dropped = 0;
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      dropped += 1;
+      continue;
+    }
+    const host = normalizeAllowlistHost(entry);
+    // A blank line is how a textarea ends, not a mistake worth reporting.
+    if (!host) continue;
+    if (host.length > maxLength || hosts.length >= maxEntries) {
+      dropped += 1;
+      continue;
+    }
+    if (!hosts.includes(host)) hosts.push(host);
+  }
+  if (dropped > 0) {
+    warnOnce(
+      `${group}.${key}`,
+      `${group}.${key} dropped ${dropped} unusable ${dropped === 1 ? "entry" : "entries"}; a host must be a string of at most ${maxLength} characters, and the list stops at ${maxEntries}`,
+    );
+  }
+  return hosts;
+}
+
+/** Trim, lowercase, drop a trailing dot — the form a host is compared in. */
+function normalizeAllowlistHost(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, "");
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -463,6 +546,26 @@ export function parseContainmentSettings(raw: unknown): RuntimeContainmentSettin
   };
 }
 
+/**
+ * Deliberately absent from {@link importLegacyConfigOverrides}: the config list
+ * this one widens is not a legacy block, it is live boot configuration that
+ * `privateHostAllowed()` still reads. Importing it would copy those hosts into
+ * the row, union them with themselves, and then the row-exists check would
+ * freeze out every later edit to `config.ts`.
+ */
+export function parseNetworkSettings(raw: unknown): RuntimeNetworkSettings {
+  const o = asRecord(raw);
+  const d = RUNTIME_SETTINGS_DEFAULTS.network;
+  return {
+    privateHostAllowlist: hostListField(
+      o,
+      "network",
+      "privateHostAllowlist",
+      d.privateHostAllowlist,
+    ),
+  };
+}
+
 /** One parser per group, so refresh, write, and legacy import share a code path. */
 const PARSERS: {
   [G in RuntimeSettingsGroup]: (raw: unknown) => RuntimeSettings[G];
@@ -473,6 +576,7 @@ const PARSERS: {
   browser: parseBrowserSettings,
   agent: parseAgentSettings,
   containment: parseContainmentSettings,
+  network: parseNetworkSettings,
 };
 
 // ────────────────────────────── the cache ──────────────────────────────────
@@ -485,6 +589,7 @@ let overridden: RuntimeSettingsOverridden = {
   browser: false,
   agent: false,
   containment: false,
+  network: false,
 };
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -530,6 +635,17 @@ export function getContainmentSettings(): RuntimeContainmentSettings {
   return effective("containment");
 }
 
+/**
+ * The outbound private-host allowlist. Read from inside the DNS callback in
+ * `services/outboundNetworkPolicy.ts`, which is installed on both global HTTP
+ * agents and the undici dispatcher — so this must stay synchronous, must never
+ * throw, and must never touch the database or the network. It hands back the
+ * cached group itself, like every other getter: do not mutate it.
+ */
+export function getNetworkSettings(): RuntimeNetworkSettings {
+  return effective("network");
+}
+
 function parseRow(group: RuntimeSettingsGroup, value: string): unknown {
   try {
     return JSON.parse(value);
@@ -552,6 +668,7 @@ async function refreshRuntimeSettings(): Promise<void> {
     browser: false,
     agent: false,
     containment: false,
+    network: false,
   };
   for (const group of RUNTIME_SETTINGS_GROUPS) {
     const raw = byKey.get(RUNTIME_SETTING_KEYS[group]);
@@ -595,6 +712,7 @@ export async function getRuntimeSettingsSnapshot(): Promise<RuntimeSettingsSnaps
     browser: effective("browser"),
     agent: effective("agent"),
     containment: effective("containment"),
+    network: effective("network"),
     overridden: { ...overridden },
   };
 }
@@ -663,6 +781,7 @@ export function resetRuntimeSettingsCacheForTests(): void {
     browser: false,
     agent: false,
     containment: false,
+    network: false,
   };
   testOverrides = {};
   warned.clear();

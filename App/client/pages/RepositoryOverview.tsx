@@ -11,7 +11,7 @@ import {
   Code2,
   FolderGit2,
   GitBranch,
-  Github,
+  GitFork,
   GitPullRequest,
   Plug,
   Terminal,
@@ -20,7 +20,7 @@ import {
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useLiveRefetch } from "../components/CompanySocket";
-import { ConnectGithubModal } from "../components/repositories/ConnectGithubModal";
+import { ConnectForgeModal } from "../components/repositories/ConnectForgeModal";
 import { MarkdownPreview } from "../components/repositories/MarkdownPreview";
 import {
   api,
@@ -209,22 +209,22 @@ export default function RepositoryOverview() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
               <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                <Github size={17} />
+                <GitFork size={17} />
               </span>
               <div className="min-w-0">
                 <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
                   This repository lives only in Genosyn
                 </div>
                 <p className="mt-0.5 max-w-xl text-sm text-slate-500 dark:text-slate-400">
-                  That is a perfectly good place for it to stay. Connect it to GitHub when you want
-                  a backup off this machine, pull requests, or people outside Genosyn reading it —
-                  every commit made here goes with it.
+                  That is a perfectly good place for it to stay. Connect it to a git host when you
+                  want a backup off this machine, pull requests, or people outside Genosyn reading
+                  it — every commit made here goes with it.
                 </p>
               </div>
             </div>
             {canConnect ? (
               <Button className="shrink-0" onClick={() => setConnectOpen(true)}>
-                <Github size={15} /> Connect to GitHub
+                <GitFork size={15} /> Connect to a git host
               </Button>
             ) : (
               <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
@@ -341,13 +341,27 @@ export default function RepositoryOverview() {
                 number="3"
                 icon={<GitPullRequest size={17} />}
                 title="Hand the work back to you"
-                detail="You read the diff and decide whether it lands. With GitHub connected, the employee can open the pull request itself."
+                detail={
+                  // Three different situations, and only the first has a next
+                  // step. A remote on a host no Integration covers — a GitLab,
+                  // a Bitbucket, a plain git server — can never get a pull
+                  // request button, so promising one is worse than silence:
+                  // it sends the reader looking for a Connection that does not
+                  // exist, on a step that will never turn green.
+                  repo.forge
+                    ? `You read the diff and decide whether it lands. Grant the employee a ${repo.forge.name} Connection and it can open the pull request itself.`
+                    : repo.origin === "remote"
+                      ? "You read the diff and decide whether it lands, then push it from here. Opening a pull request needs GitHub or a Forgejo / Gitea server Genosyn can reach."
+                      : "You read the diff and decide whether it lands. Connect this repository to a git host and the employee can open the pull request itself."
+                }
                 status={
                   grants === null
                     ? "Checking…"
                     : prReady.length > 0
                       ? `${prReady.length} ready`
-                      : "Needs GitHub"
+                      : repo.forge
+                        ? "Needs a Connection"
+                        : "Review here"
                 }
                 ready={prReady.length > 0}
                 last
@@ -417,7 +431,7 @@ export default function RepositoryOverview() {
         </section>
       )}
 
-      <ConnectGithubModal
+      <ConnectForgeModal
         open={connectOpen}
         company={company}
         repo={currentRepo}

@@ -41,10 +41,11 @@ import {
   writeRepositoryFile,
 } from "../services/repositoryWorkspace.js";
 import {
-  createGithubRepository,
-  listGithubConnections,
+  createForgeRepository,
+  listForgeConnections,
   resolveConnectionToken,
-} from "../services/repositoryGithub.js";
+} from "../services/repositoryForge.js";
+import { isForgeProvider } from "../integrations/providers/forge/connection.js";
 import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import {
   isPlainHttpsCredentialUrl,
@@ -404,10 +405,10 @@ repositoryContentRouter.post(
  * misclick point a live repository somewhere new.
  */
 repositoryContentRouter.get(
-  "/repositories/:slug/github-connections",
+  "/repositories/:slug/forge-connections",
   withRepository(
     async (repo, _req, res) => {
-      res.json({ connections: await listGithubConnections(repo.companyId) });
+      res.json({ connections: await listForgeConnections(repo.companyId) });
     },
     { workspace: false },
   ),
@@ -419,7 +420,7 @@ function assertConnectable(repo: Repository): void {
   }
 }
 
-const connectGithubSchema = z
+const connectForgeSchema = z
   .object({
     connectionId: z.string().uuid(),
     name: z
@@ -427,29 +428,34 @@ const connectGithubSchema = z
       .trim()
       .min(1)
       .max(100)
-      .regex(/^[A-Za-z0-9._-]+$/, "GitHub names may use letters, numbers, dot, dash, underscore."),
+      .regex(
+        /^[A-Za-z0-9._-]+$/,
+        "Repository names may use letters, numbers, dot, dash, underscore.",
+      ),
     owner: z.string().trim().max(100).optional(),
     private: z.boolean().optional(),
   })
   .strict();
 
 repositoryContentRouter.post(
-  "/repositories/:slug/workspace/connect-github",
+  "/repositories/:slug/workspace/connect-forge",
   requireAdmin,
-  validateBody(connectGithubSchema),
+  validateBody(connectForgeSchema),
   withRepository(
     async (repo, req, res) => {
       assertConnectable(repo);
-      const body = req.body as z.infer<typeof connectGithubSchema>;
+      const body = req.body as z.infer<typeof connectForgeSchema>;
       const connection = await AppDataSource.getRepository(IntegrationConnection).findOneBy({
         id: body.connectionId,
         companyId: repo.companyId,
-        provider: "github",
       });
-      if (!connection) throw new Error("That GitHub Connection is no longer available.");
+      if (!connection || !isForgeProvider(connection.provider)) {
+        throw new Error("That Connection is no longer available.");
+      }
 
-      const { token } = await resolveConnectionToken(connection);
-      const created = await createGithubRepository({
+      const { token, endpoint } = await resolveConnectionToken(connection);
+      const created = await createForgeRepository({
+        endpoint,
         token,
         name: body.name,
         owner: body.owner || null,
@@ -457,10 +463,25 @@ repositoryContentRouter.post(
         description: repo.description,
       });
 
+      // Pin before publishing, not after. `publishRepositoryToRemote` resolves
+      // the credential for its push by asking which Connection speaks for the
+      // new remote — and with two forge Connections on one host that question
+      // is ambiguous until this row says which one. Assigning it first is what
+      // makes the very first push authenticate instead of going out anonymous.
+      //
+      // `gitUrl` and `origin`, though, stay as they are until the push has
+      // happened. `publishRepositoryToRemote` materializes the workspace
+      // first, and that branches on `origin`: a repository nobody has opened
+      // in the editor yet has no checkout, so calling it "remote" here makes
+      // it *clone the empty repository the forge just created* instead of
+      // seeding a local one — leaving an unborn HEAD, no history to push, and
+      // an orphaned repository on the operator's forge. The push reads the new
+      // remote from its own `{...repo, gitUrl, origin: "remote"}` copy, so it
+      // needs nothing from the row here.
+      repo.githubConnectionId = connection.id;
       const result = await publishRepositoryToRemote(repo, created.gitUrl);
       repo.gitUrl = created.gitUrl;
       repo.origin = "remote";
-      repo.githubConnectionId = connection.id;
       // The branch that was actually pushed, not `created.defaultBranch`: the
       // repository is created with `auto_init: false`, so it has no branches
       // at all when GitHub answers and its `default_branch` is only the
@@ -475,7 +496,7 @@ repositoryContentRouter.post(
       await recordAudit({
         companyId: repo.companyId,
         actorUserId: req.userId ?? null,
-        action: "repository.connect_github",
+        action: "repository.connect_forge",
         targetType: "repository",
         targetId: repo.id,
         targetLabel: repo.name,
@@ -488,7 +509,8 @@ repositoryContentRouter.post(
 );
 
 /**
- * Connecting to a host that is not GitHub, or to GitHub without a Connection.
+ * Connecting to a host with no Connection behind it, or to one with a
+ * credential of the repository's own.
  *
  * Credentials are optional and sent in the same request as the URL. Requiring
  * a separate settings visit first would mean the button either failed on every

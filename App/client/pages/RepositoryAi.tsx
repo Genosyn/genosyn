@@ -30,7 +30,6 @@ import {
   SESSION_INBOX_GROUP_ORDER,
   groupSessions,
   isArchived,
-  isGithubRemote,
   matchesSessionSearch,
   sessionSubtitle,
   sessionSearchText,
@@ -122,7 +121,10 @@ export default function RepositoryAi() {
   const aiBase = repo ? `/c/${company.slug}/repositories/${repo.slug}/ai` : "";
   const repoId = repo?.id ?? null;
   const isRemote = repo?.origin === "remote";
-  const isGithub = isGithubRemote(repo?.gitUrl);
+  // Whether a pull request can be opened here is the server's answer, not a
+  // hostname the browser can read off the clone URL: it depends on which forge
+  // Connections cover this host, and their base URLs never leave the server.
+  const canOpenPullRequest = !!repo?.forge;
   // Both routes that reach the remote — pushing and opening a pull request —
   // are gated on this server-side. Offering either to a Member who will be
   // refused turns a permission boundary into a broken button.
@@ -295,7 +297,7 @@ export default function RepositoryAi() {
               sessionId={sessionId}
               repoName={repo.name}
               allowPush={isRemote}
-              allowPullRequest={isRemote && isGithub}
+              allowPullRequest={isRemote && canOpenPullRequest}
               canReachRemote={canReachRemote}
               checkoutBranch={checkoutBranch}
               dialog={dialog}

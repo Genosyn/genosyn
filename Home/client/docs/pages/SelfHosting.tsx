@@ -158,8 +158,10 @@ export function SelfHosting() {
                 <Strong>Mail sync</Strong> (poll interval, backfill pacing and window),{" "}
                 <Strong>Meetings</Strong> (on/off, sync interval, transcription model, recording
                 size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
-                humanized input), and <Strong>Agent</Strong> (taint policy, member browsers, tool
-                discovery).
+                humanized input), <Strong>Agent</Strong> (taint policy, member browsers, tool
+                discovery), <Strong>Containment</Strong> (the Routine circuit breaker and the
+                re-grade sweep), and <Strong>Outbound network</Strong> (the private-host
+                allowlist).
               </>
             ),
           },
@@ -185,6 +187,24 @@ export function SelfHosting() {
         logs what it imported. The values you had are the values you keep, and they are editable in
         Admin from then on. A block already saved in Admin is never overwritten, and the leftover
         keys in the file are simply ignored.
+      </Callout>
+
+      <H3 id="private-hosts">Reaching something on your own network</H3>
+      <P>
+        Genosyn refuses any outbound request that resolves to a loopback, private, or link-local
+        address, which is what stops a Connection form or a fetched page from being pointed at
+        your internal network. A self-hosted Forgejo at <Code>git.internal</Code>, or a model
+        endpoint at <Code>10.0.0.5</Code>, is caught by that same rule. List those hosts, one per
+        line, under <Strong>Outbound network</Strong> at <Code>Admin → Runtime</Code> and they
+        become reachable within about 30 seconds — no file to edit, no container to restart.
+      </P>
+      <Callout kind="warn" title="An allowlisted host is exempt from the check, permanently.">
+        Everything an AI Employee can be talked into fetching can reach a host on this list, so add
+        one only when you mean employees to reach it — and prefer the narrowest hostname over a
+        whole internal domain. The list is empty on a fresh install. Hosts set in{" "}
+        <Code>security.outboundPrivateHostAllowlist</Code> in <Code>config.ts</Code> keep working
+        as well; the two lists are combined. Shared multi-tenant installs ignore the Admin list
+        entirely and refuse to boot with a non-empty one in the file.
       </Callout>
 
       <H2 id="public-url">Public URL</H2>

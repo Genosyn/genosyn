@@ -8,7 +8,14 @@ import {
   loadEmployeeConnections,
   persistConnectionConfigIfCurrent,
 } from "./integrations.js";
-import { readGithubRepos, resolveGithubCredentials } from "../integrations/providers/github.js";
+import {
+  isForgeProvider,
+  forgeGitUsername,
+  forgeProviderName,
+  readForgeRepos,
+  resolveForgeCredentials,
+} from "../integrations/providers/forge/connection.js";
+import { forgeCloneUrl, type ForgeEndpoint } from "../integrations/providers/forge/client.js";
 import {
   assertSafeCredentialToken,
   clearEnvCredentialHelper,
@@ -19,11 +26,11 @@ import { cloneWorkspaceGitRemote, fetchWorkspaceGitRemote } from "./workspaceGit
 
 /**
  * Repo sync seam — materializes git checkouts of every allowlisted repo on
- * each granted GitHub Connection into the AI employee's working directory
- * before each chat / routine spawn.
+ * each granted forge Connection (GitHub, or a self-hosted Forgejo / Gitea)
+ * into the AI employee's working directory before each chat / routine spawn.
  *
  * Engineering AI employees are *editor-shaped*, not API-shaped — they need a
- * working tree to read, edit, branch, and commit. Calling the github
+ * working tree to read, edit, branch, and commit. Calling the forge's
  * REST API for every operation is the wrong primitive for that workload, so
  * the runner's pre-spawn step now drops a real `git clone` of each repo into
  * `<employeeDir>/repos/<owner>/<name>/` and leaves it there. The agent uses
@@ -58,8 +65,13 @@ export type SyncedRepo = {
   path: string;
 };
 
-export type GithubRepoCredential = {
+export type ForgeRepoCredential = {
   connectionId: string;
+  /** Where this Connection's repositories live, so a remote URL can be matched
+   *  against it rather than against a hardcoded host. */
+  endpoint: ForgeEndpoint;
+  /** The `git` basic-auth username this forge expects with the token. */
+  username: string;
   /** Exact allowlist coordinates, or null when the Connection has no selected
    * repos and can only be used as an unambiguous sole-Connection fallback. */
   owner: string | null;
@@ -81,16 +93,16 @@ export type RepoSyncResult = {
   extraEnv: Record<string, string>;
   /** Repos successfully cloned or fetched this round. */
   repos: SyncedRepo[];
-  /** Granted GitHub credentials another materializer may reuse this turn,
+  /** Granted forge credentials another materializer may reuse this turn,
    * with allowlist coordinates when present for safe disambiguation. */
-  githubRepoCredentials: GithubRepoCredential[];
+  forgeRepoCredentials: ForgeRepoCredential[];
   /** Non-fatal failures the runner should log but not abort on. */
   errors: RepoSyncError[];
 };
 
 /** Convert a UUID into a shell-safe env-var suffix. */
 function envKeyFor(connectionId: string): string {
-  return `GENOSYN_GH_TOKEN_${connectionId.replace(/[^A-Za-z0-9]/g, "_").toUpperCase()}`;
+  return `GENOSYN_FORGE_TOKEN_${connectionId.replace(/[^A-Za-z0-9]/g, "_").toUpperCase()}`;
 }
 
 // In-process mutex per (employeeId × connectionId) so two concurrent spawns
@@ -116,7 +128,7 @@ export async function materializeReposForEmployee(args: {
   const result: RepoSyncResult = {
     extraEnv: {},
     repos: [],
-    githubRepoCredentials: [],
+    forgeRepoCredentials: [],
     errors: [],
   };
 
@@ -125,10 +137,10 @@ export async function materializeReposForEmployee(args: {
   if (!employee) return result;
 
   const grants = await loadEmployeeConnections(employee);
-  const githubGrants = grants.filter((g) => g.connection.provider === "github");
-  if (githubGrants.length === 0) return result;
+  const forgeGrants = grants.filter((g) => isForgeProvider(g.connection.provider));
+  if (forgeGrants.length === 0) return result;
 
-  for (const { connection } of githubGrants) {
+  for (const { connection } of forgeGrants) {
     const lockKey = `${args.employeeId}:${connection.id}`;
     await withMutex(lockKey, async () => {
       try {
@@ -149,18 +161,28 @@ async function syncConnection(
   cwd: string,
   result: RepoSyncResult,
 ): Promise<void> {
+  if (!isForgeProvider(connection.provider)) return;
+  const provider = connection.provider;
+  const name = forgeProviderName(provider);
   const credentialSnapshot = connection.encryptedConfig;
   const cfg = decryptConnectionConfig(connection);
-  const creds = await resolveGithubCredentials(cfg, connection.authMode);
+  const creds = await resolveForgeCredentials(provider, cfg, connection.authMode);
   if (!creds) {
     result.errors.push({
       scope: `connection:${connection.id}`,
-      message:
-        "GitHub Connection is missing credentials. Reconnect it from Settings → Integrations.",
+      message: `${name} Connection is missing credentials. Reconnect it from Settings → Integrations.`,
     });
     return;
   }
   assertSafeCredentialToken(creds.accessToken);
+  const username = forgeGitUsername(provider, creds.login);
+  if (!username) {
+    result.errors.push({
+      scope: `connection:${connection.id}`,
+      message: `${name} Connection does not know which account it authenticates as. Reconnect it from Settings → Integrations.`,
+    });
+    return;
+  }
 
   // Persist refreshed OAuth config (token rotation) before we hand the
   // refreshed token to git.
@@ -174,20 +196,22 @@ async function syncConnection(
     });
     if (!persisted) {
       throw new Error(
-        "GitHub Connection changed while its credentials were refreshing. Retry repository sync.",
+        `${name} Connection changed while its credentials were refreshing. Retry repository sync.`,
       );
     }
   }
 
-  const repos = readGithubRepos(cfg, connection.authMode);
+  const repos = readForgeRepos(provider, cfg, connection.authMode);
   const envKey = envKeyFor(connection.id);
   if (repos.length === 0) {
     // A first-class Repository grant is already a repository boundary.
     // Preserve this credential as a fallback when it is the employee's only
-    // GitHub Connection, without exporting it into the bash env unless a
-    // matching Repository actually needs it.
-    result.githubRepoCredentials.push({
+    // Connection for that server, without exporting it into the bash env
+    // unless a matching Repository actually needs it.
+    result.forgeRepoCredentials.push({
       connectionId: connection.id,
+      endpoint: creds.endpoint,
+      username,
       owner: null,
       name: null,
       envKey,
@@ -197,8 +221,10 @@ async function syncConnection(
   }
 
   for (const repo of repos) {
-    result.githubRepoCredentials.push({
+    result.forgeRepoCredentials.push({
       connectionId: connection.id,
+      endpoint: creds.endpoint,
+      username,
       owner: repo.owner,
       name: repo.name,
       envKey,
@@ -214,6 +240,8 @@ async function syncConnection(
         defaultBranch: repo.defaultBranch,
         token: creds.accessToken,
         envKey,
+        endpoint: creds.endpoint,
+        username,
       });
       result.repos.push({
         connectionId: connection.id,
@@ -239,11 +267,15 @@ async function syncOneRepo(args: {
   defaultBranch: string;
   token: string;
   envKey: string;
+  endpoint: ForgeEndpoint;
+  username: string;
 }): Promise<void> {
-  const cleanRemote = `https://github.com/${args.owner}/${args.name}.git`;
+  // Built from the Connection's own base URL rather than a hardcoded host, so
+  // a self-hosted forge clones from the server it actually lives on.
+  const cleanRemote = forgeCloneUrl(args.endpoint, args.owner, args.name);
   const isCheckout = fs.existsSync(path.join(args.repoPath, ".git"));
   const credentialEnv = { [args.envKey]: args.token };
-  const credentialHelper = inlineEnvCredentialHelper("x-access-token", args.envKey, cleanRemote);
+  const credentialHelper = inlineEnvCredentialHelper(args.username, args.envKey, cleanRemote);
 
   if (!isCheckout) {
     fs.mkdirSync(path.dirname(args.repoPath), { recursive: true });

@@ -158,20 +158,28 @@ export default function RepositoriesIndex({ company }: { company: Company }) {
   );
 }
 
-/** How a repository is reached, in words rather than the stored enum. */
+/**
+ * How a repository is reached, in words rather than the stored enum.
+ *
+ * With no credential of its own, whether anything can sign in for this remote
+ * is a question about the company's Connections — which of them was configured
+ * with a base URL covering this host. That is the server's answer, on the row:
+ * reading the clone URL here could only ever have recognised github.com, so a
+ * self-hosted repository a Connection does cover read "No stored sign-in".
+ */
 export function signInLabel(repo: Repository): string {
   if (repo.origin === "local") return "Only in Genosyn";
   if (repo.authMode === "none") {
-    try {
-      const remote = new URL(repo.gitUrl);
-      if (remote.protocol === "https:" && remote.hostname.toLowerCase() === "github.com") {
-        return repo.githubConnectionId ? "GitHub Connection" : "GitHub Connection or public";
-      }
-    } catch {
-      // Unsafe legacy URLs are hidden by the API and described without
-      // guessing at their sign-in source.
-    }
-    return "No stored sign-in";
+    const forge = repo.forge;
+    if (!forge) return "No stored sign-in";
+    // `none` means the host is one Genosyn knows but no Connection reaches it,
+    // which — with nothing stored on the repository either — is the same
+    // anonymous clone as any other unrecognised remote.
+    if (forge.credential === "none") return "No stored sign-in";
+    // Several could speak for it and none is pinned, so the server refuses to
+    // guess. Saying a Connection is used would be a promise nothing keeps.
+    if (forge.credential === "ambiguous") return `Several ${forge.name} Connections`;
+    return `${forge.name} Connection`;
   }
   return `Private · ${repo.authMode === "ssh" ? "SSH key" : "Token"}`;
 }

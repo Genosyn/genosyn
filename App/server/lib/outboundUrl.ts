@@ -1,6 +1,7 @@
 import dns from "node:dns/promises";
 import net from "node:net";
 import { config } from "../../config.js";
+import { getNetworkSettings } from "../services/runtimeSettings.js";
 
 const MAX_REDIRECTS = 5;
 
@@ -60,11 +61,49 @@ export function isPublicIp(address: string): boolean {
   }
 }
 
+function normalizeHost(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, "");
+}
+
+/** Both lists are stored normalized; normalizing again costs nothing and keeps
+ *  a hand-edited row or a test override matching the same way a saved one does. */
+function listed(list: readonly string[], host: string): boolean {
+  return list.some((entry) => normalizeHost(entry) === host);
+}
+
+/**
+ * The exact-match exemption from the public-address rule: a self-hosted Forgejo
+ * at `git.internal`, an Ollama on the LAN, a metadata service an operator
+ * genuinely wants reachable.
+ *
+ * **Two lists, unioned.** `config.security.outboundPrivateHostAllowlist` is
+ * boot configuration and stays authoritative:
+ * `installOutboundNetworkPolicy()` is installed in `server/index.ts` before
+ * `initDb()` and `bootRuntimeSettings()` have run, so in that window the runtime
+ * cache is still on its defaults and the config list is the only thing holding
+ * an install's current behaviour. The runtime list is the same exemption an
+ * operator can edit at Admin → Runtime without editing a file and restarting a
+ * container, which is what AGENTS.md §5 requires of an operational knob.
+ *
+ * **A multi-tenant install ignores the runtime half.** `runtimeSecurity.ts`
+ * refuses to boot a shared install whose *config* list is non-empty, but a
+ * runtime group can be edited at any moment, so a boot check could only ever
+ * have checked a value that changes afterwards. The invariant therefore lives
+ * where the answer is derived, exactly as it does for `memberBrowsersEnabled()`
+ * in `services/memberBrowsers.ts` and for the same reason: on shared
+ * infrastructure, one tenant pointing the fetcher at a private network is a
+ * boundary that has to hold per call, not per boot.
+ *
+ * Called from inside the DNS callback in `services/outboundNetworkPolicy.ts`,
+ * so it is synchronous, never throws, and touches neither the database nor the
+ * network — {@link getNetworkSettings} reads the same 30s cache every other
+ * runtime getter does.
+ */
 export function privateHostAllowed(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/, "");
-  return config.security.outboundPrivateHostAllowlist.some(
-    (allowed) => allowed.toLowerCase().replace(/\.$/, "") === host,
-  );
+  const host = normalizeHost(hostname);
+  if (listed(config.security.outboundPrivateHostAllowlist, host)) return true;
+  if (config.security.multiTenant) return false;
+  return listed(getNetworkSettings().privateHostAllowlist, host);
 }
 
 /** Resolve and reject every non-public result, preventing mixed DNS answers. */

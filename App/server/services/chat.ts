@@ -689,7 +689,7 @@ export async function streamChatWithEmployee(
       await materializeRepositoriesForEmployee({
         employeeId: emp.id,
         cwd,
-        githubRepoCredentials: repoSync.githubRepoCredentials,
+        forgeRepoCredentials: repoSync.forgeRepoCredentials,
       });
     }
 

@@ -8,7 +8,6 @@ import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
 import type { RepositoryAccessLevel } from "../db/entities/EmployeeRepositoryGrant.js";
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
-import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { User } from "../db/entities/User.js";
 import { validateBody } from "../middleware/validate.js";
@@ -37,6 +36,12 @@ import {
   isPlainHttpsCredentialUrl,
 } from "../services/repositoryValidation.js";
 import { normalizeAllowedCommands } from "../services/repositoryCommandPolicy.js";
+import {
+  describeRepositoryForge,
+  loadForgeCandidates,
+  matchForgeRemote,
+  type RepositoryForgeInfo,
+} from "../services/repositoryForge.js";
 import {
   assertSafeGitRemoteUrl,
   SAFE_GIT_REMOTE_URL_MESSAGE,
@@ -87,6 +92,12 @@ type HydratedRepo = Omit<Repository, "encryptedToken" | "encryptedSshKey"> & {
   hasSshKey: boolean;
   grantCount: number;
   createdBy: CreatedBy;
+  /**
+   * The forge this remote lives on, or null when nothing here can speak to it.
+   * Null is what hides the "Open pull request" button — a repository can still
+   * be cloned, worked in, and pushed without one.
+   */
+  forge: RepositoryForgeInfo | null;
 };
 
 async function hydrate(companyId: string, rows: Repository[]): Promise<HydratedRepo[]> {
@@ -100,6 +111,8 @@ async function hydrate(companyId: string, rows: Repository[]): Promise<HydratedR
       where: { repositoryId: In(rows.map((r) => r.id)) },
     }),
   ]);
+  // Decrypted once for the whole page rather than per row.
+  const forgeCandidates = await loadForgeCandidates(companyId);
   const userById = new Map(users.map((u) => [u.id, u]));
   const grantCountByRepo = new Map<string, number>();
   for (const g of grants) {
@@ -115,6 +128,7 @@ async function hydrate(companyId: string, rows: Repository[]): Promise<HydratedR
       gitUrl: gitRemoteUrlForResponse(rest.gitUrl),
       ...credentialSummary(r),
       grantCount: grantCountByRepo.get(r.id) ?? 0,
+      forge: describeRepositoryForge(r, forgeCandidates),
       createdBy: u
         ? { kind: "human" as const, id: u.id, name: u.name, email: u.email ?? null }
         : null,
@@ -387,13 +401,24 @@ type GrantWithEmployee = EmployeeRepositoryGrant & {
     slug: string;
     role: string;
     avatarKey: string | null;
-    /** A connected GitHub Connection grant exposes a PR tool next run. */
+    /**
+     * A grant on a Connection that can speak for *this repository's* host
+     * exposes the pull-request tool next run.
+     *
+     * Narrowed to the host on purpose. While GitHub was the only forge, "holds
+     * a grant on any connected forge Connection" happened to be the same
+     * question; with two it is not, and the loose version marked an employee
+     * ready on a Forgejo repository because it had been granted the company's
+     * GitHub account — a badge saying yes next to a tool that cannot resolve a
+     * token for that server.
+     */
     pullRequestReady: boolean;
   } | null;
 };
 
 async function hydrateGrants(
   companyId: string,
+  repo: Repository,
   grants: EmployeeRepositoryGrant[],
 ): Promise<GrantWithEmployee[]> {
   if (grants.length === 0) return [];
@@ -406,21 +431,13 @@ async function hydrateGrants(
       where: { employeeId: In(empIds) },
     }),
   ]);
-  const connectionIds = [...new Set(connectionGrants.map((grant) => grant.connectionId))];
-  const githubConnections = connectionIds.length
-    ? await AppDataSource.getRepository(IntegrationConnection).find({
-        where: {
-          id: In(connectionIds),
-          companyId,
-          provider: "github",
-          status: "connected",
-        },
-      })
-    : [];
-  const githubConnectionIds = new Set(githubConnections.map((connection) => connection.id));
+  // Only the Connections that can authenticate THIS remote count. Everything
+  // else is a credential for a different server.
+  const match = matchForgeRemote(repo, await loadForgeCandidates(companyId));
+  const forgeConnectionIds = new Set((match?.connections ?? []).map((connection) => connection.id));
   const prReadyEmployeeIds = new Set(
     connectionGrants
-      .filter((grant) => githubConnectionIds.has(grant.connectionId))
+      .filter((grant) => forgeConnectionIds.has(grant.connectionId))
       .map((grant) => grant.employeeId),
   );
   const byId = new Map(emps.map((e) => [e.id, e]));
@@ -446,7 +463,7 @@ repositoriesRouter.get("/repositories/:slug/grants", async (req, res) => {
   const row = await loadRepo(cid, req.params.slug);
   if (!row) return res.status(404).json({ error: "Repository not found" });
   const direct = await listDirectRepositoryGrants(row.id);
-  res.json({ direct: await hydrateGrants(cid, direct) });
+  res.json({ direct: await hydrateGrants(cid, row, direct) });
 });
 
 const createGrantSchema = z.object({
@@ -477,7 +494,7 @@ repositoriesRouter.post(
       targetLabel: row.name,
       metadata: { employeeId: emp.id, accessLevel: grant.accessLevel },
     });
-    const [hydrated] = await hydrateGrants(cid, [grant]);
+    const [hydrated] = await hydrateGrants(cid, row, [grant]);
     res.json(hydrated);
   },
 );
@@ -499,7 +516,7 @@ repositoriesRouter.patch(
     if (!grant) return res.status(404).json({ error: "Grant not found" });
     grant.accessLevel = (req.body as z.infer<typeof patchGrantSchema>).accessLevel;
     await repo.save(grant);
-    const [hydrated] = await hydrateGrants(cid, [grant]);
+    const [hydrated] = await hydrateGrants(cid, row, [grant]);
     res.json(hydrated);
   },
 );

@@ -16,7 +16,8 @@ import {
   fetchWorkspaceGitRemote,
 } from "./workspaceGitRemote.js";
 import { decryptRepositorySecret } from "./repositories.js";
-import { findConnectionForRemote, resolveConnectionToken } from "./repositoryGithub.js";
+import { findConnectionForRemote, resolveConnectionToken } from "./repositoryForge.js";
+import { forgeGitUsername } from "../integrations/providers/forge/connection.js";
 import { readRepositoryKnownHosts, persistRepositoryKnownHosts } from "./repositorySshFiles.js";
 
 // Defined in `gitCredentialHelper` beside the remote-URL guard so the employee
@@ -393,18 +394,29 @@ async function remoteCredentialFor(repo: Repository): Promise<RemoteCredential> 
       },
     };
   }
-  // No credential of its own. A github.com HTTPS remote can still authenticate
-  // through the company's GitHub Connection — that is what lets a repository
-  // created inside Genosyn be published without anyone minting a token by
-  // hand. Anything else clones and pushes anonymously, which is correct for a
-  // public repository and fails clearly for a private one.
+  // No credential of its own. An HTTPS remote on a forge the company has
+  // connected can still authenticate through that Connection — that is what
+  // lets a repository created inside Genosyn be published without anyone
+  // minting a token by hand. Anything else clones and pushes anonymously,
+  // which is correct for a public repository and fails clearly for a private
+  // one.
   const connection = await findConnectionForRemote(repo);
   if (connection) {
-    const { token } = await resolveConnectionToken(connection);
+    const { token, login, provider } = await resolveConnectionToken(connection);
+    // GitHub wants the `x-access-token` literal; Forgejo resolves basic auth
+    // by looking the username up first, so it wants the token owner's login.
+    // A Connection that cannot say who it is cannot push, and saying so beats
+    // an authentication failure from git.
+    const username = forgeGitUsername(provider, login);
+    if (!username) {
+      throw new Error(
+        `The ${connection.label || "forge"} Connection does not know which account it authenticates as, so Genosyn cannot push with it. Reconnect it from Settings → Integrations.`,
+      );
+    }
     const envKey = "GENOSYN_REPO_TOKEN_CONNECTION";
     return {
       extraEnv: { [envKey]: token },
-      credentialHelper: inlineEnvCredentialHelper("x-access-token", envKey, repo.gitUrl),
+      credentialHelper: inlineEnvCredentialHelper(username, envKey, repo.gitUrl),
     };
   }
   return { extraEnv: {} };

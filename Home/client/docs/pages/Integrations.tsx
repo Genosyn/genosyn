@@ -16,6 +16,7 @@ import {
 
 const CATALOG: Array<{ name: string; kind: string }> = [
   { name: "GitHub", kind: "engineering" },
+  { name: "Forgejo / Gitea", kind: "engineering (self-hosted)" },
   { name: "Stripe", kind: "finance" },
   { name: "Brex", kind: "finance" },
   { name: "Gmail / Google", kind: "comms + drive" },
@@ -162,8 +163,8 @@ export function Integrations() {
           authorized.
         </LI>
         <LI>
-          <Strong>Code → Integrations</Strong> shows GitHub; <Strong>Finance → Integrations</Strong>{" "}
-          shows payment and banking Connections.
+          <Strong>Code → Integrations</Strong> shows GitHub and Forgejo / Gitea;{" "}
+          <Strong>Finance → Integrations</Strong> shows payment and banking Connections.
         </LI>
         <LI>
           <Strong>Revenue → Integrations</Strong> includes Stripe, Gmail, and data Connections.
@@ -369,17 +370,61 @@ export function Integrations() {
         settles.
       </P>
 
-      <H3 id="github-engineering">GitHub & engineering grants</H3>
+      <H3 id="github-engineering">Git hosts &amp; engineering grants</H3>
       <P>
-        GitHub is special: a Connection holds a list of repos the employee is allowed to touch, and
-        the runner materializes a git checkout of each allowed repo into{" "}
+        GitHub and Forgejo Connections are special: a Connection holds a list of repositories the
+        employee is allowed
+        to touch, and the runner materializes a git checkout of each allowed repository into{" "}
         <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code> before each run. The
         git token exists only inside a short-lived server-owned clone or refresh operation. It is
         never copied into the checkout, an environment variable visible to the AI employee, or a
         reusable credential helper. A matching HTTPS Repository can reuse the same server-held
         credential when the Connection is granted to that employee. Genosyn prefers an exact
-        owner/repository allowlist match and can use the employee&apos;s sole GitHub Connection when
-        no disambiguation is needed.
+        owner/repository allowlist match and can use the employee&apos;s sole Connection for that
+        server when no disambiguation is needed.
+      </P>
+
+      <H3 id="forgejo-gitea">Forgejo / Gitea</H3>
+      <P>
+        <Strong>Forgejo / Gitea</Strong> is the same Integration for a server you host yourself.
+        Gitea forked from Gogs and Forgejo forked from Gitea, so all three serve one API and one
+        Connection covers the family — Forgejo is what this was built and tested against, Gitea is
+        the same surface, and Gogs has drifted far enough that it is best-effort rather than
+        supported.
+      </P>
+      <P>
+        Connect it with two fields: the <Strong>Server URL</Strong> — the root of your install, not
+        its <Code>/api/v1</Code> path — and an <Strong>Access token</Strong> generated at{" "}
+        <Code>&lt;your server&gt;/user/settings/applications</Code> with repository, issue, and user
+        scopes. There is no OAuth option: an OAuth app is registered per instance, and Genosyn&apos;s
+        instance-wide app registry holds one app per Integration, which fits github.com and fits
+        nothing that a hundred companies each host separately.
+      </P>
+      <P>
+        The server URL must be <Code>https://</Code>. Genosyn sends this token on every API call and
+        <Code>git</Code> sends it again on every push, so a plain <Code>http://</Code> server is
+        refused at the connect form rather than accepted into a Connection whose tools work and
+        whose pushes quietly fail.
+      </P>
+      <P>
+        An AI Employee granted a Forgejo Connection gets the same tools it gets on GitHub, with one
+        exception: there is no <Code>search_code</Code>. Forgejo has no code-search endpoint, so
+        the tool is absent from the Connection rather than emulated by something that would answer
+        less well than the employee grepping its own checkout.
+      </P>
+      <P>
+        The server URL is also what makes a Repository on that host reviewable. Genosyn will only
+        speak an API to — and only send a token to — a host some Connection was explicitly
+        configured for, matching scheme, host, port and path prefix exactly. A server nobody has
+        connected stays an ordinary git remote that can be cloned and pushed but has no{" "}
+        <Strong>Open pull request</Strong> button. See{" "}
+        <DocLink to="/docs/repositories">Repositories</DocLink>.
+      </P>
+      <P>
+        A self-hosted server usually lives on a private network, and Genosyn refuses outbound
+        requests to non-public addresses by default. Add its hostname at{" "}
+        <Strong>Admin → Runtime → Network</Strong> before connecting it — see{" "}
+        <DocLink to="/docs/self-hosting">Self-hosting</DocLink>.
       </P>
 
       <H3 id="gmail-search-pagination">Searching busy Gmail inboxes</H3>

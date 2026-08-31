@@ -17,10 +17,12 @@ import {
   getBrowserSettings,
   getMailSettings,
   getMeetingsSettings,
+  getNetworkSettings,
   getRuntimeSettingsSnapshot,
   getWebSettings,
   importLegacyConfigOverrides,
   overrideRuntimeSettingsForTests,
+  parseNetworkSettings,
   reloadRuntimeSettings,
   resetRuntimeSettingsCacheForTests,
   resetRuntimeSettingsGroup,
@@ -135,6 +137,7 @@ describe("defaults", () => {
       browser: false,
       agent: false,
       containment: false,
+      network: false,
     });
   });
 
@@ -250,6 +253,116 @@ describe("tolerant parse", () => {
 
     assert.equal(warnings.length, 1);
     assert.match(warnings[0], /web\.maxSearchResults/);
+  });
+});
+
+/**
+ * The outbound private-host allowlist. Its parser is the only one that reads a
+ * list, and the list is a security boundary: an entry here exempts a host from
+ * the public-address check, so what the parser keeps and what it drops is worth
+ * pinning entry by entry.
+ */
+describe("the network group", () => {
+  test("a fresh install allows nothing beyond what config.ts already allowed", async () => {
+    await reloadRuntimeSettings();
+
+    assert.deepEqual(getNetworkSettings(), { privateHostAllowlist: [] });
+  });
+
+  test("a row round-trips through the cache", async () => {
+    await writeRow(
+      RUNTIME_SETTING_KEYS.network,
+      JSON.stringify({ privateHostAllowlist: ["git.internal", "10.0.0.5"] }),
+    );
+
+    await reloadRuntimeSettings();
+
+    assert.deepEqual(getNetworkSettings().privateHostAllowlist, ["git.internal", "10.0.0.5"]);
+    assert.equal((await getRuntimeSettingsSnapshot()).overridden.network, true);
+  });
+
+  test("a value that is not a list at all falls back to the default", () => {
+    assert.deepEqual(parseNetworkSettings({ privateHostAllowlist: "git.internal" }), {
+      privateHostAllowlist: [],
+    });
+    assert.deepEqual(parseNetworkSettings({ privateHostAllowlist: 42 }), {
+      privateHostAllowlist: [],
+    });
+    // A missing key is not a bad value; it is simply the default.
+    assert.deepEqual(parseNetworkSettings({}), { privateHostAllowlist: [] });
+    assert.deepEqual(parseNetworkSettings(null), { privateHostAllowlist: [] });
+  });
+
+  test("one unusable entry costs that entry, not the whole list", () => {
+    const parsed = parseNetworkSettings({
+      privateHostAllowlist: [
+        "git.internal",
+        42,
+        null,
+        { host: "sneaky.internal" },
+        "",
+        "   ",
+        `${"a".repeat(254)}.internal`,
+        "ollama.lan",
+      ],
+    });
+
+    // Losing one pasted line is recoverable; losing the list would take every
+    // self-hosted host in the install offline at once.
+    assert.deepEqual(parsed.privateHostAllowlist, ["git.internal", "ollama.lan"]);
+  });
+
+  test("entries are normalized the way a hostname is normalized before matching", () => {
+    const parsed = parseNetworkSettings({
+      privateHostAllowlist: ["  GIT.Internal.  ", "git.internal", "GIT.INTERNAL", "ollama.lan."],
+    });
+
+    assert.deepEqual(parsed.privateHostAllowlist, ["git.internal", "ollama.lan"]);
+  });
+
+  test("the list is capped, and the entries past the cap are dropped", () => {
+    const hosts = Array.from({ length: 150 }, (_value, index) => `host-${index}.internal`);
+
+    const parsed = parseNetworkSettings({ privateHostAllowlist: hosts });
+
+    assert.equal(parsed.privateHostAllowlist.length, 100);
+    assert.equal(parsed.privateHostAllowlist[0], "host-0.internal");
+    assert.equal(parsed.privateHostAllowlist[99], "host-99.internal");
+  });
+
+  test("a bad list warns once rather than on every refresh", async () => {
+    await writeRow(
+      RUNTIME_SETTING_KEYS.network,
+      JSON.stringify({ privateHostAllowlist: "git.internal" }),
+    );
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    // eslint-disable-next-line no-console
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "));
+    };
+    try {
+      await reloadRuntimeSettings();
+      await reloadRuntimeSettings();
+    } finally {
+      // eslint-disable-next-line no-console
+      console.warn = originalWarn;
+    }
+
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /network\.privateHostAllowlist/);
+    assert.deepEqual(getNetworkSettings().privateHostAllowlist, []);
+  });
+
+  test("a save normalizes on the way in, so the stored row is already matchable", async () => {
+    const saved = await saveRuntimeSettingsGroup("network", {
+      privateHostAllowlist: ["GIT.Internal.", "git.internal", " ollama.lan "],
+    });
+
+    assert.deepEqual(saved.privateHostAllowlist, ["git.internal", "ollama.lan"]);
+    const stored = JSON.parse((await readRow(RUNTIME_SETTING_KEYS.network))!);
+    assert.deepEqual(stored.privateHostAllowlist, ["git.internal", "ollama.lan"]);
+    assert.deepEqual(getNetworkSettings().privateHostAllowlist, ["git.internal", "ollama.lan"]);
   });
 });
 
@@ -459,6 +572,25 @@ describe("legacy config import", () => {
     // The two keys the overlay did not carry keep their defaults.
     assert.equal(getAgentSettings().memberBrowsersEnabled, true);
     assert.equal(getAgentSettings().toolDiscovery.enabled, true);
+  });
+
+  test("the network group is never imported, whatever config.ts allows", async () => {
+    // `privateHostAllowed()` unions the two lists, so there is nothing to
+    // carry over: importing would copy the config hosts into the row, union
+    // them with themselves, and then the row-exists check would freeze out
+    // every later edit to `config.ts`.
+    const previousAllowlist = [...config.security.outboundPrivateHostAllowlist];
+    config.security.outboundPrivateHostAllowlist.splice(0, Infinity, "git.internal");
+    try {
+      await importLegacyConfigOverrides();
+    } finally {
+      config.security.outboundPrivateHostAllowlist.splice(0, Infinity, ...previousAllowlist);
+    }
+
+    assert.equal(await readRow(RUNTIME_SETTING_KEYS.network), null);
+    await reloadRuntimeSettings();
+    assert.deepEqual(getNetworkSettings().privateHostAllowlist, []);
+    assert.equal((await getRuntimeSettingsSnapshot()).overridden.network, false);
   });
 
   test("a corrupt legacy value is normalized rather than imported as-is", async () => {

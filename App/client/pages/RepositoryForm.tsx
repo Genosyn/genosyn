@@ -158,7 +158,7 @@ export function RepoFormFields({
           label="Clone URL"
           value={form.gitUrl}
           onChange={(e) => patch({ gitUrl: e.target.value })}
-          placeholder="https://github.com/acme/web.git  or  git@github.com:acme/web.git"
+          placeholder="https://github.com/acme/web.git  or  git@git.acme.com:team/web.git"
         />
       )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -169,16 +169,16 @@ export function RepoFormFields({
           placeholder="main"
         />
         {form.origin === "remote" && (
-          /* The same field is called "Sign-in" in the Connect-to-GitHub modal
-            and on the Overview card; three names for one thing is two too many,
-            and "None / GitHub Connection" was an implementation note. */
+          /* The same field is called "Sign-in" in the connect-to-a-git-host
+            modal and on the Overview card; three names for one thing is two too
+            many, and "None / GitHub Connection" was an implementation note. */
           <Select
             label="Sign-in"
             value={form.authMode}
             onChange={(e) => patch({ authMode: e.target.value as RepositoryAuthMode })}
           >
             <option value="none">
-              None needed — it&apos;s public, or GitHub is already connected
+              None needed — it&apos;s public, or a GitHub or Forgejo Connection covers it
             </option>
             <option value="https">Token or password</option>
             <option value="ssh">SSH private key</option>
@@ -189,18 +189,19 @@ export function RepoFormFields({
       {form.origin === "local" && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
           {/* Settings has no clone-URL field for a local repository — it has a
-            Connect to GitHub card. Pointing at a field that is not there sends
-            people hunting. */}
+            Connect to a git host card. Pointing at a field that is not there
+            sends people hunting. */}
           Genosyn creates the repository and keeps its whole history here. Nothing to sign in to.
-          You can publish it to GitHub any time from the repository&apos;s Settings.
+          You can publish it to a git host any time from the repository&apos;s Settings.
         </p>
       )}
 
       {form.origin === "remote" && form.authMode === "none" && (
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Public repositories clone anonymously. For an HTTPS GitHub URL, Genosyn can reuse the
-          company&apos;s pinned or sole GitHub Connection. Grant that Connection to an AI employee
-          too when it should receive its own checkout.
+          Public repositories clone anonymously. When the URL belongs to GitHub or a Forgejo /
+          Gitea server the company has connected, Genosyn can reuse its pinned or sole Connection
+          for that host. Grant that Connection to an AI employee too when it should receive its own
+          checkout.
         </p>
       )}
 
@@ -424,7 +425,8 @@ function OriginChoice({
     {
       value: "remote",
       title: "Connect a repository",
-      blurb: "Clone an existing repo from GitHub, GitLab, Bitbucket, or your own server.",
+      blurb:
+        "Clone an existing repository from GitHub, GitLab, Bitbucket, or a server you host yourself.",
     },
     {
       value: "local",

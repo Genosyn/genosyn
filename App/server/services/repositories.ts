@@ -21,8 +21,10 @@ import {
   clearEnvCredentialHelper,
   inlineEnvCredentialHelper,
 } from "./gitCredentialHelper.js";
-import type { GithubRepoCredential } from "./repoSync.js";
-import { resolveConnectionForRemote, resolveConnectionToken } from "./repositoryGithub.js";
+import type { ForgeRepoCredential } from "./repoSync.js";
+import { resolveConnectionForRemote, resolveConnectionToken } from "./repositoryForge.js";
+import { forgeGitUsername } from "../integrations/providers/forge/connection.js";
+import { parseForgeRemote } from "../integrations/providers/forge/client.js";
 import { runWorkspaceGit } from "./workspaceGit.js";
 import { cloneWorkspaceGitRemote, fetchWorkspaceGitRemote } from "./workspaceGitRemote.js";
 import {
@@ -177,7 +179,9 @@ function httpsUsernameOf(repo: Repository): string {
   // Most hosts accept any non-empty username with a token-as-password
   // (GitHub, Gitea). GitLab wants "oauth2", Bitbucket wants the real
   // username — surfaced as an editable field in the UI. "git" is a safe
-  // default that GitHub and most self-hosted servers accept.
+  // default that GitHub and most self-hosted servers accept. A repository
+  // borrowing a Connection's credential does not come through here at all —
+  // that path uses the forge's own convention, see `findForgeRepoCredential`.
   return u || "git";
 }
 
@@ -249,7 +253,7 @@ export async function materializeRepositoriesForEmployee(args: {
   cwd: string;
   /** Credentials resolved from this employee's granted GitHub Connections
    * earlier in the same turn. */
-  githubRepoCredentials?: GithubRepoCredential[];
+  forgeRepoCredentials?: ForgeRepoCredential[];
 }): Promise<RepositorySyncResult> {
   const result: RepositorySyncResult = { extraEnv: {}, repos: [], errors: [] };
   if (config.security.multiTenant) return result;
@@ -281,7 +285,7 @@ export async function materializeRepositoriesForEmployee(args: {
           employee,
           args.cwd,
           result,
-          args.githubRepoCredentials ?? [],
+          args.forgeRepoCredentials ?? [],
         );
         repoRow.lastSyncedAt = new Date();
         repoRow.lastSyncStatus = "ok";
@@ -329,7 +333,7 @@ async function syncOneRepo(
   employee: AIEmployee,
   cwd: string,
   result: RepositorySyncResult,
-  githubRepoCredentials: GithubRepoCredential[],
+  forgeRepoCredentials: ForgeRepoCredential[],
 ): Promise<void> {
   const repoPath = path.join(cwd, "repositories", repo.slug);
   adoptLegacyCheckout(cwd, repo.slug, repoPath);
@@ -337,12 +341,12 @@ async function syncOneRepo(
 
   // Resolve auth material up front so we can build the right clone command
   // and credential wiring.
-  const linkedGithubCredential =
-    repo.authMode === "none" ? findGithubRepoCredential(repo.gitUrl, githubRepoCredentials) : null;
+  const linkedForgeCredential =
+    repo.authMode === "none" ? findForgeRepoCredential(repo.gitUrl, forgeRepoCredentials) : null;
   const token =
     repo.authMode === "https"
       ? decryptRepositorySecret(repo.encryptedToken)
-      : (linkedGithubCredential?.token ?? null);
+      : (linkedForgeCredential?.token ?? null);
   const sshKey = repo.authMode === "ssh" ? decryptRepositorySecret(repo.encryptedSshKey) : null;
   if (repo.authMode === "https" && !token) {
     throw new Error(
@@ -356,8 +360,11 @@ async function syncOneRepo(
   }
   if (token) assertSafeCredentialToken(token);
 
-  const envKey = linkedGithubCredential?.envKey ?? envKeyFor(repo.id);
-  const httpsUsername = linkedGithubCredential ? "x-access-token" : httpsUsernameOf(repo);
+  const envKey = linkedForgeCredential?.envKey ?? envKeyFor(repo.id);
+  // The Connection's own username convention when one is lending its
+  // credential — `x-access-token` on GitHub, the token owner's login on
+  // Forgejo — and the repository's own setting otherwise.
+  const httpsUsername = linkedForgeCredential?.username ?? httpsUsernameOf(repo);
   const credentialEnv = token ? { [envKey]: token } : {};
   const credentialHelper = token
     ? inlineEnvCredentialHelper(httpsUsername, envKey, repo.gitUrl)
@@ -415,7 +422,7 @@ async function syncOneRepo(
   // Only a genuinely credential-free writable remote may be exposed to the
   // model shell. Authenticated remotes are refreshed server-side but never get
   // a reusable credential or credentialed push path.
-  if (accessLevel === "write" && repo.authMode === "none" && !linkedGithubCredential) {
+  if (accessLevel === "write" && repo.authMode === "none" && !linkedForgeCredential) {
     await runGit(cwd, repoPath, ["remote", "set-url", "--push", "origin", repo.gitUrl]);
   } else {
     await runGit(cwd, repoPath, ["remote", "set-url", "--push", "origin", NO_PUSH_URL]);
@@ -438,41 +445,48 @@ async function syncOneRepo(
 }
 
 /**
- * Match an HTTPS GitHub remote to the credential for the same allowlisted
- * owner/repository. When the employee has exactly one granted GitHub
- * Connection, the Repository grant itself is the repo boundary and that
- * sole Connection is the safe fallback even when it has no M12 allowlist.
- * GitHub paths are case-insensitive; non-GitHub and SSH remotes deliberately
- * do not match because PATs authenticate HTTPS only.
+ * Match an HTTPS remote to the granted Connection credential that can
+ * authenticate it.
+ *
+ * The candidate set is narrowed by host first: a credential only competes for
+ * a remote that lives on its own forge, so an employee granted both a GitHub
+ * and a Forgejo Connection gets the right one for each Repository rather than
+ * whichever was listed first. That ordering also preserves the sole-Connection
+ * fallback that made this useful — when exactly one Connection can reach the
+ * host at all, the Repository grant is itself the repository boundary and that
+ * Connection is the safe answer even with no allowlist on it.
+ *
+ * Paths are compared case-insensitively, as both forges treat them. SSH
+ * remotes deliberately do not match: a token authenticates HTTPS only.
  */
-export function findGithubRepoCredential(
+export function findForgeRepoCredential(
   gitUrl: string,
-  credentials: readonly GithubRepoCredential[],
-): GithubRepoCredential | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(gitUrl);
-  } catch {
-    return null;
+  credentials: readonly ForgeRepoCredential[],
+): ForgeRepoCredential | null {
+  const onThisHost: Array<{ credential: ForgeRepoCredential; owner: string; name: string }> = [];
+  for (const credential of credentials) {
+    const remote = parseForgeRemote(credential.endpoint, gitUrl);
+    if (remote) {
+      onThisHost.push({
+        credential,
+        owner: remote.owner.toLowerCase(),
+        name: remote.repo.toLowerCase(),
+      });
+    }
   }
-  if (parsed.protocol !== "https:" || parsed.hostname.toLowerCase() !== "github.com") {
-    return null;
-  }
-  const parts = parsed.pathname.split("/").filter(Boolean);
-  if (parts.length !== 2) return null;
-  const owner = parts[0].toLowerCase();
-  const name = parts[1].replace(/\.git$/i, "").toLowerCase();
-  const exact = credentials.find(
-    (credential) =>
-      credential.owner !== null &&
-      credential.name !== null &&
-      credential.owner.toLowerCase() === owner &&
-      credential.name.toLowerCase() === name,
-  );
-  if (exact) return exact;
+  if (onThisHost.length === 0) return null;
 
-  const connectionIds = new Set(credentials.map((credential) => credential.connectionId));
-  return connectionIds.size === 1 ? (credentials[0] ?? null) : null;
+  const exact = onThisHost.find(
+    (entry) =>
+      entry.credential.owner !== null &&
+      entry.credential.name !== null &&
+      entry.credential.owner.toLowerCase() === entry.owner &&
+      entry.credential.name.toLowerCase() === entry.name,
+  );
+  if (exact) return exact.credential;
+
+  const connectionIds = new Set(onThisHost.map((entry) => entry.credential.connectionId));
+  return connectionIds.size === 1 ? (onThisHost[0]?.credential ?? null) : null;
 }
 
 /**
@@ -571,21 +585,21 @@ function describeConnectionTestFailure(
 
   if (authAttempt === "ambiguous") {
     return (
-      "This repository requires sign-in, but more than one GitHub Connection is available and " +
+      "This repository requires sign-in, but more than one Connection could reach this server and " +
       "none is linked to this repository. Choose a token/password or SSH private key in the " +
       "repository settings."
     );
   }
   if (authAttempt === "connection") {
     return (
-      "The GitHub Connection could not authenticate to this repository. Reconnect it in " +
+      "The Connection could not authenticate to this repository. Reconnect it in " +
       "Settings → Integrations and confirm that account can access the repository."
     );
   }
   return (
     "This repository requires sign-in. Choose a token/password or SSH private key in the " +
-    "repository settings. For GitHub, you can also add a GitHub Connection in Settings → " +
-    "Integrations."
+    "repository settings. For GitHub or a Forgejo / Gitea server, you can also add a Connection " +
+    "in Settings → Integrations."
   );
 }
 
@@ -637,16 +651,27 @@ export async function testRepositoryConnection(
       });
       env.GIT_SSH_COMMAND = sshCommandFor(workspaceVisiblePath(tmp, keyPath));
     } else {
-      // Match the App-owned clone/fetch/push path: a credential-free GitHub
+      // Match the App-owned clone/fetch/push path: a credential-free
       // Repository may reuse the Connection it was published with, or the sole
-      // connected GitHub account when there is nothing to disambiguate.
+      // connected account for that server when there is nothing to
+      // disambiguate.
       const resolved = await dependencies.resolveConnectionForRemote(repo);
       if (resolved.kind === "one") {
-        const { token } = await dependencies.resolveConnectionToken(resolved.connection);
+        const { token, login, provider } = await dependencies.resolveConnectionToken(
+          resolved.connection,
+        );
         assertSafeCredentialToken(token);
+        const username = forgeGitUsername(provider, login);
+        if (!username) {
+          return {
+            ok: false,
+            message:
+              "That Connection does not know which account it authenticates as, so Genosyn cannot sign in with it. Reconnect it from Settings → Integrations.",
+          };
+        }
         const envKey = "GENOSYN_REPO_TOKEN_CONNECTION_TEST";
         env[envKey] = token;
-        credentialHelper = inlineEnvCredentialHelper("x-access-token", envKey, repo.gitUrl);
+        credentialHelper = inlineEnvCredentialHelper(username, envKey, repo.gitUrl);
         authAttempt = "connection";
       } else if (resolved.kind === "ambiguous") {
         // Still try anonymously: the repository may be public. Keep the reason

@@ -1,11 +1,11 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { Github, Settings, Trash2 } from "lucide-react";
+import { GitFork, Settings, Trash2 } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Spinner } from "../components/ui/Spinner";
 import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
-import { ConnectGithubModal } from "../components/repositories/ConnectGithubModal";
+import { ConnectForgeModal } from "../components/repositories/ConnectForgeModal";
 import { api, Repository } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import {
@@ -123,21 +123,21 @@ export default function RepositorySettings() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
               <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                <Github size={17} />
+                <GitFork size={17} />
               </span>
               <div className="min-w-0">
                 <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
                   Not connected to a git host
                 </div>
                 <p className="mt-0.5 max-w-xl text-sm text-slate-500 dark:text-slate-400">
-                  Genosyn keeps the whole history itself. Connecting to GitHub pushes every commit
-                  made here and turns on Push, Pull, and pull requests.
+                  Genosyn keeps the whole history itself. Connecting it to a git host pushes every
+                  commit made here and turns on Push, Pull, and pull requests.
                 </p>
               </div>
             </div>
             {canConnect ? (
               <Button variant="secondary" className="shrink-0" onClick={() => setConnectOpen(true)}>
-                <Github size={15} /> Connect to GitHub
+                <GitFork size={15} /> Connect to a git host
               </Button>
             ) : (
               <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500">
@@ -188,7 +188,7 @@ export default function RepositorySettings() {
         <FormError message={deleteError} className="mt-3" />
       </div>
 
-      <ConnectGithubModal
+      <ConnectForgeModal
         open={connectOpen}
         company={company}
         repo={currentRepo}

@@ -472,7 +472,7 @@ export async function startRoutineRun(
         const repositorySync = await materializeRepositoriesForEmployee({
           employeeId: emp.id,
           cwd,
-          githubRepoCredentials: repoSync.githubRepoCredentials,
+          forgeRepoCredentials: repoSync.forgeRepoCredentials,
         });
         for (const r of repositorySync.repos) {
           log.line(`[repositories] synced ${r.slug}@${r.defaultBranch} (${r.accessLevel})`);

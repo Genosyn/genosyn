@@ -4,6 +4,7 @@ import {
   Chrome,
   Globe2,
   Mailbox,
+  Network,
   RefreshCw,
   RotateCcw,
   Save,
@@ -25,8 +26,8 @@ import { clsx } from "../components/ui/clsx";
  * Admin → Runtime. The operational knobs an operator used to change by editing
  * `config.ts` and restarting the container: the open-web tools, mail sync
  * pacing, meetings, the browser Genosyn drives itself, the agent's taint
- * policy / member browsers / tool discovery, and containment — the circuit
- * breaker and the re-grade sweep.
+ * policy / member browsers / tool discovery, containment — the circuit breaker
+ * and the re-grade sweep — and the outbound network allowlist.
  *
  * Each section is one group, stored as a single JSON row in `app_settings` and
  * read through a 30s cache on the server, so a save reaches every replica
@@ -37,6 +38,8 @@ import { clsx } from "../components/ui/clsx";
 
 const FIELD_CLASS =
   "h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900";
+const TEXTAREA_CLASS =
+  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900";
 const LABEL_CLASS = "mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300";
 
 // ────────────────────────────── field model ────────────────────────────────
@@ -68,6 +71,18 @@ type FieldSpec =
       maxLength: number;
       placeholder?: string;
       mono?: boolean;
+      help?: string;
+    }
+  | {
+      /** A list, one entry per line in a textarea. The draft holds the raw
+       *  text so a half-typed line never reorders or disappears mid-edit. */
+      kind: "lines";
+      path: string;
+      label: string;
+      maxEntries: number;
+      maxLength: number;
+      placeholder?: string;
+      rows?: number;
       help?: string;
     }
   | {
@@ -349,6 +364,25 @@ const GROUPS: GroupSpec[] = [
       },
     ],
   },
+  {
+    group: "network",
+    title: "Outbound network",
+    icon: <Network size={16} className="text-indigo-500" />,
+    blurb:
+      "Hosts Genosyn may reach even though they sit on a private network, such as a self-hosted Forgejo or a model endpoint on the LAN.",
+    fields: [
+      {
+        kind: "lines",
+        path: "privateHostAllowlist",
+        label: "Private host allowlist",
+        maxEntries: 100,
+        maxLength: 253,
+        rows: 5,
+        placeholder: "git.internal\n10.0.0.5",
+        help: "One hostname or IP literal per line, matched exactly. Everything Genosyn fetches otherwise has to resolve to a public address, so a host listed here is exempt from the check that would refuse it — which is what makes a self-hosted Forgejo or a local model endpoint reachable at all. That same exemption puts an internal service one connection form away from anything a Run can be talked into fetching, so the list is empty by default: add a host only when you mean employees to reach it. Hosts set in config.ts stay in force as well, and a multi-tenant install ignores this list entirely.",
+      },
+    ],
+  },
 ];
 
 // ─────────────────────────── draft ⇄ value plumbing ────────────────────────
@@ -376,6 +410,7 @@ function seedDraft(fields: FieldSpec[], value: unknown): Draft {
     const raw = readPath(value, field.path);
     if (field.kind === "boolean") draft[field.path] = Boolean(raw);
     else if (field.kind === "int") draft[field.path] = String(raw ?? "");
+    else if (field.kind === "lines") draft[field.path] = Array.isArray(raw) ? raw.join("\n") : "";
     else if (field.kind === "choice") {
       draft[field.path] = field.fromValue ? field.fromValue(raw) : String(raw ?? "");
     } else draft[field.path] = String(raw ?? "");
@@ -403,6 +438,31 @@ function buildValue(fields: FieldSpec[], draft: Draft): BuildResult {
         };
       }
       writePath(out, field.path, parsed);
+      continue;
+    }
+    if (field.kind === "lines") {
+      // Normalized here as well as on the server, so the form shows the person
+      // the same list the next GET will hand back rather than silently
+      // rewriting what they typed after the save.
+      const entries: string[] = [];
+      for (const line of String(raw).split("\n")) {
+        const entry = line.trim().toLowerCase().replace(/\.$/, "");
+        if (!entry) continue;
+        if (entry.length > field.maxLength) {
+          return {
+            ok: false,
+            error: `Each entry in ${field.label.toLowerCase()} must be ${field.maxLength} characters or fewer.`,
+          };
+        }
+        if (!entries.includes(entry)) entries.push(entry);
+      }
+      if (entries.length > field.maxEntries) {
+        return {
+          ok: false,
+          error: `${field.label} takes at most ${field.maxEntries.toLocaleString()} entries.`,
+        };
+      }
+      writePath(out, field.path, entries);
       continue;
     }
     if (field.kind === "choice") {
@@ -717,6 +777,31 @@ function Field({
           ))}
         </Select>
         {field.help && <FieldHelp>{field.help}</FieldHelp>}
+      </div>
+    );
+  }
+
+  if (field.kind === "lines") {
+    return (
+      <div className="sm:col-span-2">
+        <label className={LABEL_CLASS} htmlFor={id}>
+          {field.label}
+        </label>
+        <textarea
+          id={id}
+          className={TEXTAREA_CLASS}
+          rows={field.rows ?? 4}
+          spellCheck={false}
+          placeholder={field.placeholder}
+          value={String(value)}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <FieldHelp>
+          {field.help ? `${field.help} ` : ""}
+          One per line, up to {field.maxEntries.toLocaleString()} entries of{" "}
+          {field.maxLength.toLocaleString()} characters each. Empty means none.
+        </FieldHelp>
       </div>
     );
   }

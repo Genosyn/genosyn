@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   CreditCard,
   Database,
+  GitFork,
   Github,
   Layers,
   Linkedin,
@@ -82,6 +83,7 @@ const ICONS: Record<string, LucideIcon> = {
   Building2,
   CreditCard,
   Database,
+  GitFork,
   Github,
   Layers,
   Linkedin,
@@ -97,6 +99,15 @@ const ICONS: Record<string, LucideIcon> = {
   Workflow,
   Zap,
 };
+
+/**
+ * The Integrations whose Connections carry a repository allowlist.
+ *
+ * A set rather than a second literal beside the first: both forges answer the
+ * same `/forge/repos` endpoints, and the next one to arrive should be a word
+ * added here rather than a `||` somebody has to notice.
+ */
+const REPO_ALLOWLIST_PROVIDERS = new Set(["github", "forgejo"]);
 
 function useCtx(): SettingsOutletCtx {
   return useOutletContext<SettingsOutletCtx>();
@@ -563,7 +574,7 @@ function IntegrationsPage({
                         >
                           <Users size={12} /> Access
                         </Button>
-                        {c.provider === "github" && (
+                        {REPO_ALLOWLIST_PROVIDERS.has(c.provider) && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -2019,7 +2030,7 @@ export function OauthOrServiceAccountModal({
   );
 }
 
-type GithubRepoRow = {
+type ForgeRepoRow = {
   owner: string;
   name: string;
   defaultBranch: string;
@@ -2028,9 +2039,10 @@ type GithubRepoRow = {
 };
 
 /**
- * Per-Connection repo picker for GitHub. Loads the live list of repos the
- * connection's token can see and lets the operator toggle which ones the
- * runner is allowed to materialize on disk for granted AI employees.
+ * Per-Connection repository picker for a git forge — GitHub, or a Forgejo /
+ * Gitea server. Loads the live list the Connection's token can see and lets
+ * the operator toggle which ones the runner is allowed to materialize on disk
+ * for granted AI employees.
  *
  * The allowlist is persisted server-side inside the encrypted config blob,
  * so disconnect / reconnect rebuilds the picker against fresh credentials.
@@ -2046,8 +2058,8 @@ function RepoAllowlistModal({
   companyId: string;
   onClose: () => void;
 }) {
-  const [allowed, setAllowed] = React.useState<GithubRepoRow[]>([]);
-  const [discoverable, setDiscoverable] = React.useState<GithubRepoRow[] | null>(null);
+  const [allowed, setAllowed] = React.useState<ForgeRepoRow[]>([]);
+  const [discoverable, setDiscoverable] = React.useState<ForgeRepoRow[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
@@ -2064,9 +2076,9 @@ function RepoAllowlistModal({
     (async () => {
       try {
         const data = await api.get<{
-          allowed: GithubRepoRow[];
-          discoverable: GithubRepoRow[];
-        }>(`/api/companies/${companyId}/integrations/connections/${connection.id}/github/repos`);
+          allowed: ForgeRepoRow[];
+          discoverable: ForgeRepoRow[];
+        }>(`/api/companies/${companyId}/integrations/connections/${connection.id}/forge/repos`);
         if (cancelled) return;
         setAllowed(data.allowed);
         setDiscoverable(data.discoverable);
@@ -2082,12 +2094,12 @@ function RepoAllowlistModal({
   }, [open, connection, companyId]);
 
   const allowedKey = React.useCallback(
-    (r: GithubRepoRow) => `${r.owner.toLowerCase()}/${r.name.toLowerCase()}`,
+    (r: ForgeRepoRow) => `${r.owner.toLowerCase()}/${r.name.toLowerCase()}`,
     [],
   );
   const allowedSet = React.useMemo(() => new Set(allowed.map(allowedKey)), [allowed, allowedKey]);
 
-  function toggle(repo: GithubRepoRow) {
+  function toggle(repo: ForgeRepoRow) {
     const key = allowedKey(repo);
     if (allowedSet.has(key)) {
       setAllowed((prev) => prev.filter((r) => allowedKey(r) !== key));
@@ -2109,7 +2121,7 @@ function RepoAllowlistModal({
     setSaveError(null);
     try {
       await api.put(
-        `/api/companies/${companyId}/integrations/connections/${connection.id}/github/repos`,
+        `/api/companies/${companyId}/integrations/connections/${connection.id}/forge/repos`,
         {
           repos: allowed.map((r) => ({
             owner: r.owner,

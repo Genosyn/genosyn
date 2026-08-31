@@ -26,6 +26,7 @@ const EXPECTED_PROVIDER_IDS = [
   "google-analytics",
   "google-search-console",
   "github",
+  "forgejo",
   "airtable",
   "postgres",
   "mysql",

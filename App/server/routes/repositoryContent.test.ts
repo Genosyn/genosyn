@@ -1,28 +1,35 @@
 import assert from "node:assert/strict";
+import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { after, before, beforeEach, describe, test } from "node:test";
+import { after, afterEach, before, beforeEach, describe, test } from "node:test";
+import { promisify } from "node:util";
 
 import express from "express";
 
 import { config } from "../../config.js";
+import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Company } from "../db/entities/Company.js";
+import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Membership, type Role } from "../db/entities/Membership.js";
 import { Repository } from "../db/entities/Repository.js";
 import { User } from "../db/entities/User.js";
+import type { IntegrationConfig } from "../integrations/types.js";
 import { errorHandler } from "../middleware/error.js";
+import { encryptConnectionConfig } from "../services/integrations.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../test/dbHarness.js";
 import { repositoryContentRouter } from "./repositoryContent.js";
 
 /**
  * Route contract for working inside a Repository.
  *
- * Two things this file exists to pin down, because both are easy to lose in a
- * refactor and expensive to lose in production:
+ * Three things this file exists to pin down, because all three are easy to
+ * lose in a refactor and expensive to lose in production:
  *
  *   1. **Who may do what.** Editing and committing are Member-level; pushing
  *      and pulling are admin-only. The old Code section admin-gated every
@@ -31,6 +38,10 @@ import { repositoryContentRouter } from "./repositoryContent.js";
  *      quietly opening up push would let any Member publish to production.
  *   2. **Paths cannot escape.** Every endpoint that takes a path is a
  *      traversal vector, and each one has to refuse independently.
+ *   3. **Publishing to a forge.** Creating the repository on the forge and
+ *      pushing into it is one request that both writes to a third party and
+ *      changes the row, and it now has to work on a server the company hosts
+ *      itself as well as on github.com.
  */
 
 let server: Server;
@@ -45,6 +56,13 @@ const codingTools = config.agent.codingTools as {
   allowUnsafeHostExecution: boolean;
 };
 const originalCodingTools = { ...codingTools };
+const originalFetch = globalThis.fetch;
+const exec = promisify(execFile);
+
+/** A git server on loopback that the publish push can actually reach. */
+let forgeServer: Server;
+let forgeRoot: string;
+let forgeOrigin: string;
 
 before(async () => {
   await initTestDb();
@@ -77,18 +95,112 @@ before(async () => {
     server = app.listen(0, resolve);
   });
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  forgeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "genosyn-forge-remotes-"));
+  forgeServer = await startGitServer(forgeRoot);
+  forgeOrigin = `http://127.0.0.1:${(forgeServer.address() as AddressInfo).port}`;
 });
 
 after(async () => {
   await new Promise<void>((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
   });
+  await new Promise<void>((resolve, reject) => {
+    forgeServer.close((error) => (error ? reject(error) : resolve()));
+  });
   await closeTestDb();
   (config as { dataDir: string }).dataDir = originalDataDir;
   (config.security as { multiTenant: boolean }).multiTenant = originalMultiTenant;
   Object.assign(codingTools, originalCodingTools);
   fs.rmSync(dataDir, { recursive: true, force: true });
+  fs.rmSync(forgeRoot, { recursive: true, force: true });
 });
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+/**
+ * Git's own CGI, wrapped in the smallest HTTP server that can host it.
+ *
+ * Publishing is the one route whose whole job is to push, and a stubbed
+ * `runWorkspaceGit` would prove only that the route calls a function. Git
+ * refuses to push over the dumb protocols and `assertSafeGitRemoteUrl` refuses
+ * `file://`, so the honest way to watch a commit arrive on a remote is to
+ * serve one. The repository is anonymous-writable — the credential path is
+ * covered separately, by the tests that assert which Connection the push
+ * resolves.
+ */
+async function startGitServer(projectRoot: string): Promise<Server> {
+  const execPath = (await exec("git", ["--exec-path"])).stdout.trim();
+  const created = http.createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    const backend = spawn(path.join(execPath, "git-http-backend"), [], {
+      env: {
+        PATH: process.env.PATH ?? "",
+        GIT_PROJECT_ROOT: projectRoot,
+        GIT_HTTP_EXPORT_ALL: "1",
+        REQUEST_METHOD: req.method ?? "GET",
+        PATH_INFO: url.pathname,
+        QUERY_STRING: url.search.replace(/^\?/, ""),
+        CONTENT_TYPE: req.headers["content-type"] ?? "",
+        HTTP_CONTENT_ENCODING: String(req.headers["content-encoding"] ?? ""),
+        GIT_PROTOCOL: String(req.headers["git-protocol"] ?? ""),
+        REMOTE_ADDR: "127.0.0.1",
+      },
+    });
+    req.pipe(backend.stdin);
+    // CGI answers with its own header block; everything after the blank line
+    // is the response body and has to stream, because a fetch negotiation is
+    // several round trips inside one request.
+    let head = Buffer.alloc(0);
+    let headersSent = false;
+    backend.stdout.on("data", (chunk: Buffer) => {
+      if (headersSent) {
+        res.write(chunk);
+        return;
+      }
+      head = Buffer.concat([head, chunk]);
+      const end = head.indexOf("\r\n\r\n");
+      if (end === -1) return;
+      let status = 200;
+      for (const line of head.subarray(0, end).toString("utf8").split("\r\n")) {
+        const separator = line.indexOf(":");
+        if (separator === -1) continue;
+        const name = line.slice(0, separator).trim();
+        const value = line.slice(separator + 1).trim();
+        if (name.toLowerCase() === "status") status = Number.parseInt(value, 10) || 200;
+        else res.setHeader(name, value);
+      }
+      res.writeHead(status);
+      headersSent = true;
+      const body = head.subarray(end + 4);
+      if (body.length) res.write(body);
+    });
+    backend.stdout.on("end", () => res.end());
+  });
+  await new Promise<void>((resolve) => {
+    created.listen(0, "127.0.0.1", resolve);
+  });
+  return created;
+}
+
+/** An empty repository on the local git server, as a forge would create one. */
+async function emptyRemote(name: string): Promise<string> {
+  const bare = path.join(forgeRoot, `${name}.git`);
+  await exec("git", ["init", "--bare", "--quiet", "--initial-branch=main", bare]);
+  // `git http-backend` serves fetch to anyone and push only to an
+  // authenticated caller unless the repository opts in.
+  await exec("git", ["config", "http.receivepack", "true"], { cwd: bare });
+  return `${forgeOrigin}/${name}.git`;
+}
+
+/** The subject of the commit a branch points at on one of those remotes. */
+async function remoteCommitSubject(name: string, branch: string): Promise<string> {
+  const bare = path.join(forgeRoot, `${name}.git`);
+  const { stdout } = await exec("git", ["--git-dir", bare, "log", "-1", "--format=%s", branch]);
+  return stdout.trim();
+}
 
 let company: Company;
 let otherCompany: Company;
@@ -100,6 +212,7 @@ let employee: AIEmployee;
 
 beforeEach(async () => {
   await resetTestDb();
+  forgeCalls.length = 0;
   (config.security as { multiTenant: boolean }).multiTenant = false;
   owner = await insert(User, {
     email: "owner@example.com",
@@ -158,16 +271,72 @@ async function call<T = Record<string, unknown>>(
   body?: unknown,
   companyId?: string,
 ): Promise<ApiResponse<T>> {
-  const response = await fetch(`${baseUrl}/api/companies/${companyId ?? company.id}${path}`, {
-    method,
-    headers: { "content-type": "application/json" },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  // The real `fetch`, held on purpose: the publish tests replace the global
+  // one to answer for the forge, and a client that went through the stub would
+  // make every assertion below vacuous.
+  const response = await originalFetch(
+    `${baseUrl}/api/companies/${companyId ?? company.id}${path}`,
+    {
+      method,
+      headers: { "content-type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    },
+  );
   const text = await response.text();
   return { status: response.status, body: (text ? JSON.parse(text) : {}) as T };
 }
 
 const base = () => `/repositories/${repository.slug}/workspace`;
+
+async function forgeConnection(
+  provider: "github" | "forgejo",
+  label: string,
+  connectionConfig: Record<string, unknown>,
+): Promise<IntegrationConnection> {
+  return insert(IntegrationConnection, {
+    companyId: company.id,
+    provider,
+    label,
+    authMode: "apikey",
+    encryptedConfig: encryptConnectionConfig(
+      connectionConfig as IntegrationConfig,
+      company.id,
+    ),
+    accountHint: label,
+    status: "connected",
+    statusMessage: "",
+    lastCheckedAt: null,
+  });
+}
+
+type ForgeCall = { url: URL; method: string; headers: Headers; body: unknown };
+
+const forgeCalls: ForgeCall[] = [];
+
+/**
+ * Answer the forge's create-repository call with a clone URL of our choosing.
+ *
+ * Pointing it at the local git server is what lets the push in the same
+ * request be a real one.
+ */
+function stubForgeCreate(cloneUrl: string, htmlUrl: string | null = null): void {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    forgeCalls.push({
+      url: new URL(String(input)),
+      method: init?.method ?? "GET",
+      headers: new Headers(init?.headers),
+      body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+    });
+    return new Response(
+      JSON.stringify({ clone_url: cloneUrl, html_url: htmlUrl, default_branch: "trunk" }),
+      { status: 201, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+}
+
+async function reloadRepository(): Promise<Repository> {
+  return AppDataSource.getRepository(Repository).findOneByOrFail({ id: repository.id });
+}
 
 // ───────────────────────────── authorization ────────────────────────────
 
@@ -519,10 +688,10 @@ describe("the tree and ignored files", () => {
 // ───────────────────────── connecting to a remote ───────────────────────
 
 describe("connecting a local repository to a remote", () => {
-  test("lists GitHub connections, empty when none are connected", async () => {
+  test("lists forge connections, empty when none are connected", async () => {
     const response = await call<{ connections: unknown[] }>(
       "GET",
-      `/repositories/${repository.slug}/github-connections`,
+      `/repositories/${repository.slug}/forge-connections`,
     );
     assert.equal(response.status, 200);
     assert.deepEqual(response.body.connections, []);
@@ -540,7 +709,7 @@ describe("connecting a local repository to a remote", () => {
     );
     assert.equal(
       (
-        await call("POST", `${base()}/connect-github`, {
+        await call("POST", `${base()}/connect-forge`, {
           connectionId: "00000000-0000-4000-8000-000000000000",
           name: "web",
         })
@@ -557,13 +726,25 @@ describe("connecting a local repository to a remote", () => {
     assert.equal(response.status, 400);
   });
 
-  test("refuses a repository name GitHub would not accept", async () => {
+  test("refuses a repository name no forge would accept, without naming GitHub", async () => {
     actingUserId = owner.id;
-    const response = await call("POST", `${base()}/connect-github`, {
-      connectionId: "00000000-0000-4000-8000-000000000000",
-      name: "not a valid name",
-    });
+    const response = await call<{ error: string; issues: Array<{ message: string }> }>(
+      "POST",
+      `${base()}/connect-forge`,
+      {
+        connectionId: "00000000-0000-4000-8000-000000000000",
+        name: "not a valid name",
+      },
+    );
     assert.equal(response.status, 400);
+    assert.equal(response.body.error, "ValidationError");
+    assert.ok(
+      response.body.issues.some((issue) => /^Repository names may use letters/.test(issue.message)),
+      "the rule the person broke has to be in the message",
+    );
+    // Someone connecting a self-hosted Forgejo is not helped by being told
+    // what GitHub allows, and the rule is not GitHub's.
+    assert.doesNotMatch(JSON.stringify(response.body), /GitHub/);
   });
 
   test("refuses to connect a repository that already has a remote", async () => {
@@ -620,13 +801,338 @@ describe("connecting a local repository to a remote", () => {
     assert.match(response.body.error, /plain https/);
   });
 
-  test("reports an unknown GitHub connection rather than failing obscurely", async () => {
+  test("reports an unknown Connection rather than failing obscurely", async () => {
     actingUserId = owner.id;
-    const response = await call<{ error: string }>("POST", `${base()}/connect-github`, {
+    const response = await call<{ error: string }>("POST", `${base()}/connect-forge`, {
       connectionId: "00000000-0000-4000-8000-000000000000",
       name: "web",
     });
     assert.equal(response.status, 400);
     assert.match(response.body.error, /no longer available/);
+  });
+
+  test("refuses a Connection that is not a git forge at all", async () => {
+    actingUserId = owner.id;
+    // The picker only offers forges, so reaching here means a stale page or a
+    // hand-made request — and creating a repository on Stripe is not a
+    // mistake worth attempting.
+    const stripe = await insert(IntegrationConnection, {
+      companyId: company.id,
+      provider: "stripe",
+      label: "Billing",
+      authMode: "apikey",
+      encryptedConfig: encryptConnectionConfig(
+        { apiKey: "rk_test" } as IntegrationConfig,
+        company.id,
+      ),
+      accountHint: "acct_test",
+      status: "connected",
+      statusMessage: "",
+      lastCheckedAt: null,
+    });
+    const response = await call<{ error: string }>("POST", `${base()}/connect-forge`, {
+      connectionId: stripe.id,
+      name: "web",
+    });
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /no longer available/);
+
+    const stored = await reloadRepository();
+    assert.equal(stored.origin, "local");
+    assert.equal(stored.gitUrl, "");
+  });
+
+  test("the picker says which forge each Connection is and which server it is on", async () => {
+    const github = await forgeConnection("github", "Work GitHub", {
+      apiKey: "ghp_github_token",
+      login: "acme",
+    });
+    const forgejo = await forgeConnection("forgejo", "Ops forge", {
+      baseUrl: "https://git.example.test",
+      apiKey: "forgejo-token",
+      login: "ops-bot",
+    });
+    await insert(IntegrationConnection, {
+      companyId: company.id,
+      provider: "stripe",
+      label: "Billing",
+      authMode: "apikey",
+      encryptedConfig: encryptConnectionConfig(
+        { apiKey: "rk_test" } as IntegrationConfig,
+        company.id,
+      ),
+      accountHint: "acct_test",
+      status: "connected",
+      statusMessage: "",
+      lastCheckedAt: null,
+    });
+
+    const response = await call<{ connections: Array<Record<string, unknown>> }>(
+      "GET",
+      `/repositories/${repository.slug}/forge-connections`,
+    );
+    assert.equal(response.status, 200);
+    const byId = new Map(response.body.connections.map((entry) => [entry.id, entry]));
+    assert.deepEqual(byId.get(github.id), {
+      id: github.id,
+      label: "Work GitHub",
+      provider: "github",
+      providerName: "GitHub",
+      accountLogin: "acme",
+      host: "github.com",
+    });
+    assert.deepEqual(byId.get(forgejo.id), {
+      id: forgejo.id,
+      label: "Ops forge",
+      provider: "forgejo",
+      providerName: "Forgejo",
+      accountLogin: "ops-bot",
+      // Two Forgejo Connections are told apart by this and nothing else, so a
+      // picker that dropped it would be asking people to guess.
+      host: "git.example.test",
+    });
+    assert.equal(
+      response.body.connections.length,
+      2,
+      "a Connection that is not a git forge has no business in this list",
+    );
+  });
+
+  test("a Connection whose server URL is unusable is left out rather than crashing the picker", async () => {
+    // An operator can restore a database older than the base-URL field, or
+    // one written by a broken connect. The list is not the place to find out.
+    await forgeConnection("forgejo", "Restored from backup", { apiKey: "forgejo-token" });
+    const good = await forgeConnection("forgejo", "Ops forge", {
+      baseUrl: "https://git.example.test",
+      apiKey: "forgejo-token",
+      login: "ops-bot",
+    });
+
+    const response = await call<{ connections: Array<{ id: string }> }>(
+      "GET",
+      `/repositories/${repository.slug}/forge-connections`,
+    );
+    assert.equal(response.status, 200);
+    assert.deepEqual(
+      response.body.connections.map((entry) => entry.id),
+      [good.id],
+    );
+  });
+});
+
+// ────────────────────── publishing to a git forge ───────────────────────
+
+describe("publishing a Genosyn repository to a forge", () => {
+  beforeEach(() => {
+    actingUserId = owner.id;
+  });
+
+  test("creates the repository on the Connection's own server and pushes the history into it", async () => {
+    const connection = await forgeConnection("forgejo", "Ops forge", {
+      baseUrl: "https://git.example.test",
+      apiKey: "forgejo-token",
+      login: "ops-bot",
+    });
+    // Work the Member already did. Publishing has to carry it, not replace it.
+    await call("PUT", `${base()}/file`, { path: "plan.md", content: "# Plan\n" });
+    await call("POST", `${base()}/commit`, { message: "Add the plan" });
+
+    const remoteUrl = await emptyRemote("published");
+    stubForgeCreate(remoteUrl, "https://git.example.test/ops/published");
+
+    const response = await call<{
+      gitUrl: string;
+      htmlUrl: string | null;
+      branch: string;
+      pushed: boolean;
+    }>("POST", `${base()}/connect-forge`, {
+      connectionId: connection.id,
+      name: "published",
+      private: true,
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.body.gitUrl, remoteUrl);
+    assert.equal(response.body.htmlUrl, "https://git.example.test/ops/published");
+    assert.equal(response.body.branch, "main");
+    assert.equal(response.body.pushed, true);
+
+    assert.equal(forgeCalls.length, 1);
+    const [created] = forgeCalls;
+    assert.equal(created.url.href, "https://git.example.test/api/v1/user/repos");
+    assert.equal(created.method, "POST");
+    assert.equal(created.headers.get("authorization"), "token forgejo-token");
+    assert.deepEqual(created.body, {
+      name: "published",
+      private: true,
+      // Empty on purpose: an initial commit on the forge would make the very
+      // push this route is about a non-fast-forward nobody can resolve.
+      auto_init: false,
+    });
+
+    assert.equal(
+      await remoteCommitSubject("published", "main"),
+      "Add the plan",
+      "the Member's work has to be on the remote, not just the row",
+    );
+
+    const stored = await reloadRepository();
+    assert.equal(stored.origin, "remote");
+    assert.equal(stored.gitUrl, remoteUrl);
+    assert.equal(stored.githubConnectionId, connection.id);
+    assert.equal(stored.lastSyncStatus, "ok");
+    assert.equal(
+      stored.defaultBranch,
+      "main",
+      "the branch that was pushed, not the account's preferred name for new repositories",
+    );
+  });
+
+  test("publishes a repository nobody has opened in the editor yet", async () => {
+    // Creating a Repository does not materialize its checkout — the editor
+    // does, on first visit. Connecting one straight from settings is an
+    // ordinary thing to do, and the seeded first commit is exactly what the
+    // push is for.
+    const connection = await forgeConnection("forgejo", "Ops forge", {
+      baseUrl: "https://git.example.test",
+      apiKey: "forgejo-token",
+      login: "ops-bot",
+    });
+    const remoteUrl = await emptyRemote("unopened");
+    stubForgeCreate(remoteUrl);
+
+    const response = await call<{ pushed: boolean; branch: string; error?: string }>(
+      "POST",
+      `${base()}/connect-forge`,
+      { connectionId: connection.id, name: "unopened" },
+    );
+
+    assert.equal(response.status, 200, response.body.error);
+    assert.equal(response.body.pushed, true);
+    assert.equal(await remoteCommitSubject("unopened", "main"), "Create repository");
+  });
+
+  test("the Connection is pinned before the push, not after it", async () => {
+    // Two Connections on one server. Nothing but the pin can say which of them
+    // speaks for the new remote, and the push resolves its own credential from
+    // that pin — so a pin written after the push is a push that goes out
+    // anonymous and fails on every private repository.
+    //
+    // The chosen Connection cannot name the account it authenticates as, so
+    // the credential lookup refuses by name. Reaching that refusal at all is
+    // the assertion: with the pin written later the two Connections are
+    // indistinguishable, no credential is resolved, and the failure comes
+    // from the network instead.
+    const chosen = await forgeConnection("forgejo", "Deploy bot", {
+      baseUrl: "https://git.example.test",
+      apiKey: "forgejo-token",
+      login: "",
+    });
+    await forgeConnection("forgejo", "Second account", {
+      baseUrl: "https://git.example.test",
+      apiKey: "other-token",
+      login: "someone",
+    });
+    await call("GET", `${base()}/tree`);
+    stubForgeCreate("https://git.example.test/ops/web.git");
+
+    const response = await call<{ error: string }>("POST", `${base()}/connect-forge`, {
+      connectionId: chosen.id,
+      name: "web",
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /Deploy bot/);
+    assert.match(response.body.error, /does not know which account it authenticates as/);
+
+    const stored = await reloadRepository();
+    assert.equal(stored.origin, "local", "a publish that failed leaves the repository local");
+    assert.equal(stored.gitUrl, "");
+    assert.equal(stored.githubConnectionId, null);
+  });
+
+  test("a GitHub Connection still publishes, and is asked github.com", async () => {
+    const connection = await forgeConnection("github", "Work GitHub", {
+      apiKey: "ghp_github_token",
+      login: "acme",
+    });
+    await call("GET", `${base()}/tree`);
+    const remoteUrl = await emptyRemote("from-github");
+    stubForgeCreate(remoteUrl);
+
+    const response = await call<{ pushed: boolean; error?: string }>(
+      "POST",
+      `${base()}/connect-forge`,
+      {
+        connectionId: connection.id,
+        name: "from-github",
+        owner: "acme labs",
+        private: false,
+      },
+    );
+
+    assert.equal(response.status, 200, response.body.error);
+    assert.equal(response.body.pushed, true);
+    const [created] = forgeCalls;
+    assert.equal(created.url.href, "https://api.github.com/orgs/acme%20labs/repos");
+    assert.equal(created.headers.get("authorization"), "Bearer ghp_github_token");
+    assert.equal(created.headers.get("x-github-api-version"), "2022-11-28");
+    assert.deepEqual(created.body, { name: "from-github", private: false, auto_init: false });
+    assert.equal((await reloadRepository()).githubConnectionId, connection.id);
+  });
+
+  test("refuses to publish a repository that already has a remote", async () => {
+    const connection = await forgeConnection("forgejo", "Ops forge", {
+      baseUrl: "https://git.example.test",
+      apiKey: "forgejo-token",
+      login: "ops-bot",
+    });
+    const remote = await insert(Repository, {
+      companyId: company.id,
+      name: "Web",
+      slug: "web",
+      description: "",
+      origin: "remote",
+      kind: "code",
+      gitUrl: "https://git.example.test/ops/web.git",
+      defaultBranch: "main",
+      authMode: "none",
+      lastSyncStatus: "unknown",
+      lastSyncError: "",
+    });
+    stubForgeCreate(`${forgeOrigin}/never-created.git`);
+
+    const response = await call<{ error: string }>(
+      "POST",
+      `/repositories/${remote.slug}/workspace/connect-forge`,
+      { connectionId: connection.id, name: "web" },
+    );
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /already has a remote/);
+    assert.deepEqual(forgeCalls, [], "nothing may be created on the forge before that check");
+  });
+
+  test("a forge that refuses to create the repository is reported, and nothing is pushed", async () => {
+    const connection = await forgeConnection("forgejo", "Ops forge", {
+      baseUrl: "https://git.example.test",
+      apiKey: "forgejo-token",
+      login: "ops-bot",
+    });
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ message: "repository already exists" }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+
+    const response = await call<{ error: string }>("POST", `${base()}/connect-forge`, {
+      connectionId: connection.id,
+      name: "taken",
+    });
+    assert.equal(response.status, 400);
+    assert.match(response.body.error, /repository already exists/);
+
+    const stored = await reloadRepository();
+    assert.equal(stored.origin, "local");
+    assert.equal(stored.githubConnectionId, null);
   });
 });

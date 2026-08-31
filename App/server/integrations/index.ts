@@ -9,6 +9,7 @@ import { googleProvider } from "./providers/google.js";
 import { googleAnalyticsProvider } from "./providers/google-analytics.js";
 import { googleSearchConsoleProvider } from "./providers/google-search-console.js";
 import { githubProvider } from "./providers/github.js";
+import { forgejoProvider } from "./providers/forgejo.js";
 import { airtableProvider } from "./providers/airtable.js";
 import { postgresProvider } from "./providers/postgres.js";
 import { mysqlProvider } from "./providers/mysql.js";
@@ -38,6 +39,7 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [googleAnalyticsProvider.catalog.provider]: googleAnalyticsProvider,
   [googleSearchConsoleProvider.catalog.provider]: googleSearchConsoleProvider,
   [githubProvider.catalog.provider]: githubProvider,
+  [forgejoProvider.catalog.provider]: forgejoProvider,
   [airtableProvider.catalog.provider]: airtableProvider,
   [postgresProvider.catalog.provider]: postgresProvider,
   [mysqlProvider.catalog.provider]: mysqlProvider,

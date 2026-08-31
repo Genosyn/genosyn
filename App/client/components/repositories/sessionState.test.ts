@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { RepositoryWorkSession, RepositoryWorkSessionStatus } from "../../lib/api";
+import type {
+  RepositoryForgeInfo,
+  RepositoryWorkSession,
+  RepositoryWorkSessionStatus,
+} from "../../lib/api";
 import {
   SESSION_INBOX_GROUP_LABEL,
   SESSION_INBOX_GROUP_ORDER,
@@ -70,6 +74,21 @@ function session(overrides: Partial<RepositoryWorkSession> = {}): RepositoryWork
   };
 }
 
+/** A self-hosted Forgejo one Connection covers, as the server describes it. */
+const FORGEJO: RepositoryForgeInfo = {
+  provider: "forgejo",
+  name: "Forgejo",
+  credential: "sole",
+};
+
+/** A public github.com remote: known, with no Connection behind it. */
+const GITHUB: RepositoryForgeInfo = { provider: "github", name: "GitHub", credential: "none" };
+
+/** The capability exactly as the repository pages derive it from the row. */
+function fromForge(forge: RepositoryForgeInfo | null) {
+  return { remote: true, pullRequests: !!forge, admin: true };
+}
+
 describe("which sessions accept another instruction", () => {
   test("everything except a turn in flight and the two terminal outcomes", () => {
     assert.deepEqual(ALL_STATUSES.filter(canRevise), ["ready", "empty", "proposed", "failed"]);
@@ -82,10 +101,12 @@ describe("which sessions accept another instruction", () => {
 });
 
 describe("the actions offered for a session", () => {
-  const local = { remote: false, github: false, admin: true };
-  const gitlab = { remote: true, github: false, admin: true };
-  const github = { remote: true, github: true, admin: true };
-  const asMember = { remote: true, github: true, admin: false };
+  const local = { remote: false, pullRequests: false, admin: true };
+  // A remote nothing can speak for: pushable, but with no API behind it to
+  // open a pull request through.
+  const unanswerable = { remote: true, pullRequests: false, admin: true };
+  const github = { remote: true, pullRequests: true, admin: true };
+  const asMember = { remote: true, pullRequests: true, admin: false };
 
   test("a ready session in a local repository can only be merged or thrown away", () => {
     const actions = sessionActions(session(), local);
@@ -96,16 +117,27 @@ describe("the actions offered for a session", () => {
     assert.equal(actions.revise, true);
   });
 
-  test("a non-GitHub remote can be pushed to but not proposed", () => {
-    const actions = sessionActions(session(), gitlab);
+  test("a remote no Connection speaks for can be pushed to but not proposed", () => {
+    const actions = sessionActions(session(), unanswerable);
     assert.equal(actions.acceptAndSend, true);
     assert.equal(actions.pullRequest, false);
   });
 
-  test("a GitHub remote gets the pull request button", () => {
+  test("a remote a Connection speaks for gets the pull request button", () => {
     const actions = sessionActions(session(), github);
     assert.equal(actions.pullRequest, true);
     assert.equal(actions.pullRequestIsUpdate, false);
+  });
+
+  test("a self-hosted Forgejo repository reaches that same branch", () => {
+    // The capability is "a forge Connection speaks for this host", which the
+    // server answers on the row — the pages read `!!repo.forge` and nothing
+    // here is allowed to care which host it turned out to be. A hostname test
+    // in the browser could only ever have said yes to github.com.
+    const forgejo = sessionActions(session(), fromForge(FORGEJO));
+    assert.equal(forgejo.pullRequest, true);
+    assert.deepEqual(forgejo, sessionActions(session(), fromForge(GITHUB)));
+    assert.equal(sessionActions(session(), fromForge(null)).pullRequest, false);
   });
 
   test("the button becomes an update once a pull request exists", () => {
@@ -172,7 +204,7 @@ describe("the actions offered for a session", () => {
   });
 
   test("nothing is said about admins when the repository has no remote anyway", () => {
-    const actions = sessionActions(session(), { remote: false, github: false, admin: false });
+    const actions = sessionActions(session(), { remote: false, pullRequests: false, admin: false });
     assert.equal(actions.remoteNeedsAdmin, false);
   });
 
@@ -188,13 +220,13 @@ describe("filing a session away", () => {
   test("offered at every status except a turn in flight", () => {
     const offered = ALL_STATUSES.filter(
       (status) =>
-        sessionActions(session({ status }), { remote: false, github: false, admin: false }).archive,
+        sessionActions(session({ status }), { remote: false, pullRequests: false, admin: false }).archive,
     );
     assert.deepEqual(offered, ["ready", "empty", "proposed", "published", "discarded", "failed"]);
   });
 
   test("an ordinary Member is offered it — nothing here reaches the remote", () => {
-    const actions = sessionActions(session(), { remote: true, github: true, admin: false });
+    const actions = sessionActions(session(), { remote: true, pullRequests: true, admin: false });
     assert.equal(actions.archive, true);
   });
 

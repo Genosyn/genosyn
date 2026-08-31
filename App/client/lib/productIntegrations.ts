@@ -92,8 +92,8 @@ export const PRODUCT_INTEGRATION_SCOPES: Record<ProductIntegrationKey, ProductIn
   repositories: {
     label: "Repositories",
     description:
-      "Connect GitHub to import allowlisted repositories and let granted AI Employees collaborate on code.",
-    providers: ["github"],
+      "Connect GitHub, or a Forgejo / Gitea server you host yourself, to import allowlisted repositories and let granted AI Employees collaborate on code.",
+    providers: ["github", "forgejo"],
   },
   pipelines: {
     label: "Pipelines",

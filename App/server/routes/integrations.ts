@@ -40,10 +40,13 @@ import { startOauth, startOauthReconnect } from "../services/oauth.js";
 import { recordAudit } from "../services/audit.js";
 import { assertSafeOutboundConfig } from "../lib/outboundUrl.js";
 import {
-  readGithubRepos,
-  resolveGithubCredentials,
-  writeGithubRepos,
-} from "../integrations/providers/github.js";
+  isForgeProvider,
+  forgeProviderName,
+  readForgeRepos,
+  resolveForgeCredentials,
+  writeForgeRepos,
+} from "../integrations/providers/forge/connection.js";
+import { listAccessibleForgeRepos } from "../integrations/providers/forge/discovery.js";
 import { discoverAppInstallations } from "../integrations/providers/github-app.js";
 
 /**
@@ -652,12 +655,12 @@ integrationsRouter.delete("/employees/:eid/grants/:connId", async (req, res) => 
 // repos will see a search box on the client side that filters within the
 // page (a future "fetch more" pagination is a UI follow-up).
 
-integrationsRouter.get("/connections/:connId/github/repos", async (req, res) => {
+integrationsRouter.get("/connections/:connId/forge/repos", async (req, res) => {
   const { cid, connId } = req.params as Record<string, string>;
   const conn = await getConnection(cid, connId);
   if (!conn) return res.status(404).json({ error: "Connection not found" });
-  if (conn.provider !== "github") {
-    return res.status(400).json({ error: "Connection is not a GitHub Connection" });
+  if (!isForgeProvider(conn.provider)) {
+    return res.status(400).json({ error: "Connection is not a git forge Connection" });
   }
   let cfg;
   try {
@@ -667,7 +670,20 @@ integrationsRouter.get("/connections/:connId/github/repos", async (req, res) => 
       error: err instanceof Error ? err.message : "Failed to decrypt connection",
     });
   }
-  const creds = await resolveGithubCredentials(cfg, conn.authMode);
+  const name = forgeProviderName(conn.provider);
+  let creds;
+  try {
+    // Not only the network. `forgeEndpointFor` throws by design for a Forgejo
+    // row whose stored server URL is missing or no longer usable — a database
+    // restored from before the field existed, a connect that failed halfway —
+    // and Express 4 does not turn a rejected async handler into a response, so
+    // without this the picker request never answers at all.
+    creds = await resolveForgeCredentials(conn.provider, cfg, conn.authMode);
+  } catch (err) {
+    return res.status(400).json({
+      error: err instanceof Error ? err.message : `Failed to read the ${name} credentials`,
+    });
+  }
   if (!creds) {
     return res.status(400).json({
       error: "Connection is missing credentials. Reconnect from Settings → Integrations.",
@@ -687,52 +703,15 @@ integrationsRouter.get("/connections/:connId/github/repos", async (req, res) => 
       });
     }
   }
-  let discoverable: Array<{
-    owner: string;
-    name: string;
-    defaultBranch: string;
-    description: string;
-    private: boolean;
-  }> = [];
+  let discoverable;
   try {
-    const url =
-      "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member";
-    const ghRes = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "genosyn",
-      },
-    });
-    if (!ghRes.ok) {
-      const text = await ghRes.text();
-      return res.status(ghRes.status).json({
-        error: `GitHub returned ${ghRes.status}: ${text.slice(0, 200)}`,
-      });
-    }
-    const list = (await ghRes.json()) as Array<{
-      owner?: { login?: string };
-      name?: string;
-      default_branch?: string;
-      description?: string;
-      private?: boolean;
-    }>;
-    discoverable = list
-      .filter((r) => r.owner?.login && r.name)
-      .map((r) => ({
-        owner: r.owner!.login!,
-        name: r.name!,
-        defaultBranch: r.default_branch || "main",
-        description: r.description || "",
-        private: Boolean(r.private),
-      }));
+    discoverable = await listAccessibleForgeRepos(creds.endpoint, creds.accessToken);
   } catch (err) {
     return res.status(502).json({
-      error: err instanceof Error ? err.message : "Failed to reach GitHub",
+      error: err instanceof Error ? err.message : `Failed to reach ${name}`,
     });
   }
-  const allowed = readGithubRepos(cfg, conn.authMode);
+  const allowed = readForgeRepos(conn.provider, cfg, conn.authMode);
   res.json({ allowed, discoverable });
 });
 
@@ -749,15 +728,15 @@ const updateReposSchema = z.object({
 });
 
 integrationsRouter.put(
-  "/connections/:connId/github/repos",
+  "/connections/:connId/forge/repos",
   validateBody(updateReposSchema),
   async (req, res) => {
     const { cid, connId } = req.params as Record<string, string>;
     const body = req.body as z.infer<typeof updateReposSchema>;
     const conn = await getConnection(cid, connId);
     if (!conn) return res.status(404).json({ error: "Connection not found" });
-    if (conn.provider !== "github") {
-      return res.status(400).json({ error: "Connection is not a GitHub Connection" });
+    if (!isForgeProvider(conn.provider)) {
+      return res.status(400).json({ error: "Connection is not a git forge Connection" });
     }
     let cfg;
     try {
@@ -780,7 +759,7 @@ integrationsRouter.put(
         defaultBranch: r.defaultBranch,
       });
     }
-    const next = writeGithubRepos(cfg, conn.authMode, deduped);
+    const next = writeForgeRepos(conn.provider, cfg, conn.authMode, deduped);
     const persisted = await persistConnectionConfigIfCurrent({
       connectionId: conn.id,
       companyId: conn.companyId,

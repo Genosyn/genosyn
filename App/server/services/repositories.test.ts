@@ -9,67 +9,284 @@ import {
   adoptLegacyCheckout,
   encryptRepoSecret,
   fastForwardEmployeeDefaultBranch,
-  findGithubRepoCredential,
+  findForgeRepoCredential,
   testRepositoryConnection,
 } from "./repositories.js";
+import { GITHUB_ENDPOINT, forgejoEndpoint } from "../integrations/providers/forge/client.js";
 import type { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import type { Repository } from "../db/entities/Repository.js";
-import type { GithubRepoCredential } from "./repoSync.js";
+import type { ForgeRepoCredential } from "./repoSync.js";
 import { config } from "../../config.js";
 
-const credential: GithubRepoCredential = {
-  connectionId: "connection-1",
-  owner: "Acme",
-  name: "Web",
-  envKey: "GENOSYN_GH_TOKEN_CONNECTION_1",
-  token: "turn-only-token",
-};
+// ────────── matching a remote to the Connection that can sign it in ──────────
 
-test("matches an allowlisted GitHub credential to an HTTPS Repository", () => {
-  assert.equal(
-    findGithubRepoCredential("https://github.com/acme/web.git", [credential]),
-    credential,
-  );
-  assert.equal(findGithubRepoCredential("https://GITHUB.com/ACME/WEB", [credential]), credential);
-});
-
-test("does not reuse GitHub credentials for another host or an SSH remote", () => {
-  assert.equal(findGithubRepoCredential("https://gitlab.com/acme/web.git", [credential]), null);
-  assert.equal(findGithubRepoCredential("git@github.com:acme/web.git", [credential]), null);
-});
-
-test("uses the sole granted GitHub Connection as the Repository credential", () => {
-  const soleConnection = { ...credential, owner: null, name: null };
-  assert.equal(
-    findGithubRepoCredential("https://github.com/acme/other.git", [soleConnection]),
-    soleConnection,
-  );
-});
-
-test("requires an allowlist match to disambiguate multiple GitHub Connections", () => {
-  const otherConnection: GithubRepoCredential = {
-    ...credential,
-    connectionId: "connection-2",
-    owner: null,
-    name: null,
-    envKey: "GENOSYN_GH_TOKEN_CONNECTION_2",
+/**
+ * The credential shape `repoSync` hands the Repository materializer for one
+ * granted Connection. `owner`/`name` null is the Connection that has no
+ * allowlist, which is the only shape the sole-Connection fallback applies to.
+ */
+function githubCredential(overrides: Partial<ForgeRepoCredential> = {}): ForgeRepoCredential {
+  return {
+    connectionId: "github-connection",
+    endpoint: GITHUB_ENDPOINT,
+    username: "x-access-token",
+    owner: "Acme",
+    name: "Web",
+    envKey: "GENOSYN_FORGE_TOKEN_GITHUB_CONNECTION",
+    token: "github-turn-token",
+    ...overrides,
   };
-  assert.equal(
-    findGithubRepoCredential("https://github.com/acme/other.git", [credential, otherConnection]),
-    null,
-  );
-  assert.equal(
-    findGithubRepoCredential("https://github.com/acme/web.git", [otherConnection, credential]),
-    credential,
-  );
+}
+
+function forgejoCredential(
+  baseUrl: string,
+  overrides: Partial<ForgeRepoCredential> = {},
+): ForgeRepoCredential {
+  return {
+    connectionId: "forgejo-connection",
+    endpoint: forgejoEndpoint(baseUrl),
+    username: "octo-admin",
+    owner: "Acme",
+    name: "Web",
+    envKey: "GENOSYN_FORGE_TOKEN_FORGEJO_CONNECTION",
+    token: "forgejo-turn-token",
+    ...overrides,
+  };
+}
+
+describe("matching a Repository remote to a granted Connection's credential", () => {
+  test("matches an allowlisted repository on the Connection's own host", () => {
+    const credential = githubCredential();
+    assert.equal(
+      findForgeRepoCredential("https://github.com/acme/web.git", [credential]),
+      credential,
+    );
+  });
+
+  test("matches owner and repository case-insensitively, as both forges resolve them", () => {
+    const github = githubCredential();
+    const forgejo = forgejoCredential("https://git.acme.com");
+    assert.equal(findForgeRepoCredential("https://GITHUB.com/ACME/WEB", [github]), github);
+    assert.equal(
+      findForgeRepoCredential("https://git.acme.com/ACME/Web.GIT", [forgejo]),
+      forgejo,
+      "a remote that differs only in case is the same repository, and must not fall through",
+    );
+  });
+
+  /**
+   * The allowlist is the narrower statement — this Connection was picked for
+   * *this* repository — so it has to win wherever both rules could fire, and
+   * it has to win regardless of which credential `repoSync` happened to list
+   * first.
+   */
+  test("prefers the Connection that allowlisted this repository over one with no allowlist", () => {
+    const allowlisted = githubCredential();
+    const anyRepo = githubCredential({
+      connectionId: "github-connection-2",
+      owner: null,
+      name: null,
+      envKey: "GENOSYN_FORGE_TOKEN_GITHUB_CONNECTION_2",
+      token: "second-github-token",
+    });
+
+    assert.equal(
+      findForgeRepoCredential("https://github.com/acme/web.git", [allowlisted, anyRepo]),
+      allowlisted,
+    );
+    assert.equal(
+      findForgeRepoCredential("https://github.com/acme/web.git", [anyRepo, allowlisted]),
+      allowlisted,
+    );
+  });
+
+  test("falls back to the only Connection that can reach the host when nothing is allowlisted", () => {
+    const soleConnection = githubCredential({ owner: null, name: null });
+    assert.equal(
+      findForgeRepoCredential("https://github.com/acme/unlisted.git", [soleConnection]),
+      soleConnection,
+    );
+  });
+
+  /**
+   * The rule this replaced counted Connections globally, so an employee
+   * granted a GitHub Connection *and* a Forgejo Connection had two of them and
+   * got neither — or, before that, got whichever was listed first and had its
+   * token sent to the wrong company's server. Narrowing by host first is what
+   * makes both grants usable at once.
+   */
+  test("gives an employee with one Connection per forge the right one for each remote", () => {
+    const github = githubCredential({ owner: null, name: null });
+    const forgejo = forgejoCredential("https://git.acme.com", { owner: null, name: null });
+    const granted = [github, forgejo];
+
+    assert.equal(findForgeRepoCredential("https://github.com/acme/unlisted.git", granted), github);
+    assert.equal(
+      findForgeRepoCredential("https://git.acme.com/acme/unlisted.git", granted),
+      forgejo,
+    );
+  });
+
+  test("carries the forge's own git username on the credential it picks", () => {
+    const github = githubCredential({ owner: null, name: null });
+    const forgejo = forgejoCredential("https://git.acme.com", { owner: null, name: null });
+    const granted = [github, forgejo];
+
+    // Forgejo resolves basic auth by looking the username up and then checking
+    // the password against that account's tokens, so GitHub's literal would
+    // fail there — quietly, as a plain authentication failure.
+    const picked = findForgeRepoCredential("https://git.acme.com/acme/web.git", granted);
+    assert.equal(picked?.username, "octo-admin");
+    assert.notEqual(picked?.username, "x-access-token");
+    assert.equal(
+      findForgeRepoCredential("https://github.com/acme/web.git", granted)?.username,
+      "x-access-token",
+    );
+  });
+
+  test("refuses to guess between two Connections on the same host", () => {
+    const first = githubCredential({ owner: null, name: null });
+    const second = githubCredential({
+      connectionId: "github-connection-2",
+      owner: null,
+      name: null,
+      envKey: "GENOSYN_FORGE_TOKEN_GITHUB_CONNECTION_2",
+      token: "second-github-token",
+    });
+    assert.equal(
+      findForgeRepoCredential("https://github.com/acme/unlisted.git", [first, second]),
+      null,
+      "two accounts and no allowlist is a question for a human, not a coin toss",
+    );
+  });
+
+  test("still answers when one Connection contributes several allowlist entries", () => {
+    const web = githubCredential();
+    const api = githubCredential({ name: "Api" });
+    // Same Connection, so the same token either way — the count that matters
+    // is Connections, not allowlist rows.
+    assert.equal(findForgeRepoCredential("https://github.com/acme/api.git", [web, api]), api);
+    assert.equal(
+      findForgeRepoCredential("https://github.com/acme/unlisted.git", [web, api])?.connectionId,
+      "github-connection",
+    );
+  });
+
+  test("matches nothing when the employee has no forge Connections at all", () => {
+    assert.equal(findForgeRepoCredential("https://github.com/acme/web.git", []), null);
+  });
+
+  test("never lends a credential to another host", () => {
+    const github = githubCredential({ owner: null, name: null });
+    const forgejo = forgejoCredential("https://git.acme.com", { owner: null, name: null });
+    const granted = [github, forgejo];
+
+    assert.equal(findForgeRepoCredential("https://gitlab.com/acme/web.git", granted), null);
+    assert.equal(
+      findForgeRepoCredential("https://github.com.evil.test/acme/web.git", granted),
+      null,
+      "a suffix of the configured host is a different host",
+    );
+    assert.equal(
+      findForgeRepoCredential("http://github.com/acme/web.git", granted),
+      null,
+      "a token must never ride on a plain http remote",
+    );
+  });
+
+  test("distinguishes a Connection by port, not just by hostname", () => {
+    const onPort = forgejoCredential("https://git.acme.com:3000", { owner: null, name: null });
+    const onDefault = forgejoCredential("https://git.acme.com", {
+      connectionId: "forgejo-connection-2",
+      owner: null,
+      name: null,
+      envKey: "GENOSYN_FORGE_TOKEN_FORGEJO_CONNECTION_2",
+      token: "default-port-token",
+    });
+
+    assert.equal(
+      findForgeRepoCredential("https://git.acme.com:3000/acme/web.git", [onPort, onDefault]),
+      onPort,
+    );
+    assert.equal(
+      findForgeRepoCredential("https://git.acme.com/acme/web.git", [onPort, onDefault]),
+      onDefault,
+    );
+  });
+
+  test("tolerates a server URL an operator typed with a trailing slash", () => {
+    const credential = forgejoCredential("https://git.acme.com/", { owner: null, name: null });
+    assert.equal(
+      findForgeRepoCredential("https://git.acme.com/acme/web.git", [credential]),
+      credential,
+    );
+  });
+
+  /**
+   * A Forgejo mounted under a path is the case a `pathname.split("/")` host
+   * match gets wrong: it reads `git/acme` as the owner and repository, and it
+   * hands the token to whichever Connection shares the origin.
+   */
+  test("keeps two Forgejo Connections on one origin apart by their sub-path", () => {
+    const forge = forgejoCredential("https://git.acme.com/forge", { owner: null, name: null });
+    const other = forgejoCredential("https://git.acme.com/other", {
+      connectionId: "forgejo-connection-2",
+      owner: null,
+      name: null,
+      envKey: "GENOSYN_FORGE_TOKEN_FORGEJO_CONNECTION_2",
+      token: "other-mount-token",
+    });
+    const granted = [forge, other];
+
+    assert.equal(
+      findForgeRepoCredential("https://git.acme.com/forge/acme/web.git", granted),
+      forge,
+    );
+    assert.equal(
+      findForgeRepoCredential("https://git.acme.com/other/acme/web.git", granted),
+      other,
+    );
+    assert.equal(
+      findForgeRepoCredential("https://git.acme.com/acme/web.git", granted),
+      null,
+      "a repository at the origin root belongs to neither mount",
+    );
+  });
+
+  test("matches no credential for an SSH remote or a URL that will not parse", () => {
+    const github = githubCredential({ owner: null, name: null });
+    const forgejo = forgejoCredential("https://git.acme.com", { owner: null, name: null });
+    const granted = [github, forgejo];
+
+    // A forge token authenticates HTTPS. Handing one to an SSH remote cannot
+    // work, and matching would suppress the "add an SSH key" advice.
+    assert.equal(findForgeRepoCredential("git@github.com:acme/web.git", granted), null);
+    assert.equal(findForgeRepoCredential("ssh://git@git.acme.com/acme/web.git", granted), null);
+    assert.equal(findForgeRepoCredential("git.acme.com/acme/web", granted), null);
+    assert.equal(findForgeRepoCredential("", granted), null);
+    assert.equal(findForgeRepoCredential("https://git.acme.com", granted), null);
+    assert.equal(
+      findForgeRepoCredential("https://git.acme.com/acme", granted),
+      null,
+      "an owner with no repository names no repository",
+    );
+    assert.equal(findForgeRepoCredential("https://git.acme.com/acme/web/tree/main", granted), null);
+  });
 });
+
+// ────────────────────── the Test connection diagnostic ───────────────────────
 
 describe("testing a Repository connection", () => {
   const githubConnection = { id: "github-connection" } as IntegrationConnection;
+  const forgejoConnection = { id: "forgejo-connection" } as IntegrationConnection;
   const remote = {
     companyId: "company-1",
     authMode: "none",
     gitUrl: "https://github.com/acme/private.git",
+  } as Repository;
+  const forgejoRemote = {
+    ...remote,
+    gitUrl: "https://git.acme.com/acme/private.git",
   } as Repository;
 
   test("reuses the pinned-or-sole GitHub Connection for a credential-free remote", async () => {
@@ -83,7 +300,12 @@ describe("testing a Repository connection", () => {
       }),
       resolveConnectionToken: async (connection) => {
         assert.equal(connection, githubConnection);
-        return { token: "connection-token", login: "acme" };
+        return {
+          token: "connection-token",
+          login: "acme",
+          endpoint: GITHUB_ENDPOINT,
+          provider: "github",
+        };
       },
       runGit: async (_workspaceRoot, _cwd, args, extraEnv, credentialHelper) => {
         assert.deepEqual(args, ["ls-remote", "--symref", remote.gitUrl, "HEAD"]);
@@ -100,16 +322,107 @@ describe("testing a Repository connection", () => {
     });
     assert.equal(capturedEnv?.GENOSYN_REPO_TOKEN_CONNECTION_TEST, "connection-token");
     assert.match(capturedHelper ?? "", /GENOSYN_REPO_TOKEN_CONNECTION_TEST/);
+    assert.match(capturedHelper ?? "", /x-access-token/);
     assert.doesNotMatch(capturedHelper ?? "", /connection-token/);
   });
 
-  test("keeps testing anonymously when no GitHub Connection exists", async () => {
+  /**
+   * The username is the half of a forge credential that differs between the
+   * two. Sending `x-access-token` to Forgejo fails as a plain authentication
+   * error, which reads exactly like an expired token and sends the Member off
+   * to reissue one that was never wrong.
+   */
+  test("signs a Forgejo remote in as the token's own account, not as x-access-token", async () => {
+    let capturedHelper: string | undefined;
+
+    const result = await testRepositoryConnection(forgejoRemote, {
+      resolveConnectionForRemote: async () => ({
+        kind: "one",
+        connection: forgejoConnection,
+      }),
+      resolveConnectionToken: async () => ({
+        token: "forgejo-token",
+        login: "octo-admin",
+        endpoint: forgejoEndpoint("https://git.acme.com"),
+        provider: "forgejo",
+      }),
+      runGit: async (_workspaceRoot, _cwd, _args, extraEnv, credentialHelper) => {
+        assert.equal(extraEnv?.GENOSYN_REPO_TOKEN_CONNECTION_TEST, "forgejo-token");
+        capturedHelper = credentialHelper;
+        return { stdout: "ref: refs/heads/main\tHEAD\n012345\tHEAD\n" };
+      },
+    });
+
+    assert.equal(result.ok, true);
+    assert.match(capturedHelper ?? "", /octo-admin/);
+    assert.doesNotMatch(capturedHelper ?? "", /x-access-token/);
+    assert.doesNotMatch(capturedHelper ?? "", /forgejo-token/);
+  });
+
+  /**
+   * A GitHub App installation token has no login of its own and never needed
+   * one — the literal `x-access-token` is what GitHub requires. Refusing on a
+   * blank login would break every App-connected repository.
+   */
+  test("still signs a GitHub Connection in when it reports no login", async () => {
+    let ran = false;
+    const result = await testRepositoryConnection(remote, {
+      resolveConnectionForRemote: async () => ({ kind: "one", connection: githubConnection }),
+      resolveConnectionToken: async () => ({
+        token: "installation-token",
+        login: "",
+        endpoint: GITHUB_ENDPOINT,
+        provider: "github",
+      }),
+      runGit: async (_workspaceRoot, _cwd, _args, _extraEnv, credentialHelper) => {
+        ran = true;
+        assert.match(credentialHelper ?? "", /x-access-token/);
+        return { stdout: "ref: refs/heads/main\tHEAD\n012345\tHEAD\n" };
+      },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(ran, true);
+  });
+
+  test("refuses a Forgejo Connection that cannot say which account it authenticates as", async () => {
+    let ran = false;
+    const result = await testRepositoryConnection(forgejoRemote, {
+      resolveConnectionForRemote: async () => ({ kind: "one", connection: forgejoConnection }),
+      resolveConnectionToken: async () => ({
+        token: "forgejo-token",
+        login: "   ",
+        endpoint: forgejoEndpoint("https://git.acme.com"),
+        provider: "forgejo",
+      }),
+      runGit: async () => {
+        ran = true;
+        return { stdout: "" };
+      },
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.message, /does not know which account it authenticates as/);
+    assert.match(result.message, /Settings → Integrations/);
+    assert.equal(
+      ran,
+      false,
+      "a username the server cannot resolve buys nothing over saying so, so no probe is made",
+    );
+  });
+
+  test("keeps testing anonymously when no Connection exists for the host", async () => {
     let resolvedToken = false;
     const result = await testRepositoryConnection(remote, {
       resolveConnectionForRemote: async () => ({ kind: "none" }),
       resolveConnectionToken: async () => {
         resolvedToken = true;
-        return { token: "unused", login: "unused" };
+        return {
+          token: "unused",
+          login: "unused",
+          endpoint: GITHUB_ENDPOINT,
+          provider: "github",
+        };
       },
       runGit: async (_workspaceRoot, _cwd, _args, extraEnv, credentialHelper) => {
         assert.deepEqual(extraEnv, {});
@@ -123,26 +436,32 @@ describe("testing a Repository connection", () => {
     assert.equal(resolvedToken, false);
   });
 
-  test("explains an ambiguous private GitHub remote without exposing askpass plumbing", async () => {
-    const result = await testRepositoryConnection(remote, {
+  /**
+   * This sentence used to say "more than one GitHub Connection", which is
+   * false on a self-hosted forge and sends the Member looking for a GitHub
+   * account they never connected.
+   */
+  test("explains an ambiguous private remote without naming a forge it may not be", async () => {
+    const result = await testRepositoryConnection(forgejoRemote, {
       resolveConnectionForRemote: async () => ({
         kind: "ambiguous",
-        connections: [githubConnection, { id: "other" } as IntegrationConnection],
+        connections: [forgejoConnection, { id: "other" } as IntegrationConnection],
       }),
       runGit: async () => {
         throw new Error(
           "git ls-remote failed: error: unable to read askpass response from '/bin/false' | " +
-            "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+            "fatal: could not read Username for 'https://git.acme.com': terminal prompts disabled",
         );
       },
     });
 
     assert.equal(result.ok, false);
-    assert.match(result.message, /more than one GitHub Connection/i);
+    assert.match(result.message, /more than one Connection could reach this server/i);
+    assert.doesNotMatch(result.message, /GitHub/);
     assert.doesNotMatch(result.message, /askpass|\/bin\/false|terminal prompts/i);
   });
 
-  test("explains missing authentication without exposing askpass plumbing", async () => {
+  test("explains missing authentication and names both forges a Connection can cover", async () => {
     const result = await testRepositoryConnection(remote, {
       resolveConnectionForRemote: async () => ({ kind: "none" }),
       runGit: async () => {
@@ -152,11 +471,121 @@ describe("testing a Repository connection", () => {
 
     assert.equal(result.ok, false);
     assert.match(result.message, /requires sign-in/i);
+    assert.match(result.message, /Forgejo \/ Gitea/);
     assert.match(result.message, /Settings → Integrations/);
     assert.doesNotMatch(result.message, /askpass|\/bin\/false|unable to get password/i);
   });
 
-  test("keeps a stored HTTPS token ahead of any GitHub Connection", async () => {
+  /**
+   * The Connection authenticated to the forge and still could not read this
+   * repository — which is an access problem on that account, not a missing
+   * credential. Telling the person to "choose a token" here is advice for a
+   * different fault.
+   */
+  test("blames the Connection when it is the credential that was actually tried", async () => {
+    const result = await testRepositoryConnection(remote, {
+      resolveConnectionForRemote: async () => ({ kind: "one", connection: githubConnection }),
+      resolveConnectionToken: async () => ({
+        token: "connection-token",
+        login: "acme",
+        endpoint: GITHUB_ENDPOINT,
+        provider: "github",
+      }),
+      runGit: async () => {
+        throw new Error("git ls-remote failed: fatal: Authentication failed for 'https://…'");
+      },
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.message, /The Connection could not authenticate to this repository/);
+    assert.match(result.message, /Settings → Integrations/);
+    assert.doesNotMatch(result.message, /Authentication failed for/);
+  });
+
+  test("passes a non-authentication git failure through in the forge's own words", async () => {
+    const notFound =
+      "git ls-remote failed: fatal: repository 'https://github.com/acme/gone' not found";
+    const result = await testRepositoryConnection(remote, {
+      resolveConnectionForRemote: async () => ({ kind: "none" }),
+      runGit: async () => {
+        throw new Error(notFound);
+      },
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(
+      result.message,
+      notFound,
+      "sign-in advice for a repository that does not exist sends the Member after the wrong fault",
+    );
+  });
+
+  test("does not offer Connection advice to a repository that carries its own token", async () => {
+    const result = await testRepositoryConnection(
+      {
+        ...remote,
+        authMode: "https",
+        httpsUsername: "repository-user",
+        encryptedToken: encryptRepoSecret("expired-token", remote.companyId),
+      } as Repository,
+      {
+        runGit: async () => {
+          throw new Error("git ls-remote failed: fatal: Authentication failed");
+        },
+      },
+    );
+
+    assert.equal(result.ok, false);
+    assert.match(
+      result.message,
+      /Authentication failed/,
+      "the stored token is the thing that is wrong, and Git already said so",
+    );
+    assert.doesNotMatch(result.message, /Settings → Integrations/);
+  });
+
+  test("reports a stored HTTPS token that no longer decrypts as one to re-enter", async () => {
+    let ran = false;
+    const result = await testRepositoryConnection(
+      {
+        ...remote,
+        authMode: "https",
+        // What a rotated or lost instance encryption key leaves on the row.
+        encryptedToken: "not-a-decryptable-blob",
+      } as Repository,
+      {
+        runGit: async () => {
+          ran = true;
+          return { stdout: "" };
+        },
+      },
+    );
+
+    assert.equal(result.ok, false);
+    assert.match(result.message, /No HTTPS token is set/);
+    assert.equal(ran, false);
+  });
+
+  test("refuses HTTPS auth on a remote that is not an https:// URL", async () => {
+    const result = await testRepositoryConnection(
+      {
+        ...remote,
+        authMode: "https",
+        gitUrl: "git@github.com:acme/private.git",
+        encryptedToken: encryptRepoSecret("stored-token", remote.companyId),
+      } as Repository,
+      {
+        runGit: async () => {
+          throw new Error("runGit must not be reached");
+        },
+      },
+    );
+
+    assert.equal(result.ok, false);
+    assert.match(result.message, /isn't an https:\/\/ URL/);
+  });
+
+  test("keeps a stored HTTPS token ahead of any Connection", async () => {
     const token = "stored-repository-token";
     let resolvedConnection = false;
     const result = await testRepositoryConnection(
@@ -209,6 +638,17 @@ describe("testing a Repository connection", () => {
 
     assert.equal(result.ok, true);
     assert.equal(resolvedConnection, false);
+  });
+
+  test("reports a reachable remote whose HEAD names no branch", async () => {
+    const result = await testRepositoryConnection(remote, {
+      resolveConnectionForRemote: async () => ({ kind: "none" }),
+      // An empty repository answers `ls-remote` with nothing at all.
+      runGit: async () => ({ stdout: "" }),
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.defaultBranch, undefined);
   });
 });
 
@@ -431,7 +871,11 @@ describe("bringing an employee checkout's trunk up to date", () => {
     const fixture = await behindCheckout();
     assert.notEqual(await fixture.head(), fixture.upstream, "the fixture must start behind");
 
-    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+    await fastForwardEmployeeDefaultBranch(
+      fixture.workspaceRoot,
+      fixture.repoPath,
+      repositoryRow(),
+    );
 
     assert.equal(await fixture.head(), fixture.upstream);
     assert.equal(
@@ -446,7 +890,11 @@ describe("bringing an employee checkout's trunk up to date", () => {
     const stale = await fixture.head();
     fs.writeFileSync(path.join(fixture.repoPath, "app.ts"), "export const version = 99;\n");
 
-    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+    await fastForwardEmployeeDefaultBranch(
+      fixture.workspaceRoot,
+      fixture.repoPath,
+      repositoryRow(),
+    );
 
     assert.equal(await fixture.head(), stale);
     assert.equal(
@@ -461,7 +909,11 @@ describe("bringing an employee checkout's trunk up to date", () => {
     const stale = await fixture.head();
     fs.writeFileSync(path.join(fixture.repoPath, "scratch.md"), "half an idea\n");
 
-    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+    await fastForwardEmployeeDefaultBranch(
+      fixture.workspaceRoot,
+      fixture.repoPath,
+      repositoryRow(),
+    );
 
     assert.equal(await fixture.head(), stale, "an untracked file is still work in progress");
     assert.equal(fs.existsSync(path.join(fixture.repoPath, "scratch.md")), true);
@@ -472,7 +924,11 @@ describe("bringing an employee checkout's trunk up to date", () => {
     await git(["switch", "--quiet", "--create", "feature/thing"], fixture.repoPath);
     const stale = await fixture.head();
 
-    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+    await fastForwardEmployeeDefaultBranch(
+      fixture.workspaceRoot,
+      fixture.repoPath,
+      repositoryRow(),
+    );
 
     assert.equal(await fixture.head(), stale);
     const { stdout } = await git(["symbolic-ref", "--short", "HEAD"], fixture.repoPath);
@@ -486,7 +942,11 @@ describe("bringing an employee checkout's trunk up to date", () => {
     await git(["commit", "--quiet", "-m", "Employee commit"], fixture.repoPath);
     const local = await fixture.head();
 
-    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+    await fastForwardEmployeeDefaultBranch(
+      fixture.workspaceRoot,
+      fixture.repoPath,
+      repositoryRow(),
+    );
 
     assert.equal(await fixture.head(), local, "--ff-only refuses, and that refusal is the point");
   });
@@ -529,9 +989,17 @@ describe("bringing an employee checkout's trunk up to date", () => {
 
   test("is a no-op on a checkout that is already current", async () => {
     const fixture = await behindCheckout();
-    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+    await fastForwardEmployeeDefaultBranch(
+      fixture.workspaceRoot,
+      fixture.repoPath,
+      repositoryRow(),
+    );
     const current = await fixture.head();
-    await fastForwardEmployeeDefaultBranch(fixture.workspaceRoot, fixture.repoPath, repositoryRow());
+    await fastForwardEmployeeDefaultBranch(
+      fixture.workspaceRoot,
+      fixture.repoPath,
+      repositoryRow(),
+    );
     assert.equal(await fixture.head(), current);
   });
 });
