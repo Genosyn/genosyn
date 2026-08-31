@@ -21,8 +21,8 @@
 
 <p align="center">
   <a href="#get-started">Get started</a> &middot;
-  <a href="#a-day-at-a-company-that-runs-itself">See a day it ran alone</a> &middot;
-  <a href="#how-an-ai-employee-is-built">How it works</a> &middot;
+  <a href="#how-it-works">How it works</a> &middot;
+  <a href="#whats-inside">What's inside</a> &middot;
   <a href="https://genosyn.com/docs">Docs</a>
 </p>
 
@@ -38,47 +38,37 @@ curl -fsSL https://genosyn.com/install.sh | bash
 
 ## What is Genosyn?
 
-Genosyn is a platform for running a company **autonomously**, with **AI employees** working
-alongside your team. You hire them, give each one a job, and they show up like any other
-teammate — in the same workspace, on their own schedule, with a record of everything they
-do. Nobody has to press start.
+Genosyn is a self-hosted workspace where humans and **AI employees** work side by side.
+You hire an employee, give it a job, and it shows up like any other teammate — on its own
+schedule, with a record of everything it did. Nobody has to press start.
 
-An AI employee is not a chatbot you babysit. It has a **Soul** (how it thinks and what it
-refuses), a set of **Skills** (playbooks for its job), and **Routines** (work that runs on a
-schedule). It wakes up, does the job, and tells you what it shipped.
-
-> A finance employee that reconciles your books every morning. A brand writer that drafts
-> the Friday digest. An on-call engineer watching your error rate. Without hiring three
-> more people.
+A finance employee reconciles the books every morning. A writer drafts the Friday digest.
+An on-call engineer watches the error rate. When something genuinely needs a person — a
+campaign budget, a patch before merge, a refund — it stops and asks.
 
 ---
 
-## A day at a company that runs itself
+## Get started
 
-This is one Tuesday. Nobody signed in until 09:30.
+You need [Docker](https://docs.docker.com/get-docker/).
 
-| Time | What happened | Where |
-| --- | --- | --- |
-| 01:20 | Alex drafted the launch digest from the week's numbers | Marketing |
-| 04:05 | Sam opened a fix for the overnight error spike | Repositories |
-| 07:00 | Mira reconciled 42 payments and filed 3 exceptions | Finance |
-| 08:30 | The morning briefing landed, answering the standing questions | Workspace |
-| **09:30** | **A human signs in** | — |
-| 12:45 | Alex cleared 12 support threads and tagged 3 to watch | Email |
-| 16:40 | Six deals moved a stage on evidence from the thread | Revenue |
-| 21:15 | Backups verified, tomorrow queued | Operations |
+```bash
+curl -fsSL https://genosyn.com/install.sh | bash
+```
 
-Three things waited for a person: a $4,000 campaign budget, a checkout patch before merge,
-and one refund that needed an entity picked. Everything else shipped.
+Open **http://localhost:8471** and create your account. Run the same command again any time
+to upgrade.
 
-**An autonomous company is not one that never asks. It is one where the asking is rare,
-specific, and worth your time.**
+On Kubernetes, install the Helm chart from `oci://ghcr.io/genosyn/charts` — see the
+[Kubernetes guide](https://genosyn.com/docs/kubernetes).
+
+📖 Next: [connect a model and hire your first employee](https://genosyn.com/docs).
 
 ---
 
-## How an AI employee is built
+## How it works
 
-Four plain, editable pieces. All of them are text you can read, diff, and take back.
+An AI employee is four pieces of plain text you can read, edit, and diff.
 
 | Piece | Answers | Example |
 | --- | --- | --- |
@@ -88,43 +78,36 @@ Four plain, editable pieces. All of them are text you can read, diff, and take b
 | **Grants** | What they can reach | The finance connection, the operations notebook, the checkout repository |
 
 Autonomy is a ladder, not a switch. You ask and it does; you write the ask down once as a
-Skill; the Skill goes on a schedule as a Routine; employees start picking up each other's
-handoffs. Each rung removes one more human trigger.
+Skill; the Skill goes on a schedule as a Routine. Each rung removes one more human trigger.
 
----
+### The Soul says who an employee is
 
-## What you can do
-
-### Give every employee a Soul
-
-One plain-markdown document: who the employee is, how they work, and the lines they will
-never cross. No prompt engineering, no hidden config — just text you can read, edit, and
-version.
+One markdown document: how they work and the lines they will never cross. No prompt
+engineering, no hidden config.
 
 <img alt="The Soul editor" src=".github/assets/screenshots/soul.png" width="820" />
 
-### Put their work on a schedule
+### Routines say when they work
 
-A **Routine** points a schedule at a brief: *"Every morning at 8, sync the CRM and post a
-summary to #sales."* Genosyn runs it on time, every time — through the night, through the
-weekend, through your holiday.
+A Routine points a schedule at a brief: *"Every morning at 8, sync the CRM and post a
+summary to #sales."* It runs on time — through the night, the weekend, and your holiday.
 
 <img alt="Scheduled routines for an employee" src=".github/assets/screenshots/routines.png" width="820" />
 
-Every run is saved: what the employee did, what it changed, how long it took, and the
-action items it surfaced. Nothing happens in a black box.
+Every run is saved: what changed, how long it took, and what needs your attention.
 
 <img alt="A routine run log" src=".github/assets/screenshots/run-log.png" width="820" />
 
-### Work side by side
+### The workspace is where you talk
 
-Your AI employees live in a shared **workspace** with channels and direct messages.
-`@mention` one and it answers like a teammate — and it can update its own skills and
-routines right there in the conversation.
+Channels and DMs, shared with your team. `@mention` an employee and it answers like a
+teammate — and it can update its own skills and routines right there in the conversation.
 
 <img alt="Chatting with an AI employee in the workspace" src=".github/assets/screenshots/workspace.png" width="820" />
 
-### Run the whole company in one place
+---
+
+## What's inside
 
 Autonomy stops at the edge of the tools, so Genosyn ships the tools. Humans and AI
 employees work the same records, in the same queues.
@@ -135,7 +118,7 @@ employees work the same records, in the same queues.
 | **Tasks** | Projects and a kanban board. Routines drop work straight into the right column. |
 | **Bases** | Airtable-style tables your employees query and update. |
 | **Notes** | Notion-style docs for SOPs, briefs, and research. |
-| **Revenue** | Contacts, deals, sequences, and product signals in the same database as the ledger. |
+| **Revenue** | Contacts, deals, sequences, and product signals — in the same database as the ledger. |
 | **Customers & Finance** | Accounts, contracts, invoices, and double-entry books. |
 | **Repositories** | Version-controlled workspaces — code, strategy, policies — that employees work in. |
 | **Pipelines** | Visual automations that trigger on a schedule or an event. |
@@ -146,42 +129,19 @@ employees work the same records, in the same queues.
 ## Why Genosyn
 
 - **Open source and self-hosted.** Your data, on your machine. Apache 2.0 licensed.
-- **Bring your own AI.** Plug in an Anthropic or OpenAI API key, any OpenAI-compatible or
-  self-hosted endpoint, or an eligible ChatGPT plan with Codex access. The standard Docker
-  install runs commands and repository work out of the box, isolated with bubblewrap, and
-  supports ChatGPT sign-in beside it. Your credentials, your limits, your spend.
-- **No black box.** Souls, Skills, and Routines are markdown. You can read every word an
-  employee acts on, and every run leaves a paper trail.
-- **A real company OS.** Not a wrapper around a chat box — a workspace, a task board, a
-  knowledge base, a CRM, and a ledger that humans and AI employees share.
+- **Bring your own AI.** An Anthropic or OpenAI key, any OpenAI-compatible or self-hosted
+  endpoint, or an eligible ChatGPT plan with Codex access. Your credentials, your spend.
+- **No black box.** Souls, Skills, and Routines are markdown, and every run leaves a paper
+  trail. Commands and repository work run sandboxed with bubblewrap.
 - **You keep the final say.** Sensitive actions stop for a human. Everything else keeps
   moving.
 
 ---
 
-## Get started
-
-You need [Docker](https://docs.docker.com/get-docker/). Then:
-
-```bash
-curl -fsSL https://genosyn.com/install.sh | bash
-```
-
-Open **http://localhost:8471** and create your account. Re-run the same command any time to
-upgrade.
-
-Prefer Kubernetes? The official Helm chart is published to
-`oci://ghcr.io/genosyn/charts` — see the [Kubernetes guide](https://genosyn.com/docs/kubernetes).
-
-📖 **Full guide:** [genosyn.com/docs](https://genosyn.com/docs) — install on your phone,
-connect a model, write your first Soul, and more.
-
----
-
 ## Learn more
 
-- **[Documentation](https://genosyn.com/docs)** — everything from your first employee to
-  self-hosting on Kubernetes.
+- **[Documentation](https://genosyn.com/docs)** — from your first employee to self-hosting
+  on Kubernetes.
 - **[Pricing](https://genosyn.com/pricing)** — free forever self-hosted; Genosyn Cloud is
   priced per AI employee hired, not per human seat.
 - **[Roadmap](./ROADMAP.md)** — what has shipped and what is next.
