@@ -23,7 +23,13 @@ export function Install() {
           },
           {
             term: "Docker",
-            def: "Docker Desktop or any Docker daemon. The CLI is a thin wrapper around docker — there are no Node, Python, or system-package deps.",
+            def: (
+              <>
+                Docker Desktop or any Docker daemon. You don&apos;t have to install it first — the
+                installer sets Docker up when it&apos;s missing. The CLI is a thin wrapper around{" "}
+                <Code>docker</Code>; there are no Node, Python, or system-package deps.
+              </>
+            ),
           },
           {
             term: "Port",
@@ -57,6 +63,23 @@ export function Install() {
         </a>{" "}
         in your browser first if you&apos;d like to review it.
       </Callout>
+
+      <H3 id="docker-setup">If you don&apos;t have Docker</H3>
+      <P>
+        The installer checks for a Docker daemon it can reach, and sets one up when it can&apos;t
+        find one. On Linux it runs Docker&apos;s own convenience script from{" "}
+        <Code>get.docker.com</Code>, starts the daemon, and adds you to the <Code>docker</Code>{" "}
+        group so the rest of the install can talk to the socket without <Code>sudo</Code>. On macOS
+        it installs Docker Desktop with Homebrew and launches it. Both paths need your password.
+      </P>
+      <Callout kind="info" title="Log out and back in after a first Linux install.">
+        A new group only reaches new logins. The installer borrows it for the rest of its own run,
+        so nothing stalls, but your existing shells keep the old membership until you log back in.
+      </Callout>
+      <P>
+        To manage Docker yourself, set <Code>GENOSYN_INSTALL_DOCKER=0</Code> on the installer
+        command — it then stops with a pointer to Docker&apos;s docs instead of installing anything.
+      </P>
 
       <P>
         When it finishes, Genosyn is running on <Code>http://localhost:8471</Code>. Open it and

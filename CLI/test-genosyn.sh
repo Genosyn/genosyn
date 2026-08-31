@@ -583,6 +583,220 @@ check "installer explains a non-script download" \
   "$(printf '%s' "${invalid_output}" | grep -Fc 'Downloaded file does not look like a shell script')" \
   "1"
 
+
+echo "bootstrap installer — docker bootstrap"
+
+# A PATH sandbox: only the host tools the installer legitimately needs, so the
+# mocks decide whether docker, sudo, brew, or sg exist at all.
+sysbin="${test_root}/sysbin"
+mkdir -p "${sysbin}"
+for tool in bash sh env mktemp mkdir rm ln cp mv chmod install dirname head grep \
+  sed cut tr id sleep cat printf test uname; do
+  tool_path="$(command -v "${tool}" 2>/dev/null)"
+  [ -n "${tool_path}" ] && ln -sf "${tool_path}" "${sysbin}/${tool}"
+done
+
+# A stand-in for the downloaded CLI: the installer only checks the shebang, and
+# this way the handoff is observable without pulling an image.
+cat >"${test_root}/fake-cli" <<'EOF'
+#!/usr/bin/env bash
+echo "CLI-INSTALL-RAN $*"
+EOF
+
+# curl that serves the CLI and the Docker convenience script from local files.
+cat >"${test_root}/mock-curl" <<'EOF'
+#!/usr/bin/env bash
+url=""; dest=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) dest="$2"; shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+case "${url}" in
+  *get.docker.com*) cp "${MOCK_GET_DOCKER_SOURCE}" "${dest}" ;;
+  *) cp "${MOCK_CURL_SOURCE}" "${dest}" ;;
+esac
+EOF
+
+# sudo that records what it was asked to elevate, then runs it with the
+# daemon reachable — that is what root access buys on a fresh install.
+cat >"${test_root}/mock-sudo" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >>"${MOCK_SUDO_LOG}"
+MOCK_DOCKER_OK=1 exec "$@"
+EOF
+
+# docker whose socket only answers when MOCK_DOCKER_OK is set.
+cat >"${test_root}/mock-docker-gated" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  info) [ "${MOCK_DOCKER_OK:-0}" = "1" ] && exit 0 || exit 1 ;;
+  *) exit 0 ;;
+esac
+EOF
+
+# The Docker convenience script, which drops a working docker onto PATH.
+cat >"${test_root}/mock-get-docker" <<'GETDOCKER_EOF'
+#!/bin/sh
+echo "get-docker ran"
+cat >"${MOCK_DOCKER_BIN_DIR}/docker" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "${MOCK_DOCKER_BIN_DIR}/docker"
+GETDOCKER_EOF
+
+cat >"${test_root}/mock-sg" <<'EOF'
+#!/usr/bin/env bash
+# sg <group> -c <command>
+echo "$*" >>"${MOCK_SG_LOG}"
+MOCK_DOCKER_OK=1 bash -c "$3"
+EOF
+
+cat >"${test_root}/mock-uname" <<'EOF'
+#!/usr/bin/env bash
+echo "${MOCK_UNAME_S}"
+EOF
+
+cat >"${test_root}/mock-noop" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+
+# Pin an unprivileged identity so these cases exercise the sudo and docker-group
+# paths whether the suite itself runs as root (containers, CI) or not.
+cat >"${test_root}/mock-id" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  -un) echo tester ;;
+  *) echo 1000 ;;
+esac
+EOF
+
+chmod +x "${test_root}/fake-cli" "${test_root}/mock-curl" "${test_root}/mock-sudo" \
+  "${test_root}/mock-docker-gated" "${test_root}/mock-get-docker" \
+  "${test_root}/mock-sg" "${test_root}/mock-uname" "${test_root}/mock-noop" \
+  "${test_root}/mock-id"
+
+new_case_bin() {
+  # new_case_bin <name> — a mock dir that shadows the PATH sandbox.
+  local dir="${test_root}/$1"
+  rm -rf "${dir}"
+  mkdir -p "${dir}"
+  cp "${test_root}/mock-curl" "${dir}/curl"
+  cp "${test_root}/mock-id" "${dir}/id"
+  echo "${dir}"
+}
+
+# --- opting out of the Docker install ---
+
+optout_bin="$(new_case_bin case-optout)"
+cp "${test_root}/mock-uname" "${optout_bin}/uname"
+optout_rc=0
+optout_output="$(
+  PATH="${optout_bin}:${sysbin}" \
+  HOME="${test_root}/home" \
+  MOCK_UNAME_S=Linux \
+  MOCK_CURL_SOURCE="${test_root}/fake-cli" \
+  GENOSYN_CLI_PREFIX="${test_root}/optout-prefix" \
+  GENOSYN_INSTALL_DOCKER=0 \
+  GENOSYN_DOCKER_WAIT=0 \
+  bash "${HERE}/install.sh" 2>&1
+)" || optout_rc=$?
+check "GENOSYN_INSTALL_DOCKER=0 refuses to install Docker" "${optout_rc}" "1"
+check "the opt-out points at the Docker docs" \
+  "$(printf '%s' "${optout_output}" | grep -Fc 'Docker is not installed. Get it at')" "1"
+check "the CLI is installed even when Docker setup fails" \
+  "$([ -x "${test_root}/optout-prefix/bin/genosyn" ] && echo yes || echo no)" "yes"
+
+# --- installing Docker on Linux ---
+
+linux_bin="$(new_case_bin case-linux)"
+cp "${test_root}/mock-uname" "${linux_bin}/uname"
+cp "${test_root}/mock-sudo" "${linux_bin}/sudo"
+cp "${test_root}/mock-noop" "${linux_bin}/systemctl"
+linux_sudo_log="${test_root}/linux-sudo.log"
+: >"${linux_sudo_log}"
+linux_rc=0
+linux_output="$(
+  PATH="${linux_bin}:${sysbin}" \
+  HOME="${test_root}/home" \
+  MOCK_UNAME_S=Linux \
+  MOCK_CURL_SOURCE="${test_root}/fake-cli" \
+  MOCK_GET_DOCKER_SOURCE="${test_root}/mock-get-docker" \
+  MOCK_DOCKER_BIN_DIR="${linux_bin}" \
+  MOCK_SUDO_LOG="${linux_sudo_log}" \
+  GENOSYN_CLI_PREFIX="${test_root}/linux-prefix" \
+  GENOSYN_DOCKER_WAIT=0 \
+  bash "${HERE}/install.sh" 2>&1
+)" || linux_rc=$?
+check "a Linux host without Docker installs it" "${linux_rc}" "0"
+check "the convenience script is fetched" \
+  "$(printf '%s' "${linux_output}" | grep -Fc 'Installing Docker via https://get.docker.com')" "1"
+check "the convenience script runs with root" \
+  "$(grep -c 'sh /' "${linux_sudo_log}" || true)" "1"
+check "the installed Docker is reported" \
+  "$(printf '%s' "${linux_output}" | grep -Fc 'Docker installed.')" "1"
+check "the handoff runs once Docker is up" \
+  "$(printf '%s' "${linux_output}" | grep -Fc 'CLI-INSTALL-RAN install')" "1"
+
+# --- a daemon the user is not yet allowed to talk to ---
+
+group_bin="$(new_case_bin case-group)"
+cp "${test_root}/mock-uname" "${group_bin}/uname"
+cp "${test_root}/mock-sudo" "${group_bin}/sudo"
+cp "${test_root}/mock-sg" "${group_bin}/sg"
+cp "${test_root}/mock-docker-gated" "${group_bin}/docker"
+# Present so a daemon restart would be visible if the installer reached for one.
+cp "${test_root}/mock-noop" "${group_bin}/systemctl"
+cp "${test_root}/mock-noop" "${group_bin}/usermod"
+cp "${test_root}/mock-noop" "${group_bin}/groupadd"
+group_sudo_log="${test_root}/group-sudo.log"
+group_sg_log="${test_root}/group-sg.log"
+: >"${group_sudo_log}"
+: >"${group_sg_log}"
+group_rc=0
+group_output="$(
+  PATH="${group_bin}:${sysbin}" \
+  HOME="${test_root}/home" \
+  MOCK_UNAME_S=Linux \
+  MOCK_CURL_SOURCE="${test_root}/fake-cli" \
+  MOCK_SUDO_LOG="${group_sudo_log}" \
+  MOCK_SG_LOG="${group_sg_log}" \
+  GENOSYN_CLI_PREFIX="${test_root}/group-prefix" \
+  GENOSYN_DOCKER_WAIT=0 \
+  bash "${HERE}/install.sh" 2>&1
+)" || group_rc=$?
+check "a socket the user cannot reach is repaired" "${group_rc}" "0"
+check "the user is added to the docker group" \
+  "$(grep -Fc 'usermod -aG docker' "${group_sudo_log}" || true)" "1"
+check "the daemon is not restarted to fix a permission problem" \
+  "$(printf '%s' "${group_output}" | grep -Fc 'Starting the Docker daemon')" "0"
+check "the rest of the run borrows the new group" \
+  "$(grep -Fc 'docker -c' "${group_sg_log}" || true)" "2"
+check "the handoff runs under the new group" \
+  "$(printf '%s' "${group_output}" | grep -Fc 'CLI-INSTALL-RAN install')" "1"
+
+# --- macOS without Homebrew ---
+
+mac_bin="$(new_case_bin case-mac)"
+cp "${test_root}/mock-uname" "${mac_bin}/uname"
+mac_rc=0
+mac_output="$(
+  PATH="${mac_bin}:${sysbin}" \
+  HOME="${test_root}/home" \
+  MOCK_UNAME_S=Darwin \
+  MOCK_CURL_SOURCE="${test_root}/fake-cli" \
+  GENOSYN_CLI_PREFIX="${test_root}/mac-prefix" \
+  GENOSYN_DOCKER_WAIT=0 \
+  bash "${HERE}/install.sh" 2>&1
+)" || mac_rc=$?
+check "macOS without Homebrew stops with instructions" "${mac_rc}" "1"
+check "macOS without Homebrew names Docker Desktop" \
+  "$(printf '%s' "${mac_output}" | grep -Fc 'Homebrew isn'"'"'t available')" "1"
+
 rm -rf "${test_root}"
 trap - EXIT
 
