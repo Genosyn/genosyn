@@ -277,6 +277,32 @@ workflow's filter. Deploy it directly:
 gh workflow run site.yml --ref release
 ```
 
+### "`main` has two red `Workers Builds` checks"
+
+`Workers Builds: genosyn` and `Workers Builds: genosyn-test` are not this
+repo's CI, which is why `gh run list` shows nothing wrong. They are Cloudflare's
+own Git integration, attached to the *second* `genosyn` Worker described in
+[Why this is written down](#why-this-is-written-down) — the one a hand-run
+`wrangler deploy` created in a personal account. That account still builds this
+repository on every push, and has failed on every commit since `da43199e`
+pinned `account_id` in [`Home/wrangler.jsonc`](Home/wrangler.jsonc): a deploy
+into an account the config does not name is precisely what the pin refuses.
+
+Compare the account id in the check's **Details** link with the one in
+`Home/wrangler.jsonc` — that is how you tell a stale build from a real one.
+
+Nothing in the repository can turn those checks green. Removing the pin would,
+and reintroduces the bug `da43199e` fixed. Delete the `genosyn` and
+`genosyn-test` Workers in the stale account, or unlink the build integration
+under **Workers & Pages → the Worker → Settings → Build → Git repository →
+Disconnect**.
+
+To see every check on a commit, not just the Actions ones:
+
+```bash
+gh api repos/Genosyn/genosyn/commits/main/check-runs --jq '.check_runs[] | "\(.conclusion)\t\(.name)"'
+```
+
 ## Files involved
 
 - [`VERSION`](VERSION) — semver string, no leading `v`.
