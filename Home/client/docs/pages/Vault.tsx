@@ -42,17 +42,17 @@ export function Vault() {
         connector, or a site an AI Employee has to sign in to.
       </P>
       <P>
-        A retired connector&apos;s secret is already here. Upgrading to 1.132.0 moved each one into a
-        restricted secure note named <Code>&lt;Connector&gt; (retired Integration)</Code>, holding
+        A retired connector&apos;s secret is already here. Upgrading to 1.132.0 moved each one into
+        a restricted secure note named <Code>&lt;Connector&gt; (retired Integration)</Code>, holding
         the connector&apos;s configuration, and removed the dead Connection. Company owners and
         admins can <Strong>Reveal</Strong> it; the only step left is sharing it, or granting it to
         the AI Employees that were using the connector.
       </P>
       <Callout>
-        A retired Connection still listed under <Strong>Settings → Integrations</Strong> is one whose
-        credential could <Strong>not</Strong> be decrypted during the upgrade, so it was deliberately left
-        alone. That row holds the only copy — restore the previous encryption key before
-        disconnecting it, or the value is gone.
+        A retired Connection still listed under <Strong>Settings → Integrations</Strong> is one
+        whose credential could <Strong>not</Strong> be decrypted during the upgrade, so it was
+        deliberately left alone. That row holds the only copy — restore the previous encryption key
+        before disconnecting it, or the value is gone.
       </Callout>
 
       <H2 id="add">Add a Vault item</H2>
@@ -90,6 +90,24 @@ export function Vault() {
         generated only when someone chooses <Strong>Show</Strong> or <Strong>Copy code</Strong>, and
         auto-hides when it expires. Editing never loads an existing password or authenticator setup
         key into the form; leave either field blank to keep it.
+      </P>
+
+      <H2 id="sources">Vault sources (Bitwarden and Vaultwarden)</H2>
+      <P>
+        If the company already runs Bitwarden or Vaultwarden, do not keep those credentials in two
+        places. Open <Strong>Vault</Strong> and choose <Strong>Connect a Vault source</Strong>: its
+        Logins and Secure notes are mirrored into this list, where they can be shared with Members
+        and granted to AI Employees like any other item. Genosyn stores only each item&apos;s title,
+        username, and website; the password is fetched from Bitwarden at the moment it is revealed,
+        copied, or typed into a sign-in form. Nothing is ever written back — editing and rotating
+        stay in Bitwarden, and the next sync brings the change across.
+      </P>
+      <P>
+        A mirrored item is marked <Strong>mirrored from</Strong> its source and cannot be edited or
+        deleted here. Everything else on this page — Access, Grants, Reveal, Browser autofill, audit
+        — behaves exactly as it does for a native item. The full walkthrough, including the
+        Bitwarden API key that avoids two-step login and what happens on disconnect, is on{" "}
+        <DocLink to="/docs/vault-sources">Vault sources</DocLink>.
       </P>
 
       <H2 id="members">Member access</H2>
@@ -242,14 +260,13 @@ export function Vault() {
       <P>
         During authenticator enrollment, <Code>browser_prepare_vault_totp</Code> first binds an
         AI-created Login to the exact origin and redacts screenshots and model-visible page text
-        before the secret appears. <Code>browser_save_vault_totp</Code> then reads the selected same-origin
-        setup key, authenticator QR image, or containing element. Genosyn validates and encrypts it
-        server-side. Later,{" "}
-        <Code>browser_fill_vault</Code> with the <Code>totp</Code> field generates and fills a
-        current code without returning the setup key or code. For approval-gated forms,{" "}
-        <Code>browser_submit_with_vault_totp</Code> generates that code only after Approval is
-        claimed and submits it immediately. A QR format Genosyn cannot decode still needs take-over
-        or manual setup-key entry in the Vault editor.
+        before the secret appears. <Code>browser_save_vault_totp</Code> then reads the selected
+        same-origin setup key, authenticator QR image, or containing element. Genosyn validates and
+        encrypts it server-side. Later, <Code>browser_fill_vault</Code> with the <Code>totp</Code>{" "}
+        field generates and fills a current code without returning the setup key or code. For
+        approval-gated forms, <Code>browser_submit_with_vault_totp</Code> generates that code only
+        after Approval is claimed and submits it immediately. A QR format Genosyn cannot decode
+        still needs take-over or manual setup-key entry in the Vault editor.
       </P>
       <P>
         Passkeys use bounded Browser ceremonies. <Code>browser_create_vault_passkey</Code> triggers
@@ -280,9 +297,9 @@ export function Vault() {
         rotating a credential.
       </P>
       <Callout kind="info" title="The Audit log page is gated.">
-        Reading the Audit log needs the Scale plan on Genosyn Cloud, or a Genosyn Enterprise
-        license self-hosted — events are recorded regardless. See{" "}
-        <DocLink to="/docs/plans-billing" /> and <DocLink to="/docs/enterprise-license" />.
+        Reading the Audit log needs the Scale plan on Genosyn Cloud, or a Genosyn Enterprise license
+        self-hosted — events are recorded regardless. See <DocLink to="/docs/plans-billing" /> and{" "}
+        <DocLink to="/docs/enterprise-license" />.
       </Callout>
       <UL>
         <LI>Do not paste a Vault value into Chat; Grant the item and use a governed action.</LI>

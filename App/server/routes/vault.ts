@@ -40,6 +40,7 @@ import {
   upsertVaultMemberAccess,
   type VaultHumanActor,
 } from "../services/vault.js";
+import { vaultSourcesRouter } from "./vaultSources.js";
 
 /**
  * Human-facing company Vault API. The legacy Settings → Secrets surface stays
@@ -71,6 +72,10 @@ vaultRouter.use((req, res, next) => {
   res.set("Pragma", "no-cache");
   next();
 });
+
+// External-vault connection management shares this surface's guards, and sits
+// above the item routes so `/sources` is never read as an item id.
+vaultRouter.use("/sources", vaultSourcesRouter);
 
 type VaultRequest = Request & {
   companyRole: NonNullable<Request["companyRole"]>;

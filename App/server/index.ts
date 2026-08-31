@@ -106,6 +106,7 @@ import { browserRpcRouter } from "./routes/browserRpc.js";
 import { memberBrowserBridgeRouter } from "./routes/memberBrowserBridge.js";
 import { memberBrowsersRouter } from "./routes/memberBrowsers.js";
 import { bootBrowserSessionSweeper } from "./services/browserSessions.js";
+import { bootVaultSourceSync } from "./services/vaultSourceSync.js";
 import { tagsRouter } from "./routes/tags.js";
 import { backfillLegacyResourceTags, backfillTagColors } from "./services/tags.js";
 import { billingRouter } from "./routes/billing.js";
@@ -120,10 +121,7 @@ import {
 } from "./services/runtimeSecurity.js";
 import { installOutboundNetworkPolicy } from "./services/outboundNetworkPolicy.js";
 import { bootPublicUrl } from "./services/publicUrl.js";
-import {
-  bootRuntimeSettings,
-  importLegacyConfigOverrides,
-} from "./services/runtimeSettings.js";
+import { bootRuntimeSettings, importLegacyConfigOverrides } from "./services/runtimeSettings.js";
 import { bootDurableChatTurnRecovery } from "./services/durableChatTurns.js";
 import { bootSignatureExpirySweeper } from "./services/signing.js";
 import { getEffectiveInstanceSecrets } from "./lib/instanceSecrets.js";
@@ -190,6 +188,7 @@ async function main() {
   // that lets a meeting transcript reach an AI Employee for its write-up.
   bootMeetings();
   bootBrowserSessionSweeper();
+  bootVaultSourceSync();
   // Long-polling Telegram listener — one outbound HTTP loop per Telegram
   // Connection. Fires asynchronously so a slow Telegram API doesn't gate
   // server startup; failures inside each loop are logged + retried.

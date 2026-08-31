@@ -187,8 +187,9 @@ export function VaultAccessPanel({ companyId, item }: { companyId: string; item:
                 : "Only selected Members can view this item"}
             </div>
             <p className="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">
-              View access includes reveal and copy. Edit also changes fields and rotates the stored
-              value. Only the creator and company owners or admins can change access or delete it.
+              {item.vaultSourceId !== null
+                ? "View access includes reveal and copy. Nobody edits a mirrored item here — its contents belong to the external vault. Only company owners or admins can change access."
+                : "View access includes reveal and copy. Edit also changes fields and rotates the stored value. Only the creator and company owners or admins can change access or delete it."}
             </p>
           </div>
         </div>

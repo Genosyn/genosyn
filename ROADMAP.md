@@ -2350,6 +2350,65 @@ boundaries.
       exact-origin/frame binding, password-only sinks, approval, redaction and
       plaintext non-disclosure.
 
+### M59 — Vault sources (Bitwarden and Vaultwarden) ✅
+
+A company that already runs a password manager should not keep the same
+credential in two places. M37 gave Genosyn a Vault of its own; this makes that
+Vault able to read someone else's. Issue #11 asked for it in the self-hosted
+case — a Vaultwarden beside a Genosyn install — and that is the case the design
+is aimed at.
+
+- [x] **A Vault source is not an Integration.** `VaultSource` is a company's
+      connection to an external password manager, connected at Vault → Connect a
+      Vault source and admin-gated. Modelling it as an Integration Connection
+      was rejected deliberately: a Connection is granted to an AI Employee
+      wholesale and must declare tools, whereas the entire point of the Vault is
+      per-item `use < manage` Grants — and 1.132.0 spent a milestone moving
+      credentials *out* of connector configs and into the Vault.
+- [x] **Mirrors, not copies.** Each external item gets an ordinary `VaultItem`
+      row carrying its title, username and website and **no secret**, marked
+      with `vaultSourceId` + `externalItemId`. Human Access, AI Grants, reveal
+      auditing, the exact-origin Browser fill and Run redaction therefore apply
+      to a Bitwarden credential with no second implementation. Listing, sharing
+      and Grant management never touch the network, so the Vault page still
+      works when the external server is down.
+- [x] **The secret is fetched when it is used.** Reveal, copy, `browser_fill_vault`
+      and authenticator codes resolve one item live from the source. The website
+      URL deliberately stays the mirrored value even then: it is the origin the
+      Browser may type the credential into, and an edit made in Bitwarden must
+      not retarget a fill already in flight. A URL change arrives through a sync,
+      which is a reviewable event.
+- [x] **The Bitwarden protocol, implemented in-process.** `lib/bitwarden/`
+      speaks the password-manager API the official clients and Vaultwarden
+      share: prelogin, PBKDF2 or Argon2id master-key derivation, the
+      HKDF-Expand-only key stretch, AES-256-CBC-HMAC-SHA256 `EncString`s,
+      RSA-OAEP organization keys, and per-item cipher keys. No `bw` binary, no
+      CLI harness, no credential directory on disk. Argon2id needs `hash-wasm`
+      — a zero-dependency WASM build, so the multi-arch image needs no native
+      toolchain.
+- [x] **Read-only, and honest about it.** Genosyn never writes to the external
+      vault: editing, rotating and deleting happen there, and the next sync
+      brings the change across. Logins and Secure notes cross over; cards,
+      identities, SSH keys and trashed items do not, and the sync reports what
+      it skipped. Visibility stays editable here because it is Genosyn's own
+      access policy, not the credential.
+- [x] **Sign-in that survives being headless.** A Bitwarden API key is the
+      recommended credential because an API-key grant skips both two-step login
+      and new-device verification; the password grant works too, with a stable
+      device identifier and a remembered second factor. An SSO or key-connector
+      account has no master-password unlock and is refused with that reason
+      rather than a decryption error.
+- [x] **Reachability is a decision the operator makes.** Outbound requests to a
+      Vault source are checked like every other outbound surface, so a company
+      admin cannot aim Genosyn at the host's own network — and a company admin
+      is not the operator, since anyone who can sign in can create a company and
+      own it. A Vaultwarden on a private address is reached by naming its
+      hostname in `security.outboundPrivateHostAllowlist`; the failure says so.
+- [x] **Sync on a timer and on demand.** A 15-minute leased background pass
+      keeps mirrors in step, and Sync now forces one. Items that disappear from
+      the source are removed here along with their Access and Grants, so a
+      recreated item cannot silently inherit an old Grant.
+
 ### M33 — AI-native accounting
 
 Make the whole finance module operable by an AI Employee, safely — not

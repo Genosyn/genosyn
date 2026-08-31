@@ -32,6 +32,7 @@ import {
 } from "@/lib/vault";
 import { VaultItemDetail } from "@/pages/vault/VaultItemDetail";
 import { VaultItemEditor } from "@/pages/vault/VaultItemEditor";
+import { VaultSourcesPanel } from "@/pages/vault/VaultSourcesPanel";
 
 export default function Vault({ company }: { company: Company }) {
   const [items, setItems] = React.useState<VaultItem[] | null>(null);
@@ -62,7 +63,10 @@ export default function Vault({ company }: { company: Company }) {
     void reload();
   }, [reload]);
 
-  useLiveRefetch(["vault_item", "vault_member_access", "vault_employee_grant"], reload);
+  useLiveRefetch(
+    ["vault_item", "vault_member_access", "vault_employee_grant", "vault_source"],
+    reload,
+  );
 
   const filtered = React.useMemo(
     () => filterVaultItems(items ?? [], query, type),
@@ -115,6 +119,8 @@ export default function Vault({ company }: { company: Company }) {
           detail="AI Employees use passwords, current codes, and passkeys through governed Browser actions."
         />
       </div>
+
+      <VaultSourcesPanel company={company} onChanged={reload} />
 
       <div className="mt-7 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-end dark:border-slate-800">
@@ -276,6 +282,14 @@ function VaultItemRow({ item, onOpen }: { item: VaultItem; onOpen: () => void })
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               {vaultItemTypeLabel(item.type)}
             </span>
+            {item.vaultSourceId !== null && (
+              <span
+                className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                title="Mirrored from a Vault source"
+              >
+                Bitwarden
+              </span>
+            )}
             {item.type === "login" && item.hasTotp && (
               <span className="inline-flex items-center gap-1 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
                 <Smartphone size={10} /> Authenticator
@@ -300,7 +314,10 @@ function VaultItemRow({ item, onOpen }: { item: VaultItem; onOpen: () => void })
             {item.visibility === "company" ? "Company" : "Restricted"}
           </span>
           <span className="rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-            {item.effectiveAccessLevel === "edit" ? "Can edit" : "View only"}
+            {/* `canEdit`, not the access level: a mirrored item's contents are
+                the external vault's, so even a company admin cannot edit them
+                here and the badge must not claim otherwise. */}
+            {item.canEdit ? "Can edit" : "View only"}
           </span>
         </div>
       </button>

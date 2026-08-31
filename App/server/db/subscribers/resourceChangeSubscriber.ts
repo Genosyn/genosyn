@@ -275,6 +275,7 @@ const REGISTRY: Record<string, Mapping> = {
   VaultItem: { kind: "vault_item", company: "direct" },
   VaultItemMemberAccess: { kind: "vault_member_access", company: "direct", scopeFk: "vaultItemId" },
   EmployeeVaultGrant: { kind: "vault_employee_grant", company: "direct", scopeFk: "vaultItemId" },
+  VaultSource: { kind: "vault_source", company: "direct" },
   ApiKey: { kind: "apikey", company: "direct" },
   Tag: { kind: "tag", company: "direct" },
   Team: { kind: "team", company: "direct" },

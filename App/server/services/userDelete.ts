@@ -58,6 +58,7 @@ import { Vendor } from "../db/entities/Vendor.js";
 import { WebAuthnCredential } from "../db/entities/WebAuthnCredential.js";
 import { VaultItem } from "../db/entities/VaultItem.js";
 import { VaultItemMemberAccess } from "../db/entities/VaultItemMemberAccess.js";
+import { VaultSource } from "../db/entities/VaultSource.js";
 import { emitMembershipAuthorizationChange } from "./resourceEvents.js";
 
 /** A company the to-be-deleted user is the registered owner of. */
@@ -173,6 +174,7 @@ export async function deleteUserCascade(args: { userId: string }): Promise<Delet
     await m.update(JournalEntry, { authorUserId: userId }, { authorUserId: null });
     await m.update(TodoComment, { authorUserId: userId }, { authorUserId: null });
     await m.update(VaultItem, { createdByUserId: userId }, { createdByUserId: null });
+    await m.update(VaultSource, { createdByUserId: userId }, { createdByUserId: null });
     // The card and its thread stay readable to the company that kept them;
     // only the departed Member's name comes off the question.
     await m.update(TldrQuestion, { createdByUserId: userId }, { createdByUserId: null });

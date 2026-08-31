@@ -198,6 +198,7 @@ import { EmployeeCalendarGrant } from "./entities/EmployeeCalendarGrant.js";
 import { VaultItem } from "./entities/VaultItem.js";
 import { VaultItemMemberAccess } from "./entities/VaultItemMemberAccess.js";
 import { EmployeeVaultGrant } from "./entities/EmployeeVaultGrant.js";
+import { VaultSource } from "./entities/VaultSource.js";
 import { TldrSettings } from "./entities/TldrSettings.js";
 import { Tldr } from "./entities/Tldr.js";
 import { TldrDismissal } from "./entities/TldrDismissal.js";
@@ -399,6 +400,7 @@ const entities = [
   VaultItem,
   VaultItemMemberAccess,
   EmployeeVaultGrant,
+  VaultSource,
   // Calendar + Meetings (M44) — the mirrored agenda, recorded calls, and the
   // transcripts the revenue timeline and the follow-up pass both read.
   CalendarAccount,

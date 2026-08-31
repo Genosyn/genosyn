@@ -99,6 +99,7 @@ code, UI copy, commits, and docs.
 | **Integration** (a connector type: Stripe, Gmail, …; static in code) | Provider, Plugin, Service (in product copy) |
 | **Connection** (one authenticated account inside an Integration; DB row) | Account, Instance, Integration (of the DB row) |
 | **Member browser** (a Chrome a human connected from their own computer — `MemberBrowser`) | Connection, Browser Connection, Device |
+| **Vault source** (an external password manager a company mirrors into its Vault — `VaultSource`) | Integration, Connection, Provider, Backend |
 | **Decision** (a question an AI Employee stacked for the company to answer — a human, or the AI decider a `DecisionPolicy` rule names — `Decision`) | Approval, Question, Ask, Escalation |
 | **Waiver** (an earned, revocable exemption from one human gate — `AutonomyWaiver`) | Tier, Level, Trust score |
 | **Check** (a machine-verifiable assertion a Run must pass before it finalizes green — `RoutineCheck`, result `RunCheckResult`) | Test, Assertion, Gate, Validation |
@@ -140,6 +141,18 @@ browser** (`MemberBrowser`, granted to employees through
 not least because `IntegrationAuthMode` already has a `"browser"` mode meaning
 "a Connection whose credentials the headless browser replays". Two unrelated
 meanings on one word is what this table exists to prevent.
+
+**A Vault source is not an Integration either.** A **Vault source**
+(`VaultSource`) is a company's connection to Bitwarden or Vaultwarden, and the
+items it holds appear as ordinary `VaultItem` rows carrying no secret of their
+own — a mirror, marked by `vaultSourceId`, whose password is fetched from the
+source at the moment it is used. Modelling it as an Integration Connection was
+considered and rejected: a Connection is granted to an AI Employee wholesale and
+must declare model-callable tools, whereas a Vault item's whole point is
+per-item `use < manage` Grants and a plaintext path that never reaches the
+model. 1.132.0 spent a milestone moving credentials *out* of connector configs
+and into the Vault; a credentials connector would push that arrow backwards.
+See ROADMAP M59.
 
 **A Check is not a health check, and a Standdown is not `Routine.enabled`.**
 The word "check" had a second meaning in this codebase — one named condition on

@@ -22,6 +22,13 @@ import {
   type VaultMemberAccessLevel,
 } from "../db/entities/VaultItemMemberAccess.js";
 import { decryptSecretWithStrongKeys, encryptSecret } from "../lib/secret.js";
+import {
+  VaultSourceError,
+  loadVaultSource,
+  readVaultSourceItem,
+  readVaultSourceItems,
+  recordVaultSourceStatus,
+} from "./vaultSources.js";
 
 const vaultTotpAlgorithmSchema = z.enum(["sha1", "sha256", "sha512"]);
 
@@ -149,6 +156,8 @@ export type VaultItemView = {
   companyId: string;
   type: VaultItemType;
   visibility: VaultItemVisibility;
+  /** Set when this item mirrors one in an external vault (`VaultSource`). */
+  vaultSourceId: string | null;
   title: string;
   username: string;
   websiteUrl: string;
@@ -572,6 +581,11 @@ async function replaceVaultPayload(
   payload: VaultPayload,
   conflictMessage: string,
 ): Promise<VaultItem> {
+  // Defence in depth for mirrors. Every caller below rebuilds the payload from
+  // one that may have been resolved live from the external vault, so writing it
+  // back here would persist the real secret — the one thing a mirror exists to
+  // avoid. No legitimate caller writes a mirror through this path.
+  assertLocalVaultItem(row, "contents");
   const update = await AppDataSource.getRepository(VaultItem).update(
     { id: row.id, companyId: row.companyId, version: row.version },
     {
@@ -696,28 +710,107 @@ function toView(
   const effectiveAccessLevel = effectiveHumanAccess(row, actor, explicitAccess);
   if (!effectiveAccessLevel) throw new VaultError("Vault item not found", 404);
   const manager = isHumanManager(row, actor);
+  const mirrored = isMirroredVaultItem(row);
   return {
     id: row.id,
     companyId: row.companyId,
     type: row.type,
     visibility: row.visibility,
+    vaultSourceId: row.vaultSourceId,
     title: payload.title,
     username: payload.username,
     websiteUrl: payload.websiteUrl,
     notes: payload.notes,
-    hasTotp: payload.totp !== null,
-    passkeys: payload.passkeys.map(toPasskeyView),
+    // A mirror holds no seed, so the external vault's own answer is the only
+    // one available — and the only one that stays true after it is rotated
+    // there.
+    hasTotp: mirrored ? row.externalHasTotp : payload.totp !== null,
+    passkeys: mirrored ? [] : payload.passkeys.map(toPasskeyView),
     version: row.version,
     createdByUserId: row.createdByUserId,
     createdByEmployeeId: row.createdByEmployeeId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     effectiveAccessLevel,
-    canEdit: effectiveAccessLevel === "edit",
+    // Content and lifecycle belong to the external vault; sharing, Grants and
+    // visibility are Genosyn's own policy and stay editable here.
+    canEdit: effectiveAccessLevel === "edit" && !mirrored,
     canShare: manager,
-    canDelete: manager,
+    canDelete: manager && !mirrored,
     canReveal: true,
   };
+}
+
+/** True when this item's secret lives in an external vault rather than here. */
+function isMirroredVaultItem(row: VaultItem): boolean {
+  return row.vaultSourceId !== null && row.externalItemId !== null;
+}
+
+/**
+ * Refuse an operation that would edit content Genosyn does not own.
+ *
+ * A mirror is a reference, not a copy: writing to it would either be silently
+ * undone by the next sync or, worse, look like a rotation that never reached
+ * the system of record.
+ */
+function assertLocalVaultItem(row: VaultItem, whatWouldChange: string): void {
+  if (!isMirroredVaultItem(row)) return;
+  throw new VaultError(
+    `This Vault item is mirrored from an external vault. Change its ${whatWouldChange} in the external vault instead.`,
+    409,
+  );
+}
+
+/**
+ * Read an item's payload including its secret, going to the external vault
+ * when that is where the secret lives.
+ *
+ * Only the paths that genuinely need plaintext call this. Listing, sharing and
+ * Grant management all stay on the local mirror, so neither a Member browsing
+ * the Vault nor an AI Employee discovering its Grants ever depends on the
+ * external server being reachable.
+ *
+ * The website URL deliberately stays the mirrored value even here. It is the
+ * origin the Browser is allowed to type this credential into, and letting an
+ * edit made in Bitwarden retarget a fill already in flight would turn a
+ * password manager into a phishing delivery mechanism. A URL change reaches
+ * Genosyn through a sync, which is a reviewable event.
+ */
+async function resolveVaultPayload(row: VaultItem): Promise<VaultPayload> {
+  const mirror = decryptPayload(row);
+  if (!isMirroredVaultItem(row)) return mirror;
+  const source = await withVaultSourceErrors(() =>
+    loadVaultSource(row.companyId, row.vaultSourceId!),
+  );
+  const live = await withVaultSourceErrors(() => readVaultSourceItem(source, row.externalItemId!));
+  return {
+    ...mirror,
+    username: live.username,
+    secret: live.secret,
+    totp: mirroredTotp(live.totpSetupKey),
+  };
+}
+
+/**
+ * A malformed authenticator seed in the external vault must not break the
+ * password beside it — the credential is still usable without its code.
+ */
+function mirroredTotp(setupKey: string | null): VaultTotp | null {
+  if (!setupKey) return null;
+  try {
+    return normalizeVaultTotpSetup(setupKey);
+  } catch {
+    return null;
+  }
+}
+
+async function withVaultSourceErrors<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof VaultSourceError) throw new VaultError(error.message, error.statusCode);
+    throw error;
+  }
 }
 
 async function loadHumanAccess(
@@ -898,7 +991,15 @@ export async function updateVaultItem(args: {
   };
 }): Promise<{ before: VaultItemView; item: VaultItemView }> {
   const loaded = await loadAccessibleItem(args.companyId, args.itemId, args.actor);
-  if (!loaded.view.canEdit) throw new VaultError("Edit access is required", 403);
+  if (isMirroredVaultItem(loaded.row)) {
+    // Visibility is Genosyn's own access policy, not the credential — a mirror
+    // may still be widened or narrowed here.
+    if (Object.keys(args.patch).some((field) => field !== "visibility")) {
+      assertLocalVaultItem(loaded.row, "contents");
+    }
+  } else if (!loaded.view.canEdit) {
+    throw new VaultError("Edit access is required", 403);
+  }
   assertNoActiveVaultPasskeyRegistration(loaded.payload);
   if (loaded.row.version !== args.expectedVersion) {
     throw new VaultError(
@@ -979,6 +1080,12 @@ export async function deleteVaultItem(args: {
   actor: VaultHumanActor;
 }): Promise<{ id: string; title: string; type: VaultItemType }> {
   const { row, payload } = await loadManagedItem(args.companyId, args.itemId, args.actor);
+  if (isMirroredVaultItem(row)) {
+    throw new VaultError(
+      "This Vault item is mirrored from an external vault. Delete it there, or disconnect the Vault source.",
+      409,
+    );
+  }
   assertNoActiveVaultPasskeyRegistration(payload);
   assertNoActiveVaultPasskeyUse(payload);
   await AppDataSource.transaction(async (manager) => {
@@ -1011,7 +1118,8 @@ export async function revealVaultItem(args: {
   actor: VaultHumanActor;
 }): Promise<{ item: VaultItemView; secret: string }> {
   const loaded = await loadAccessibleItem(args.companyId, args.itemId, args.actor);
-  return { item: loaded.view, secret: loaded.payload.secret };
+  const payload = await resolveVaultPayload(loaded.row);
+  return { item: loaded.view, secret: payload.secret };
 }
 
 async function generateVaultTotpCode(
@@ -1047,6 +1155,7 @@ export async function setVaultTotp(args: {
   setupKey: string;
 }): Promise<VaultItemView> {
   const loaded = await loadAccessibleItem(args.companyId, args.itemId, args.actor);
+  assertLocalVaultItem(loaded.row, "authenticator");
   if (!loaded.view.canEdit) throw new VaultError("Edit access is required", 403);
   assertNoActiveVaultPasskeyRegistration(loaded.payload);
   if (loaded.row.type !== "login") {
@@ -1070,6 +1179,7 @@ export async function deleteVaultTotp(args: {
   actor: VaultHumanActor;
 }): Promise<VaultItemView> {
   const loaded = await loadAccessibleItem(args.companyId, args.itemId, args.actor);
+  assertLocalVaultItem(loaded.row, "authenticator");
   if (!loaded.view.canEdit) throw new VaultError("Edit access is required", 403);
   assertNoActiveVaultPasskeyRegistration(loaded.payload);
   if (loaded.row.type !== "login") {
@@ -1092,12 +1202,13 @@ export async function getVaultTotpCode(args: {
   at?: Date;
 }): Promise<{ item: VaultItemView; code: string; expiresAt: Date }> {
   const loaded = await loadAccessibleItem(args.companyId, args.itemId, args.actor);
-  if (loaded.row.type !== "login" || !loaded.payload.totp) {
+  const payload = await resolveVaultPayload(loaded.row);
+  if (loaded.row.type !== "login" || !payload.totp) {
     throw new VaultError("This Vault login has no TOTP saved", 404);
   }
   return {
     item: loaded.view,
-    ...(await generateVaultTotpCode(loaded.payload.totp, args.at ?? new Date())),
+    ...(await generateVaultTotpCode(payload.totp, args.at ?? new Date())),
   };
 }
 
@@ -1480,6 +1591,7 @@ export async function listVaultItemsForEmployee(
     const rank = grant ? EMPLOYEE_VAULT_ACCESS_RANK[grant.accessLevel] : undefined;
     if (!grant || typeof rank !== "number") return [];
     const payload = decryptPayload(row);
+    const mirrored = isMirroredVaultItem(row);
     return [
       {
         id: row.id,
@@ -1487,8 +1599,8 @@ export async function listVaultItemsForEmployee(
         title: payload.title,
         username: payload.username,
         websiteUrl: payload.websiteUrl,
-        hasTotp: payload.totp !== null,
-        passkeys: payload.passkeys.map(toPasskeyView),
+        hasTotp: mirrored ? row.externalHasTotp : payload.totp !== null,
+        passkeys: mirrored ? [] : payload.passkeys.map(toPasskeyView),
         accessLevel: grant.accessLevel,
       },
     ];
@@ -1529,7 +1641,7 @@ export async function getVaultItemPayloadForEmployee(args: {
   if (typeof have !== "number" || have < need) {
     throw new VaultError(`The "${required}" Vault Grant level is required`, 403);
   }
-  return { item, payload: decryptPayload(item), accessLevel: grant.accessLevel };
+  return { item, payload: await resolveVaultPayload(item), accessLevel: grant.accessLevel };
 }
 
 /**
@@ -1558,6 +1670,7 @@ function assertEmployeeCreatedVaultLogin(
   employeeId: string,
   authenticator: "TOTP" | "software passkeys",
 ): void {
+  assertLocalVaultItem(item, "authenticator");
   if (item.type !== "login") {
     throw new VaultError(`${authenticator} can only be attached to Vault logins`, 400);
   }
@@ -2109,6 +2222,10 @@ export async function updateVaultLoginMetadataForEmployee(args: {
   if (Object.keys(args.patch).some((field) => !["title", "username", "notes"].includes(field))) {
     throw new VaultError("AI Employees cannot change a Vault login's saved website", 403);
   }
+  // Checked before the payload is resolved: this path rewrites the whole
+  // ciphertext, and for a mirror the resolved payload holds the live external
+  // secret. Writing that back would copy the credential into Genosyn.
+  assertLocalVaultItem(await loadItem(args.companyId, args.itemId), "title, username or notes");
   const resolved = await getVaultItemPayloadForEmployee({
     companyId: args.companyId,
     employeeId: args.employeeId,
@@ -2161,4 +2278,183 @@ export async function updateVaultLoginMetadataForEmployee(args: {
     createdAt: saved.createdAt,
     updatedAt: saved.updatedAt,
   };
+}
+
+// ── External vault mirrors ───────────────────────────────────────────────────
+
+export type VaultSourceSyncResult = {
+  added: number;
+  updated: number;
+  removed: number;
+  /** Items the external vault holds that a Genosyn Vault cannot represent. */
+  skipped: { unsupportedType: number; unreadable: number; outOfScope: number };
+  itemCount: number;
+};
+
+/** The mirror payload for one external item: metadata, and deliberately no secret. */
+function mirrorPayload(item: {
+  title: string;
+  username: string;
+  websiteUrl: string;
+}): VaultPayload {
+  let websiteUrl = "";
+  try {
+    websiteUrl = normalizeVaultWebsiteUrl(item.websiteUrl);
+  } catch {
+    // The external vault accepts match patterns that are not URLs. Genosyn's
+    // Browser fill needs a real origin or nothing at all.
+    websiteUrl = "";
+  }
+  return {
+    title: item.title.slice(0, 200),
+    username: item.username.slice(0, 500),
+    secret: "",
+    websiteUrl,
+    notes: "",
+    totp: null,
+    passkeys: [],
+    passkeyRegistrationLease: null,
+  };
+}
+
+function sameMirrorPayload(left: VaultPayload, right: VaultPayload): boolean {
+  return (
+    left.title === right.title &&
+    left.username === right.username &&
+    left.websiteUrl === right.websiteUrl
+  );
+}
+
+/**
+ * Bring a company's Vault into step with one external vault.
+ *
+ * Every item the source holds gets a `VaultItem` row carrying its title,
+ * username and website and **no secret**. That row is what human Access and AI
+ * Employee Grants attach to, which is the whole reason mirrors exist rather
+ * than a parallel item type: everything M37 built — default-deny Grants, the
+ * exact-origin Browser fill, reveal auditing — applies to a Bitwarden
+ * credential without a second implementation.
+ *
+ * Items that disappear from the source are removed here too, along with their
+ * Access and Grants. Leaving them would mean a Grant that silently comes back
+ * to life if the same item is ever recreated.
+ */
+export async function syncVaultSource(args: {
+  companyId: string;
+  sourceId: string;
+}): Promise<VaultSourceSyncResult> {
+  const source = await withVaultSourceErrors(() => loadVaultSource(args.companyId, args.sourceId));
+  let read;
+  try {
+    read = await readVaultSourceItems(source);
+  } catch (error) {
+    const message =
+      error instanceof VaultSourceError ? error.message : "The external vault could not be read";
+    await recordVaultSourceStatus({
+      companyId: args.companyId,
+      sourceId: args.sourceId,
+      status: "error",
+      statusMessage: message,
+    });
+    if (error instanceof VaultSourceError) throw new VaultError(message, error.statusCode);
+    throw error;
+  }
+
+  const repo = AppDataSource.getRepository(VaultItem);
+  const existing = await repo.find({
+    where: { companyId: args.companyId, vaultSourceId: args.sourceId },
+  });
+  const byExternalId = new Map(
+    existing.flatMap((row) => (row.externalItemId ? [[row.externalItemId, row] as const] : [])),
+  );
+  // An item that exists but could not be decoded this pass is present in the
+  // external vault, so its mirror — and every Grant and Access row hanging off
+  // it — must survive. Only genuine absences are pruned below.
+  const seen = new Set<string>(read.unreadableIds);
+  let added = 0;
+  let updated = 0;
+
+  for (const item of read.items) {
+    seen.add(item.id);
+    const payload = mirrorPayload(item);
+    const externalHasTotp = item.totpSetupKey !== null;
+    const row = byExternalId.get(item.id);
+    if (!row) {
+      try {
+        await repo.save(
+          repo.create({
+            companyId: args.companyId,
+            type: item.type,
+            visibility: source.defaultVisibility,
+            encryptedPayload: encryptPayload(args.companyId, payload),
+            createdByUserId: null,
+            createdByEmployeeId: null,
+            vaultSourceId: args.sourceId,
+            externalItemId: item.id,
+            externalRevision: item.revisionDate,
+            externalHasTotp,
+          }),
+        );
+        added += 1;
+      } catch {
+        // A concurrent sync won the unique index. Its row is equally correct.
+      }
+      continue;
+    }
+    let current: VaultPayload | null = null;
+    try {
+      current = decryptPayload(row);
+    } catch {
+      current = null;
+    }
+    const unchanged =
+      current !== null &&
+      row.type === item.type &&
+      row.externalHasTotp === externalHasTotp &&
+      row.externalRevision === item.revisionDate &&
+      sameMirrorPayload(current, payload);
+    if (unchanged) continue;
+    const write = await repo.update(
+      { id: row.id, companyId: args.companyId, version: row.version },
+      {
+        type: item.type,
+        encryptedPayload: encryptPayload(args.companyId, payload),
+        externalRevision: item.revisionDate,
+        externalHasTotp,
+        version: row.version + 1,
+      },
+    );
+    if (write.affected === 1) updated += 1;
+  }
+
+  const stale = existing.filter((row) => !row.externalItemId || !seen.has(row.externalItemId));
+  let removed = 0;
+  if (stale.length > 0) {
+    const staleIds = stale.map((row) => row.id);
+    await AppDataSource.transaction(async (manager) => {
+      await manager.delete(VaultItemMemberAccess, {
+        companyId: args.companyId,
+        vaultItemId: In(staleIds),
+      });
+      await manager.delete(EmployeeVaultGrant, {
+        companyId: args.companyId,
+        vaultItemId: In(staleIds),
+      });
+      const deletion = await manager.delete(VaultItem, {
+        companyId: args.companyId,
+        id: In(staleIds),
+      });
+      removed = deletion.affected ?? 0;
+    });
+  }
+
+  await recordVaultSourceStatus({
+    companyId: args.companyId,
+    sourceId: args.sourceId,
+    status: "connected",
+    statusMessage: "",
+    syncedItemCount: read.items.length,
+  });
+
+  return { added, updated, removed, skipped: read.skipped, itemCount: read.items.length };
 }

@@ -19,6 +19,12 @@ export type VaultItem = {
   companyId: string;
   type: VaultItemType;
   visibility: VaultVisibility;
+  /**
+   * Set when this item is mirrored from a connected Vault source. A mirror
+   * carries title, username, and website but no stored secret — that one lives
+   * in Bitwarden and is read from there whenever it is used.
+   */
+  vaultSourceId: string | null;
   title: string;
   username: string;
   websiteUrl: string;

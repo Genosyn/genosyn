@@ -204,6 +204,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Encrypted logins with authenticator codes and software passkeys, plus API keys and secure notes.",
       },
       {
+        path: "/docs/vault-sources",
+        title: "Vault sources",
+        blurb:
+          "Mirror a Bitwarden or Vaultwarden vault into the Vault — read-only, with secrets fetched live.",
+      },
+      {
         path: "/docs/email",
         title: "Email",
         blurb:

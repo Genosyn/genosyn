@@ -181,6 +181,7 @@ import { Secret } from "../db/entities/Secret.js";
 import { VaultItem } from "../db/entities/VaultItem.js";
 import { VaultItemMemberAccess } from "../db/entities/VaultItemMemberAccess.js";
 import { EmployeeVaultGrant } from "../db/entities/EmployeeVaultGrant.js";
+import { VaultSource } from "../db/entities/VaultSource.js";
 import { Skill } from "../db/entities/Skill.js";
 import { Tag } from "../db/entities/Tag.js";
 import { TagAssignment } from "../db/entities/TagAssignment.js";
@@ -500,6 +501,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(VaultItemMemberAccess, { companyId });
     await m.delete(EmployeeVaultGrant, { companyId });
     await m.delete(VaultItem, { companyId });
+    await m.delete(VaultSource, { companyId });
     await m.delete(Resource, { companyId });
     // Newer company-scoped surfaces: sales docs (Estimate / RecurringInvoice +
     // their line items and CustomerContact / CustomerContract), Explore

@@ -16,6 +16,7 @@ import {
   Trash2,
   UserRound,
   Users,
+  Vault,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
@@ -346,6 +347,21 @@ export function VaultItemDetail({
 
           <FormError message={error} />
 
+          {detail.vaultSourceId !== null && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/40">
+              <div className="flex items-start gap-2.5">
+                <Vault size={16} className="mt-0.5 shrink-0 text-indigo-500" />
+                <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">
+                  Mirrored from a Vault source. The {detail.type === "login" ? "password" : "value"}{" "}
+                  lives in Bitwarden and is read from there every time it is revealed, copied, or
+                  filled — Genosyn keeps no copy of it. Edit and delete it in Bitwarden; the next
+                  sync carries the change here. Member access and AI Employee Grants are still
+                  managed in Genosyn.
+                </p>
+              </div>
+            </div>
+          )}
+
           <section>
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
               Item details
@@ -468,7 +484,9 @@ export function VaultItemDetail({
                             <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                               {totpCode
                                 ? `Expires in ${totpSecondsLeft}s`
-                                : "Setup key encrypted with this login"}
+                                : detail.vaultSourceId !== null
+                                  ? "Setup key stays in Bitwarden"
+                                  : "Setup key encrypted with this login"}
                             </div>
                           </>
                         ) : (
