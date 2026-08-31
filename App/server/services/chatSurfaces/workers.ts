@@ -50,6 +50,8 @@ const HEALTHY_RUN_MS = 60_000;
 /** How often we look for Connections created by another replica. */
 const DISCOVERY_INTERVAL_MS = 30_000;
 const LEASE_TTL_MS = 90_000;
+/** How often a cancellable sleep re-checks. Bounds how long shutdown waits. */
+const SLEEP_POLL_MS = 50;
 
 const WORKERS = new Map<string, Worker>();
 let discoveryTimer: NodeJS.Timeout | null = null;
@@ -210,15 +212,32 @@ export function activeChatSurfaceWorkerIds(): string[] {
   return [...WORKERS.keys()].sort();
 }
 
+/**
+ * Sleep, but wake early on cancellation.
+ *
+ * Deliberately **not** unref'd, unlike the discovery timer above. An unref'd
+ * timer does not hold the event loop open, so a process whose only remaining
+ * work was a backing-off transport would drain while this promise was still
+ * pending — and `stopChatSurfaceWorkers`, which awaits `worker.finished`,
+ * would then wait for something that can never resolve. Node's test runner
+ * reports exactly that as "Promise resolution is still pending but the event
+ * loop has already resolved", which is how this was found.
+ *
+ * The poll interval is the cost of that: a cancelled sleep unblocks within it,
+ * so shutdown is bounded by one tick rather than by the remaining backoff.
+ */
 export function sleepCancellable(ms: number, isCancelled: () => boolean): Promise<void> {
   return new Promise((resolve) => {
+    if (isCancelled() || ms <= 0) {
+      resolve();
+      return;
+    }
     const start = Date.now();
     const timer = setInterval(() => {
       if (isCancelled() || Date.now() - start >= ms) {
         clearInterval(timer);
         resolve();
       }
-    }, 200);
-    if (typeof timer.unref === "function") timer.unref();
+    }, SLEEP_POLL_MS);
   });
 }

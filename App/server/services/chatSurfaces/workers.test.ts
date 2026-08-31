@@ -72,7 +72,23 @@ async function connection(provider: string): Promise<IntegrationConnection> {
   });
 }
 
-/** Give the worker a moment to enter its transport loop. */
+/**
+ * Wait for something to become true rather than for a fixed number of
+ * milliseconds. A worker starts on its own microtask and then does a database
+ * round trip before it reaches the transport, and a loaded CI runner is slower
+ * at both than a laptop — a sleep long enough to be reliable there would be
+ * dead time in every one of these tests.
+ */
+async function waitFor(predicate: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    if (predicate()) return;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+/** Let anything already scheduled run, without asserting it happened. */
 async function settle(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 40));
 }
@@ -103,9 +119,8 @@ describe("refreshChatSurfaceWorker", () => {
   test("starts a loop for a surface that holds a connection open", async () => {
     const conn = await connection("telegram");
     await refreshChatSurfaceWorker(conn.id);
-    await settle();
+    await waitFor(() => started === 1, "the transport to be entered");
     assert.deepEqual(activeChatSurfaceWorkerIds(), [conn.id]);
-    assert.equal(started, 1);
   });
 
   test("starts nothing for a webhook-only surface", async () => {
@@ -126,18 +141,17 @@ describe("refreshChatSurfaceWorker", () => {
   test("is idempotent — a second call does not double the loop", async () => {
     const conn = await connection("telegram");
     await refreshChatSurfaceWorker(conn.id);
-    await settle();
+    await waitFor(() => started === 1, "the first transport");
     await refreshChatSurfaceWorker(conn.id);
-    await settle();
+    await waitFor(() => started === 2, "the replacement transport");
     assert.deepEqual(activeChatSurfaceWorkerIds(), [conn.id]);
-    assert.equal(started, 2, "the old loop is replaced, not joined by a second one");
-    assert.equal(cancelledCleanly, 1, "and the replaced loop was told to stop");
+    assert.equal(cancelledCleanly, 1, "the replaced loop was told to stop");
   });
 
   test("a deleted Connection stops its loop and leaves nothing behind", async () => {
     const conn = await connection("telegram");
     await refreshChatSurfaceWorker(conn.id);
-    await settle();
+    await waitFor(() => started === 1, "the transport to be entered");
     await refreshChatSurfaceWorker(conn.id, { deleted: true });
     assert.deepEqual(activeChatSurfaceWorkerIds(), []);
     assert.equal(cancelledCleanly, 1);
@@ -155,9 +169,8 @@ describe("refreshChatSurfaceWorker", () => {
     const b = await connection("telegram");
     await refreshChatSurfaceWorker(a.id);
     await refreshChatSurfaceWorker(b.id);
-    await settle();
+    await waitFor(() => started === 2, "both transports");
     assert.deepEqual(activeChatSurfaceWorkerIds(), [a.id, b.id].sort());
-    assert.equal(started, 2);
   });
 });
 
@@ -167,17 +180,18 @@ describe("bootChatSurfaceWorkers", () => {
     await connection("whatsapp");
     await connection("stripe");
     await bootChatSurfaceWorkers();
-    await settle();
+    await waitFor(() => started === 1, "the Telegram transport");
     assert.deepEqual(activeChatSurfaceWorkerIds(), [tg.id]);
   });
 
   test("booting twice does not leave two loops on one bot", async () => {
     const tg = await connection("telegram");
     await bootChatSurfaceWorkers();
-    await settle();
+    await waitFor(() => started === 1, "the transport");
     await bootChatSurfaceWorkers();
     await settle();
     assert.deepEqual(activeChatSurfaceWorkerIds(), [tg.id]);
+    assert.equal(started, 1, "discovery adopted the running loop rather than adding one");
   });
 });
 
@@ -186,7 +200,7 @@ describe("stopChatSurfaceWorkers", () => {
     await connection("telegram");
     await connection("telegram");
     await bootChatSurfaceWorkers();
-    await settle();
+    await waitFor(() => started === 2, "both transports");
     assert.equal(activeChatSurfaceWorkerIds().length, 2);
     await stopChatSurfaceWorkers();
     assert.deepEqual(activeChatSurfaceWorkerIds(), []);
@@ -214,8 +228,7 @@ describe("a transport that throws", () => {
     );
     const conn = await connection("telegram");
     await refreshChatSurfaceWorker(conn.id);
-    await settle();
-    assert.equal(attempts, 1);
+    await waitFor(() => attempts === 1, "the transport to throw");
     assert.deepEqual(
       activeChatSurfaceWorkerIds(),
       [conn.id],
