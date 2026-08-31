@@ -18,7 +18,15 @@ import { TextLink } from "@/sections/Kit";
  * as one continuous day.
  */
 export function DaySchedule({ role }: { role: RoleDef }) {
-  const escalations = role.day.filter((moment) => moment.kind === "decision").length;
+  // Counted and named separately: a Decision and an Approval are different
+  // stops (see the note on RoleMoment.kind), and a header that called one the
+  // other would undo the distinction the rest of the page is making.
+  const decisions = role.day.filter((moment) => moment.kind === "decision").length;
+  const approvals = role.day.filter((moment) => moment.kind === "approval").length;
+  const stops = [
+    decisions && `${decisions} ${decisions === 1 ? "Decision" : "Decisions"}`,
+    approvals && `${approvals} ${approvals === 1 ? "Approval" : "Approvals"}`,
+  ].filter(Boolean);
   return (
     <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-card">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-zinc-200 px-5 py-4 sm:px-7">
@@ -30,13 +38,13 @@ export function DaySchedule({ role }: { role: RoleDef }) {
           {role.person} · {role.name}
         </span>
         <span className="ml-auto font-mono text-[11px] text-zinc-500">
-          {`${role.day.length} Runs · ${escalations} ${escalations === 1 ? "Decision" : "Decisions"}`}
+          {[`${role.day.length} Runs`, ...stops].join(" · ")}
         </span>
       </div>
 
       <ol className="px-5 py-2 sm:px-7">
         {role.day.map((moment, index) => {
-          const escalated = moment.kind === "decision";
+          const escalated = moment.kind === "decision" || moment.kind === "approval";
           const last = index === role.day.length - 1;
           return (
             <li key={moment.time} className="relative grid grid-cols-[3.25rem_auto_minmax(0,1fr)] gap-x-3 sm:grid-cols-[4rem_auto_minmax(0,1fr)] sm:gap-x-4">

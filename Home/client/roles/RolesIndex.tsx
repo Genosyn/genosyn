@@ -126,7 +126,7 @@ function FlagshipRole({ role }: { role: RoleDef }) {
               <span
                 aria-hidden
                 className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                  moment.kind === "decision" ? "bg-amber-500" : role.dot
+                  moment.kind && moment.kind !== "work" ? "bg-amber-500" : role.dot
                 }`}
               />
               <span className="min-w-0 flex-1 text-[13px] leading-5 text-zinc-800">

@@ -129,7 +129,7 @@ describe("role catalogue", () => {
         assert.ok(moment.title.trim() && moment.body.trim() && moment.where.trim());
       }
       assert.ok(
-        role.day.some((moment) => moment.kind === "decision"),
+        role.day.some((moment) => moment.kind === "decision" || moment.kind === "approval"),
         `${role.slug}: a day with nothing escalated`,
       );
     }

@@ -32,11 +32,20 @@ export type RoleMoment = {
   /** The product this hour of work happens in. */
   where: string;
   /**
-   * `decision` marks the one or two moments a day the employee stops and asks
-   * a human. They are the point of the schedule, not an exception to it — a
-   * day with no marked moments would be a claim nobody believes.
+   * The one or two moments a day the employee stops. They are the point of
+   * the schedule, not an exception to it — a day with no marked moments would
+   * be a claim nobody believes.
+   *
+   * `decision` and `approval` are not the same stop, and AGENTS.md §3 is
+   * emphatic that they never become synonyms here. A **Decision** is the
+   * employee choosing to ask: it writes the question and the options itself,
+   * and answering it performs no side effect. An **Approval** is the system
+   * interposing on something the employee already tried to do — a spend
+   * increase, a guarded tool call — which a Member ticks and the server then
+   * replays. Labelling one as the other is the single easiest way for this
+   * page to describe a product that does not exist.
    */
-  kind?: "work" | "decision";
+  kind?: "work" | "decision" | "approval";
 };
 
 export type RoleOutput = {
@@ -483,7 +492,7 @@ export const ROLES: RoleDef[] = [
         title: "Asks to spend more",
         body: "Cost per lead holds only if the launch campaign goes from $4,000 to $6,500. It writes the case, attaches the evidence, and stops. Every spend increase queues an Approval a Member ticks — by default, no matter how small.",
         where: "Approvals",
-        kind: "decision",
+        kind: "approval",
       },
       {
         time: "15:45",
