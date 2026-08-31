@@ -38,7 +38,7 @@ export function RolesIndex() {
   const flagship = ROLES[0];
 
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-800">
+    <div className="min-h-screen bg-paper-100 text-zinc-900">
       <Nav />
       <main>
         <HeroSection>
@@ -47,7 +47,7 @@ export function RolesIndex() {
               <HeroBadge>
                 Genosyn roles
                 <HeroBadgeDot />
-                <span className="font-medium text-zinc-500">{ROLES.length} to start from</span>
+                <span className="font-medium text-zinc-600">{ROLES.length} to start from</span>
               </HeroBadge>
               <HeroTitle>
                 Every role, working <HeroTitleMuted>a full day.</HeroTitleMuted>
@@ -104,7 +104,7 @@ function FlagshipRole({ role }: { role: RoleDef }) {
             <Icon aria-hidden className="h-4 w-4" />
           </span>
           <div className="min-w-0">
-            <div className="text-[10px] font-semibold uppercase tracking-label text-zinc-500">
+            <div className="text-[10px] font-semibold uppercase tracking-label text-zinc-600">
               Tuesday
             </div>
             <div className="mt-0.5 text-[15px] font-semibold tracking-[-0.01em] text-zinc-950">
@@ -120,7 +120,7 @@ function FlagshipRole({ role }: { role: RoleDef }) {
         <ul className="divide-y divide-zinc-100">
           {role.day.slice(0, 5).map((moment) => (
             <li key={moment.time} className="flex items-start gap-4 px-6 py-3.5">
-              <span className="tabular w-11 shrink-0 pt-0.5 font-mono text-[11px] font-semibold text-zinc-500">
+              <span className="tabular w-11 shrink-0 pt-0.5 font-mono text-[11px] font-semibold text-zinc-600">
                 {moment.time}
               </span>
               <span
@@ -129,7 +129,7 @@ function FlagshipRole({ role }: { role: RoleDef }) {
                   moment.kind && moment.kind !== "work" ? "bg-amber-500" : role.dot
                 }`}
               />
-              <span className="min-w-0 flex-1 text-[13px] leading-5 text-zinc-800">
+              <span className="min-w-0 flex-1 text-[13px] leading-5 text-zinc-900">
                 {moment.title}
               </span>
             </li>
@@ -137,12 +137,12 @@ function FlagshipRole({ role }: { role: RoleDef }) {
         </ul>
 
         <div className="flex items-center justify-between gap-3 border-t border-zinc-200 bg-paper-100 px-6 py-4">
-          <span className="text-[11px] text-zinc-500">
+          <span className="text-[11px] text-zinc-600">
             {`+ ${role.day.length - 5} more, through to ${role.day[role.day.length - 1].time}`}
           </span>
           <Link
             href={`/roles/${role.slug}`}
-            className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-semibold text-zinc-900 transition hover:opacity-70"
+            className="inline-flex shrink-0 items-center gap-1.5 text-[11px] font-semibold text-zinc-950 transition hover:opacity-70"
           >
             Read the full day
             <ArrowRight aria-hidden className="h-3.5 w-3.5" />

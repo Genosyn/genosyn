@@ -160,10 +160,10 @@ function ArchitectureCard() {
         <div className="rounded-2xl border border-zinc-200 bg-paper-100 p-5 sm:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-[11px] font-semibold text-zinc-600">
+              <div className="text-[11px] font-semibold text-zinc-700">
                 Your environment
               </div>
-              <div className="mt-1 text-sm font-semibold text-zinc-900">
+              <div className="mt-1 text-sm font-semibold text-zinc-950">
                 Private application stack
               </div>
             </div>
@@ -178,15 +178,15 @@ function ArchitectureCard() {
                 <Boxes className="h-4 w-4" />
               </span>
               <div>
-                <div className="text-xs font-semibold text-zinc-900">Genosyn</div>
-                <div className="text-[10px] text-zinc-600">
+                <div className="text-xs font-semibold text-zinc-950">Genosyn</div>
+                <div className="text-[10px] text-zinc-700">
                   Members + AI Employees + company tools
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="mx-auto h-5 w-px bg-zinc-900/15" />
+          <div className="mx-auto h-5 w-px bg-zinc-950/15" />
 
           <div className="grid grid-cols-3 gap-2">
             <ArchitectureNode icon={Database} label="Database" detail="SQLite / PG" />
@@ -194,7 +194,7 @@ function ArchitectureCard() {
             <ArchitectureNode icon={Network} label="Systems" detail="Connections" />
           </div>
 
-          <div className="mt-4 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-[10px] leading-5 text-zinc-500">
+          <div className="mt-4 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-[10px] leading-5 text-zinc-600">
             Your network and identity controls sit around the entire stack. Genosyn adds scoped
             Grants, approvals, and Run history inside it.
           </div>
@@ -215,9 +215,9 @@ function ArchitectureNode({
 }) {
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-3 text-center shadow-card">
-      <Icon className="mx-auto h-4 w-4 text-zinc-500" />
-      <div className="mt-2 text-[10px] font-semibold text-zinc-800">{label}</div>
-      <div className="mt-0.5 text-[10px] text-zinc-600">{detail}</div>
+      <Icon className="mx-auto h-4 w-4 text-zinc-600" />
+      <div className="mt-2 text-[10px] font-semibold text-zinc-900">{label}</div>
+      <div className="mt-0.5 text-[10px] text-zinc-700">{detail}</div>
     </div>
   );
 }
@@ -228,7 +228,7 @@ function EnterpriseReasons() {
       <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
         <div className="mx-auto max-w-3xl text-center">
           <Eyebrow>Control without compromise</Eyebrow>
-          <h2 className="mt-5 text-balance text-[clamp(1.875rem,3.4vw,2.875rem)] font-semibold leading-[1.06] tracking-[-0.035em] text-zinc-900">
+          <h2 className="mt-5 text-balance text-[clamp(1.875rem,3.4vw,2.875rem)] font-semibold leading-[1.06] tracking-[-0.035em] text-zinc-950">
             An autonomous company inside your operating boundary.
           </h2>
         </div>
@@ -238,9 +238,9 @@ function EnterpriseReasons() {
               key={reason.title}
               className="rounded-2xl border border-zinc-200 bg-white p-5 transition hover:-translate-y-0.5 hover:border-zinc-400 hover:shadow-lift"
             >
-              <reason.icon className="h-5 w-5 text-zinc-900" />
-              <h3 className="mt-4 text-sm font-semibold text-zinc-900">{reason.title}</h3>
-              <p className="mt-2 text-xs leading-5 text-zinc-500">{reason.body}</p>
+              <reason.icon className="h-5 w-5 text-zinc-950" />
+              <h3 className="mt-4 text-sm font-semibold text-zinc-950">{reason.title}</h3>
+              <p className="mt-2 text-xs leading-5 text-zinc-600">{reason.body}</p>
             </article>
           ))}
         </div>
@@ -256,10 +256,10 @@ function EnterpriseDeployments() {
         <div className="grid gap-10 lg:grid-cols-[0.7fr_1.3fr] lg:gap-16">
           <div>
             <Eyebrow>Deployment paths</Eyebrow>
-            <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-900">
+            <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-950">
               Start with the topology that matches the job.
             </h2>
-            <p className="mt-5 text-base leading-7 text-zinc-600">
+            <p className="mt-5 text-base leading-7 text-zinc-700">
               Genosyn supports a simple Docker installation and source-managed Linux deployments.
               Model authentication and isolation choices determine the supported shape.
             </p>
@@ -305,15 +305,15 @@ function DeploymentRow({
   return (
     <article className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-400 hover:shadow-lift">
       <div className="flex items-start gap-4">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-paper-200 text-zinc-900">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-paper-200 text-zinc-950">
           <Icon className="h-4 w-4" />
         </span>
         <div>
-          <div className="text-[11px] font-semibold text-zinc-900">
+          <div className="text-[11px] font-semibold text-zinc-950">
             {label}
           </div>
-          <h3 className="mt-1 text-sm font-semibold text-zinc-900">{title}</h3>
-          <p className="mt-2 text-xs leading-5 text-zinc-500">{body}</p>
+          <h3 className="mt-1 text-sm font-semibold text-zinc-950">{title}</h3>
+          <p className="mt-2 text-xs leading-5 text-zinc-600">{body}</p>
         </div>
       </div>
     </article>
@@ -326,16 +326,16 @@ function EnterpriseServices() {
       <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
         <div className="mx-auto max-w-3xl text-center">
           <Eyebrow>Enterprise support</Eyebrow>
-          <h2 className="mt-5 text-balance text-[clamp(1.875rem,3.4vw,2.875rem)] font-semibold leading-[1.06] tracking-[-0.035em] text-zinc-900">
+          <h2 className="mt-5 text-balance text-[clamp(1.875rem,3.4vw,2.875rem)] font-semibold leading-[1.06] tracking-[-0.035em] text-zinc-950">
             From first architecture review to production operations.
           </h2>
         </div>
         <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-200 sm:grid-cols-2">
           {SERVICES.map((service) => (
             <article key={service.title} className="bg-white p-6 sm:p-7">
-              <service.icon className="h-5 w-5 text-zinc-900" />
-              <h3 className="mt-4 text-sm font-semibold text-zinc-900">{service.title}</h3>
-              <p className="mt-2 text-sm leading-6 text-zinc-600">{service.body}</p>
+              <service.icon className="h-5 w-5 text-zinc-950" />
+              <h3 className="mt-4 text-sm font-semibold text-zinc-950">{service.title}</h3>
+              <p className="mt-2 text-sm leading-6 text-zinc-700">{service.body}</p>
             </article>
           ))}
         </div>
@@ -369,7 +369,7 @@ function EnterpriseContact() {
             <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <a
                 href={CONTACT_HREF}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-zinc-900 shadow-lg transition duration-200 hover:-translate-y-0.5 hover:bg-paper-100 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-zinc-950 shadow-lg transition duration-200 hover:-translate-y-0.5 hover:bg-paper-100 sm:w-auto"
               >
                 <Mail className="h-4 w-4" />
                 Email {CONTACT_EMAIL}

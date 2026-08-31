@@ -46,22 +46,22 @@ export function Features() {
                 className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_60%_at_0%_0%,rgba(9,9,11,0.055),transparent_70%)]"
               />
               <div className="relative">
-                <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-500">
+                <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-600">
                   Shared by design
                 </div>
-                <h3 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-zinc-900">
+                <h3 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-zinc-950">
                   One operating context.
                 </h3>
-                <p className="mt-4 text-sm leading-6 text-zinc-600">
+                <p className="mt-4 text-sm leading-6 text-zinc-700">
                   An employee that has to ask you for context is not autonomous. Genosyn gives every
                   role a governed way to read, write, and hand work to the next employee.
                 </p>
                 <ul className="mt-7 space-y-3.5">
                   {SHARED_FOUNDATION.map((item) => (
-                    <li key={item} className="flex items-start gap-3 text-sm leading-5 text-zinc-700">
+                    <li key={item} className="flex items-start gap-3 text-sm leading-5 text-zinc-800">
                       <span
                         aria-hidden
-                        className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-zinc-900 text-white"
+                        className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-zinc-950 text-white"
                       >
                         <Check className="h-3 w-3" />
                       </span>
@@ -93,11 +93,11 @@ export function Features() {
                       </span>
                       <ArrowRight
                         aria-hidden
-                        className="h-4 w-4 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-900"
+                        className="h-4 w-4 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-950"
                       />
                     </div>
-                    <h3 className="mt-6 text-base font-semibold text-zinc-900">{product.name}</h3>
-                    <p className="mt-2 line-clamp-3 text-[13px] leading-5 text-zinc-500">
+                    <h3 className="mt-6 text-base font-semibold text-zinc-950">{product.name}</h3>
+                    <p className="mt-2 line-clamp-3 text-[13px] leading-5 text-zinc-600">
                       {product.summary}
                     </p>
                   </Link>
@@ -114,7 +114,7 @@ export function Features() {
               <Link
                 key={product.slug}
                 href={`/products/${product.slug}`}
-                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white py-1.5 pl-1.5 pr-3.5 text-[12px] font-semibold text-zinc-600 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-400 hover:text-zinc-900 hover:shadow-lift"
+                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white py-1.5 pl-1.5 pr-3.5 text-[12px] font-semibold text-zinc-700 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-400 hover:text-zinc-950 hover:shadow-lift"
               >
                 <span
                   className={`flex h-6 w-6 items-center justify-center rounded-full ring-1 ring-inset ${product.accent}`}

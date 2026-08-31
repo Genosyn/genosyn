@@ -26,7 +26,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
   const useCases = getUseCasesForProduct(product.slug).slice(0, 3);
 
   return (
-    <div className="min-h-screen bg-white text-zinc-900">
+    <div className="min-h-screen bg-white text-zinc-950">
       <Nav />
       <main>
         <HeroSection>
@@ -34,7 +34,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
             <HeroCopy>
               <nav
                 aria-label="Breadcrumb"
-                className="flex items-center gap-2 text-xs font-medium text-zinc-500"
+                className="flex items-center gap-2 text-xs font-medium text-zinc-600"
               >
                 <Link href="/products" className="transition hover:text-zinc-950">
                   Products
@@ -59,7 +59,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
                 >
                   {product.name}
                   <HeroBadgeDot />
-                  <span className="font-medium text-zinc-500">Built into Genosyn</span>
+                  <span className="font-medium text-zinc-600">Built into Genosyn</span>
                 </HeroBadge>
               </div>
 
@@ -96,7 +96,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
               <li
                 key={check}
                 className={[
-                  "flex items-center gap-3 border-zinc-200 px-4 py-3.5 text-xs font-medium text-zinc-600",
+                  "flex items-center gap-3 border-zinc-200 px-4 py-3.5 text-xs font-medium text-zinc-700",
                   index >= 1 ? "border-t" : "",
                   index >= 2 ? "sm:border-t" : "sm:border-t-0",
                   index % 2 === 1 ? "sm:border-l" : "sm:border-l-0",
@@ -108,12 +108,12 @@ export function ProductPage({ product }: { product: ProductDef }) {
               >
                 <span
                   aria-hidden
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-paper-200 text-zinc-900"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-paper-200 text-zinc-950"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
                 </span>
                 <span>
-                  <span aria-hidden className="block text-[11px] font-semibold text-zinc-500">
+                  <span aria-hidden className="block text-[11px] font-semibold text-zinc-600">
                     {String(index + 1).padStart(2, "0")}
                   </span>
                   <span className="mt-0.5 block">{check}</span>
@@ -127,10 +127,10 @@ export function ProductPage({ product }: { product: ProductDef }) {
           <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
             <div className="mx-auto max-w-3xl text-center">
               <Eyebrow>{product.name} in practice</Eyebrow>
-              <h2 className="mt-5 text-balance text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-900">
+              <h2 className="mt-5 text-balance text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-950">
                 Built around outcomes, not demos.
               </h2>
-              <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-zinc-600 sm:text-lg">
+              <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-zinc-700 sm:text-lg">
                 Start with a real role and a real handoff. Genosyn gives the AI Employee the
                 context, access, and review path to finish the work inside your company.
               </p>
@@ -151,13 +151,13 @@ export function ProductPage({ product }: { product: ProductDef }) {
                       <div className="text-[11px] font-semibold text-zinc-400">
                         {useCase.team}
                       </div>
-                      <h3 className="mt-0.5 text-sm font-semibold text-zinc-900">
+                      <h3 className="mt-0.5 text-sm font-semibold text-zinc-950">
                         {useCase.role}
                       </h3>
                     </div>
                   </div>
-                  <p className="mt-5 text-base leading-7 text-zinc-600">{useCase.objective}</p>
-                  <div className="mt-5 rounded-lg border border-zinc-200 bg-paper-200/70 px-3 py-2.5 text-[11px] font-medium leading-5 text-zinc-800">
+                  <p className="mt-5 text-base leading-7 text-zinc-700">{useCase.objective}</p>
+                  <div className="mt-5 rounded-lg border border-zinc-200 bg-paper-200/70 px-3 py-2.5 text-[11px] font-medium leading-5 text-zinc-900">
                     {useCase.outcome}
                   </div>
                 </article>
@@ -171,10 +171,10 @@ export function ProductPage({ product }: { product: ProductDef }) {
             <div className="grid gap-10 lg:grid-cols-[0.66fr_1.34fr] lg:gap-16">
               <div>
                 <Eyebrow>What ships</Eyebrow>
-                <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-900">
+                <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-950">
                   {product.name}, end to end.
                 </h2>
-                <p className="mt-5 text-base leading-7 text-zinc-600">
+                <p className="mt-5 text-base leading-7 text-zinc-700">
                   Every capability is built into the same operating model, with company identity,
                   access, activity, and AI Employees already connected.
                 </p>
@@ -192,8 +192,8 @@ export function ProductPage({ product }: { product: ProductDef }) {
                       >
                         <FeatureIcon className="h-4 w-4" />
                       </span>
-                      <h3 className="mt-4 text-sm font-semibold text-zinc-900">{feature.title}</h3>
-                      <p className="mt-2 text-xs leading-5 text-zinc-500">{feature.body}</p>
+                      <h3 className="mt-4 text-sm font-semibold text-zinc-950">{feature.title}</h3>
+                      <p className="mt-2 text-xs leading-5 text-zinc-600">{feature.body}</p>
                     </article>
                   );
                 })}
@@ -241,7 +241,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
           <div className="mx-auto max-w-3xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
             <div className="text-center">
               <Eyebrow>Questions</Eyebrow>
-              <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-900">
+              <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-950">
                 Frequently asked.
               </h2>
             </div>
@@ -251,11 +251,11 @@ export function ProductPage({ product }: { product: ProductDef }) {
                   key={faq.q}
                   className="group rounded-2xl border border-zinc-200 bg-white open:bg-paper-100"
                 >
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-semibold text-zinc-900 [&::-webkit-details-marker]:hidden">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-semibold text-zinc-950 [&::-webkit-details-marker]:hidden">
                     {faq.q}
                     <ChevronDown className="h-4 w-4 shrink-0 text-zinc-400 transition group-open:rotate-180" />
                   </summary>
-                  <p className="px-5 pb-5 text-sm leading-6 text-zinc-600">{faq.a}</p>
+                  <p className="px-5 pb-5 text-sm leading-6 text-zinc-700">{faq.a}</p>
                 </details>
               ))}
             </div>
@@ -284,10 +284,10 @@ function RelatedProducts({ current }: { current: ProductDef }) {
     <section className="border-t border-zinc-200 bg-paper-200">
       <div className="mx-auto max-w-[88rem] px-5 py-16 sm:px-8 sm:py-20">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold text-zinc-900">Explore more products</h2>
+          <h2 className="text-lg font-semibold text-zinc-950">Explore more products</h2>
           <Link
             href="/products"
-            className="inline-flex items-center gap-1.5 text-sm font-semibold text-zinc-900"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-zinc-950"
           >
             View all
             <ArrowRight className="h-4 w-4" />
@@ -308,10 +308,10 @@ function RelatedProducts({ current }: { current: ProductDef }) {
                   >
                     <Icon className="h-4 w-4" />
                   </span>
-                  <span className="text-sm font-semibold text-zinc-900">{product.name}</span>
+                  <span className="text-sm font-semibold text-zinc-950">{product.name}</span>
                   <ArrowRight className="ml-auto h-3.5 w-3.5 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-950" />
                 </div>
-                <p className="mt-3 line-clamp-2 text-xs leading-5 text-zinc-500">
+                <p className="mt-3 line-clamp-2 text-xs leading-5 text-zinc-600">
                   {product.summary}
                 </p>
               </Link>

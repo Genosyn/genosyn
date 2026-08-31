@@ -66,7 +66,7 @@ export function OpenSourceModels() {
         OpenAI-compatible HTTP API — no CLI to install, nothing to spawn. The
         runtime path is always:
       </P>
-      <pre className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-paper-100 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-700">
+      <pre className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-paper-100 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-800">
         {`Genosyn agent loop (in-process, runner + chat)
    └─ HTTP to an OpenAI-compatible /v1/chat/completions endpoint
         └─ your local server (Ollama / vLLM / llama.cpp / LM Studio)

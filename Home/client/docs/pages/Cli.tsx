@@ -144,12 +144,12 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
         {COMMANDS.map((c) => (
           <div key={c.name} className="px-5 py-4">
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="font-mono text-[13px] font-semibold text-zinc-900">
+              <span className="font-mono text-[13px] font-semibold text-zinc-950">
                 genosyn {c.name}
               </span>
-              {c.flags && <span className="font-mono text-[12.5px] text-zinc-500">{c.flags}</span>}
+              {c.flags && <span className="font-mono text-[12.5px] text-zinc-600">{c.flags}</span>}
             </div>
-            <p className="mt-1 text-[13.5px] leading-[1.6] text-zinc-600">{c.blurb}</p>
+            <p className="mt-1 text-[13.5px] leading-[1.6] text-zinc-700">{c.blurb}</p>
           </div>
         ))}
       </div>

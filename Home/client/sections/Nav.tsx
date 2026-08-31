@@ -44,7 +44,7 @@ export function Nav() {
       <div className="mx-auto flex h-16 max-w-[88rem] items-center justify-between gap-6 px-5 sm:px-8">
         <Link
           href="/"
-          className="flex items-center text-zinc-900 transition hover:opacity-70"
+          className="flex items-center text-zinc-950 transition hover:opacity-70"
           aria-label="Genosyn home"
         >
           <Logo className="h-7 w-auto" />
@@ -59,7 +59,7 @@ export function Nav() {
             <Link
               key={link.href}
               href={link.href}
-              className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-950"
             >
               {link.label}
             </Link>
@@ -71,14 +71,14 @@ export function Nav() {
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="hidden h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 sm:inline-flex"
+            className="hidden h-9 w-9 items-center justify-center rounded-lg text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-950 sm:inline-flex"
             aria-label="Genosyn on GitHub"
           >
             <Github className="h-4 w-4" />
           </a>
           <a
             href="/#quickstart"
-            className="group hidden items-center gap-1.5 rounded-xl bg-ink-600 px-4 py-2 text-sm font-semibold text-white shadow-card transition duration-200 hover:bg-ink-900 sm:inline-flex"
+            className="group hidden items-center gap-1.5 rounded-xl bg-ink-900 px-4 py-2 text-sm font-semibold text-white shadow-card transition duration-200 hover:bg-ink-600 sm:inline-flex"
           >
             Install
             <ArrowRight
@@ -91,7 +91,7 @@ export function Nav() {
             onClick={() => setOpen((value) => !value)}
             aria-label="Toggle navigation"
             aria-expanded={open}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-700 transition hover:border-zinc-400 hover:text-zinc-900 lg:hidden"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-300 bg-white text-zinc-800 transition hover:border-zinc-400 hover:text-zinc-950 lg:hidden"
           >
             {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
@@ -109,7 +109,7 @@ export function Nav() {
                 key={link.href}
                 href={link.href}
                 onClick={() => setOpen(false)}
-                className="rounded-lg px-3 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 hover:text-zinc-900"
+                className="rounded-lg px-3 py-2.5 text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 hover:text-zinc-950"
               >
                 {link.label}
               </Link>
@@ -118,7 +118,7 @@ export function Nav() {
               href={GITHUB_URL}
               target="_blank"
               rel="noreferrer"
-              className="mt-2 inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm font-medium text-zinc-700"
+              className="mt-2 inline-flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm font-medium text-zinc-800"
             >
               <Github className="h-4 w-4" />
               GitHub
@@ -126,7 +126,7 @@ export function Nav() {
             <a
               href="/#quickstart"
               onClick={() => setOpen(false)}
-              className="mt-1 inline-flex items-center justify-center rounded-xl bg-ink-600 px-3 py-2.5 text-sm font-semibold text-white shadow-card"
+              className="mt-1 inline-flex items-center justify-center rounded-xl bg-ink-900 px-3 py-2.5 text-sm font-semibold text-white shadow-card"
             >
               Install Genosyn
             </a>

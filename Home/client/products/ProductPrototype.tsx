@@ -281,10 +281,10 @@ export function ProductPrototype({
       </span>
 
       <div aria-hidden className="flex min-w-0 items-center gap-2 px-1 pb-2 pt-0.5 sm:px-2 sm:pb-3">
-        <LogoMark className="h-7 w-7 shrink-0 text-zinc-900" />
+        <LogoMark className="h-7 w-7 shrink-0 text-zinc-950" />
         <span className="h-4 w-px bg-zinc-200" />
         <div className="min-w-0">
-          <div className="truncate text-[10px] font-semibold text-zinc-800">
+          <div className="truncate text-[10px] font-semibold text-zinc-900">
             Northstar Labs
           </div>
           <div className="truncate text-[9px] text-zinc-400">Company workspace</div>
@@ -311,17 +311,17 @@ export function ProductPrototype({
               <ActiveIcon className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0">
-              <div className="truncate text-[11px] font-semibold text-zinc-900">
+              <div className="truncate text-[11px] font-semibold text-zinc-950">
                 {activeProduct.name}
               </div>
-              <div className="truncate text-[9px] text-zinc-500">{activeUseCase.role}</div>
+              <div className="truncate text-[9px] text-zinc-600">{activeUseCase.role}</div>
             </div>
             <div className="ml-auto hidden items-center gap-1.5 text-[9px] font-medium text-zinc-400 sm:flex">
               <LockKeyhole className="h-3 w-3" />
               Approval gates on
             </div>
             <span className="hidden h-4 w-px bg-zinc-200 sm:block" />
-            <div className="flex items-center gap-1.5 text-[9px] font-semibold tabular text-zinc-500">
+            <div className="flex items-center gap-1.5 text-[9px] font-semibold tabular text-zinc-600">
               <Clock3 className="h-3 w-3" />
               08:42
             </div>
@@ -342,10 +342,10 @@ export function ProductPrototype({
                   <Sparkles className="h-3.5 w-3.5" />
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-[10px] font-semibold text-zinc-900">
+                  <span className="block text-[10px] font-semibold text-zinc-950">
                     {story.label}
                   </span>
-                  <span className="mt-0.5 block truncate text-[9px] text-zinc-500 sm:text-[10px]">
+                  <span className="mt-0.5 block truncate text-[9px] text-zinc-600 sm:text-[10px]">
                     {story.detail}
                   </span>
                 </span>
@@ -359,7 +359,7 @@ export function ProductPrototype({
               <div
                 key={candidate.label}
                 className={`relative min-w-0 px-2.5 py-2.5 sm:px-3 ${
-                  index === storyIndex ? "bg-paper-100 text-zinc-900" : "text-zinc-400"
+                  index === storyIndex ? "bg-paper-100 text-zinc-950" : "text-zinc-400"
                 }`}
               >
                 <span className="flex items-center gap-1.5">
@@ -379,7 +379,7 @@ export function ProductPrototype({
                   </span>
                 </span>
                 {index === storyIndex && motionEnabled && (
-                  <span className="prototype-progress absolute inset-x-0 bottom-0 h-0.5 origin-left bg-zinc-900" />
+                  <span className="prototype-progress absolute inset-x-0 bottom-0 h-0.5 origin-left bg-zinc-950" />
                 )}
               </div>
             ))}
@@ -409,7 +409,7 @@ function PrototypeSidebar({
           {useCase.initials}
         </span>
         <div className="min-w-0">
-          <div className="truncate text-[10px] font-semibold text-zinc-900">{useCase.role}</div>
+          <div className="truncate text-[10px] font-semibold text-zinc-950">{useCase.role}</div>
           <div className="mt-0.5 truncate text-[9px] text-zinc-400">{useCase.team}</div>
         </div>
       </div>
@@ -427,23 +427,23 @@ function PrototypeSidebar({
             <div
               key={slug}
               className={`flex items-center gap-2 rounded-lg px-2 py-2 text-[10px] font-medium ${
-                active ? "bg-paper-200 text-zinc-800" : "text-zinc-500"
+                active ? "bg-paper-200 text-zinc-900" : "text-zinc-600"
               }`}
             >
               <Icon className="h-3 w-3 shrink-0" />
               <span className="truncate">{candidate.name}</span>
-              {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-zinc-900" />}
+              {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-zinc-950" />}
             </div>
           );
         })}
       </div>
 
       <div className="mt-auto rounded-xl border border-zinc-200 bg-paper-200/70 p-2.5">
-        <div className="flex items-center gap-2 text-[9px] font-semibold text-zinc-800">
-          <span className="h-1.5 w-1.5 rounded-full bg-zinc-900" />
+        <div className="flex items-center gap-2 text-[9px] font-semibold text-zinc-900">
+          <span className="h-1.5 w-1.5 rounded-full bg-zinc-950" />
           Run policy
         </div>
-        <div className="mt-1.5 text-[9px] leading-4 text-zinc-500">
+        <div className="mt-1.5 text-[9px] leading-4 text-zinc-600">
           Act inside Grants. Ask before sensitive changes.
         </div>
       </div>

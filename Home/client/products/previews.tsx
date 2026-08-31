@@ -62,24 +62,24 @@ export function productPreview(slug: string): (() => JSX.Element) | undefined {
 function Window({ url, children }: { url: string; children: ReactNode }) {
   return (
     <div className="overflow-hidden bg-white">
-      <div className="flex h-11 items-center gap-2 border-b border-zinc-200 bg-white px-3 text-zinc-700">
+      <div className="flex h-11 items-center gap-2 border-b border-zinc-200 bg-white px-3 text-zinc-800">
         <div className="flex shrink-0 items-center gap-1.5">
           <span className="h-4 w-4 rounded-full border-[1.5px] border-zinc-900" />
-          <span className="hidden text-[9px] font-bold tracking-[0.2em] text-zinc-900 sm:inline">
+          <span className="hidden text-[9px] font-bold tracking-[0.2em] text-zinc-950 sm:inline">
             GENOSYN
           </span>
         </div>
         <span className="h-4 w-px shrink-0 bg-zinc-200" />
-        <div className="inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-zinc-800">
+        <div className="inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-zinc-900">
           <span className="truncate">Northstar Labs</span>
           <ChevronDown className="h-3 w-3 shrink-0 text-zinc-400" />
         </div>
         <span className="hidden text-zinc-300 sm:inline">/</span>
         <div className="hidden min-w-0 items-center gap-1.5 sm:flex">
-          <span className="h-4 w-4 rounded bg-zinc-200 text-center text-[9px] font-bold leading-4 text-zinc-800">
+          <span className="h-4 w-4 rounded bg-zinc-200 text-center text-[9px] font-bold leading-4 text-zinc-900">
             G
           </span>
-          <span className="max-w-48 truncate text-[10px] font-medium text-zinc-600">
+          <span className="max-w-48 truncate text-[10px] font-medium text-zinc-700">
             {url.replace("genosyn.com / ", "")}
           </span>
         </div>
@@ -90,7 +90,7 @@ function Window({ url, children }: { url: string; children: ReactNode }) {
           <span className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400">
             <Bell className="h-3 w-3" />
           </span>
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-900 text-[8px] font-semibold text-white">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-950 text-[8px] font-semibold text-white">
             ND
           </span>
         </div>
@@ -132,22 +132,22 @@ function EmployeesPreview() {
               MF
             </span>
             <div>
-              <div className="text-sm font-semibold text-zinc-900">Mira</div>
-              <div className="text-xs text-zinc-500">Bookkeeper · AI Employee</div>
+              <div className="text-sm font-semibold text-zinc-950">Mira</div>
+              <div className="text-xs text-zinc-600">Bookkeeper · AI Employee</div>
             </div>
             <span className="ml-auto inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
               Running
             </span>
           </div>
-          <div className="mt-4 rounded-xl border border-zinc-200 bg-paper-100/60 p-3.5 font-mono text-[11.5px] leading-5 text-zinc-700">
+          <div className="mt-4 rounded-xl border border-zinc-200 bg-paper-100/60 p-3.5 font-mono text-[11.5px] leading-5 text-zinc-800">
             <div className="flex items-center gap-1.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
               <BookHeart className="h-3 w-3" />
               Soul
             </div>
-            <div className="text-zinc-900"># Mira</div>
-            <div className="text-zinc-500">Careful, exact, allergic to drift.</div>
-            <div className="mt-1.5 font-semibold text-zinc-900">## Never</div>
+            <div className="text-zinc-950"># Mira</div>
+            <div className="text-zinc-600">Careful, exact, allergic to drift.</div>
+            <div className="mt-1.5 font-semibold text-zinc-950">## Never</div>
             <div>- Post an unbalanced entry.</div>
             <div>- Guess an exchange rate.</div>
           </div>
@@ -155,7 +155,7 @@ function EmployeesPreview() {
             {["reconcile-stripe", "close-the-month", "chase-overdue"].map((s) => (
               <span
                 key={s}
-                className="inline-flex items-center gap-1 rounded-md bg-paper-200 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-600 ring-1 ring-zinc-900/[0.08]"
+                className="inline-flex items-center gap-1 rounded-md bg-paper-200 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-700 ring-1 ring-zinc-900/[0.08]"
               >
                 <Sparkles className="h-2.5 w-2.5" />
                 {s}
@@ -165,33 +165,33 @@ function EmployeesPreview() {
         </div>
         <div className="p-5 md:col-span-3">
           <div className="flex items-center gap-2 text-[11px]">
-            <CalendarClock className="h-3.5 w-3.5 text-zinc-500" />
-            <span className="font-medium text-zinc-700">Reconcile Stripe</span>
+            <CalendarClock className="h-3.5 w-3.5 text-zinc-600" />
+            <span className="font-medium text-zinc-800">Reconcile Stripe</span>
             <span className="font-mono text-[10px] text-zinc-400">0 7 * * *</span>
             <span className="ml-auto font-mono text-[10px] text-zinc-400">Run #212 · live</span>
           </div>
           <div className="mt-3 space-y-1.5 rounded-xl border border-night-700 bg-night-950 p-4 font-mono text-[11px] leading-5 text-zinc-300">
             <div>
-              <span className="text-zinc-500">[07:00:02]</span> stripe_list_charges — 42 since
+              <span className="text-zinc-400">[07:00:02]</span> stripe_list_charges — 42 since
               yesterday
             </div>
             <div>
-              <span className="text-zinc-500">[07:00:19]</span> matched 41 to open invoices
+              <span className="text-zinc-400">[07:00:19]</span> matched 41 to open invoices
             </div>
             <div>
-              <span className="text-zinc-500">[07:00:24]</span> posting DR Bank / CR Accounts
+              <span className="text-zinc-400">[07:00:24]</span> posting DR Bank / CR Accounts
               Receivable
             </div>
             <div>
-              <span className="text-zinc-500">[07:00:31]</span>{" "}
+              <span className="text-zinc-400">[07:00:31]</span>{" "}
               <span className="text-emerald-400">✓</span> ledger balanced — 1 charge flagged for
               review
             </div>
             <div>
-              <span className="text-zinc-500">[07:00:33]</span> send_workspace_message → #finance
+              <span className="text-zinc-400">[07:00:33]</span> send_workspace_message → #finance
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-500">
+          <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-600">
             <span className="inline-flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
               211 successful runs · transcript kept for every one
@@ -210,15 +210,15 @@ function WorkspacePreview() {
   return (
     <Window url="genosyn.com / workspace / #marketing">
       <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-2.5 text-[11px]">
-        <Hash className="h-3.5 w-3.5 text-zinc-500" />
-        <span className="font-medium text-zinc-700">marketing</span>
+        <Hash className="h-3.5 w-3.5 text-zinc-600" />
+        <span className="font-medium text-zinc-800">marketing</span>
         <span className="text-zinc-400">· Launch week comms</span>
         <span className="ml-auto font-mono text-[10px] text-zinc-400">4 online</span>
       </div>
       <div className="space-y-4 px-5 py-5">
         <ChatLine
           initials="ND"
-          color="bg-zinc-900 text-white"
+          color="bg-zinc-950 text-white"
           name="Nawaz"
           time="9:12 AM"
           message={
@@ -279,23 +279,23 @@ function ChatLine({
       <Avatar initials={initials} color={color} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="text-[12px] font-semibold text-zinc-900">{name}</span>
+          <span className="text-[12px] font-semibold text-zinc-950">{name}</span>
           {isAI && (
-            <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-800 ring-1 ring-zinc-300">
+            <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-900 ring-1 ring-zinc-300">
               AI
             </span>
           )}
           <span className="text-[11px] text-zinc-400">{time}</span>
         </div>
-        <div className="mt-0.5 text-[12.5px] leading-relaxed text-zinc-700">{message}</div>
+        <div className="mt-0.5 text-[12.5px] leading-relaxed text-zinc-800">{message}</div>
         {attachment && (
-          <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-paper-100 px-2.5 py-1.5 text-[11px] font-medium text-zinc-600">
+          <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-paper-100 px-2.5 py-1.5 text-[11px] font-medium text-zinc-700">
             <Paperclip className="h-3 w-3" />
             {attachment}
           </div>
         )}
         {reaction && (
-          <div className="mt-1.5 inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[10px] text-zinc-600">
+          <div className="mt-1.5 inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[10px] text-zinc-700">
             {reaction}
           </div>
         )}
@@ -378,7 +378,7 @@ function TasksPreview() {
       <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-3">
         {cols.map((col) => (
           <div key={col.label} className="rounded-xl bg-paper-100/70 p-2.5 ring-1 ring-zinc-900/[0.06]">
-            <div className="flex items-center justify-between px-1 pb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <div className="flex items-center justify-between px-1 pb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
               {col.label}
               <span className="font-mono text-zinc-400">{col.count}</span>
             </div>
@@ -396,7 +396,7 @@ function TasksPreview() {
                       <Tag tone="bg-amber-50 text-amber-700 ring-amber-200">awaiting review</Tag>
                     )}
                   </div>
-                  <div className="mt-1 text-[12.5px] font-medium leading-snug text-zinc-800">
+                  <div className="mt-1 text-[12.5px] font-medium leading-snug text-zinc-900">
                     {card.title}
                   </div>
                   <div className="mt-2.5 flex items-center justify-between">
@@ -406,7 +406,7 @@ function TasksPreview() {
                       {card.who}
                     </span>
                     {card.isAI && (
-                      <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-zinc-800 ring-1 ring-zinc-300">
+                      <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-zinc-900 ring-1 ring-zinc-300">
                         AI
                       </span>
                     )}
@@ -443,7 +443,7 @@ function BasesPreview() {
     {
       name: "Globex",
       stage: "Proposal",
-      tone: "bg-zinc-100 text-zinc-800 ring-zinc-300",
+      tone: "bg-zinc-100 text-zinc-900 ring-zinc-300",
       owner: "AB",
       ownerColor: "bg-sky-100 text-sky-700",
       acv: "$32,000",
@@ -468,9 +468,9 @@ function BasesPreview() {
   return (
     <Window url="genosyn.com / bases / sales-crm">
       <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-2.5 text-[11px]">
-        <Table2 className="h-3.5 w-3.5 text-zinc-500" />
-        <span className="font-medium text-zinc-700">Deals</span>
-        <span className="rounded-md bg-paper-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
+        <Table2 className="h-3.5 w-3.5 text-zinc-600" />
+        <span className="font-medium text-zinc-800">Deals</span>
+        <span className="rounded-md bg-paper-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
           view: Pipeline
         </span>
         <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[10px] text-zinc-400">
@@ -480,7 +480,7 @@ function BasesPreview() {
       <div className="overflow-x-auto">
         <table className="w-full min-w-[340px]">
           <thead>
-            <tr className="border-b border-zinc-100 text-[10px] uppercase tracking-wider text-zinc-500">
+            <tr className="border-b border-zinc-100 text-[10px] uppercase tracking-wider text-zinc-600">
               <th className="px-5 py-2 text-left font-medium">Company</th>
               <th className="px-3 py-2 text-left font-medium">Stage</th>
               <th className="px-3 py-2 text-left font-medium">Owner</th>
@@ -490,7 +490,7 @@ function BasesPreview() {
           <tbody className="divide-y divide-zinc-100 text-[12.5px]">
             {rows.map((r) => (
               <tr key={r.name}>
-                <td className="px-5 py-2.5 font-medium text-zinc-800">{r.name}</td>
+                <td className="px-5 py-2.5 font-medium text-zinc-900">{r.name}</td>
                 <td className="px-3 py-2.5">
                   <Tag tone={r.tone}>{r.stage}</Tag>
                 </td>
@@ -501,16 +501,16 @@ function BasesPreview() {
                     {r.owner}
                   </span>
                 </td>
-                <td className="px-5 py-2.5 text-right tabular-nums text-zinc-800">{r.acv}</td>
+                <td className="px-5 py-2.5 text-right tabular-nums text-zinc-900">{r.acv}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <div className="flex items-center gap-2 border-t border-zinc-100 bg-paper-100/60 px-5 py-2.5 text-[11px] text-zinc-500">
-        <Sparkles className="h-3.5 w-3.5 text-zinc-700" />
+      <div className="flex items-center gap-2 border-t border-zinc-100 bg-paper-100/60 px-5 py-2.5 text-[11px] text-zinc-600">
+        <Sparkles className="h-3.5 w-3.5 text-zinc-800" />
         <span>
-          <span className="font-medium text-zinc-700">Alex (AI)</span> updated 3 rows from
+          <span className="font-medium text-zinc-800">Alex (AI)</span> updated 3 rows from
           yesterday&apos;s calls · audit-logged
         </span>
       </div>
@@ -528,13 +528,13 @@ function NotesPreview() {
           <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
             Ops notebook
           </div>
-          <ul className="mt-2 space-y-1 text-[12px] text-zinc-600">
+          <ul className="mt-2 space-y-1 text-[12px] text-zinc-700">
             <li className="flex items-center gap-1.5">
               <StickyNote className="h-3 w-3 text-zinc-400" />
               Onboarding SOP
             </li>
-            <li className="flex items-center gap-1.5 rounded-md bg-paper-200 px-1.5 py-1 font-medium text-zinc-900">
-              <StickyNote className="h-3 w-3 text-zinc-500" />
+            <li className="flex items-center gap-1.5 rounded-md bg-paper-200 px-1.5 py-1 font-medium text-zinc-950">
+              <StickyNote className="h-3 w-3 text-zinc-600" />
               Incident runbook
             </li>
             <li className="flex items-center gap-1.5 pl-4">
@@ -552,13 +552,13 @@ function NotesPreview() {
           </ul>
         </div>
         <div className="p-5 md:col-span-2">
-          <div className="text-lg font-semibold text-zinc-900">🚨 Incident runbook</div>
+          <div className="text-lg font-semibold text-zinc-950">🚨 Incident runbook</div>
           <div className="mt-1 text-[11px] text-zinc-400">
-            Last edited by <span className="font-medium text-zinc-600">Sam (AI)</span> · 2 hours
+            Last edited by <span className="font-medium text-zinc-700">Sam (AI)</span> · 2 hours
             ago · audit-logged
           </div>
-          <div className="mt-4 space-y-2.5 text-[12.5px] leading-relaxed text-zinc-700">
-            <div className="font-semibold text-zinc-900">## First five minutes</div>
+          <div className="mt-4 space-y-2.5 text-[12.5px] leading-relaxed text-zinc-800">
+            <div className="font-semibold text-zinc-950">## First five minutes</div>
             <div className="flex items-start gap-2">
               <span className="mt-0.5 flex h-3.5 w-3.5 items-center justify-center rounded border border-zinc-300 bg-white">
                 <CheckCircle2 className="h-3 w-3 text-emerald-600" />
@@ -622,7 +622,7 @@ function ResourcesPreview() {
   return (
     <Window url="genosyn.com / resources">
       <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-3">
-        <div className="flex flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-paper-100/60 px-3 py-1.5 text-[12px] text-zinc-500">
+        <div className="flex flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-paper-100/60 px-3 py-1.5 text-[12px] text-zinc-600">
           <Search className="h-3.5 w-3.5" />
           usage-based billing
         </div>
@@ -638,17 +638,17 @@ function ResourcesPreview() {
               <it.icon className="h-3 w-3" />
               {it.kind}
             </Tag>
-            <div className="mt-2.5 truncate text-[12.5px] font-medium text-zinc-800">
+            <div className="mt-2.5 truncate text-[12.5px] font-medium text-zinc-900">
               {it.label}
             </div>
             <div className="mt-1 text-[10px] text-zinc-400">{it.meta}</div>
           </div>
         ))}
       </div>
-      <div className="flex items-center gap-2 border-t border-zinc-100 bg-paper-100/60 px-5 py-2.5 text-[11px] text-zinc-500">
-        <Sparkles className="h-3.5 w-3.5 text-zinc-700" />
+      <div className="flex items-center gap-2 border-t border-zinc-100 bg-paper-100/60 px-5 py-2.5 text-[11px] text-zinc-600">
+        <Sparkles className="h-3.5 w-3.5 text-zinc-800" />
         <span>
-          <span className="font-medium text-zinc-700">Alex (AI)</span> cited the Stripe docs in
+          <span className="font-medium text-zinc-800">Alex (AI)</span> cited the Stripe docs in
           today&apos;s pricing brief — every employee holds a read Grant
         </span>
       </div>
@@ -662,8 +662,8 @@ function PipelinesPreview() {
   return (
     <Window url="genosyn.com / pipelines / stripe-large-charge">
       <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-2.5 text-[11px]">
-        <Workflow className="h-3.5 w-3.5 text-zinc-500" />
-        <span className="font-medium text-zinc-700">stripe-large-charge</span>
+        <Workflow className="h-3.5 w-3.5 text-zinc-600" />
+        <span className="font-medium text-zinc-800">stripe-large-charge</span>
         <Tag tone="bg-emerald-50 text-emerald-700 ring-emerald-200">
           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
           Live
@@ -684,7 +684,7 @@ function PipelinesPreview() {
           icon={GitBranch}
           title="amount &gt; $1,000"
           subtitle="Branch"
-          tone="bg-zinc-100 text-zinc-800 ring-zinc-300"
+          tone="bg-zinc-100 text-zinc-900 ring-zinc-300"
         />
         <PipelineConnector />
         <PipelineNode
@@ -698,10 +698,10 @@ function PipelinesPreview() {
           icon={MessageSquare}
           title="Post to #wins"
           subtitle="Message"
-          tone="bg-paper-200 text-zinc-800 ring-zinc-900/[0.12]"
+          tone="bg-paper-200 text-zinc-900 ring-zinc-900/[0.12]"
         />
       </div>
-      <div className="border-t border-zinc-100 bg-paper-100/60 px-5 py-2.5 font-mono text-[10.5px] text-zinc-500">
+      <div className="border-t border-zinc-100 bg-paper-100/60 px-5 py-2.5 font-mono text-[10.5px] text-zinc-600">
         {"{{trigger.body.amount}}"} → $4,200 · branch: true · reply captured →{" "}
         {"{{ask-alex.reply}}"}
       </div>
@@ -728,11 +728,11 @@ function PipelineNode({
         >
           <Icon className="h-3.5 w-3.5" />
         </span>
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
           {subtitle}
         </span>
       </div>
-      <div className="mt-1.5 truncate text-[12.5px] font-medium text-zinc-800">{title}</div>
+      <div className="mt-1.5 truncate text-[12.5px] font-medium text-zinc-900">{title}</div>
     </div>
   );
 }
@@ -758,7 +758,7 @@ function MarketingPreview() {
       <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-5">
         <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-card sm:col-span-3">
           <div className="flex items-baseline justify-between">
-            <div className="text-[11px] font-semibold text-zinc-700">
+            <div className="text-[11px] font-semibold text-zinc-800">
               Daily pacing check · last 7 days
             </div>
             <span className="font-mono text-[10px] text-zinc-400">
@@ -771,8 +771,8 @@ function MarketingPreview() {
                 key={r.name}
                 className="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-2"
               >
-                <span className="text-[11px] font-medium text-zinc-800">{r.name}</span>
-                <span className="font-mono text-[10px] tabular-nums text-zinc-500">{r.spend}</span>
+                <span className="text-[11px] font-medium text-zinc-900">{r.name}</span>
+                <span className="font-mono text-[10px] tabular-nums text-zinc-600">{r.spend}</span>
                 <span
                   className={`rounded-full px-2 py-0.5 font-mono text-[9px] ${
                     r.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
@@ -784,7 +784,7 @@ function MarketingPreview() {
             ))}
           </div>
           <div className="mt-3 rounded-lg bg-night-950 p-3 font-mono text-[10px] leading-4 text-zinc-400">
-            <div className="text-zinc-500">-- journal · 09:02</div>
+            <div className="text-zinc-400">-- journal · 09:02</div>
             <div>
               Prospecting — PMax pacing 173% → <span className="text-amber-400">paused</span> (never
               gated). Proposal filed for review.
@@ -796,35 +796,35 @@ function MarketingPreview() {
             <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
               Approval pending
             </div>
-            <div className="mt-1 text-[11px] font-medium text-zinc-900">
+            <div className="mt-1 text-[11px] font-medium text-zinc-950">
               Google Ads · budget increase · 45.00 USD
             </div>
-            <div className="mt-0.5 text-[10px] text-zinc-600">
+            <div className="mt-0.5 text-[10px] text-zinc-700">
               Brand — Search: 30.00 → 45.00/day. CPA $18 vs $25 target.
             </div>
             <div className="mt-3 flex gap-2">
-              <span className="rounded-md bg-zinc-900 px-2.5 py-1 text-[10px] font-medium text-white">
+              <span className="rounded-md bg-zinc-950 px-2.5 py-1 text-[10px] font-medium text-white">
                 Approve
               </span>
-              <span className="rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-[10px] font-medium text-zinc-600">
+              <span className="rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-[10px] font-medium text-zinc-700">
                 Reject
               </span>
             </div>
           </div>
           <div className="flex-1 rounded-xl border border-zinc-200 bg-white p-4 shadow-card">
-            <div className="text-[11px] font-semibold text-zinc-700">Connection caps</div>
-            <div className="mt-2 flex flex-col gap-1.5 font-mono text-[10px] text-zinc-500">
+            <div className="text-[11px] font-semibold text-zinc-800">Connection caps</div>
+            <div className="mt-2 flex flex-col gap-1.5 font-mono text-[10px] text-zinc-600">
               <div className="flex justify-between">
                 <span>max single increase</span>
-                <span className="text-zinc-800">$250</span>
+                <span className="text-zinc-900">$250</span>
               </div>
               <div className="flex justify-between">
                 <span>daily increases</span>
-                <span className="text-zinc-800">$120 / $500</span>
+                <span className="text-zinc-900">$120 / $500</span>
               </div>
               <div className="flex justify-between">
                 <span>30-day increases</span>
-                <span className="text-zinc-800">$980 / $5,000</span>
+                <span className="text-zinc-900">$980 / $5,000</span>
               </div>
               <div className="flex justify-between">
                 <span>kill switch</span>
@@ -845,14 +845,14 @@ function ExplorePreview() {
       <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-3">
         <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-card sm:col-span-2">
           <div className="flex items-baseline justify-between">
-            <div className="text-[11px] font-semibold text-zinc-700">MRR by month</div>
+            <div className="text-[11px] font-semibold text-zinc-800">MRR by month</div>
             <span className="font-mono text-[10px] text-zinc-400">postgres · 8 rows</span>
           </div>
           <div className="mt-4 flex h-28 items-end gap-2">
             {bars.map((h, i) => (
               <div
                 key={i}
-                className={`flex-1 rounded-t-md ${i === bars.length - 1 ? "bg-zinc-900" : "bg-zinc-200"}`}
+                className={`flex-1 rounded-t-md ${i === bars.length - 1 ? "bg-zinc-950" : "bg-zinc-200"}`}
                 style={{ height: `${h}%` }}
               />
             ))}
@@ -864,8 +864,8 @@ function ExplorePreview() {
         </div>
         <div className="flex flex-col gap-3">
           <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-card">
-            <div className="text-[11px] font-semibold text-zinc-700">MRR</div>
-            <div className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-zinc-900">
+            <div className="text-[11px] font-semibold text-zinc-800">MRR</div>
+            <div className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-zinc-950">
               $48,220
             </div>
             <div className="mt-0.5 text-[10px] font-medium text-emerald-600">
@@ -873,7 +873,7 @@ function ExplorePreview() {
             </div>
           </div>
           <div className="flex-1 rounded-xl border border-night-700 bg-night-950 p-3.5 font-mono text-[10px] leading-4 text-zinc-400">
-            <div className="text-zinc-500">-- saved chart · run by Mira (AI)</div>
+            <div className="text-zinc-400">-- saved chart · run by Mira (AI)</div>
             <div>
               <span className="text-sky-400">select</span> month,{" "}
               <span className="text-sky-400">sum</span>(mrr)
@@ -955,7 +955,7 @@ function RevenuePreview() {
   }> = [
     {
       icon: Mail,
-      tone: "bg-paper-200 text-zinc-600",
+      tone: "bg-paper-200 text-zinc-700",
       label: "email in · Lee at Globex",
       detail: "matched to a known contact by mail sync",
       time: "9:12",
@@ -969,7 +969,7 @@ function RevenuePreview() {
     },
     {
       icon: Sparkles,
-      tone: "bg-zinc-100 text-zinc-800",
+      tone: "bg-zinc-100 text-zinc-900",
       label: "sequence step 2 · drafted by Alex (AI)",
       detail: "waiting in the review queue for a human Send",
       time: "9:15",
@@ -986,8 +986,8 @@ function RevenuePreview() {
   return (
     <Window url="genosyn.com / revenue / deals — board">
       <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-2.5 text-[11px]">
-        <TrendingUp className="h-3.5 w-3.5 text-zinc-500" />
-        <span className="font-medium text-zinc-700">Deals</span>
+        <TrendingUp className="h-3.5 w-3.5 text-zinc-600" />
+        <span className="font-medium text-zinc-800">Deals</span>
         <Tag tone="bg-emerald-50 text-emerald-700 ring-emerald-200">7 stages</Tag>
         <span className="ml-auto font-mono text-[10px] text-zinc-400">
           weighted $128,400 · coverage 3.2x
@@ -998,15 +998,15 @@ function RevenuePreview() {
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {stages.map((s) => (
               <div key={s.label} className="rounded-xl bg-paper-100/70 p-2 ring-1 ring-zinc-900/[0.06]">
-                <div className="flex items-center justify-between px-1 pb-1.5 text-[9.5px] font-semibold uppercase tracking-wider text-zinc-500">
+                <div className="flex items-center justify-between px-1 pb-1.5 text-[9.5px] font-semibold uppercase tracking-wider text-zinc-600">
                   <span className="truncate">{s.label}</span>
                   <span className="font-mono text-zinc-400">{s.count}</span>
                 </div>
                 <div className="rounded-lg border border-zinc-200 bg-white p-2.5 shadow-card">
-                  <div className="truncate text-[12px] font-medium text-zinc-800">
+                  <div className="truncate text-[12px] font-medium text-zinc-900">
                     {s.deal.name}
                   </div>
-                  <div className="mt-0.5 font-mono text-[10px] tabular-nums text-zinc-500">
+                  <div className="mt-0.5 font-mono text-[10px] tabular-nums text-zinc-600">
                     {s.deal.amount}
                   </div>
                   <div className="mt-2 flex items-center justify-between">
@@ -1016,7 +1016,7 @@ function RevenuePreview() {
                       {s.deal.who}
                     </span>
                     {s.deal.isAI && (
-                      <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-zinc-800 ring-1 ring-zinc-300">
+                      <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-zinc-900 ring-1 ring-zinc-300">
                         AI
                       </span>
                     )}
@@ -1025,14 +1025,14 @@ function RevenuePreview() {
               </div>
             ))}
           </div>
-          <div className="mt-3 flex items-center gap-2 text-[11px] text-zinc-500">
+          <div className="mt-3 flex items-center gap-2 text-[11px] text-zinc-600">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
             <span>Won deals bill from the same database — invoice, payment, journal entry</span>
           </div>
         </div>
         <div className="p-5 md:col-span-2">
           <div className="flex items-baseline justify-between">
-            <span className="text-[12px] font-semibold text-zinc-900">
+            <span className="text-[12px] font-semibold text-zinc-950">
               Globex · renewal expansion
             </span>
             <span className="font-mono text-[10px] text-zinc-400">timeline</span>
@@ -1046,8 +1046,8 @@ function RevenuePreview() {
                   <t.icon className="h-3 w-3" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[11.5px] font-medium text-zinc-800">{t.label}</div>
-                  <div className="text-[10px] leading-4 text-zinc-500">{t.detail}</div>
+                  <div className="truncate text-[11.5px] font-medium text-zinc-900">{t.label}</div>
+                  <div className="text-[10px] leading-4 text-zinc-600">{t.detail}</div>
                 </div>
                 <span className="font-mono text-[9.5px] text-zinc-400">{t.time}</span>
               </div>
@@ -1055,15 +1055,15 @@ function RevenuePreview() {
           </div>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5 border-t border-zinc-100 bg-paper-100/60 px-5 py-2.5 text-[10.5px] text-zinc-500">
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-zinc-100 bg-paper-100/60 px-5 py-2.5 text-[10.5px] text-zinc-600">
         {REVENUE_LOOP.map((step, i) => (
           <span key={step} className="inline-flex items-center gap-1.5">
             {i > 0 && <ArrowRight aria-hidden className="h-3 w-3 text-zinc-300" />}
             <span
               className={`rounded-md px-1.5 py-0.5 font-medium ${
                 i === REVENUE_LOOP.length - 1
-                  ? "bg-zinc-900 text-white"
-                  : "bg-white text-zinc-600 ring-1 ring-zinc-900/[0.08]"
+                  ? "bg-zinc-950 text-white"
+                  : "bg-white text-zinc-700 ring-1 ring-zinc-900/[0.08]"
               }`}
             >
               {step}
@@ -1095,33 +1095,33 @@ function EmailPreview() {
           ].map((m) => (
             <div key={m.subject} className={`px-4 py-3 ${m.active ? "bg-paper-100" : ""}`}>
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-zinc-800">{m.from}</span>
+                <span className="text-[11px] font-semibold text-zinc-900">{m.from}</span>
                 {m.tag && (
                   <span className="rounded-md bg-cyan-50 px-1.5 py-0.5 text-[9px] font-medium text-cyan-700 ring-1 ring-cyan-200">
                     {m.tag}
                   </span>
                 )}
               </div>
-              <div className="mt-0.5 truncate text-[12px] text-zinc-600">{m.subject}</div>
+              <div className="mt-0.5 truncate text-[12px] text-zinc-700">{m.subject}</div>
             </div>
           ))}
         </div>
         <div className="p-5 md:col-span-3">
           <div className="flex items-center gap-2">
             <Mail className="h-3.5 w-3.5 text-zinc-400" />
-            <span className="text-[12.5px] font-semibold text-zinc-900">Invoice question</span>
+            <span className="text-[12.5px] font-semibold text-zinc-950">Invoice question</span>
             <span className="ml-auto font-mono text-[10px] text-zinc-400">9:41 AM</span>
           </div>
-          <p className="mt-2.5 text-[12px] leading-relaxed text-zinc-600">
+          <p className="mt-2.5 text-[12px] leading-relaxed text-zinc-700">
             Hi — our March invoice shows two seats but we downgraded to one on the 3rd. Can you take
             a look?
           </p>
           <div className="mt-4 rounded-xl border border-zinc-300 bg-zinc-100/50 p-3.5">
-            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-800">
+            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-900">
               <Sparkles className="h-3 w-3" />
               Draft by Mira (AI) · rule: to contains support@
             </div>
-            <p className="mt-2 text-[12px] leading-relaxed text-zinc-700">
+            <p className="mt-2 text-[12px] leading-relaxed text-zinc-800">
               Hi Dana — you&apos;re right, the seat change landed after the invoice was issued.
               I&apos;ve credited the difference ($29) to your April invoice…
             </p>
@@ -1129,7 +1129,7 @@ function EmailPreview() {
               <span className="rounded-lg bg-night-950 px-3 py-1.5 text-[11px] font-semibold text-white">
                 Send
               </span>
-              <span className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-medium text-zinc-600">
+              <span className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-medium text-zinc-700">
                 Edit draft
               </span>
               <span className="ml-auto text-[10px] font-medium text-zinc-400">
@@ -1155,32 +1155,32 @@ function CustomersPreview() {
               <Building2 className="h-5 w-5" />
             </span>
             <div>
-              <div className="text-sm font-semibold text-zinc-900">Acme Corp</div>
-              <div className="text-xs text-zinc-500">billing@acme.com · USD</div>
+              <div className="text-sm font-semibold text-zinc-950">Acme Corp</div>
+              <div className="text-xs text-zinc-600">billing@acme.com · USD</div>
             </div>
           </div>
           <dl className="mt-4 space-y-2 text-[12px]">
             <div className="flex justify-between">
-              <dt className="text-zinc-500">Annual Contract Value</dt>
-              <dd className="font-medium tabular-nums text-zinc-900">$14,400</dd>
+              <dt className="text-zinc-600">Annual Contract Value</dt>
+              <dd className="font-medium tabular-nums text-zinc-950">$14,400</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-zinc-500">Outstanding</dt>
-              <dd className="font-medium tabular-nums text-zinc-900">$2,400</dd>
+              <dt className="text-zinc-600">Outstanding</dt>
+              <dd className="font-medium tabular-nums text-zinc-950">$2,400</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-zinc-500">Lifetime billed</dt>
-              <dd className="font-medium tabular-nums text-zinc-900">$38,800</dd>
+              <dt className="text-zinc-600">Lifetime billed</dt>
+              <dd className="font-medium tabular-nums text-zinc-950">$38,800</dd>
             </div>
           </dl>
-          <div className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-paper-100 px-2.5 py-1.5 text-[11px] font-medium text-zinc-600">
+          <div className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-paper-100 px-2.5 py-1.5 text-[11px] font-medium text-zinc-700">
             <FileText className="h-3 w-3" />
             MSA — signed Mar 2025
           </div>
         </div>
         <div className="p-5 md:col-span-3">
           <div className="flex items-center justify-between text-[11px]">
-            <span className="font-semibold text-zinc-700">Statement · year to date</span>
+            <span className="font-semibold text-zinc-800">Statement · year to date</span>
             <span className="font-mono text-[10px] text-zinc-400">PDF ↓</span>
           </div>
           <div className="mt-3 space-y-1.5 text-[12px]">
@@ -1193,10 +1193,10 @@ function CustomersPreview() {
                 key={row.label + row.date}
                 className="flex items-center justify-between rounded-lg border border-zinc-100 bg-white px-3 py-2"
               >
-                <span className="font-medium text-zinc-700">{row.label}</span>
+                <span className="font-medium text-zinc-800">{row.label}</span>
                 <span className="text-[10px] text-zinc-400">{row.date}</span>
                 <span
-                  className={`tabular-nums font-medium ${row.credit ? "text-emerald-600" : "text-zinc-800"}`}
+                  className={`tabular-nums font-medium ${row.credit ? "text-emerald-600" : "text-zinc-900"}`}
                 >
                   {row.credit ? "−" : ""}
                   {row.amt}
@@ -1232,23 +1232,23 @@ function FinancePreview() {
       <div className="grid grid-cols-1 md:grid-cols-2">
         <div className="border-b border-zinc-100 p-5 md:border-b-0 md:border-r">
           <div className="flex items-center justify-between">
-            <span className="text-[12.5px] font-semibold text-zinc-900">ACME-CORP-INV-0007</span>
+            <span className="text-[12.5px] font-semibold text-zinc-950">ACME-CORP-INV-0007</span>
             <Tag tone="bg-emerald-50 text-emerald-700 ring-emerald-200">Paid</Tag>
           </div>
           <div className="mt-3 space-y-1.5 text-[12px]">
-            <div className="flex justify-between text-zinc-600">
+            <div className="flex justify-between text-zinc-700">
               <span>Pro plan · 12 seats</span>
               <span className="tabular-nums">$1,080.00</span>
             </div>
-            <div className="flex justify-between text-zinc-600">
+            <div className="flex justify-between text-zinc-700">
               <span>Priority support</span>
               <span className="tabular-nums">$120.00</span>
             </div>
-            <div className="flex justify-between border-t border-zinc-100 pt-1.5 text-zinc-500">
+            <div className="flex justify-between border-t border-zinc-100 pt-1.5 text-zinc-600">
               <span>VAT 20% (exclusive)</span>
               <span className="tabular-nums">$240.00</span>
             </div>
-            <div className="flex justify-between text-[13px] font-semibold text-zinc-900">
+            <div className="flex justify-between text-[13px] font-semibold text-zinc-950">
               <span>Total</span>
               <span className="tabular-nums">$1,440.00</span>
             </div>
@@ -1259,7 +1259,7 @@ function FinancePreview() {
           </div>
         </div>
         <div className="p-5">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
             Auto-posted journal entry
           </div>
           <div className="mt-3 space-y-1.5 font-mono text-[11px]">
@@ -1271,9 +1271,9 @@ function FinancePreview() {
                 key={l.acct}
                 className="flex items-center justify-between rounded-lg border border-zinc-100 bg-paper-100/60 px-3 py-2"
               >
-                <span className="text-zinc-700">{l.acct}</span>
-                <span className="w-20 text-right tabular-nums text-zinc-900">{l.dr}</span>
-                <span className="w-20 text-right tabular-nums text-zinc-500">{l.cr}</span>
+                <span className="text-zinc-800">{l.acct}</span>
+                <span className="w-20 text-right tabular-nums text-zinc-950">{l.dr}</span>
+                <span className="w-20 text-right tabular-nums text-zinc-600">{l.cr}</span>
               </div>
             ))}
           </div>
@@ -1290,7 +1290,7 @@ function FinancePreview() {
             {["P&L", "Balance sheet", "Cash flow"].map((r) => (
               <span
                 key={r}
-                className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 font-medium text-zinc-600"
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 font-medium text-zinc-700"
               >
                 {r}
               </span>
@@ -1327,14 +1327,14 @@ function CodePreview() {
               {
                 name: "infra",
                 grant: "reference only",
-                tone: "bg-paper-200 text-zinc-600 ring-zinc-900/[0.08]",
+                tone: "bg-paper-200 text-zinc-700 ring-zinc-900/[0.08]",
               },
             ].map((r) => (
               <div
                 key={r.name}
                 className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2"
               >
-                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-zinc-700">
+                <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-zinc-800">
                   <GitBranch className="h-3 w-3 text-zinc-400" />
                   {r.name}
                 </span>
@@ -1349,7 +1349,7 @@ function CodePreview() {
         </div>
         <div className="p-4 md:col-span-3">
           <div className="rounded-xl bg-night-950 p-4 font-mono text-[11px] leading-5">
-            <div className="flex items-center gap-1.5 pb-2 text-[10px] uppercase tracking-widest text-zinc-500">
+            <div className="flex items-center gap-1.5 pb-2 text-[10px] uppercase tracking-widest text-zinc-400">
               <Terminal className="h-3 w-3" />
               sam@genosyn · code-repos/api-server
             </div>
@@ -1357,17 +1357,17 @@ function CodePreview() {
             <div className="text-zinc-400">
               $ git commit -m &quot;Return Retry-After on 429s&quot;
             </div>
-            <div className="text-zinc-500">
+            <div className="text-zinc-400">
               [fix/rate-limit-headers 3f2a91c] 2 files changed, 18 insertions(+)
             </div>
             <div className="text-zinc-400">$ git status --short --branch</div>
             <div className="text-emerald-400">✓ local commit ready for governed publishing</div>
           </div>
-          <div className="mt-3 flex items-center gap-2 text-[11px] text-zinc-500">
+          <div className="mt-3 flex items-center gap-2 text-[11px] text-zinc-600">
             <GitCommitHorizontal className="h-3.5 w-3.5" />
             <span>
               committed as{" "}
-              <span className="font-mono text-[10px] text-zinc-600">
+              <span className="font-mono text-[10px] text-zinc-700">
                 Sam &lt;sam@genosyn.local&gt;
               </span>{" "}
               · checkout persists between Runs

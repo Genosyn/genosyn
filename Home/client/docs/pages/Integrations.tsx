@@ -316,8 +316,8 @@ export function Integrations() {
             key={c.name}
             className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2 text-[13px]"
           >
-            <span className="font-medium text-zinc-900">{c.name}</span>
-            <span className="text-[11px] uppercase tracking-wider text-zinc-500">{c.kind}</span>
+            <span className="font-medium text-zinc-950">{c.name}</span>
+            <span className="text-[11px] uppercase tracking-wider text-zinc-600">{c.kind}</span>
           </div>
         ))}
       </div>

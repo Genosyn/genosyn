@@ -67,7 +67,7 @@ export function InstallCta() {
             <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <a
                 href="/#quickstart"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-zinc-900 shadow-lg transition duration-200 hover:-translate-y-0.5 hover:bg-paper-100 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-zinc-950 shadow-lg transition duration-200 hover:-translate-y-0.5 hover:bg-paper-100 sm:w-auto"
               >
                 Install Genosyn
                 <ArrowRight aria-hidden className="h-4 w-4" />
@@ -96,11 +96,11 @@ export function Footer() {
       <div className="mx-auto max-w-[88rem] px-5 pb-10 pt-14 sm:px-8 sm:pt-16">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
           <div>
-            <Logo className="h-7 w-auto text-zinc-900" />
-            <p className="mt-5 max-w-sm text-sm leading-6 text-zinc-600">
+            <Logo className="h-7 w-auto text-zinc-950" />
+            <p className="mt-5 max-w-sm text-sm leading-6 text-zinc-700">
               The open-source, self-hostable operating system for autonomous companies.
             </p>
-            <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-600 shadow-card">
+            <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700 shadow-card">
               <span aria-hidden className="preview-live h-1.5 w-1.5 rounded-full bg-emerald-500" />
               Apache 2.0 licensed · v{__APP_VERSION__}
             </div>
@@ -111,14 +111,14 @@ export function Footer() {
           <FooterColumn title="Resources" links={RESOURCE_LINKS} />
 
           <nav aria-label="Project">
-            <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-600">Project</div>
+            <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-700">Project</div>
             <ul className="mt-5 space-y-3 text-sm">
               <li>
                 <a
                   href={GITHUB_URL}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-zinc-600 transition hover:text-zinc-950"
+                  className="text-zinc-700 transition hover:text-zinc-950"
                 >
                   GitHub
                 </a>
@@ -128,7 +128,7 @@ export function Footer() {
                   href={ROADMAP_URL}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-zinc-600 transition hover:text-zinc-950"
+                  className="text-zinc-700 transition hover:text-zinc-950"
                 >
                   Roadmap
                 </a>
@@ -138,13 +138,13 @@ export function Footer() {
                   href={`${GITHUB_URL}/issues`}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-zinc-600 transition hover:text-zinc-950"
+                  className="text-zinc-700 transition hover:text-zinc-950"
                 >
                   Issues
                 </a>
               </li>
               <li>
-                <a href="/install.sh" className="text-zinc-600 transition hover:text-zinc-950">
+                <a href="/install.sh" className="text-zinc-700 transition hover:text-zinc-950">
                   install.sh
                 </a>
               </li>
@@ -152,7 +152,7 @@ export function Footer() {
           </nav>
         </div>
 
-        <div className="mt-14 flex flex-col gap-4 border-t border-zinc-200 pt-6 text-[11px] leading-5 text-zinc-600 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-14 flex flex-col gap-4 border-t border-zinc-200 pt-6 text-[11px] leading-5 text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
           <span>© {__BUILD_YEAR__} HackerBay, Inc. · Built in the open.</span>
           <span className="max-w-2xl sm:text-right">
             Some parts of this software are AI generated. Use at your own risk. Open source and
@@ -173,11 +173,11 @@ function FooterColumn({
 }) {
   return (
     <nav aria-label={title}>
-      <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-600">{title}</div>
+      <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-700">{title}</div>
       <ul className="mt-5 space-y-3 text-sm">
         {links.map(([label, href]) => (
           <li key={href}>
-            <Link href={href} className="text-zinc-600 transition hover:text-zinc-950">
+            <Link href={href} className="text-zinc-700 transition hover:text-zinc-950">
               {label}
             </Link>
           </li>

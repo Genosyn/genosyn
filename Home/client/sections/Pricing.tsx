@@ -172,7 +172,7 @@ function PricingHero() {
             <HeroBadge>
               Simple pricing
               <HeroBadgeDot />
-              <span className="font-medium text-zinc-500">Open source core</span>
+              <span className="font-medium text-zinc-600">Open source core</span>
             </HeroBadge>
 
             <HeroTitle>
@@ -197,14 +197,14 @@ function CloudPlans() {
       <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
         <div className="mx-auto max-w-3xl text-center">
           <Eyebrow>Genosyn Cloud</Eyebrow>
-          <h2 className="mt-5 text-balance text-[clamp(1.875rem,3.4vw,2.875rem)] font-semibold leading-[1.06] tracking-[-0.035em] text-zinc-900">
+          <h2 className="mt-5 text-balance text-[clamp(1.875rem,3.4vw,2.875rem)] font-semibold leading-[1.06] tracking-[-0.035em] text-zinc-950">
             We run it. You hire.
           </h2>
-          <p className="mx-auto mt-6 max-w-xl text-base leading-7 text-zinc-600">
+          <p className="mx-auto mt-6 max-w-xl text-base leading-7 text-zinc-700">
             A human hire costs thousands a month before they start. An AI Employee on Genosyn is
             $19 — working its Routines around the clock.
           </p>
-          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-zinc-500">
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-zinc-600">
             A fully managed Genosyn — upgrades, backups, and hosting handled. Every plan uses your
             own AI Model keys, so model usage stays between you and your provider.
           </p>
@@ -216,7 +216,7 @@ function CloudPlans() {
           ))}
         </div>
 
-        <p className="mt-6 text-center text-xs leading-5 text-zinc-500">
+        <p className="mt-6 text-center text-xs leading-5 text-zinc-600">
           Genosyn Cloud is rolling out now — request access and we&apos;ll onboard you.
         </p>
       </div>
@@ -232,21 +232,21 @@ function PlanCard({ plan }: { plan: CloudPlan }) {
       }`}
     >
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-zinc-900">{plan.name}</h3>
+        <h3 className="text-sm font-semibold text-zinc-950">{plan.name}</h3>
         {plan.highlighted && (
-          <span className="rounded-full bg-zinc-900 px-2.5 py-1 text-[11px] font-semibold text-white">
+          <span className="rounded-full bg-zinc-950 px-2.5 py-1 text-[11px] font-semibold text-white">
             SSO + audit log
           </span>
         )}
       </div>
       <div className="mt-4 flex items-baseline gap-1.5">
-        <span className="text-4xl font-semibold tracking-[-0.03em] text-zinc-900 tabular-nums">
+        <span className="text-4xl font-semibold tracking-[-0.03em] text-zinc-950 tabular-nums">
           {plan.price}
         </span>
-        {plan.priceSuffix && <span className="text-xs text-zinc-500">{plan.priceSuffix}</span>}
+        {plan.priceSuffix && <span className="text-xs text-zinc-600">{plan.priceSuffix}</span>}
       </div>
-      <p className="mt-2 text-sm font-medium text-zinc-600">{plan.tagline}</p>
-      <ul className="mt-5 space-y-2.5 text-sm text-zinc-600">
+      <p className="mt-2 text-sm font-medium text-zinc-700">{plan.tagline}</p>
+      <ul className="mt-5 space-y-2.5 text-sm text-zinc-700">
         {plan.bullets.map((bullet) => (
           <li key={bullet} className="flex items-start gap-2">
             <Check aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
@@ -259,8 +259,8 @@ function PlanCard({ plan }: { plan: CloudPlan }) {
           href={CLOUD_ACCESS_HREF}
           className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition ${
             plan.ctaVariant === "primary"
-              ? "bg-ink-600 text-white shadow-card hover:bg-ink-900"
-              : "border border-zinc-200 bg-white text-zinc-800 hover:border-zinc-400 hover:bg-paper-50"
+              ? "bg-ink-900 text-white shadow-card hover:bg-ink-600"
+              : "border border-zinc-200 bg-white text-zinc-900 hover:border-zinc-400 hover:bg-paper-50"
           }`}
         >
           <Mail aria-hidden className="h-4 w-4" />
@@ -278,7 +278,7 @@ function SelfHostedBand() {
       <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
         <div className="mx-auto max-w-3xl text-center">
           <Eyebrow>Self-hosted</Eyebrow>
-          <h2 className="mt-5 text-balance text-[clamp(1.875rem,3.4vw,2.875rem)] font-semibold leading-[1.06] tracking-[-0.035em] text-zinc-900">
+          <h2 className="mt-5 text-balance text-[clamp(1.875rem,3.4vw,2.875rem)] font-semibold leading-[1.06] tracking-[-0.035em] text-zinc-950">
             Your hardware, your rules.
           </h2>
         </div>
@@ -289,21 +289,21 @@ function SelfHostedBand() {
               on phones — the code block then scrolls inside the tile. */}
           <article className="flex min-w-0 flex-col rounded-2xl border border-zinc-200 bg-white p-6 shadow-card sm:p-8">
             <div className="flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-paper-200 text-zinc-900">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-paper-200 text-zinc-950">
                 <Server className="h-4 w-4" />
               </span>
               <div>
-                <h3 className="text-sm font-semibold text-zinc-900">Community</h3>
+                <h3 className="text-sm font-semibold text-zinc-950">Community</h3>
                 <div className="text-xs font-medium text-emerald-700">Free forever</div>
               </div>
             </div>
-            <p className="mt-5 text-base leading-7 text-zinc-600">
+            <p className="mt-5 text-base leading-7 text-zinc-700">
               Apache 2.0 licensed, with unlimited AI Employees and Routines and every core feature. Runs on
               your hardware, from a laptop to a cluster.
             </p>
             <div className="mt-5 overflow-x-auto rounded-lg border border-night-700 bg-night-950 px-4 py-3">
               <code className="whitespace-nowrap font-mono text-xs text-white">
-                <span aria-hidden className="mr-2 select-none text-zinc-500">
+                <span aria-hidden className="mr-2 select-none text-zinc-400">
                   $
                 </span>
                 {INSTALL_COMMAND}
@@ -312,7 +312,7 @@ function SelfHostedBand() {
             <div className="mt-auto pt-6">
               <Link
                 href="/docs/install"
-                className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 hover:bg-paper-100"
+                className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400 hover:bg-paper-100"
               >
                 <BookOpen aria-hidden className="h-4 w-4" />
                 Read the install guide
@@ -326,25 +326,25 @@ function SelfHostedBand() {
                 <Sparkles className="h-4 w-4" />
               </span>
               <div>
-                <h3 className="text-sm font-semibold text-zinc-900">Enterprise</h3>
-                <div className="text-xs font-medium text-zinc-500">For self-hosted at work</div>
+                <h3 className="text-sm font-semibold text-zinc-950">Enterprise</h3>
+                <div className="text-xs font-medium text-zinc-600">For self-hosted at work</div>
               </div>
             </div>
-            <p className="mt-5 text-base leading-7 text-zinc-600">
+            <p className="mt-5 text-base leading-7 text-zinc-700">
               Everything in Community plus single sign-on (SSO), the audit log, priority support, and
               a signed license that validates fully offline — air-gapped environments included.
             </p>
             <div className="mt-auto flex flex-col gap-3 pt-6 sm:flex-row sm:items-center">
               <a
                 href={ENTERPRISE_HREF}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-ink-600 px-5 py-3 text-sm font-semibold text-white shadow-card transition hover:bg-ink-900"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-ink-900 px-5 py-3 text-sm font-semibold text-white shadow-card transition hover:bg-ink-600"
               >
                 <Mail aria-hidden className="h-4 w-4" />
                 Talk to us
               </a>
               <Link
                 href="/enterprise"
-                className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2.5 text-sm font-semibold text-zinc-600 transition hover:text-zinc-950"
+                className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2.5 text-sm font-semibold text-zinc-700 transition hover:text-zinc-950"
               >
                 Learn about Enterprise
                 <ArrowRight aria-hidden className="h-4 w-4" />
@@ -363,7 +363,7 @@ function ComparisonTable() {
       <div className="mx-auto max-w-5xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
         <div className="text-center">
           <Eyebrow>Compare</Eyebrow>
-          <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-900">
+          <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-950">
             Every plan, side by side.
           </h2>
         </div>
@@ -372,38 +372,38 @@ function ComparisonTable() {
           <table className="w-full min-w-[40rem] border-collapse text-sm">
             <thead>
               <tr className="border-b border-zinc-200 bg-paper-100 text-left">
-                <th scope="col" className="px-4 py-3.5 font-semibold text-zinc-500">
+                <th scope="col" className="px-4 py-3.5 font-semibold text-zinc-600">
                   <span className="sr-only">Feature</span>
                 </th>
-                <th scope="col" className="px-4 py-3.5 text-center font-semibold text-zinc-900">
+                <th scope="col" className="px-4 py-3.5 text-center font-semibold text-zinc-950">
                   Free
                 </th>
-                <th scope="col" className="px-4 py-3.5 text-center font-semibold text-zinc-900">
+                <th scope="col" className="px-4 py-3.5 text-center font-semibold text-zinc-950">
                   Growth
                 </th>
-                <th scope="col" className="px-4 py-3.5 text-center font-semibold text-zinc-900">
+                <th scope="col" className="px-4 py-3.5 text-center font-semibold text-zinc-950">
                   Scale
                 </th>
-                <th scope="col" className="px-4 py-3.5 text-center font-semibold text-zinc-900">
+                <th scope="col" className="px-4 py-3.5 text-center font-semibold text-zinc-950">
                   Enterprise
-                  <span className="block text-[10px] font-medium text-zinc-500">self-hosted</span>
+                  <span className="block text-[10px] font-medium text-zinc-600">self-hosted</span>
                 </th>
               </tr>
             </thead>
             <tbody>
               {COMPARISON_ROWS.map((row) => (
                 <tr key={row.label} className="border-b border-zinc-100 last:border-b-0">
-                  <th scope="row" className="px-4 py-3.5 text-left font-medium text-zinc-700">
+                  <th scope="row" className="px-4 py-3.5 text-left font-medium text-zinc-800">
                     {row.label}
                   </th>
-                  <td className="px-4 py-3.5 text-center text-zinc-600 tabular-nums">{row.free}</td>
-                  <td className="px-4 py-3.5 text-center text-zinc-600 tabular-nums">
+                  <td className="px-4 py-3.5 text-center text-zinc-700 tabular-nums">{row.free}</td>
+                  <td className="px-4 py-3.5 text-center text-zinc-700 tabular-nums">
                     {row.growth}
                   </td>
-                  <td className="px-4 py-3.5 text-center text-zinc-600 tabular-nums">
+                  <td className="px-4 py-3.5 text-center text-zinc-700 tabular-nums">
                     {row.scale}
                   </td>
-                  <td className="px-4 py-3.5 text-center text-zinc-600 tabular-nums">
+                  <td className="px-4 py-3.5 text-center text-zinc-700 tabular-nums">
                     {row.enterprise}
                   </td>
                 </tr>
@@ -422,7 +422,7 @@ function PricingFaq() {
       <div className="mx-auto max-w-3xl px-5 pb-20 sm:px-8 sm:pb-24 lg:pb-28">
         <div className="text-center">
           <Eyebrow>Questions</Eyebrow>
-          <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-900">
+          <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-950">
             Frequently asked.
           </h2>
         </div>
@@ -432,11 +432,11 @@ function PricingFaq() {
               key={faq.q}
               className="group rounded-2xl border border-zinc-200 bg-white open:bg-paper-100"
             >
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-semibold text-zinc-900 [&::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-semibold text-zinc-950 [&::-webkit-details-marker]:hidden">
                 {faq.q}
                 <ChevronDown className="h-4 w-4 shrink-0 text-zinc-400 transition group-open:rotate-180" />
               </summary>
-              <p className="px-5 pb-5 text-sm leading-6 text-zinc-600">{faq.a}</p>
+              <p className="px-5 pb-5 text-sm leading-6 text-zinc-700">{faq.a}</p>
             </details>
           ))}
         </div>
@@ -470,7 +470,7 @@ function PricingCta() {
             <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <a
                 href={CLOUD_ACCESS_HREF}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-zinc-900 shadow-lg transition duration-200 hover:-translate-y-0.5 hover:bg-paper-100 sm:w-auto"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-zinc-950 shadow-lg transition duration-200 hover:-translate-y-0.5 hover:bg-paper-100 sm:w-auto"
               >
                 <Cloud className="h-4 w-4" />
                 Request Cloud access

@@ -61,7 +61,7 @@ export function App() {
 
 function Landing() {
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-800">
+    <div className="min-h-screen bg-paper-100 text-zinc-900">
       <Nav />
       <main>
         <Hero />
@@ -81,7 +81,7 @@ function Landing() {
 
 function EnterprisePage() {
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-800">
+    <div className="min-h-screen bg-paper-100 text-zinc-900">
       <Nav />
       <main>
         <Enterprise />
@@ -93,7 +93,7 @@ function EnterprisePage() {
 
 function PricingPage() {
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-800">
+    <div className="min-h-screen bg-paper-100 text-zinc-900">
       <Nav />
       <main>
         <Pricing />
@@ -146,20 +146,20 @@ function ProductNotFound() {
 /** The in-app not-found panel for an unknown product or role slug. */
 function NotFound({ kind, href, cta }: { kind: string; href: string; cta: string }) {
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-800">
+    <div className="min-h-screen bg-paper-100 text-zinc-900">
       <Nav />
       <main className="mx-auto flex max-w-7xl flex-col items-center px-6 py-32 text-center">
-        <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-500">404</div>
+        <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-600">404</div>
         <h1 className="mt-4 text-4xl font-semibold tracking-[-0.03em] text-zinc-950">
           {`No ${kind} lives here.`}
         </h1>
-        <p className="mt-4 max-w-md text-base leading-relaxed text-zinc-600">
+        <p className="mt-4 max-w-md text-base leading-relaxed text-zinc-700">
           The page you were looking for does not exist — but everything Genosyn ships is one click
           away.
         </p>
         <Link
           href={href}
-          className="mt-8 inline-flex items-center gap-2 rounded-xl bg-ink-600 px-5 py-3.5 text-sm font-semibold text-white shadow-card transition hover:bg-ink-900"
+          className="mt-8 inline-flex items-center gap-2 rounded-xl bg-ink-900 px-5 py-3.5 text-sm font-semibold text-white shadow-card transition hover:bg-ink-600"
         >
           {cta}
           <ArrowRight className="h-4 w-4" />

@@ -62,7 +62,7 @@ export function DocsShell({ pathname, children }: { pathname: string; children: 
   const sourceFile = PATH_TO_SOURCE[pathname];
 
   return (
-    <div className="min-h-screen bg-paper-50 text-zinc-800">
+    <div className="min-h-screen bg-paper-50 text-zinc-900">
       <DocsNav onToggleSidebar={() => setOpen((v) => !v)} sidebarOpen={open} />
 
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
@@ -81,7 +81,7 @@ export function DocsShell({ pathname, children }: { pathname: string; children: 
               type="button"
               aria-label="Close sidebar"
               onClick={() => setOpen(false)}
-              className="fixed inset-0 z-30 bg-zinc-900/30 lg:hidden"
+              className="fixed inset-0 z-30 bg-zinc-950/30 lg:hidden"
             />
           )}
 
@@ -106,7 +106,7 @@ function SidebarTree({ pathname }: { pathname: string }) {
     <nav className="space-y-7 text-sm">
       {DOCS_NAV.map((section) => (
         <div key={section.label}>
-          <div className="px-2 text-[11px] font-semibold uppercase tracking-label text-zinc-500">
+          <div className="px-2 text-[11px] font-semibold uppercase tracking-label text-zinc-600">
             {section.label}
           </div>
           <ul className="mt-2 space-y-0.5">
@@ -119,8 +119,8 @@ function SidebarTree({ pathname }: { pathname: string }) {
                     aria-current={active ? "page" : undefined}
                     className={`block rounded-md px-2 py-1.5 text-[14px] leading-snug transition ${
                       active
-                        ? "bg-paper-200 font-medium text-zinc-800"
-                        : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                        ? "bg-paper-200 font-medium text-zinc-900"
+                        : "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-950"
                     }`}
                   >
                     {page.title}
@@ -144,11 +144,11 @@ function PrevNext({ prev, next }: { prev: DocsPageMeta | null; next: DocsPageMet
           href={prev.path}
           className="group flex flex-col rounded-xl border border-zinc-200 bg-white px-5 py-4 text-left shadow-card transition hover:border-zinc-400"
         >
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-label text-zinc-500">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-label text-zinc-600">
             <ArrowLeft className="h-3 w-3" />
             Previous
           </span>
-          <span className="mt-2 text-[15px] font-semibold text-zinc-900">{prev.title}</span>
+          <span className="mt-2 text-[15px] font-semibold text-zinc-950">{prev.title}</span>
         </Link>
       ) : (
         <span />
@@ -158,11 +158,11 @@ function PrevNext({ prev, next }: { prev: DocsPageMeta | null; next: DocsPageMet
           href={next.path}
           className="group flex flex-col items-end rounded-xl border border-zinc-200 bg-white px-5 py-4 text-right shadow-card transition hover:border-zinc-400"
         >
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-label text-zinc-500">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-label text-zinc-600">
             Next
             <ArrowRight className="h-3 w-3" />
           </span>
-          <span className="mt-2 text-[15px] font-semibold text-zinc-900">{next.title}</span>
+          <span className="mt-2 text-[15px] font-semibold text-zinc-950">{next.title}</span>
         </Link>
       ) : (
         <span />
@@ -174,12 +174,12 @@ function PrevNext({ prev, next }: { prev: DocsPageMeta | null; next: DocsPageMet
 function SourceLink({ file }: { file?: string }) {
   if (!file) return null;
   return (
-    <div className="mt-8 text-xs text-zinc-500">
+    <div className="mt-8 text-xs text-zinc-600">
       <a
         href={`${DOCS_SOURCE_BASE}/${file}`}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-1.5 hover:text-zinc-900"
+        className="inline-flex items-center gap-1.5 hover:text-zinc-950"
       >
         <Github className="h-3.5 w-3.5" />
         Edit this page on GitHub
@@ -191,22 +191,22 @@ function SourceLink({ file }: { file?: string }) {
 function DocsFooter() {
   return (
     <footer className="border-t border-zinc-100 bg-white">
-      <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-6 py-8 text-xs text-zinc-500 sm:flex-row lg:px-8">
+      <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-6 py-8 text-xs text-zinc-600 sm:flex-row lg:px-8">
         <div>© {__BUILD_YEAR__} HackerBay, Inc. · Built in the open.</div>
         <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
-          <Link href="/" className="hover:text-zinc-900">
+          <Link href="/" className="hover:text-zinc-950">
             Home
           </Link>
-          <Link href="/docs" className="hover:text-zinc-900">
+          <Link href="/docs" className="hover:text-zinc-950">
             Docs
           </Link>
-          <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="hover:text-zinc-900">
+          <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="hover:text-zinc-950">
             GitHub
           </a>
-          <a href="/install.sh" className="hover:text-zinc-900">
+          <a href="/install.sh" className="hover:text-zinc-950">
             install.sh
           </a>
-          <span className="font-mono text-zinc-400">v{__APP_VERSION__}</span>
+          <span className="font-mono text-zinc-500">v{__APP_VERSION__}</span>
         </nav>
       </div>
     </footer>

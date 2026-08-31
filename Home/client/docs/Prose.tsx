@@ -16,15 +16,15 @@ export function PageHeader({
   return (
     <header className="border-b border-zinc-100 pb-8">
       {eyebrow && (
-        <div className="text-xs font-semibold uppercase tracking-label text-zinc-900">
+        <div className="text-xs font-semibold uppercase tracking-label text-zinc-950">
           {eyebrow}
         </div>
       )}
-      <h1 className="mt-3 text-balance text-4xl font-semibold tracking-[-0.025em] text-zinc-900 sm:text-[2.75rem]">
+      <h1 className="mt-3 text-balance text-4xl font-semibold tracking-[-0.025em] text-zinc-950 sm:text-[2.75rem]">
         {title}
       </h1>
       {lead && (
-        <p className="mt-5 max-w-3xl text-balance text-lg leading-relaxed text-zinc-600">
+        <p className="mt-5 max-w-3xl text-balance text-lg leading-relaxed text-zinc-700">
           {lead}
         </p>
       )}
@@ -36,7 +36,7 @@ export function H2({ children, id }: WithId) {
   return (
     <h2
       id={id}
-      className="mt-14 scroll-mt-24 text-balance text-2xl font-semibold tracking-[-0.015em] text-zinc-900"
+      className="mt-14 scroll-mt-24 text-balance text-2xl font-semibold tracking-[-0.015em] text-zinc-950"
     >
       {children}
     </h2>
@@ -47,7 +47,7 @@ export function H3({ children, id }: WithId) {
   return (
     <h3
       id={id}
-      className="mt-8 scroll-mt-24 text-lg font-semibold text-zinc-900"
+      className="mt-8 scroll-mt-24 text-lg font-semibold text-zinc-950"
     >
       {children}
     </h3>
@@ -56,19 +56,19 @@ export function H3({ children, id }: WithId) {
 
 export function P({ children }: { children: ReactNode }) {
   return (
-    <p className="mt-4 text-[15px] leading-[1.75] text-zinc-700">
+    <p className="mt-4 text-[15px] leading-[1.75] text-zinc-800">
       {children}
     </p>
   );
 }
 
 export function Strong({ children }: { children: ReactNode }) {
-  return <span className="font-medium text-zinc-900">{children}</span>;
+  return <span className="font-medium text-zinc-950">{children}</span>;
 }
 
 export function UL({ children }: { children: ReactNode }) {
   return (
-    <ul className="mt-4 ml-5 list-disc space-y-2 text-[15px] leading-[1.7] text-zinc-700 marker:text-zinc-400">
+    <ul className="mt-4 ml-5 list-disc space-y-2 text-[15px] leading-[1.7] text-zinc-800 marker:text-zinc-400">
       {children}
     </ul>
   );
@@ -76,7 +76,7 @@ export function UL({ children }: { children: ReactNode }) {
 
 export function OL({ children }: { children: ReactNode }) {
   return (
-    <ol className="mt-4 ml-5 list-decimal space-y-2 text-[15px] leading-[1.7] text-zinc-700 marker:text-zinc-400">
+    <ol className="mt-4 ml-5 list-decimal space-y-2 text-[15px] leading-[1.7] text-zinc-800 marker:text-zinc-400">
       {children}
     </ol>
   );
@@ -88,7 +88,7 @@ export function LI({ children }: { children: ReactNode }) {
 
 export function Code({ children }: { children: ReactNode }) {
   return (
-    <code className="rounded-md bg-paper-200 px-1.5 py-0.5 font-mono text-[12.5px] text-zinc-800">
+    <code className="rounded-md bg-paper-200 px-1.5 py-0.5 font-mono text-[12.5px] text-zinc-900">
       {children}
     </code>
   );
@@ -125,12 +125,12 @@ export function Callout({
   title?: string;
 }) {
   const tone = {
-    info: "border-zinc-200 bg-paper-100 text-zinc-700",
+    info: "border-zinc-200 bg-paper-100 text-zinc-800",
     warn: "border-amber-200 bg-amber-50 text-amber-900",
     tip: "border-emerald-200 bg-emerald-50 text-emerald-900",
   }[kind];
   const titleColor = {
-    info: "text-zinc-900",
+    info: "text-zinc-950",
     warn: "text-amber-950",
     tip: "text-emerald-950",
   }[kind];
@@ -160,8 +160,8 @@ export function KeyList({
           key={r.term}
           className="grid grid-cols-1 gap-1 px-5 py-4 sm:grid-cols-[180px_1fr] sm:gap-6"
         >
-          <dt className="font-mono text-[12.5px] text-zinc-500">{r.term}</dt>
-          <dd className="text-[14.5px] leading-[1.65] text-zinc-700">
+          <dt className="font-mono text-[12.5px] text-zinc-600">{r.term}</dt>
+          <dd className="text-[14.5px] leading-[1.65] text-zinc-800">
             {r.def}
           </dd>
         </div>
@@ -182,7 +182,7 @@ export function DocLink({
   return (
     <Link
       href={to}
-      className="font-medium text-zinc-800 underline decoration-zinc-300 decoration-1 underline-offset-2 hover:decoration-zinc-900"
+      className="font-medium text-zinc-900 underline decoration-zinc-300 decoration-1 underline-offset-2 hover:decoration-zinc-900"
     >
       {label}
     </Link>
@@ -201,7 +201,7 @@ export function ExtLink({
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="font-medium text-zinc-800 underline decoration-zinc-300 decoration-1 underline-offset-2 hover:decoration-zinc-900"
+      className="font-medium text-zinc-900 underline decoration-zinc-300 decoration-1 underline-offset-2 hover:decoration-zinc-900"
     >
       {children}
     </a>

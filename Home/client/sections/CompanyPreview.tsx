@@ -92,23 +92,23 @@ export function CompanyPreview() {
 function PreviewHeader() {
   return (
     <div className="flex h-14 items-center gap-2 border-b border-zinc-200 bg-white px-3 sm:gap-3 sm:px-4">
-      <LogoMark className="h-7 w-7 text-zinc-900 sm:hidden" />
-      <Logo className="hidden h-7 w-auto text-zinc-900 sm:block" />
+      <LogoMark className="h-7 w-7 text-zinc-950 sm:hidden" />
+      <Logo className="hidden h-7 w-auto text-zinc-950 sm:block" />
       <span className="h-5 w-px bg-zinc-200" />
-      <span className="inline-flex min-w-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-zinc-800">
+      <span className="inline-flex min-w-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-zinc-900">
         <span className="truncate">Northstar Labs</span>
-        <ChevronDown className="h-3 w-3 text-zinc-500" />
+        <ChevronDown className="h-3 w-3 text-zinc-600" />
       </span>
       <span className="hidden text-zinc-300 sm:inline">/</span>
-      <span className="hidden text-xs font-medium text-zinc-500 sm:inline">Home</span>
+      <span className="hidden text-xs font-medium text-zinc-600 sm:inline">Home</span>
       <div className="ml-auto flex items-center gap-2">
-        <span className="hidden rounded border border-zinc-900/10 bg-paper-100 px-1.5 py-0.5 font-mono text-[9px] font-medium text-zinc-500 sm:inline">
+        <span className="hidden rounded border border-zinc-900/10 bg-paper-100 px-1.5 py-0.5 font-mono text-[9px] font-medium text-zinc-600 sm:inline">
           ⌘ K
         </span>
-        <span className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500">
+        <span className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600">
           <Bell className="h-3.5 w-3.5" />
         </span>
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-zinc-900 text-[9px] font-bold text-white">
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-zinc-950 text-[9px] font-bold text-white">
           ND
         </span>
       </div>
@@ -119,7 +119,7 @@ function PreviewHeader() {
 function PreviewSidebar() {
   return (
     <div className="hidden border-r border-zinc-200 bg-paper-100 p-3 md:block">
-      <div className="px-2 pb-2 pt-1 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+      <div className="px-2 pb-2 pt-1 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
         Company
       </div>
       <div className="space-y-0.5">
@@ -128,8 +128,8 @@ function PreviewSidebar() {
             key={item.label}
             className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[11px] font-medium ${
               item.active
-                ? "bg-zinc-900 text-white"
-                : "text-zinc-600"
+                ? "bg-zinc-950 text-white"
+                : "text-zinc-700"
             }`}
           >
             <item.icon className="h-3.5 w-3.5" />
@@ -138,7 +138,7 @@ function PreviewSidebar() {
         ))}
       </div>
 
-      <div className="mt-6 px-2 pb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+      <div className="mt-6 px-2 pb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
         On duty
       </div>
       <div className="space-y-2 px-1">
@@ -149,7 +149,7 @@ function PreviewSidebar() {
             >
               {item.initials}
             </span>
-            <span className="text-[10px] font-medium text-zinc-600">{item.name}</span>
+            <span className="text-[10px] font-medium text-zinc-700">{item.name}</span>
             <span
               className={`ml-auto h-1.5 w-1.5 rounded-full ${
                 index === 2 ? "preview-live bg-violet-500" : "bg-emerald-500"
@@ -167,10 +167,10 @@ function PreviewMain() {
     <div className="min-w-0 bg-paper-100 px-4 py-5 sm:px-6 sm:py-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="text-lg font-semibold tracking-[-0.02em] text-zinc-900">
+          <div className="text-lg font-semibold tracking-[-0.02em] text-zinc-950">
             Good morning, Nawaz
           </div>
-          <div className="mt-1 text-[11px] text-zinc-500">
+          <div className="mt-1 text-[11px] text-zinc-600">
             Here&apos;s what needs your attention at Northstar Labs.
           </div>
         </div>
@@ -190,8 +190,8 @@ function PreviewMain() {
       <div className="mt-3 grid gap-3 xl:grid-cols-[1.08fr_0.92fr]">
         <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-card">
           <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
-            <div className="text-[11px] font-semibold text-zinc-900">AI activity</div>
-            <span className="text-[9px] font-semibold text-zinc-900">View all Runs</span>
+            <div className="text-[11px] font-semibold text-zinc-950">AI activity</div>
+            <span className="text-[9px] font-semibold text-zinc-950">View all Runs</span>
           </div>
           <div className="divide-y divide-zinc-100 px-4">
             {ACTIVITY.map((item) => (
@@ -202,10 +202,10 @@ function PreviewMain() {
                   {item.initials}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[10px] text-zinc-600">
-                    <span className="font-semibold text-zinc-900">{item.name}</span> {item.action}
+                  <span className="block truncate text-[10px] text-zinc-700">
+                    <span className="font-semibold text-zinc-950">{item.name}</span> {item.action}
                   </span>
-                  <span className="mt-0.5 block text-[9px] text-zinc-500">{item.meta}</span>
+                  <span className="mt-0.5 block text-[9px] text-zinc-600">{item.meta}</span>
                 </span>
                 <StatusBadge status={item.status} />
               </div>
@@ -215,7 +215,7 @@ function PreviewMain() {
 
         <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-card">
           <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
-            <div className="text-[11px] font-semibold text-zinc-900">Needs your attention</div>
+            <div className="text-[11px] font-semibold text-zinc-950">Needs your attention</div>
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-bold text-amber-700">
               3 items
             </span>
@@ -241,7 +241,7 @@ function PreviewMain() {
             />
           </div>
           <div className="mx-3 mb-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5">
-            <div className="flex items-center gap-2 text-[10px] font-semibold text-zinc-700">
+            <div className="flex items-center gap-2 text-[10px] font-semibold text-zinc-800">
               <Activity className="h-3.5 w-3.5" />
               Work keeps moving. Sensitive changes wait for you.
             </div>
@@ -256,7 +256,7 @@ const STAT_ACCENTS = {
   amber: "bg-amber-100 text-amber-700 ring-amber-200",
   emerald: "bg-emerald-100 text-emerald-700 ring-emerald-200",
   violet: "bg-violet-100 text-violet-700 ring-violet-200",
-  neutral: "bg-zinc-100 text-zinc-700 ring-zinc-200",
+  neutral: "bg-zinc-100 text-zinc-800 ring-zinc-200",
 } as const;
 
 function Stat({
@@ -278,8 +278,8 @@ function Stat({
         <Icon className="h-3.5 w-3.5" />
       </span>
       <span>
-        <span className="tabular block text-sm font-bold text-zinc-900">{value}</span>
-        <span className="block text-[9px] text-zinc-500">{label}</span>
+        <span className="tabular block text-sm font-bold text-zinc-950">{value}</span>
+        <span className="block text-[9px] text-zinc-600">{label}</span>
       </span>
     </div>
   );
@@ -320,8 +320,8 @@ function AttentionRow({
         <Icon className="h-3.5 w-3.5" />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-[10px] font-semibold text-zinc-800">{title}</span>
-        <span className="mt-0.5 block truncate text-[9px] text-zinc-500">{detail}</span>
+        <span className="block truncate text-[10px] font-semibold text-zinc-900">{title}</span>
+        <span className="mt-0.5 block truncate text-[9px] text-zinc-600">{detail}</span>
       </span>
     </div>
   );

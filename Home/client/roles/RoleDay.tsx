@@ -30,14 +30,14 @@ export function DaySchedule({ role }: { role: RoleDef }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-card">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-zinc-200 px-5 py-4 sm:px-7">
-        <span className="text-[11px] font-semibold uppercase tracking-label text-zinc-500">
+        <span className="text-[11px] font-semibold uppercase tracking-label text-zinc-600">
           One Tuesday
         </span>
         <span aria-hidden className="h-3 w-px bg-zinc-200" />
-        <span className="text-[13px] font-semibold text-zinc-900">
+        <span className="text-[13px] font-semibold text-zinc-950">
           {role.person} · {role.name}
         </span>
-        <span className="ml-auto font-mono text-[11px] text-zinc-500">
+        <span className="ml-auto font-mono text-[11px] text-zinc-600">
           {[`${role.day.length} Runs`, ...stops].join(" · ")}
         </span>
       </div>
@@ -49,7 +49,7 @@ export function DaySchedule({ role }: { role: RoleDef }) {
           return (
             <li key={moment.time} className="relative grid grid-cols-[3.25rem_auto_minmax(0,1fr)] gap-x-3 sm:grid-cols-[4rem_auto_minmax(0,1fr)] sm:gap-x-4">
               <div className="py-5 text-right">
-                <span className="tabular font-mono text-[12px] font-semibold text-zinc-900">
+                <span className="tabular font-mono text-[12px] font-semibold text-zinc-950">
                   {moment.time}
                 </span>
               </div>
@@ -68,7 +68,7 @@ export function DaySchedule({ role }: { role: RoleDef }) {
 
               <div className={`py-5 ${last ? "" : "border-b border-zinc-100"}`}>
                 <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                  <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-zinc-900">
+                  <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-zinc-950">
                     {moment.title}
                   </h3>
                   {escalated && (
@@ -78,8 +78,8 @@ export function DaySchedule({ role }: { role: RoleDef }) {
                     </span>
                   )}
                 </div>
-                <p className="mt-2 max-w-2xl text-[14px] leading-6 text-zinc-600">{moment.body}</p>
-                <span className="mt-3 inline-flex items-center gap-2 rounded-md bg-zinc-100 px-2 py-1 font-mono text-[10px] font-medium text-zinc-600">
+                <p className="mt-2 max-w-2xl text-[14px] leading-6 text-zinc-700">{moment.body}</p>
+                <span className="mt-3 inline-flex items-center gap-2 rounded-md bg-zinc-100 px-2 py-1 font-mono text-[10px] font-medium text-zinc-700">
                   {moment.where}
                 </span>
               </div>
@@ -112,7 +112,7 @@ export function RoleRail({ role, identity = true }: { role: RoleDef; identity?: 
             <Icon aria-hidden className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-500">
+            <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-600">
               {role.discipline}
             </div>
             <div className="mt-0.5 text-base font-semibold tracking-[-0.01em] text-zinc-950">
@@ -120,7 +120,7 @@ export function RoleRail({ role, identity = true }: { role: RoleDef; identity?: 
             </div>
           </div>
         </div>
-        <p className="mt-4 text-[14px] leading-6 text-zinc-600">{role.summary}</p>
+        <p className="mt-4 text-[14px] leading-6 text-zinc-700">{role.summary}</p>
         <TextLink href={`/roles/${role.slug}`} className="mt-6">
           {`See the ${role.name} role`}
           <ArrowRight aria-hidden className="h-4 w-4 transition group-hover:translate-x-0.5" />
@@ -129,7 +129,7 @@ export function RoleRail({ role, identity = true }: { role: RoleDef; identity?: 
       )}
 
       <div className="rounded-2xl border border-zinc-200 bg-white shadow-card">
-        <div className="border-b border-zinc-200 px-6 py-4 text-[11px] font-semibold uppercase tracking-label text-zinc-500">
+        <div className="border-b border-zinc-200 px-6 py-4 text-[11px] font-semibold uppercase tracking-label text-zinc-600">
           By the end of the day
         </div>
         <dl className="divide-y divide-zinc-100">
@@ -138,7 +138,7 @@ export function RoleRail({ role, identity = true }: { role: RoleDef; identity?: 
               <dt className="tabular shrink-0 text-2xl font-semibold tracking-[-0.03em] text-zinc-950">
                 {output.value}
               </dt>
-              <dd className="text-[13px] leading-5 text-zinc-600">{output.label}</dd>
+              <dd className="text-[13px] leading-5 text-zinc-700">{output.label}</dd>
             </div>
           ))}
         </dl>

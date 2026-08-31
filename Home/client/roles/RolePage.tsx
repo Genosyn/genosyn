@@ -40,7 +40,7 @@ export function RolePage({ role }: { role: RoleDef }) {
   const Icon = roleIcon(role.icon);
 
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-800">
+    <div className="min-h-screen bg-paper-100 text-zinc-900">
       <Nav />
       <main>
         <HeroSection>
@@ -75,10 +75,10 @@ export function RolePage({ role }: { role: RoleDef }) {
               </HeroActions>
 
               <div className="mt-10 rounded-2xl border border-zinc-200 bg-white/70 p-5 backdrop-blur">
-                <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-500">
+                <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-600">
                   What you stop doing
                 </div>
-                <p className="mt-2.5 text-[15px] leading-6 text-zinc-700">{role.reclaims}</p>
+                <p className="mt-2.5 text-[15px] leading-6 text-zinc-800">{role.reclaims}</p>
               </div>
             </HeroCopy>
 
@@ -129,7 +129,7 @@ export function RolePage({ role }: { role: RoleDef }) {
                     <h3 className="mt-5 text-lg font-semibold tracking-[-0.015em] text-zinc-950">
                       {capability.title}
                     </h3>
-                    <p className="mt-2.5 text-[14px] leading-6 text-zinc-600">{capability.body}</p>
+                    <p className="mt-2.5 text-[14px] leading-6 text-zinc-700">{capability.body}</p>
                   </Panel>
                 );
               })}
@@ -178,7 +178,7 @@ export function RolePage({ role }: { role: RoleDef }) {
                         <span className="block text-sm font-semibold text-zinc-950">
                           {product.name}
                         </span>
-                        <span className="mt-1 block line-clamp-2 text-[12px] leading-5 text-zinc-500">
+                        <span className="mt-1 block line-clamp-2 text-[12px] leading-5 text-zinc-600">
                           {product.summary}
                         </span>
                       </span>
@@ -203,7 +203,7 @@ export function RolePage({ role }: { role: RoleDef }) {
                     <dt className="text-lg font-semibold tracking-[-0.015em] text-zinc-950">
                       {faq.q}
                     </dt>
-                    <dd className="mt-3 text-[15px] leading-7 text-zinc-600">{faq.a}</dd>
+                    <dd className="mt-3 text-[15px] leading-7 text-zinc-700">{faq.a}</dd>
                   </div>
                 ))}
               </dl>
@@ -243,7 +243,7 @@ function EmployeeCard({ role }: { role: RoleDef }) {
             <div className="text-[15px] font-semibold tracking-[-0.01em] text-zinc-950">
               {role.person}
             </div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-zinc-500">
+            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-zinc-600">
               <Icon aria-hidden className="h-3 w-3" />
               {role.name}
             </div>
@@ -256,7 +256,7 @@ function EmployeeCard({ role }: { role: RoleDef }) {
 
         <div className="grid gap-px bg-zinc-200 sm:grid-cols-2">
           <div className="bg-white px-6 py-5">
-            <div className="text-[10px] font-semibold uppercase tracking-label text-zinc-500">
+            <div className="text-[10px] font-semibold uppercase tracking-label text-zinc-600">
               Routines
             </div>
             <ul className="mt-3 space-y-2.5">
@@ -264,10 +264,10 @@ function EmployeeCard({ role }: { role: RoleDef }) {
                 <li key={routine.name} className="flex items-start gap-2.5">
                   <span aria-hidden className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${role.dot}`} />
                   <span className="min-w-0">
-                    <span className="block text-[12px] font-medium leading-4 text-zinc-800">
+                    <span className="block text-[12px] font-medium leading-4 text-zinc-900">
                       {routine.name}
                     </span>
-                    <span className="mt-0.5 block font-mono text-[10px] text-zinc-500">
+                    <span className="mt-0.5 block font-mono text-[10px] text-zinc-600">
                       {routine.when}
                     </span>
                   </span>
@@ -277,14 +277,14 @@ function EmployeeCard({ role }: { role: RoleDef }) {
           </div>
 
           <div className="bg-white px-6 py-5">
-            <div className="text-[10px] font-semibold uppercase tracking-label text-zinc-500">
+            <div className="text-[10px] font-semibold uppercase tracking-label text-zinc-600">
               Skills
             </div>
             <ul className="mt-3 flex flex-wrap gap-1.5">
               {role.skills.map((skill) => (
                 <li
                   key={skill}
-                  className="rounded-md bg-zinc-100 px-2 py-1 font-mono text-[10px] text-zinc-600"
+                  className="rounded-md bg-zinc-100 px-2 py-1 font-mono text-[10px] text-zinc-700"
                 >
                   {skill}
                 </li>
@@ -294,9 +294,9 @@ function EmployeeCard({ role }: { role: RoleDef }) {
         </div>
 
         <div className="border-t border-zinc-200 bg-paper-100 px-6 py-4">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-500">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-600">
             <span aria-hidden className="preview-live h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            <span className="font-medium text-zinc-700">Next Run</span>
+            <span className="font-medium text-zinc-800">Next Run</span>
             <span className="font-mono">{role.routines[0]?.when}</span>
             <span aria-hidden className="hidden h-3 w-px bg-zinc-300 sm:block" />
             <span className="hidden sm:inline">no one has to start it</span>
@@ -432,12 +432,12 @@ function OtherRoles({ current }: { current: string }) {
                 >
                   <OtherIcon aria-hidden className="h-3.5 w-3.5" />
                 </span>
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900">
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-950">
                   {role.name}
                 </span>
                 <ArrowRight
                   aria-hidden
-                  className="h-4 w-4 shrink-0 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-900"
+                  className="h-4 w-4 shrink-0 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-950"
                 />
               </Link>
             );

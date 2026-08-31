@@ -30,7 +30,7 @@ export function ProductsIndex() {
   const flagship = PRODUCTS.find((product) => product.slug === "ai-employees");
 
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-800">
+    <div className="min-h-screen bg-paper-100 text-zinc-900">
       <Nav />
       <main>
         <HeroSection>
@@ -39,7 +39,7 @@ export function ProductsIndex() {
               <HeroBadge>
                 Genosyn products
                 <HeroBadgeDot />
-                <span className="font-medium text-zinc-500">{PRODUCTS.length} built in</span>
+                <span className="font-medium text-zinc-600">{PRODUCTS.length} built in</span>
               </HeroBadge>
               <HeroTitle>
                 Every tool an autonomous company{" "}
@@ -80,7 +80,7 @@ export function ProductsIndex() {
                 return (
                   <div key={category}>
                     <div className="flex items-center gap-4">
-                      <h2 className="text-sm font-semibold text-zinc-500">
+                      <h2 className="text-sm font-semibold text-zinc-600">
                         {category}
                       </h2>
                       <span className="h-px flex-1 bg-zinc-200" />
@@ -155,9 +155,9 @@ function ProductCard({ product }: { product: ProductDef }) {
         </span>
         <ArrowRight className="h-4 w-4 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-950" />
       </div>
-      <h3 className="mt-5 text-base font-semibold text-zinc-900">{product.name}</h3>
-      <p className="mt-2 flex-1 text-sm leading-6 text-zinc-600">{product.summary}</p>
-      <span className="mt-6 text-xs font-semibold text-zinc-900">Explore product</span>
+      <h3 className="mt-5 text-base font-semibold text-zinc-950">{product.name}</h3>
+      <p className="mt-2 flex-1 text-sm leading-6 text-zinc-700">{product.summary}</p>
+      <span className="mt-6 text-xs font-semibold text-zinc-950">Explore product</span>
     </Link>
   );
 }

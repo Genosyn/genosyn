@@ -118,8 +118,8 @@ export function CliShowcase() {
               >
                 <fact.icon aria-hidden className="h-5 w-5" />
               </span>
-              <h3 className="mt-5 text-base font-semibold text-zinc-900">{fact.title}</h3>
-              <p className="mt-2 text-[13px] leading-6 text-zinc-600">{fact.body}</p>
+              <h3 className="mt-5 text-base font-semibold text-zinc-950">{fact.title}</h3>
+              <p className="mt-2 text-[13px] leading-6 text-zinc-700">{fact.body}</p>
             </Panel>
           ))}
         </div>

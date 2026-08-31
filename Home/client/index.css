@@ -18,12 +18,12 @@ body {
 }
 
 ::selection {
-  background-color: #18181b;
+  background-color: #09090b;
   color: #ffffff;
 }
 
 :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline: 2px solid #18181b;
+  outline: 2px solid #09090b;
   outline-offset: 3px;
   border-radius: 4px;
 }

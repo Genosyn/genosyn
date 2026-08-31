@@ -68,15 +68,17 @@ export default {
           600: "#1c1c20",
           700: "#131316",
           800: "#0e0e11",
-          900: "#08080a",
+          // Exactly zinc-950, so a filled button and a heading are the same
+          // black — the page has one black, not two that almost match.
+          900: "#09090b",
         },
         night: {
-          950: "#0b0b0d",
-          900: "#131316",
-          850: "#191920",
-          800: "#202028",
-          700: "#2b2b33",
-          600: "#3d3d47",
+          950: "#060608",
+          900: "#0f0f12",
+          850: "#16161b",
+          800: "#1d1d23",
+          700: "#2a2a31",
+          600: "#3c3c45",
         },
       },
       fontFamily: {

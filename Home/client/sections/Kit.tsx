@@ -26,8 +26,8 @@ import { Link } from "@/lib/router";
 export type SectionTone = "paper" | "tint" | "night";
 
 const SECTION_TONE: Record<SectionTone, string> = {
-  paper: "bg-white text-zinc-700",
-  tint: "bg-paper-200 text-zinc-700",
+  paper: "bg-white text-zinc-800",
+  tint: "bg-paper-200 text-zinc-800",
   night: "on-night bg-night-950 text-zinc-400",
 };
 
@@ -157,7 +157,7 @@ export function Eyebrow({ night = false, children }: { night?: boolean; children
   return (
     <div
       className={`text-[11px] font-semibold uppercase tracking-label ${
-        night ? "text-zinc-400" : "text-zinc-600"
+        night ? "text-zinc-400" : "text-zinc-700"
       }`}
     >
       {children}
@@ -240,12 +240,17 @@ export function Accent({ children }: { children: ReactNode }) {
 /**
  * The quiet half of a two-tone headline.
  *
- * zinc-500 rather than the lighter grey this wants to be: at display sizes
- * the quiet half is still text somebody has to read, and zinc-400 on white is
- * 2.6:1 — under the 3:1 floor WCAG 1.4.3 sets even for large type.
+ * zinc-700 on light — the same value as body copy, which is deliberate. At
+ * 96px the quiet half of a headline is the largest area of grey anywhere on
+ * the site, so it is what decides whether the palette reads as black-and-white
+ * or merely as grey. Every lighter value was wrong twice over: zinc-400 on
+ * white is 2.6:1, under the 3:1 floor WCAG 1.4.3 sets even for large type, and
+ * anything through zinc-600 still reads washed at display size. Against a
+ * zinc-950 payoff this is a tonal shift rather than a colour change, which is
+ * the whole effect being aimed at.
  */
 export function Muted({ night = false, children }: { night?: boolean; children: ReactNode }) {
-  return <span className={night ? "text-zinc-500" : "text-zinc-500"}>{children}</span>;
+  return <span className={night ? "text-zinc-400" : "text-zinc-700"}>{children}</span>;
 }
 
 export function Lede({
@@ -260,7 +265,7 @@ export function Lede({
   return (
     <p
       className={`text-pretty text-lg leading-8 sm:text-xl sm:leading-9 ${
-        night ? "text-zinc-400" : "text-zinc-600"
+        night ? "text-zinc-400" : "text-zinc-700"
       } ${className}`}
     >
       {children}
@@ -278,7 +283,7 @@ export function Body({
   children: ReactNode;
 }) {
   return (
-    <p className={`text-base leading-7 ${night ? "text-zinc-400" : "text-zinc-600"} ${className}`}>
+    <p className={`text-base leading-7 ${night ? "text-zinc-400" : "text-zinc-700"} ${className}`}>
       {children}
     </p>
   );
@@ -295,10 +300,10 @@ const BUTTON_SKIN: Record<ButtonVariant, string> = {
   // darkest thing on screen, which is both the loudest it can be and the
   // cheapest kind of loud — no hue to clash with the twenty small ones the
   // product mocks carry.
-  primary: "bg-ink-600 text-white shadow-card hover:bg-ink-900",
-  secondary: "border border-zinc-300 bg-white text-zinc-900 shadow-card hover:border-zinc-400 hover:bg-paper-100",
-  night: "bg-white text-zinc-900 hover:bg-zinc-200",
-  ghost: "text-zinc-500 hover:text-zinc-900",
+  primary: "bg-ink-900 text-white shadow-card hover:bg-ink-600",
+  secondary: "border border-zinc-300 bg-white text-zinc-950 shadow-card hover:border-zinc-400 hover:bg-paper-100",
+  night: "bg-white text-zinc-950 hover:bg-zinc-200",
+  ghost: "text-zinc-600 hover:text-zinc-950",
 };
 
 export function Button({
@@ -355,7 +360,7 @@ export function TextLink({
   const classes = `group inline-flex items-center gap-2 border-b pb-1 text-sm font-semibold transition ${
     night
       ? "border-white/25 text-white hover:border-white"
-      : "border-zinc-300 text-zinc-900 hover:border-zinc-900"
+      : "border-zinc-300 text-zinc-950 hover:border-zinc-900"
   } ${className}`;
   if (external) {
     return (
@@ -395,10 +400,10 @@ export function Pill({
   children: ReactNode;
 }) {
   const light: Record<PillTone, string> = {
-    neutral: "border-zinc-200 bg-white text-zinc-600",
+    neutral: "border-zinc-200 bg-white text-zinc-700",
     live: "border-emerald-500/25 bg-emerald-50 text-emerald-700",
     waiting: "border-amber-500/30 bg-amber-50 text-amber-700",
-    ink: "border-zinc-300 bg-zinc-100 text-zinc-800",
+    ink: "border-zinc-300 bg-zinc-100 text-zinc-900",
     violet: "border-violet-200 bg-violet-50 text-violet-700",
   };
   const dark: Record<PillTone, string> = {
@@ -445,14 +450,14 @@ export function Rule({
     <div className="flex items-center gap-4">
       <h2
         className={`text-[11px] font-semibold uppercase tracking-label ${
-          night ? "text-zinc-400" : "text-zinc-600"
+          night ? "text-zinc-400" : "text-zinc-700"
         }`}
       >
         {label}
       </h2>
       <span aria-hidden className={`h-px flex-1 ${line}`} />
       {count && (
-        <span className={`text-xs ${night ? "text-zinc-400" : "text-zinc-500"}`}>{count}</span>
+        <span className={`text-xs ${night ? "text-zinc-400" : "text-zinc-600"}`}>{count}</span>
       )}
     </div>
   );

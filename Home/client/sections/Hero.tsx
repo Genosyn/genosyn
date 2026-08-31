@@ -37,14 +37,14 @@ export function Hero() {
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="group inline-flex items-center gap-2.5 rounded-full border border-zinc-200 bg-white/85 py-1.5 pl-3 pr-3 text-xs font-semibold text-zinc-600 shadow-card backdrop-blur transition hover:border-zinc-400 hover:text-zinc-900"
+            className="group inline-flex items-center gap-2.5 rounded-full border border-zinc-200 bg-white/85 py-1.5 pl-3 pr-3 text-xs font-semibold text-zinc-700 shadow-card backdrop-blur transition hover:border-zinc-400 hover:text-zinc-950"
           >
             <span aria-hidden className="preview-live h-1.5 w-1.5 rounded-full bg-emerald-500" />
             Open source
             <span aria-hidden className="h-1 w-1 rounded-full bg-zinc-300" />
             Self-hosted
             <span aria-hidden className="h-1 w-1 rounded-full bg-zinc-300" />
-            <span className="text-zinc-500">v{__APP_VERSION__}</span>
+            <span className="text-zinc-600">v{__APP_VERSION__}</span>
             <ArrowRight
               aria-hidden
               className="h-3.5 w-3.5 transition group-hover:translate-x-0.5"
@@ -72,7 +72,7 @@ export function Hero() {
             </Button>
             <Button href="/#roles" variant="secondary">
               See what a role does all day
-              <ArrowRight aria-hidden className="h-4 w-4 text-zinc-400" />
+              <ArrowRight aria-hidden className="h-4 w-4 text-zinc-500" />
             </Button>
             <Button href={GITHUB_URL} external variant="ghost">
               <Github aria-hidden className="h-4 w-4" />
@@ -80,7 +80,7 @@ export function Hero() {
             </Button>
           </div>
 
-          <ul className="mt-11 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs font-semibold text-zinc-500">
+          <ul className="mt-11 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-xs font-semibold text-zinc-600">
             {PROOF.map((item, index) => (
               <li key={item} className="flex items-center gap-3">
                 {index > 0 && <span aria-hidden className="h-1 w-1 rounded-full bg-zinc-300" />}
@@ -109,7 +109,7 @@ function ProductStage() {
         className="pointer-events-none absolute -inset-x-10 -top-12 bottom-0 -z-10 rounded-[4rem] bg-[radial-gradient(60%_50%_at_50%_0%,rgba(9,9,11,0.10),transparent_70%)] blur-2xl"
       />
 
-      <div className="mb-4 flex flex-col gap-2 px-1 text-[11px] font-semibold text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-4 flex flex-col gap-2 px-1 text-[11px] font-semibold text-zinc-600 sm:flex-row sm:items-center sm:justify-between">
         <span className="truncate">Northstar Labs · Tuesday, 09:30</span>
         <span className="inline-flex shrink-0 items-center gap-2 text-emerald-700">
           <span aria-hidden className="preview-live h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -121,14 +121,14 @@ function ProductStage() {
         <CompanyPreview />
 
         <div className="absolute -bottom-6 right-3 hidden items-center gap-3 rounded-2xl border border-zinc-200 bg-white/95 px-4 py-3 shadow-raise backdrop-blur-xl sm:flex lg:-right-4">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-100 text-zinc-900 ring-1 ring-inset ring-zinc-200">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-100 text-zinc-950 ring-1 ring-inset ring-zinc-200">
             <ShieldCheck aria-hidden className="h-4 w-4" />
           </span>
           <span>
-            <span className="block text-[11px] font-semibold text-zinc-900">
+            <span className="block text-[11px] font-semibold text-zinc-950">
               You are in the loop by exception
             </span>
-            <span className="mt-0.5 block font-mono text-[10px] text-zinc-500">
+            <span className="mt-0.5 block font-mono text-[10px] text-zinc-600">
               3 decisions waiting · everything else shipped
             </span>
           </span>

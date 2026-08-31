@@ -86,8 +86,8 @@ export function HeroBadge({
   className?: string;
   children: ReactNode;
 }) {
-  const classes = `inline-flex items-center gap-2.5 rounded-full border border-zinc-200 bg-white/85 py-1.5 pl-3 pr-3.5 text-xs font-semibold text-zinc-600 shadow-card backdrop-blur ${
-    href ? "transition hover:border-zinc-400 hover:text-zinc-900" : ""
+  const classes = `inline-flex items-center gap-2.5 rounded-full border border-zinc-200 bg-white/85 py-1.5 pl-3 pr-3.5 text-xs font-semibold text-zinc-700 shadow-card backdrop-blur ${
+    href ? "transition hover:border-zinc-400 hover:text-zinc-950" : ""
   } ${className}`;
 
   const body = (
@@ -138,16 +138,16 @@ export function HeroTitle({ children }: { children: ReactNode }) {
 
 /**
  * The quiet half of a two-tone headline. The loud half is the default black.
- * zinc-500, not lighter — see the note on `Muted` in Kit.tsx.
+ * zinc-700, matching `Muted` in Kit.tsx — see the note there.
  */
 export function HeroTitleMuted({ children }: { children: ReactNode }) {
-  return <span className="text-zinc-500">{children}</span>;
+  return <span className="text-zinc-700">{children}</span>;
 }
 
 /** Large secondary line under the headline (product heroes use this). */
 export function HeroTagline({ children }: { children: ReactNode }) {
   return (
-    <p className="mt-5 max-w-xl text-balance text-lg font-medium leading-8 tracking-[-0.015em] text-zinc-500 sm:text-xl">
+    <p className="mt-5 max-w-xl text-balance text-lg font-medium leading-8 tracking-[-0.015em] text-zinc-600 sm:text-xl">
       {children}
     </p>
   );
@@ -169,10 +169,10 @@ export function HeroActions({ children }: { children: ReactNode }) {
 type HeroButtonVariant = "primary" | "secondary" | "ghost";
 
 const BUTTON_SKIN: Record<HeroButtonVariant, string> = {
-  primary: "bg-ink-600 text-white shadow-card hover:bg-ink-900",
+  primary: "bg-ink-900 text-white shadow-card hover:bg-ink-600",
   secondary:
-    "border border-zinc-300 bg-white text-zinc-900 shadow-card hover:border-zinc-400 hover:bg-paper-100",
-  ghost: "text-zinc-500 hover:text-zinc-900",
+    "border border-zinc-300 bg-white text-zinc-950 shadow-card hover:border-zinc-400 hover:bg-paper-100",
+  ghost: "text-zinc-600 hover:text-zinc-950",
 };
 
 export function HeroButton({
@@ -209,12 +209,12 @@ export function HeroButton({
 /** The short list of claims under the call to action. */
 export function HeroProof({ items }: { items: string[] }) {
   return (
-    <ul className="mt-10 grid max-w-lg gap-x-6 gap-y-3 text-xs font-medium text-zinc-600 sm:grid-cols-2">
+    <ul className="mt-10 grid max-w-lg gap-x-6 gap-y-3 text-xs font-medium text-zinc-700 sm:grid-cols-2">
       {items.map((item) => (
         <li key={item} className="flex items-center gap-2.5">
           <span
             aria-hidden
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-zinc-900"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-zinc-100 text-zinc-950"
           >
             <Check className="h-3 w-3" />
           </span>
@@ -241,7 +241,7 @@ export function HeroPanel({
         aria-hidden
         className="pointer-events-none absolute -inset-10 -z-10 rounded-[3rem] bg-[radial-gradient(60%_55%_at_50%_40%,rgba(9,9,11,0.10),transparent_72%)] blur-2xl"
       />
-      <div className="mb-3 flex items-center justify-between gap-4 px-1 text-[11px] font-semibold text-zinc-500">
+      <div className="mb-3 flex items-center justify-between gap-4 px-1 text-[11px] font-semibold text-zinc-600">
         <span className="truncate">{label}</span>
         {status && (
           <span className="inline-flex shrink-0 items-center gap-2 text-emerald-700">

@@ -76,7 +76,7 @@ function RoleTabs({
               className={`inline-flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition ${
                 selected
                   ? "border-zinc-900 bg-zinc-950 text-white shadow-card"
-                  : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:text-zinc-950"
               }`}
             >
               <span
@@ -132,14 +132,14 @@ export function Roster() {
                   </span>
                   <ArrowRight
                     aria-hidden
-                    className="h-4 w-4 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-900"
+                    className="h-4 w-4 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-950"
                   />
                 </div>
                 <h3 className="mt-6 text-base font-semibold tracking-[-0.01em] text-zinc-950">
                   {role.name}
                 </h3>
-                <p className="mt-2 flex-1 text-[13px] leading-5 text-zinc-600">{role.summary}</p>
-                <span className="mt-5 font-mono text-[10px] text-zinc-500">
+                <p className="mt-2 flex-1 text-[13px] leading-5 text-zinc-700">{role.summary}</p>
+                <span className="mt-5 font-mono text-[10px] text-zinc-600">
                   {role.routines.length} Routines · {role.skills.length} Skills
                 </span>
               </Link>
@@ -147,7 +147,7 @@ export function Roster() {
           })}
         </div>
 
-        <p className="mx-auto mt-10 max-w-2xl text-center text-sm leading-6 text-zinc-500">
+        <p className="mx-auto mt-10 max-w-2xl text-center text-sm leading-6 text-zinc-600">
           None of these is a fixed template you are stuck with. A role is a document you edit — so
           the next one on your roster can be a job title that only exists at your company.
         </p>

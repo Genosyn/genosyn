@@ -108,10 +108,10 @@ export function HowItWorks() {
               </div>
 
               <div>
-                <h3 className="text-xl font-semibold tracking-[-0.02em] text-zinc-900 sm:text-2xl">
+                <h3 className="text-xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-2xl">
                   {step.title}
                 </h3>
-                <p className="mt-3 max-w-xl text-base leading-7 text-zinc-600">{step.body}</p>
+                <p className="mt-3 max-w-xl text-base leading-7 text-zinc-700">{step.body}</p>
               </div>
 
               <div className="hidden items-start gap-3 lg:flex lg:justify-self-end">
@@ -120,12 +120,12 @@ export function HowItWorks() {
                 >
                   <step.icon aria-hidden className="h-4 w-4" />
                 </span>
-                <span className="max-w-[15rem] pt-1.5 text-sm leading-6 text-zinc-500">
+                <span className="max-w-[15rem] pt-1.5 text-sm leading-6 text-zinc-600">
                   {step.detail}
                 </span>
               </div>
 
-              <p className="text-sm leading-6 text-zinc-500 sm:col-start-2 lg:hidden">
+              <p className="text-sm leading-6 text-zinc-600 sm:col-start-2 lg:hidden">
                 {step.detail}
               </p>
             </li>
