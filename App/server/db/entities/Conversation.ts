@@ -19,13 +19,20 @@ import {
  * Most conversations originate in direct AI Employee chat (`source = "web"`).
  * The in-app Help surface uses `source = "help"` so its Genosyn-specific
  * context and history stay separate from ordinary employee conversations.
- * External chat surfaces — Telegram today, Slack/Discord later — set
- * `source` to a provider id and `externalKey` to whatever id uniquely
- * identifies the upstream thread (Telegram chat id, Slack channel id, …).
+ * External chat surfaces — Telegram, Slack, Microsoft Teams and WhatsApp —
+ * set `source` to a provider id and `externalKey` to whatever id uniquely
+ * identifies the upstream thread (Telegram chat id, Slack
+ * `channel:thread_ts`, Teams conversation id, WhatsApp phone number).
  * `connectionId` points at the {@link IntegrationConnection} the message
  * came in through, so multiple bots on the same provider don't collide.
  */
-export type ConversationSource = "web" | "help" | "telegram";
+export type ConversationSource =
+  | "web"
+  | "help"
+  | "telegram"
+  | "slack"
+  | "microsoft-teams"
+  | "whatsapp";
 
 @Entity("conversations")
 @Index(["source", "connectionId", "externalKey"], {

@@ -9,6 +9,7 @@ import {
   Building2,
   Check,
   CheckCircle2,
+  Copy,
   CreditCard,
   Database,
   GitFork,
@@ -46,6 +47,9 @@ import {
   type IntegrationCategory,
 } from "../lib/api";
 import { errorMessage } from "../lib/errors";
+import { copyToClipboard } from "../lib/clipboard";
+import { formatRelative } from "../components/decisions/relative";
+import { chatSurfaceLabel, isChatSurfaceProvider } from "./LinkChat";
 import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -176,7 +180,12 @@ function IntegrationsPage({
   );
   const [managing, setManaging] = React.useState<IntegrationConnection | null>(null);
   const [pickingRepos, setPickingRepos] = React.useState<IntegrationConnection | null>(null);
+  const [chatSurface, setChatSurface] = React.useState<IntegrationConnection | null>(null);
   const [search, setSearch] = React.useState("");
+  // The chat-surface reads are admin-only server-side (the identity list is an
+  // org chart of everyone's external handles), so a Member is not offered a
+  // button that can only answer 403.
+  const canAdminister = company.role === "owner" || company.role === "admin";
 
   const reload = React.useCallback(async () => {
     // The rows are about to be replaced wholesale — including by the socket
@@ -584,6 +593,16 @@ function IntegrationsPage({
                             <BookOpen size={12} /> Repos
                           </Button>
                         )}
+                        {canAdminister && isChatSurfaceProvider(c.provider) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setChatSurface(c)}
+                            title="Delivery URL, and who has linked their Genosyn account"
+                          >
+                            <MessageCircle size={12} /> Chat
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -812,6 +831,12 @@ function IntegrationsPage({
         companyId={company.id}
         onClose={() => setPickingRepos(null)}
       />
+      <ChatSurfaceModal
+        open={chatSurface !== null}
+        connection={chatSurface}
+        company={company}
+        onClose={() => setChatSurface(null)}
+      />
     </>
   );
 }
@@ -1030,6 +1055,304 @@ function ManageAccessModal({
             })}
           </ul>
         )}
+
+        <FormError message={error} />
+
+        <div className="flex justify-end pt-1">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Done
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** `GET /chat-surfaces/webhook-url` — the delivery address, and its caveats. */
+type ChatSurfaceWebhookEndpoint = {
+  provider: string;
+  connectionId: string;
+  url: string;
+  publicUrlConfigured: boolean;
+  requiresPublicUrl: boolean;
+  supportsWebhook: boolean;
+};
+
+/** One row of `GET /chat-surfaces/identities`. */
+type ExternalChatIdentitySummary = {
+  id: string;
+  provider: string;
+  connectionId: string;
+  externalUserId: string;
+  externalUserLabel: string | null;
+  bound: boolean;
+  userId: string | null;
+  userName: string | null;
+  userEmail: string | null;
+  boundAt: string | null;
+  lastSeenAt: string | null;
+};
+
+/** What to say about the delivery URL, per surface. */
+function webhookHint(provider: string): string {
+  if (provider === "microsoft-teams") {
+    return "Paste this into the Azure Bot's Messaging endpoint.";
+  }
+  if (provider === "whatsapp") {
+    return "Paste this into the Meta app's Webhooks callback URL, with the verify token from this Connection.";
+  }
+  if (provider === "slack") {
+    return "Only needed if you would rather run the Events API than Socket Mode. With an app-level token, Genosyn dials Slack and needs no public URL at all.";
+  }
+  return "Paste this into the platform's webhook settings.";
+}
+
+/**
+ * The operator's half of an external chat surface (M59).
+ *
+ * Two questions a Slack / Microsoft Teams / WhatsApp / Telegram Connection
+ * raises that no other Connection does, kept in one small modal beside the
+ * row rather than on a page of its own:
+ *
+ *  - **Where do deliveries go?** Only for the surfaces that are actually
+ *    reachable over HTTP. Telegram dials out and Slack can too, so the URL is
+ *    decoration there — `supportsWebhook` decides that, not the provider id.
+ *  - **Who is on the other end?** Everyone who has written to this Connection,
+ *    whether or not they have proved which Member they are. An admin can cut a
+ *    binding from here, because standing authority to act as a Member from
+ *    outside Genosyn is exactly the kind of thing somebody has to be able to
+ *    revoke.
+ *
+ * Both reads are admin-only server-side, which is why the row only offers the
+ * button to an owner or an admin.
+ */
+function ChatSurfaceModal({
+  open,
+  connection,
+  company,
+  onClose,
+}: {
+  open: boolean;
+  connection: IntegrationConnection | null;
+  company: Company;
+  onClose: () => void;
+}) {
+  const dialog = useDialog();
+  const [endpoint, setEndpoint] = React.useState<ChatSurfaceWebhookEndpoint | null>(null);
+  const [identities, setIdentities] = React.useState<ExternalChatIdentitySummary[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [copied, setCopied] = React.useState(false);
+  const [busyId, setBusyId] = React.useState<string | null>(null);
+
+  const connectionId = connection?.id ?? null;
+
+  React.useEffect(() => {
+    if (!open || !connectionId) return;
+    let cancelled = false;
+    setEndpoint(null);
+    setIdentities(null);
+    setLoadError(null);
+    setError(null);
+    setCopied(false);
+    (async () => {
+      try {
+        const [url, people] = await Promise.all([
+          api.get<ChatSurfaceWebhookEndpoint>(
+            `/api/companies/${company.id}/chat-surfaces/webhook-url?connectionId=${encodeURIComponent(connectionId)}`,
+          ),
+          api.get<{ identities: ExternalChatIdentitySummary[] }>(
+            `/api/companies/${company.id}/chat-surfaces/identities?connectionId=${encodeURIComponent(connectionId)}`,
+          ),
+        ]);
+        if (cancelled) return;
+        setEndpoint(url);
+        setIdentities(people.identities);
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(errorMessage(err, "Could not load this chat surface"));
+        setIdentities([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, connectionId, company.id]);
+
+  async function unbind(identity: ExternalChatIdentitySummary) {
+    const who = identity.userName ?? identity.userEmail ?? "this Member";
+    const ok = await dialog.confirm({
+      title: "Unlink this chat account?",
+      message: `${identity.externalUserLabel ?? identity.externalUserId} will stop being recognised as ${who}. The AI Employee keeps answering them, but as a stranger — with no Soul, no Skills and no company tools — until they link again.`,
+      confirmLabel: "Unlink",
+      variant: "danger",
+    });
+    if (!ok) return;
+    setBusyId(identity.id);
+    setError(null);
+    try {
+      await api.del(`/api/companies/${company.id}/chat-surfaces/identities/${identity.id}`);
+      setIdentities(
+        (prev) =>
+          prev?.map((row) =>
+            row.id === identity.id
+              ? {
+                  ...row,
+                  bound: false,
+                  userId: null,
+                  userName: null,
+                  userEmail: null,
+                  boundAt: null,
+                }
+              : row,
+          ) ?? prev,
+      );
+    } catch (err) {
+      setError(errorMessage(err, "Could not unlink that chat account"));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (!connection) return null;
+
+  const surface = chatSurfaceLabel(connection.provider);
+  const ready = identities !== null;
+
+  return (
+    <Modal open={open} onClose={onClose} title={`${surface} · ${connection.label}`} size="lg">
+      <div className="flex flex-col gap-5">
+        <div className="flex items-start gap-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60">
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-slate-700 shadow-sm dark:bg-slate-900 dark:text-slate-200">
+            <MessageCircle size={16} />
+          </div>
+          <p className="min-w-0 flex-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+            People reach the AI Employees granted this Connection from {surface} itself. In a
+            channel or group it answers when it is @-mentioned; in a direct message it answers
+            everything. Approvals and Standdowns stay in Genosyn.
+          </p>
+        </div>
+
+        <FormError message={loadError} />
+
+        {endpoint?.supportsWebhook && (
+          <section className="flex flex-col gap-2">
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Delivery URL
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                {webhookHint(endpoint.provider)}
+              </p>
+            </div>
+            {endpoint.publicUrlConfigured ? (
+              <div className="flex items-center gap-2">
+                <code className="flex-1 overflow-x-auto whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-2 py-1.5 font-mono text-[11px] text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
+                  {endpoint.url}
+                </code>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={async () => {
+                    if (!(await copyToClipboard(endpoint.url))) return;
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 1500);
+                  }}
+                >
+                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </div>
+            ) : (
+              // Rendering the localhost URL here would be worse than rendering
+              // nothing: it is a perfectly valid string that no platform on the
+              // internet can reach, and it would be pasted before anyone read
+              // the caveat.
+              <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                <span>
+                  This instance has no Public URL, so there is no address to paste yet. Set it at
+                  Admin → General → Public URL and reopen this panel.
+                </span>
+              </p>
+            )}
+          </section>
+        )}
+
+        {endpoint && !endpoint.supportsWebhook && (
+          // Not an omission worth wondering about: Telegram long-polls out of
+          // Genosyn, which is what lets it work from a laptop behind NAT.
+          <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+            {surface} has no delivery URL to paste — Genosyn dials out to it, so this Connection
+            works without a publicly reachable address.
+          </p>
+        )}
+
+        <section className="flex flex-col gap-2">
+          <div>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              People on {surface}
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+              Until someone opens the one-time link the AI Employee replies with, it answers them as
+              a stranger: no Soul, no Skills, no Goals, no Policies and no company tools.
+            </p>
+          </div>
+          {loadError ? null : !ready ? (
+            <div className="flex justify-center py-6">
+              <Spinner />
+            </div>
+          ) : (identities?.length ?? 0) === 0 ? (
+            <p className="rounded-lg border border-dashed border-slate-200 px-3 py-6 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+              Nobody has written to this Connection yet. Whoever messages an AI Employee here shows
+              up in this list.
+            </p>
+          ) : (
+            <ul className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
+              {identities!.map((identity) => (
+                <li
+                  key={identity.id}
+                  className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                        {identity.externalUserLabel || identity.externalUserId}
+                      </span>
+                      {identity.bound ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                          <Check size={10} /> Linked
+                        </span>
+                      ) : (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                          Pending
+                        </span>
+                      )}
+                    </div>
+                    <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+                      {identity.bound
+                        ? (identity.userName ?? identity.userEmail ?? "A Member")
+                        : "Not linked to a Member"}
+                      {identity.lastSeenAt
+                        ? ` · last message ${formatRelative(identity.lastSeenAt)}`
+                        : ""}
+                    </div>
+                  </div>
+                  {identity.bound && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={busyId === identity.id}
+                      onClick={() => unbind(identity)}
+                    >
+                      Unlink
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <FormError message={error} />
 

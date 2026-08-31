@@ -120,6 +120,7 @@ import { EmployeeBaseGrant } from "../db/entities/EmployeeBaseGrant.js";
 import { EmployeeChartGrant } from "../db/entities/EmployeeChartGrant.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
+import { ExternalChatIdentity } from "../db/entities/ExternalChatIdentity.js";
 import { EmployeeDashboardGrant } from "../db/entities/EmployeeDashboardGrant.js";
 import { EmployeeFinanceGrant } from "../db/entities/EmployeeFinanceGrant.js";
 import { EmployeeMarketingGrant } from "../db/entities/EmployeeMarketingGrant.js";
@@ -492,6 +493,10 @@ export async function deleteCompanyCascade(args: {
     await m.delete(Meeting, { companyId });
     await m.delete(CalendarEvent, { companyId });
     await m.delete(CalendarAccount, { companyId });
+    // Before the Connections themselves: an `ExternalChatIdentity` is what
+    // turns a sender on Slack or WhatsApp into an authorized Member of *this*
+    // company, so it must not outlive the company it authorized into.
+    await m.delete(ExternalChatIdentity, { companyId });
     await m.delete(IntegrationConnection, { companyId });
     await m.delete(EmailLog, { companyId });
     await m.delete(EmailProvider, { companyId });

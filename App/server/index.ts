@@ -16,7 +16,7 @@ import { bootContextWindowRefresh } from "./services/agent/contextWindowRefresh.
 import { bootRecurringInvoices } from "./services/recurringInvoices.js";
 import { bootRevenue } from "./services/revenue/boot.js";
 import { bootMeetings } from "./services/meetings/boot.js";
-import { bootTelegramListeners } from "./services/telegramListener.js";
+import { bootChatSurfaceWorkers } from "./services/chatSurfaces/index.js";
 import { bootMailSync } from "./services/mail/sync.js";
 import { bootMailHandovers } from "./services/mail/handovers.js";
 import { bootMailDraftSendQueue } from "./services/mail/draftSendQueue.js";
@@ -69,6 +69,14 @@ import { backupDestinationsRouter } from "./routes/backupDestinations.js";
 import { adminRouter } from "./routes/admin.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { integrationsOauthRouter } from "./routes/integrationsOauth.js";
+import { chatSurfaceBindRouter, chatSurfacesRouter } from "./routes/chatSurfaces.js";
+// The mount path is imported rather than repeated: the same constant builds
+// the URL the operator pastes into Microsoft's or Meta's console, and a mount
+// that drifted from it would advertise an endpoint that 404s.
+import {
+  CHAT_SURFACE_WEBHOOK_MOUNT,
+  chatSurfaceWebhooksRouter,
+} from "./routes/chatSurfaceWebhooks.js";
 import { workspaceRouter } from "./routes/workspace.js";
 import { pipelinesRouter } from "./routes/pipelines.js";
 import { emailProvidersRouter } from "./routes/emailProviders.js";
@@ -189,16 +197,20 @@ async function main() {
   bootMeetings();
   bootBrowserSessionSweeper();
   bootVaultSourceSync();
-  // Long-polling Telegram listener — one outbound HTTP loop per Telegram
-  // Connection. Fires asynchronously so a slow Telegram API doesn't gate
-  // server startup; failures inside each loop are logged + retried.
-  void bootTelegramListeners().catch((err) => {
+  // External chat surfaces (M59) — the transports that dial out and hold a
+  // connection open: one long poll per Telegram Connection, one Socket Mode
+  // WebSocket per Slack Connection, each owned by a scheduler lease so two
+  // replicas never answer the same message twice. Microsoft Teams and WhatsApp
+  // arrive over the webhook router instead and start nothing here. Fires
+  // asynchronously so a slow Telegram or Slack API doesn't gate server
+  // startup; failures inside each loop are logged + retried.
+  void bootChatSurfaceWorkers().catch((err) => {
     // eslint-disable-next-line no-console
-    console.error("[telegram] boot failed:", err);
+    console.error("[chat-surface] boot failed:", err);
   });
   // Email section (M25): Gmail sync heartbeat + handover queue recovery.
-  // The heartbeat's first pass runs async, so like Telegram it never gates
-  // startup; handover recovery is a quick DB sweep.
+  // The heartbeat's first pass runs async, so like the chat surfaces it never
+  // gates startup; handover recovery is a quick DB sweep.
   bootMailSync();
   void bootMailAutomationQueue().catch((err) => {
     // eslint-disable-next-line no-console
@@ -241,6 +253,14 @@ async function main() {
   // Stripe's servers send neither an Origin header nor a cookie — the signed
   // payload is the credential.
   app.use("/api/billing/stripe/webhook", billingWebhookRouter);
+  // External chat surface webhooks (M59) — Microsoft Teams and WhatsApp POST
+  // here. Same two reasons as Stripe above, and they are the only credential
+  // this endpoint has: WhatsApp's signature is an HMAC over the exact bytes
+  // Meta sent, so the router applies its own express.raw() and must see them
+  // before any parser re-serializes them, and neither platform sends a cookie
+  // or an Origin header, so the session and trusted-origin middleware would
+  // reject every delivery.
+  app.use(CHAT_SURFACE_WEBHOOK_MOUNT, chatSurfaceWebhooksRouter);
   // Signing URLs contain a bearer credential. Install these protections before
   // body parsing as well, so parser errors cannot emit a cacheable response.
   app.use("/api/sign", publicSigningSecurityHeaders);
@@ -437,6 +457,15 @@ async function main() {
   // Integrations + Connections. Company-scoped because connections belong
   // to the company and are granted out to employees.
   app.use("/api/companies/:cid/integrations", integrationsRouter);
+
+  // External chat surfaces (M59) — who is talking to the company's bots, and
+  // the webhook URL to paste into Microsoft's or Meta's console.
+  app.use("/api/companies/:cid", chatSurfacesRouter);
+  // Claiming a binding is deliberately not company-scoped: the human following
+  // the one-time link out of Slack has not picked a company yet, and the
+  // identity row already names one. Its own auth is attached per route rather
+  // than to the router, so nothing here leaks onto the other `/api` mounts.
+  app.use("/api", chatSurfaceBindRouter);
 
   // Workspace chat — Slack-style channels, DMs, file uploads, reactions.
   // Mounted under companies so `requireCompanyMember` gates every route.

@@ -47,7 +47,9 @@ export function WorkspaceChat() {
         Open a public or private channel, choose <Strong>Settings</Strong>, then enable{" "}
         <Strong>Incoming webhook</Strong>. Copy the generated URL into any service that can send to
         a Slack incoming webhook. Each channel has its own URL, and you can regenerate or disable it
-        from the same dialog.
+        from the same dialog. This is Slack&apos;s <em>payload format</em> and nothing more — to
+        make an AI Employee reachable from a real Slack workspace, see{" "}
+        <DocLink to="/docs/chat-surfaces">External chat surfaces</DocLink>.
       </P>
       <P>
         Genosyn accepts Slack&apos;s top-level <Code>text</Code>, <Code>username</Code>,{" "}

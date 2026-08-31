@@ -30,6 +30,10 @@ export type ConversationMessageStatus =
   | "interrupted";
 
 @Entity("conversation_messages")
+@Index(["conversationId", "externalMessageId"], {
+  unique: true,
+  where: '"externalMessageId" IS NOT NULL',
+})
 export class ConversationMessage {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -46,6 +50,19 @@ export class ConversationMessage {
 
   @Column({ type: "varchar", nullable: true })
   status!: ConversationMessageStatus | null;
+
+  /**
+   * Upstream id of the message this row was created from, on the external
+   * chat surfaces (Slack, Microsoft Teams, WhatsApp, Telegram). NULL
+   * everywhere else, including on every assistant reply.
+   *
+   * Webhook platforms retry on any non-2xx and sockets replay on reconnect,
+   * so "did I already answer this?" has to survive a process restart. The
+   * partial unique index makes a duplicate a write conflict rather than a
+   * second answer to the same question.
+   */
+  @Column({ type: "varchar", nullable: true })
+  externalMessageId!: string | null;
 
   /** Latest employee-authored completion estimate while `status=working`. */
   @Column({ type: "integer", nullable: true })

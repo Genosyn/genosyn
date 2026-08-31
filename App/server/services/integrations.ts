@@ -19,7 +19,18 @@ import {
   type IntegrationRuntimeContext,
   type RetiredIntegration,
 } from "../integrations/types.js";
-import { refreshTelegramListener } from "./telegramListener.js";
+// Both of these reach past `./chatSurfaces/index.js` on purpose, and it is
+// worth knowing why before consolidating them. The index re-exports the
+// inbound core, which imports `decryptConnectionConfig` from this very module,
+// so the two are mutually dependent; the index also re-exports the adapter
+// registry, which builds its table out of four consts at module-evaluation
+// time and therefore throws `Cannot access 'telegramChatSurface' before
+// initialization` if a cycle ever gets entered from the wrong side. `types.js`
+// and `identity.js` are leaves — nothing they import comes back here — so a
+// static edge to them is safe. The worker refresh is not a leaf, which is why
+// `notifyConnectionChanged` below resolves it at call time instead.
+import { isChatSurfaceProvider } from "./chatSurfaces/types.js";
+import { deleteIdentitiesForConnection } from "./chatSurfaces/identity.js";
 import { createAdSpendApproval, createPaymentApproval } from "./approvals.js";
 import { makeResourceAttachmentResolver } from "./resourceAttachments.js";
 import { makeConnectionCapabilityGate } from "./connectionCapabilities.js";
@@ -674,16 +685,32 @@ export async function deleteConnection(companyId: string, id: string): Promise<b
   await AppDataSource.getRepository(EmployeeConnectionGrant).delete({
     connectionId: id,
   });
+  // External chat bindings go with the Connection, for the same reason and one
+  // more: an `ExternalChatIdentity` row is what turns a Slack or WhatsApp
+  // sender into an authorized Member. Leaving one behind means a connection id
+  // that ever came back — a restore, a re-import, a uuid collision — would
+  // hand a stranger on the new bot the authority the old bot's owner proved.
+  await deleteIdentitiesForConnection(id);
   await repo.delete({ id });
   notifyConnectionChanged(id, existing.provider, { deleted: true });
   return true;
 }
 
 /**
- * Side-channel hook for providers that need to react to connection-row
- * changes outside the request-response cycle. Today only Telegram cares —
- * its long-polling listener has to start, stop, or re-key when a token
- * rotates. Other providers stay free of background workers, so this is a
+ * Side-channel hook for providers that need to react to connection-row changes
+ * outside the request-response cycle.
+ *
+ * The external chat surfaces (M59) are the ones that care: Telegram's long
+ * poll and Slack's Socket Mode each hold a live connection per Connection row,
+ * so a created, re-keyed, or deleted row has to start, restart, or stop a
+ * loop — otherwise a rotated token keeps failing until someone restarts the
+ * process. Every chat surface is offered the hook and
+ * {@link refreshChatSurfaceWorker} decides whether there is a loop to touch,
+ * because which transports hold one is knowledge that belongs beside the
+ * loops, not duplicated here. Microsoft Teams and WhatsApp are inbound over
+ * HTTP and fall out of it as no-ops.
+ *
+ * Everything else stays free of background workers, so this is still a
  * targeted dispatch rather than an event bus.
  */
 function notifyConnectionChanged(
@@ -691,11 +718,16 @@ function notifyConnectionChanged(
   provider: string,
   opts: { deleted?: boolean } = {},
 ): void {
-  if (provider !== "telegram") return;
-  void refreshTelegramListener(connectionId, opts).catch((err) => {
-    // eslint-disable-next-line no-console
-    console.error(`[telegram] refresh listener failed for ${connectionId}:`, err);
-  });
+  if (!isChatSurfaceProvider(provider)) return;
+  // Resolved at call time rather than imported at the top — see the note on
+  // the chat-surface imports up there. The hook was already fire-and-forget,
+  // so waiting a microtask for the module costs nothing.
+  void import("./chatSurfaces/index.js")
+    .then((surfaces) => surfaces.refreshChatSurfaceWorker(connectionId, opts))
+    .catch((err) => {
+      // eslint-disable-next-line no-console
+      console.error(`[${provider}] chat surface refresh failed for ${connectionId}:`, err);
+    });
 }
 
 /**

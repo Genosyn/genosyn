@@ -192,6 +192,12 @@ export const DOCS_NAV: DocsSection[] = [
         blurb: "Channels and DMs with AI replies, context resets, and company resource tags.",
       },
       {
+        path: "/docs/chat-surfaces",
+        title: "External chat surfaces",
+        blurb:
+          "Reach an AI Employee from Slack, Microsoft Teams, WhatsApp, or Telegram — and link your account so it answers as you.",
+      },
+      {
         path: "/docs/tldrs",
         title: "TLDRs",
         blurb:

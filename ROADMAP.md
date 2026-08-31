@@ -240,6 +240,17 @@ don't re-litigate them.
   (`IntegrationConnection`), per-company.
 - **Grant** — an AI employee's access to a Connection
   (`EmployeeConnectionGrant`).
+- **Chat surface** — an external place a human talks to an AI Employee
+  without opening Genosyn: Slack, Microsoft Teams, WhatsApp, or Telegram
+  (M59). A Connection for one of those four providers *is* a chat surface;
+  an adapter under `services/chatSurfaces/` translates its platform's
+  envelope and one shared inbound core decides everything else.
+- **Binding** — an external chat account proven to belong to a Member
+  (`ExternalChatIdentity`, M59). Established only by a one-time link the
+  sender opens in a browser already signed in to Genosyn — never by a
+  platform-reported email — and dropped by an unbind or by losing the
+  Membership, which the inbound path re-checks every turn. Without one the
+  turn runs untrusted: no Soul, no Skills, no Goals, no Policies, no tools.
 - **Repository** — a version-controlled workspace the company keeps
   (`Repository` + `EmployeeRepositoryGrant`): a service's source, a quarter's
   strategy, a set of policies. Either a clone of any git URL
@@ -356,8 +367,11 @@ genosyn/
 - **AI substrate:** `AIEmployee`, `AIModel`, `Skill`, `Routine`, `Run`,
   `EmployeeMemory`, `JournalEntry`, `Handoff`, `Goal` (M51), `RunLesson`,
   `RevisionProposal` (M52)
-- **Conversations:** `Conversation`, `ConversationMessage` (web + Telegram
-  source dispatch, action pills serialized into `actionsJson`)
+- **Conversations:** `Conversation`, `ConversationMessage`,
+  `ExternalChatIdentity` (M59) — source dispatch across web, Help and the
+  four chat surfaces (Slack, Microsoft Teams, WhatsApp, Telegram), an
+  external thread keyed by `source` + `connectionId` + `externalKey`, action
+  pills serialized into `actionsJson`
 - **Workspace chat (M9):** `Channel`, `ChannelMember`, `ChannelMessage`,
   `MessageReaction`, `Attachment`
 - **Explore (M20):** `Chart`, `Dashboard`, `DashboardCard`
@@ -3679,6 +3693,149 @@ nothing else.
       to reach the dashboard that configures SMTP. Verification links print
       to the server log until it is set.
 
+### M59 — External chat surfaces ✅
+
+An AI Employee people have to open a web app to reach is one they forget they
+have. Every surface before this one assumed the human would come to Genosyn,
+and colleagues do not come to things — they answer where the notification
+already is. The workforce was exactly as present as the tab it lived in,
+which is to say gone by lunchtime. M59 makes an AI Employee reachable from
+Slack, Microsoft Teams, WhatsApp and Telegram, and takes as little of Genosyn
+out there with it as the job allows.
+
+An Integration Connection for one of those four providers *is* a chat
+surface. One shared inbound core (`services/chatSurfaces/inbound.ts`) owns
+everything that decides what the employee may do — identity, authority, which
+Conversation an upstream thread maps to, the replay window, replay
+suppression, and the per-thread serialization that stops two messages in one
+conversation from racing their answers onto a transcript neither has seen. An
+adapter translates its platform's envelope and is allowed to decide nothing;
+an adapter that wanted to decide one of those questions for itself is the bug
+the split exists to prevent. Telegram had already shipped as a ~370-line
+listener and was moved **onto** the contract rather than left running beside
+it, because almost none of those lines were about Telegram — and because a
+seam only one thing uses is not a seam: it is the shape one implementation
+happens to have, which the second implementation then quietly bends.
+
+**The identity decision is the substance of the milestone.** External chat
+reaches `chatWithEmployee` with no browser session, so every Telegram turn
+this product had ever served ran untrusted — and
+`resolveInteractiveChatContextAccess` gives an untrusted turn no Soul, no
+Skills, no Goals, no Policies and no company tools. That is the right posture
+for a stranger who found a public bot, and a useless one for the colleague
+who typed the same sentence from the next desk: they got a generic model
+wearing the company's name. `ExternalChatIdentity` is the difference, and
+what it refuses to accept as proof is the whole argument. **Never a
+platform-reported email.** Slack Connect and Microsoft Teams federation both
+put other tenants' people in the room carrying addresses their own tenant
+vouched for, so matching on one is privilege escalation into the company's
+tools behind a badge Genosyn did not issue. The only bind is a one-time link
+the bot replies with, opened in a browser where the human is already signed
+in — the session is the proof, and checking a session is the one thing
+Genosyn has always known how to do. Membership is re-read on every single
+turn, so removing someone from the company revokes their Slack authority on
+their next message, with no cleanup step for anybody to remember.
+
+**Design calls recorded up front.** (1) Reachability splits the four in half,
+and the split is a property of the platforms rather than a preference:
+Telegram long-polls and Slack offers Socket Mode, so both dial out and work
+from a laptop behind NAT, while Microsoft Teams and WhatsApp are webhook-only
+and have to be dialled into. Their catalog cards therefore disable themselves
+until Admin → General → Public URL is set, rather than letting an operator
+connect a bot that will never hear anything. (2) Approvals and Standdowns
+deliberately do not travel. An Approval is admin-gated and its summary is
+redacted before it renders anywhere; a chat surface is precisely the place
+where nobody can say who else is in the channel or reading over a shoulder.
+A Standdown is the panic button, and a stop that can be pressed from a room
+Genosyn does not authenticate is not a stop. Both keep their home in the app
+and the reply says so. (3) In a group or channel the AI Employee answers only
+when it is addressed; in a DM it answers everything, because a DM is already
+the addressing. (4) WhatsApp's 24-hour window is a named product constraint,
+not a bug to be worked around: outside 24 hours from a person's last inbound
+message Meta accepts nothing but a template it has already approved, so the
+catalog copy, the tool descriptions and the error mapping all say it out loud
+before an employee can promise a proactive update the surface cannot send.
+
+- [x] **The shared inbound core.** Identity, then authority, then responder,
+      then transcript, then reply — one copy of that sequence, identical
+      whether the message arrived over a Slack socket, a Microsoft Teams
+      webhook or a Telegram long poll, so a fifth surface cannot ship with a
+      weaker version of it. A `@employee-slug` prefix routes to a different
+      AI Employee, but only one already granted the Connection, so the prefix
+      is a hint and never a way to reach an employee the company did not put
+      on this surface. Conversations key on
+      `source` + `connectionId` + `externalKey` (a Slack threaded reply gets
+      its own transcript rather than a merged blob); a group thread never
+      adopts an owner, because a transcript several people can read must not
+      become one Member's private history; and the 24-turn replay window
+      mirrors the web route's exactly.
+- [x] **Binding.** An `ExternalChatIdentity` row exists from a sender's first
+      sighting with no user attached, so a pending stranger is visible in the
+      app and a link can be re-minted without losing their label. The link is
+      single-use, hashed at rest, good for fifteen minutes, and offered again
+      only once the last one lapsed, so an unbound conversation gets an
+      occasional footer rather than a nag on every message. The bind route
+      takes the Member from the browser session and never from the payload,
+      and refuses an API key outright — a company credential proves nothing
+      about who is holding it. Admins see the roster of who is behind which
+      handle; an admin or the bound Member may cut a binding, and a Member
+      who is not the bound one may not, because that would be revoking a
+      colleague's access. Both bind and unbind are audited.
+- [x] **Three things a link must not be.** An adversarial review of this
+      milestone found the same shape three times over, and each answer is
+      load-bearing. A bind link is *never* posted into a group thread: it
+      claims one specific external sender, so whoever opens it donates their
+      own authority to that sender, and putting that in a channel is a
+      standing offer of a colleague's access to everyone in the room — a
+      group gets an instruction to DM instead. The page does *not* bind on
+      load: it names the surface and the external handle first and waits for
+      a click, because a link is the easiest thing in the world to forward
+      and "you opened a URL" is not consent. And the Member's auth epoch is
+      pinned at bind time rather than re-read live, so signing out everywhere
+      or resetting a password revokes external chat too — reading
+      `User.sessionVersion` and handing it straight to the check that
+      compares against `User.sessionVersion` is not a check. Re-proving is
+      one click, and the AI Employee offers it unprompted on the next
+      message.
+- [x] **Four adapters, one contract.** Slack ships both transports — Socket
+      Mode when an app-level token is configured, the Events API with v0
+      signature verification over the raw bytes for operators who would
+      rather point Slack at a URL. Microsoft Teams verifies Bot Framework
+      RS256 against Microsoft's published JWKS with the issuer, audience,
+      validity window and `serviceUrl` binding all checked, because Microsoft
+      signs for every bot in the world with the same keys. WhatsApp verifies
+      Meta's signature and answers the `hub.challenge` handshake. Each
+      renders markdown down to what its client actually understands rather
+      than shipping asterisks to people.
+- [x] **Telegram stops shouting.** The shipped listener answered *every* post
+      in any group the bot sat in, which is how a helpful bot becomes the one
+      the channel mutes. The adapter answers only when addressed — an
+      @-mention of its own handle, or a reply to something it said — and
+      still answers everything in a DM.
+- [x] **One process per bot.** Long-running transports are owned through a
+      scheduler lease per Connection: two replicas polling one Telegram bot
+      is a 409 from Telegram, and two Slack sockets are two answers to one
+      question. A replica that loses the race retries, which is also how
+      failover works when the holder dies.
+- [x] **The operator's half.** The four catalog cards, with the webhook URL
+      to paste and a plain statement when it will not work yet; the identity
+      roster; the bind page the link out of Slack lands on; and docs for
+      connecting each surface and for what an unbound sender does and does
+      not get.
+
+Deliberately **not** in M59, each with a reason. Per-employee bot users: one
+Connection answers as the employee granted it, and giving every AI Employee
+its own Slack identity is an app-installation and token problem rather than a
+routing one. Block Kit and Adaptive Card rendering, so a Decision could be
+answered from the channel instead of read there as prose. Per-sender rate
+limiting on an unbound stranger's turns — today an unbound sender can drive
+model spend, bounded only by how small an untrusted context is, which is a
+real cost with a real ceiling rather than a hole, and the honest fix is a
+spend envelope rather than a counter bolted to one surface. And two-way
+mirroring of Workspace channels, which stays out on purpose: loop suppression
+and edit semantics would cost a quarter and the thing at the end of it would
+be a second Workspace beside the one that already exists.
+
 ## V1 backlog (post-MVP)
 
 Items here are not on the active milestone path but worth picking up. Most
@@ -3741,10 +3898,10 @@ of the original V1 backlog has shipped — what remains is mostly
       show every Integration because their runtimes can use any granted
       Connection.
 - [x] **Stripe, Brex, GitHub, Linear, Notion, Postgres, MySQL, Clickhouse,
-      Airtable, Telegram, X.com, Google (Calendar + Drive + Gmail scopes),
-      Google Analytics (GA4, read-only), Google Search Console (read-only),
-      Reddit, LinkedIn**, and the ads platforms (Google, Meta, Microsoft,
-      Reddit)
+      Airtable, Telegram, Slack, Microsoft Teams, WhatsApp, X.com, Google
+      (Calendar + Drive + Gmail scopes), Google Analytics (GA4, read-only),
+      Google Search Console (read-only), Reddit, LinkedIn**, and the ads
+      platforms (Google, Meta, Microsoft, Reddit)
 - [~] **Retired in 1.132.0:** Metabase, NocoDB, Redis, Nostr, Lightning
       (NWC + LND), Hacker News, People Data Labs — and X's browser-login
       auth mode. The Vault (M37) made them redundant: a credential the

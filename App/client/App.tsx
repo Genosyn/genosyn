@@ -208,6 +208,7 @@ import ExploreIndex from "./pages/ExploreIndex";
 import ExploreChartDetail from "./pages/ExploreChartDetail";
 import ExploreDashboardDetail from "./pages/ExploreDashboardDetail";
 import Help from "./pages/Help";
+import LinkChat from "./pages/LinkChat";
 
 type AuthState =
   | { status: "loading" }
@@ -262,6 +263,12 @@ export default function App() {
               element={<VerifyEmailLink onVerified={refresh} />}
             />
             <Route path="/invite/:token" element={<Navigate to="/login" replace />} />
+            {/* The bind link an AI Employee replies with on Slack, Microsoft
+              Teams, WhatsApp or Telegram (M59). Declared here as well as in
+              the authenticated tree so an anonymous browser keeps the link in
+              the address bar and is told what to do, instead of being bounced
+              to /login with the token thrown away. */}
+            <Route path="/link-chat/:identityId/:token" element={<LinkChat />} />
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         ) : (
@@ -308,6 +315,7 @@ function AuthedRoutes({
       <Routes>
         <Route path="/onboarding" element={<Onboarding onDone={onCompaniesChanged} />} />
         <Route path="/invite/:token" element={<Invite />} />
+        <Route path="/link-chat/:identityId/:token" element={<LinkChat />} />
         <Route
           path="/security"
           element={
@@ -323,6 +331,10 @@ function AuthedRoutes({
   return (
     <Routes>
       <Route path="/invite/:token" element={<Invite />} />
+      {/* Outside `/c/:companySlug` on purpose: the identity row names the
+        company, so asking the person to pick one first would be asking for
+        the one fact the link already knows. */}
+      <Route path="/link-chat/:identityId/:token" element={<LinkChat />} />
       <Route path="/" element={<Navigate to={`/c/${companies[0].slug}`} replace />} />
       {/* Creating the first company refreshes auth while the browser is still
         on `/onboarding`. Preserve that intent across the route-tree swap so

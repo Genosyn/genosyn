@@ -25,7 +25,10 @@ const CATALOG: Array<{ name: string; kind: string }> = [
   { name: "Notion", kind: "knowledge" },
   { name: "Airtable", kind: "data" },
   { name: "Linear", kind: "tickets" },
-  { name: "Telegram", kind: "comms" },
+  { name: "Slack", kind: "chat surface" },
+  { name: "Microsoft Teams", kind: "chat surface" },
+  { name: "WhatsApp", kind: "chat surface" },
+  { name: "Telegram", kind: "chat surface" },
   { name: "Postgres / MySQL / ClickHouse", kind: "databases" },
   { name: "Reddit, X, LinkedIn", kind: "social" },
   { name: "Google Ads", kind: "paid marketing" },
@@ -345,6 +348,28 @@ export function Integrations() {
           with it.
         </LI>
       </UL>
+
+      <H3 id="chat-surfaces">Chat surfaces</H3>
+      <P>
+        Four connectors face mostly <em>inbound</em>: <Strong>Slack</Strong>,{" "}
+        <Strong>Microsoft Teams</Strong>, <Strong>WhatsApp</Strong> and <Strong>Telegram</Strong>.
+        Granting one to an AI Employee does more than hand it outbound tools — it makes that
+        employee reachable from the platform, so a DM or an @-mention gets an answer with the same
+        Soul and Skills as the chat inside Genosyn.
+      </P>
+      <P>
+        Two rules differ from every other connector here, and both surprise people. Where several
+        employees hold a Grant on the same Connection, the <Strong>first</Strong> one granted is
+        the one that answers incoming messages; the rest still get the outbound tools. And a person
+        messaging from outside is answered as a stranger — no Soul, no Skills, no company data —
+        until they open the one-time link the employee replies with. Microsoft Teams and WhatsApp
+        are webhook-only, so their catalog cards stay disabled until{" "}
+        <Strong>Admin → General → Public URL</Strong> is set.
+      </P>
+      <P>
+        Setup steps for each platform, the linking flow, and what deliberately stays inside the app
+        are on <DocLink to="/docs/chat-surfaces">External chat surfaces</DocLink>.
+      </P>
 
       <H3 id="brex">Brex Cash and corporate cards</H3>
       <P>

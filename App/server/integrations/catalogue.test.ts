@@ -34,6 +34,9 @@ const EXPECTED_PROVIDER_IDS = [
   "notion",
   "linear",
   "telegram",
+  "slack",
+  "microsoft-teams",
+  "whatsapp",
   "x",
   "reddit",
   "linkedin",
@@ -99,7 +102,11 @@ describe("Integration catalogue invariants", () => {
       }
     }
     assert.equal(totalNames.size, toolCount);
-    assert.ok(toolCount >= 130, `expected the broad tool catalogue, got ${toolCount}`);
+    // A floor rather than the list above, because tools churn inside a
+    // provider in a way connectors do not. It is still worth raising when it
+    // falls behind: the catalogue is 165 tools today, so 160 leaves room to
+    // add and retire a handful while a whole provider going quiet still trips.
+    assert.ok(toolCount >= 160, `expected the broad tool catalogue, got ${toolCount}`);
   });
 
   test("connection form fields and scope groups have stable unique keys", () => {

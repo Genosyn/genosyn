@@ -17,6 +17,9 @@ import { clickhouseProvider } from "./providers/clickhouse.js";
 import { notionProvider } from "./providers/notion.js";
 import { linearProvider } from "./providers/linear.js";
 import { telegramProvider } from "./providers/telegram.js";
+import { slackProvider } from "./providers/slack.js";
+import { microsoftTeamsProvider } from "./providers/microsoft-teams.js";
+import { whatsappProvider } from "./providers/whatsapp.js";
 import { xProvider } from "./providers/x.js";
 import { redditProvider } from "./providers/reddit.js";
 import { linkedinProvider } from "./providers/linkedin.js";
@@ -24,6 +27,7 @@ import { googleAdsProvider } from "./providers/google-ads.js";
 import { metaAdsProvider } from "./providers/meta-ads.js";
 import { microsoftAdsProvider } from "./providers/microsoft-ads.js";
 import { redditAdsProvider } from "./providers/reddit-ads.js";
+import { isPublicUrlConfigured } from "../services/publicUrl.js";
 import { config } from "../../config.js";
 
 /**
@@ -47,6 +51,9 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [notionProvider.catalog.provider]: notionProvider,
   [linearProvider.catalog.provider]: linearProvider,
   [telegramProvider.catalog.provider]: telegramProvider,
+  [slackProvider.catalog.provider]: slackProvider,
+  [microsoftTeamsProvider.catalog.provider]: microsoftTeamsProvider,
+  [whatsappProvider.catalog.provider]: whatsappProvider,
   [xProvider.catalog.provider]: xProvider,
   [redditProvider.catalog.provider]: redditProvider,
   [linkedinProvider.catalog.provider]: linkedinProvider,
@@ -57,6 +64,29 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
 };
 
 const SHARED_SAAS_BLOCKED_PROVIDERS = new Set(["postgres", "mysql"]);
+
+/**
+ * Chat surfaces (M59) whose only inbound path is an HTTP webhook, so a
+ * Connection is worthless until the instance has a public URL Microsoft or
+ * Meta can POST to.
+ *
+ * **Telegram and Slack are deliberately absent.** Their transports dial *out* —
+ * Telegram long-polls, Slack holds a Socket Mode WebSocket — so both reach an
+ * AI Employee from a laptop behind NAT with nothing published. That asymmetry
+ * is the whole reachability story of M59, and it is why this is a set of two
+ * rather than a blanket rule over the four.
+ *
+ * The ids are written out rather than read from `requiresPublicUrl` on the
+ * adapters in `services/chatSurfaces/adapters.ts`, which is where that flag
+ * actually lives. This module is the connector catalog and nearly every
+ * service imports it; the adapter registry drags all four transports and the
+ * entire entity graph behind it, and it sits one edit away from closing a
+ * cycle back here — the two long-running adapters reach
+ * `services/integrations.ts` at call time precisely to stay out of one. A
+ * two-entry literal is the cheaper thing to keep honest. Adding another
+ * webhook-only surface means editing both places.
+ */
+const PUBLIC_URL_REQUIRED_PROVIDERS = new Set(["microsoft-teams", "whatsapp"]);
 
 /**
  * Connectors that used to be registered above and no longer are.
@@ -170,30 +200,45 @@ export function listProviderIds(): string[] {
 }
 
 /**
+ * Why this instance cannot offer a connector right now, or null when it can.
+ *
+ * Both reasons are instance state rather than provider state, which is why
+ * they are resolved per call instead of baked into `catalog.enabled`: an
+ * operator who saves a public URL should find Microsoft Teams and WhatsApp
+ * connectable on the next page load, with no restart.
+ */
+function catalogDisabledReason(providerId: string): string | null {
+  if (config.security.multiTenant && SHARED_SAAS_BLOCKED_PROVIDERS.has(providerId)) {
+    return "Unavailable in shared SaaS until isolated raw-TCP egress is configured.";
+  }
+  if (PUBLIC_URL_REQUIRED_PROVIDERS.has(providerId) && !isPublicUrlConfigured()) {
+    return "Set Admin → General → Public URL first — this surface only receives messages at a webhook, so it needs an address the platform can reach.";
+  }
+  return null;
+}
+
+/**
  * Return the catalog entries. There is no global "is this integration
  * configured?" check — a Connection may always bring its own clientId/secret
  * (OAuth) or service-account key, so Google is always available to add.
  *
- * `registeredOauthApps` is the one piece of instance state folded in: the set
- * of OAuth apps a master admin registered install-wide. Entries whose OAuth
- * app is in that set are marked `oauth.instanceApp`, which is how the connect
- * form knows it can skip asking for credentials entirely. Callers that don't
- * care (onboarding recommendations) omit it and get the static shape.
+ * `registeredOauthApps` is the one piece of instance state a *caller* folds
+ * in: the set of OAuth apps a master admin registered install-wide. Entries
+ * whose OAuth app is in that set are marked `oauth.instanceApp`, which is how
+ * the connect form knows it can skip asking for credentials entirely. Callers
+ * that don't care (onboarding recommendations) omit it and get the static
+ * shape — but they still get {@link catalogDisabledReason}, because a card
+ * recommending a connector that cannot work here is worse than no card.
  */
 export function listCatalog(
   opts: { registeredOauthApps?: ReadonlySet<string> } = {},
 ): IntegrationCatalogEntry[] {
   const registered = opts.registeredOauthApps;
   return Object.values(PROVIDERS).map((p) => {
-    const entry: IntegrationCatalogEntry =
-      config.security.multiTenant && SHARED_SAAS_BLOCKED_PROVIDERS.has(p.catalog.provider)
-        ? {
-            ...p.catalog,
-            enabled: false,
-            disabledReason:
-              "Unavailable in shared SaaS until isolated raw-TCP egress is configured.",
-          }
-        : { ...p.catalog };
+    const disabledReason = catalogDisabledReason(p.catalog.provider);
+    const entry: IntegrationCatalogEntry = disabledReason
+      ? { ...p.catalog, enabled: false, disabledReason }
+      : { ...p.catalog };
     if (entry.oauth && registered?.has(entry.oauth.app)) {
       entry.oauth = { ...entry.oauth, instanceApp: true };
     }
