@@ -114,13 +114,17 @@ export function HowItWorks() {
                 <p className="mt-3 max-w-xl text-base leading-7 text-zinc-700">{step.body}</p>
               </div>
 
-              <div className="hidden items-start gap-3 lg:flex lg:justify-self-end">
+              {/* Anchored to the start of the column, not the end: these
+                  groups are a column of icon + label pairs, and right-aligning
+                  them makes the tiles track the width of each detail string
+                  instead of lining up with each other. */}
+              <div className="hidden items-start gap-3 lg:flex">
                 <span
                   className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${step.tile}`}
                 >
                   <step.icon aria-hidden className="h-4 w-4" />
                 </span>
-                <span className="max-w-[15rem] pt-1.5 text-sm leading-6 text-zinc-600">
+                <span className="max-w-[15rem] pt-2 text-sm leading-6 text-zinc-600">
                   {step.detail}
                 </span>
               </div>
