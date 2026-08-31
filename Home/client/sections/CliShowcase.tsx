@@ -68,14 +68,14 @@ export function CliShowcase() {
               <span aria-hidden className="h-2.5 w-2.5 rounded-full bg-rose-400/80" />
               <span aria-hidden className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
               <span aria-hidden className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
-              <span className="ml-2 flex items-center gap-1.5 text-[11px] font-semibold text-violet-100/60">
+              <span className="ml-2 flex items-center gap-1.5 text-[11px] font-semibold text-zinc-400">
                 <Terminal aria-hidden className="h-3.5 w-3.5" />
                 Install Genosyn
               </span>
               <button
                 type="button"
                 onClick={copyCommand}
-                className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-white/[0.14] bg-white/[0.06] px-2.5 py-1 font-mono text-[10px] font-semibold text-violet-100/80 transition hover:bg-white/[0.12] hover:text-white"
+                className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-white/[0.14] bg-white/[0.06] px-2.5 py-1 font-mono text-[10px] font-semibold text-zinc-300 transition hover:bg-white/[0.12] hover:text-white"
                 aria-label="Copy install command"
               >
                 {copied ? (
@@ -88,22 +88,22 @@ export function CliShowcase() {
             </div>
             <div className="px-5 py-6 font-mono text-xs leading-7 sm:px-7 sm:text-[13px]">
               <div>
-                <span className="text-bloom-400">$ </span>
+                <span className="text-emerald-400">$ </span>
                 <span className="text-white">curl -fsSL </span>
                 <span className="text-sky-300">https://genosyn.com/install.sh</span>
                 <span className="text-white"> | bash</span>
               </div>
-              <div className="mt-4 text-violet-100/60">
-                <span className="text-violet-300">→</span> Pulling the latest Genosyn release
+              <div className="mt-4 text-zinc-400">
+                <span className="text-zinc-400">→</span> Pulling the latest Genosyn release
               </div>
-              <div className="text-violet-100/60">
-                <span className="text-violet-300">→</span> Creating the persistent data volume
+              <div className="text-zinc-400">
+                <span className="text-zinc-400">→</span> Creating the persistent data volume
               </div>
-              <div className="text-violet-100/60">
-                <span className="text-violet-300">→</span> Starting Genosyn on port 8471
+              <div className="text-zinc-400">
+                <span className="text-zinc-400">→</span> Starting Genosyn on port 8471
               </div>
               <div className="mt-4 font-semibold text-emerald-400">✓ Genosyn is ready</div>
-              <div className="mt-1 text-violet-100/60">
+              <div className="mt-1 text-zinc-400">
                 Open <span className="text-sky-300">http://localhost:8471</span>
               </div>
             </div>
@@ -118,8 +118,8 @@ export function CliShowcase() {
               >
                 <fact.icon aria-hidden className="h-5 w-5" />
               </span>
-              <h3 className="mt-5 text-base font-semibold text-stone-900">{fact.title}</h3>
-              <p className="mt-2 text-[13px] leading-6 text-stone-600">{fact.body}</p>
+              <h3 className="mt-5 text-base font-semibold text-zinc-900">{fact.title}</h3>
+              <p className="mt-2 text-[13px] leading-6 text-zinc-600">{fact.body}</p>
             </Panel>
           ))}
         </div>

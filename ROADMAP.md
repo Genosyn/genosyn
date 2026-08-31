@@ -478,6 +478,15 @@ old shape — including a Kubernetes ConfigMap still rendering the old
       descriptions, canonicals, Open Graph tags, and JSON-LD, plus
       sitemap.xml, robots.txt, and llms.txt / llms-full.txt so search
       engines and LLM crawlers index real content without executing JS
+- [x] Home role pages — `/roles` index plus a dedicated page per role
+      (SDR, executive assistant, marketer, support, bookkeeper, engineer,
+      recruiter, analyst), each written as one working day hour by hour: the
+      Routines that start themselves, the products each hour of work happens
+      in, and the moment the employee stops and writes a Decision. Registered
+      in the same prerender / sitemap / llms.txt pipeline as the product
+      pages, and covered by `Home/tests/catalogue.test.ts`, which asserts each
+      day is in chronological order, escalates at least once, and only names
+      products that exist
 
 ### M1 — Auth ✅
 

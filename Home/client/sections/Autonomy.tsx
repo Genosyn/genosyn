@@ -27,8 +27,10 @@ import {
  * marker is the entire argument, so the timeline is the largest single element
  * in the section and the prose around it is deliberately short.
  *
- * The band is violet-cast rather than near-black on purpose: the section is
- * about a company humming along overnight, not about a datacentre at 3am.
+ * The band is near-black, and the only colour on it is the seven dots that
+ * mark which part of the company did the work. That is the whole reason the
+ * strip is legible at a glance: with a monochrome band behind them, seven
+ * hues carry seven departments without anything else competing for them.
  */
 
 type DayEvent = {
@@ -79,7 +81,7 @@ const DAY: DayEvent[] = [
   {
     time: "12:45",
     at: 12.75,
-    body: "Alex cleared 12 support threads",
+    body: "Pax cleared 12 support threads",
     where: "Email",
     hue: "bg-teal-400",
     side: "above",
@@ -108,8 +110,8 @@ const ARRIVAL = 9.5;
 const HOURS = [0, 6, 12, 18, 24];
 
 const STATS = [
-  { value: "18", label: "Routines ran overnight", hue: "text-bloom-300" },
-  { value: "0", label: "People signed in before 09:30", hue: "text-teal-300" },
+  { value: "18", label: "Routines ran overnight", hue: "text-white" },
+  { value: "0", label: "People signed in before 09:30", hue: "text-emerald-300" },
   { value: "3", label: "Decisions that needed a human", hue: "text-amber-300" },
 ];
 
@@ -160,7 +162,7 @@ const LEVELS: Level[] = [
     title: "The company keeps moving",
     tag: "Human by exception",
     body: "Employees pick up each other's handoffs across Tasks, Email, Revenue, and Repositories. What reaches you is the short list that genuinely needs a person.",
-    hue: "bg-bloom-400/15 text-bloom-300 ring-bloom-400/25",
+    hue: "bg-white/[0.10] text-white ring-white/20",
   },
 ];
 
@@ -180,8 +182,9 @@ export function Autonomy() {
             </Heading>
           </div>
           <Lede night className="max-w-xl lg:pb-1">
-            This is one Tuesday at a company running on Genosyn. Everything left of the marker
-            happened before a person opened a laptop.
+            The section above was one role&apos;s day. This is the whole roster at once — one
+            Tuesday at a company running on Genosyn. Everything left of the marker happened before
+            a person opened a laptop.
           </Lede>
         </div>
 
@@ -195,7 +198,7 @@ export function Autonomy() {
               >
                 {stat.value}
               </div>
-              <div className="mt-3 text-xs font-semibold text-violet-100/60">
+              <div className="mt-3 text-xs font-medium text-zinc-400">
                 {stat.label}
               </div>
             </NightPanel>
@@ -205,7 +208,7 @@ export function Autonomy() {
         <div className="mt-4 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
           <NightPanel className="flex flex-col justify-between gap-8 p-6 sm:p-8">
             <div>
-              <div className="text-xs font-semibold text-bloom-300">
+              <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-400">
                 The part people get wrong
               </div>
               <p className="mt-5 text-balance text-2xl font-semibold leading-[1.25] tracking-[-0.025em] text-white sm:text-[1.75rem]">
@@ -221,7 +224,7 @@ export function Autonomy() {
 
           <NightPanel className="overflow-hidden">
             <div className="flex items-center justify-between gap-3 border-b border-white/[0.10] px-5 py-4">
-              <div className="text-[11px] font-semibold text-violet-100/70">
+              <div className="text-[11px] font-semibold text-zinc-400">
                 Waited for you
               </div>
               <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-amber-200">
@@ -236,7 +239,7 @@ export function Autonomy() {
                     <span className="block text-sm font-medium leading-5 text-white">
                       {item.body}
                     </span>
-                    <span className="mt-1 block font-mono text-[10px] text-violet-100/50">
+                    <span className="mt-1 block font-mono text-[10px] text-zinc-400">
                       {item.where}
                     </span>
                   </span>
@@ -259,15 +262,15 @@ export function Autonomy() {
                   >
                     <level.icon aria-hidden className="h-4 w-4" />
                   </span>
-                  <span className="font-mono text-[10px] text-violet-100/40">
+                  <span className="font-mono text-[10px] text-zinc-400">
                     {String(index + 1).padStart(2, "0")}
                   </span>
                 </div>
                 <h3 className="mt-6 text-base font-semibold text-white">{level.title}</h3>
-                <div className="mt-2 text-[11px] font-semibold text-bloom-300/90">
+                <div className="mt-2 text-[11px] font-semibold text-zinc-400">
                   {level.tag}
                 </div>
-                <p className="mt-4 text-sm leading-6 text-violet-100/60">{level.body}</p>
+                <p className="mt-4 text-sm leading-6 text-zinc-400">{level.body}</p>
               </li>
             ))}
           </ol>
@@ -304,7 +307,7 @@ function DayStrip() {
               style={{ left: `${(hour / 24) * 100}%` }}
             >
               <span className="block h-2 w-px bg-white/25" />
-              <span className="mt-1.5 block font-mono text-[10px] text-violet-100/40">
+              <span className="mt-1.5 block font-mono text-[10px] text-zinc-400">
                 {String(hour).padStart(2, "0")}:00
               </span>
             </div>
@@ -317,9 +320,9 @@ function DayStrip() {
           >
             <span
               aria-hidden
-              className="block h-full w-px bg-gradient-to-b from-transparent via-bloom-400 to-transparent"
+              className="block h-full w-px bg-gradient-to-b from-transparent via-white/70 to-transparent"
             />
-            <span className="absolute -top-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-bloom-400/40 bg-bloom-500/15 px-3 py-1 text-[11px] font-semibold text-bloom-200 backdrop-blur">
+            <span className="absolute -top-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-white/25 bg-white/[0.12] px-3 py-1 text-[11px] font-semibold text-white backdrop-blur">
               09:30 · you sign in
             </span>
           </div>
@@ -329,7 +332,7 @@ function DayStrip() {
           ))}
         </div>
       </div>
-      <figcaption className="mt-4 text-[11px] font-semibold text-violet-100/40">
+      <figcaption className="mt-4 text-[11px] font-semibold text-zinc-400">
         A representative day · every item is one Run you can open and read
       </figcaption>
     </figure>
@@ -359,11 +362,11 @@ function DayMarker({ event }: { event: DayEvent }) {
           <span className="tabular font-mono text-[11px] font-semibold text-white">
             {event.time}
           </span>
-          <span className="ml-auto text-[11px] font-semibold text-violet-100/50">
+          <span className="ml-auto text-[11px] font-semibold text-zinc-400">
             {event.where}
           </span>
         </div>
-        <p className="mt-2 text-[12px] leading-5 text-violet-50/90">{event.body}</p>
+        <p className="mt-2 text-[12px] leading-5 text-zinc-100">{event.body}</p>
       </div>
       <span
         aria-hidden

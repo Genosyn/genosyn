@@ -4,16 +4,19 @@ import { Link } from "@/lib/router";
 /**
  * The marketing design kit.
  *
- * Every marketing page — landing, products, product detail, pricing,
- * enterprise — composes these. The rule this file exists to enforce is that a
- * section never invents its own surface, eyebrow, heading ramp, or button
- * skin: those drifted across six files before, which is how the site ended up
- * with four heading ramps and three secondary-button shadows.
+ * Every marketing page — landing, roles, role detail, products, product
+ * detail, pricing, enterprise — composes these. The rule this file exists to
+ * enforce is that a section never invents its own surface, eyebrow, heading
+ * ramp, or button skin: those drifted across six files before, which is how
+ * the site ended up with four heading ramps and three secondary-button
+ * shadows.
  *
- * Colour is deliberate here, not decorative. The old site was monochrome slate
- * from top to bottom and read as flat; the palette in tailwind.config.ts gives
- * the page warm paper, one branded accent, and a violet-cast dark for the
- * bands that punctuate it.
+ * The palette is black, white and grey (see tailwind.config.ts). Emphasis is
+ * carried by darkness and weight, never by a brand hue: the loud half of a
+ * two-tone headline is `Accent` (near-black) and the quiet half is `Muted`
+ * (grey). Getting that the wrong way round is the one mistake that makes a
+ * neutral palette read as flat, because a lighter word always reads as
+ * de-emphasis no matter what the designer intended by it.
  */
 
 /* -------------------------------------------------------------------------
@@ -23,14 +26,14 @@ import { Link } from "@/lib/router";
 export type SectionTone = "paper" | "tint" | "night";
 
 const SECTION_TONE: Record<SectionTone, string> = {
-  paper: "bg-paper-50 text-stone-700",
-  tint: "bg-paper-200 text-stone-700",
-  night: "on-night bg-night-950 text-violet-100/70",
+  paper: "bg-white text-zinc-700",
+  tint: "bg-paper-200 text-zinc-700",
+  night: "on-night bg-night-950 text-zinc-400",
 };
 
 const SECTION_DIVIDE: Record<SectionTone, string> = {
-  paper: "border-t border-stone-900/[0.07]",
-  tint: "border-t border-stone-900/[0.07]",
+  paper: "border-t border-zinc-200",
+  tint: "border-t border-zinc-200",
   night: "",
 };
 
@@ -86,7 +89,13 @@ export function Container({
   );
 }
 
-/** A card on paper. Interactive cards get `hover`. */
+/**
+ * A card on paper. Interactive cards get `hover`.
+ *
+ * The border is a real `zinc-200` hairline rather than a black at 7% alpha.
+ * On a white page a card and its band are the same colour, so the border is
+ * the only thing drawing the card at all — it has to be visible.
+ */
 export function Panel({
   hover = false,
   className = "",
@@ -98,9 +107,9 @@ export function Panel({
 }) {
   return (
     <div
-      className={`rounded-2xl border border-stone-900/[0.07] bg-white shadow-card ${
+      className={`rounded-2xl border border-zinc-200 bg-white shadow-card ${
         hover
-          ? "transition duration-200 hover:-translate-y-1 hover:border-stone-900/[0.12] hover:shadow-lift"
+          ? "transition duration-200 hover:-translate-y-1 hover:border-zinc-300 hover:shadow-lift"
           : ""
       } ${className}`}
     >
@@ -137,26 +146,21 @@ export function NightPanel({
 ------------------------------------------------------------------------- */
 
 /**
- * Section eyebrow.
+ * Section eyebrow — a tracked-out uppercase label that names the band.
  *
- * This used to be a tracked-out uppercase monospace label with a section index
- * in front of it. Between that, the grid overlay and the gradient headline the
- * page read as a zine rather than a product site, so the eyebrow is now plain
- * sentence-case sans in the accent colour — the label is there to orient, not
- * to decorate.
+ * It is grey, not coloured, and it is the only uppercase text on the site.
+ * That combination is what lets it orient a reader without competing with the
+ * heading two lines below it: uppercase reads as a label wherever it appears,
+ * so the eyebrow does not need colour to be legible as one.
  */
 export function Eyebrow({ night = false, children }: { night?: boolean; children: ReactNode }) {
   return (
     <div
-      className={`inline-flex items-center gap-2.5 text-sm font-semibold ${
-        night ? "text-bloom-300" : "text-bloom-600"
+      className={`text-[11px] font-semibold uppercase tracking-label ${
+        night ? "text-zinc-400" : "text-zinc-600"
       }`}
     >
-      <span
-        aria-hidden
-        className={`h-1.5 w-1.5 rounded-full ${night ? "bg-bloom-300" : "bg-bloom-500"}`}
-      />
-      <span>{children}</span>
+      {children}
     </div>
   );
 }
@@ -188,7 +192,7 @@ export function Display({
   return (
     <Tag
       className={`${balance ? "text-balance" : ""} text-[clamp(2.5rem,6vw,4.5rem)] font-semibold leading-[0.98] tracking-[-0.045em] ${
-        night ? "text-white" : "text-stone-900"
+        night ? "text-white" : "text-zinc-950"
       } ${className}`}
     >
       {children}
@@ -211,7 +215,7 @@ export function Heading({
   return (
     <Tag
       className={`text-balance text-[clamp(1.875rem,3.4vw,2.875rem)] font-semibold leading-[1.06] tracking-[-0.035em] ${
-        night ? "text-white" : "text-stone-900"
+        night ? "text-white" : "text-zinc-950"
       } ${className}`}
     >
       {children}
@@ -220,24 +224,28 @@ export function Heading({
 }
 
 /**
- * The accent half of a two-tone headline, used once per page at most, on the
- * words the page is actually about. Solid, not a gradient: gradient headlines
- * date a site faster than anything else on it.
+ * The loud half of a two-tone headline, used once per page at most, on the
+ * words the page is actually about.
  *
- * bloom-500, the same step the buttons fill with. A coloured accent against a
- * stone-900 heading separates by hue, so it can sit at full strength and still
- * read as the loud half — which is the whole job. A neutral accent cannot do
- * that: it has to go lighter than the heading to be distinguishable, and a
- * lighter word reads as de-emphasis, exactly backwards for the words the page
- * is about.
+ * It is the darkest value on the page, and `Muted` — grey — carries the
+ * setup around it. That inversion is deliberate and it is the whole reason a
+ * neutral palette can hold a two-tone headline at all: a grey accent against
+ * a black heading has to go lighter to be distinguishable, and a lighter word
+ * reads as de-emphasis. Darker never does.
  */
 export function Accent({ children }: { children: ReactNode }) {
-  return <span className="text-bloom-500">{children}</span>;
+  return <span className="text-zinc-950">{children}</span>;
 }
 
-/** The muted half of a two-tone headline. */
+/**
+ * The quiet half of a two-tone headline.
+ *
+ * zinc-500 rather than the lighter grey this wants to be: at display sizes
+ * the quiet half is still text somebody has to read, and zinc-400 on white is
+ * 2.6:1 — under the 3:1 floor WCAG 1.4.3 sets even for large type.
+ */
 export function Muted({ night = false, children }: { night?: boolean; children: ReactNode }) {
-  return <span className={night ? "text-violet-200/60" : "text-stone-400"}>{children}</span>;
+  return <span className={night ? "text-zinc-500" : "text-zinc-500"}>{children}</span>;
 }
 
 export function Lede({
@@ -252,7 +260,7 @@ export function Lede({
   return (
     <p
       className={`text-pretty text-lg leading-8 sm:text-xl sm:leading-9 ${
-        night ? "text-violet-100/70" : "text-stone-600"
+        night ? "text-zinc-400" : "text-zinc-600"
       } ${className}`}
     >
       {children}
@@ -270,7 +278,7 @@ export function Body({
   children: ReactNode;
 }) {
   return (
-    <p className={`text-base leading-7 ${night ? "text-violet-100/60" : "text-stone-600"} ${className}`}>
+    <p className={`text-base leading-7 ${night ? "text-zinc-400" : "text-zinc-600"} ${className}`}>
       {children}
     </p>
   );
@@ -283,13 +291,14 @@ export function Body({
 export type ButtonVariant = "primary" | "secondary" | "night" | "ghost";
 
 const BUTTON_SKIN: Record<ButtonVariant, string> = {
-  // Flat accent fill with a restrained shadow. The gradient-plus-glow version
-  // this replaced shouted louder than anything it sat next to.
-  primary: "bg-bloom-500 text-white shadow-card hover:bg-bloom-600",
-  secondary:
-    "border border-stone-900/[0.10] bg-white text-stone-800 shadow-card hover:border-stone-900/20 hover:bg-paper-50",
-  night: "border border-white/20 bg-white/[0.07] text-white hover:border-white/35 hover:bg-white/[0.14]",
-  ghost: "text-stone-500 hover:text-stone-900",
+  // Near-black fill. On a black-and-white page the primary action is the
+  // darkest thing on screen, which is both the loudest it can be and the
+  // cheapest kind of loud — no hue to clash with the twenty small ones the
+  // product mocks carry.
+  primary: "bg-ink-600 text-white shadow-card hover:bg-ink-900",
+  secondary: "border border-zinc-300 bg-white text-zinc-900 shadow-card hover:border-zinc-400 hover:bg-paper-100",
+  night: "bg-white text-zinc-900 hover:bg-zinc-200",
+  ghost: "text-zinc-500 hover:text-zinc-900",
 };
 
 export function Button({
@@ -343,8 +352,10 @@ export function TextLink({
   className?: string;
   children: ReactNode;
 }) {
-  const classes = `group inline-flex items-center gap-2 text-sm font-semibold transition ${
-    night ? "text-white hover:text-bloom-300" : "text-stone-900 hover:text-bloom-600"
+  const classes = `group inline-flex items-center gap-2 border-b pb-1 text-sm font-semibold transition ${
+    night
+      ? "border-white/25 text-white hover:border-white"
+      : "border-zinc-300 text-zinc-900 hover:border-zinc-900"
   } ${className}`;
   if (external) {
     return (
@@ -365,9 +376,13 @@ export function TextLink({
    Fragments
 ------------------------------------------------------------------------- */
 
-export type PillTone = "neutral" | "live" | "waiting" | "bloom" | "violet";
+export type PillTone = "neutral" | "live" | "waiting" | "ink" | "violet";
 
-/** Status pill. `tone` maps to the site-wide state colours. */
+/**
+ * Status pill. `tone` maps to the site-wide state colours, and those are the
+ * only place a hue means something on its own: emerald is running, amber is
+ * waiting for a human.
+ */
 export function Pill({
   tone = "neutral",
   night = false,
@@ -380,17 +395,17 @@ export function Pill({
   children: ReactNode;
 }) {
   const light: Record<PillTone, string> = {
-    neutral: "border-stone-900/[0.08] bg-white text-stone-600",
+    neutral: "border-zinc-200 bg-white text-zinc-600",
     live: "border-emerald-500/25 bg-emerald-50 text-emerald-700",
     waiting: "border-amber-500/30 bg-amber-50 text-amber-700",
-    bloom: "border-bloom-300 bg-bloom-50 text-bloom-700",
-    violet: "border-violet-300 bg-violet-50 text-violet-700",
+    ink: "border-zinc-300 bg-zinc-100 text-zinc-800",
+    violet: "border-violet-200 bg-violet-50 text-violet-700",
   };
   const dark: Record<PillTone, string> = {
-    neutral: "border-white/12 bg-white/[0.06] text-violet-100/80",
+    neutral: "border-white/12 bg-white/[0.06] text-zinc-300",
     live: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
     waiting: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-    bloom: "border-bloom-400/35 bg-bloom-400/12 text-bloom-200",
+    ink: "border-white/20 bg-white/[0.12] text-white",
     violet: "border-violet-400/35 bg-violet-400/12 text-violet-200",
   };
   return (
@@ -424,20 +439,20 @@ export function Rule({
   count?: string;
   night?: boolean;
 }) {
-  const line = night ? "bg-white/[0.12]" : "bg-stone-900/[0.10]";
+  const line = night ? "bg-white/[0.12]" : "bg-zinc-200";
   if (!label) return <span aria-hidden className={`block h-px w-full ${line}`} />;
   return (
     <div className="flex items-center gap-4">
       <h2
-        className={`text-sm font-semibold ${night ? "text-violet-100/80" : "text-stone-900"}`}
+        className={`text-[11px] font-semibold uppercase tracking-label ${
+          night ? "text-zinc-400" : "text-zinc-600"
+        }`}
       >
         {label}
       </h2>
       <span aria-hidden className={`h-px flex-1 ${line}`} />
       {count && (
-        <span className={`text-xs ${night ? "text-violet-200/50" : "text-stone-400"}`}>
-          {count}
-        </span>
+        <span className={`text-xs ${night ? "text-zinc-400" : "text-zinc-500"}`}>{count}</span>
       )}
     </div>
   );

@@ -30,7 +30,7 @@ export function ProductsIndex() {
   const flagship = PRODUCTS.find((product) => product.slug === "ai-employees");
 
   return (
-    <div className="min-h-screen bg-paper-100 text-stone-800">
+    <div className="min-h-screen bg-paper-100 text-zinc-800">
       <Nav />
       <main>
         <HeroSection>
@@ -39,7 +39,7 @@ export function ProductsIndex() {
               <HeroBadge>
                 Genosyn products
                 <HeroBadgeDot />
-                <span className="font-medium text-stone-500">{PRODUCTS.length} built in</span>
+                <span className="font-medium text-zinc-500">{PRODUCTS.length} built in</span>
               </HeroBadge>
               <HeroTitle>
                 Every tool an autonomous company{" "}
@@ -80,11 +80,11 @@ export function ProductsIndex() {
                 return (
                   <div key={category}>
                     <div className="flex items-center gap-4">
-                      <h2 className="text-sm font-semibold text-stone-500">
+                      <h2 className="text-sm font-semibold text-zinc-500">
                         {category}
                       </h2>
-                      <span className="h-px flex-1 bg-stone-900/10" />
-                      <span className="text-[10px] font-medium text-stone-400">
+                      <span className="h-px flex-1 bg-zinc-200" />
+                      <span className="text-[10px] font-medium text-zinc-400">
                         {products.length} {products.length === 1 ? "product" : "products"}
                       </span>
                     </div>
@@ -119,7 +119,7 @@ function Flagship({ product }: { product: ProductDef }) {
             <Icon className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold text-stone-400">
+            <div className="text-[11px] font-semibold text-zinc-400">
               The core of Genosyn
             </div>
             <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-white">
@@ -145,7 +145,7 @@ function ProductCard({ product }: { product: ProductDef }) {
   return (
     <Link
       href={`/products/${product.slug}`}
-      className="group flex min-h-56 flex-col rounded-2xl border border-stone-900/[0.07] bg-white p-6 shadow-card transition duration-200 hover:-translate-y-1 hover:border-stone-900/[0.12] hover:shadow-lift"
+      className="group flex min-h-56 flex-col rounded-2xl border border-zinc-200 bg-white p-6 shadow-card transition duration-200 hover:-translate-y-1 hover:border-zinc-300 hover:shadow-lift"
     >
       <div className="flex items-start justify-between">
         <span
@@ -153,11 +153,11 @@ function ProductCard({ product }: { product: ProductDef }) {
         >
           <Icon className="h-4 w-4" />
         </span>
-        <ArrowRight className="h-4 w-4 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-bloom-600" />
+        <ArrowRight className="h-4 w-4 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-950" />
       </div>
-      <h3 className="mt-5 text-base font-semibold text-stone-900">{product.name}</h3>
-      <p className="mt-2 flex-1 text-sm leading-6 text-stone-600">{product.summary}</p>
-      <span className="mt-6 text-xs font-semibold text-bloom-600">Explore product</span>
+      <h3 className="mt-5 text-base font-semibold text-zinc-900">{product.name}</h3>
+      <p className="mt-2 flex-1 text-sm leading-6 text-zinc-600">{product.summary}</p>
+      <span className="mt-6 text-xs font-semibold text-zinc-900">Explore product</span>
     </Link>
   );
 }

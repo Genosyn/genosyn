@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { ArrowRight } from "lucide-react";
 import { Nav } from "@/sections/Nav";
 import { Hero } from "@/sections/Hero";
+import { Roles, Roster } from "@/sections/Roles";
 import { Autonomy } from "@/sections/Autonomy";
 import { Primitives } from "@/sections/Primitives";
 import { Features } from "@/sections/Features";
@@ -14,6 +15,9 @@ import { DocsApp } from "@/docs/DocsApp";
 import { ProductsIndex } from "@/products/ProductsIndex";
 import { ProductPage } from "@/products/ProductPage";
 import { findProduct } from "@/products/data";
+import { RolesIndex } from "@/roles/RolesIndex";
+import { RolePage } from "@/roles/RolePage";
+import { findRole } from "@/roles/data";
 import { Link, usePathname } from "@/lib/router";
 import { applyHead } from "@/lib/head";
 import { findRouteHead } from "@/lib/siteMeta";
@@ -48,15 +52,21 @@ export function App() {
     return <ProductsRoute path={path} />;
   }
 
+  if (path.startsWith("/roles")) {
+    return <RolesRoute path={path} />;
+  }
+
   return <Landing />;
 }
 
 function Landing() {
   return (
-    <div className="min-h-screen bg-paper-100 text-stone-800">
+    <div className="min-h-screen bg-paper-100 text-zinc-800">
       <Nav />
       <main>
         <Hero />
+        <Roles />
+        <Roster />
         <Autonomy />
         <HowItWorks />
         <Primitives />
@@ -71,7 +81,7 @@ function Landing() {
 
 function EnterprisePage() {
   return (
-    <div className="min-h-screen bg-paper-100 text-stone-800">
+    <div className="min-h-screen bg-paper-100 text-zinc-800">
       <Nav />
       <main>
         <Enterprise />
@@ -83,7 +93,7 @@ function EnterprisePage() {
 
 function PricingPage() {
   return (
-    <div className="min-h-screen bg-paper-100 text-stone-800">
+    <div className="min-h-screen bg-paper-100 text-zinc-800">
       <Nav />
       <main>
         <Pricing />
@@ -111,24 +121,47 @@ function ProductsRoute({ path }: { path: string }) {
   return <ProductPage product={product} />;
 }
 
+function RolesRoute({ path }: { path: string }) {
+  const slug = path
+    .replace(/^\/roles\/?/, "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+
+  if (!slug) {
+    return <RolesIndex />;
+  }
+
+  const role = findRole(slug);
+  if (!role) {
+    return <NotFound kind="role" href="/roles" cta="Browse every role" />;
+  }
+
+  return <RolePage role={role} />;
+}
+
 function ProductNotFound() {
+  return <NotFound kind="product" href="/products" cta="Browse all products" />;
+}
+
+/** The in-app not-found panel for an unknown product or role slug. */
+function NotFound({ kind, href, cta }: { kind: string; href: string; cta: string }) {
   return (
-    <div className="min-h-screen bg-paper-100 text-stone-800">
+    <div className="min-h-screen bg-paper-100 text-zinc-800">
       <Nav />
       <main className="mx-auto flex max-w-7xl flex-col items-center px-6 py-32 text-center">
-        <div className="text-xs font-semibold text-bloom-600">404</div>
-        <h1 className="mt-4 text-4xl font-semibold tracking-[-0.03em] text-stone-900">
-          No product lives here.
+        <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-500">404</div>
+        <h1 className="mt-4 text-4xl font-semibold tracking-[-0.03em] text-zinc-950">
+          {`No ${kind} lives here.`}
         </h1>
-        <p className="mt-4 max-w-md text-base leading-relaxed text-stone-600">
-          The page you were looking for does not exist — but every tool Genosyn ships is one click
+        <p className="mt-4 max-w-md text-base leading-relaxed text-zinc-600">
+          The page you were looking for does not exist — but everything Genosyn ships is one click
           away.
         </p>
         <Link
-          href="/products"
-          className="mt-8 inline-flex items-center gap-2 rounded-xl bg-bloom-500 px-5 py-3.5 text-sm font-semibold text-white shadow-card transition hover:bg-bloom-600"
+          href={href}
+          className="mt-8 inline-flex items-center gap-2 rounded-xl bg-ink-600 px-5 py-3.5 text-sm font-semibold text-white shadow-card transition hover:bg-ink-900"
         >
-          Browse all products
+          {cta}
           <ArrowRight className="h-4 w-4" />
         </Link>
       </main>

@@ -38,30 +38,30 @@ export function Features() {
           </Lede>
         </div>
 
-        <div className="mt-14 overflow-hidden rounded-3xl border border-stone-900/[0.08] bg-white shadow-lift">
+        <div className="mt-14 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-lift">
           <div className="grid lg:grid-cols-[0.72fr_1.28fr]">
-            <div className="relative border-b border-stone-900/[0.08] bg-paper-100 p-7 sm:p-9 lg:border-b-0 lg:border-r">
+            <div className="relative border-b border-zinc-200 bg-paper-100 p-7 sm:p-9 lg:border-b-0 lg:border-r">
               <div
                 aria-hidden
-                className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_60%_at_0%_0%,rgba(255,114,124,0.14),transparent_70%)]"
+                className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_60%_at_0%_0%,rgba(9,9,11,0.055),transparent_70%)]"
               />
               <div className="relative">
-                <div className="text-[11px] font-semibold text-bloom-600">
+                <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-500">
                   Shared by design
                 </div>
-                <h3 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-stone-900">
+                <h3 className="mt-3 text-3xl font-semibold tracking-[-0.03em] text-zinc-900">
                   One operating context.
                 </h3>
-                <p className="mt-4 text-sm leading-6 text-stone-600">
+                <p className="mt-4 text-sm leading-6 text-zinc-600">
                   An employee that has to ask you for context is not autonomous. Genosyn gives every
                   role a governed way to read, write, and hand work to the next employee.
                 </p>
                 <ul className="mt-7 space-y-3.5">
                   {SHARED_FOUNDATION.map((item) => (
-                    <li key={item} className="flex items-start gap-3 text-sm leading-5 text-stone-700">
+                    <li key={item} className="flex items-start gap-3 text-sm leading-5 text-zinc-700">
                       <span
                         aria-hidden
-                        className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-bloom-100 text-bloom-600"
+                        className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-zinc-900 text-white"
                       >
                         <Check className="h-3 w-3" />
                       </span>
@@ -76,7 +76,7 @@ export function Features() {
               </div>
             </div>
 
-            <div className="grid gap-px bg-stone-900/[0.08] sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-px bg-zinc-200 sm:grid-cols-2 lg:grid-cols-3">
               {FEATURED.map((product) => {
                 const Icon = productIcon(product.icon);
                 return (
@@ -93,11 +93,11 @@ export function Features() {
                       </span>
                       <ArrowRight
                         aria-hidden
-                        className="h-4 w-4 text-stone-300 transition group-hover:translate-x-0.5 group-hover:text-bloom-500"
+                        className="h-4 w-4 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-900"
                       />
                     </div>
-                    <h3 className="mt-6 text-base font-semibold text-stone-900">{product.name}</h3>
-                    <p className="mt-2 line-clamp-3 text-[13px] leading-5 text-stone-500">
+                    <h3 className="mt-6 text-base font-semibold text-zinc-900">{product.name}</h3>
+                    <p className="mt-2 line-clamp-3 text-[13px] leading-5 text-zinc-500">
                       {product.summary}
                     </p>
                   </Link>
@@ -114,7 +114,7 @@ export function Features() {
               <Link
                 key={product.slug}
                 href={`/products/${product.slug}`}
-                className="inline-flex items-center gap-2 rounded-full border border-stone-900/[0.08] bg-white py-1.5 pl-1.5 pr-3.5 text-[12px] font-semibold text-stone-600 shadow-card transition hover:-translate-y-0.5 hover:border-bloom-300 hover:text-stone-900 hover:shadow-lift"
+                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white py-1.5 pl-1.5 pr-3.5 text-[12px] font-semibold text-zinc-600 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-400 hover:text-zinc-900 hover:shadow-lift"
               >
                 <span
                   className={`flex h-6 w-6 items-center justify-center rounded-full ring-1 ring-inset ${product.accent}`}

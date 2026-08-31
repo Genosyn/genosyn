@@ -14,28 +14,26 @@ html {
 
 html,
 body {
-  @apply bg-paper-100 font-sans text-stone-700 antialiased;
+  @apply bg-paper-100 font-sans text-zinc-700 antialiased;
 }
 
 ::selection {
-  background-color: #ff3c5c;
+  background-color: #18181b;
   color: #ffffff;
 }
 
 :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline: 2px solid #ff3c5c;
+  outline: 2px solid #18181b;
   outline-offset: 3px;
   border-radius: 4px;
 }
 
-/* On the dark bands the accent ring is the weakest link: bloom-500 on night-950
-   is 5.62:1, but the bands are a gradient and the ring sits 3px off the
-   control, so parts of it land on much lighter chrome. Flip to the light
-   accent there — bloom-200 on night-950 is 12.85:1, clear of the 3:1 WCAG
-   1.4.11 floor everywhere the gradient goes. The ring is what has to pass,
-   not the control. */
+/* The ring is what has to pass WCAG 1.4.11, not the control it sits beside,
+   and a near-black ring on a near-black band is invisible. Flip it to the
+   light end of the ramp there — ink-200 (#dcdce0) on night-950 is 15.9:1,
+   and it stays clear of the 3:1 floor everywhere the band's gradient goes. */
 .on-night :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline-color: #ffc2ce;
+  outline-color: #dcdce0;
 }
 
 .tabular {
@@ -45,41 +43,42 @@ body {
 /* ---------------------------------------------------------------------------
    Canvas.
 
-   `aurora` is the reason the page reads coloured rather than white: soft
-   accent and violet washes bled into the paper behind the hero and the closing
-   sections. The warmth underneath them is `paper`; the washes are the accent.
-   `paper-grid` and `night-grid` give large empty areas structure, and `grain`
+   The page is white, so the job of these is to stop large empty bands from
+   looking unpainted. `aurora` is a barely-there cool wash — at these alphas
+   it reads as light falling on the page rather than as a colour; drop it and
+   the hero goes flat, saturate it and the site stops being black and white.
+   `paper-grid` and `night-grid` give the emptiness structure, and `grain`
    keeps the big gradients from banding on 8-bit displays.
 --------------------------------------------------------------------------- */
 
 .aurora {
   background:
-    radial-gradient(64rem 34rem at 50% -10rem, rgba(255, 114, 124, 0.17), transparent 66%),
-    radial-gradient(44rem 28rem at 88% 0%, rgba(167, 139, 250, 0.13), transparent 68%),
-    radial-gradient(38rem 24rem at 6% 4%, rgba(56, 189, 248, 0.11), transparent 70%);
+    radial-gradient(64rem 34rem at 50% -12rem, rgba(9, 9, 11, 0.055), transparent 68%),
+    radial-gradient(46rem 28rem at 88% 0%, rgba(99, 102, 241, 0.05), transparent 70%),
+    radial-gradient(40rem 24rem at 4% 6%, rgba(14, 165, 233, 0.045), transparent 72%);
 }
 
 .aurora-night {
   background:
-    radial-gradient(52rem 30rem at 20% 0%, rgba(124, 92, 252, 0.30), transparent 66%),
-    radial-gradient(48rem 28rem at 86% 10%, rgba(255, 60, 92, 0.20), transparent 68%);
+    radial-gradient(52rem 30rem at 18% 0%, rgba(255, 255, 255, 0.08), transparent 66%),
+    radial-gradient(48rem 28rem at 86% 12%, rgba(99, 102, 241, 0.10), transparent 70%);
 }
 
-/* Barely-there structure. At 0.04 alpha and 88px the grid is felt rather than
+/* Barely-there structure. At 0.05 alpha and 88px the grid is felt rather than
    read — enough to keep a large empty band from looking unpainted, not enough
    to turn the page into graph paper. */
 .paper-grid {
   background-image:
-    linear-gradient(to right, rgba(120, 100, 80, 0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(120, 100, 80, 0.04) 1px, transparent 1px);
+    linear-gradient(to right, rgba(9, 9, 11, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(9, 9, 11, 0.05) 1px, transparent 1px);
   background-size: 88px 88px;
   mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 4%, transparent 70%);
 }
 
 .night-grid {
   background-image:
-    linear-gradient(to right, rgba(196, 181, 253, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(196, 181, 253, 0.05) 1px, transparent 1px);
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
   background-size: 88px 88px;
   mask-image: radial-gradient(ellipse 82% 64% at 50% 0%, black 4%, transparent 72%);
 }
@@ -139,9 +138,9 @@ body {
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(255, 114, 124, 0.5) 45%,
-    rgba(255, 194, 206, 0.95) 50%,
-    rgba(255, 114, 124, 0.5) 55%,
+    rgba(255, 255, 255, 0.35) 45%,
+    rgba(255, 255, 255, 0.9) 50%,
+    rgba(255, 255, 255, 0.35) 55%,
     transparent
   );
   animation: sweep 9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
@@ -217,7 +216,6 @@ body {
   .prototype-progress,
   .prototype-live-dot,
   .animate-rise,
-  .animate-halo,
   .animate-sweep,
   .animate-drift {
     animation: none;

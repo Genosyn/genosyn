@@ -84,9 +84,9 @@ export function Primitives() {
               {TRAITS.map((item) => (
                 <span
                   key={item}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-stone-900/[0.10] bg-white px-3 py-1.5 text-[11px] font-semibold text-stone-700 shadow-card"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700 shadow-card"
                 >
-                  <Check aria-hidden className="h-3 w-3 text-bloom-500" />
+                  <Check aria-hidden className="h-3 w-3 text-emerald-600" />
                   {item}
                 </span>
               ))}
@@ -108,20 +108,20 @@ export function Primitives() {
                       <primitive.icon aria-hidden className="h-4 w-4" />
                     </span>
                     <div>
-                      <div className="text-[11px] font-semibold text-stone-500">
+                      <div className="text-[11px] font-semibold text-zinc-500">
                         {primitive.label}
                       </div>
-                      <h3 className="mt-0.5 text-sm font-semibold text-stone-900">
+                      <h3 className="mt-0.5 text-sm font-semibold text-zinc-900">
                         {primitive.title}
                       </h3>
                     </div>
                   </div>
-                  <p className="mt-4 text-sm leading-6 text-stone-600">{primitive.body}</p>
+                  <p className="mt-4 text-sm leading-6 text-zinc-600">{primitive.body}</p>
                   <ul className="mt-5 space-y-2 rounded-xl bg-paper-200/70 p-3.5">
                     {primitive.lines.map((line) => (
                       <li
                         key={line}
-                        className="flex items-center gap-2.5 font-mono text-[11px] text-stone-600"
+                        className="flex items-center gap-2.5 font-mono text-[11px] text-zinc-600"
                       >
                         <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${primitive.dot}`} />
                         {line}

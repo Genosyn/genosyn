@@ -60,7 +60,7 @@ export const PRODUCTS: ProductDef[] = [
     name: "AI Employees",
     category: "The core",
     icon: "users",
-    accent: "bg-bloom-100 text-bloom-700 ring-bloom-200",
+    accent: "bg-zinc-100 text-zinc-800 ring-zinc-300",
     tagline: "Hire teammates that never log off.",
     taglineAccent: "A Soul, a set of Skills, and Routines that start without you.",
     summary:
@@ -71,7 +71,7 @@ export const PRODUCTS: ProductDef[] = [
     intro:
       "An AI Employee is not a chatbot persona, and it is not something you have to operate. It is a persistent teammate attached to your company — with a Soul that says who it is, Skills that say what it knows, Routines that say when it works without being asked, and its own sandboxed working directory. It runs while you sleep, and every execution is captured as a Run you can read line by line.",
     checks: [
-      "11 role templates or start blank",
+      "14 role templates or start blank",
       "Works unattended, on cron",
       "Claude, GPT, or a custom endpoint",
       "Every Run fully transcribed",

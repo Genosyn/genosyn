@@ -1,4 +1,5 @@
 import { PRODUCTS, type ProductDef } from "@/products/data";
+import { ROLES, type RoleDef } from "@/roles/data";
 import { DOCS_NAV } from "@/docs/nav";
 import { GITHUB_URL } from "@/lib/constants";
 
@@ -80,6 +81,49 @@ function faqPage(product: ProductDef): object {
   };
 }
 
+function roleRoute(role: RoleDef): RouteHead {
+  const path = `/roles/${role.slug}`;
+  return {
+    path,
+    title: role.seoTitle,
+    description: role.description,
+    jsonLd: [
+      ORGANIZATION,
+      WEBSITE,
+      breadcrumbs([
+        { name: "Home", path: "/" },
+        { name: "Roles", path: "/roles" },
+        { name: role.name, path },
+      ]),
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        name: role.seoTitle,
+        url: `${SITE_URL}${path}`,
+        description: role.description,
+        isPartOf: { "@type": "WebSite", name: "Genosyn", url: SITE_URL },
+        about: {
+          "@type": "SoftwareApplication",
+          name: `Genosyn ${role.name}`,
+          applicationCategory: "BusinessApplication",
+          operatingSystem: "Linux, macOS, Windows (Docker)",
+          offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+          featureList: role.capabilities.map((c) => c.title).join(", "),
+        },
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: role.faqs.map((f) => ({
+          "@type": "Question",
+          name: f.q,
+          acceptedAnswer: { "@type": "Answer", text: f.a },
+        })),
+      },
+    ],
+  };
+}
+
 function productRoute(product: ProductDef): RouteHead {
   const path = `/products/${product.slug}`;
   return {
@@ -151,6 +195,34 @@ export function allRoutes(): RouteHead[] {
       ],
     },
     ...PRODUCTS.map(productRoute),
+    {
+      path: "/roles",
+      title: "AI roles — what each one does all day · Genosyn",
+      // Derived rather than hand-listed, for the same reason /products is:
+      // a hand-written list drifts the moment a role is added.
+      description: `What an AI employee actually does, hour by hour, in eight roles: ${ROLES.map((r) => r.name).join(", ")}.`,
+      jsonLd: [
+        ORGANIZATION,
+        WEBSITE,
+        breadcrumbs([
+          { name: "Home", path: "/" },
+          { name: "Roles", path: "/roles" },
+        ]),
+        {
+          "@context": "https://schema.org",
+          "@type": "ItemList",
+          name: "Genosyn AI roles",
+          itemListElement: ROLES.map((r, i) => ({
+            "@type": "ListItem",
+            position: i + 1,
+            name: r.name,
+            description: r.summary,
+            url: `${SITE_URL}/roles/${r.slug}`,
+          })),
+        },
+      ],
+    },
+    ...ROLES.map(roleRoute),
     {
       path: "/enterprise",
       title: "Genosyn for Enterprise — Autonomous operations, your perimeter",
@@ -225,6 +297,12 @@ export function llmsTxt(): string {
     "",
     "Key concepts: an **AI Employee** is a persistent teammate with a **Soul** (written constitution), **Skills** (markdown playbooks), and **Routines** (cron-scheduled work whose every execution is a readable **Run**). Routines are what make a company autonomous — they start themselves, with no human trigger — while approval gates and **Decisions** send the small number of judgement calls back to a Member. Employees run on Anthropic (Claude), OpenAI (GPT), or any OpenAI-compatible endpoint (Ollama, vLLM, llama.cpp). Access to company resources is controlled per employee by **Grants**.",
     "",
+    "## Roles",
+    "",
+    `Each role below is one AI Employee configured for a job — a Soul, a set of Skills, and Routines on a schedule. The pages show what it does hour by hour on an ordinary working day. These are written examples, not the limit: a role is a document you edit. [All roles](${SITE_URL}/roles).`,
+    "",
+    ...ROLES.map((r) => `- [${r.name}](${SITE_URL}/roles/${r.slug}): ${r.summary}`),
+    "",
     "## Products",
     "",
     ...PRODUCTS.map((p) => `- [${p.name}](${SITE_URL}/products/${p.slug}): ${p.summary}`),
@@ -240,6 +318,7 @@ export function llmsTxt(): string {
     "## Optional",
     "",
     `- [GitHub repository](${GITHUB_URL}): source code, issues, and roadmap`,
+    `- [Roles](${SITE_URL}/roles): what an AI employee does all day, in eight worked examples`,
     `- [Pricing](${SITE_URL}/pricing): free community edition, Genosyn Cloud plans, and Enterprise licensing`,
     `- [Enterprise](${SITE_URL}/enterprise): running Genosyn in your own environment`,
     `- [llms-full.txt](${SITE_URL}/llms-full.txt): expanded product and platform reference for LLMs`,
@@ -270,6 +349,27 @@ export function llmsFullTxt(): string {
     "- **Tasks** — the task-manager feature (Projects + todos). Scheduled AI work is always a Routine, never a task.",
     "",
   ];
+
+  for (const r of ROLES) {
+    lines.push(`## Role: ${r.name} (${SITE_URL}/roles/${r.slug})`, "");
+    lines.push(r.intro, "");
+    lines.push("A working day:", "");
+    for (const m of r.day) {
+      const flag = m.kind === "decision" ? " [escalated to a human]" : "";
+      lines.push(`- **${m.time} — ${m.title}** (${m.where})${flag}. ${m.body}`);
+    }
+    lines.push("", "Routines:", "");
+    for (const routine of r.routines) {
+      lines.push(`- ${routine.name} — ${routine.when}`);
+    }
+    lines.push("", `Skills: ${r.skills.join(", ")}.`, "");
+    lines.push(`Grants required: ${r.grants.join("; ")}.`, "");
+    lines.push("FAQ:", "");
+    for (const f of r.faqs) {
+      lines.push(`- **${f.q}** ${f.a}`);
+    }
+    lines.push("", `Related terms: ${r.keywords.join(", ")}.`, "");
+  }
 
   for (const p of PRODUCTS) {
     lines.push(`## ${p.name} (${SITE_URL}/products/${p.slug})`, "");
