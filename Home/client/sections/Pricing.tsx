@@ -614,7 +614,7 @@ function PlanTile({ plan, tone = "surface" }: { plan: Plan; tone?: "surface" | "
  * `TextLink` is ink by definition, which is invisible here, so the link is
  * written out in ground with the same left-drawing underline. `on-night`
  * flips the focus ring to the light end of the ramp: the global ring is
- * #131316, which on this tile would be a black outline on a black tile.
+ * #14120f, which on this tile would be a black outline on a black tile.
  */
 function ActionTile({
   eyebrow,

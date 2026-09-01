@@ -22,7 +22,7 @@ type LogoMarkProps = {
  * stroke weight and proportions are untouched from the original mark.
  */
 export function LogoMark({ className = "", variant = "plain" }: LogoMarkProps) {
-  const fg = variant === "tile" ? "#d9d9d6" : "currentColor";
+  const fg = variant === "tile" ? "#f2f0ec" : "currentColor";
 
   const Mark = <circle cx="16" cy="16" r="9" fill="none" stroke={fg} strokeWidth="2.4" />;
 
@@ -34,7 +34,7 @@ export function LogoMark({ className = "", variant = "plain" }: LogoMarkProps) {
         className={className}
         aria-hidden="true"
       >
-        <rect width="32" height="32" rx="8" fill="#131316" />
+        <rect width="32" height="32" rx="8" fill="#14120f" />
         {Mark}
       </svg>
     );
