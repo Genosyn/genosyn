@@ -1,4 +1,6 @@
 import { Worker } from "node:worker_threads";
+
+import { config } from "../../../config.js";
 import { makeCodeHttpClient } from "./codeHttp.js";
 import { makeCodeSdk } from "./codeSdk.js";
 import { NodeOutputs, RunEnv } from "./types.js";
@@ -73,7 +75,41 @@ type WorkerMessage =
   | { type: "done"; serialized: string | null }
   | { type: "fail"; message: string };
 
+/**
+ * Shared SaaS refuses the code node outright.
+ *
+ * `vm.createContext` is not a security boundary and this module has always
+ * said so: the callables handed to the sandbox are ordinary host functions, so
+ * `axios.constructor.constructor("return process")()` walks back out to the
+ * worker's own realm. That realm is a *thread*, not a process — it shares the
+ * pid, it receives a copy of the parent environment because no `env` is passed
+ * to `new Worker`, and `process.binding` still reaches `spawn_sync` and `fs`.
+ * On a hosted install that is the encryption secret (the root of every
+ * tenant's Vault), the session secret, and the database URL, for any signup
+ * that reaches company admin — which is every signup, on its own company.
+ *
+ * Scrubbing the worker environment would not fix it: the escaped realm can
+ * still exec and read the mounted config. The boundary has to be that the code
+ * never runs at all, which is what this refusal is.
+ *
+ * Single-tenant self-host keeps the node. There the documented trust model —
+ * a company admin authored it, and every other node already runs with company
+ * authority — is coherent, because the admin already owns the box.
+ */
+export function pipelineCodeAllowed(): boolean {
+  return !config.security.multiTenant;
+}
+
+export function assertPipelineCodeAllowed(): void {
+  if (!pipelineCodeAllowed()) {
+    throw new Error(
+      "The Run JavaScript step is unavailable in shared SaaS mode, because its sandbox is not a security boundary.",
+    );
+  }
+}
+
 export async function executePipelineCode(args: ExecutePipelineCodeArgs): Promise<NodeOutputs> {
+  assertPipelineCodeAllowed();
   const timeoutSeconds = clampTimeoutSeconds(args.timeoutSeconds);
   const timeoutMs = timeoutSeconds * 1000;
   const deadlineAt = Date.now() + timeoutMs;

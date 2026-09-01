@@ -26,6 +26,7 @@ import { PIPELINE_LOG_MAX_BYTES } from "../services/pipelines/log.js";
 import { graphForStarter } from "../services/pipelines/starters.js";
 import { getProvider, listProviderIds } from "../integrations/index.js";
 import { deleteTagAssignments } from "../services/tags.js";
+import { pipelineCodeAllowed } from "../services/pipelines/codeRuntime.js";
 
 export const pipelinesRouter = Router({ mergeParams: true });
 pipelinesRouter.use(requireAuth);
@@ -111,7 +112,13 @@ pipelinesRouter.get("/pipelines/catalog", (_req, res) => {
       ];
     }),
   );
-  res.json({ catalog: NODE_CATALOG, integrationTools });
+  // Shared SaaS refuses the code node at execution and at validation; not
+  // offering it in the palette is the third door, so a hosted author never
+  // builds a step that cannot run.
+  const catalog = pipelineCodeAllowed()
+    ? NODE_CATALOG
+    : NODE_CATALOG.filter((entry) => entry.type !== "logic.code");
+  res.json({ catalog, integrationTools });
 });
 
 // ─── List + create ──────────────────────────────────────────────────────────
