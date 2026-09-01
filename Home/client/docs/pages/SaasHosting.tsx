@@ -154,6 +154,16 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         <LI>Company secrets are not injected into hosted coding shells.</LI>
         <LI>Arbitrary stdio MCP servers are not started in shared SaaS mode.</LI>
         <LI>
+          The Pipelines <Strong>Run JavaScript</Strong> step is refused — in the palette, at
+          validation, and at execution. Its sandbox keeps an honest program honest but is not a
+          boundary against a deliberate escape, which on shared infrastructure would reach the
+          install&apos;s own secrets. See <DocLink to="/docs/pipelines">Pipelines</DocLink>.
+        </LI>
+        <LI>
+          The internal tool API (<Code>/api/internal/*</Code>) accepts loopback requests only, and
+          refuses anything carrying proxy headers. Every legitimate caller runs beside the App.
+        </LI>
+        <LI>
           The app-owned browser is unavailable until it moves to a separately isolated browser
           worker. See <DocLink to="/docs/browser">Browser</DocLink> for self-hosted mode.
         </LI>
@@ -172,6 +182,14 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         shared SaaS mode until they can run in a dedicated egress worker. Fixed-host GitHub
         checkouts remain available through a granted GitHub Connection.
       </P>
+      <P>
+        A company&apos;s own <Strong>SMTP</Strong> provider is checked the same way, and separately:
+        nodemailer opens a raw socket rather than going through the patched HTTP agents, so the host
+        is resolved and refused if any answer is non-public, and the port must be 25, 465, 587 or
+        2525. Self-hosted installs are unaffected — an internal relay on a private address stays a
+        normal configuration there. From addresses are rejected if they carry control characters, so
+        a newline cannot append a <Code>Bcc:</Code> header to the company&apos;s outgoing mail.
+      </P>
 
       <H2 id="replicas">Running more than one replica</H2>
       <P>
@@ -186,7 +204,9 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
           files and employee working trees still live there.
         </LI>
         <LI>
-          Use one migration job or allow the first replica to apply migrations before rollout.
+          Migrations take a Postgres advisory lock at boot, so replicas starting together apply
+          them once rather than racing the same DDL. A dedicated migration job is still the tidier
+          rollout, and remains the right choice for a long migration you want to watch.
         </LI>
         <LI>Forward WebSocket upgrades and preserve the original HTTPS origin at the ingress.</LI>
         <LI>

@@ -57,6 +57,16 @@ ingress:
   # WebSockets share port 8471 with everything else. nginx and Traefik pass
   # Upgrade requests through a plain Ingress without extra annotations; add
   # controller-specific tuning (timeouts, buffering) here if yours needs it.
+  #
+  # `/api/internal/*` is the AI Employee tool surface. The App refuses any
+  # request to it that did not arrive on loopback, so publishing it is not
+  # exploitable — but there is no reason for the ingress to forward it at all,
+  # and blocking it there is one line of defence in depth. With
+  # ingress-nginx:
+  #
+  #   annotations:
+  #     nginx.ingress.kubernetes.io/server-snippet: |
+  #       location /api/internal { deny all; return 404; }
   annotations: {}
 
 # The /app/data volume. This must persist even when the database is Postgres:
@@ -174,7 +184,24 @@ postgres:
     size: 10Gi
     storageClass: ""
 
-resources: {}
+# Requests are set by default so the pod lands in Burstable QoS rather than
+# BestEffort. A BestEffort pod is the first thing the kubelet evicts under node
+# pressure, and at the single-replica default that pod is the whole install.
+#
+# Deliberately requests without limits: requests only affect scheduling and
+# eviction order, so raising the floor cannot OOM-kill a workload that was
+# previously fine. Shared SaaS should add limits as well — one tenant's build
+# or `npm install` inside the sandbox otherwise competes freely for the node —
+# but pick them from your own measurements, because a limit that is too low
+# turns a slow Routine into a killed one.
+#
+#   resources:
+#     requests: { cpu: 500m, memory: 1Gi }
+#     limits:   { cpu: "2",  memory: 4Gi }
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
 
 nodeSelector: {}
 tolerations: []
