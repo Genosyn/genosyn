@@ -1,19 +1,21 @@
 import React from "react";
 import { ArrowRight, CheckCircle2, Mail, ShieldCheck } from "lucide-react";
-import { api, Company, Employee, IntegrationCatalogEntry } from "../../lib/api";
-import { MailAccount, MailConnectCandidate, MailGrant, mailApi } from "../../lib/mail";
+import { Company, Employee } from "../../lib/api";
+import { MailAccount, MailGrant, mailApi } from "../../lib/mail";
+import { ConnectMailboxForm } from "../../components/mail/ConnectMailbox";
 import { Button } from "../../components/ui/Button";
 import { FormError } from "../../components/ui/FormError";
 import { Spinner } from "../../components/ui/Spinner";
-import { OauthOrServiceAccountModal } from "../SettingsIntegrations";
 import { Note, SkipLink, StepCard, StepFooter, StepHeading } from "./OnboardingFrame";
 
 /**
- * Optional Gmail access, at the deliberately safe `draft` level.
+ * Optional mailbox access, at the deliberately safe `draft` level.
  *
- * The step is labelled "Gmail" rather than "Email" because the catalog lookup
- * is hard-filtered to `provider === "google"`. Calling it "Email" sent members
- * on other providers hunting for a misconfiguration that did not exist.
+ * The step used to be labelled "Gmail" because the connect path was hard-wired
+ * to a Google Connection that had to exist first — which meant a member on
+ * Fastmail or a company Exchange server reached this screen and had nothing to
+ * press. It now asks for an email address like every other connect surface,
+ * and works for any mailbox that speaks IMAP.
  */
 export function EmailStep({
   company,
@@ -26,25 +28,16 @@ export function EmailStep({
   onBack: () => void;
   onContinue: () => void;
 }) {
-  const [catalogEntry, setCatalogEntry] = React.useState<IntegrationCatalogEntry | null>(null);
-  const [candidates, setCandidates] = React.useState<MailConnectCandidate[]>([]);
   const [accounts, setAccounts] = React.useState<MailAccount[]>([]);
   const [grants, setGrants] = React.useState<MailGrant[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [oauthOpen, setOauthOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     setError(null);
-    const [catalog, candidateResult, accountResult] = await Promise.all([
-      api.get<IntegrationCatalogEntry[]>(`/api/companies/${company.id}/integrations/catalog`),
-      mailApi.connectCandidates(company.id),
-      mailApi.accounts(company.id),
-    ]);
+    const accountResult = await mailApi.accounts(company.id);
     const nextAccounts = accountResult.accounts;
-    setCatalogEntry(catalog.find((entry) => entry.provider === "google") ?? null);
-    setCandidates(candidateResult.candidates);
     if (nextAccounts.length > 0) {
       const accountGrants = await Promise.all(
         nextAccounts.map(async (account) => ({
@@ -74,61 +67,29 @@ export function EmailStep({
       .finally(() => setLoading(false));
   }, [load]);
 
-  React.useEffect(() => {
-    function handleOauthMessage(event: MessageEvent) {
-      // The popup is same-origin; anything else is not ours to trust.
-      if (event.origin !== window.location.origin) return;
-      const data = event.data as { source?: string; ok?: boolean; detail?: string } | null;
-      if (!data || data.source !== "genosyn-oauth") return;
-      if (data.ok) {
-        setOauthOpen(false);
-        setLoading(true);
-        load()
-          .catch((err) => setError((err as Error).message))
-          .finally(() => setLoading(false));
-      } else {
-        setError(data.detail ?? "Google could not be connected");
-      }
-    }
-    window.addEventListener("message", handleOauthMessage);
-    return () => window.removeEventListener("message", handleOauthMessage);
-  }, [load]);
-
   const account = accounts[0] ?? null;
   const grant = grants.find((item) => item.employeeId === employee.id) ?? null;
-  const candidate = candidates.find(
-    (item) => item.hasGmailScope && item.linkedAccountId === null,
-  );
   const emailReady = account !== null && grant !== null;
 
-  async function connectMailbox() {
-    if (!candidate) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await mailApi.connectAccount(company.id, candidate.connectionId);
-      await mailApi.createGrant(company.id, result.account.id, {
-        employeeId: employee.id,
-        accessLevel: "draft",
-      });
-      await load();
-    } catch (err) {
-      setError((err as Error).message);
-      await load().catch(() => undefined);
-    } finally {
-      setBusy(false);
-    }
+  /**
+   * Connecting a mailbox during onboarding always ends with a grant, because
+   * a mailbox no employee can touch is not what the person came to this step
+   * for. The grant is `draft`: enough to clear an inbox and leave a finished
+   * reply, never enough to send.
+   */
+  async function grantMailbox(target: MailAccount) {
+    await mailApi.createGrant(company.id, target.id, {
+      employeeId: employee.id,
+      accessLevel: "draft",
+    });
   }
 
-  async function grantMailbox() {
+  async function grantExisting() {
     if (!account) return;
     setBusy(true);
     setError(null);
     try {
-      await mailApi.createGrant(company.id, account.id, {
-        employeeId: employee.id,
-        accessLevel: "draft",
-      });
+      await grantMailbox(account);
       await load();
     } catch (err) {
       setError((err as Error).message);
@@ -141,12 +102,11 @@ export function EmailStep({
     <StepCard>
       <StepHeading
         icon={Mail}
-        title="Connect Gmail"
+        title="Connect email"
         description={
           <>
-            Optional, and only Gmail for now — other mailboxes connect later from Email →
-            Integrations. Linking one lets {employee.name} read the inbox and prepare replies inside
-            Genosyn.
+            Optional. Connect a mailbox — Gmail, Outlook, Fastmail, iCloud, or your own mail server
+            — and {employee.name} can read the inbox and prepare replies inside Genosyn.
           </>
         }
       />
@@ -186,44 +146,35 @@ export function EmailStep({
           <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
             One step left — give {employee.name} draft access to it.
           </p>
-          <Button className="mt-4" onClick={grantMailbox} disabled={busy}>
+          <Button className="mt-4" onClick={grantExisting} disabled={busy}>
             {busy ? "Granting…" : "Grant draft access"}
           </Button>
         </div>
-      ) : candidate ? (
-        <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            Google is already connected
-          </div>
-          <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
-            Link {candidate.accountHint || candidate.label} as a mailbox and grant {employee.name}{" "}
-            draft access in one step.
-          </p>
-          <Button className="mt-4" onClick={connectMailbox} disabled={busy}>
-            {busy ? "Connecting…" : "Connect mailbox"}
-          </Button>
-        </div>
-      ) : catalogEntry?.enabled ? (
-        <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-            Connect Google Workspace
-          </div>
-          <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">
-            You will pick or create an OAuth client, then approve Gmail access in Google. That
-            creates a <strong className="font-semibold">Connection</strong> — one authenticated
-            account your company owns — whose credentials Genosyn stores encrypted.
-          </p>
-          <Button className="mt-4" onClick={() => setOauthOpen(true)}>
-            Connect Gmail
-          </Button>
-        </div>
       ) : (
-        <Note kind="warn" title="Gmail needs operator setup on this instance">
-          {catalogEntry?.disabledReason ??
-            "Google Workspace is not enabled on this Genosyn instance."}{" "}
-          Skip this step — nothing else depends on it — and connect a mailbox later from Email →
-          Integrations.
-        </Note>
+        <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+          <ConnectMailboxForm
+            companyId={company.id}
+            canConnect={company.role !== "member"}
+            onConnected={async (connected) => {
+              // The OAuth route reports back through a popup and hands us no
+              // account, so re-read to find the mailbox it created before
+              // granting on it.
+              try {
+                if (connected) await grantMailbox(connected);
+                else {
+                  const { accounts: fresh } = await mailApi.accounts(company.id);
+                  if (fresh[0]) await grantMailbox(fresh[0]);
+                }
+              } catch (err) {
+                setError((err as Error).message);
+              }
+              setLoading(true);
+              await load()
+                .catch((err) => setError((err as Error).message))
+                .finally(() => setLoading(false));
+            }}
+          />
+        </div>
       )}
 
       <StepFooter
@@ -236,26 +187,6 @@ export function EmailStep({
           {emailReady ? "Finish setup" : "Continue"} <ArrowRight size={15} />
         </Button>
       </StepFooter>
-
-      {catalogEntry && (
-        <OauthOrServiceAccountModal
-          open={oauthOpen}
-          entry={catalogEntry}
-          reconnect={null}
-          companyId={company.id}
-          initialScopeGroups={["mail"]}
-          onClose={() => setOauthOpen(false)}
-          onSaved={() => {
-            setOauthOpen(false);
-            setLoading(true);
-            window.setTimeout(() => {
-              load()
-                .catch((err) => setError((err as Error).message))
-                .finally(() => setLoading(false));
-            }, 750);
-          }}
-        />
-      )}
     </StepCard>
   );
 }

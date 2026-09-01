@@ -9,23 +9,37 @@ import {
 } from "typeorm";
 
 /**
- * Local mirror of one Gmail message (drafts included — a draft is a message
+ * Local mirror of one message (drafts included — a draft is a message
  * carrying the DRAFT label plus the `gmailDraftId` needed to edit/send it).
  *
  * Bodies are extracted once at ingest: `bodyText` from the text/plain part
  * (or stripped from HTML when there is none) and `bodyHtml` verbatim, each
  * capped at 512 KiB with a truncation marker. HTML is sanitized on the
  * client at render time (DOMPurify, same convention as chat markdown) — the
- * server stores what Gmail sent.
+ * server stores what the mail server sent.
  *
  * `attachmentsJson` is display metadata only ([{ attachmentId, filename,
- * mimeType, size }]); attachment bytes are fetched from Gmail on demand and
- * never stored locally.
+ * mimeType, size }]); attachment bytes are fetched from the mailbox on demand
+ * and never stored locally.
+ *
+ * **The `gmail*` columns hold whatever the mailbox's provider uses as a
+ * handle.** They were named when Gmail was the only mailbox Genosyn could
+ * speak to; since 1.166 an IMAP mailbox fills the same columns with its own
+ * identifiers (see `services/mail/imapModel.ts`). The names stayed because
+ * renaming five columns across five tables and ~50 call sites would change
+ * nothing anyone can see — the same reason the Repository section still sits
+ * on `code_repositories`.
  */
 @Entity("mail_messages")
 @Index(["companyId"])
 @Index(["threadId"])
 @Index(["accountId", "gmailMessageId"], { unique: true })
+// Every write-through action resolves a conversation's messages by the
+// provider's thread handle, and the IMAP sync pass resolves a UID window by
+// location. Both are per-click or per-minute on a mailbox that can hold
+// hundreds of thousands of rows, so neither may be a table scan.
+@Index(["accountId", "gmailThreadId"])
+@Index(["accountId", "providerLocation"])
 export class MailMessage {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -40,15 +54,30 @@ export class MailMessage {
   @Column({ type: "varchar" })
   threadId!: string;
 
+  /** The provider's stable message handle. */
   @Column({ type: "varchar" })
   gmailMessageId!: string;
 
+  /** The provider's conversation handle. */
   @Column({ type: "varchar" })
   gmailThreadId!: string;
 
-  /** Gmail draft id when this message is a draft; empty otherwise. */
+  /** The provider's draft handle when this message is a draft; else empty. */
   @Column({ type: "varchar", default: "" })
   gmailDraftId!: string;
+
+  /**
+   * Where the message currently sits upstream, when the provider needs that
+   * to fetch it again. Empty for Gmail, whose message id is enough on its own.
+   *
+   * IMAP is the reason this column exists: a message there is addressed by
+   * `(folder, UIDVALIDITY, UID)` and gets a **new UID every time it moves**,
+   * so the mirror keys rows on the stable `Message-ID` (in `gmailMessageId`)
+   * and records the current, changeable address here. Encoded by
+   * `services/mail/imapModel.ts`.
+   */
+  @Column({ type: "varchar", default: "" })
+  providerLocation!: string;
 
   @Column({ type: "varchar", default: "" })
   fromName!: string;

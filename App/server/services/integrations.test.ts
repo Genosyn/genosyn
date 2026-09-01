@@ -107,7 +107,7 @@ describe("OAuth reconnect mailbox identity guard", () => {
         },
         accountHint: "other@example.com",
       }),
-      /Reconnect the same Google account \(support@example\.com\)/,
+      /Reconnect the same account \(support@example\.com\)/,
     );
 
     const storedConnection = await AppDataSource.getRepository(
@@ -293,7 +293,7 @@ describe("OAuth reconnect mailbox identity guard", () => {
         impersonationEmail: "other@example.com",
         scopeGroups: ["mail"],
       }),
-      /Reconnect the same Google account \(support@example\.com\)/,
+      /Reconnect the same account \(support@example\.com\)/,
     );
 
     const unchanged = await AppDataSource.getRepository(IntegrationConnection).findOneByOrFail({
@@ -511,7 +511,7 @@ describe("OAuth reconnect mailbox identity guard", () => {
     const linked = await linking;
     await assert.rejects(
       reconnecting,
-      /Reconnect the same Google account \(support@example\.com\)/,
+      /Reconnect the same account \(support@example\.com\)/,
     );
 
     const storedConnection = await AppDataSource.getRepository(

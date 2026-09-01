@@ -5,8 +5,9 @@ import {
   safeFetchBuffer,
   type SafeFetchResult,
 } from "../../lib/outboundUrl.js";
-import { accessTokenForAccount } from "./accounts.js";
-import { getMessage, headerValue, type GmailHeader, type GmailMessage } from "./gmailClient.js";
+import { headerValue, type GmailHeader } from "./gmailClient.js";
+import { mailboxForAccount } from "./mailbox/index.js";
+import type { Mailbox } from "./mailbox/types.js";
 
 export const ONE_CLICK_UNSUBSCRIBE_BODY = "List-Unsubscribe=One-Click";
 const MAX_UNSUBSCRIBE_URL_CHARS = 4_096;
@@ -20,10 +21,30 @@ export type MailUnsubscribeResult = {
 };
 
 export type MailUnsubscribeDependencies = {
-  accessToken?: (account: MailAccount) => Promise<string>;
-  loadMessage?: (token: string, gmailMessageId: string) => Promise<GmailMessage>;
+  mailbox?: (account: MailAccount) => Promise<Mailbox>;
   post?: (url: URL, init: RequestInit) => Promise<SafeFetchResult>;
 };
+
+/**
+ * Whose `Authentication-Results` verdict this mailbox is allowed to believe.
+ *
+ * RFC 8058 requires a valid DKIM signature covering both one-click headers.
+ * Genosyn does not verify DKIM itself — it binds the *receiving* server's
+ * already-computed verdict back to the exact signature. That only works if we
+ * know which `authserv-id` belongs to the receiving server, because an
+ * `Authentication-Results` header written by anyone else is sender-supplied
+ * text an attacker controls.
+ *
+ * For a Gmail mailbox that is `mx.google.com`, always. For an IMAP mailbox it
+ * is whatever the company's own MX calls itself, which Genosyn has no way to
+ * learn — so the answer is "nobody", one-click unsubscribe is unavailable
+ * there, and {@link resolveOneClickUnsubscribe} says so. Failing closed is the
+ * only safe direction: the alternative is trusting a `dkim=pass` line the
+ * sender wrote about themselves.
+ */
+export function trustedAuthservId(account: MailAccount): string {
+  return account.provider === "gmail" ? "mx.google.com" : "";
+}
 
 /**
  * Perform the standardized RFC 8058 one-click action advertised by the exact
@@ -72,14 +93,18 @@ async function resolveOneClickUnsubscribe(
     throw new Error("The unsubscribe message does not belong to this mailbox.");
   }
   if (/\b(?:SPAM|TRASH)\b/.test(message.labelIds ?? "")) {
-    throw new Error("Genosyn will not unsubscribe from mail Gmail marked as spam or trash.");
+    throw new Error(
+      "Genosyn will not unsubscribe from mail the mail server marked as spam or trash.",
+    );
   }
-  const token = await (dependencies.accessToken ?? accessTokenForAccount)(account);
-  const remote = await (dependencies.loadMessage ?? loadGmailMessage)(
-    token,
-    message.gmailMessageId,
-  );
-  const headers = remote.payload?.headers;
+  const authservId = trustedAuthservId(account);
+  if (!authservId) {
+    throw new Error(
+      "One-click unsubscribe needs a receiving server whose DKIM verdict Genosyn can trust, which it only has for Gmail mailboxes.",
+    );
+  }
+  const mailbox = await (dependencies.mailbox ?? mailboxForAccount)(account);
+  const headers = await mailbox.getMessageHeaders(message.gmailMessageId);
   const target = oneClickUnsubscribeUrl(
     headerValue(headers, "List-Unsubscribe"),
     headerValue(headers, "List-Unsubscribe-Post"),
@@ -94,7 +119,7 @@ async function resolveOneClickUnsubscribe(
   if (privateHostAllowed(target.hostname)) {
     throw new Error("One-click unsubscribe endpoints must use the public network.");
   }
-  if (!hasAuthenticatedOneClickHeaders(headers)) {
+  if (!hasAuthenticatedOneClickHeaders(headers, authservId)) {
     throw new Error(
       "This email does not provide a DKIM-authenticated one-click unsubscribe method.",
     );
@@ -108,8 +133,8 @@ async function resolveOneClickUnsubscribe(
  * AI analysis asks this before it is allowed to offer an Unsubscribe button,
  * so the affordance is decided by the same checks the click will run — never
  * by the model's reading of the email, which is the attacker's text. Any
- * failure, including a Gmail outage, answers no: a button that errors when
- * pressed is worse than no button.
+ * failure, including a mail server outage, answers no: a button that errors
+ * when pressed is worse than no button.
  */
 export async function oneClickUnsubscribeAvailable(
   account: MailAccount,
@@ -124,7 +149,7 @@ export async function oneClickUnsubscribeAvailable(
   }
 }
 
-type GmailDkimResult = {
+type TrustedDkimResult = {
   domain: string;
   selector: string;
   signaturePrefix: string;
@@ -132,16 +157,24 @@ type GmailDkimResult = {
 
 /**
  * RFC 8058 requires one valid DKIM signature whose `h=` tag covers both
- * one-click headers. Gmail has already performed the cryptographic check, so
- * bind its trusted Authentication-Results verdict back to the exact
- * DKIM-Signature using domain, selector, and the reported `header.b` prefix.
+ * one-click headers. The receiving server has already performed the
+ * cryptographic check, so bind its trusted Authentication-Results verdict back
+ * to the exact DKIM-Signature using domain, selector, and the reported
+ * `header.b` prefix. `authservId` names the only server whose verdict counts —
+ * see {@link trustedAuthservId}.
  */
-export function hasAuthenticatedOneClickHeaders(headers: GmailHeader[] | undefined): boolean {
+export function hasAuthenticatedOneClickHeaders(
+  headers: GmailHeader[] | undefined,
+  authservId: string,
+): boolean {
   const listHeaders = headerValues(headers, "List-Unsubscribe");
   const postHeaders = headerValues(headers, "List-Unsubscribe-Post");
   if (listHeaders.length !== 1 || postHeaders.length !== 1) return false;
 
-  const passingResults = headerValues(headers, "Authentication-Results").flatMap(gmailDkimResults);
+  if (!authservId) return false;
+  const passingResults = headerValues(headers, "Authentication-Results").flatMap((value) =>
+    trustedDkimResults(value, authservId),
+  );
   if (passingResults.length === 0) return false;
 
   const signatures = headerValues(headers, "DKIM-Signature")
@@ -157,7 +190,7 @@ export function hasAuthenticatedOneClickHeaders(headers: GmailHeader[] | undefin
     // Authentication-Results identifies a signature only by its tuple and a
     // b= prefix. If two raw signatures share that identity, an invalid one
     // could falsely claim the one-click headers in h=. Ambiguity must fail
-    // closed instead of borrowing Gmail's pass verdict from the other header.
+    // closed instead of borrowing the pass verdict from the other header.
     if (matching.length !== 1) return false;
     const [signature] = matching;
     return (
@@ -174,13 +207,13 @@ function headerValues(headers: GmailHeader[] | undefined, name: string): string[
     .map((header) => header.value);
 }
 
-function gmailDkimResults(value: string): GmailDkimResult[] {
+function trustedDkimResults(value: string, trusted: string): TrustedDkimResult[] {
   const [authservId, ...segments] = value.split(";");
-  // The connected mailbox is always Gmail. Only its border MTA's verdict is
-  // trusted; sender-supplied Authentication-Results fields are untrusted.
-  if (authservId?.trim().toLowerCase() !== "mx.google.com") return [];
+  // Only the receiving border MTA's verdict is trusted; sender-supplied
+  // Authentication-Results fields are attacker-controlled text.
+  if (authservId?.trim().toLowerCase() !== trusted) return [];
 
-  const results: GmailDkimResult[] = [];
+  const results: TrustedDkimResult[] = [];
   for (const segment of segments) {
     if (!/^\s*dkim\s*=\s*pass\b/i.test(segment)) continue;
     const identity = authResultProperty(segment, "header.i");
@@ -275,10 +308,6 @@ export function oneClickUnsubscribeUrl(
   const [target] = webTargets;
   if (target.protocol !== "https:" || target.username || target.password) return null;
   return target;
-}
-
-async function loadGmailMessage(token: string, gmailMessageId: string): Promise<GmailMessage> {
-  return getMessage(token, gmailMessageId, "metadata");
 }
 
 async function postOneClick(url: URL, init: RequestInit): Promise<SafeFetchResult> {

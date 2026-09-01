@@ -63,8 +63,8 @@ const NEXT_STEPS: Array<{ label: string; body: string }> = [
     body: "Recurring work suggested for the role, and the Connections that make it useful.",
   },
   {
-    label: "Connect Gmail",
-    body: "Optional. Lets them triage your inbox and draft replies — you still press send.",
+    label: "Connect email",
+    body: "Optional. Any mailbox that speaks IMAP. Lets them triage your inbox and draft replies — you still press send.",
   },
   {
     label: "Give them a first request",

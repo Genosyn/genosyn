@@ -20,13 +20,19 @@ import { MailMessage } from "../db/entities/MailMessage.js";
 import { MailRule } from "../db/entities/MailRule.js";
 import { MailSavedSearch } from "../db/entities/MailSavedSearch.js";
 import { MailThread } from "../db/entities/MailThread.js";
-import { requireAuth, requireBrowserSession, requireCompanyMember } from "../middleware/auth.js";
+import {
+  requireAuth,
+  requireBrowserSession,
+  requireCompanyMember,
+  requireCompanyRole,
+} from "../middleware/auth.js";
 import { effectiveFinanceAccess } from "../middleware/financeAccess.js";
 import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { decryptConnectionConfig } from "../services/integrations.js";
 import { broadcastToCompany } from "../services/realtime.js";
 import { createMailAccount, serializeMailAccount } from "../services/mail/accounts.js";
+import { connectImapMailbox, describeMailboxConnect } from "../services/mail/connect.js";
 import { hasGoogleGmailMailboxScope } from "../integrations/providers/google/auth.js";
 import {
   MAX_BULK_THREAD_IDS,
@@ -230,15 +236,21 @@ mailRouter.get("/mail/accounts", async (req, res) => {
 });
 
 /**
- * Which of the company's Google connections can back a mailbox. A
- * connection qualifies when its granted OAuth scope includes Gmail; ones
- * already linked to an account are flagged rather than hidden so the UI can
- * explain why they're not clickable.
+ * Which of the company's connections can back a mailbox.
+ *
+ * A `google` connection qualifies when its granted OAuth scope includes
+ * Gmail; an `imap` connection always does, since holding the mailbox
+ * credential is the only thing it is for. Connections already linked to a
+ * mailbox are flagged rather than hidden so the UI can explain why they are
+ * not clickable.
  */
 mailRouter.get("/mail/connect-candidates", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const conns = await AppDataSource.getRepository(IntegrationConnection).find({
-    where: { companyId: cid, provider: "google" },
+    where: [
+      { companyId: cid, provider: "google" },
+      { companyId: cid, provider: "imap" },
+    ],
     order: { createdAt: "ASC" },
   });
   const accounts = await AppDataSource.getRepository(MailAccount).find({
@@ -246,15 +258,18 @@ mailRouter.get("/mail/connect-candidates", async (req, res) => {
   });
   const linkedByConn = new Map(accounts.map((a) => [a.connectionId, a.id]));
   const candidates = conns.map((c) => {
-    let hasGmailScope = false;
-    try {
-      const cfg = decryptConnectionConfig(c) as { scope?: string; scopes?: string[] };
-      hasGmailScope = hasGoogleGmailMailboxScope(cfg.scope ?? cfg.scopes ?? []);
-    } catch {
-      hasGmailScope = false;
+    let hasGmailScope = c.provider === "imap";
+    if (c.provider === "google") {
+      try {
+        const cfg = decryptConnectionConfig(c) as { scope?: string; scopes?: string[] };
+        hasGmailScope = hasGoogleGmailMailboxScope(cfg.scope ?? cfg.scopes ?? []);
+      } catch {
+        hasGmailScope = false;
+      }
     }
     return {
       connectionId: c.id,
+      provider: c.provider,
       label: c.label,
       accountHint: c.accountHint,
       status: c.status,
@@ -264,6 +279,77 @@ mailRouter.get("/mail/connect-candidates", async (req, res) => {
   });
   res.json({ candidates });
 });
+
+const discoverSchema = z.object({ email: z.string().min(3).max(320) });
+
+/**
+ * What will work for this address, on this install.
+ *
+ * A POST rather than a GET with a query string: the address is personal data,
+ * and query strings end up in access logs, proxy logs, and browser history.
+ * It reads nothing and writes nothing, which is why it is safe to call on
+ * every keystroke-free blur of the connect field.
+ */
+mailRouter.post("/mail/connect/discover", validateBody(discoverSchema), async (req, res) => {
+  const body = req.body as z.infer<typeof discoverSchema>;
+  try {
+    res.json({ plan: await describeMailboxConnect(body.email) });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : "Could not read that address" });
+  }
+});
+
+const port = z.number().int().min(1).max(65535);
+const connectImapSchema = z.object({
+  address: z.string().min(3).max(320),
+  password: z.string().min(1).max(1024),
+  username: z.string().max(320).optional(),
+  imapHost: z.string().max(253).optional(),
+  imapPort: port.optional(),
+  smtpHost: z.string().max(253).optional(),
+  smtpPort: port.optional(),
+});
+
+/**
+ * Connect an IMAP mailbox: credential, Connection and MailAccount in one
+ * call, with the first sync queued before the response returns.
+ */
+mailRouter.post(
+  "/mail/connect/imap",
+  // Creating a Connection is an admin act everywhere else in the product
+  // (`integrationsRouter` gates every mutation on it), and a shortcut that
+  // reaches the same object from a different router with a weaker gate is not
+  // a shortcut — it is the hole. `requireBrowserSession` comes with it because
+  // this one stores a credential.
+  requireBrowserSession,
+  requireCompanyRole("admin"),
+  validateBody(connectImapSchema),
+  async (req, res) => {
+    const cid = (req.params as Record<string, string>).cid;
+    const body = req.body as z.infer<typeof connectImapSchema>;
+    let connected: Awaited<ReturnType<typeof connectImapMailbox>>;
+    try {
+      connected = await connectImapMailbox({
+        companyId: cid,
+        userId: req.userId ?? null,
+        input: body,
+      });
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : "Connect failed" });
+    }
+    await recordAudit({
+      companyId: cid,
+      actorUserId: req.userId ?? null,
+      action: "mail.account.connect",
+      targetType: "mail_account",
+      targetId: connected.account.id,
+      targetLabel: connected.account.address,
+      metadata: { provider: "imap" },
+    });
+    void queueAccountSync(connected.account.id).catch(() => {});
+    res.json({ account: serializeMailAccount(connected.account) });
+  },
+);
 
 const createAccountSchema = z.object({ connectionId: z.string().uuid() });
 

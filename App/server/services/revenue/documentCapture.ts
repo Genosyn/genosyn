@@ -12,8 +12,8 @@ import { PartnershipContact } from "../../db/entities/PartnershipContact.js";
 import { RevenueDocument, type RevenueDocumentKind } from "../../db/entities/RevenueDocument.js";
 import { RevenueDocumentCandidate } from "../../db/entities/RevenueDocumentCandidate.js";
 import { normalizeEmail, parseAddressList } from "../../lib/emailAddress.js";
-import { accessTokenForAccount } from "../mail/accounts.js";
-import { getAttachment, type ParsedAttachment } from "../mail/gmailClient.js";
+import type { ParsedAttachment } from "../mail/gmailClient.js";
+import { mailboxForAccount } from "../mail/mailbox/index.js";
 import { discardUnboundAttachment, recordAttachmentBytes } from "../uploads.js";
 import { assertRevenueLinks } from "./integrity.js";
 import type { RevenueOperationActor } from "./operations.js";
@@ -558,7 +558,7 @@ export async function reviewRevenueDocumentCandidate(
         status: "duplicate",
         contentHash: candidate.contentHash,
         revenueDocumentId: sourceWinner.id,
-        reviewNote: input.note ?? "Duplicate Gmail attachment",
+        reviewNote: input.note ?? "Duplicate mail attachment",
         reviewedAt: new Date(),
         reviewedByUserId: actor.userId ?? null,
       });
@@ -573,16 +573,10 @@ export async function reviewRevenueDocumentCandidate(
         id: message.accountId,
       });
       if (!mailAccount) throw new Error("Source mailbox no longer exists");
-      const accessToken = await accessTokenForAccount(mailAccount);
-      const payload = await getAttachment(
-        accessToken,
-        message.gmailMessageId,
-        metadata.attachmentId,
-      );
-      if (!payload.data) throw new Error("Gmail returned an empty attachment");
-      bytes = Buffer.from(payload.data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+      const mailbox = await mailboxForAccount(mailAccount);
+      bytes = await mailbox.getAttachmentBytes(message.gmailMessageId, metadata);
     }
-    if (bytes.length === 0) throw new Error("Gmail returned an empty attachment");
+    if (bytes.length === 0) throw new Error("The mail server returned an empty attachment");
     const contentHash = crypto.createHash("sha256").update(bytes).digest("hex");
     const contentWinner = await findCapturedDocument(companyId, {
       ...source,

@@ -3,7 +3,6 @@ import { Link, Outlet, useLocation, useNavigate, useSearchParams } from "react-r
 import {
   Archive,
   Bot,
-  CheckCircle2,
   ChevronDown,
   FileText,
   Inbox,
@@ -24,7 +23,6 @@ import { errorMessage } from "../lib/errors";
 import {
   ComposeInput,
   MailAccount,
-  MailConnectCandidate,
   MailCounts,
   MailLabelInfo,
   mailApi,
@@ -33,11 +31,11 @@ import { shouldIgnoreShortcut } from "../lib/keyboard";
 import { type Command, useRegisterCommands } from "../components/CommandRegistry";
 import { ContextualLayout, SidebarLink } from "../components/AppShell";
 import { AttachmentBar, useMailAttachments } from "../components/MailAttachments";
+import { ConnectMailboxForm } from "../components/mail/ConnectMailbox";
 import { useComposerFileDrop } from "../lib/fileDrop";
 import { useCompanySocketSubscription } from "../components/CompanySocket";
 import { Button } from "../components/ui/Button";
 import { useDialog } from "../components/ui/Dialog";
-import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Menu, MenuItem } from "../components/ui/Menu";
@@ -277,7 +275,7 @@ export default function MailLayout({ company }: { company: Company }) {
       setChangeTick((t) => t + 1);
     }
 
-    // A first mailbox import can emit progress after every Gmail page. Each
+    // A first mailbox import can emit progress after every page it reads. Each
     // sidebar refresh scans the mirrored thread labels, so cap those scans
     // while the import is growing; the thread list and progress counter stay
     // live on every event, and a completed mailbox still refreshes at once.
@@ -589,6 +587,15 @@ function LabelLink({ base, label }: { base: string; label: MailLabelInfo }) {
 
 // ───────────────────────────── onboarding ─────────────────────────────
 
+/**
+ * The first screen of the Email section, for a company with no mailbox yet.
+ *
+ * It used to be a picker over Google Connections that had to exist already,
+ * which put the real first step — a Google Cloud project — somewhere else
+ * entirely, and left this page saying "no Gmail-capable Google connection yet"
+ * to somebody who had never been told they needed one. Now the page asks for
+ * an email address, and {@link ConnectMailboxForm} works out the rest.
+ */
 function MailOnboarding({
   company,
   onConnected,
@@ -596,47 +603,6 @@ function MailOnboarding({
   company: Company;
   onConnected: () => Promise<void>;
 }) {
-  const [candidates, setCandidates] = React.useState<MailConnectCandidate[] | null>(null);
-  const [connecting, setConnecting] = React.useState<string | null>(null);
-  const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    mailApi
-      .connectCandidates(company.id)
-      .then((res) => {
-        if (!cancelled) setCandidates(res.candidates);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setLoadError(errorMessage(err, "Could not load your Google connections"));
-          setCandidates([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [company.id]);
-
-  const connect = async (connectionId: string) => {
-    setConnecting(connectionId);
-    setError(null);
-    try {
-      await mailApi.connectAccount(company.id, connectionId);
-      // No confirmation needed: onConnected swaps this whole screen for the
-      // mailbox, with the first sync already running in the sidebar.
-      await onConnected();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setConnecting(null);
-    }
-  };
-
-  const usable = (candidates ?? []).filter((c) => c.hasGmailScope && !c.linkedAccountId);
-
   return (
     <div className="mx-auto max-w-2xl px-6 py-16">
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -646,70 +612,34 @@ function MailOnboarding({
         Bring your inbox into Genosyn
       </h1>
       <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
-        Connect a Gmail account to read and answer mail here, hand threads to AI employees, and run
-        rules on everything that arrives. Changes sync both ways.
+        Connect a mailbox to read and answer mail here, hand threads to AI employees, and run rules
+        on everything that arrives. Changes sync both ways. Gmail, Outlook, Fastmail, iCloud, your
+        own mail server — anything that speaks IMAP.
       </p>
 
-      {loadError ? (
-        <FormError message={loadError} className="mt-8" />
-      ) : candidates === null ? (
-        <div className="mt-10 flex justify-center">
-          <Spinner size={20} />
-        </div>
-      ) : usable.length > 0 ? (
-        <div className="mt-8 space-y-2">
-          <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
-            Pick a Google connection
-          </div>
-          <FormError message={error} />
-          {usable.map((c) => (
-            <div
-              key={c.connectionId}
-              className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-                  {c.accountHint || c.label}
-                </div>
-                <div className="truncate text-xs text-slate-500">{c.label}</div>
-              </div>
-              <Button
-                size="sm"
-                disabled={connecting !== null}
-                onClick={() => connect(c.connectionId)}
-              >
-                {connecting === c.connectionId ? (
-                  <Spinner size={14} />
-                ) : (
-                  <>
-                    <CheckCircle2 size={14} className="mr-1.5" /> Connect
-                  </>
-                )}
-              </Button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="mt-8">
-          <EmptyState
-            title="No Gmail-capable Google connection yet"
-            description={
-              'Add a Google connection with the "Gmail" product selected under Email → Integrations, then come back here.'
-            }
-            action={
-              <Link to={`/c/${company.slug}/mail/integrations`}>
-                <Button size="sm">Open Integrations</Button>
-              </Link>
-            }
-          />
-          {(candidates ?? []).some((c) => !c.hasGmailScope) && (
-            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-              You have Google connections, but none were authorized with the Gmail scope — reconnect
-              one and tick the Gmail product on the consent screen.
-            </p>
-          )}
-        </div>
-      )}
+      <div className="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <ConnectMailboxForm
+          companyId={company.id}
+          canConnect={company.role === "owner" || company.role === "admin"}
+          autoFocus
+          onConnected={async () => {
+            // No confirmation needed: onConnected swaps this whole screen for
+            // the mailbox, with the first sync already running in the sidebar.
+            await onConnected();
+          }}
+        />
+      </div>
+
+      <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
+        Already have a connection set up?{" "}
+        <Link
+          to={`/c/${company.slug}/mail/integrations`}
+          className="underline hover:text-slate-700 dark:hover:text-slate-200"
+        >
+          Open Integrations
+        </Link>
+        .
+      </p>
     </div>
   );
 }

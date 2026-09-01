@@ -3996,7 +3996,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "search_mail",
     description:
-      "Search the whole local index of a granted mailbox — every synced message, body included. `query` is free text: terms AND together (each may match subject, participants, or body; quote for exact phrases) and Gmail-style operators work verbatim — from:, to:, subject:, label:, in:inbox|archive|sent|drafts|spam|trash, has:attachment, is:unread|read|starred, before:/after:YYYY-MM-DD. The structured filters (`from`, `to`, `after`, `before`, `label`, `unreadOnly`, `hasAttachment`) do the same thing and win over their operator twins when both appear. Searches everything except spam/trash unless `in:` says otherwise. Returns thread summaries newest-first — fetch full bodies with `get_mail_thread`.",
+      "Search the whole local index of a granted mailbox — every synced message, body included. `query` is free text: terms AND together (each may match subject, participants, or body; quote for exact phrases) and the familiar operators work verbatim — from:, to:, subject:, label:, in:inbox|archive|sent|drafts|spam|trash, has:attachment, is:unread|read|starred, before:/after:YYYY-MM-DD. The structured filters (`from`, `to`, `after`, `before`, `label`, `unreadOnly`, `hasAttachment`) do the same thing and win over their operator twins when both appear. Searches everything except spam/trash unless `in:` says otherwise. Returns thread summaries newest-first — fetch full bodies with `get_mail_thread`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4015,7 +4015,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         before: { type: "string", description: "Only threads before this date (YYYY-MM-DD)." },
         label: {
           type: "string",
-          description: "Gmail label id (INBOX, STARRED, SENT, …) or a user label name.",
+          description: "Label id (INBOX, STARRED, SENT, …) or a user label name.",
         },
         unreadOnly: { type: "boolean" },
         hasAttachment: { type: "boolean" },
@@ -4046,7 +4046,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
       properties: {
         messageId: {
           type: "string",
-          description: "Local message id (from get_mail_thread), not the Gmail id.",
+          description: "Local message id (from get_mail_thread), not the mail server's id.",
         },
         index: {
           type: "integer",
@@ -4061,7 +4061,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "create_mail_draft",
     description:
-      "Write a Gmail draft — the human-in-the-loop way to answer email: the draft lands in the thread (and the owner's Gmail Drafts) for a human to review and send. Pass `threadId` to draft a reply (recipients and subject are inferred from the thread when omitted); omit it for a fresh compose, which requires `to` and an `accountId` when you hold more than one grant. Attach files with `attachments` — a chat attachment by id (a filled PDF form, or anything you produced this turn), a Resource by slug, or an invoice as a PDF by slug. Requires the `draft` access level.",
+      "Write a draft — the human-in-the-loop way to answer email: the draft lands in the thread (and the mailbox's own Drafts) for a human to review and send. Pass `threadId` to draft a reply (recipients and subject are inferred from the thread when omitted); omit it for a fresh compose, which requires `to` and an `accountId` when you hold more than one grant. Attach files with `attachments` — a chat attachment by id (a filled PDF form, or anything you produced this turn), a Resource by slug, or an invoice as a PDF by slug. Requires the `draft` access level.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4084,7 +4084,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "edit_mail_draft",
     description:
-      "Replace fields on an existing Gmail draft. Fetch the email first with `get_mail_thread`, then pass its draft `messageId` plus every field that should change; omitted fields stay as they are. One exception: an edit rebuilds the draft, so any files already on it are dropped unless you pass `attachments` again. Gmail may assign a new message id, which is returned. Requires the `draft` access level.",
+      "Replace fields on an existing draft. Fetch the email first with `get_mail_thread`, then pass its draft `messageId` plus every field that should change; omitted fields stay as they are. One exception: an edit rebuilds the draft, so any files already on it are dropped unless you pass `attachments` again. The mail server may assign a new message id, which is returned. Requires the `draft` access level.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4106,7 +4106,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "update_mail_thread",
     description:
-      "Triage a thread: mark read/unread, star/unstar, archive or move back to inbox, and apply or remove labels. `addLabels` names are created in Gmail on first use, so categorize freely (e.g. 'Support', 'Invoices'). Changes write through to Gmail immediately. Requires the `draft` access level.",
+      "Triage a thread: mark read/unread, star/unstar, archive or move back to inbox, and apply or remove labels. `addLabels` names are created on the mail server on first use, so categorize freely (e.g. 'Support', 'Invoices'). On an IMAP mailbox a label is a folder, so applying one moves the conversation there. Changes write through immediately. Requires the `draft` access level.",
     inputSchema: {
       type: "object",
       properties: {
@@ -5927,7 +5927,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "export_revenue_snapshot",
     description:
-      "Export a stable paginated JSON or CSV snapshot of Revenue records and audit ledgers, including Deal history, field evidence, duplicate candidates, operation audit rows, import reconciliation, and mailbox-scoped Gmail document candidates. For document_candidates, accountId is required and the AI Employee needs a read Grant to that exact Mail Account. Finance, email, and Integration evidence is limited to the AI Employee's Finance, mailbox, and Connection Grants. Audit resources accept resource-specific filters. CSV returns `contentText` for `send_chat_attachment`. Needs `read` revenue access.",
+      "Export a stable paginated JSON or CSV snapshot of Revenue records and audit ledgers, including Deal history, field evidence, duplicate candidates, operation audit rows, import reconciliation, and mailbox-scoped document candidates. For document_candidates, accountId is required and the AI Employee needs a read Grant to that exact Mail Account. Finance, email, and Integration evidence is limited to the AI Employee's Finance, mailbox, and Connection Grants. Audit resources accept resource-specific filters. CSV returns `contentText` for `send_chat_attachment`. Needs `read` revenue access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6246,7 +6246,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "scan_revenue_mail_documents",
     description:
-      "Scan a granted Gmail mailbox for Revenue attachments, classify and match them to Accounts, Contacts, Deals or Partnerships, and deduplicate by file hash plus immutable Gmail message/attachment provenance. Needs `write` revenue and `read` access to the named Mail Connection.",
+      "Scan a granted mailbox for Revenue attachments, classify and match them to Accounts, Contacts, Deals or Partnerships, and deduplicate by file hash plus immutable message/attachment provenance. Needs `write` revenue and `read` access to the named Mail Connection.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6263,7 +6263,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_revenue_document_candidates",
     description:
-      "List the Gmail attachment review queue for a granted mailbox, including classification, resource match, deduplication and immutable message/thread provenance. Needs `read` Revenue and Mail access.",
+      "List the mail attachment review queue for a granted mailbox, including classification, resource match, deduplication and immutable message/thread provenance. Needs `read` Revenue and Mail access.",
     inputSchema: {
       type: "object",
       properties: {
@@ -6282,7 +6282,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "review_revenue_document_candidate",
     description:
-      "Accept or reject a Gmail attachment candidate. Acceptance creates a deduplicated Revenue Document linked to the chosen resource while retaining message, thread and attachment provenance. Needs `write` Revenue and `read` Mail access.",
+      "Accept or reject a mail attachment candidate. Acceptance creates a deduplicated Revenue Document linked to the chosen resource while retaining message, thread and attachment provenance. Needs `write` Revenue and `read` Mail access.",
     inputSchema: {
       type: "object",
       properties: {

@@ -3844,6 +3844,110 @@ mirroring of Workspace channels, which stays out on purpose: loop suppression
 and edit semantics would cost a quarter and the thing at the end of it would
 be a second Workspace beside the one that already exists.
 
+### M60 — Any mailbox, from an address ✅
+
+The Email section was the best thing in this product that most installs could
+not use. It spoke Gmail and only Gmail, and getting to the Gmail it did speak
+took, on a fresh self-hosted install, about twenty-eight actions across two
+personas, five in-app screens and eight Google Cloud Console steps — three of
+which (consent-screen configuration, External + Testing test-user enrolment,
+and restricted-scope review for `gmail.modify`) appeared nowhere in the
+product, so the first attempt failed at Google with copy Genosyn had never
+predicted. A company on Fastmail, iCloud, Zoho or its own Exchange server
+could not get in at all. Nowhere in any of it did the product ask for the one
+fact the person actually had: their email address.
+
+M60 makes that the first and usually the only question. Type an address,
+press Continue. `services/mail/discovery.ts` resolves it down a ladder —
+a built-in table of the domains most mail lives on, then MX records (which is
+how a company domain hosted by Google Workspace or Microsoft 365 gives itself
+away), then RFC 6186 `_imaps`/`_submission` SRV records, then Thunderbird
+autoconfig, then a named guess — and the form becomes either one
+**Continue with Google** button or a password field with the right servers
+already in it. Every network step is injected, so the whole decision table is
+unit-tested without DNS.
+
+**The second provider is IMAP/SMTP, and that is the unlock.** It needs
+nothing registered with anyone: an address and an app password, and the Email
+section works on Fastmail, iCloud, Yahoo, Zoho, GMX, Yandex, mailbox.org,
+Migadu, Titan, a corporate Exchange server, or a Dovecot box somebody runs
+themselves. Gmail can use it too, with a Google App password, for the install
+whose operator will never open a cloud console. Both halves of the credential
+are proved before anything is stored, separately, because IMAP and SMTP fail
+independently and for different reasons — a Microsoft 365 tenant routinely
+leaves one on and the other off, and discovering that the first time somebody
+presses Send is a lost reply.
+
+**The shape of the change is a seam, not a fork.** `Mailbox`
+(`services/mail/mailbox/types.ts`) is a *semantic* interface — `archive`,
+`setFlagged`, `trash` — because `modifyThread(token, id, [], ["INBOX"])` reads
+fine while Gmail is the only mailbox in the product and becomes a wall the
+moment it is not. Shared code names methods; each adapter decides what they
+mean upstream. Two things did **not** get generalised, deliberately. The
+mirror keeps one canonical label vocabulary (Gmail's own system ids, chosen
+because no live data had to migrate) and the IMAP adapter derives it from
+folders and flags, so the sidebar counts, the search grammar, the rule engine
+and every MCP tool kept working untouched. And the Gmail sync engine stayed
+exactly as it was: IMAP's state is per folder, has no history log, and is
+walked as UID ranges, so it got its own engine (`services/mail/imapSync.ts`)
+sharing the account state machine, the leases, the cancellation fence and the
+mirror write path — rather than a parameterised engine whose every branch
+existed for one caller and whose first regression would land on a mailbox
+that already worked.
+
+Two identity problems are the substance of the IMAP side. A message's UID
+changes every time it moves between folders, so the mirror keys rows on the
+`Message-ID` and records the changeable address separately
+(`MailMessage.providerLocation`) — a UID-keyed mirror would lose a message the
+first time anybody archived it. And IMAP has no thread ids, so a conversation
+is the hash of the root of the `References` chain: stateless, which is what
+makes a resumable, restartable, out-of-order backfill possible at all.
+
+Also in: connecting from the Email section links the mailbox at the OAuth
+callback (`OauthState.linkMailbox`), so approving Google's consent screen is
+the last step rather than the middle one; one connect component replaces the
+three copies of the old candidate picker; and MIME composition moved out of
+the Gmail client into a transport-neutral `services/mail/mime.ts` that now
+also stamps `From`, `Date` and a locally-generated `Message-ID`, because an
+SMTP submission has no server to synthesise them and the copy appended to Sent
+has to carry the same `Message-ID` as what went out or one conversation becomes
+two. It strips exactly one header on the way to the wire: Gmail drops `Bcc` on
+ingest and an SMTP relay does not, so a blind copy that reached the recipients
+as a header would not have been blind.
+
+Deliberately **not** in M60, each with a reason. **Microsoft OAuth for
+mail** — Microsoft has retired basic auth for IMAP on Outlook.com and
+Exchange Online, so an Outlook mailbox needs an app password its tenant
+allows; the honest fix is IMAP over XOAUTH2 on the existing `microsoft` OAuth
+app, which is a provider module and a token-rotation path rather than a
+guess, and it is the next thing here. **IMAP keywords as additive labels** —
+supported by many servers and not all, and shipping a label that sometimes
+moves a conversation and sometimes does not is worse than one that always
+does. **One-click unsubscribe on an IMAP mailbox** — the RFC 8058 gate binds
+the *receiving* server's DKIM verdict, and Genosyn knows which server that is
+only for Gmail; trusting a `dkim=pass` line the sender may have written about
+themselves is not a feature. A per-mailbox trusted `authserv-id` would fix it
+and is a knob nobody would set correctly today. **Renaming the `gmail*`
+columns** to `provider*` — five tables and ~50 call sites to change nothing a
+user can see, on a codebase that already keeps the Repository section on
+`code_repositories` for the same reason. And **disambiguating a duplicate
+`Message-ID`**: the mirror keys IMAP messages on the sender-written
+`Message-ID`, so two messages carrying the same one collapse into a single row
+and the later import wins. Every mail client that threads on `Message-ID` has
+that property, nothing upstream is touched, and keying on `(folder, UID)`
+instead would lose a message the first time anybody archived it — but a sender
+who reuses an id another message in the mailbox already had can quietly replace
+the mirrored copy of it. Comparing the stored row's envelope before overwriting
+would tell a genuine duplicate from a message that merely moved, and belongs in
+the ingest path rather than bolted onto the end of this milestone.
+
+Shared multi-tenant installs get the IMAP connector last: it opens a raw TCP
+socket to a host the tenant names, which is the same egress question Postgres
+and MySQL are already held back on, so it sits in
+`SHARED_SAAS_BLOCKED_PROVIDERS` until raw-TCP integrations run in a dedicated
+egress worker. Self-hosted installs — the ones this milestone is for — are
+unaffected.
+
 ## V1 backlog (post-MVP)
 
 Items here are not on the active milestone path but worth picking up. Most

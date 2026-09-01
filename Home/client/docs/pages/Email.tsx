@@ -8,8 +8,9 @@ export function Email() {
         title="Email"
         lead={
           <>
-            Connect a Gmail account and work your inbox inside Genosyn — read threads, reply, and
-            file mail like a normal client. Then put your{" "}
+            Connect a mailbox and work your inbox inside Genosyn — read threads, reply, and file
+            mail like a normal client. Gmail, Outlook, Fastmail, iCloud, Zoho, your company&apos;s
+            Exchange server, or a mail server you run yourself. Then put your{" "}
             <DocLink to="/docs/employees">AI Employees</DocLink> on it: chat with them right beside
             the inbox, hand them threads to draft answers, and set <Strong>rules</Strong> that use
             static filters or AI judgment to act on new mail. Everything syncs both ways.
@@ -19,12 +20,12 @@ export function Email() {
 
       <H2 id="what">What this is</H2>
       <P>
-        The <Strong>Email</Strong> section is a real mail client backed by your Gmail mailbox.
+        The <Strong>Email</Strong> section is a real mail client backed by your own mailbox.
         Genosyn imports your <Strong>whole mailbox</Strong> into a local index and keeps it in step
-        with Gmail in both directions: mail that arrives in Gmail shows up here within about a
+        with the mail server in both directions: mail that arrives shows up here within about a
         minute, and anything you do here — read, star, archive, label, draft, send, forward — is
-        written straight back to Gmail. The goal is that you never need to open Gmail to work your
-        inbox; read it there or here, act on it here, and neither drifts.
+        written straight back. The goal is that you never need to open your other mail client; read
+        it there or here, act on it here, and neither drifts.
       </P>
 
       <Callout kind="info" title="Different from the email that Genosyn sends.">
@@ -34,45 +35,94 @@ export function Email() {
 
       <H2 id="connect">Connecting a mailbox</H2>
       <P>
-        Email rides on the existing <DocLink to="/docs/integrations">Google integration</DocLink>,
-        so a mailbox is one Google connection that granted the Gmail product at consent time.
+        Open <Strong>Email</Strong> and type the address. That is the whole first step — Genosyn
+        works out the rest from the domain: which provider it is, which IMAP and SMTP servers it
+        uses, and whether this install can offer you a one-click sign-in for it.
       </P>
-      <Callout kind="info" title="Connect once, with nothing to set up.">
-        If an instance admin has registered this install&apos;s Google app at{" "}
-        <Strong>Admin → Integrations</Strong> — a one-time job, described under{" "}
-        <DocLink to="/docs/integrations">Integrations</DocLink> — connecting a mailbox is just:
-        click <Strong>Google Workspace</Strong>, tick <Strong>Gmail</Strong>, approve on
-        Google&apos;s screen. There is no Google Cloud project to create and no Client ID to paste.
-        Without that registration, the connect form asks for a Client ID and Secret of your own,
-        which means registering a Web OAuth client in Google Cloud Console first.
-      </Callout>
       <OL>
         <LI>
-          Open <Strong>Email → Integrations</Strong> and add (or reconnect) a{" "}
-          <Strong>Google</Strong> connection. On Google&apos;s consent screen, tick the{" "}
-          <Strong>Gmail</Strong> product so the connection carries the Gmail scope.
+          <Strong>Type your email address</Strong> and press Continue.
         </LI>
         <LI>
-          Open <Strong>Email</Strong> from the section menu and pick that connection. Genosyn reads
-          the account address and starts the first sync in the background.
+          <Strong>Finish however that address wants to be finished.</Strong> For a Google address on
+          an install whose admin has registered a Google app, that is one{" "}
+          <Strong>Continue with Google</Strong> button and Google&apos;s consent screen — the
+          mailbox is created the moment you approve, with nothing to come back and click. For
+          everything else it is a password field, with the servers already filled in and a line
+          telling you what kind of password your provider wants.
         </LI>
         <LI>
           The first sync imports your <Strong>entire mailbox</Strong>, newest first, so everything
           is searchable here. A big account fills in over a few minutes in the background (the
           sidebar shows the running count); after that, sync is incremental. The import checkpoints
-          every conversation, so a restart, a rate limit, or a dropped connection resumes at the
-          exact remaining email instead of replaying a whole page. Temporary Gmail failures are
-          retried with backoff, and unusually large conversations fall back to smaller per-message
-          reads. Mail that arrives <em>while</em> the import is still running shows up (and triggers
-          your rules) within a minute, without waiting for it to finish. You can connect more than
-          one mailbox and switch between them from the account picker at the top of the sidebar.
+          as it goes, so a restart, a rate limit, or a dropped connection resumes at the exact
+          remaining email instead of replaying a whole page. Temporary failures are retried with
+          backoff, and unusually large conversations fall back to smaller per-message reads. Mail
+          that arrives <em>while</em> the import is still running shows up (and triggers your rules)
+          within a minute, without waiting for it to finish. You can connect more than one mailbox —
+          on different providers, if you like — and switch between them from the account picker at
+          the top of the sidebar.
         </LI>
       </OL>
 
-      <Callout kind="info" title="No Google Cloud Pub/Sub required.">
-        Sync is poll-based on a short interval, so there is nothing to set up beyond the Google
-        connection itself. Self-hosted installs get a working inbox with zero extra ceremony. (On a
-        very large account a master admin can cap the first import to recent mail with{" "}
+      <H3 id="app-passwords">App passwords</H3>
+      <P>
+        Most providers will not accept your ordinary sign-in password from a mail client any more,
+        and want an <Strong>app password</Strong> instead: a long random string you generate once,
+        scoped to one application, revocable on its own without changing the password you actually
+        remember. Genosyn tells you which kind your provider wants and links straight to the page
+        that issues it. Gmail needs 2-Step Verification turned on before it will offer you one.
+      </P>
+      <P>
+        The password is stored encrypted with the instance key, exactly like every other Connection
+        credential, and is only ever decrypted in memory to open a connection. It is never written
+        to an AI Employee&apos;s working tree, a log, or a support bundle. TLS is always verified,
+        with no switch to turn that off — if your mail server uses an internal CA, point{" "}
+        <Code>NODE_EXTRA_CA_CERTS</Code> at it so Genosyn trusts that CA rather than trusting
+        nothing.
+      </P>
+
+      <H3 id="providers">What works</H3>
+      <P>
+        Anything that speaks IMAP and SMTP, which is very nearly everything:{" "}
+        <Strong>Gmail and Google Workspace</Strong> (either through Google sign-in or with a Google
+        App password), <Strong>Fastmail</Strong>, <Strong>iCloud</Strong>, <Strong>Yahoo</Strong>,{" "}
+        <Strong>Zoho</Strong>, <Strong>GMX</Strong>, <Strong>Yandex</Strong>,{" "}
+        <Strong>mailbox.org</Strong>, <Strong>Migadu</Strong>, <Strong>Titan</Strong>, a company
+        Exchange or Dovecot server, or a mailbox on a domain you host yourself.
+      </P>
+      <P>
+        Two caveats worth knowing before you start. <Strong>Microsoft</Strong> has retired ordinary
+        passwords for IMAP on both Outlook.com and Microsoft 365, so an Outlook mailbox needs an app
+        password that your account or your 365 admin has to allow. <Strong>Proton Mail</Strong> has
+        no public IMAP at all — it works only through Proton Mail Bridge running next to Genosyn.{" "}
+        <Strong>Tuta</Strong> and <Strong>HEY</Strong> expose no IMAP whatsoever and cannot be
+        connected by any mail client, Genosyn included; the connect dialog says so rather than
+        letting you fail at a password prompt.
+      </P>
+
+      <H3 id="folders-labels">Folders and labels</H3>
+      <P>
+        Gmail lets a conversation carry several labels at once; every other IMAP server puts a
+        message in exactly one folder. Genosyn keeps one model and translates: on an IMAP mailbox a{" "}
+        <Strong>label is a folder</Strong>, so applying one <em>moves</em> the conversation there,
+        removing one moves it back to the Inbox, and creating a label creates a folder. Archive,
+        Trash, Spam, Sent and Drafts map to the server&apos;s own special folders (or, on an older
+        server that flags none, to folders with the usual names). One difference is worth stating
+        plainly: Gmail remembers which labels a message had before it was trashed and restores them;
+        IMAP remembers nothing, so <Strong>Untrash</Strong> puts the conversation back in the Inbox.
+      </P>
+      <Callout kind="info" title="One-click unsubscribe is Gmail-only.">
+        The <Strong>Unsubscribe</Strong> button trusts the receiving mail server&apos;s own DKIM
+        verdict on the sender, and Genosyn only knows which server that is for a Gmail mailbox. On
+        an IMAP mailbox the button is not offered — trusting a <Code>dkim=pass</Code> line the
+        sender may have written about themselves would be worse than not offering it.
+      </Callout>
+
+      <Callout kind="info" title="Nothing to register, and no push endpoint to expose.">
+        Sync is poll-based on a short interval, so there is no Google Cloud Pub/Sub topic and no
+        inbound webhook. A self-hosted install gets a working inbox with an address and a password.
+        (On a very large account a master admin can cap the first import to recent mail with{" "}
         <Strong>Backfill days</Strong> at <Code>Admin → Runtime</Code>; the default imports
         everything.)
       </Callout>
@@ -80,15 +130,15 @@ export function Email() {
       <H2 id="using">Reading and answering mail</H2>
       <P>
         The folder rail carries the usual views — Inbox, Starred, Sent, Drafts, All mail, Spam,
-        Trash — plus your Gmail labels. Open a thread to read it, then <Strong>Reply</Strong>,{" "}
+        Trash — plus your own labels or folders. Open a thread to read it, then <Strong>Reply</Strong>,{" "}
         <Strong>Reply all</Strong>, <Strong>Forward</Strong>, or <Strong>Compose</Strong> a new
         message — with file attachments if you need them, added from the Attach button or by pasting
         a screenshot straight into the message box. Star, archive, trash, mark read/unread, and
-        apply labels all act on the whole thread and land in Gmail immediately.
+        apply labels all act on the whole thread and land on the mail server immediately.
       </P>
       <P>
         The Inbox header shows when the mailbox last synced <Strong>successfully</Strong>. Click{" "}
-        <Strong>Sync now</Strong> to check Gmail immediately. Genosyn records that pass before it
+        <Strong>Sync now</Strong> to check for new mail immediately. Genosyn records that pass before it
         starts, so the button follows a real queued, running, succeeded, or failed state even if you
         reload the page or miss a live update. A temporary timeout is retried automatically; if the
         retry budget is exhausted, the button stops, the mailbox shows a useful explanation, and{" "}
@@ -96,19 +146,19 @@ export function Email() {
         errored mailbox on a slower cadence.
       </P>
       <P>
-        If Google asks you to authorize again, or you need to change the Gmail access granted to
-        Genosyn, an owner or admin can open <Strong>Email → Settings</Strong> and click{" "}
-        <Strong>Reconnect Google</Strong>. This refreshes the existing Connection in place, so your
-        imported mail, rules, AI access, and mailbox settings stay intact. After Google confirms the
-        connection, return to Email and click <Strong>Retry sync</Strong> if the mailbox was showing
-        an error. Reconnect with the same Google address and keep the Gmail product selected; to
-        replace the mailbox with a different address, disconnect this mailbox first.
+        If the credential stops working — Google asks you to authorize again, or your provider
+        rotates the app password — an owner or admin can open <Strong>Email → Settings</Strong> and
+        reconnect. This refreshes the existing Connection in place, so your imported mail, rules, AI
+        access, and mailbox settings stay intact. Afterwards, return to Email and click{" "}
+        <Strong>Retry sync</Strong> if the mailbox was showing an error. Reconnect with the{" "}
+        <em>same</em> address (and, on Google, keep the Gmail product selected); to replace the
+        mailbox with a different address, disconnect this mailbox first.
       </P>
       <P>
         Search (press <Code>/</Code> to jump to the box) covers <Strong>all mail</Strong> — every
         folder except Spam and Trash — and matches subjects, participants, and the{" "}
         <Strong>full text of every message</Strong> in the index. Terms combine, quotes match exact
-        phrases, and Gmail-style operators narrow things down: <Code>from:</Code>, <Code>to:</Code>,{" "}
+        phrases, and the familiar operators narrow things down: <Code>from:</Code>, <Code>to:</Code>,{" "}
         <Code>subject:</Code>, <Code>label:</Code>, <Code>has:attachment</Code>,{" "}
         <Code>is:unread</Code>, <Code>is:starred</Code>, <Code>before:</Code>/<Code>after:</Code>{" "}
         with a date, and <Code>in:</Code> to pick a folder (<Code>in:archive</Code>,{" "}
@@ -133,7 +183,7 @@ export function Email() {
         Filter the queue <Strong>by AI Employee</Strong> or <Strong>by routine</Strong> from the
         toolbar — each option carries its own count — and group the list the same way to review one
         routine&apos;s output as a batch. Drafts you wrote yourself show you instead; anything
-        written before this shipped, or synced in from Gmail, reads as <Strong>Unattributed</Strong>{" "}
+        written before this shipped, or synced in from the mail server, reads as <Strong>Unattributed</Strong>{" "}
         rather than guessing at an author.
       </P>
       <P>
@@ -167,12 +217,12 @@ export function Email() {
       <P>
         A draft with no recipient can never be selected: its checkbox is disabled rather than being
         silently dropped at send time. Those drafts collect in a pinned{" "}
-        <Strong>Needs attention</Strong> group along with anything Gmail refused, so nothing
+        <Strong>Needs attention</Strong> group along with anything the mail server refused, so nothing
         vanishes without being accounted for. Drafts disappear from the review list as soon as they
         enter the send queue, leaving the page ready for more review. You can add newly approved
         drafts while sending is in progress; they join the same paced queue and its finish estimate
         updates automatically. The progress bar disappears when the queue finishes. A failed attempt
-        returns to <Strong>Needs attention</Strong> with Gmail&apos;s reason while the rest of the
+        returns to <Strong>Needs attention</Strong> with the server&apos;s reason while the rest of the
         queue continues.
       </P>
 
@@ -248,7 +298,7 @@ export function Email() {
       <P>What a button does when you press it:</P>
       <UL>
         <LI>
-          <Strong>Draft a reply</Strong> — saves a Gmail draft on the thread and puts it in the{" "}
+          <Strong>Draft a reply</Strong> — saves a real draft on the thread and puts it in the{" "}
           <DocLink to="/docs/email#drafts">Drafts review queue</DocLink>. Nothing sends until you
           send it.
         </LI>
@@ -325,7 +375,7 @@ export function Email() {
         instructions and replies never bleed into another conversation. The employee already has the
         opened email and current draft in context — no ids or copy-pasting. With{" "}
         <Strong>Draft</Strong>
-        access it can rewrite the actual Gmail draft in place, and the review pane refreshes with
+        access it can rewrite the actual draft in place, and the review pane refreshes with
         the result. An employee without mailbox access can chat but cannot see or change the email.
         Everything it actually does appears as a small action pill under its reply.
       </P>
@@ -343,7 +393,7 @@ export function Email() {
         itself — a supplier form, a signed order, a statement — without you downloading and
         re-uploading it. Ask it to fill in a PDF form that arrived on the thread and it reads the
         form&apos;s fields, completes them from what your company already knows, and hands the
-        finished file back as a download on its reply. It can attach that same file to a Gmail
+        finished file back as a download on its reply. It can attach that same file to a real
         draft, so the reply leaves with the paperwork on it. If the blank form isn&apos;t on the
         thread at all, the employee can search the web for the current version, check the page, and
         download it to work on.
@@ -380,7 +430,7 @@ export function Email() {
       </P>
       <UL>
         <LI>
-          <Strong>Draft a reply.</Strong> The employee writes a reply as a Gmail draft on the
+          <Strong>Draft a reply.</Strong> The employee writes a reply as a real draft on the
           thread. Nothing is sent — you review the draft and press <Strong>Send</Strong> when it is
           right. This is the default and the safe way to put AI on your inbox.
         </LI>
@@ -468,9 +518,10 @@ export function Email() {
         handovers compose naturally.
       </P>
       <Callout kind="warn" title="Safe unsubscribe never clicks a link in the email body.">
-        The action only uses one HTTPS URL advertised by RFC unsubscribe headers that Gmail confirms
-        were covered by a valid DKIM signature. It rejects redirects, never sends browser cookies or
-        authorization, and never follows body links. If the sender did not provide that
+        The action only uses one HTTPS URL advertised by RFC unsubscribe headers that the receiving
+        mail server confirms were covered by a valid DKIM signature — which Genosyn can only verify
+        for a Gmail mailbox, so the button is not offered on an IMAP one. It rejects redirects,
+        never sends browser cookies or authorization, and never follows body links. If the sender did not provide that
         standards-based method, the action fails safely and the rule continues with its other
         actions. Saving an enabled unsubscribe rule always asks for confirmation because the
         external request cannot be undone. Treat suspicious or phishing mail as spam instead: even a
@@ -507,8 +558,8 @@ export function Email() {
 
       <Callout kind="warn" title="Disconnecting is safe.">
         Removing a mailbox from Genosyn deletes the local mirror, rules, AI handovers, and grants
-        here. Your Gmail account and the underlying Google connection are never touched — other
-        Google surfaces keep working.
+        here. The mail itself and the underlying Connection are never touched — nothing is deleted
+        from your provider, and other surfaces on the same Connection keep working.
       </Callout>
     </>
   );

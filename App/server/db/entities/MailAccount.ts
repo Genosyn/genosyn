@@ -12,14 +12,26 @@ export type MailAccountStatus = "active" | "paused" | "error";
 export type MailSyncState = "idle" | "queued" | "running" | "succeeded" | "failed";
 
 /**
- * One Gmail mailbox connected to the Email section (M25).
+ * Which backend speaks for this mailbox.
  *
- * A MailAccount does not hold credentials of its own — it points at a
- * `google` IntegrationConnection whose OAuth consent included the Gmail
- * scope group, and borrows that connection's token lifecycle. Deleting the
- * account removes the local mirror (threads, messages, labels, rules,
- * handovers, grants) but leaves the Connection alone; other Google surfaces
- * may still be using it.
+ * `gmail` drives the Gmail REST API on a `google` Connection — the original
+ * and still the best experience where it is available. `imap` drives any
+ * IMAP/SMTP server on an `imap` Connection, which is what lets a company on
+ * Fastmail, iCloud, Zoho, a corporate Exchange server, or a self-hosted
+ * mailbox use the Email section at all, with no OAuth app to register
+ * anywhere.
+ */
+export type MailAccountProvider = "gmail" | "imap";
+
+/**
+ * One mailbox connected to the Email section (M25).
+ *
+ * A MailAccount does not hold credentials of its own — it points at an
+ * IntegrationConnection and borrows its credential lifecycle: a `google`
+ * Connection whose OAuth consent included the Gmail scope group, or an `imap`
+ * Connection holding an address and an app password. Deleting the account
+ * removes the local mirror (threads, messages, labels, rules, handovers,
+ * grants) but leaves the Connection alone; other surfaces may still use it.
  *
  * Sync state lives here: `historyId` is the Gmail history cursor the
  * incremental sync resumes from, `lastSyncAt` drives the heartbeat poller,
@@ -45,11 +57,18 @@ export class MailAccount {
   @Column({ type: "varchar" })
   companyId!: string;
 
-  /** The `google` IntegrationConnection whose token this mailbox uses. */
+  /** The IntegrationConnection whose credentials this mailbox uses. */
   @Column({ type: "varchar" })
   connectionId!: string;
 
-  /** The Gmail address, from `users.getProfile` at connect time. */
+  /**
+   * Which backend drives this mailbox. Defaults to `gmail` so every row that
+   * existed before IMAP support keeps meaning exactly what it meant.
+   */
+  @Column({ type: "varchar", default: "gmail" })
+  provider!: MailAccountProvider;
+
+  /** The mailbox address, read from the provider at connect time. */
   @Column({ type: "varchar" })
   address!: string;
 
@@ -60,9 +79,24 @@ export class MailAccount {
   @Column({ type: "varchar", default: "" })
   statusMessage!: string;
 
-  /** Gmail history cursor. Captured at the start of the first backfill. */
+  /** Gmail history cursor. Captured at the start of the first backfill.
+   * Unused by IMAP mailboxes, which have no equivalent. */
   @Column({ type: "varchar", default: "" })
   historyId!: string;
+
+  /**
+   * Per-folder sync state for an IMAP mailbox, as versioned JSON.
+   *
+   * Kept apart from `historyId` / `backfillPageToken` rather than folded into
+   * them because the two engines track genuinely different things: Gmail has
+   * one mailbox-wide history cursor, while IMAP has a `UIDVALIDITY` and a
+   * high-water UID **per folder**, any one of which the server may invalidate
+   * on its own. Empty for a Gmail mailbox. Parsed by
+   * `services/mail/imapSync.ts`, which tolerates anything it does not
+   * recognise rather than failing a sync on a cursor it cannot read.
+   */
+  @Column({ type: "text", default: "" })
+  syncCursor!: string;
 
   @Column({ type: dateTimeColumnType, nullable: true })
   lastSyncAt!: Date | null;

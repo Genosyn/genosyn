@@ -24,7 +24,7 @@ export function GettingStarted() {
             A new Genosyn account opens a five-step first-run guide at{" "}
             <Code>/c/&lt;company-slug&gt;/onboarding</Code>: it explains what an AI Employee is,
             hires one, connects the AI Model it thinks with, turns the best recurring work into
-            Routines, offers Gmail access, and ends on a summary of what is now running.
+            Routines, offers mailbox access, and ends on a summary of what is now running.
           </>
         }
       />
@@ -63,7 +63,7 @@ export function GettingStarted() {
           { term: "How it works", def: "What an AI Employee is." },
           { term: "AI Employee", def: "Hire one and connect a model." },
           { term: "Launch plan", def: "Recurring work for the role." },
-          { term: "Gmail", def: "Optional mailbox access." },
+          { term: "Email", def: "Optional mailbox access." },
           { term: "First request", def: "Watch them work." },
         ]}
       />
@@ -102,7 +102,7 @@ export function GettingStarted() {
       </P>
       <P>
         The step closes with a preview of what is left — hire an AI Employee and connect an AI
-        Model, review their launch plan, connect Gmail, give them a first request — and the button{" "}
+        Model, review their launch plan, connect a mailbox, give them a first request — and the button{" "}
         <Strong>Hire my first AI Employee</Strong>.
       </P>
 
@@ -182,7 +182,7 @@ export function GettingStarted() {
         <LI>
           <Strong>Schedule N Routines and continue</Strong> — the primary button, which creates the
           selection and then advances. With nothing selected it reads{" "}
-          <Strong>Continue to Gmail</Strong> instead. If the write fails you stay on the step with
+          <Strong>Continue to email</Strong> instead. If the write fails you stay on the step with
           the error rather than moving past it.
         </LI>
       </UL>
@@ -225,25 +225,23 @@ export function GettingStarted() {
         on. All of it is optional at this point.
       </Callout>
 
-      <H2 id="gmail">Step 4 — Connect Gmail</H2>
+      <H2 id="gmail">Step 4 — Connect email</H2>
       <P>
-        The step is called <Strong>Connect Gmail</Strong>, not Email, because it only connects
-        Gmail. Other mailboxes connect later from <Strong>Email → Integrations</Strong>. What you
-        see depends on what already exists:
+        Type the address of the mailbox you want the employee to work. Genosyn works out the rest
+        from the domain — Gmail, Outlook, Fastmail, iCloud, Zoho, a company Exchange server, or a
+        mail server you run yourself. What you see depends on what already exists:
       </P>
       <UL>
         <LI>
-          A Google Connection with Gmail access but no linked mailbox offers{" "}
-          <Strong>Connect mailbox</Strong>, which links it and grants access in one step.
-        </LI>
-        <LI>
-          A linked mailbox with no Grant for this employee offers{" "}
+          A mailbox already connected with no Grant for this employee offers{" "}
           <Strong>Grant draft access</Strong>.
         </LI>
         <LI>
-          Nothing connected yet shows <Strong>Connect Google Workspace</Strong> and a{" "}
-          <Strong>Connect Gmail</Strong> button that walks the OAuth client setup and Google
-          approval.
+          Otherwise, one field. Press Continue and finish however that address wants to be
+          finished: a <Strong>Continue with Google</Strong> button for a Google address on an
+          install whose admin has registered a Google app, or a password field with the servers
+          already filled in for everything else. Connecting here also grants the employee draft
+          access in the same step.
         </LI>
       </UL>
       <P>
@@ -254,13 +252,13 @@ export function GettingStarted() {
         the level any time at <Strong>Email → Settings → AI access</Strong>. See{" "}
         <DocLink to="/docs/email">Email</DocLink>.
       </P>
-      <Callout kind="info" title="Gmail is optional.">
-        A self-hosted operator may need to configure a Google OAuth client first, in which case the
-        step says <Strong>Gmail needs operator setup on this instance</Strong>. Choose{" "}
-        <Strong>Skip email for now</Strong> and connect a mailbox later from{" "}
-        <Strong>Email → Integrations</Strong>. The primary button reads{" "}
-        <Strong>Finish setup</Strong> once a mailbox is ready, and <Strong>Continue</Strong>{" "}
-        otherwise.
+      <Callout kind="info" title="Email is optional.">
+        Nothing else in the guide depends on it — choose <Strong>Skip email for now</Strong> and
+        connect a mailbox later from the <Strong>Email</Strong> section. Most providers want an{" "}
+        <Strong>app password</Strong> rather than your sign-in password, and Genosyn says which and
+        links to the page that issues it; see <DocLink to="/docs/email">Email</DocLink>. The primary
+        button reads <Strong>Finish setup</Strong> once a mailbox is ready, and{" "}
+        <Strong>Continue</Strong> otherwise.
       </Callout>
 
       <H2 id="summary">You are set up</H2>

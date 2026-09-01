@@ -3,21 +3,19 @@ import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailThread } from "../../db/entities/MailThread.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { MailLabel } from "../../db/entities/MailLabel.js";
-import {
-  extractBodies,
-  decodeHtmlEntities,
-  headerValue,
-  parseAddress,
-  listDrafts,
-  type GmailLabel,
-  type GmailMessage,
-} from "./gmailClient.js";
+import { headerValue, parseAddress, type GmailMessage } from "./gmailClient.js";
+import { toMailboxMessage } from "./mailbox/gmail.js";
+import type { Mailbox, MailboxLabel, MailboxMessage } from "./mailbox/types.js";
 import { createRevenueDocumentCandidatesForMessage } from "../revenue/documentCapture.js";
 
 /**
- * The local-mirror write path shared by the sync engine and the
- * write-through actions: upsert Gmail messages into MailMessage rows,
+ * The local-mirror write path shared by both sync engines and the
+ * write-through actions: upsert normalized messages into MailMessage rows,
  * keep MailThread rollups consistent, and mirror the label catalog.
+ *
+ * Nothing here knows which provider produced a message. Each adapter hands
+ * over a {@link MailboxMessage} — bodies already extracted, labels already
+ * mapped into the canonical set — and this module writes rows.
  */
 
 /** Cap on each stored body variant. Bigger than any email a human writes;
@@ -50,26 +48,37 @@ function truncate(s: string, cap: number): string {
 export type UpsertResult = { row: MailMessage; created: boolean };
 
 /**
- * Upsert one full-format Gmail message. Creates the containing MailThread
- * shell when this is the first message we see for the conversation; callers
- * batch `recomputeThread` afterwards to refresh the rollup.
+ * Upsert one normalized message. Creates the containing MailThread shell when
+ * this is the first message we see for the conversation; callers batch
+ * `recomputeThread` afterwards to refresh the rollup.
+ *
+ * Bodies on an existing row are kept whenever the incoming representation is
+ * incomplete — either because the caller said so (`preserveRichContent`) or
+ * because the message itself reports `hasBodies: false`, which is what a Gmail
+ * `metadata` fetch after a timeout and an IMAP header-only pass both produce.
+ * A degraded re-read therefore updates a message's flags without blanking mail
+ * that was imported in full an hour ago.
+ *
+ * Reading `hasBodies` here rather than trusting the flag alone is deliberate:
+ * a future caller that forgets it would otherwise destroy every body it
+ * touched, silently, and the loss would not surface until a full re-read that
+ * may never come. A caller holding a *complete* representation can still blank
+ * a body, which is the case where blanking is the correct answer.
  */
-export async function upsertGmailMessage(
+export async function upsertMailMessage(
   account: MailAccount,
-  gm: GmailMessage,
+  message: MailboxMessage,
   options: { preserveRichContent?: boolean } = {},
 ): Promise<UpsertResult> {
   const msgRepo = AppDataSource.getRepository(MailMessage);
-  const thread = await ensureThreadShell(account, gm.threadId);
+  const thread = await ensureThreadShell(account, message.threadRef);
 
-  const headers = gm.payload?.headers;
-  const bodies = extractBodies(gm.payload);
+  const headers = message.headers;
   const from = parseAddress(headerValue(headers, "From"));
-  const sentAtMs = Number(gm.internalDate ?? "0");
 
   let row = await msgRepo.findOneBy({
     accountId: account.id,
-    gmailMessageId: gm.id,
+    gmailMessageId: message.ref,
   });
   const created = !row;
   if (!row) {
@@ -77,31 +86,36 @@ export async function upsertGmailMessage(
       companyId: account.companyId,
       accountId: account.id,
       threadId: thread.id,
-      gmailMessageId: gm.id,
-      gmailThreadId: gm.threadId,
+      gmailMessageId: message.ref,
+      gmailThreadId: message.threadRef,
     });
   }
   row.threadId = thread.id;
-  row.gmailThreadId = gm.threadId;
+  row.gmailThreadId = message.threadRef;
   row.fromName = from.name;
   row.fromEmail = from.email;
   row.toEmails = headerValue(headers, "To");
   row.ccEmails = headerValue(headers, "Cc");
   row.bccEmails = headerValue(headers, "Bcc");
   row.subject = headerValue(headers, "Subject");
-  row.snippet = decodeHtmlEntities(gm.snippet ?? "");
-  if (!options.preserveRichContent || created) {
-    row.bodyText = truncate(bodies.text, BODY_CAP);
-    row.bodyHtml = truncate(bodies.html, BODY_CAP);
-    row.attachmentsJson = JSON.stringify(bodies.attachments);
+  row.snippet = message.snippet;
+  const partial = options.preserveRichContent || !message.hasBodies;
+  if (!partial || created) {
+    row.bodyText = truncate(message.bodyText, BODY_CAP);
+    row.bodyHtml = truncate(message.bodyHtml, BODY_CAP);
+    row.attachmentsJson = JSON.stringify(message.attachments);
   }
-  row.labelIds = labelIdsToColumn(gm.labelIds ?? []);
-  row.sentAt = sentAtMs > 0 ? new Date(sentAtMs) : null;
+  row.labelIds = labelIdsToColumn(message.labelIds);
+  row.sentAt = message.sentAt;
   row.messageIdHeader = headerValue(headers, "Message-ID");
   row.referencesHeader = headerValue(headers, "References");
   row.inReplyToHeader = headerValue(headers, "In-Reply-To");
-  row.sizeEstimate = gm.sizeEstimate ?? 0;
+  row.sizeEstimate = message.sizeEstimate;
+  // Only the adapter that produced a location knows one; Gmail sends "" and
+  // must not clear a location an IMAP row is relying on.
+  if (message.location) row.providerLocation = message.location;
   await msgRepo.save(row);
+  const bodies = { attachments: message.attachments };
   if (bodies.attachments.length > 0) {
     try {
       await createRevenueDocumentCandidatesForMessage(account.companyId, row);
@@ -110,6 +124,21 @@ export async function upsertGmailMessage(
     }
   }
   return { row, created };
+}
+
+/**
+ * Upsert a Gmail message. A thin wrapper over {@link upsertMailMessage} kept
+ * because the Gmail sync engine deals in `GmailMessage` end to end and there
+ * is no reason to make every call site normalize by hand.
+ */
+export async function upsertGmailMessage(
+  account: MailAccount,
+  gm: GmailMessage,
+  options: { preserveRichContent?: boolean } = {},
+): Promise<UpsertResult> {
+  // `preserveRichContent` is exactly the caller saying "this is a metadata
+  // fetch", which is the same fact `hasBodies` carries.
+  return upsertMailMessage(account, toMailboxMessage(gm, !options.preserveRichContent), options);
 }
 
 /** Update only the label set of an already-mirrored message. Used by the
@@ -236,25 +265,25 @@ function summarizeParticipants(account: MailAccount, messages: MailMessage[]): s
 
 // ---------- Labels ----------
 
-/** Mirror the Gmail label catalog: upsert everything present, delete rows
+/** Mirror the mailbox's label catalog: upsert everything present, delete rows
  * whose label disappeared upstream. */
-export async function syncLabels(account: MailAccount, labels: GmailLabel[]): Promise<void> {
+export async function syncLabels(account: MailAccount, labels: MailboxLabel[]): Promise<void> {
   const repo = AppDataSource.getRepository(MailLabel);
   const existing = await repo.find({ where: { accountId: account.id } });
-  const byGmailId = new Map(existing.map((l) => [l.gmailLabelId, l]));
+  const byRef = new Map(existing.map((l) => [l.gmailLabelId, l]));
   const seen = new Set<string>();
-  for (const gl of labels) {
-    seen.add(gl.id);
+  for (const label of labels) {
+    seen.add(label.ref);
     const row =
-      byGmailId.get(gl.id) ??
+      byRef.get(label.ref) ??
       repo.create({
         companyId: account.companyId,
         accountId: account.id,
-        gmailLabelId: gl.id,
+        gmailLabelId: label.ref,
       });
-    row.name = gl.name;
-    row.labelType = gl.type === "system" ? "system" : "user";
-    row.color = gl.color?.backgroundColor ?? "";
+    row.name = label.name;
+    row.labelType = label.labelType;
+    row.color = label.color;
     await repo.save(row);
   }
   for (const l of existing) {
@@ -265,22 +294,21 @@ export async function syncLabels(account: MailAccount, labels: GmailLabel[]): Pr
 // ---------- Draft-id mapping ----------
 
 /**
- * Gmail draft ids live in a separate namespace from message ids, and we need
- * them to edit / send / discard. One drafts.list pass maps them onto the
- * mirrored messages; rows whose draft disappeared (sent or discarded
- * elsewhere) get the id cleared.
+ * A draft's handle lives in a different namespace from its message's, on both
+ * providers — a Gmail draft id, an IMAP folder-and-UID — and we need it to
+ * edit, send or discard. One listing pass maps handles onto the mirrored
+ * messages; rows whose draft disappeared (sent or discarded elsewhere) get the
+ * handle cleared.
  */
 export async function refreshDraftIds(
   account: MailAccount,
-  token: string,
+  mailbox: Mailbox,
   assertWritable: () => void | Promise<void> = () => {},
 ): Promise<void> {
-  const drafts = await listDrafts(token);
+  const drafts = await mailbox.listDraftRefs();
   await assertWritable();
   const byMessageId = new Map<string, string>();
-  for (const d of drafts) {
-    if (d.message?.id) byMessageId.set(d.message.id, d.id);
-  }
+  for (const d of drafts) byMessageId.set(d.messageRef, d.draftRef);
   const repo = AppDataSource.getRepository(MailMessage);
   const local = await repo
     .createQueryBuilder("m")

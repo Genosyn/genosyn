@@ -11,6 +11,7 @@ import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import { closeTestDb, initTestDb, insert, resetTestDb } from "../../test/dbHarness.js";
 import { companyDir } from "../paths.js";
+import { FakeMailbox } from "../../test/fakeMailbox.js";
 import {
   MailAttachmentError,
   type MailAttachmentTransport,
@@ -24,10 +25,10 @@ import {
 /**
  * Opening a file that arrived on an email.
  *
- * The Gmail calls are stubbed through the transport seam so the interesting
- * parts — which attachment a positional index resolves to after Gmail
- * reissues its ids, and what the employee ends up holding — are covered
- * without a network or an OAuth token.
+ * The mailbox is faked through the transport seam so the interesting parts —
+ * which attachment a positional index resolves to after the server reissues
+ * its handles, and what the employee ends up holding — are covered without a
+ * network, an OAuth token, or an IMAP server.
  */
 
 before(initTestDb);
@@ -39,12 +40,16 @@ const METAS = [
   { partId: "1.2", attachmentId: "stale-b", filename: "notes.txt", mimeType: "text/plain", size: 5 },
 ];
 
-function transport(options: {
-  /** Attachment parts as Gmail reports them on the fresh fetch. */
-  current?: Array<{ partId?: string; attachmentId: string }>;
-  bytesById?: Record<string, Buffer>;
-  onFetchMessage?: () => void;
-} = {}): MailAttachmentTransport {
+/** Records what the fake mailbox was asked for, alongside the seam itself. */
+type Seam = MailAttachmentTransport & { requested: string[]; messageFetches: number };
+
+function transport(
+  options: {
+    /** Attachment parts as the server reports them on the fresh fetch. */
+    current?: Array<{ partId?: string; attachmentId: string }>;
+    bytesById?: Record<string, Buffer>;
+  } = {},
+): Seam {
   const current = options.current ?? [
     { partId: "1.1", attachmentId: "fresh-a" },
     { partId: "1.2", attachmentId: "fresh-b" },
@@ -53,29 +58,33 @@ function transport(options: {
     "fresh-a": Buffer.from("%PDF-1.7 fake form"),
     "fresh-b": Buffer.from("hello"),
   };
-  return {
-    accessToken: async () => "test-token",
-    fetchMessage: async () => {
-      options.onFetchMessage?.();
-      return {
-        id: "gmail-message",
-        threadId: "gmail-thread",
-        payload: {
-          mimeType: "multipart/mixed",
-          parts: current.map((part, index) => ({
-            partId: part.partId,
-            filename: METAS[index]?.filename ?? `file-${index}`,
-            mimeType: METAS[index]?.mimeType ?? "application/octet-stream",
-            body: { attachmentId: part.attachmentId, size: 10 },
-          })),
-        },
-      } as never;
-    },
-    fetchAttachment: async (_token, _messageId, attachmentId) => {
-      const bytes = bytesById[attachmentId];
-      return bytes ? { data: bytes.toString("base64url"), size: bytes.length } : {};
-    },
+  const requested: string[] = [];
+  const seam = { requested, messageFetches: 0 } as Seam;
+  const mailbox = new FakeMailbox();
+  mailbox.seed({
+    ref: "gmail-message",
+    threadRef: "gmail-thread",
+    attachments: current.map((part, index) => ({
+      partId: part.partId ?? "",
+      attachmentId: part.attachmentId,
+      filename: METAS[index]?.filename ?? `file-${index}`,
+      mimeType: METAS[index]?.mimeType ?? "application/octet-stream",
+      size: 10,
+    })),
+  });
+  for (const [id, bytes] of Object.entries(bytesById)) mailbox.attachments.set(id, bytes);
+  const realGet = mailbox.getMessage.bind(mailbox);
+  mailbox.getMessage = async (ref) => {
+    seam.messageFetches += 1;
+    return realGet(ref);
   };
+  const realBytes = mailbox.getAttachmentBytes.bind(mailbox);
+  mailbox.getAttachmentBytes = async (ref, part) => {
+    requested.push(part.attachmentId);
+    return realBytes(ref, part);
+  };
+  seam.mailbox = async () => mailbox;
+  return seam;
 }
 
 async function fixture(attachmentsJson = JSON.stringify(METAS)): Promise<{
@@ -122,29 +131,25 @@ describe("mail attachment metadata", () => {
 });
 
 describe("fetching an attachment's bytes", () => {
-  test("resolves the current Gmail id by position, not the stored one", async () => {
+  test("resolves the current handle by position, not the stored one", async () => {
     const { account, message } = await fixture();
-    const requested: string[] = [];
     const seam = transport();
-    const spied: MailAttachmentTransport = {
-      ...seam,
-      fetchAttachment: async (token, messageId, attachmentId) => {
-        requested.push(attachmentId);
-        return seam.fetchAttachment(token, messageId, attachmentId);
-      },
-    };
 
-    const { meta, bytes } = await fetchMailAttachmentBytes(account, message, 0, spied);
+    const { meta, bytes } = await fetchMailAttachmentBytes(account, message, 0, seam);
 
-    assert.deepEqual(requested, ["fresh-a"], "the stale stored id is not what we ask Gmail for");
+    assert.deepEqual(
+      seam.requested,
+      ["fresh-a"],
+      "the stale stored id is not what we ask the server for",
+    );
     assert.equal(meta.filename, "FIF_2026.pdf");
     assert.equal(bytes.toString(), "%PDF-1.7 fake form");
   });
 
-  test("falls back to partId when Gmail reorders the parts", async () => {
+  test("falls back to partId when the server reorders the parts", async () => {
     const { account, message } = await fixture();
     const seam = transport({
-      // Gmail returns the parts in a different order and the positional
+      // The server returns the parts in a different order and the positional
       // lookup lands on the wrong file; partId is the tie-breaker.
       current: [{ partId: "1.2", attachmentId: "fresh-b" }],
       bytesById: { "fresh-a": Buffer.from("form"), "fresh-b": Buffer.from("hello") },
@@ -167,10 +172,9 @@ describe("fetching an attachment's bytes", () => {
     assert.equal(bytes.toString(), "still here");
   });
 
-  test("an out-of-range index fails before Gmail is called at all", async () => {
+  test("an out-of-range index fails before the server is called at all", async () => {
     const { account, message } = await fixture();
-    let fetched = false;
-    const seam = transport({ onFetchMessage: () => (fetched = true) });
+    const seam = transport();
 
     await assert.rejects(
       () => fetchMailAttachmentBytes(account, message, 7, seam),
@@ -181,7 +185,7 @@ describe("fetching an attachment's bytes", () => {
         return true;
       },
     );
-    assert.equal(fetched, false);
+    assert.equal(seam.messageFetches, 0);
   });
 
   test("a message with no attachments says so plainly", async () => {
@@ -193,7 +197,7 @@ describe("fetching an attachment's bytes", () => {
     );
   });
 
-  test("an empty Gmail response is an error, not an empty file", async () => {
+  test("an empty response is an error, not an empty file", async () => {
     const { account, message } = await fixture();
     const seam = transport({ bytesById: {} });
 
@@ -211,12 +215,11 @@ describe("fetching an attachment's bytes", () => {
 describe("fetching several attachments in one pass", () => {
   test("shares a single message fetch across every index", async () => {
     const { account, message } = await fixture();
-    let fetches = 0;
-    const seam = transport({ onFetchMessage: () => (fetches += 1) });
+    const seam = transport();
 
     const files = await fetchMailAttachmentsBytes(account, message, [0, 1], seam);
 
-    assert.equal(fetches, 1, "one id-drift re-fetch serves the whole list");
+    assert.equal(seam.messageFetches, 1, "one drift re-fetch serves the whole list");
     assert.deepEqual(
       files.map((f) => [f.meta.filename, f.bytes.toString()]),
       [
@@ -237,19 +240,17 @@ describe("fetching several attachments in one pass", () => {
     );
   });
 
-  test("an empty list never calls Gmail at all", async () => {
+  test("an empty list never calls the server at all", async () => {
     const { account, message } = await fixture();
-    let fetches = 0;
-    const seam = transport({ onFetchMessage: () => (fetches += 1) });
+    const seam = transport();
 
     assert.deepEqual(await fetchMailAttachmentsBytes(account, message, [], seam), []);
-    assert.equal(fetches, 0);
+    assert.equal(seam.messageFetches, 0);
   });
 
   test("one bad index fails the call before anything is downloaded", async () => {
     const { account, message } = await fixture();
-    let fetches = 0;
-    const seam = transport({ onFetchMessage: () => (fetches += 1) });
+    const seam = transport();
 
     await assert.rejects(
       () => fetchMailAttachmentsBytes(account, message, [0, 9], seam),
@@ -259,7 +260,11 @@ describe("fetching several attachments in one pass", () => {
         return true;
       },
     );
-    assert.equal(fetches, 0, "a partial result would silently drop a file from a draft");
+    assert.equal(
+      seam.requested.length,
+      0,
+      "a partial result would silently drop a file from a draft",
+    );
   });
 
   test("the same index twice yields the file twice, not a deduped surprise", async () => {

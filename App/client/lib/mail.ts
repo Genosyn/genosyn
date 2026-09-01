@@ -9,6 +9,8 @@ import { api, MessageAction } from "./api";
 export type MailAccount = {
   id: string;
   connectionId: string;
+  /** Which backend drives this mailbox. */
+  provider: "gmail" | "imap";
   address: string;
   status: "active" | "paused" | "error";
   statusMessage: string;
@@ -181,11 +183,60 @@ export type MailGrantCandidate = {
 
 export type MailConnectCandidate = {
   connectionId: string;
+  provider: string;
   label: string;
   accountHint: string;
   status: string;
+  /** True when this connection can actually back a mailbox. */
   hasGmailScope: boolean;
   linkedAccountId: string | null;
+};
+
+/** One server coordinate on a discovered IMAP route. */
+export type MailboxServer = { host: string; port: number; secure: boolean };
+
+/**
+ * A way to connect one address, as the server worked it out. Best first —
+ * the dialog renders `options[0]` as the primary action.
+ */
+export type MailboxConnectOption =
+  | {
+      kind: "oauth";
+      provider: "google" | "microsoft";
+      label: string;
+      scopeGroups: string[];
+      instanceApp?: boolean;
+      ready: boolean;
+      blockedReason?: string;
+    }
+  | {
+      kind: "imap";
+      imap: MailboxServer;
+      smtp: MailboxServer;
+      password: { summary: string; url?: string } | null;
+      ready: boolean;
+      blockedReason?: string;
+    };
+
+export type MailboxConnectPlan = {
+  email: string;
+  domain: string;
+  providerKey: string;
+  displayName: string;
+  source: "builtin" | "mx" | "srv" | "autoconfig" | "guess";
+  options: MailboxConnectOption[];
+  /** Set when the provider offers no way in at all. */
+  unsupportedReason?: string;
+};
+
+export type ImapConnectInput = {
+  address: string;
+  password: string;
+  username?: string;
+  imapHost?: string;
+  imapPort?: number;
+  smtpHost?: string;
+  smtpPort?: number;
 };
 
 /** A member's pinned search. `query` is raw search grammar, same as typed. */
@@ -529,6 +580,12 @@ export const mailApi = {
     api.get<{ candidates: MailConnectCandidate[] }>(`${base(cid)}/connect-candidates`),
   connectAccount: (cid: string, connectionId: string) =>
     api.post<{ account: MailAccount }>(`${base(cid)}/accounts`, { connectionId }),
+  /** What will work for this address on this install. Reads and writes nothing. */
+  discoverConnect: (cid: string, email: string) =>
+    api.post<{ plan: MailboxConnectPlan }>(`${base(cid)}/connect/discover`, { email }),
+  /** Credential, Connection and mailbox in one call. */
+  connectImap: (cid: string, input: ImapConnectInput) =>
+    api.post<{ account: MailAccount }>(`${base(cid)}/connect/imap`, input),
   account: (cid: string, aid: string) =>
     api.get<{ account: MailAccount }>(`${base(cid)}/accounts/${aid}`),
   patchAccount: (cid: string, aid: string, status: "active" | "paused") =>

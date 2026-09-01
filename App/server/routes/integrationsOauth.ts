@@ -2,7 +2,11 @@ import { Router } from "express";
 import { createOauthConnection, updateOauthConnectionConfig } from "../services/integrations.js";
 import { finishOauth, resolveOauthState, type OauthApp } from "../services/oauth.js";
 import { recordAudit } from "../services/audit.js";
+import { createMailAccount } from "../services/mail/accounts.js";
+import { queueAccountSync } from "../services/mail/sync.js";
 import { oauthAuthorizationFailure } from "../services/oauthErrors.js";
+import { AppDataSource } from "../db/datasource.js";
+import { MailAccount } from "../db/entities/MailAccount.js";
 
 const OAUTH_APPS: ReadonlySet<OauthApp> = new Set<OauthApp>([
   "google",
@@ -108,12 +112,21 @@ integrationsOauthRouter.get("/callback/:app", async (req, res) => {
       targetLabel: `${conn.provider} · ${conn.label}`,
       metadata: { provider: conn.provider, authMode: "oauth2" },
     });
+    const mailbox = state.linkMailbox
+      ? await linkMailbox({
+          companyId: finished.companyId,
+          connectionId: conn.id,
+          userId: state.userId,
+        })
+      : null;
     return renderClose(res, {
       ok: true,
       title: state.existingConnectionId
         ? `Reconnected ${conn.provider}`
         : `Connected ${conn.provider}`,
-      detail: `${conn.accountHint} is now available to your team.`,
+      detail: mailbox
+        ? `${mailbox} is connected and importing now.`
+        : `${conn.accountHint} is now available to your team.`,
     });
   } catch (err) {
     return renderClose(res, {
@@ -123,6 +136,53 @@ integrationsOauthRouter.get("/callback/:app", async (req, res) => {
     });
   }
 });
+
+/**
+ * Finish the job the person actually asked for.
+ *
+ * When the handshake started in the Email section, consent was the last thing
+ * standing between them and a working mailbox — so create it here rather than
+ * sending them back to hunt for a Connect button. A failure is deliberately
+ * swallowed into `null`: the Connection is real and useful either way, the
+ * mailbox step is retryable from the Email page, and a red popup would be a
+ * worse answer than "connected" for something that did connect.
+ */
+async function linkMailbox(args: {
+  companyId: string;
+  connectionId: string;
+  userId: string;
+}): Promise<string | null> {
+  try {
+    const existing = await AppDataSource.getRepository(MailAccount).findOneBy({
+      connectionId: args.connectionId,
+    });
+    if (existing) return existing.address;
+    const account = await createMailAccount({
+      companyId: args.companyId,
+      connectionId: args.connectionId,
+      createdByUserId: args.userId,
+    });
+    await recordAudit({
+      companyId: args.companyId,
+      actorUserId: args.userId,
+      action: "mail.account.connect",
+      targetType: "mail_account",
+      targetId: account.id,
+      targetLabel: account.address,
+      metadata: { provider: account.provider, via: "oauth" },
+    });
+    void queueAccountSync(account.id).catch(() => {});
+    return account.address;
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[oauth] connected ${args.connectionId} but could not link a mailbox: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return null;
+  }
+}
 
 /**
  * Render a tiny HTML page that announces the result to the opener window

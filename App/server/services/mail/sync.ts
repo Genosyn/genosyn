@@ -14,7 +14,6 @@ import {
   isGmailTimeoutError,
   isRetryableGmailReadError,
   listHistory,
-  listLabels,
   listThreads,
   type GmailHistoryRecord,
 } from "./gmailClient.js";
@@ -31,9 +30,26 @@ import { withSchedulerLease } from "../schedulerLeases.js";
 import { linkAccountMessagesSafely } from "../revenue/mailLink.js";
 import { withDraftSendDisconnectFence } from "./draftSendQueue.js";
 import { enqueueInboundAutomation, waitForMailAutomation } from "./automationQueue.js";
+import { listFolders, withImap } from "./imapClient.js";
+import {
+  imapBackfillPass,
+  imapIncrementalPass,
+  imapSyncErrorMessage,
+  parseImapCursor,
+  type ImapPassContext,
+} from "./imapSync.js";
+import { imapConfigForAccount, mailboxForAccount } from "./mailbox/index.js";
+import type { Mailbox } from "./mailbox/types.js";
 
 /**
- * Two-way Gmail sync, poll-based.
+ * Two-way mailbox sync, poll-based.
+ *
+ * This file owns the parts that are true of every mailbox — the heartbeat, the
+ * account state machine, the distributed lease, the cancellation fence, and
+ * the terminal bookkeeping — plus the Gmail engine itself. The IMAP engine
+ * lives in `imapSync.ts` and is dispatched from {@link executeAccountSync};
+ * `imapSync.ts` explains why the two reading strategies are separate rather
+ * than one parameterised engine.
  *
  * Same heartbeat shape as `services/cron.ts`: one 30s interval, a `ticking`
  * guard against overlapping passes, and per-account due-time bookkeeping on
@@ -388,19 +404,23 @@ async function executeAccountSync(accountId: string, attemptId: string): Promise
       const passStartedAt = new Date();
       let changed = false;
       try {
-        const token = await accessTokenForAccount(account);
-        const labels = await listLabels(token);
+        const mailbox = await mailboxForAccount(account);
+        const labels = await mailbox.listLabels();
         await assertWritable();
         await syncLabels(account, labels);
 
-        if (!account.backfilledAt) {
+        if (account.provider === "imap") {
+          changed = await imapPass(account, mailbox, assertWritable);
+        } else if (!account.backfilledAt) {
+          const token = await accessTokenForAccount(account);
           if (account.historyId) {
-            await incremental(account, token, assertWritable, { duringBackfill: true });
+            await incremental(account, token, mailbox, assertWritable, { duringBackfill: true });
           }
-          await backfillPass(account, token, assertWritable);
+          await backfillPass(account, token, mailbox, assertWritable);
           changed = true;
         } else {
-          changed = await incremental(account, token, assertWritable);
+          const token = await accessTokenForAccount(account);
+          changed = await incremental(account, token, mailbox, assertWritable);
           changed = (await hydrateDeferredBodies(account, token, assertWritable)) || changed;
         }
         // Revenue enrichment is best-effort but remains inside the account's
@@ -428,7 +448,10 @@ async function executeAccountSync(accountId: string, attemptId: string): Promise
         await finishSyncAttempt(account, attemptId, {
           state: "failed",
           changed,
-          errorMessage: gmailSyncErrorMessage(error),
+          errorMessage:
+            account.provider === "imap"
+              ? imapSyncErrorMessage(error)
+              : gmailSyncErrorMessage(error),
         });
       }
     },
@@ -438,6 +461,102 @@ async function executeAccountSync(accountId: string, attemptId: string): Promise
   // durable state alone; that owner will publish the terminal result. After a
   // crash, a later heartbeat retries and acquires the expired lease.
   if (leased === null) return;
+}
+
+/**
+ * One IMAP pass: backfill while the mailbox is still importing, incremental
+ * once it is done.
+ *
+ * The folder list is read once per pass and handed to both engines, because
+ * every step needs it and a `LIST` per step would be a round trip to re-learn
+ * something that changes when somebody creates a folder.
+ */
+async function imapPass(
+  account: MailAccount,
+  mailbox: Mailbox,
+  assertWritable: () => Promise<void>,
+): Promise<boolean> {
+  const config = await imapConfigForAccount(account);
+  const run = <T>(work: (client: import("imapflow").ImapFlow) => Promise<T>): Promise<T> =>
+    withImap(account.id, config, work);
+  const folders = await run((client) => listFolders(client));
+  await assertWritable();
+  const ctx: ImapPassContext = {
+    account,
+    config,
+    assertWritable,
+    run,
+    folders,
+    persistCursor: (cursor) => checkpointImapCursor(account, cursor, assertWritable),
+  };
+
+  if (!account.backfilledAt) {
+    const complete = await imapBackfillPass(ctx);
+    if (complete) {
+      account.backfilledAt = new Date();
+      account.backfillPageToken = "";
+      // The draft handles have to exist before the Drafts queue can show
+      // anything — see the note below.
+      await refreshDraftIds(account, mailbox, assertWritable);
+    }
+    return true;
+  }
+
+  const changed = await imapIncrementalPass(ctx);
+  // Map the Drafts folder onto the mirror every pass, exactly as the Gmail
+  // engine does. Without it a draft somebody wrote in Apple Mail or their
+  // webmail arrives here labelled DRAFT but with no handle, and the Drafts
+  // queue — which asks for a non-empty handle — never shows it, so it cannot
+  // be reviewed, edited, sent or discarded. The reverse matters too: a draft
+  // discarded elsewhere keeps a stale handle until this clears it.
+  await refreshDraftIds(account, mailbox, assertWritable);
+  // A folder the server renumbered is handed back to the backfill, and that
+  // has to keep working on a mailbox that finished importing months ago:
+  // without this the folder's cursor would sit at `done: false` forever, every
+  // mirrored row in it pointing at a UID that now addresses somebody else's
+  // message. `backfilledAt` says the mailbox has been imported once, not that
+  // no folder will ever need reading again.
+  const unfinished = unfinishedFolders(account, folders);
+  if (unfinished.length === 0) return changed;
+  await imapBackfillPass({ ...ctx, folders: unfinished });
+  return true;
+}
+
+/** Folders whose cursor says they still owe the mirror a read. */
+function unfinishedFolders(
+  account: MailAccount,
+  folders: import("./imapModel.js").ImapFolder[],
+): import("./imapModel.js").ImapFolder[] {
+  const cursor = parseImapCursor(account.syncCursor);
+  return folders.filter((folder) => cursor.folders[folder.path]?.done === false);
+}
+
+/**
+ * Persist the IMAP cursor under the same guard the Gmail backfill checkpoint
+ * uses: only the attempt that owns the row, only while it is still running,
+ * and never over a mailbox somebody has just paused.
+ */
+async function checkpointImapCursor(
+  account: MailAccount,
+  cursor: string,
+  assertWritable: () => Promise<void>,
+): Promise<void> {
+  await assertWritable();
+  account.syncCursor = cursor;
+  const checkpoint = await AppDataSource.getRepository(MailAccount)
+    .createQueryBuilder()
+    .update()
+    .set({ syncCursor: cursor })
+    .where("id = :accountId", { accountId: account.id })
+    .andWhere('"syncAttemptId" = :attemptId', { attemptId: account.syncAttemptId })
+    .andWhere('"syncState" = :running', { running: "running" })
+    .andWhere('"status" != :paused', { paused: "paused" })
+    .execute();
+  if ((checkpoint.affected ?? 0) === 0) throw new MailSyncCancelledError();
+  broadcastToCompany(account.companyId, {
+    type: "mail.updated",
+    accountId: account.id,
+  });
 }
 
 async function finishSyncAttempt(
@@ -795,6 +914,7 @@ async function mirrorBackfillThread(
 async function backfillPass(
   account: MailAccount,
   token: string,
+  mailbox: Mailbox,
   assertWritable: () => Promise<void>,
 ): Promise<void> {
   const mailSettings = getMailSettings();
@@ -920,7 +1040,7 @@ async function backfillPass(
         return;
       }
       // Import complete.
-      await refreshDraftIds(account, token, assertWritable);
+      await refreshDraftIds(account, mailbox, assertWritable);
       await pruneStaleAfterBackfill(account, assertWritable);
       backfillStartedAt.delete(account.id);
       backfillSeenIds.delete(account.id);
@@ -1074,6 +1194,7 @@ async function pruneStaleAfterBackfill(
 async function incremental(
   account: MailAccount,
   token: string,
+  mailbox: Mailbox,
   assertWritable: () => Promise<void>,
   opts: { duringBackfill?: boolean } = {},
 ): Promise<boolean> {
@@ -1206,7 +1327,7 @@ async function incremental(
   for (const gmailThreadId of threadsToRecompute) {
     await recomputeThread(account, gmailThreadId);
   }
-  await refreshDraftIds(account, token, assertWritable);
+  await refreshDraftIds(account, mailbox, assertWritable);
   account.historyId = latestHistoryId;
 
   // Accept automation into a durable, deduplicated outbox after the mirror is

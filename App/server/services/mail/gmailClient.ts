@@ -8,6 +8,17 @@
  * tools; this module is the sync/write-through engine's transport.
  */
 
+import {
+  buildMimeString,
+  toBase64Url,
+  type MimeAttachment,
+  type MimeFields,
+} from "./mime.js";
+
+// Re-exported so the many call sites that import these from the mail client
+// keep working; the definitions live in the transport-neutral `mime.ts`.
+export type { MimeAttachment, MimeFields };
+
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
 /** Per-request wall clock — Gmail is fast; anything slower is a hang. */
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -452,200 +463,14 @@ export async function getAttachment(
 
 // ---------- MIME building (outbound) ----------
 
-export type MimeAttachment = {
-  filename: string;
-  mimeType: string;
-  content: Buffer;
-};
-
-export type MimeFields = {
-  to: string;
-  cc?: string;
-  bcc?: string;
-  subject: string;
-  bodyText: string;
-  bodyHtml?: string;
-  /** RFC 822 Message-ID of the message being replied to. */
-  inReplyTo?: string;
-  /** Space-joined References chain, oldest first. */
-  references?: string;
-  attachments?: MimeAttachment[];
-};
-
-function randomBoundary(tag: string): string {
-  // Boundaries must be unpredictable enough not to collide with body content;
-  // Math.random is fine here (not a security boundary) but is banned in some
-  // sandboxes, so mix in high-res time + a counter.
-  boundaryCounter += 1;
-  return `gsn_${tag}_${Date.now().toString(36)}_${boundaryCounter.toString(36)}`;
-}
-let boundaryCounter = 0;
-
 /**
- * Build a base64url-encoded RFC 822 message. Bodies are transferred as
- * base64 so any unicode survives verbatim; Gmail normalizes on ingest.
- * With attachments the message is `multipart/mixed`: a body part (itself
- * `multipart/alternative` when HTML is present) followed by one part per file.
+ * Gmail's `raw` field wants a base64url-encoded RFC 822 message. Composition
+ * itself is transport-neutral and lives in `mime.ts`; this is the one line of
+ * Gmail in it. `From`, `Date` and `Message-ID` are deliberately not supplied —
+ * Gmail synthesises all three on ingest and would ignore ours.
  */
 export function buildMime(m: MimeFields): string {
-  const headers: string[] = [];
-  headers.push(`To: ${encodeAddressList(m.to)}`);
-  if (m.cc) headers.push(`Cc: ${encodeAddressList(m.cc)}`);
-  if (m.bcc) headers.push(`Bcc: ${encodeAddressList(m.bcc)}`);
-  headers.push(`Subject: ${encodeHeader(m.subject)}`);
-  if (m.inReplyTo) headers.push(`In-Reply-To: ${stripCrlf(m.inReplyTo)}`);
-  if (m.references) headers.push(`References: ${stripCrlf(m.references)}`);
-  headers.push("MIME-Version: 1.0");
-
-  const attachments = m.attachments ?? [];
-  let message: string;
-  if (attachments.length > 0) {
-    const mixed = randomBoundary("mix");
-    headers.push(`Content-Type: multipart/mixed; boundary="${mixed}"`);
-    const parts = [
-      `--${mixed}`,
-      renderBodyPart(m),
-      ...attachments.map((a) => `--${mixed}\r\n${renderAttachmentPart(a)}`),
-    ];
-    message = `${headers.join("\r\n")}\r\n\r\n${parts.join("\r\n")}\r\n--${mixed}--\r\n`;
-  } else {
-    message = `${headers.join("\r\n")}\r\n${renderBodyHeadersAndContent(m)}`;
-  }
-  return Buffer.from(message, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-/** The body as a standalone MIME part (used inside multipart/mixed). */
-function renderBodyPart(m: MimeFields): string {
-  if (m.bodyHtml) {
-    const alt = randomBoundary("alt");
-    return [
-      `Content-Type: multipart/alternative; boundary="${alt}"`,
-      "",
-      `--${alt}`,
-      textPartHeaders("text/plain"),
-      "",
-      wrapBase64(m.bodyText),
-      `--${alt}`,
-      textPartHeaders("text/html"),
-      "",
-      wrapBase64(m.bodyHtml),
-      `--${alt}--`,
-    ].join("\r\n");
-  }
-  return `${textPartHeaders("text/plain")}\r\n\r\n${wrapBase64(m.bodyText)}`;
-}
-
-/** Body headers + content appended after the top-level headers (no attachments). */
-function renderBodyHeadersAndContent(m: MimeFields): string {
-  if (m.bodyHtml) {
-    const alt = randomBoundary("alt");
-    return [
-      `Content-Type: multipart/alternative; boundary="${alt}"`,
-      "",
-      `--${alt}`,
-      textPartHeaders("text/plain"),
-      "",
-      wrapBase64(m.bodyText),
-      `--${alt}`,
-      textPartHeaders("text/html"),
-      "",
-      wrapBase64(m.bodyHtml),
-      `--${alt}--`,
-      "",
-    ].join("\r\n");
-  }
-  return `${textPartHeaders("text/plain")}\r\n\r\n${wrapBase64(m.bodyText)}`;
-}
-
-function renderAttachmentPart(a: MimeAttachment): string {
-  const name = a.filename.replace(/["\r\n]/g, "");
-  const b64 = a.content.toString("base64").replace(/(.{76})/g, "$1\r\n");
-  return [
-    `Content-Type: ${a.mimeType || "application/octet-stream"}; name="${name}"`,
-    "Content-Transfer-Encoding: base64",
-    `Content-Disposition: attachment; filename="${name}"`,
-    "",
-    b64,
-  ].join("\r\n");
-}
-
-function textPartHeaders(mime: string): string {
-  return `Content-Type: ${mime}; charset="UTF-8"\r\nContent-Transfer-Encoding: base64`;
-}
-
-/** Base64 body content, folded at 76 chars per RFC 2045. */
-function wrapBase64(s: string): string {
-  const b64 = Buffer.from(s, "utf8").toString("base64");
-  return b64.replace(/(.{76})/g, "$1\r\n");
-}
-
-/** Strip CR/LF (and stray control chars) from a header value. This is the
- * header-injection guard: without it, a display name or subject carrying a
- * newline could smuggle extra headers (Bcc:, Content-Type:) into the
- * message. Every value that lands in a header goes through this. */
-function stripCrlf(s: string): string {
-  // Collapse any run of line breaks / control whitespace / spaces to a
-  // single space. This is the header-injection guard and also keeps a
-  // stray control char out of a header. Deliberately leaves ordinary
-  // punctuation (e.g. "-") alone.
-  // eslint-disable-next-line no-control-regex
-  return s.replace(/[\u0000-\u001f ]+/g, " ").trim();
-}
-
-/**
- * RFC 2047-encode a header text value when it contains non-ASCII, folding the
- * base64 into multiple ≤75-char encoded-words so a long unicode subject stays
- * within the line-length limit. Plain-ASCII values pass through untouched
- * (after CRLF stripping).
- */
-function encodeHeader(s: string): string {
-  const clean = stripCrlf(s);
-  if (!/[^\x20-\x7e]/.test(clean)) return clean;
-  // Chunk the UTF-8 bytes so each `=?UTF-8?B?...?=` word (prefix+suffix = 12
-  // chars) plus its base64 stays under the 75-char encoded-word cap. 45 raw
-  // bytes → 60 base64 chars → 72-char word. Split on whole code points so a
-  // multibyte char is never sliced across words.
-  const words: string[] = [];
-  let chunk = "";
-  for (const ch of clean) {
-    const next = chunk + ch;
-    if (Buffer.byteLength(next, "utf8") > 45) {
-      words.push(`=?UTF-8?B?${Buffer.from(chunk, "utf8").toString("base64")}?=`);
-      chunk = ch;
-    } else {
-      chunk = next;
-    }
-  }
-  if (chunk) words.push(`=?UTF-8?B?${Buffer.from(chunk, "utf8").toString("base64")}?=`);
-  // Encoded-words are folded with CRLF + a space (folding whitespace between
-  // adjacent words is ignored by decoders, per RFC 2047).
-  return words.join("\r\n ");
-}
-
-/**
- * Sanitize an address-list header (`To`/`Cc`/`Bcc`). Splits on commas and,
- * for each `Display Name <addr>` entry, RFC 2047-encodes the display name
- * (unicode-safe) while passing the angle-addr through with CRLF stripped —
- * so a non-ASCII sender name in a reply produces a valid header, and a
- * newline in either half can't inject a new header line.
- */
-function encodeAddressList(value: string): string {
-  return stripCrlf(value)
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .map((entry) => {
-      const m = entry.match(/^(.*?)\s*<([^>]+)>$/);
-      if (!m) return stripCrlf(entry);
-      const name = m[1].replace(/^"|"$/g, "").trim();
-      const addr = stripCrlf(m[2]);
-      return name ? `${encodeHeader(name)} <${addr}>` : `<${addr}>`;
-    })
-    .join(", ");
+  return toBase64Url(buildMimeString(m));
 }
 
 // ---------- Payload parsing (inbound) ----------

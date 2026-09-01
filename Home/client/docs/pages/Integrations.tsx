@@ -118,7 +118,8 @@ export function Integrations() {
         every company on the instance connects that provider by clicking it and approving on the
         provider&apos;s own screen — there is no ID to create and nothing to paste. Connecting a
         Gmail mailbox becomes: click <Strong>Google Workspace</Strong>, tick the products it may
-        touch, approve.
+        touch, approve. (A mailbox that is not on Google needs no registration at all — see{" "}
+        <Strong>Email account (IMAP)</Strong> below.)
       </P>
       <P>
         One registration covers every integration that shares the app: registering{" "}
@@ -163,7 +164,7 @@ export function Integrations() {
         </LI>
         <LI>
           <Strong>Email → Integrations</Strong> shows Google Workspace, where the Gmail product is
-          authorized.
+          authorized, and <Strong>Email account (IMAP)</Strong> for every other provider.
         </LI>
         <LI>
           <Strong>Code → Integrations</Strong> shows GitHub and Forgejo / Gitea;{" "}
@@ -449,6 +450,30 @@ export function Integrations() {
         requests to non-public addresses by default. Add its hostname at{" "}
         <Strong>Admin → Runtime → Network</Strong> before connecting it — see{" "}
         <DocLink to="/docs/self-hosting">Self-hosting</DocLink>.
+      </P>
+
+      <H3 id="imap">Email account (IMAP)</H3>
+      <P>
+        The connector with nothing to register. Give it an address and an app password and it
+        connects any mailbox that speaks IMAP and SMTP — Fastmail, iCloud, Yahoo, Zoho, a company
+        Exchange server, a Dovecot box you run yourself. Genosyn works the server settings out from
+        the domain, so the connect form is two fields; the rest are there, collapsed, for the
+        mailbox whose servers are not where its domain says they are.
+      </P>
+      <P>
+        Both halves are proved before anything is stored: Genosyn logs in over IMAP and verifies
+        SMTP separately, because they fail independently and for different reasons. A mailbox that
+        can read but not send is still connected, with the sending failure spelled out on the
+        Connection rather than discovered the first time somebody presses Send.
+      </P>
+      <P>
+        This connector carries the credential and exposes <em>no</em> AI-employee tools of its own.
+        An employee reaches mail through a mailbox <Strong>Grant</Strong> at{" "}
+        <Strong>Email → Settings → AI access</Strong>, which is ranked read &lt; draft &lt; send per
+        mailbox; a second set of tools hanging off the Connection grant would let an employee
+        granted the connection send mail without anyone granting it the mailbox. See{" "}
+        <DocLink to="/docs/email">Email</DocLink> for the mailbox side, including which providers
+        need which kind of password.
       </P>
 
       <H3 id="gmail-search-pagination">Searching busy Gmail inboxes</H3>

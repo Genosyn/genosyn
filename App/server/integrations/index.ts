@@ -6,6 +6,7 @@ import type {
 import { stripeProvider } from "./providers/stripe.js";
 import { brexProvider } from "./providers/brex.js";
 import { googleProvider } from "./providers/google.js";
+import { imapProvider } from "./providers/imap.js";
 import { googleAnalyticsProvider } from "./providers/google-analytics.js";
 import { googleSearchConsoleProvider } from "./providers/google-search-console.js";
 import { githubProvider } from "./providers/github.js";
@@ -40,6 +41,7 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [stripeProvider.catalog.provider]: stripeProvider,
   [brexProvider.catalog.provider]: brexProvider,
   [googleProvider.catalog.provider]: googleProvider,
+  [imapProvider.catalog.provider]: imapProvider,
   [googleAnalyticsProvider.catalog.provider]: googleAnalyticsProvider,
   [googleSearchConsoleProvider.catalog.provider]: googleSearchConsoleProvider,
   [githubProvider.catalog.provider]: githubProvider,
@@ -63,7 +65,18 @@ const PROVIDERS: Record<string, IntegrationProvider> = {
   [redditAdsProvider.catalog.provider]: redditAdsProvider,
 };
 
-const SHARED_SAAS_BLOCKED_PROVIDERS = new Set(["postgres", "mysql"]);
+/**
+ * Connectors that open a raw TCP socket to a host the company chose.
+ *
+ * On a self-hosted install that is exactly what the operator wants — the
+ * mail server or the database is on their own network, and they are the one
+ * being trusted. On a shared multi-tenant install it is an egress problem: a
+ * tenant that can name a host and read the connection error back has a port
+ * scanner pointed at the operator's network. `imap` joins the two databases
+ * here for that reason and comes out again when raw TCP integrations run in a
+ * dedicated egress worker, not before.
+ */
+const SHARED_SAAS_BLOCKED_PROVIDERS = new Set(["postgres", "mysql", "imap"]);
 
 /**
  * Chat surfaces (M59) whose only inbound path is an HTTP webhook, so a

@@ -6909,7 +6909,7 @@ mcpInternalRouter.post(
           context.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["accountId"],
-            message: "Gmail document-candidate exports require a source Mail Account ID",
+            message: "Mail document-candidate exports require a source Mail Account ID",
           });
         }
         if (
@@ -7512,7 +7512,7 @@ mcpInternalRouter.post(
       targetType: "revenue_document_candidate",
       targetId: body.accountId,
       targetLabel: "Mail attachments",
-      journalTitle: `${req.mcpEmployee!.name} scanned Gmail attachments for Revenue documents`,
+      journalTitle: `${req.mcpEmployee!.name} scanned mail attachments for Revenue documents`,
       metadata: result,
     });
     res.json(result);
@@ -16509,7 +16509,7 @@ mcpInternalRouter.post(
     if (!account) return;
 
     // One grammar with the human search box: `query` goes through
-    // parseMailQuery, so terms AND together and Gmail-style operators
+    // parseMailQuery, so terms AND together and the familiar operators
     // (from:/to:/subject:/label:/in:/has:/is:/before:/after:) work verbatim.
     // The structured args override their operator twins when both appear.
     const parsed = parseMailQuery(body.query?.trim() ?? "");
@@ -16580,7 +16580,7 @@ const MAIL_ATTACHMENT_TEXT_CAP = 20_000;
 /**
  * Open a file that arrived on an email.
  *
- * The bytes live in Gmail, not in Genosyn, so before this existed an employee
+ * The bytes live on the mail server, not in Genosyn, so before this existed an employee
  * could see "FIF_2026.pdf, 412 KB" on a thread and had no way to reach it —
  * its only move was to ask the human to download the file and upload it into
  * chat, for a file the mailbox already held. Importing it as an ordinary chat
@@ -16845,7 +16845,7 @@ mcpInternalRouter.post(
       );
       res.json({
         message: serializeMailMessageForAgent(message),
-        note: "Draft saved to the thread and to Gmail Drafts. A human can now review and send it.",
+        note: "Draft saved to the thread and to the mailbox's Drafts. A human can now review and send it.",
       });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : "Draft failed" });
@@ -16928,7 +16928,7 @@ mcpInternalRouter.post(
       );
       res.json({
         message: serializeMailMessageForAgent(message),
-        note: "Draft updated in Genosyn and Gmail. Gmail assigned the returned messageId to the replacement draft.",
+        note: "Draft updated in Genosyn and on the mail server, which assigned the returned messageId to the replacement draft.",
       });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : "Draft update failed" });

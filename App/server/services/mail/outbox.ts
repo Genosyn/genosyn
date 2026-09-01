@@ -76,23 +76,32 @@ export function stageAttachment(args: {
 }
 
 /**
- * Resolve staged tokens to MIME attachments for one account and remove them
- * from the store. Unknown/expired/other-account tokens are skipped silently —
- * a caller can't reach another account's files, and a dropped token just
- * means that file won't attach (surfaced to the user as a missing file, not
- * a crash).
+ * Resolve staged tokens to MIME attachments for one account, leaving them
+ * staged. Unknown/expired/other-account tokens are skipped silently — a caller
+ * can't reach another account's files, and a dropped token just means that
+ * file won't attach (surfaced to the user as a missing file, not a crash).
+ *
+ * Reading is separated from removing on purpose. Composing a message can fail
+ * after the files are resolved — an expired credential, a mail server that
+ * refuses the send — and a read that also deleted would leave the person
+ * looking at a failed send whose attachments were gone, so retrying sent the
+ * message without them. Callers {@link releaseAttachments} once the message
+ * has actually left.
  */
-export function drainAttachments(
-  accountId: string,
-  ids: string[],
-): MimeAttachment[] {
+export function readAttachments(accountId: string, ids: string[]): MimeAttachment[] {
   sweep();
   const out: MimeAttachment[] = [];
   for (const id of ids) {
     const s = staged.get(id);
     if (!s || s.accountId !== accountId) continue;
-    staged.delete(id);
     out.push({ filename: s.filename, mimeType: s.mimeType, content: s.content });
   }
   return out;
+}
+
+/** Forget staged files that have been sent. Unknown ids are ignored. */
+export function releaseAttachments(accountId: string, ids: string[]): void {
+  for (const id of ids) {
+    if (staged.get(id)?.accountId === accountId) staged.delete(id);
+  }
 }

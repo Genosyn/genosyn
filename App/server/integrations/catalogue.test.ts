@@ -25,6 +25,7 @@ const EXPECTED_PROVIDER_IDS = [
   "google",
   "google-analytics",
   "google-search-console",
+  "imap",
   "github",
   "forgejo",
   "airtable",
@@ -77,11 +78,26 @@ describe("Integration catalogue invariants", () => {
     }
   });
 
+  /**
+   * Connectors that carry a credential and expose no model-callable tools.
+   *
+   * `imap` is the only one, and the omission is the point: an AI Employee
+   * reaches an IMAP mailbox through `EmployeeMailAccountGrant`, which is
+   * ranked read < draft < send per mailbox. A duplicate set of mail tools
+   * hanging off the Connection grant would let an employee granted the
+   * *connection* send mail without anyone granting it the *mailbox*.
+   */
+  const CREDENTIAL_ONLY_PROVIDERS = new Set(["imap"]);
+
   test("every provider exposes unique, well-formed tool contracts", () => {
     const totalNames = new Set<string>();
     let toolCount = 0;
     for (const id of listProviderIds()) {
       const provider = getProvider(id)!;
+      if (CREDENTIAL_ONLY_PROVIDERS.has(id)) {
+        assert.equal(provider.tools.length, 0, `${id} is credential-only but exposes tools`);
+        continue;
+      }
       assert.ok(provider.tools.length > 0, `${id} exposes no tools`);
       const local = new Set<string>();
       for (const tool of provider.tools) {

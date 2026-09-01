@@ -4,14 +4,14 @@ import { Company } from "../../db/entities/Company.js";
 import type { MailAccount } from "../../db/entities/MailAccount.js";
 import type { MailMessage } from "../../db/entities/MailMessage.js";
 import { ATTACHMENTS_MAX_BYTES, recordAttachmentBytes } from "../uploads.js";
-import { accessTokenForAccount } from "./accounts.js";
-import { extractBodies, getAttachment, getMessage } from "./gmailClient.js";
+import { mailboxForAccount } from "./mailbox/index.js";
+import type { Mailbox } from "./mailbox/types.js";
 
 /**
  * Reading the files that arrived on an email.
  *
- * `MailMessage.attachmentsJson` is display metadata only — Gmail keeps the
- * bytes and we fetch them on demand, so nothing here is cached under
+ * `MailMessage.attachmentsJson` is display metadata only — the mail server
+ * keeps the bytes and we fetch them on demand, so nothing here is cached under
  * `data/`. Two callers need that fetch: the human download route, and the AI
  * employee, which until now could see an attachment listed on a thread and
  * had no way to open it. It could only ask the human to re-upload the file
@@ -34,7 +34,7 @@ export type MailAttachmentMeta = {
 };
 
 /** What a caller sees about an attachment before opening it. `index` is the
- *  handle: Gmail's own attachment ids drift, positions do not. */
+ *  handle: a provider's own attachment ids drift, positions do not. */
 export type MailAttachmentSummary = {
   index: number;
   filename: string;
@@ -72,30 +72,25 @@ export function summarizeMailAttachments(json: string): MailAttachmentSummary[] 
 }
 
 /**
- * Gmail seam. Production passes none of these — the defaults are the real
- * API calls. Tests supply them so the whole resolve-and-download path can be
- * exercised (index drift included) without a network or an OAuth token.
+ * Provider seam. Production passes nothing — the default resolves the
+ * account's real mailbox. Tests supply a fake so the whole
+ * resolve-and-download path can be exercised (index drift included) without a
+ * network, an OAuth token, or an IMAP server.
  */
 export type MailAttachmentTransport = {
-  accessToken: typeof accessTokenForAccount;
-  fetchMessage: typeof getMessage;
-  fetchAttachment: typeof getAttachment;
+  mailbox: (account: MailAccount) => Promise<Mailbox>;
 };
 
-const defaultTransport: MailAttachmentTransport = {
-  accessToken: accessTokenForAccount,
-  fetchMessage: getMessage,
-  fetchAttachment: getAttachment,
-};
+const defaultTransport: MailAttachmentTransport = { mailbox: mailboxForAccount };
 
 /**
- * Download one attachment's bytes from Gmail.
+ * Download one attachment's bytes.
  *
- * Gmail attachment ids drift over time, so the message is re-fetched and its
- * current ids recomputed. We match by the same positional index the stored
- * metadata used (`extractBodies` walks parts in a stable order), which also
- * handles single-part attachment messages where Gmail omits `partId` — the
- * stored id is only a fallback.
+ * Attachment handles drift over time — Gmail reissues its ids, and an IMAP
+ * message's part ids depend on how it was re-encoded — so the message is
+ * re-fetched and its current handles recomputed. We match by the same
+ * positional index the stored metadata used, which is stable across both, and
+ * fall back to the stored handle.
  */
 export async function fetchMailAttachmentBytes(
   account: MailAccount,
@@ -111,10 +106,10 @@ export async function fetchMailAttachmentBytes(
 /**
  * Download several of a message's attachments in one pass.
  *
- * The id-drift re-fetch above costs one `messages.get` per call, so keeping a
+ * The drift re-fetch above costs one message read per call, so keeping a
  * draft's three files across an edit would otherwise fetch the same message
  * three times. Indexes are read in the order given; an empty list never
- * touches Gmail at all.
+ * touches the mail server at all.
  */
 export async function fetchMailAttachmentsBytes(
   account: MailAccount,
@@ -136,19 +131,19 @@ export async function fetchMailAttachmentsBytes(
     }
     return { index, meta };
   });
-  const token = await transport.accessToken(account);
-  const fresh = await transport.fetchMessage(token, message.gmailMessageId, "full");
-  const current = extractBodies(fresh.payload).attachments;
+  const mailbox = await transport.mailbox(account);
+  const fresh = await mailbox.getMessage(message.gmailMessageId);
+  const current = fresh.attachments;
   const out: Array<{ meta: MailAttachmentMeta; bytes: Buffer }> = [];
   for (const { index, meta } of picked) {
-    const attachmentId =
-      current[index]?.attachmentId ||
-      current.find((a) => a.partId && a.partId === meta.partId)?.attachmentId ||
-      meta.attachmentId;
-    if (!attachmentId) throw new MailAttachmentError("Attachment not found", 404);
-    const data = await transport.fetchAttachment(token, message.gmailMessageId, attachmentId);
-    if (!data.data) throw new MailAttachmentError("Attachment is empty", 404);
-    out.push({ meta, bytes: Buffer.from(data.data, "base64url") });
+    const part =
+      current[index] ??
+      current.find((a) => a.partId && a.partId === meta.partId) ??
+      meta;
+    if (!part.attachmentId) throw new MailAttachmentError("Attachment not found", 404);
+    const bytes = await mailbox.getAttachmentBytes(message.gmailMessageId, part);
+    if (bytes.length === 0) throw new MailAttachmentError("Attachment is empty", 404);
+    out.push({ meta, bytes });
   }
   return out;
 }

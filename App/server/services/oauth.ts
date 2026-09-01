@@ -103,6 +103,16 @@ export type OauthState = {
    * PKCE provider we add). Stashed alongside state so the callback can
    * pass it to the token-exchange step. Empty string for non-PKCE flows. */
   codeVerifier?: string;
+  /**
+   * Link the new Connection to a mailbox as soon as consent lands.
+   *
+   * Set when the handshake was started from the Email section, where the
+   * person's intent was "connect my email" and not "register a Google
+   * connection". Without it they came back from Google's consent screen to a
+   * page that had not changed, and had to find a second Connect button on a
+   * third screen to finish the thing they had already agreed to.
+   */
+  linkMailbox?: boolean;
 };
 
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -118,6 +128,8 @@ export async function startOauth(args: {
   scopeGroups: string[];
   extraFields?: Record<string, string>;
   existingConnectionId?: string;
+  /** See {@link OauthState.linkMailbox}. */
+  linkMailbox?: boolean;
 }): Promise<{ authorizeUrl: string }> {
   const provider = getProvider(args.provider);
   if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
@@ -175,6 +187,7 @@ export async function startOauth(args: {
     expiresAt,
     existingConnectionId: args.existingConnectionId,
     codeVerifier,
+    linkMailbox: args.linkMailbox === true,
   };
   const state = await createAuthFlowState("integration-oauth", statePayload, STATE_TTL_MS);
 

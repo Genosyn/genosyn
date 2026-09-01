@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import {
   MailAccessLevel,
-  MailConnectCandidate,
   MailGrant,
   MailGrantCandidate,
   mailApi,
@@ -28,6 +27,7 @@ import { Avatar, employeeAvatarUrl } from "../components/ui/Avatar";
 import { Button } from "../components/ui/Button";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
+import { ConnectMailboxDialog } from "../components/mail/ConnectMailbox";
 import { Modal } from "../components/ui/Modal";
 import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
@@ -111,7 +111,7 @@ export default function MailSettings() {
     const ok = await dialog.confirm({
       title: `Disconnect ${account.address}?`,
       message:
-        "Removes the local mirror (threads, rules, handovers, AI grants) here. Your Gmail account and the Google connection are untouched.",
+        "Removes the local mirror (threads, rules, handovers, AI grants) here. The mail itself and the Connection behind it are untouched.",
       variant: "danger",
     });
     if (!ok) return;
@@ -336,7 +336,8 @@ export default function MailSettings() {
           ))}
         </ul>
         <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-          Need to add a Gmail account not listed? Add a Google connection with the Gmail scope under{" "}
+          Need a mailbox that is not listed? <span className="font-medium">Connect another</span>{" "}
+          above asks for the address and works the rest out. Existing Connections live under{" "}
           <Link
             to={`/c/${company.slug}/mail/integrations`}
             className="text-indigo-600 hover:underline dark:text-indigo-400"
@@ -359,16 +360,16 @@ export default function MailSettings() {
           }}
         />
       )}
-      {connectOpen && (
-        <ConnectModal
-          companyId={company.id}
-          onClose={() => setConnectOpen(false)}
-          onConnected={async () => {
-            setConnectOpen(false);
-            await refresh();
-          }}
-        />
-      )}
+      <ConnectMailboxDialog
+        companyId={company.id}
+        canConnect={company.role === "owner" || company.role === "admin"}
+        open={connectOpen}
+        onClose={() => setConnectOpen(false)}
+        onConnected={async () => {
+          setConnectOpen(false);
+          await refresh();
+        }}
+      />
     </div>
   );
 }
@@ -446,80 +447,6 @@ function GrantModal({
               {busy ? <Spinner size={14} /> : "Grant"}
             </Button>
           </div>
-        </div>
-      )}
-    </Modal>
-  );
-}
-
-function ConnectModal({
-  companyId,
-  onClose,
-  onConnected,
-}: {
-  companyId: string;
-  onClose: () => void;
-  onConnected: () => Promise<void>;
-}) {
-  const [candidates, setCandidates] = React.useState<MailConnectCandidate[] | null>(null);
-  const [busy, setBusy] = React.useState<string | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    mailApi
-      .connectCandidates(companyId)
-      .then((res) => setCandidates(res.candidates))
-      .catch((err: unknown) => setError(errorMessage(err, "Could not load the connections")));
-  }, [companyId]);
-
-  const usable = (candidates ?? []).filter((c) => c.hasGmailScope && !c.linkedAccountId);
-
-  return (
-    <Modal open onClose={onClose} title="Connect a mailbox">
-      {candidates === null ? (
-        error ? (
-          <FormError message={error} />
-        ) : (
-          <div className="flex justify-center py-6">
-            <Spinner size={18} />
-          </div>
-        )
-      ) : usable.length === 0 ? (
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          No unlinked Gmail-capable Google connections. Add one with the Gmail scope under Email →
-          Integrations first.
-        </p>
-      ) : (
-        <div className="space-y-2">
-          <FormError message={error} />
-          {usable.map((c) => (
-            <div
-              key={c.connectionId}
-              className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700"
-            >
-              <span className="min-w-0 truncate text-sm text-slate-700 dark:text-slate-300">
-                {c.accountHint || c.label}
-              </span>
-              <Button
-                size="sm"
-                disabled={busy !== null}
-                onClick={async () => {
-                  setBusy(c.connectionId);
-                  setError(null);
-                  try {
-                    await mailApi.connectAccount(companyId, c.connectionId);
-                    await onConnected();
-                  } catch (err) {
-                    setError(errorMessage(err));
-                  } finally {
-                    setBusy(null);
-                  }
-                }}
-              >
-                {busy === c.connectionId ? <Spinner size={13} /> : "Connect"}
-              </Button>
-            </div>
-          ))}
         </div>
       )}
     </Modal>

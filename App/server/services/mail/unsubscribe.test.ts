@@ -5,20 +5,26 @@ import { config } from "../../../config.js";
 import { MailAccount } from "../../db/entities/MailAccount.js";
 import { MailMessage } from "../../db/entities/MailMessage.js";
 import type { SafeFetchResult } from "../../lib/outboundUrl.js";
-import type { GmailHeader, GmailMessage } from "./gmailClient.js";
+import { FakeMailbox } from "../../test/fakeMailbox.js";
+import type { GmailHeader } from "./gmailClient.js";
 import {
   ONE_CLICK_UNSUBSCRIBE_BODY,
   hasAuthenticatedOneClickHeaders,
   listUnsubscribeTargets,
   oneClickUnsubscribeUrl,
+  trustedAuthservId,
   unsubscribeFromMessage,
 } from "./unsubscribe.js";
+
+/** The receiving server a Gmail mailbox trusts, which most cases use. */
+const GMAIL_AUTHSERV = "mx.google.com";
 
 function account(overrides: Partial<MailAccount> = {}): MailAccount {
   return Object.assign(new MailAccount(), {
     id: "account_unsubscribe_test",
     companyId: "co_unsubscribe_test",
     connectionId: "connection_unsubscribe_test",
+    provider: "gmail",
     address: "owner@example.com",
     status: "active",
     ...overrides,
@@ -37,12 +43,28 @@ function message(overrides: Partial<MailMessage> = {}): MailMessage {
   });
 }
 
-function remoteMessage(headers: GmailHeader[] = []): GmailMessage {
-  return {
-    id: "gmail_message_unsubscribe_test",
-    threadId: "gmail_thread_unsubscribe_test",
-    payload: { headers },
+/**
+ * A mailbox holding exactly the message under test, with the headers the case
+ * cares about. `loaded` records the ref that was asked for, so a test can
+ * still assert we read the triggering message and not some other one.
+ */
+function mailboxWith(headers: GmailHeader[]): {
+  seam: (account: MailAccount) => Promise<FakeMailbox>;
+  loaded: string[];
+} {
+  const loaded: string[] = [];
+  const fake = new FakeMailbox();
+  fake.seed({
+    ref: "gmail_message_unsubscribe_test",
+    threadRef: "gmail_thread_unsubscribe_test",
+    headers,
+  });
+  const realHeaders = fake.getMessageHeaders.bind(fake);
+  fake.getMessageHeaders = async (ref) => {
+    loaded.push(ref);
+    return realHeaders(ref);
   };
+  return { seam: async () => fake, loaded };
 }
 
 function oneClickHeaders(target = "https://lists.example/unsubscribe?token=secret"): GmailHeader[] {
@@ -192,21 +214,24 @@ describe("RFC 8058 target selection", () => {
 
 describe("RFC 8058 DKIM authentication", () => {
   test("accepts Gmail-confirmed DKIM that signs both one-click headers", () => {
-    assert.equal(hasAuthenticatedOneClickHeaders(oneClickHeaders()), true);
+    assert.equal(hasAuthenticatedOneClickHeaders(oneClickHeaders(), GMAIL_AUTHSERV), true);
   });
 
   test("rejects missing, failing, or sender-supplied authentication results", () => {
     const listHeaders = oneClickHeaders().slice(0, 2);
-    assert.equal(hasAuthenticatedOneClickHeaders(listHeaders), false);
+    assert.equal(hasAuthenticatedOneClickHeaders(listHeaders, GMAIL_AUTHSERV), false);
     assert.equal(
-      hasAuthenticatedOneClickHeaders([...listHeaders, ...dkimHeaders({ result: "fail" })]),
+      hasAuthenticatedOneClickHeaders(
+        [...listHeaders, ...dkimHeaders({ result: "fail" })],
+        GMAIL_AUTHSERV,
+      ),
       false,
     );
     assert.equal(
-      hasAuthenticatedOneClickHeaders([
-        ...listHeaders,
-        ...dkimHeaders({ authservId: "attacker.example" }),
-      ]),
+      hasAuthenticatedOneClickHeaders(
+        [...listHeaders, ...dkimHeaders({ authservId: "attacker.example" })],
+        GMAIL_AUTHSERV,
+      ),
       false,
     );
   });
@@ -219,7 +244,10 @@ describe("RFC 8058 DKIM authentication", () => {
       "from:to:subject",
     ]) {
       assert.equal(
-        hasAuthenticatedOneClickHeaders([...listHeaders, ...dkimHeaders({ signedHeaders })]),
+        hasAuthenticatedOneClickHeaders(
+          [...listHeaders, ...dkimHeaders({ signedHeaders })],
+          GMAIL_AUTHSERV,
+        ),
         false,
       );
     }
@@ -235,7 +263,10 @@ describe("RFC 8058 DKIM authentication", () => {
       dkimHeaders({ signature: "short" })[1],
     ]) {
       assert.equal(
-        hasAuthenticatedOneClickHeaders([...listHeaders, validSignature, authentication]),
+        hasAuthenticatedOneClickHeaders(
+          [...listHeaders, validSignature, authentication],
+          GMAIL_AUTHSERV,
+        ),
         false,
       );
     }
@@ -251,54 +282,49 @@ describe("RFC 8058 DKIM authentication", () => {
     const forgedCoveringSignature = dkimHeaders({ signature })[0];
 
     assert.equal(
-      hasAuthenticatedOneClickHeaders([
-        ...listHeaders,
-        passingWithoutCoverage[0],
-        forgedCoveringSignature,
-        passingWithoutCoverage[1],
-      ]),
+      hasAuthenticatedOneClickHeaders(
+        [
+          ...listHeaders,
+          passingWithoutCoverage[0],
+          forgedCoveringSignature,
+          passingWithoutCoverage[1],
+        ],
+        GMAIL_AUTHSERV,
+      ),
       false,
     );
   });
 
   test("rejects duplicate one-click headers even when one value is signed", () => {
     assert.equal(
-      hasAuthenticatedOneClickHeaders([
-        ...oneClickHeaders(),
-        { name: "List-Unsubscribe", value: "<https://attacker.example/collect>" },
-      ]),
+      hasAuthenticatedOneClickHeaders(
+        [
+          ...oneClickHeaders(),
+          { name: "List-Unsubscribe", value: "<https://attacker.example/collect>" },
+        ],
+        GMAIL_AUTHSERV,
+      ),
       false,
     );
   });
 });
 
 describe("one-click unsubscribe action", () => {
-  test("loads the exact Gmail message and sends the exact one-click POST", async () => {
+  test("loads the exact message and sends the exact one-click POST", async () => {
     const mailbox = account();
     const triggeringMessage = message();
-    let tokenAccount: MailAccount | null = null;
-    let loaded: { token: string; gmailMessageId: string } | null = null;
     const posts: Array<{ url: URL; init: RequestInit }> = [];
+    const { seam, loaded } = mailboxWith([
+      {
+        name: "list-unsubscribe",
+        value: "<mailto:leave@example.com>, <https://lists.example/u?token=secret>",
+      },
+      { name: "LIST-UNSUBSCRIBE-POST", value: "List-Unsubscribe=One-Click" },
+      ...dkimHeaders(),
+    ]);
 
     const result = await unsubscribeFromMessage(mailbox, triggeringMessage, {
-      accessToken: async (receivedAccount) => {
-        tokenAccount = receivedAccount;
-        return "fresh-google-token";
-      },
-      loadMessage: async (token, gmailMessageId) => {
-        loaded = { token, gmailMessageId };
-        return remoteMessage([
-          {
-            name: "list-unsubscribe",
-            value: "<mailto:leave@example.com>, <https://lists.example/u?token=secret>",
-          },
-          {
-            name: "LIST-UNSUBSCRIBE-POST",
-            value: "List-Unsubscribe=One-Click",
-          },
-          ...dkimHeaders(),
-        ]);
-      },
+      mailbox: seam,
       post: async (url, init) => {
         posts.push({ url, init });
         return safeResponse({
@@ -308,11 +334,7 @@ describe("one-click unsubscribe action", () => {
       },
     });
 
-    assert.equal(tokenAccount, mailbox);
-    assert.deepEqual(loaded, {
-      token: "fresh-google-token",
-      gmailMessageId: triggeringMessage.gmailMessageId,
-    });
+    assert.deepEqual(loaded, [triggeringMessage.gmailMessageId]);
     assert.equal(posts.length, 1);
     assert.equal(posts[0].url.toString(), "https://lists.example/u?token=secret");
     assert.equal(posts[0].init.method, "POST");
@@ -326,18 +348,14 @@ describe("one-click unsubscribe action", () => {
     assert.doesNotMatch(JSON.stringify(result), /token|secret/);
   });
 
-  test("rejects a message from another mailbox before loading credentials or Gmail", async () => {
+  test("rejects a message from another mailbox before reading anything", async () => {
     let dependencyCalls = 0;
     await assert.rejects(
       () =>
         unsubscribeFromMessage(account(), message({ accountId: "account_attacker_mailbox" }), {
-          accessToken: async () => {
+          mailbox: async () => {
             dependencyCalls += 1;
-            return "must-not-load";
-          },
-          loadMessage: async () => {
-            dependencyCalls += 1;
-            return remoteMessage(oneClickHeaders());
+            return mailboxWith(oneClickHeaders()).seam(account());
           },
           post: async () => {
             dependencyCalls += 1;
@@ -349,7 +367,28 @@ describe("one-click unsubscribe action", () => {
     assert.equal(dependencyCalls, 0);
   });
 
-  test("does not POST when Gmail omits either required header", async (context) => {
+  test("refuses an IMAP mailbox, whose receiving server it cannot vouch for", async () => {
+    // The DKIM gate binds a verdict written by the receiving server. Genosyn
+    // knows which server that is for Gmail and cannot know it for an arbitrary
+    // IMAP host, so the button is unavailable rather than trusting a
+    // `dkim=pass` line the sender may have written about themselves.
+    let posts = 0;
+    assert.equal(trustedAuthservId(account({ provider: "imap" })), "");
+    await assert.rejects(
+      () =>
+        unsubscribeFromMessage(account({ provider: "imap" }), message(), {
+          mailbox: mailboxWith(oneClickHeaders()).seam,
+          post: async () => {
+            posts += 1;
+            return safeResponse();
+          },
+        }),
+      /DKIM verdict Genosyn can trust/,
+    );
+    assert.equal(posts, 0);
+  });
+
+  test("does not POST when the message omits either required header", async (context) => {
     const cases: Array<{ name: string; headers: GmailHeader[] }> = [
       {
         name: "no List-Unsubscribe header",
@@ -381,8 +420,7 @@ describe("one-click unsubscribe action", () => {
         await assert.rejects(
           () =>
             unsubscribeFromMessage(account(), message(), {
-              accessToken: async () => "token",
-              loadMessage: async () => remoteMessage(entry.headers),
+              mailbox: mailboxWith(entry.headers).seam,
               post: async () => {
                 posts += 1;
                 return safeResponse();
@@ -400,8 +438,7 @@ describe("one-click unsubscribe action", () => {
     await assert.rejects(
       () =>
         unsubscribeFromMessage(account(), message(), {
-          accessToken: async () => "token",
-          loadMessage: async () => remoteMessage(oneClickHeaders()),
+          mailbox: mailboxWith(oneClickHeaders()).seam,
           post: async () =>
             safeResponse({
               status: 410,
@@ -419,13 +456,12 @@ describe("one-click unsubscribe action", () => {
     );
   });
 
-  test("does not POST when Gmail cannot authenticate both one-click headers", async () => {
+  test("does not POST when the receiving server cannot authenticate both headers", async () => {
     let posts = 0;
     await assert.rejects(
       () =>
         unsubscribeFromMessage(account(), message(), {
-          accessToken: async () => "token",
-          loadMessage: async () => remoteMessage(oneClickHeaders().slice(0, 2)),
+          mailbox: mailboxWith(oneClickHeaders().slice(0, 2)).seam,
           post: async () => {
             posts += 1;
             return safeResponse();
@@ -436,15 +472,15 @@ describe("one-click unsubscribe action", () => {
     assert.equal(posts, 0);
   });
 
-  test("does not confirm an address for mail Gmail already marked as spam or trash", async () => {
+  test("does not confirm an address for mail already marked as spam or trash", async () => {
     for (const labelIds of [" SPAM UNREAD ", " TRASH "]) {
       let dependencyCalls = 0;
       await assert.rejects(
         () =>
           unsubscribeFromMessage(account(), message({ labelIds }), {
-            accessToken: async () => {
+            mailbox: async () => {
               dependencyCalls += 1;
-              return "must-not-load";
+              return mailboxWith(oneClickHeaders()).seam(account());
             },
           }),
         /marked as spam or trash/,
@@ -461,9 +497,7 @@ describe("one-click unsubscribe action", () => {
       await assert.rejects(
         () =>
           unsubscribeFromMessage(account(), message(), {
-            accessToken: async () => "token",
-            loadMessage: async () =>
-              remoteMessage(oneClickHeaders("https://internal.example/unsubscribe")),
+            mailbox: mailboxWith(oneClickHeaders("https://internal.example/unsubscribe")).seam,
             post: async () => {
               posts += 1;
               return safeResponse();
@@ -479,9 +513,7 @@ describe("one-click unsubscribe action", () => {
 
   test("uses the advertised host when the transport does not report a final URL", async () => {
     const result = await unsubscribeFromMessage(account(), message(), {
-      accessToken: async () => "token",
-      loadMessage: async () =>
-        remoteMessage(oneClickHeaders("https://lists.example/u?token=private")),
+      mailbox: mailboxWith(oneClickHeaders("https://lists.example/u?token=private")).seam,
       post: async () => safeResponse({ status: 204, url: "" }),
     });
     assert.deepEqual(result, { host: "lists.example", status: 204 });

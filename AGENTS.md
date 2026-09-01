@@ -206,6 +206,18 @@ Note that the physical tables are still `code_repositories` and
 migration that drops and recreates it or a hand-written one, and §7 forbids
 the second. The product noun is what matters.
 
+**On an IMAP mailbox a Label is a folder, and applying one moves the
+conversation.** Gmail lets a message carry several labels at once; every other
+IMAP server puts it in exactly one folder. Rather than teach the sidebar, the
+search grammar, the rule engine and the MCP tools a second dialect, every
+mailbox adapter normalizes into **one canonical label set** — Gmail's own
+system ids, chosen because no live data had to migrate — and the IMAP adapter
+derives them from the message's folder and flags (`services/mail/imapModel.ts`).
+So `applyLabel` on an IMAP mailbox is a `UID MOVE`, `createLabel` is a folder,
+and Archive maps to *no* label because that is what "archived" already means on
+Gmail. Do not add a second label vocabulary, and do not make shared code branch
+on `MailAccount.provider` to decide what a label is.
+
 **A Folder is not a Tag, and neither replaces the other.** A **Folder** answers
 *where does this routine live* — one per routine, nestable, navigable in the
 sidebar. A **Tag** answers *what is this about* — many per resource, spanning
@@ -245,10 +257,15 @@ exists to prevent.
   (system sends — welcome, password reset, global SMTP test — carry a null
   `companyId` and are logged but not surfaced anywhere yet).
 - **Email (the company's inbox):** the `Mail*` subsystem is **separate** and
-  sends through the Gmail API on a `google` Connection. It does **not** write
-  `EmailLog` — there is no `gmail` transport, and adding one would drag the
-  OAuth mailbox into `EmailProviderConfig`. Sent mail is recorded as a
+  speaks to the company's own mailbox through the `Mailbox` interface in
+  `services/mail/mailbox/` — the Gmail API on a `google` Connection, or
+  IMAP/SMTP on an `imap` Connection. It does **not** write `EmailLog` — there
+  is no `gmail` or `imap` transport, and adding one would drag a mailbox
+  credential into `EmailProviderConfig`. Sent mail is recorded as a
   `MailMessage` on the thread instead. Keep the two apart — see ROADMAP M25.
+  Note the direction of travel: `EmailProvider` is *how the product emails
+  people*; a MailAccount is *the company's inbox*. A change that makes one
+  reach for the other is going the wrong way.
 - **Cron:** `node-cron`.
 - **Validation:** `zod` at the API boundary.
 - **No Next.js.** Listed twice because agents keep reaching for it.

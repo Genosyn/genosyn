@@ -14,6 +14,7 @@ import {
   Database,
   GitFork,
   Github,
+  Inbox,
   Layers,
   Linkedin,
   Mail,
@@ -82,6 +83,7 @@ import { resolveReconnectTarget } from "../lib/integrationReconnect";
 
 const ICONS: Record<string, LucideIcon> = {
   Antenna,
+  Inbox,
   BarChart3,
   BookOpen,
   Building2,

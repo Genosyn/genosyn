@@ -44,7 +44,7 @@ const READ_ONLY_FINANCE: MailAnalysisActor = { ...ACTOR, financeAccess: "read" }
  * three Gmail-backed kinds fail at `accessTokenForAccount` — deterministically,
  * without a socket, and only after everything this module owns has run.
  */
-const NO_CONNECTION = /Google connection behind this mail account was deleted/;
+const NO_CONNECTION = /Google connection behind this mailbox was deleted/;
 
 type Scene = {
   account: MailAccount;
@@ -621,7 +621,7 @@ describe("hand_over", () => {
   });
 });
 
-describe("the Gmail-backed buttons", () => {
+describe("the mailbox-backed buttons", () => {
   test("a draft reply reaches the mailbox credential and leaves the button armed", async () => {
     const { account, analysis } = await scene([
       {
@@ -662,7 +662,7 @@ describe("the Gmail-backed buttons", () => {
     assert.equal((await storedActions(analysis.id))[0].executedAt, undefined);
   });
 
-  test("an unsubscribe refuses mail Gmail binned, without asking for a credential", async () => {
+  test("an unsubscribe refuses mail the server binned, without asking for a credential", async () => {
     const { account, analysis } = await scene(
       [{ id: "0", kind: "unsubscribe", label: "Unsubscribe", targetHost: "lists.example" }],
       { labelIds: "INBOX SPAM" },
@@ -670,7 +670,7 @@ describe("the Gmail-backed buttons", () => {
 
     await assert.rejects(
       () => executeAnalysisAction(account, analysis, "0", ACTOR),
-      /will not unsubscribe from mail Gmail marked as spam or trash/,
+      /will not unsubscribe from mail the mail server marked as spam or trash/,
     );
     assert.equal((await storedActions(analysis.id))[0].executedAt, undefined);
   });

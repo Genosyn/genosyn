@@ -26,17 +26,30 @@ import {
 } from "../../integrations/providers/google/auth.js";
 import type { IntegrationConfig, IntegrationRuntimeContext } from "../../integrations/types.js";
 import { getProfile } from "./gmailClient.js";
+import { parseImapConnectionConfig, releaseImapConnection } from "./imapClient.js";
+import type { MailAccountProvider } from "../../db/entities/MailAccount.js";
 
 /**
- * MailAccount lifecycle + the token seam between the Email section and the
- * Integrations framework.
+ * MailAccount lifecycle + the credential seam between the Email section and
+ * the Integrations framework.
  *
- * A MailAccount borrows the OAuth credentials of a `google`
- * IntegrationConnection — this module is the only place the Email code
- * touches encryptedConfig, and it follows the same recipe the Google
- * provider uses: decrypt → ensureFreshGoogleToken (refreshes when <60s to
- * expiry) → re-encrypt and persist if the token rotated.
+ * A MailAccount borrows an IntegrationConnection's credentials rather than
+ * holding any of its own, and this module is the only place the Email code
+ * touches `encryptedConfig`. For a `google` Connection that means the OAuth
+ * recipe the Google provider uses — decrypt → ensureFreshGoogleToken
+ * (refreshes when <60s to expiry) → re-encrypt and persist if the token
+ * rotated. For an `imap` Connection it is simply a decrypt: an app password
+ * does not rotate.
  */
+
+/** Which mailbox backend a Connection's provider implies. */
+export function mailProviderForConnection(provider: string): MailAccountProvider {
+  if (provider === "imap") return "imap";
+  if (provider === "google") return "gmail";
+  throw new Error(
+    "A mailbox needs a Google connection or an email account (IMAP) connection.",
+  );
+}
 
 /** Get a fresh Gmail-capable access token for a connection, persisting any
  * rotated token back onto the row. Throws with a human-readable message when
@@ -90,16 +103,21 @@ export async function accessTokenForAccount(account: MailAccount): Promise<strin
   const conn = await getConnection(account.companyId, account.connectionId);
   if (!conn) {
     throw new Error(
-      "The Google connection behind this mail account was deleted. Remove the account and connect again.",
+      "The Google connection behind this mailbox was deleted. Remove the mailbox and connect it again.",
     );
   }
   return freshGmailAccessToken(conn);
 }
 
 /**
- * Connect a mailbox: verify the connection can speak Gmail, read the
- * profile for the address + initial history cursor, and create the row.
- * The first heartbeat pass performs the backfill.
+ * Connect a mailbox: prove the Connection can actually reach a mailbox, read
+ * the address off it, and create the row. The first heartbeat pass performs
+ * the backfill.
+ *
+ * The address is read from the provider rather than taken from the caller on
+ * purpose — it is what every later comparison ("did we send this?", "is this
+ * a reply to us?") is made against, and a mailbox labelled with an address it
+ * does not actually own would get those wrong in both directions.
  */
 export async function createMailAccount(args: {
   companyId: string;
@@ -111,12 +129,28 @@ export async function createMailAccount(args: {
   const repo = AppDataSource.getRepository(MailAccount);
   const existing = await repo.findOneBy({ connectionId: args.connectionId });
   if (existing) {
-    throw new Error("That Google connection is already linked to a mail account.");
+    throw new Error("That connection is already linked to a mailbox.");
   }
   const conn = await getConnection(args.companyId, args.connectionId);
   if (!conn) throw new Error("Connection not found");
-  const { token, encryptedConfigSnapshot } = await freshGmailCredential(conn);
-  const profile = await getProfile(token);
+  const provider = mailProviderForConnection(conn.provider);
+
+  let address: string;
+  let encryptedConfigSnapshot: string;
+  if (provider === "imap") {
+    // An app password does not rotate, so there is no token to refresh and
+    // nothing to write back — the snapshot is simply what is on the row.
+    const config = parseImapConnectionConfig(
+      decryptConnectionConfig(conn) as Record<string, unknown>,
+    );
+    address = config.address;
+    encryptedConfigSnapshot = conn.encryptedConfig;
+  } else {
+    const credential = await freshGmailCredential(conn);
+    address = (await getProfile(credential.token)).emailAddress;
+    encryptedConfigSnapshot = credential.encryptedConfigSnapshot;
+  }
+
   return withConnectionCredentialMutation(args.connectionId, () =>
     AppDataSource.transaction(async (manager) => {
       const currentConnection = await claimConnectionForCredentialWrite(manager, {
@@ -126,21 +160,23 @@ export async function createMailAccount(args: {
       });
       if (!currentConnection) {
         throw new Error(
-          "The Google Connection changed while the mailbox was being linked. Try again.",
+          "The Connection changed while the mailbox was being linked. Try again.",
         );
       }
       await args.beforePersist?.();
       const txRepo = manager.getRepository(MailAccount);
       if (await txRepo.findOneBy({ connectionId: args.connectionId })) {
-        throw new Error("That Google connection is already linked to a mail account.");
+        throw new Error("That connection is already linked to a mailbox.");
       }
       const account = txRepo.create({
         companyId: args.companyId,
         connectionId: args.connectionId,
-        address: profile.emailAddress,
+        provider,
+        address,
         status: "active",
         statusMessage: "",
         historyId: "",
+        syncCursor: "",
         lastSyncAt: null,
         syncState: "idle",
         syncAttemptId: null,
@@ -169,6 +205,9 @@ export async function deleteMailAccount(account: MailAccount): Promise<void> {
 /** Remove every local row owned by a mailbox. Exported for the sync worker's
  * deletion fence: no stale response may resurrect an orphaned mirror. */
 export async function purgeMailAccountMirror(id: string): Promise<void> {
+  // A pooled IMAP socket outliving its mailbox would keep an authenticated
+  // connection open to a server the company has just disconnected.
+  await releaseImapConnection(id);
   await AppDataSource.getRepository(MailInboundAutomation).delete({ accountId: id });
   await AppDataSource.getRepository(MailMessage).delete({ accountId: id });
   await AppDataSource.getRepository(MailThread).delete({ accountId: id });
@@ -186,6 +225,8 @@ export async function purgeMailAccountMirror(id: string): Promise<void> {
 export type MailAccountDTO = {
   id: string;
   connectionId: string;
+  /** Which backend drives this mailbox — the UI words a few things per-provider. */
+  provider: MailAccount["provider"];
   address: string;
   status: string;
   statusMessage: string;
@@ -209,6 +250,7 @@ export function serializeMailAccount(a: MailAccount): MailAccountDTO {
   return {
     id: a.id,
     connectionId: a.connectionId,
+    provider: a.provider,
     address: a.address,
     status: a.status,
     statusMessage: a.statusMessage,

@@ -300,6 +300,11 @@ export async function createApiKeyConnection(args: {
 }): Promise<IntegrationConnection> {
   const provider = getProvider(args.provider);
   if (!provider) throw new Error(`Unknown integration: ${args.provider}`);
+  // Asserted here rather than only at the Integrations route, because this is
+  // the choke point every caller goes through — the Email section's one-step
+  // mailbox connect reaches it without passing that route at all, and a
+  // deployment posture that only one entry point honours is not a posture.
+  assertIntegrationAllowed(args.provider);
   if (!providerSupportsApiKey(provider)) {
     throw new Error(`${provider.catalog.name} is not an API-key integration`);
   }
@@ -447,6 +452,18 @@ export async function updateApiKeyCredentials(args: {
     throw new Error(`Unknown integration: ${existing.provider}`);
   }
   const { config, accountHint } = await provider.validateApiKey(args.fields);
+  // The same guard the OAuth and service-account reconnects apply: a
+  // credential swap may rotate the password behind a mailbox, never repoint it
+  // at a different address. `imap` is the first API-key provider that can back
+  // a MailAccount, so this path had never needed it before — and without it a
+  // reconnect would leave `MailAccount.address` naming one mailbox while the
+  // Connection read and sent from another.
+  await assertMailReconnectBinding(
+    AppDataSource.manager,
+    existing,
+    config,
+    accountHint,
+  );
   existing.encryptedConfig = encryptConnectionConfig(config, existing.companyId);
   existing.accountHint = accountHint;
   existing.status = "connected";
@@ -557,7 +574,11 @@ export async function updateOauthConnectionConfig(args: {
 
 function normalizedMailboxIdentity(config: IntegrationConfig, accountHint: string): string {
   const record = config as Record<string, unknown>;
-  for (const key of ["impersonationEmail", "email", "clientEmail"] as const) {
+  // `address` is what an `imap` config stores; the other three are Google's.
+  // A key this list does not know falls through to the account hint, which for
+  // an unrecognised shape is not an address — so a new mailbox-capable
+  // provider must add its key here rather than rely on the fallback.
+  for (const key of ["impersonationEmail", "email", "clientEmail", "address"] as const) {
     const value = record[key];
     if (typeof value === "string" && value.trim()) return value.trim().toLowerCase();
   }
@@ -586,10 +607,12 @@ async function assertMailReconnectBinding(
   if (!mailAccount) return;
   if (mailAccount.address.trim().toLowerCase() !== normalizedMailboxIdentity(config, accountHint)) {
     throw new Error(
-      `Reconnect the same Google account (${mailAccount.address}). To use a different mailbox, disconnect this mailbox first.`,
+      `Reconnect the same account (${mailAccount.address}). To use a different mailbox, disconnect this mailbox first.`,
     );
   }
-  if (!configHasGmailScope(config)) {
+  // Only Google grants a mailbox by scope. An `imap` Connection that
+  // authenticated at all can read the mailbox by definition.
+  if (connection.provider === "google" && !configHasGmailScope(config)) {
     throw new Error(
       "This Connection backs a mailbox. Reconnect it with the Gmail product selected.",
     );

@@ -194,6 +194,9 @@ const oauthStartSchema = z.object({
   /** Values for the catalog's `oauth.extraFields` (developer tokens,
    *  account ids, safety caps). Validated against the catalog server-side. */
   extraFields: z.record(z.string().max(512)).optional(),
+  /** Set by the Email section: link the resulting Connection to a mailbox
+   *  the moment consent lands, so "connect my email" is one round trip. */
+  linkMailbox: z.boolean().optional(),
 });
 
 integrationsRouter.post("/oauth/start", validateBody(oauthStartSchema), async (req, res) => {
@@ -209,6 +212,7 @@ integrationsRouter.post("/oauth/start", validateBody(oauthStartSchema), async (r
       clientSecret: body.clientSecret?.trim(),
       scopeGroups: body.scopeGroups,
       extraFields: body.extraFields,
+      linkMailbox: body.linkMailbox,
     });
     res.json(out);
   } catch (err) {
