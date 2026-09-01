@@ -1,6 +1,7 @@
 import { CATALOG_BY_TYPE } from "./catalog.js";
 import { isSchedulableCron } from "./cron.js";
 import type { PipelineGraph, PipelineNode, PipelineNodeKind } from "./types.js";
+import { pipelineCodeAllowed } from "./codeRuntime.js";
 
 /**
  * Local copy of `isTriggerKind` rather than the one in `./index.js`: that
@@ -127,6 +128,19 @@ export function validateGraph(graph: PipelineGraph): PipelineGraphIssue[] {
       });
     }
     seenIds.add(node.id);
+
+    // Surfaced here as well as refused at execution, so a hosted author sees
+    // why the step cannot run while they are still editing it rather than on
+    // the first Run. `executePipelineCode` is the boundary; this is the
+    // message.
+    if (node.type === "logic.code" && !pipelineCodeAllowed()) {
+      issues.push({
+        severity: "error",
+        nodeId: node.id,
+        message:
+          "The Run JavaScript step is unavailable in shared SaaS mode, because its sandbox is not a security boundary. Use logic.http, action.* or integration.invoke instead.",
+      });
+    }
 
     // `{{<id>.<path>}}` splits on dots, so a dotted id can never be read by a
     // later step. Cheap to reject now, impossible to diagnose at run time.
