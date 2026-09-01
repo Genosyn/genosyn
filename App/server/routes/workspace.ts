@@ -296,6 +296,7 @@ workspaceRouter.post(
     const body = req.body as z.infer<typeof addMembersSchema>;
     await addChannelMembers({
       channelId: req.params.channelId,
+      companyId: co.id,
       userIds: body.userIds,
       employeeIds: body.employeeIds,
     });

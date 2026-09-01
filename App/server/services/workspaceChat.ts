@@ -153,6 +153,13 @@ export async function createChannel(params: {
   initialEmployeeIds: string[];
 }): Promise<Channel> {
   const { channels, members } = repos();
+  await assertActorsInCompany(params.companyId, {
+    userIds: [
+      ...(params.createdByUserId ? [params.createdByUserId] : []),
+      ...params.initialMemberUserIds,
+    ],
+    employeeIds: params.initialEmployeeIds,
+  });
   const slug = slugify(params.name, { lower: true, strict: true }) || "channel";
   const existing = await channels.findOneBy({
     companyId: params.companyId,
@@ -212,6 +219,75 @@ export async function createChannel(params: {
 
 export type DmActor = { kind: "user"; userId: string } | { kind: "ai"; employeeId: string };
 
+/**
+ * Refuse a channel actor that is not in this company.
+ *
+ * Every write here takes caller-supplied `userId` / `employeeId` values
+ * straight from a request body. The browser routes authorize the *caller*
+ * against the company in the URL and then never checked the ids in the
+ * payload, so a Member of company A could name a user or an AI Employee of
+ * company B — leaving a durable `ChannelMember` row and, once
+ * {@link hydrateChannel} resolved it, reading back that person's name and
+ * email.
+ *
+ * The MCP twin of these operations has always checked (see the `dmUser` and
+ * `dmEmployee` branches of `workspace_send_message`, which refuse a
+ * cross-company target by loading through `companyId`). This puts the same
+ * rule where it cannot be reached around: at the seam that writes the row,
+ * rather than at each of the doors that call it.
+ *
+ * A Membership — not merely a `User` row — is what makes a person part of a
+ * company, so that is what is checked. Both lookups are batched: these lists
+ * are short, and one query per id in a loop is how a channel invite turns into
+ * a hundred round-trips.
+ */
+export async function assertActorsInCompany(
+  companyId: string,
+  actors: { userIds?: readonly string[]; employeeIds?: readonly string[] },
+): Promise<void> {
+  const { employees, memberships } = repos();
+
+  const userIds = [...new Set((actors.userIds ?? []).filter(Boolean))];
+  if (userIds.length > 0) {
+    const found = await memberships.find({
+      where: { companyId, userId: In(userIds) },
+      select: { userId: true },
+    });
+    const seen = new Set(found.map((m) => m.userId));
+    const missing = userIds.find((id) => !seen.has(id));
+    if (missing) {
+      // Deliberately does not distinguish "no such user" from "user in another
+      // company": the difference is itself a cross-tenant existence oracle.
+      throw new Error("User not found");
+    }
+  }
+
+  const employeeIds = [...new Set((actors.employeeIds ?? []).filter(Boolean))];
+  if (employeeIds.length > 0) {
+    const found = await employees.find({
+      where: { companyId, id: In(employeeIds) },
+      select: { id: true },
+    });
+    const seen = new Set(found.map((e) => e.id));
+    const missing = employeeIds.find((id) => !seen.has(id));
+    if (missing) {
+      throw new Error("Employee not found");
+    }
+  }
+}
+
+/** The same check, for the two-actor shape a DM is opened with. */
+async function assertDmActorsInCompany(
+  companyId: string,
+  ...dmActors: readonly DmActor[]
+): Promise<void> {
+  await assertActorsInCompany(companyId, {
+    userIds: dmActors.flatMap((a) => (a.kind === "user" ? [a.userId] : [])),
+    employeeIds: dmActors.flatMap((a) => (a.kind === "ai" ? [a.employeeId] : [])),
+  });
+}
+
+
 function dmActorMatchesMember(actor: DmActor, m: ChannelMember): boolean {
   if (actor.kind === "user") {
     return m.memberKind === "user" && m.userId === actor.userId;
@@ -260,6 +336,7 @@ export async function findOrCreateDM(params: {
   if (dmActorEquals(params.from, params.target)) {
     throw new Error("Cannot DM yourself");
   }
+  await assertDmActorsInCompany(params.companyId, params.from, params.target);
 
   // A DM between A and B is the unique channel with kind='dm' whose members
   // are exactly {A, B}. SQLite doesn't have MINUS/INTERSECT tuple-style
@@ -391,10 +468,23 @@ export async function renameChannel(params: {
 
 export async function addChannelMembers(params: {
   channelId: string;
+  companyId: string;
   userIds: string[];
   employeeIds: string[];
 }): Promise<ChannelMember[]> {
-  const { members } = repos();
+  const { channels, members } = repos();
+  // The channel is re-loaded through the company rather than trusted from the
+  // caller, so neither the channel nor the people added can come from another
+  // tenant.
+  const channel = await channels.findOneBy({
+    id: params.channelId,
+    companyId: params.companyId,
+  });
+  if (!channel) throw new Error("Channel not found");
+  await assertActorsInCompany(params.companyId, {
+    userIds: params.userIds,
+    employeeIds: params.employeeIds,
+  });
   const existing = await members.find({ where: { channelId: params.channelId } });
   const seenUsers = new Set(existing.filter((m) => m.userId).map((m) => m.userId!));
   const seenEmps = new Set(existing.filter((m) => m.employeeId).map((m) => m.employeeId!));
@@ -726,14 +816,34 @@ export async function toggleReaction(params: {
   userId: string;
   companyId: string;
 }): Promise<{ added: boolean }> {
-  const { reactions, messages, users } = repos();
+  const { channels, reactions, messages, users } = repos();
+  const msg = await messages.findOneBy({ id: params.messageId });
+  if (!msg) throw new Error("Message not found");
+  // The message id arrives raw from the URL, and every sibling route makes
+  // this hop (`editMessage`, `softDeleteMessage`) before writing. Without it a
+  // Member of another company could react on any message id and have the row
+  // broadcast into a company they cannot see. Resolved before the reaction is
+  // read so a cross-tenant id cannot even probe for one.
+  const channel = await channels.findOneBy({
+    id: msg.channelId,
+    companyId: params.companyId,
+  });
+  if (!channel) throw new Error("Message not found");
+  // Same-company is necessary but not sufficient: a private channel or a DM is
+  // readable only by its members, and reacting is a write into it. Every
+  // sibling reaction surface goes through this; the route cannot, because it
+  // is handed a message id rather than a channel id.
+  const allowed = await userHasChannelAccess({
+    channelId: channel.id,
+    userId: params.userId,
+    companyId: params.companyId,
+  });
+  if (!allowed) throw new Error("Message not found");
   const existing = await reactions.findOneBy({
     messageId: params.messageId,
     emoji: params.emoji,
     userId: params.userId,
   });
-  const msg = await messages.findOneBy({ id: params.messageId });
-  if (!msg) throw new Error("Message not found");
   const user = await users.findOneBy({ id: params.userId });
   const name = user?.name ?? user?.email ?? "";
 
