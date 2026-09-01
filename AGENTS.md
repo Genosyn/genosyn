@@ -539,6 +539,9 @@ milestone is done, drive the happy path in a browser (via the `browse` /
 - Forgot password flow (when SMTP unset, check that the reset link logs to
   server console)
 
+If you write any tests, only run those tests. Do not run everything
+just to speed things up. Everything runs in CI anyway.
+
 ---
 
 ## 10. Documentation
