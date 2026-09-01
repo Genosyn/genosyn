@@ -1,4 +1,6 @@
 import nodemailer from "nodemailer";
+import { config } from "../../config.js";
+import { assertPublicOutboundHost } from "../lib/outboundUrl.js";
 import type { EmailProviderKind } from "../db/entities/EmailProvider.js";
 import {
   formatGlobalSmtpSender,
@@ -419,6 +421,47 @@ function maskKey(s: string): string {
  * ports makes the Test button forgiving; non-standard ports keep whatever the
  * operator explicitly chose.
  */
+/**
+ * Ports an SMTP submission or relay endpoint may legitimately listen on.
+ *
+ * The point is not that other ports never serve mail — it is that a free
+ * integer here lets a tenant admin aim a TCP connection at any port on the
+ * operator's private network. 2525 is included because several hosted
+ * providers publish it as a fallback where 587 is blocked upstream.
+ */
+export const ALLOWED_SMTP_PORTS = new Set([25, 465, 587, 2525]);
+
+/**
+ * Refuse an SMTP target that a hosted tenant must not be able to reach.
+ *
+ * `installOutboundNetworkPolicy` patches the global http/https agents and the
+ * undici dispatcher, and nodemailer uses none of them — it opens a raw TCP
+ * socket. So the one field on this form that takes a hostname was the one
+ * outbound path with no destination check at all: a tenant admin could point a
+ * provider at `10.0.0.5:6379` and read the connection outcome back off the
+ * Test button, which is a working port scanner of the operator's cluster
+ * network. The non-standard-port branch of {@link resolveSmtpTransportSecurity}
+ * makes it a plaintext one, which is the protocol-smuggling primitive against
+ * anything line-tolerant listening there.
+ *
+ * Multi-tenant only, and deliberately so. A single-tenant install pointing at
+ * `smtp.internal:25` or a sidecar relay is an ordinary, correct configuration,
+ * and the admin already owns the network they would be scanning. Shared SaaS
+ * boots with an empty `outboundPrivateHostAllowlist` — `validateRuntimeSecurity`
+ * refuses otherwise — so there is no hosted escape hatch through that list.
+ */
+export async function assertSmtpTargetAllowed(host: string, port: number): Promise<void> {
+  if (!config.security.multiTenant) return;
+  if (!ALLOWED_SMTP_PORTS.has(port)) {
+    throw new Error(
+      `SMTP port ${port} is not allowed. Use 25, 465, 587 or 2525.`,
+    );
+  }
+  // Resolves the name and rejects every non-public answer, so a hostname that
+  // maps to link-local, RFC1918 or loopback fails here rather than at connect.
+  await assertPublicOutboundHost(host);
+}
+
 export function resolveSmtpTransportSecurity(
   port: number,
   secure: boolean,
@@ -470,6 +513,7 @@ async function sendSmtp(
   cfg: SmtpConfig,
   msg: EmailMessage,
 ): Promise<EmailSendResult> {
+  await assertSmtpTargetAllowed(cfg.host, cfg.port);
   const { secure, requireTLS } = resolveSmtpTransportSecurity(
     cfg.port,
     cfg.secure,
