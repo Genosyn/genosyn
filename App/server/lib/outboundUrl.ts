@@ -117,9 +117,19 @@ export async function assertSafeOutboundUrl(input: string | URL): Promise<URL> {
   }
   if (privateHostAllowed(url.hostname)) return url;
 
-  const literalKind = net.isIP(url.hostname);
+  // WHATWG `hostname` keeps the brackets on an IPv6 literal ("[::1]"), which
+  // `net.isIP` does not recognise. Without stripping them every IPv6 literal
+  // fell through to a DNS lookup of a bracketed string: it failed closed, so
+  // nothing unsafe was ever reachable, but it failed with `ENOTFOUND` rather
+  // than the real reason — and it refused *public* IPv6 literals just as
+  // indiscriminately.
+  const literalHost =
+    url.hostname.startsWith("[") && url.hostname.endsWith("]")
+      ? url.hostname.slice(1, -1)
+      : url.hostname;
+  const literalKind = net.isIP(literalHost);
   const addresses = literalKind
-    ? [{ address: url.hostname, family: literalKind }]
+    ? [{ address: literalHost, family: literalKind }]
     : await dns.lookup(url.hostname, { all: true, verbatim: true });
   if (addresses.length === 0) throw new Error("Outbound hostname did not resolve");
   const blocked = addresses.find((entry) => !isPublicIp(entry.address));
@@ -127,6 +137,26 @@ export async function assertSafeOutboundUrl(input: string | URL): Promise<URL> {
     throw new Error(`Outbound URL resolves to a non-public address (${blocked.address})`);
   }
   return url;
+}
+
+/**
+ * Resolve a bare hostname and refuse every non-public answer.
+ *
+ * For destinations that are not URLs at all — an SMTP or IMAP endpoint, which
+ * is a host and a port reached over a raw TCP socket. Those never pass through
+ * the patched HTTP agents, so this is the only thing standing between a
+ * tenant-supplied hostname and the operator's private network.
+ *
+ * Accepts `host`, `host:port` and `[::1]:993`; the port is discarded, since
+ * callers police their own port policy.
+ */
+export async function assertPublicOutboundHost(host: string): Promise<void> {
+  const trimmed = host.trim();
+  if (!trimmed) throw new Error("A hostname is required");
+  const bare = trimmed.startsWith("[")
+    ? trimmed.slice(0, trimmed.indexOf("]") + 1)
+    : trimmed.replace(/:\d+$/, "");
+  await assertSafeOutboundUrl(`http://${bare}`);
 }
 
 /** Validate URL/host-shaped values in an Integration connection form. */
