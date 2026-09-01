@@ -63,54 +63,77 @@ export default {
   theme: {
     extend: {
       colors: {
-        // ── HEADCOUNT ──────────────────────────────────────────────────────
+        // ── The palette ────────────────────────────────────────────────────
         //
-        // Colour is the org chart. Seven departments, seven hues, each one
-        // permanently bound to a department and used at tile scale rather than
-        // as an accent — a spine, a top edge, a chip, a whole tinted pane. It
-        // is never a mood; it is a legend, and a reader decodes it in four
-        // seconds.
+        // Colour is the org chart. Seven departments, seven permanently-bound
+        // hues, used at tile scale: a 3px spine, a top edge, a chip, a tinted
+        // pane. Never a mood, always a legend.
         //
-        // The inversion is the argument: the machine is in colour and the
-        // human is in black. Every Decision, every Approval, the 09:30 arrival
-        // and the primary button are `ink`, the one value with no hue at all.
-        // So on a screen saturated with seven departments working at once, the
-        // eye finds exactly one black thing, and it is you.
+        // The inversion is the argument: the machine is in colour, the human
+        // is in black. Decisions, Approvals, primary controls and the wall's
+        // eighth cell carry no hue at all, so on a page full of departments
+        // the eye finds one achromatic thing and it is you.
         //
-        // Every ratio below is computed, not estimated. Worst case in the
-        // whole set is 4.89:1 (Revenue on its own tint). Every hue passes AA
-        // as text on white, on ground and on its own tint, and every hue
-        // passes AA carrying white.
-        ink: "#14120f", // 16.43:1 on ground, 18.70:1 on white
-        ink2: "#3e3930", // 10.07:1 on ground — secondary prose
-        muted: "#6b6459", // 5.14:1 on ground — mono labels, timestamps
-        rule: "#8a8378", // 3.30:1 on ground — structural, clears 1.4.11
-        hairline: "#dedad2", // 1.22:1 — decorative separators only
-        seam: "#c9c3b8", // the 1px grid gaps behind the wall
-        ground: "#f2f0ec",
+        // ## Why the ground is a grey and not an off-white
+        //
+        // Two earlier grounds were rejected, and both taught the same lesson.
+        // A warm cream (#f2f0ec) measured 6.6 RGB from Anthropic's #f0eee6 —
+        // not a resemblance, the same colour. A pale green (#cee5cb) cleared
+        // every reference but read as a tint nobody asked for.
+        //
+        // The trap underneath both: EVERY very pale neutral lands in the same
+        // small neighbourhood. #f2f0ec was simultaneously within 25 of Claude,
+        // Linear, Vercel AND Stripe, because a near-white can only differ from
+        // another near-white by a few points. So the way out is not a
+        // different tint of near-white — it is to stop being near-white.
+        //
+        // #d9d9d6 is a true light grey, noticeably darker than every
+        // white-page product: 35.0 from Claude, 44.7 from Linear, 46.9 from
+        // Vercel, 50.6 from white. It is quiet on purpose. The identity of
+        // this site is the seven-hue department system; the ground's job is to
+        // sit still and let that carry, which cream and green both refused to
+        // do.
+        //
+        // Panes are plain white. Every product has white panes and nobody owns
+        // them; it is the PAGE that carries identity.
+        //
+        // Every ratio below is computed, not estimated. Worst pair in the
+        // whole palette is 4.71:1.
+        ink: "#131316", // 13.11:1 on ground, 17.51:1 on white
+        ink2: "#3a3a3e", //  8.00:1 on ground — body prose
+        muted: "#5c5c60", //  4.71:1 on ground, 6.66:1 on white — the text floor
+        rule: "#78787b", //  3.11:1 on ground — structural, clears 1.4.11
+        hairline: "#c8c8c5", //  decorative separators only, never meaning
+        seam: "#a8a8a4", // the 1px grid behind the wall
+        // Secondary text ON the ink plane. `muted` is a light-ground value and
+        // reads at 2.79:1 on ink, which is how it leaked into the terminal
+        // transcript and the night rows. 5.39:1 on ink.
+        dim: "#8a8a8d",
+        ground: "#d9d9d6",
         surface: "#ffffff",
 
         dept: {
-          finance: "#0f6b45",
-          repositories: "#5a2fc4",
-          marketing: "#a8156b",
-          workspace: "#0b6673",
-          email: "#1450be",
-          revenue: "#b03d0c",
-          operations: "#7a5a0a",
-          // Reserved for /roles/recruiter, which has no Board lane. Never on
-          // the home page.
-          people: "#b32540",
+          finance: "#00683c",
+          repositories: "#572fbd",
+          marketing: "#9b0060",
+          workspace: "#006271",
+          email: "#0d4cb7",
+          revenue: "#962b00",
+          operations: "#714e00",
+          people: "#9e0f33", // /roles/recruiter only. Never on the home page.
         },
+        // The hue mixed toward white. On a neutral page this is the legible
+        // choice; a saturated tint would shout on grey where it sat calmly
+        // inside the green ground it was originally drawn for.
         tint: {
-          finance: "#dcefe4",
-          repositories: "#e6e0fb",
-          marketing: "#fbdeec",
-          workspace: "#d9eef1",
-          email: "#dee8fc",
-          revenue: "#fbe4d8",
-          operations: "#f2e9ce",
-          people: "#fbdfe3",
+          finance: "#e0ede8",
+          repositories: "#ebe6f7",
+          marketing: "#f3e0ec",
+          workspace: "#e0ecee",
+          email: "#e2eaf6",
+          revenue: "#f2e6e0",
+          operations: "#eeeae0",
+          people: "#f3e2e7",
         },
       },
       fontFamily: {
@@ -156,7 +179,7 @@ export default {
         raise: "none",
         float: "none",
         // Elevation on a dark plane is a lit top edge, not a drop shadow.
-        panel: "inset 0 1px 0 rgba(251, 250, 247, 0.08)",
+        panel: "inset 0 1px 0 rgba(255, 255, 255, 0.08)",
       },
       keyframes: {
         // The one animation on the site, and it is the argument: bars draw

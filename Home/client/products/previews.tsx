@@ -172,21 +172,23 @@ function EmployeesPreview() {
           </div>
           <div className="mt-3 space-y-1.5 border border-rule bg-ink p-4 font-mono text-[11px] leading-5 text-hairline">
             <div>
-              <span className="text-rule">[07:00:02]</span> stripe_list_charges — 42 since yesterday
+              <span className="text-muted">[07:00:02]</span> stripe_list_charges — 42 since
+              yesterday
             </div>
             <div>
-              <span className="text-rule">[07:00:19]</span> matched 41 to open invoices
+              <span className="text-muted">[07:00:19]</span> matched 41 to open invoices
             </div>
             <div>
-              <span className="text-rule">[07:00:24]</span> posting DR Bank / CR Accounts Receivable
+              <span className="text-muted">[07:00:24]</span> posting DR Bank / CR Accounts
+              Receivable
             </div>
             <div>
-              <span className="text-rule">[07:00:31]</span> <span className="text-surface">✓</span>
+              <span className="text-muted">[07:00:31]</span> <span className="text-surface">✓</span>
               {""}
               ledger balanced — 1 charge flagged for review
             </div>
             <div>
-              <span className="text-rule">[07:00:33]</span> send_workspace_message → #finance
+              <span className="text-muted">[07:00:33]</span> send_workspace_message → #finance
             </div>
           </div>
           <div className="mt-3 flex items-center justify-between text-[11px] text-muted">
@@ -768,7 +770,7 @@ function MarketingPreview() {
             ))}
           </div>
           <div className="mt-3 bg-ink p-3 font-mono text-[10px] leading-4 text-rule">
-            <div className="text-rule">-- journal · 09:02</div>
+            <div className="text-muted">-- journal · 09:02</div>
             <div>
               Prospecting — PMax pacing 173% → <span className="text-ink">paused</span> (never
               gated). Proposal filed for review.
@@ -853,7 +855,7 @@ function ExplorePreview() {
             <div className="mt-0.5 text-[10px] font-medium text-ink2">+8.4% vs last month</div>
           </div>
           <div className="flex-1 border border-rule bg-ink p-3.5 font-mono text-[10px] leading-4 text-rule">
-            <div className="text-rule">-- saved chart · run by Mira (AI)</div>
+            <div className="text-muted">-- saved chart · run by Mira (AI)</div>
             <div>
               <span className="text-hairline">select</span> month,{""}
               <span className="text-hairline">sum</span>(mrr)
@@ -1317,16 +1319,16 @@ function CodePreview() {
         </div>
         <div className="p-4 md:col-span-3">
           <div className="bg-ink p-4 font-mono text-[11px] leading-5">
-            <div className="flex items-center gap-1.5 pb-2 text-[10px] uppercase tracking-widest text-rule">
+            <div className="flex items-center gap-1.5 pb-2 text-[10px] uppercase tracking-widest text-muted">
               <Terminal className="h-3 w-3" />
               sam@genosyn · code-repos/api-server
             </div>
-            <div className="text-rule">$ git checkout -b fix/rate-limit-headers</div>
-            <div className="text-rule">$ git commit -m &quot;Return Retry-After on 429s&quot;</div>
-            <div className="text-rule">
+            <div className="text-muted">$ git checkout -b fix/rate-limit-headers</div>
+            <div className="text-muted">$ git commit -m &quot;Return Retry-After on 429s&quot;</div>
+            <div className="text-muted">
               [fix/rate-limit-headers 3f2a91c] 2 files changed, 18 insertions(+)
             </div>
-            <div className="text-rule">$ git status --short --branch</div>
+            <div className="text-muted">$ git status --short --branch</div>
             <div className="text-surface">✓ local commit ready for governed publishing</div>
           </div>
           <div className="mt-3 flex items-center gap-2 text-[11px] text-muted">

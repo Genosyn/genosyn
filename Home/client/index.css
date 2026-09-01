@@ -27,23 +27,23 @@ body {
 }
 
 ::selection {
-  background-color: #14120f;
-  color: #f2f0ec;
+  background-color: #131316;
+  color: #d9d9d6;
 }
 
 /* The ring is what has to pass WCAG 1.4.11, not the control beside it. It is
-   deliberately NOT the signal amber: #ffb000 on paper is 1.65:1 and would
+   deliberately NOT the signal amber: #131316 on paper is 1.65:1 and would
    fail outright. Near-black on paper is 17:1; on a dark plane it flips to the
-   light end of the ramp, where #dad7ce on #0b0b0a is 13.7:1. Radius 0, to
+   light end of the ramp, where #d9d9d6 on #0b0b0d is 13.7:1. Radius 0, to
    match everything else. */
 :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline: 2px solid #14120f;
+  outline: 2px solid #131316;
   outline-offset: 3px;
   border-radius: 0;
 }
 
 .on-night :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline-color: #dad7ce;
+  outline-color: #d9d9d6;
 }
 
 .tabular {
@@ -176,7 +176,7 @@ body {
 .hours {
   background-image: repeating-linear-gradient(
     to right,
-    #e6e3da 0 1px,
+    #cfcfcc 0 1px,
     transparent 1px calc(100% / 24)
   );
 }
@@ -184,17 +184,17 @@ body {
 .hours-night {
   background-image: repeating-linear-gradient(
     to right,
-    #1e1e1b 0 1px,
+    #1c1c1f 0 1px,
     transparent 1px calc(100% / 24)
   );
 }
 
 .hatch {
-  background-image: repeating-linear-gradient(45deg, #111110 0 1px, transparent 1px 5px);
+  background-image: repeating-linear-gradient(45deg, #131316 0 1px, transparent 1px 5px);
 }
 
 .hatch-night {
-  background-image: repeating-linear-gradient(45deg, #8c8880 0 1px, transparent 1px 5px);
+  background-image: repeating-linear-gradient(45deg, #a8a8a4 0 1px, transparent 1px 5px);
 }
 
 .scrollbar-none {
@@ -256,19 +256,29 @@ body {
 
 /* The wall fills in on load, in timestamp order rather than DOM order, so the
    company assembles itself the way the night actually ran. */
-@keyframes wall-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Deliberately NOT an animation.
+ *
+ * This was `animation: wall-in … both`, which holds the `from` keyframe until
+ * the animation runs — so in any context that does not execute animations the
+ * panes stayed at opacity 0 and the wall was empty. Gating the class behind a
+ * mount effect did not fix it: once the class is applied, the content is still
+ * hostage to the animation.
+ *
+ * A transition cannot fail that way. The END state is the element's real
+ * style, so if the transition never runs the pane is simply visible, which is
+ * the correct outcome. The entrance is now genuinely optional. */
+.wall-pane {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.wall-in {
-  animation: wall-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+.wall-pane[data-enter="pending"] {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: none;
 }
 
 /* One row arriving at the top of one pane. Never two panes at once: a
@@ -355,8 +365,14 @@ body {
     scroll-behavior: auto;
   }
 
+  .wall-pane,
+  .wall-pane[data-enter="pending"] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
   .claim-in,
-  .wall-in,
   .row-in,
   [data-sweep] .strip-draw,
   [data-sweep] .arrive-wipe,

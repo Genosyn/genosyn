@@ -135,7 +135,7 @@ const RUNS: RunLine[] = [
 
 export function Primitives() {
   return (
-    <Band open="m" close="s">
+    <Band tone="ground" open="m" close="s">
       <Container>
         <Head
           eyebrow="05 / Inside a role"

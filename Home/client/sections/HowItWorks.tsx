@@ -149,7 +149,7 @@ const STEPS: Step[] = [
 
 export function HowItWorks() {
   return (
-    <Band id="how-it-works" open="m" close="s">
+    <Band id="how-it-works" tone="surface" open="m" close="s">
       <Container>
         <Head
           eyebrow="06 / Setting one up"

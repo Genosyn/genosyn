@@ -56,7 +56,7 @@ export function Roles() {
   const last = role.day[role.day.length - 1].time;
 
   return (
-    <Band id="roles" tone="ground" open="l" close="m">
+    <Band id="roles" tone="surface" open="l" close="m">
       <Container>
         <Head
           eyebrow="02 / One role's day"

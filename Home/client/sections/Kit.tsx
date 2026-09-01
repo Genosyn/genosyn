@@ -472,7 +472,7 @@ export function ActionStrip({
 }) {
   // Resting state is ink on white; only the hover fill is ink, and only there
   // does the label go light. The swap left `text-ground` on both states, which
-  // is #f2f0ec on #ffffff — 1.09:1, a strip with nothing legible in it until
+  // is #d9d9d6 on #ffffff — 1.09:1, a strip with nothing legible in it until
   // you happen to hover.
   const classes = `rounded-control group flex min-h-[3.25rem] w-full items-center justify-between gap-4 border border-rule bg-surface px-4 text-ink transition-colors duration-100 hover:bg-ink hover:text-ground ${className}`;
   const inner = (

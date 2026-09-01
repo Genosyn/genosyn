@@ -217,7 +217,7 @@ function BoardFascia() {
     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border border-rule bg-ink px-4 py-2.5">
       <Sheet className="!text-surface">Tuesday</Sheet>
       <span className="t-data text-[11px] leading-4 text-hairline">00:00–24:00</span>
-      <span className="t-data text-[11px] leading-4 text-rule">SAMPLE COMPANY</span>
+      <span className="t-data text-[11px] leading-4 text-muted">SAMPLE COMPANY</span>
       <span className="flex w-full items-center gap-4 sm:ml-auto sm:w-auto">
         <LegendItem state="run">Run</LegendItem>
         <LegendItem state="decision">Decision</LegendItem>
@@ -238,7 +238,7 @@ function LegendItem({
   return (
     <span
       className={`t-field inline-flex items-center gap-1.5 text-[10px] uppercase  ${
-        human ? "text-ink" : "text-rule"
+        human ? "text-ink" : "text-muted"
       }`}
     >
       <Mark state={state} className="h-2.5 w-2.5" />

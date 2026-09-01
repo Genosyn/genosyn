@@ -1,6 +1,18 @@
 import { useState } from "react";
 import { GITHUB_URL } from "@/lib/constants";
 import { Claims } from "@/sections/Claims";
+import { DEPT_FULL, type Dept } from "@/sections/Kit";
+
+/** The wall's seven lanes, in the order they appear on it. */
+const DEPARTMENTS: { dept: Dept; label: string }[] = [
+  { dept: "email", label: "Email" },
+  { dept: "finance", label: "Finance" },
+  { dept: "repositories", label: "Repositories" },
+  { dept: "revenue", label: "Revenue" },
+  { dept: "workspace", label: "Workspace" },
+  { dept: "marketing", label: "Marketing" },
+  { dept: "operations", label: "Operations" },
+];
 import { Wall } from "@/sections/Wall";
 import { Link } from "@/lib/router";
 
@@ -53,6 +65,34 @@ export function Hero() {
               Genosyn is an open-source platform for running a company with AI Employees. They hold
               real roles and work to their own schedule.
             </p>
+
+            {/* The legend.
+                The system's claim is that a reader decodes the org chart in
+                four seconds, and a legend is what makes that literally true
+                rather than merely asserted. It also does the work the right
+                column was not doing: the departments below are hues without
+                names until you scroll to a lane label, and naming them here
+                means the wall is readable the moment it appears.
+
+                The eighth row has no hue on purpose. It is the same inversion
+                the wall ends on, stated once in words. */}
+            <dl className="mt-10 border-t border-hairline pt-5">
+              <dt className="t-field text-muted">Seven departments, one you</dt>
+              <dd className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
+                {DEPARTMENTS.map(({ dept, label }) => (
+                  <span key={label} className="flex items-center gap-2">
+                    <span aria-hidden className={`h-2.5 w-2.5 shrink-0 ${DEPT_FULL[dept]}`} />
+                    <span className="truncate text-[13px] text-ink2">{label}</span>
+                  </span>
+                ))}
+                <span className="flex items-center gap-2">
+                  <span aria-hidden className="h-2.5 w-2.5 shrink-0 bg-ink" />
+                  <span className="truncate text-[13px] font-semibold text-ink">
+                    Needs a person
+                  </span>
+                </span>
+              </dd>
+            </dl>
           </div>
         </div>
       </div>

@@ -215,7 +215,7 @@ export function Gantt({
 
   const rule = night ? "border-rule" : "border-rule";
   const quarter = night ? "bg-rule" : "bg-rule";
-  const quiet = night ? "text-rule" : "text-muted";
+  const quiet = night ? "text-muted" : "text-muted";
 
   return (
     <div className={className}>
@@ -450,7 +450,7 @@ function Arrival({ at, label }: { at: number; label: string }) {
 }
 
 function HourScale({ night, crosshair }: { night: boolean; crosshair: number | null }) {
-  const quiet = night ? "text-rule" : "text-muted";
+  const quiet = night ? "text-muted" : "text-muted";
   return (
     <div aria-hidden className="relative h-6">
       {[0, 6, 12, 18].map((hour) => (
@@ -502,7 +502,7 @@ function Readout({
   isolated: string | null;
   onClear: () => void;
 }) {
-  const quiet = night ? "text-rule" : "text-muted";
+  const quiet = night ? "text-muted" : "text-muted";
   const loud = night ? "text-surface" : "text-ink";
 
   return (

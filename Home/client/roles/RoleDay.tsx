@@ -384,7 +384,7 @@ function StopRow({ moment }: { moment: RoleMoment & { kind: "decision" | "approv
         </div>
 
         <p className="mt-2 max-w-[70ch] text-[14px] leading-6 text-hairline">{moment.body}</p>
-        <span className="t-data mt-3 block text-[11px] leading-4 text-rule">{moment.where}</span>
+        <span className="t-data mt-3 block text-[11px] leading-4 text-dim">{moment.where}</span>
       </div>
     </div>
   );

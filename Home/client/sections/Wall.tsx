@@ -134,21 +134,35 @@ const TICK = 3400;
 export function Wall() {
   const [tick, setTick] = useState(0);
   const [entered, setEntered] = useState(false);
+  const [settled, setSettled] = useState(false);
 
   /**
-   * The entrance class is added AFTER mount, never on the server.
+   * The entrance is a TRANSITION, and it is armed for exactly one frame.
    *
-   * `wall-in` animates opacity from 0 with `fill-mode: both`, so an element
-   * carrying it is invisible until the animation actually runs. That makes the
-   * content depend on an animation existing, which is the wrong way round: any
-   * context that does not run animations — no JavaScript, a print stylesheet,
-   * a throttled or non-compositing renderer — would show seven empty panes.
+   * The first attempt was `animation: … both`, which holds the `from` keyframe
+   * until the animation runs — so anywhere animations do not execute, the
+   * panes stayed at opacity 0 and the wall was empty. Gating the class behind
+   * a mount effect did not fix it, because once the class is applied the
+   * content is still hostage to the animation running.
    *
-   * Adding the class in an effect means the server and the first client render
-   * emit visible panes, hydration matches, and the animation is a pure
-   * enhancement on top of markup that was already correct.
+   * A transition cannot fail that way: its end state IS the element's real
+   * style, so a transition that never runs leaves a visible pane. `pending`
+   * is set and then cleared on the next frame, so the panes start 8px low and
+   * settle. If any of that misfires the wall is simply there, which is the
+   * outcome that matters.
    */
-  useEffect(() => setEntered(true), []);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setEntered(true));
+    // Drop the transition once the entrance is over. A `transition` property
+    // left on an element keeps it on its own compositing layer for the life of
+    // the page, and seven panes holding a layer each to pay for one 600ms
+    // flourish is a bad trade. After this the panes are ordinary static DOM.
+    const done = window.setTimeout(() => setSettled(true), 220 + PANES.length * 55 + 60);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(done);
+    };
+  }, []);
 
   useEffect(() => {
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
@@ -164,6 +178,7 @@ export function Wall() {
           pane={pane}
           index={index}
           entered={entered}
+          settled={settled}
           live={tick === index + 1}
         />
       ))}
@@ -194,19 +209,22 @@ function Surface({
   pane,
   index,
   entered,
+  settled,
   live,
 }: {
   pane: Pane;
   index: number;
   entered: boolean;
+  settled: boolean;
   live: boolean;
 }) {
   const rows = live ? [pane.arriving, ...pane.rows.slice(0, 3)] : pane.rows;
 
   return (
     <div
-      className={`relative min-w-0 overflow-hidden bg-surface ${entered ? "wall-in" : ""}`}
-      style={entered ? { animationDelay: `${index * 60}ms` } : undefined}
+      className={`relative min-w-0 overflow-hidden bg-surface ${settled ? "" : "wall-pane"}`}
+      data-enter={entered || settled ? undefined : "pending"}
+      style={settled ? undefined : { transitionDelay: `${index * 55}ms` }}
     >
       <span aria-hidden className={`absolute inset-x-0 top-0 h-[3px] ${pane.hue}`} />
 

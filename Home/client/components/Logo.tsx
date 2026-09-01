@@ -17,13 +17,12 @@ type LogoMarkProps = {
  * lockup adapts to whatever it sits in. `variant="tile"` fills a rounded
  * square behind it for constrained slots such as the favicon.
  *
- * The tile fill is the site's own black rather than the `#0f172a` it used to
- * be. That value was Tailwind's slate-900, a cool blue-black that appeared in
- * no token file and now sits against a warm palette, where it reads as a
- * different brand. The geometry, stroke weight and proportions are untouched.
+ * The tile fill is the site's own ink and the mark is drawn in the page's
+ * ground, so the favicon is the same two values as the page. The geometry,
+ * stroke weight and proportions are untouched from the original mark.
  */
 export function LogoMark({ className = "", variant = "plain" }: LogoMarkProps) {
-  const fg = variant === "tile" ? "#fbfaf7" : "currentColor";
+  const fg = variant === "tile" ? "#d9d9d6" : "currentColor";
 
   const Mark = <circle cx="16" cy="16" r="9" fill="none" stroke={fg} strokeWidth="2.4" />;
 
@@ -35,7 +34,7 @@ export function LogoMark({ className = "", variant = "plain" }: LogoMarkProps) {
         className={className}
         aria-hidden="true"
       >
-        <rect width="32" height="32" rx="8" fill="#111110" />
+        <rect width="32" height="32" rx="8" fill="#131316" />
         {Mark}
       </svg>
     );

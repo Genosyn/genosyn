@@ -101,16 +101,17 @@ const TRANSCRIPT: TranscriptLine[] = [
  * flips end for end against a dark ground, which is why this map exists at all
  * instead of the page's usual ink2/muted pair.
  */
+/** `dim`, not `muted`: this block is the ink plane, where `muted` is 2.79:1. */
 const LINE_TONE: Record<LineKind, string> = {
   cmd: "text-surface",
-  step: "text-rule",
+  step: "text-dim",
   done: "text-surface",
-  quiet: "text-rule",
+  quiet: "text-dim",
 };
 
 export function CliShowcase() {
   return (
-    <Band id="quickstart" tone="ground" open="m" close="m">
+    <Band id="quickstart" tone="surface" open="m" close="m">
       <Container>
         {/* The eyebrow keeps the sheet number: App.tsx's band sequence is the
             document's table of contents and renumbering is how it breaks. */}
@@ -231,7 +232,7 @@ function Transcript() {
       <div className="min-w-max">
         {TRANSCRIPT.map((line) => (
           <div key={line.text} className={`flex items-start gap-2 ${line.gap ? "mt-5" : ""}`}>
-            <span className="flex h-6 w-3 shrink-0 items-center justify-center text-rule">
+            <span className="flex h-6 w-3 shrink-0 items-center justify-center text-dim">
               {line.kind === "cmd" && <span className="t-data text-[11px] leading-none">$</span>}
               {line.kind === "step" && <ArrowEast className="h-3 w-3" />}
             </span>
