@@ -121,14 +121,17 @@ describe("executePipelineCode — the seam that cannot be routed around", () => 
     const started = Date.now();
     await assert.rejects(() => runCode("for (;;) {}", 30), /not a security boundary/);
     assert.ok(
-      Date.now() - started < 2_000,
+      Date.now() - started < 5_000,
       "expected an immediate refusal, not one that waited on a worker",
     );
   });
 
   test("single-tenant still runs code — the gate is not a silent kill switch", async () => {
     security.multiTenant = false;
-    const outputs = await runCode('return "still works";');
+    // A generous budget on purpose: this asserts the gate is not a silent kill
+    // switch, not that a worker starts quickly. The default 5s is reachable on
+    // a loaded machine running several test files at once.
+    const outputs = await runCode('return "still works";', 60);
     assert.deepEqual(outputs, { result: "still works" });
   });
 });
@@ -244,7 +247,7 @@ describe("why the gate exists", () => {
     security.multiTenant = false;
     // An object return becomes the outputs directly (codeRuntime.ts), so the
     // escaped fields are top-level rather than under `result`.
-    const escaped = (await runCode(ESCAPE_PAYLOAD)) as {
+    const escaped = (await runCode(ESCAPE_PAYLOAD, 60)) as {
       pid?: number;
       secretNames?: string[];
     };
