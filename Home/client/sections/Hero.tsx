@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { GITHUB_URL } from "@/lib/constants";
 import { Board, LEAD_CLAIM, LEAD_DONE_BY, OTHERS_BEFORE_ARRIVAL } from "@/sections/Board";
-import { ActionStrip, Band, Container, Display, Lede, Rail } from "@/sections/Kit";
+import { ActionStrip, Band, Container, Display, Lede, Note, Rail } from "@/sections/Kit";
 
 const COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
 
@@ -34,16 +34,23 @@ const COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
  */
 export function Hero() {
   return (
-    <Band tone="paper" pad="l" rule={false}>
+    <Band tone="paper" open="xs" close="l" rule={false}>
       <Container>
         <Rail sheet="01 / One Tuesday" fields={["2026-09-01", "TUE", "00:00–24:00"]}>
-          <Display className="max-w-[24ch]">{`${LEAD_CLAIM} by ${LEAD_DONE_BY}.`}</Display>
+          <Display scale="hero">{`${LEAD_CLAIM} by ${LEAD_DONE_BY}.`}</Display>
 
-          <Lede className="mt-7">
-            Genosyn is an open-source platform for running a company with AI Employees.{" "}
-            {`${spell(OTHERS_BEFORE_ARRIVAL)} other things finished before 09:30`}, from a triaged
-            inbox to 340 audited dependencies, and three were left for a person.
+          <Lede className="mt-6">
+            Genosyn is an open-source platform for running a company with AI Employees.
           </Lede>
+
+          {/* The count moves out of the lede and is set as marginalia in the
+              note face. It is not deleted; it is demoted to the margin, which
+              is what a publication does with a figure that supports a claim
+              rather than makes it — and it is the first place on the site
+              where the third type voice appears at reading size. */}
+          <Note className="mt-5 max-w-[52ch] text-[1.0625rem] leading-[1.5] text-zinc-800">
+            {`${spell(OTHERS_BEFORE_ARRIVAL)} other things finished before 09:30, from a triaged inbox to 340 audited dependencies. Three were left for a person.`}
+          </Note>
 
           <div className="mt-10 max-w-[36rem]">
             <InstallStrip />

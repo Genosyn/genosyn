@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mark, type MarkState } from "@/components/Marks";
 
 /**
@@ -68,6 +68,22 @@ type Props = {
   events: GanttEvent[];
   /** Hour of the arrival rule, e.g. 9.5 for 09:30. Omit to draw none. */
   arrival?: number;
+  /**
+   * Paint the plot's ground dark from 00:00 up to this hour.
+   *
+   * This is the picture the whole site is built to make. The claim is that the
+   * work happened while nobody was there, and drawing it as pale outlined
+   * rectangles on light paper says the opposite. Splitting the ground at the
+   * arrival rule puts the night inside the instrument: black from midnight to
+   * 09:30, warm paper after it, and the amber rule standing exactly on the
+   * seam at 18.87:1 — the loudest edge on the site, and the ratio of
+   * machine-time to your-time drawn rather than asserted.
+   *
+   * It is deliberately not "make the page dark". A dark hero is the most worn
+   * look in this category and would cost the warm paper the rest of the design
+   * is built on. The dark plane belongs to instruments.
+   */
+  nightUntil?: number;
   arrivalLabel?: string;
   night?: boolean;
   /** The line the readout shows when nothing is selected. */
@@ -79,6 +95,44 @@ type Props = {
 };
 
 const pct = (hours: number) => `${(hours / 24) * 100}%`;
+
+/**
+ * Run the sweep once, when the chart is first scrolled into view.
+ *
+ * The SSR contract is the important part. The server and the first client
+ * render emit NO `data-sweep` attribute, and the CSS only animates inside
+ * `[data-sweep]` — so the prerendered markup on all 83 routes is bars at full
+ * width, the hydrated markup is identical, and a reader with JavaScript off
+ * sees a finished chart rather than an empty one. The attribute is added in an
+ * effect, which is the only place it can be added without a mismatch.
+ *
+ * It fires once. A chart that redraws every time it re-enters the viewport is
+ * a chart that has stopped being information and started being a loop.
+ */
+function useSweep<T extends HTMLElement>(ref: React.RefObject<T>) {
+  const [swept, setSwept] = useState(false);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || swept) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setSwept(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.25 },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [ref, swept]);
+
+  return swept;
+}
 
 export function clock(hours: number): string {
   const h = Math.floor(hours);
@@ -94,6 +148,7 @@ export function Gantt({
   lanes,
   events,
   arrival,
+  nightUntil,
   arrivalLabel = "You sign in",
   night = false,
   summary,
@@ -102,6 +157,7 @@ export function Gantt({
   className = "",
 }: Props) {
   const plotRef = useRef<HTMLDivElement>(null);
+  const swept = useSweep(plotRef);
   const [active, setActive] = useState<number | null>(null);
   const [pinned, setPinned] = useState<number | null>(null);
   const [isolated, setIsolated] = useState<string | null>(null);
@@ -191,23 +247,73 @@ export function Gantt({
                 setCrosshair(((e.clientX - box.left) / box.width) * 24);
               }}
               onPointerLeave={() => setCrosshair(null)}
+              data-sweep={swept ? "" : undefined}
               className="relative pt-7"
             >
-              <div
-                aria-hidden
-                className={`${night ? "hours-night" : "hours"} absolute top-7 right-0 bottom-6 left-0`}
-              />
+              {/* The night ground. It does NOT animate: it is there in frame
+                  zero, so a reader watches an empty night fill with work
+                  rather than watching a black rectangle appear. */}
+              {nightUntil !== undefined && (
+                <div
+                  aria-hidden
+                  className="absolute top-7 bottom-6 left-0 bg-night-950"
+                  style={{ width: pct(nightUntil) }}
+                />
+              )}
+
+              {/* Two rulings when the ground is split, because a hairline that
+                  reads on paper is invisible on black and vice versa. The
+                  night ruling is scaled so its 24 columns still land on the
+                  hour: at 09:30 the dark field is 39.583% of the plot, so the
+                  gradient inside it must be (24 / 9.5) = 252.6% wide. */}
+              {nightUntil !== undefined ? (
+                <>
+                  <div
+                    aria-hidden
+                    className="hours-night absolute top-7 bottom-6 left-0 overflow-hidden"
+                    style={{ width: pct(nightUntil) }}
+                  >
+                    <div
+                      className="hours-night h-full"
+                      style={{ width: `${(24 / nightUntil) * 100}%` }}
+                    />
+                  </div>
+                  <div
+                    aria-hidden
+                    className="hours absolute top-7 right-0 bottom-6"
+                    style={{ left: pct(nightUntil) }}
+                  />
+                </>
+              ) : (
+                <div
+                  aria-hidden
+                  className={`${night ? "hours-night" : "hours"} absolute top-7 right-0 bottom-6 left-0`}
+                />
+              )}
               {[6, 12, 18].map((hour) => (
                 <div
                   key={hour}
                   aria-hidden
-                  className={`absolute top-7 bottom-6 w-px ${quarter}`}
+                  className={`absolute top-7 bottom-6 w-px ${
+                    nightUntil !== undefined && hour < nightUntil ? "bg-night-600" : quarter
+                  }`}
                   style={{ left: pct(hour) }}
                 />
               ))}
 
               {lanes.map((lane) => (
                 <div key={lane} className={`relative h-11 border-b ${rule}`}>
+                  {/* On a split plot the lane rule has to change value at the
+                      seam: #8c8880 reads on paper (3.38:1) and on night
+                      (5.58:1), so one solid value serves both grounds where an
+                      alpha composite could not. */}
+                  {nightUntil !== undefined && (
+                    <span
+                      aria-hidden
+                      className="absolute inset-y-0 left-0 border-b border-night-600"
+                      style={{ width: pct(nightUntil) }}
+                    />
+                  )}
                   {events
                     .filter((e) => e.lane === lane)
                     .map((event) => {
@@ -217,7 +323,7 @@ export function Gantt({
                           key={`${lane}-${event.at}`}
                           event={event}
                           index={index}
-                          night={night}
+                          night={night || (nightUntil !== undefined && event.at < nightUntil)}
                           active={shown === index}
                           dimmed={isolated !== null && isolated !== lane}
                           onEnter={() => setActive(index)}
@@ -230,14 +336,12 @@ export function Gantt({
                 </div>
               ))}
 
-              {arrival !== undefined && <Arrival at={arrival} label={arrivalLabel} night={night} />}
+              {arrival !== undefined && <Arrival at={arrival} label={arrivalLabel} />}
 
               {crosshair !== null && crosshair >= 0 && crosshair <= 24 && (
                 <div
                   aria-hidden
-                  className={`pointer-events-none absolute top-7 bottom-6 w-px ${
-                    night ? "bg-paper-50/40" : "bg-zinc-950/30"
-                  }`}
+                  className="pointer-events-none absolute top-7 bottom-6 w-px bg-paper-400"
                   style={{ left: pct(crosshair) }}
                 />
               )}
@@ -331,8 +435,8 @@ function Bar({
         onFocus={onEnter}
         onBlur={onLeave}
         onClick={onPin}
-        style={{ left: pct(event.at) }}
-        className={`${shared} flex h-6 items-center gap-1.5 px-1.5 transition-colors ${
+        style={{ left: pct(event.at), "--at": event.at } as React.CSSProperties}
+        className={`strip-draw ${shared} flex h-6 items-center gap-1.5 px-1.5 transition-colors ${
           dimmed ? "opacity-40" : ""
         } ${active ? "bg-zinc-950 text-signal-500" : "bg-signal-500 text-zinc-950"}`}
       >
@@ -353,10 +457,16 @@ function Bar({
       onFocus={onEnter}
       onBlur={onLeave}
       onClick={onPin}
-      style={{ left: pct(event.at), width: pct(event.hours ?? 0.25) }}
-      className={`${shared} h-6 min-w-[3px] border transition-colors ${
+      style={
+        {
+          left: pct(event.at),
+          width: pct(event.hours ?? 0.25),
+          "--at": event.at,
+        } as React.CSSProperties
+      }
+      className={`strip-draw ${shared} h-6 min-w-[3px] border transition-colors ${
         night
-          ? `border-night-600 ${active ? "bg-paper-50" : dimmed ? "bg-transparent" : "bg-night-800"}`
+          ? `border-night-600 ${active ? "bg-paper-50" : dimmed ? "bg-transparent" : "bg-paper-300"}`
           : `border-paper-400 border-l-[3px] border-l-zinc-950 ${
               active ? "bg-zinc-950" : dimmed ? "bg-transparent" : "bg-paper-50"
             }`
@@ -365,13 +475,13 @@ function Bar({
   );
 }
 
-function Arrival({ at, label, night }: { at: number; label: string; night: boolean }) {
+function Arrival({ at, label }: { at: number; label: string }) {
   return (
     <>
       <span
         aria-hidden
-        className="absolute top-0 flex h-7 items-center whitespace-nowrap bg-signal-500 px-2"
-        style={{ left: pct(at) }}
+        className="arrive-in absolute top-0 flex h-7 items-center whitespace-nowrap bg-signal-500 px-2"
+        style={{ left: pct(at), "--at": at } as React.CSSProperties}
       >
         <span className="t-data text-[10px] leading-none text-zinc-950">
           {`${clock(at)} ${label.toUpperCase()}`}
@@ -379,8 +489,8 @@ function Arrival({ at, label, night }: { at: number; label: string; night: boole
       </span>
       <span
         aria-hidden
-        className={`absolute top-7 bottom-6 w-0.5 bg-signal-500 ${night ? "" : ""}`}
-        style={{ left: pct(at) }}
+        className="arrive-wipe absolute top-7 bottom-6 w-0.5 bg-signal-500"
+        style={{ left: pct(at), "--at": at } as React.CSSProperties}
       />
     </>
   );

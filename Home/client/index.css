@@ -207,9 +207,39 @@ body {
    name is enumerated so a new animation cannot quietly escape the switch.
 --------------------------------------------------------------------------- */
 
-.strip-draw {
+/* The sweep.
+ *
+ * The night fills in, then you arrive. Each bar draws from its own left edge,
+ * and its delay is its START TIME mapped onto the sweep — so the reader watches
+ * the day happen in order rather than watching a stagger.
+ *
+ * The stagger is LINEAR on purpose. Time is linear, and easing the delay would
+ * be a lie about the clock; each bar keeps its own ease-out for the draw
+ * itself. The duration is fixed per bar rather than proportional to the Run:
+ * a forty-minute Run is 2.8% of the day and a proportional draw would fill it
+ * in 50ms, which reads as a flicker rather than as work.
+ *
+ * `--at` is written inline per bar as a unitless number of hours, so
+ * calc(1800ms * 4.08 / 24) is valid CSS and the whole thing runs on the
+ * compositor with no per-frame JavaScript. */
+[data-sweep] .strip-draw {
   transform-origin: left;
-  animation: strip 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: strip 140ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--sweep, 1800ms) * var(--at, 0) / 24);
+}
+
+/* The arrival rule is a boundary being drawn rather than an object arriving,
+   so it wipes downward from the top instead of fading in. Its delay is its own
+   position on the same clock: 9.5 / 24 of the sweep. */
+[data-sweep] .arrive-wipe {
+  transform-origin: top;
+  animation: wipe 160ms linear both;
+  animation-delay: calc(var(--sweep, 1800ms) * var(--at, 9.5) / 24);
+}
+
+[data-sweep] .arrive-in {
+  animation: arrive 240ms linear both;
+  animation-delay: calc(var(--sweep, 1800ms) * var(--at, 9.5) / 24 + 160ms);
 }
 
 .arrive-in {
@@ -265,6 +295,9 @@ body {
     scroll-behavior: auto;
   }
 
+  [data-sweep] .strip-draw,
+  [data-sweep] .arrive-wipe,
+  [data-sweep] .arrive-in,
   .strip-draw,
   .arrive-in,
   .prototype-stage > :first-child,

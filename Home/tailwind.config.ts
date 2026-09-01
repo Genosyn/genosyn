@@ -188,10 +188,16 @@ export default {
           from: { opacity: "0" },
           to: { opacity: "1" },
         },
+        // A boundary being drawn, not an object appearing.
+        wipe: {
+          from: { transform: "scaleY(0)" },
+          to: { transform: "scaleY(1)" },
+        },
       },
       animation: {
         strip: "strip 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both",
         arrive: "arrive 400ms 900ms linear both",
+        wipe: "wipe 160ms linear both",
       },
     },
   },

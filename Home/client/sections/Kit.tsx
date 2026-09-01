@@ -61,12 +61,33 @@ const BAND_TONE: Record<BandTone, string> = {
   night: "on-night bg-night-950 text-zinc-400",
 };
 
-const BAND_PAD: Record<BandPad, string> = {
+/**
+ * The rhythm ladder. A band declares how much air it OPENS with and how much
+ * it CLOSES with, from the same four steps, and the seam between two bands is
+ * the close of the one above plus the open of the one below.
+ *
+ * Independent open and close is the whole point. When the two were locked
+ * together the page only ever produced two values — 176px and 112px, a ratio
+ * of 1.57 — so it had metre and no dynamics: nothing was loud and nothing was
+ * quiet. The hero in particular opened with 176px of empty paper above its own
+ * headline and pushed the board, which is the entire proof, 150px below the
+ * fold at a normal laptop height. A headline is what opens a publication, so
+ * the hero now opens on `xs` and closes on `l`.
+ */
+const BAND_OPEN: Record<BandPad, string> = {
   none: "",
-  xs: "pt-10 pb-6",
-  s: "pt-14 pb-8 sm:pt-[4.5rem] sm:pb-10",
-  m: "pt-20 pb-12 sm:pt-24 sm:pb-14 lg:pt-28 lg:pb-16",
-  l: "pt-24 pb-14 sm:pt-32 sm:pb-16 lg:pt-44 lg:pb-24",
+  xs: "pt-8 sm:pt-10",
+  s: "pt-12 sm:pt-16 lg:pt-[4.5rem]",
+  m: "pt-16 sm:pt-20 lg:pt-28",
+  l: "pt-20 sm:pt-28 lg:pt-44",
+};
+
+const BAND_CLOSE: Record<BandPad, string> = {
+  none: "",
+  xs: "pb-6",
+  s: "pb-8 sm:pb-10",
+  m: "pb-10 sm:pb-12 lg:pb-16",
+  l: "pb-16 sm:pb-20 lg:pb-24",
 };
 
 /**
@@ -82,13 +103,20 @@ export function Band({
   id,
   tone = "paper",
   pad = "m",
+  open,
+  close,
   rule = true,
   className = "",
   children,
 }: {
   id?: string;
   tone?: BandTone;
+  /** Shorthand: sets both open and close to the same step. */
   pad?: BandPad;
+  /** Air above the content. Overrides `pad`. */
+  open?: BandPad;
+  /** Air below it. Overrides `pad`. */
+  close?: BandPad;
   rule?: boolean;
   className?: string;
   children: ReactNode;
@@ -115,7 +143,9 @@ export function Band({
           left: "calc(max((100% - 82rem) / 2, 0px) + clamp(1.25rem, 4vw, 3rem) + 9.5rem)",
         }}
       />
-      <div className={`relative ${BAND_PAD[pad]}`}>{children}</div>
+      <div className={`relative ${BAND_OPEN[open ?? pad]} ${BAND_CLOSE[close ?? pad]}`}>
+        {children}
+      </div>
     </section>
   );
 }
@@ -270,21 +300,48 @@ export function Plate({
  */
 export function Display({
   as: Tag = "h1",
+  /**
+   * `page` is every page's h1. `hero` is the landing page's, and only that.
+   *
+   * The ramp used to be 4.75rem against Heading's 2.6rem — a ratio of 1.83,
+   * which is a heading ramp, not a hero, and it is exactly why the first
+   * screen read as tasteful rather than arresting. `hero` resolves to 120px at
+   * 1440 against Heading's 41.6px, a ratio of 2.88, so the page finally has
+   * one object with real scale on it.
+   *
+   * Leading is responsive because it has to be: 0.88 on a four-line 48px
+   * mobile headline collides the descenders of "payments" with the ascenders
+   * on the line below.
+   */
+  scale = "page",
   night = false,
   className = "",
   children,
 }: {
   as?: "h1" | "h2";
+  scale?: "page" | "hero";
   night?: boolean;
   className?: string;
   children: ReactNode;
 }) {
+  const ramp =
+    scale === "hero"
+      ? // Greedy, not balanced. `.t-display` sets `text-wrap: balance`, which is
+        // right for a two-line section heading and wrong here: the headline is
+        // 2,893px of type in a 1,024px measure, so balancing spreads it over
+        // four short lines where packing gives three fuller ones.
+        //
+        // The cap is 6.25rem rather than the 7.5rem the size ramp would like,
+        // and the constraint is arithmetic rather than taste: at 120px the
+        // words are simply too wide to pack. "42 Stripe payments" alone
+        // measures 1,183px against a 1,024px measure, so greedy wrapping
+        // cannot reach three lines however the rest falls. At 100px it is
+        // 985px and the headline sets as three full lines. 100 against
+        // Heading's 41.6 is still a ratio of 2.4, where the old ramp was 1.83.
+        "text-[clamp(2.75rem,7vw,6.25rem)] leading-[1.0] tracking-[-0.035em] [text-wrap:initial] sm:leading-[0.9]"
+      : "text-[clamp(2.75rem,7vw,6rem)] leading-[1.0] tracking-[-0.03em] sm:leading-[0.92]";
   return (
-    <Tag
-      className={`t-display text-[clamp(2.4rem,5.4vw,4.75rem)] leading-[0.94] ${
-        night ? "text-paper-50" : "text-zinc-950"
-      } ${className}`}
-    >
+    <Tag className={`t-display ${ramp} ${night ? "text-paper-50" : "text-zinc-950"} ${className}`}>
       {children}
     </Tag>
   );

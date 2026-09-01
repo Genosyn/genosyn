@@ -193,6 +193,7 @@ export function Board() {
           lanes={LANE_NAMES}
           events={GANTT_EVENTS}
           arrival={ARRIVAL}
+          nightUntil={ARRIVAL}
           arrivalLabel="You sign in"
           ariaLabel="One Tuesday at a sample company, midnight to midnight"
           summary={SUMMARY}
