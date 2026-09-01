@@ -52,11 +52,11 @@ export function Customers() {
       <P>
         Each account also has a <Strong>slug</Strong> auto-derived from its name (
         <Code>Acme Corp</Code> → <Code>acme-corp</Code>); that slug is uppercased and prefixed onto
-        every invoice and estimate number issued to the customer over in{""}
+        every invoice and estimate number issued to the customer over in{" "}
         <DocLink to="/docs/finance">Finance</DocLink>, so the numbers stay unique and self-identify
         across accounts. Accounts with linked Revenue or finance history cannot be deleted — archive
         them instead to keep the full relationship and billing history intact. If two rows represent
-        the same company, use{""}
+        the same company, use{" "}
         <DocLink to="/docs/revenue#account-merge">Revenue → Accounts → Merge</DocLink> to
         transactionally consolidate both Revenue and Finance history and archive the duplicate.
       </P>
@@ -64,19 +64,19 @@ export function Customers() {
       <H2 id="overview">Customer overview</H2>
       <P>
         Click any customer&apos;s name to open their <Strong>overview</Strong> — a single page with
-        the headline numbers (annual contract value, outstanding balance, lifetime billed), an{""}
+        the headline numbers (annual contract value, outstanding balance, lifetime billed), an{" "}
         <Strong>action-needed</Strong> queue that surfaces overdue and unpaid invoices and estimates
         awaiting a response, and the full history of the account&apos;s invoices, estimates,
-        contracts, and contacts. Each row deep-links into the underlying document in{""}
+        contracts, and contacts. Each row deep-links into the underlying document in{" "}
         <DocLink to="/docs/finance">Finance</DocLink>.
       </P>
 
       <H2 id="statements">Statements</H2>
       <P>
-        Open a customer&apos;s overview and click <Code>Statement</Code> for a{""}
+        Open a customer&apos;s overview and click <Code>Statement</Code> for a{" "}
         <Strong>statement of account</Strong> — the running ledger you&apos;d send a customer who
         asks &quot;what do I owe you?&quot;. It lists every issued invoice as a charge and every
-        recorded payment as a credit, in date order, with a running balance carried from an{""}
+        recorded payment as a credit, in date order, with a running balance carried from an{" "}
         <Strong>opening balance</Strong> down to the <Strong>balance due</Strong>. Draft and voided
         invoices are excluded — only real, issued activity appears.
       </P>
@@ -98,7 +98,7 @@ export function Customers() {
         <LI>
           <Strong>Download PDF</Strong> or <Strong>Print view</Strong> — hand the customer a
           portable document, or open the print-friendly HTML to save from your browser. Invoice
-          numbers on the in-app view link straight to the underlying document in{""}
+          numbers on the in-app view link straight to the underlying document in{" "}
           <DocLink to="/docs/finance">Finance</DocLink>.
         </LI>
       </UL>
@@ -122,7 +122,7 @@ export function Customers() {
         customer&apos;s billing email.
       </P>
       <P>
-        These lightweight contacts support billing records. The people you are selling to are{""}
+        These lightweight contacts support billing records. The people you are selling to are{" "}
         <DocLink to="/docs/revenue">Revenue contacts</DocLink>, with their own timeline, deals,
         ownership, and outbound; they can link to an account while it is still a prospect.
       </P>
@@ -150,7 +150,7 @@ export function Customers() {
         the server under your company&apos;s data directory, never in the database itself.
       </P>
       <P>
-        To collect signatures rather than upload an agreement that is already complete, open{""}
+        To collect signatures rather than upload an agreement that is already complete, open{" "}
         <DocLink to="/docs/signatures">Signatures</DocLink>. A completed, Customer-linked request is
         archived here automatically with its signed date and evidence-backed PDF.
       </P>

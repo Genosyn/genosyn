@@ -302,7 +302,7 @@ function Day({ role }: { role: RoleDef }) {
           }
           lede={
             <>
-              Every hour below is one Routine you can open and edit.{""}
+              Every hour below is one Routine you can open and edit.{" "}
               {stop
                 ? stop.kind === "decision"
                   ? `The Decision ${role.person} writes at ${stop.time} is the only moment of the day that needs a person, and any Member can answer it.`

@@ -22,7 +22,7 @@ export function RevenueDataQuality() {
         lead={
           <>
             Reconcile duplicate records, preview bulk cleanup, restore historical Deal truth, review
-            enrichment evidence, capture mail attachments, and export complete snapshots from{""}
+            enrichment evidence, capture mail attachments, and export complete snapshots from{" "}
             <Code>Revenue → Data quality</Code>.
           </>
         }
@@ -96,7 +96,7 @@ export function RevenueDataQuality() {
         Large writes run as durable background jobs. The preview freezes the selected IDs, the job
         reports progress and row-level reconciliation, and queued or interrupted work resumes after
         restart. Choose <Code>atomic</Code> when every row must validate or <Code>partial</Code>
-        {""}
+        {" "}
         when valid rows may proceed and failures should be exported for repair.
       </P>
       <P>
@@ -113,20 +113,20 @@ export function RevenueDataQuality() {
         native, imported, and Activity-backfill event counts, source-import references, and a
         recommendation. This separates a genuinely missing pre-migration ledger from a Deal whose
         lifecycle Activities can be converted safely. The page loads the complete bounded inventory
-        before enabling selection and refuses a population that changes between pages, so{""}
+        before enabling selection and refuses a population that changes between pages, so{" "}
         <Strong>Select recommended</Strong> cannot silently omit later Deals.
       </P>
       <P>
         Use <Strong>Historical Deal import</Strong> for original creation timestamps, Deal Stage
         transitions, won or lost timestamps, amount and currency changes, expected-close changes,
         lost reasons, and owner changes. Name the source system, give every source record and event
-        a stable ID, set its effective timestamp, and label each Deal&apos;s history as{""}
+        a stable ID, set its effective timestamp, and label each Deal&apos;s history as{" "}
         <Code>complete</Code>, <Code>partial</Code>, or <Code>snapshot_only</Code>. Source identity
         stays stable across batches, so replaying an event is idempotent. Events retain their
         original timestamps rather than pretending the migration happened today.
       </P>
       <P>
-        To reuse existing immutable Deal Activities, select explicit Deal IDs and preview{""}
+        To reuse existing immutable Deal Activities, select explicit Deal IDs and preview{" "}
         <Strong>Backfill Deal activities</Strong> first. An unscoped commit is refused. A
         migration-time <Code>deal_created</Code> Activity becomes a snapshot, not a fabricated
         original creation boundary; import the real source history first when coverage recommends
@@ -181,7 +181,7 @@ export function RevenueDataQuality() {
         complete bounded set of open zero-value Deals before proposing anything. Each row explains
         whether it has a Finance candidate, a linked Stripe customer, an ambiguous Account with
         several zero-value Deals, an existing proposal awaiting review, or no usable evidence.
-        Choose <Strong>Select Finance candidates</Strong> or{""}
+        Choose <Strong>Select Finance candidates</Strong> or{" "}
         <Strong>Select Stripe candidates</Strong>, review the selected Deals, then choose a
         connected Stripe Connection when Stripe is the evidence source. Both actions create
         proposals only.
@@ -215,7 +215,7 @@ export function RevenueDataQuality() {
       <P>
         High-confidence links still wait for review. For an ambiguous file, choose the resource type
         and paste its record ID before capture. The file is downloaded only when accepted, and its
-        message, attachment index, hash, classification, and reviewer remain as provenance. Use{""}
+        message, attachment index, hash, classification, and reviewer remain as provenance. Use{" "}
         <Strong>Scan mail attachments</Strong> for a historical mailbox backfill.
       </P>
 
@@ -234,7 +234,7 @@ export function RevenueDataQuality() {
         Import history now has a lightweight summary listing, lookup by Import ID, filters for
         source, date, status, and resource, and separately paginated row decisions. Download any
         reconciliation as CSV or JSON, including a focused failed, skipped, or duplicate export. Row
-        filters include action, resource, error text, source ID, and native ID. Opening{""}
+        filters include action, resource, error text, source ID, and native ID. Opening{" "}
         <Strong>Report</Strong> fetches only the first page of decisions and pages through the rest
         without loading the legacy payload.
       </P>

@@ -71,7 +71,7 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
       <P>
         Those are the boot settings — the whole of <Code>config.ts</Code> that matters here.
         Operational settings are not in the file at all; they live in the database and are edited at
-        {""}
+        {" "}
         <Strong>Admin → Runtime</Strong> without a restart. Shared SaaS still forces the isolation
         boundaries regardless of what is saved there: member browsers are refused in multi-tenant
         mode even when the setting is on.
@@ -82,8 +82,8 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         — a fresh install has no database row and no operator yet, so boot warns loudly and writes
         system mail to the server log rather than refusing to start. That is how the bootstrap
         operator claims the first account. Configure <Strong>Admin → Email transport</Strong>
-        {""}
-        immediately afterwards, before inviting anyone else;{""}
+        {" "}
+        immediately afterwards, before inviting anyone else;{" "}
         <Strong>Admin → Instance Health</Strong> keeps flagging the transport until you do.
       </P>
       <P>
@@ -226,7 +226,7 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         <LI>
           Create the operator account using the exact bootstrap email, then verify it. With no
           transport configured yet, that verification link is written to the server log — copy it
-          from there, or reissue one with <Strong>Resend verification email</Strong> at{""}
+          from there, or reissue one with <Strong>Resend verification email</Strong> at{" "}
           <Strong>Account → Profile</Strong>. The account is not a master admin and cannot reach
           operator APIs before the verification succeeds; verification revokes the pre-verification
           session, so sign in again.

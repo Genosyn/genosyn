@@ -271,14 +271,14 @@ const DATA_LOCATIONS: Array<[string, ReactNode]> = [
   [
     "Git checkouts, browser state, attachments",
     <>
-      Files under <Field>/app/data</Field>, which the installer maps to the named volume{""}
+      Files under <Field>/app/data</Field>, which the installer maps to the named volume{" "}
       <Field>genosyn-data</Field>.
     </>,
   ],
   [
     "Browser recordings",
     <>
-      Silent MP4 files under <Field>data/.private/browser-recordings</Field>, capped at{""}
+      Silent MP4 files under <Field>data/.private/browser-recordings</Field>, capped at{" "}
       <Field>2 GiB</Field> each. They never enter an employee working tree.
     </>,
   ],
@@ -389,7 +389,7 @@ function Architecture() {
           >
             A revocable stop on all AI work at one scope, placed by a human or tripped by the
             consecutive-failure breaker. Runs already moving finalize <Field>interrupted</Field>
-            {""}
+            {" "}
             rather than failed, because nothing failed. Queued retries keep their due time and fire
             after the lift. A slot that arrives during one is declined and the schedule advances, so
             lifting an old Standdown produces no catch-up storm.
@@ -620,7 +620,7 @@ const DEFAULTS: Array<[string, ReactNode]> = [
     "Breaker",
     <>
       <Field>5</Field> consecutive bad Runs put a Standdown on that Routine, recorded with source
-      {""}
+      {" "}
       <Field>breaker</Field> rather than a person. <Field>0</Field> switches it off.
     </>,
   ],
@@ -714,7 +714,7 @@ const SUPPORT: Array<[string, ReactNode]> = [
     "Security review",
     <>
       A data-flow map for your controls: what is a database row, what is <Field>AES-256-GCM</Field>
-      {""}
+      {" "}
       at rest, what never leaves <Field>/app/data</Field>, what an employee token can write, and
       what the license verifies without a network.
     </>,
@@ -722,7 +722,7 @@ const SUPPORT: Array<[string, ReactNode]> = [
   [
     "Identity",
     <>
-      SSO client registration, the callback URL derived from your public URL, and whether{""}
+      SSO client registration, the callback URL derived from your public URL, and whether{" "}
       <Field>Create accounts on first sign-in</Field> stays on. Password login keeps working either
       way, so resetting SSO cannot lock an operator out.
     </>,

@@ -19,7 +19,7 @@ export function ToolDiscovery() {
       <P>
         Every request to a model carries the description and argument schema of every tool the
         employee can use. That list only ever grew — each new feature added its own tools, and every
-        unrelated turn paid for them. Before this change a single request carried around{""}
+        unrelated turn paid for them. Before this change a single request carried around{" "}
         <Strong>21,000 tokens</Strong> of tool definitions before the employee had a single
         Integration connected.
       </P>
@@ -58,7 +58,7 @@ export function ToolDiscovery() {
       <P>
         Everything else — mail, finance, revenue, Bases, Notes, Resources, charts, dashboards,
         workspace channels, handoffs, <DocLink to="/docs/pipelines">Pipelines</DocLink>, and every
-        {""}
+        {" "}
         <DocLink to="/docs/integrations">Integration</DocLink> tool — lives in the catalogue. The
         employee calls <Code>find_tools</Code> with what it is trying to do (&quot;record a
         payment&quot;, &quot;reply to that email&quot;, &quot;read a spreadsheet&quot;) and gets
@@ -71,7 +71,7 @@ export function ToolDiscovery() {
       </P>
 
       <Callout kind="info" title="Grants are unchanged.">
-        Discovery decides what an employee is <Strong>shown</Strong>, never what it is{""}
+        Discovery decides what an employee is <Strong>shown</Strong>, never what it is{" "}
         <Strong>allowed</Strong>. A tool the employee holds no Grant for is still refused when
         called, and <Code>find_tools</Code> labels it as such before the employee wastes a step on
         it.
@@ -80,7 +80,7 @@ export function ToolDiscovery() {
       <H2 id="skill-toolsets">Skipping the search</H2>
       <P>
         Searching costs a round-trip, and a search can miss. If you already know which tools a
-        procedure uses, say so: open a <DocLink to="/docs/skills">Skill</DocLink>, go to{""}
+        procedure uses, say so: open a <DocLink to="/docs/skills">Skill</DocLink>, go to{" "}
         <Strong>Settings → Tools</Strong>, and pick them. Those tools are loaded up-front for any
         turn where that Skill applies, and the employee never searches for them.
       </P>
@@ -101,7 +101,7 @@ export function ToolDiscovery() {
           </Code>
         </LI>
         <LI>
-          When a Skill declared tools, they are named:{""}
+          When a Skill declared tools, they are named:{" "}
           <Code>[tools] 24 loaded (2 from Skills: send_invoice, record_payment), …</Code>
         </LI>
       </UL>
@@ -116,7 +116,7 @@ export function ToolDiscovery() {
       </P>
       <P>
         Older employees are unaffected in one specific way worth knowing: Skills written before this
-        change often name grouped tools like <Code>mail</Code> or <Code>base_rows</Code> with an{""}
+        change often name grouped tools like <Code>mail</Code> or <Code>base_rows</Code> with an{" "}
         <Code>op</Code> argument. Those names still work and always will.
       </P>
     </>

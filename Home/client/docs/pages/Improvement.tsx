@@ -9,8 +9,8 @@ export function Improvement() {
         lead={
           <>
             The <DocLink to="/docs/routines#outcome-check">outcome check</DocLink> says whether the
-            work was any good. The improvement loop makes a bad answer change what happens next:{""}
-            <Strong>Lessons</Strong> feed the next Run&apos;s brief automatically, and{""}
+            work was any good. The improvement loop makes a bad answer change what happens next:{" "}
+            <Strong>Lessons</Strong> feed the next Run&apos;s brief automatically, and{" "}
             <Strong>Revision proposals</Strong> let an AI Employee stage a durable fix to its own
             playbook — applied only when a human says so.
           </>
@@ -19,7 +19,7 @@ export function Improvement() {
 
       <Callout kind="info" title='"Lesson" is the word.'>
         Genosyn never says &quot;Learning,&quot; &quot;Insight,&quot; or &quot;Retro.&quot; The fast
-        half of the loop is a <Strong>Lesson</Strong>; the durable half is a{""}
+        half of the loop is a <Strong>Lesson</Strong>; the durable half is a{" "}
         <Strong>Revision proposal</Strong>.
       </Callout>
 
@@ -32,7 +32,7 @@ export function Improvement() {
         </LI>
         <LI>
           <Strong>Revision proposals</Strong> — deliberate and human-gated. When the fix belongs in
-          the document itself — the <DocLink to="/docs/soul">Soul</DocLink>, a{""}
+          the document itself — the <DocLink to="/docs/soul">Soul</DocLink>, a{" "}
           <DocLink to="/docs/skills">Skill</DocLink>, a Routine&apos;s brief or acceptance criteria
           — the employee proposes the edit and an owner or admin applies it.
         </LI>
@@ -40,13 +40,13 @@ export function Improvement() {
 
       <H2 id="lessons">Lessons</H2>
       <P>
-        After a Run ends <Code>failed</Code> or <Code>timeout</Code>, completes but is graded{""}
+        After a Run ends <Code>failed</Code> or <Code>timeout</Code>, completes but is graded{" "}
         <Code>off goal</Code> by the outcome check — work that met the letter of the criteria while
         working against the routine&apos;s linked <DocLink to="/docs/goals">Goal</DocLink> — or
         completes with a required <DocLink to="/docs/verification">Check</DocLink> failed, Genosyn
         runs a short retrospective turn under the same containment as the check itself: zero tools
         except one submission tool, reading the Run transcript as untrusted evidence — text inside
-        it addressing the model is the transcript talking, never instructions. The turn writes a{""}
+        it addressing the model is the transcript talking, never instructions. The turn writes a{" "}
         <Strong>Lesson</Strong> with two fields:
       </P>
       <KeyList
@@ -64,7 +64,7 @@ export function Improvement() {
       <P>
         A failed Check earns a Lesson on exactly the same terms as an off-goal grade, and it is the
         easiest kind to write a good one from: the retrospective is handed the Check&apos;s name and
-        the reason it did not pass — <em>expected at least 1</em> <Code>mail.send</Code>,{""}
+        the reason it did not pass — <em>expected at least 1</em> <Code>mail.send</Code>,{" "}
         <em>the ledger has 0</em> — rather than having to infer the failure from prose. The two
         remediation rounds the Run already spent are in the transcript too, so the cause it writes
         is about why they didn&apos;t work.
@@ -90,10 +90,10 @@ export function Improvement() {
       <P>
         A Lesson is a sticky note; some fixes belong in the document. This is approval-gated
         self-modification on the maker-checker pattern <DocLink to="/docs/finance">Finance</DocLink>
-        {""}
+        {" "}
         already uses: the AI proposes, a human decides, and nothing changes in between. Using the
-        {""}
-        <Code>propose_revision</Code> tool, an AI Employee stages a{""}
+        {" "}
+        <Code>propose_revision</Code> tool, an AI Employee stages a{" "}
         <Strong>complete replacement body</Strong> — never a fragment — for one of four targets, all
         its own:
       </P>
@@ -127,14 +127,14 @@ export function Improvement() {
       <H2 id="revisions-page">The Revisions page</H2>
       <P>
         Pending proposals queue on the <Strong>Revisions</Strong> page, in the <Strong>AI</Strong>
-        {""}
+        {" "}
         nav group. Each one renders as a before/after diff of the target document beside the
-        rationale and evidence, with two buttons — <Strong>Apply</Strong> and{""}
+        rationale and evidence, with two buttons — <Strong>Apply</Strong> and{" "}
         <Strong>Reject</Strong> — and an optional note that travels with the decision. Owners and
         admins decide; any Member can read the queue.
       </P>
       <P>
-        Apply refuses when the target changed since the proposal was written —{""}
+        Apply refuses when the target changed since the proposal was written —{" "}
         <em>&quot;The target changed since this was proposed&quot;</em> — so a human&apos;s
         concurrent edit is never silently overwritten. The employee can re-propose against the live
         document.
@@ -144,7 +144,7 @@ export function Improvement() {
           <Strong>Who hears about it</Strong> — owners, admins, and the employee&apos;s manager get
           a bell when a proposal lands. One still pending after <Strong>24 hours</Strong> re-pages
           the same audience exactly once, the same stall sweep that guards unanswered Approvals and
-          {""}
+          {" "}
           <DocLink to="/docs/decisions">Decisions</DocLink>.
         </LI>
         <LI>

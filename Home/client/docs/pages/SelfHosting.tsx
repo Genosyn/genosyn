@@ -36,9 +36,9 @@ export function SelfHosting() {
 
       <H2 id="config-ts">config.ts</H2>
       <P>
-        The file holds three kinds of thing and nothing else: <Strong>secrets</Strong>,{""}
+        The file holds three kinds of thing and nothing else: <Strong>secrets</Strong>,{" "}
         <Strong>database coordinates</Strong>, and the <Strong>fail-closed security posture</Strong>
-        {""}
+        {" "}
         that startup validation checks before the process accepts a request. That is the whole
         shape, with the same comments you&apos;ll see in the file:
       </P>
@@ -114,19 +114,19 @@ export function SelfHosting() {
       </Callout>
       <Callout kind="info" title="A container has to be created able to start that sandbox.">
         Bubblewrap creates a user namespace and mounts its own <Code>/proc</Code> for every command.
-        Docker&apos;s stock profile denies both — the default seccomp filter rejects{""}
-        <Code>clone</Code> and <Code>unshare</Code> carrying the namespace flags, and its masked{""}
+        Docker&apos;s stock profile denies both — the default seccomp filter rejects{" "}
+        <Code>clone</Code> and <Code>unshare</Code> carrying the namespace flags, and its masked{" "}
         <Code>/proc</Code> entries are locked mounts a nested namespace may not mount over. So the
-        container is created with{""}
+        container is created with{" "}
         <Code>--security-opt seccomp=unconfined --security-opt systempaths=unconfined</Code>, which
         the <DocLink to="/docs/cli">CLI</DocLink> passes for you; <Code>genosyn upgrade</Code> also
         recreates an older container that predates them. What that loosens is the App container,
         Genosyn&apos;s own process. What it buys is the stronger boundary around the untrusted part:
-        each AI-authored command gets its own user, PID, IPC and UTS namespaces, a fresh{""}
+        each AI-authored command gets its own user, PID, IPC and UTS namespaces, a fresh{" "}
         <Code>/proc</Code>, no <Code>/sys</Code>, no network, and a filesystem view holding nothing
         but its workspace — and the container still runs unprivileged as <Code>node</Code> with no
         added capabilities. Never add <Code>--privileged</Code> or <Code>--cap-add SYS_ADMIN</Code>
-        {""}
+        {" "}
         instead; those hand the container the host, and neither is needed. To keep the stock
         profile, install with <Code>GENOSYN_SANDBOX=0</Code> and run without command execution. If
         the sandbox still cannot start, the host itself is refusing unprivileged user namespaces: on
@@ -134,7 +134,7 @@ export function SelfHosting() {
         keep Docker current, and on Debian check <Code>kernel.unprivileged_userns_clone</Code>.
       </Callout>
       <Callout kind="warn" title="Host execution is an explicit unsafe compatibility mode.">
-        A trusted, single-company operator can select <Code>host</Code> and separately set{""}
+        A trusted, single-company operator can select <Code>host</Code> and separately set{" "}
         <Code>allowUnsafeHostExecution: true</Code> to enable path-confined file/search tools and
         let Genosyn&apos;s repository Git operations run outside bubblewrap. AI Employees still
         receive no host shell, but the coding tools and server-owned Git children share the App
@@ -145,7 +145,7 @@ export function SelfHosting() {
       <H3 id="runtime-settings">Everything else is in the database</H3>
       <P>
         Operational settings are not in this file. An operator should never have to edit a file and
-        restart a container to change how often a mailbox polls, so those settings live in the{""}
+        restart a container to change how often a mailbox polls, so those settings live in the{" "}
         <Code>AppSetting</Code> table and are edited by a master admin in the dashboard. Changes
         take effect immediately on the replica that saved them and within 30 seconds on every other
         one — no restart, no redeploy.
@@ -157,8 +157,8 @@ export function SelfHosting() {
             def: (
               <>
                 <Strong>Web tools</Strong> (on/off, search provider, result and document limits),
-                {""}
-                <Strong>Mail sync</Strong> (poll interval, backfill pacing and window),{""}
+                {" "}
+                <Strong>Mail sync</Strong> (poll interval, backfill pacing and window),{" "}
                 <Strong>Meetings</Strong> (on/off, sync interval, transcription model, recording
                 size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
                 humanized input), <Strong>Agent</Strong> (taint policy, member browsers, tool
@@ -182,7 +182,7 @@ export function SelfHosting() {
         ]}
       />
       <Callout kind="tip" title="Upgrading from an older release keeps your settings.">
-        Earlier versions carried <Code>smtp</Code>, <Code>web</Code>, <Code>mail</Code>,{""}
+        Earlier versions carried <Code>smtp</Code>, <Code>web</Code>, <Code>mail</Code>,{" "}
         <Code>meetings</Code>, <Code>browser</Code>, and the agent knobs in <Code>config.ts</Code>.
         If yours still does — including a Kubernetes ConfigMap rendering the old file — the first
         boot after upgrading copies each block into its database row once and logs what it imported.
@@ -196,16 +196,16 @@ export function SelfHosting() {
         Genosyn refuses any outbound request that resolves to a loopback, private, or link-local
         address, which is what stops a Connection form or a fetched page from being pointed at your
         internal network. A self-hosted Forgejo at <Code>git.internal</Code>, or a model endpoint at
-        {""}
+        {" "}
         <Code>10.0.0.5</Code>, is caught by that same rule. List those hosts, one per line, under
-        {""}
+        {" "}
         <Strong>Outbound network</Strong> at <Code>Admin → Runtime</Code> and they become reachable
         within about 30 seconds — no file to edit, no container to restart.
       </P>
       <Callout kind="warn" title="An allowlisted host is exempt from the check, permanently.">
         Everything an AI Employee can be talked into fetching can reach a host on this list, so add
         one only when you mean employees to reach it — and prefer the narrowest hostname over a
-        whole internal domain. The list is empty on a fresh install. Hosts set in{""}
+        whole internal domain. The list is empty on a fresh install. Hosts set in{" "}
         <Code>security.outboundPrivateHostAllowlist</Code> in <Code>config.ts</Code> keep working as
         well; the two lists are combined. Shared multi-tenant installs ignore the Admin list
         entirely and refuse to boot with a non-empty one in the file.
@@ -235,14 +235,14 @@ export function SelfHosting() {
   postgresUrl: "postgresql://user:pass@host:5432/genosyn",
 },`}</Pre>
       <P>
-        All entities and migrations work on both drivers. On startup Genosyn calls{""}
+        All entities and migrations work on both drivers. On startup Genosyn calls{" "}
         <Code>AppDataSource.runMigrations()</Code> — any pending migrations apply automatically.
         SQLite and Postgres use separate generated migration streams. Postgres is required for
         shared SaaS; see <DocLink to="/docs/saas-hosting">Shared SaaS mode</DocLink>.
       </P>
       <Callout title="Upgrading private conversations">
         Older direct and Help conversations may predate private Member ownership. They remain hidden
-        from ordinary Members after migration. Company owners and admins can open one and select{""}
+        from ordinary Members after migration. Company owners and admins can open one and select{" "}
         <Strong>Claim conversation</Strong> after a sign-in from the last 15 minutes. Any
         unattributed turn that was still running during the upgrade is stopped safely and can be
         retried after the conversation is claimed. Pending manual Mail handovers from an older
@@ -288,7 +288,7 @@ export function SelfHosting() {
       </P>
       <Callout kind="info" title="Source installs need ffmpeg and ffprobe">
         The standard Docker image includes <Code>ffmpeg</Code> for encoding browser recordings and
-        {""}
+        {" "}
         <Code>ffprobe</Code> for validating recoverable recordings. They are normally installed
         together. If you run the App directly from source, make sure both are on <Code>PATH</Code>.
         A missing encoder leaves the Run and its log intact, but its browser recording is shown as
@@ -302,13 +302,13 @@ export function SelfHosting() {
         or losing both files stops startup. Keep the whole data directory together: losing the
         secret file makes data encrypted with its managed key unreadable. Never expose its values in
         logs, support bundles, employee working trees, or source control. Explicit strong values in
-        {""}
+        {" "}
         <Code>config.ts</Code> remain supported and take precedence.
       </Callout>
 
       <H2 id="email">Email</H2>
       <P>
-        Email transport is per-company: every <Code>Company</Code> can have one or more{""}
+        Email transport is per-company: every <Code>Company</Code> can have one or more{" "}
         <Code>EmailProvider</Code> rows. Supported transports today:
       </P>
       <UL>
@@ -316,7 +316,7 @@ export function SelfHosting() {
           <Strong>SMTP</Strong> via <Code>nodemailer</Code>.
         </LI>
         <LI>
-          <Strong>SendGrid</Strong>, <Strong>Mailgun</Strong>, <Strong>Resend</Strong>,{""}
+          <Strong>SendGrid</Strong>, <Strong>Mailgun</Strong>, <Strong>Resend</Strong>,{" "}
           <Strong>Postmark</Strong> — REST-based, paste an API key.
         </LI>
       </UL>
@@ -326,7 +326,7 @@ export function SelfHosting() {
         app at <Code>Admin → Email transport</Code>: fill in the host, port, encryption, username,
         password, from name, and from address, then use <Code>Send test</Code> to confirm
         deliverability. The settings are stored in the database and take effect immediately — no
-        restart. Until it&apos;s configured, the <Code>Admin → Overview</Code> and{""}
+        restart. Until it&apos;s configured, the <Code>Admin → Overview</Code> and{" "}
         <Code>Instance Health</Code> dashboards flag Email transport with a warning, because those
         system emails only log to the server console and never reach a mailbox.
       </P>
@@ -339,7 +339,7 @@ export function SelfHosting() {
         configured, adding a company SMTP provider at <Code>Settings → Email</Code> pre-fills the
         host, port, encryption, username, and sender address from it — you only enter the password.
         Every send appends an <Code>EmailLog</Code> row that company owners and admins can read at
-        {""}
+        {" "}
         <Code>Settings → Email Logs</Code>. Member-role accounts cannot read recipient addresses,
         subjects, delivery errors, or body previews. Bearer links such as company invitations are
         redacted from the stored preview.
@@ -365,7 +365,7 @@ export function SelfHosting() {
         page shows the Client ID and whether a secret is stored. Removing a registration only
         affects <em>new</em> Connections — existing ones keep the credentials they were created with
         and go on refreshing their tokens. Rotate the secret while keeping the same Client ID and a
-        {""}
+        {" "}
         <Strong>Reconnect</Strong> moves an existing Connection onto it. Companies that need their
         own client pick <Strong>Use my own OAuth client instead</Strong> on the connect form, which
         takes precedence for that Connection.
@@ -403,7 +403,7 @@ export function SelfHosting() {
             def: (
               <>
                 Encrypted per-Connection blobs on <Code>IntegrationConnection.encryptedConfig</Code>
-                {""}
+                {" "}
                 (AES-256-GCM). Decrypted at tool-call time.
               </>
             ),
@@ -427,7 +427,7 @@ export function SelfHosting() {
                 managed from <Strong>Vault</Strong>. A login can also own an encrypted TOTP setup
                 key and software passkeys. Member access and AI Employee Grants are set per item; AI
                 browser actions use credential material server-side instead of injecting it into an
-                environment or returning it to the model. See{""}
+                environment or returning it to the model. See{" "}
                 <DocLink to="/docs/vault">Vault</DocLink>.
               </>
             ),
@@ -436,7 +436,7 @@ export function SelfHosting() {
       />
       <H2 id="admin">Admin &amp; instance health</H2>
       <P>
-        Install-wide operations live under the <Code>Admin</Code> section (your avatar menu →{""}
+        Install-wide operations live under the <Code>Admin</Code> section (your avatar menu →{" "}
         <Code>Admin</Code>) — separate from a single company&apos;s <Code>Settings</Code>. Because
         it spans every company on the deployment, it&apos;s gated to <Strong>master admins</Strong>:
         instance-level operators, a global flag on the user account that&apos;s distinct from the
@@ -445,7 +445,7 @@ export function SelfHosting() {
         address, and open its verification link. The account remains an ordinary Member until
         mailbox ownership is proven; being first to reach the public sign-up form grants no
         privilege. Verification revokes every earlier cookie, so sign in again. If that link was
-        missed or has expired, sign in and press <Strong>Resend verification email</Strong> at{""}
+        missed or has expired, sign in and press <Strong>Resend verification email</Strong> at{" "}
         <Strong>Account → Profile</Strong> — the page shows whether the address is verified, and, on
         an install with no email transport, says the fresh link went to the server log rather than
         claiming it was sent. From <Code>Admin → Users</Code> an existing master admin can grant or
@@ -480,14 +480,14 @@ export function SelfHosting() {
           system emails (password resets, invites), with a test send. See <Code>Email</Code> above.
         </LI>
         <LI>
-          <Strong>Runtime</Strong> — the operational knobs that used to live in{""}
+          <Strong>Runtime</Strong> — the operational knobs that used to live in{" "}
           <Code>config.ts</Code>: web tools, mail sync pacing, meetings, the container&apos;s
           browser, and the agent&apos;s taint policy, member browsers, and tool discovery. Each
           section saves independently and can be reset to its default; changes take effect within 30
           seconds without a restart. See <Code>config.ts</Code> above.
         </LI>
         <LI>
-          <Strong>Sign-ups</Strong> — an instance-wide toggle for self-service registration. See{""}
+          <Strong>Sign-ups</Strong> — an instance-wide toggle for self-service registration. See{" "}
           <Code>Sign-ups</Code> below.
         </LI>
         <LI>
@@ -496,7 +496,7 @@ export function SelfHosting() {
         </LI>
         <LI>
           <Strong>Users</Strong> — every human member across every company, with their handle, how
-          many companies they belong to, and which companies they own. Grant or revoke{""}
+          many companies they belong to, and which companies they own. Grant or revoke{" "}
           <Strong>master admin</Strong> on any user here to control who else can reach this
           dashboard. Delete an account from here to remove the person and everything scoped to them
           (memberships, API keys, notifications); content they authored is kept but unlinked. A user
@@ -506,7 +506,7 @@ export function SelfHosting() {
         <LI>
           <Strong>Companies</Strong> — every company (tenant) on the instance, with its owner and
           member + AI-employee counts. Deleting one runs the same cascade as a company&apos;s own
-          {""}
+          {" "}
           <Code>Delete company</Code> action — every employee, routine, message, note, and finance
           record it owns, plus its files on disk — so an operator can prune any tenant without
           switching into it first.
@@ -519,7 +519,7 @@ export function SelfHosting() {
       <H3 id="signups">Sign-ups</H3>
       <P>
         <Code>Admin → Sign-ups</Code> is an instance-wide toggle for self-service registration. Flip
-        {""}
+        {" "}
         <Strong>Disable sign-ups</Strong> on and the public sign-up page stops accepting new
         accounts — anyone who lands on it sees a &ldquo;sign-ups are closed&rdquo; notice instead of
         the form, and the API refuses a registration attempt with a <Code>403</Code>. Existing
@@ -536,13 +536,13 @@ export function SelfHosting() {
 
       <H3 id="sso">SSO</H3>
       <Callout kind="info" title="Genosyn Enterprise feature.">
-        On a self-hosted install, enabling SSO requires an Enterprise license activated at{""}
+        On a self-hosted install, enabling SSO requires an Enterprise license activated at{" "}
         <Code>Admin → License</Code> — see <DocLink to="/docs/enterprise-license" />.
       </Callout>
       <P>
-        <Code>Admin → SSO</Code> adds single sign-on to the login page —{""}
+        <Code>Admin → SSO</Code> adds single sign-on to the login page —{" "}
         <Strong>disabled by default</Strong>; a fresh install only offers email + password until a
-        master admin turns it on. Pick <Strong>Google</Strong> or{""}
+        master admin turns it on. Pick <Strong>Google</Strong> or{" "}
         <Strong>Custom OpenID Connect</Strong> (Okta, Keycloak, Microsoft Entra ID, Auth0, or
         anything OIDC-compliant), then:
       </P>
@@ -550,7 +550,7 @@ export function SelfHosting() {
         <LI>
           Register an OAuth client at your identity provider and set its authorized redirect URI to
           the <Strong>Callback URL</Strong> shown on the page (it follows the public URL saved at
-          {""}
+          {" "}
           <Code>Admin → General</Code>).
         </LI>
         <LI>
@@ -567,7 +567,7 @@ export function SelfHosting() {
       <P>
         On first SSO sign-in an existing account with the same verified email is linked
         automatically; after that the identity provider&apos;s stable subject is what identifies the
-        account, so an email change at either end won&apos;t orphan it. With{""}
+        account, so an email change at either end won&apos;t orphan it. With{" "}
         <Strong>Create accounts on first sign-in</Strong> on (the default), people your identity
         provider admits get a Genosyn account automatically — turn it off to admit only people who
         already have an account or an invitation. Password login keeps working either way, so
@@ -581,7 +581,7 @@ export function SelfHosting() {
         operators who need to inspect or repair an install directly: check a row the UI doesn&apos;t
         surface, audit what an AI Employee wrote, or fix up data after a botched import. Distinct
         from <DocLink to="/docs/explore">Explore</DocLink>, which runs SQL against a company&apos;s
-        {""}
+        {" "}
         <em>external</em> database integrations.
       </P>
       <UL>
@@ -592,16 +592,16 @@ export function SelfHosting() {
         </LI>
         <LI>
           <Strong>Read-only by default</Strong> — the console runs one statement at a time and
-          refuses anything that isn&apos;t plainly a read. To run an <Code>INSERT</Code> /{""}
-          <Code>UPDATE</Code> / <Code>DELETE</Code> or DDL you must first flip{""}
+          refuses anything that isn&apos;t plainly a read. To run an <Code>INSERT</Code> /{" "}
+          <Code>UPDATE</Code> / <Code>DELETE</Code> or DDL you must first flip{" "}
           <Strong>Allow writes</Strong>, which surfaces a standing warning — these statements change
-          the live database permanently, so take a{""}
+          the live database permanently, so take a{" "}
           <DocLink to="/docs/self-hosting#backups">backup</DocLink> first if you are unsure.
         </LI>
         <LI>
           <Strong>Results</Strong> — a scrollable grid with the row count and elapsed time; long
           result sets are capped (100–5,000 rows, your choice) and flagged when truncated. Recent
-          queries are kept under the <Code>History</Code> tab. Press <Code>⌘↵</Code> /{""}
+          queries are kept under the <Code>History</Code> tab. Press <Code>⌘↵</Code> /{" "}
           <Code>Ctrl↵</Code> to run.
         </LI>
       </UL>
@@ -609,9 +609,9 @@ export function SelfHosting() {
       <H3 id="migrations">Migrations</H3>
       <P>
         <Code>Admin → Migrations</Code> is a read-only ledger of every TypeORM schema migration —
-        {""}
+        {" "}
         <Code>Total</Code> / <Code>Applied</Code> / <Code>Pending</Code> / <Code>Unknown</Code>
-        {""}
+        {" "}
         tiles over the full list. Nothing runs from here: boot applies pending migrations
         automatically, so this is the detail view behind the Instance Health probe.
       </P>
@@ -631,7 +631,7 @@ export function SelfHosting() {
           a migrations-table row matching no shipped migration file (a downgrade, or a hand-edited
           database); <Strong>out-of-order</Strong> is an older migration applied after a newer one
           (usually a branch merge). Take a <DocLink to="/docs/self-hosting#backups">backup</DocLink>
-          {""}
+          {" "}
           before repairing either.
         </LI>
       </UL>
@@ -645,9 +645,9 @@ export function SelfHosting() {
       <Pre lang="bash">{`genosyn backup --out ~/backups/genosyn-$(date +%F).tar.gz
 genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
       <P>
-        Or drive it in-app at <Code>Admin → Backups</Code>: back up now, upload an existing{""}
+        Or drive it in-app at <Code>Admin → Backups</Code>: back up now, upload an existing{" "}
         <Code>.zip</Code> to restore from, download or restore any past archive, and set a recurring
-        schedule (daily / weekly / monthly at a chosen hour) backed by the{""}
+        schedule (daily / weekly / monthly at a chosen hour) backed by the{" "}
         <Code>BackupSchedule</Code> row. See <DocLink to="/docs/cli">CLI reference</DocLink> for the
         flag list.
       </P>
@@ -671,7 +671,7 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
       <H3 id="off-box-destinations">Off-box destinations (NAS / remote volumes)</H3>
       <P>
         Backups live in <Code>data/Backup/</Code> by default — on the same disk as everything else.
-        Add one or more <Strong>off-box destinations</Strong> under{""}
+        Add one or more <Strong>off-box destinations</Strong> under{" "}
         <Code>Admin → Backups → Off-box destinations</Code> and every completed backup is mirrored
         there automatically. Three kinds:
       </P>
@@ -684,7 +684,7 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
           are able to mount the share.
         </LI>
         <LI>
-          <Strong>SMB / CIFS</Strong> — push straight to a Windows or NAS share with{""}
+          <Strong>SMB / CIFS</Strong> — push straight to a Windows or NAS share with{" "}
           <em>no mount required</em>. Enter the host, share, an optional folder within it, and a
           username, password, and optional domain. For when bind-mounting is not available to you —
           a locked-down Kubernetes cluster, or a host where you cannot mount CIFS. Genosyn
@@ -703,7 +703,7 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         helper used for model API keys, and are never returned to the browser.
       </P>
       <P>
-        Use <Code>Test</Code> on a destination to confirm it is reachable and writable, toggle{""}
+        Use <Code>Test</Code> on a destination to confirm it is reachable and writable, toggle{" "}
         <Code>Enabled</Code> to pause mirroring without deleting it, and use <Code>Send</Code> next
         to any archive in History to push an existing backup on demand. Delivery is best-effort: a
         mirror that fails is flagged on the destination with the error, but never fails the backup
@@ -712,14 +712,14 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
 
       <H3 id="retention">Retention (deleting old backups)</H3>
       <P>
-        Left alone, <Code>data/Backup/</Code> grows forever. Tick{""}
+        Left alone, <Code>data/Backup/</Code> grows forever. Tick{" "}
         <Code>Automatically delete old backups</Code> under <Code>Admin → Backups → Retention</Code>
-        {""}
+        {" "}
         and set a number of days: anything older is deleted. Genosyn checks hourly and again
         straight after every backup, so a window that lapses at midday is honoured at midday.
       </P>
       <P>
-        Retention is <em>independent of the recurring schedule</em> — it covers every archive in{""}
+        Retention is <em>independent of the recurring schedule</em> — it covers every archive in{" "}
         <Code>data/Backup/</Code>, including ones you made by hand with <Code>Back up now</Code>,
         and it runs even when the schedule is off. Two things are always spared, on the principle
         that a retention setting must never leave you with nothing to restore from:
@@ -738,7 +738,7 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         </LI>
       </UL>
       <P>
-        Retention is <Strong>local only</Strong>. Copies already delivered to an{""}
+        Retention is <Strong>local only</Strong>. Copies already delivered to an{" "}
         <DocLink to="/docs/self-hosting#off-box-destinations">off-box destination</DocLink> stay on
         the remote — Genosyn never reaches onto your NAS to delete things. Prune those with whatever
         your NAS or a cron job on that host already offers.
@@ -749,10 +749,10 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
         CLI installs schedule <Code>genosyn upgrade</Code> automatically every day at 03:17 local
         time. The command self-upgrades the CLI, pulls the latest image, and retains the previous
         container until the new version becomes ready. A failed start restarts the previous version
-        with the current data volume. Backups are off by default; run{""}
+        with the current data volume. Backups are off by default; run{" "}
         <Code>genosyn upgrade --backup</Code> for a manual upgrade that also writes a verified
         archive under <Code>~/.genosyn/backups</Code> and restores it on failure. Check or change
-        the schedule with <Code>genosyn auto-update status</Code>,{""}
+        the schedule with <Code>genosyn auto-update status</Code>,{" "}
         <Code>genosyn auto-update off</Code>, or <Code>genosyn auto-update on</Code>. You can also
         upgrade immediately by rerunning the installer:
       </P>
@@ -761,7 +761,7 @@ genosyn restore ~/backups/genosyn-2026-04-22.tar.gz`}</Pre>
       <H3 id="ports-and-reverse-proxies">Ports and reverse proxies</H3>
       <P>
         The container listens on <Code>8471</Code>. Stick a reverse proxy (Caddy, nginx, Traefik) in
-        front of it for TLS and a real hostname. Then save that HTTPS origin at{""}
+        front of it for TLS and a real hostname. Then save that HTTPS origin at{" "}
         <Code>Admin → General</Code> so the app generates absolute links and OAuth callbacks
         correctly.
       </P>

@@ -70,7 +70,7 @@ export function Repositories() {
       <H2 id="create">Create a repository</H2>
       <OL>
         <LI>
-          Open <Strong>Repositories</Strong> from the section menu and choose{""}
+          Open <Strong>Repositories</Strong> from the section menu and choose{" "}
           <Strong>Add repository</Strong>.
         </LI>
         <LI>
@@ -78,7 +78,7 @@ export function Repositories() {
           pushed anywhere — or a clone of a repository that already exists.
         </LI>
         <LI>
-          For a remote repository, paste the clone URL —{""}
+          For a remote repository, paste the clone URL —{" "}
           <Code>https://github.com/acme/web.git</Code> or <Code>git@github.com:acme/web.git</Code> —
           and pick an <Strong>authentication</Strong> mode.
         </LI>
@@ -104,8 +104,8 @@ export function Repositories() {
       <P>
         A repository that started life inside Genosyn can be given a real remote later, and its
         existing history is pushed into it rather than re-created. Nobody mints or pastes a personal
-        access token for this: the company authenticated GitHub once under{""}
-        <Strong>Settings → Integrations</Strong>, and connecting reuses that{""}
+        access token for this: the company authenticated GitHub once under{" "}
+        <Strong>Settings → Integrations</Strong>, and connecting reuses that{" "}
         <DocLink to="/docs/integrations">Connection</DocLink>.
       </P>
       <OL>
@@ -123,7 +123,7 @@ export function Repositories() {
           Choose <Strong>private</Strong> or public. Private is the default.
         </LI>
         <LI>
-          Genosyn creates it through that server&apos;s API — empty, with no README, licence, or{""}
+          Genosyn creates it through that server&apos;s API — empty, with no README, licence, or{" "}
           <Code>.gitignore</Code>, so the first push is a clean fast-forward — and pushes the
           history into it.
         </LI>
@@ -140,7 +140,7 @@ export function Repositories() {
       </P>
       <UL>
         <LI>
-          Every branch goes across <Strong>except</Strong> the AI work-session ones under{""}
+          Every branch goes across <Strong>except</Strong> the AI work-session ones under{" "}
           <Code>genosyn/</Code>. Unreviewed AI work must not reach a remote through a button that
           says nothing about AI.
         </LI>
@@ -176,9 +176,9 @@ export function Repositories() {
       </P>
       <P>
         Open a file to edit it in place, with syntax highlighting for the language it is written in.
-        You can create, rename, move, and delete files and folders. A new empty folder gets a{""}
+        You can create, rename, move, and delete files and folders. A new empty folder gets a{" "}
         <Code>.gitkeep</Code> so it survives a reload — git has no concept of an empty directory. A
-        {""}
+        {" "}
         <Code>README</Code> at the root of the repository is rendered on its Overview page.
       </P>
       <UL>
@@ -243,7 +243,7 @@ export function Repositories() {
         work in a repository, and the reviewable result of it. Grant access first: open a
         repository&apos;s <Strong>AI access</Strong> page and add the employees that should be able
         to work on it. Any granted employee can be picked for a session, and it needs a connected
-        {""}
+        {" "}
         <DocLink to="/docs/models">AI Model</DocLink> to run.
       </P>
       <P>
@@ -273,9 +273,9 @@ export function Repositories() {
       <OL>
         <LI>Pick the employee, choose a suggested brief if it helps, and describe the outcome.</LI>
         <LI>
-          Genosyn fetches from the remote and starts the session on the repository&apos;s{""}
+          Genosyn fetches from the remote and starts the session on the repository&apos;s{" "}
           <Strong>default branch</Strong> as it stands there — not on whatever branch the shared
-          checkout happens to be sitting on, and not on a trunk that has been left behind. See{""}
+          checkout happens to be sitting on, and not on a trunk that has been left behind. See{" "}
           <Strong>Where a session starts</Strong> below.
         </LI>
         <LI>
@@ -293,10 +293,10 @@ export function Repositories() {
           delete, search, and commit. It gets no filesystem access to the worktree.
         </LI>
         <LI>
-          Where your installation has the isolation for it, the employee can also{""}
+          Where your installation has the isolation for it, the employee can also{" "}
           <Strong>run commands</Strong> in its working copy — your tests, your linter, your build —
           so it verifies its own work before you read the diff, and tells you what it ran and what
-          it said. What it may run is yours to decide on the repository&apos;s{""}
+          it said. What it may run is yours to decide on the repository&apos;s{" "}
           <Strong>Settings</Strong> page; see <DocLink to="#commands">Commands</DocLink>.
         </LI>
         <LI>
@@ -372,14 +372,14 @@ export function Repositories() {
         The worktree shares the repository&apos;s object store, so the commits are already present
         and nothing has to be transferred. For a remote repository you can push in the same step.
         Merging refuses to run while the shared checkout has uncommitted changes of its own, and a
-        merge that would conflict is aborted rather than left half-applied. Only{""}
+        merge that would conflict is aborted rather than left half-applied. Only{" "}
         <Code>published</Code> and <Code>discarded</Code> end a session; everything else still
         accepts another instruction.
       </P>
 
       <H3 id="archiving">Clearing the inbox</H3>
       <P>
-        A repository accumulates finished sessions faster than it accumulates anything else.{""}
+        A repository accumulates finished sessions faster than it accumulates anything else.{" "}
         <Strong>Archive</Strong> one to file it away: the inbox gets shorter and nothing else
         changes. The branch, the commits, the transcript, and the session&apos;s status are all left
         exactly as they were, and its URL keeps working — which is what makes archiving different
@@ -418,7 +418,7 @@ export function Repositories() {
       <H3 id="session-base">Where a session starts</H3>
       <P>
         Work starts from the repository&apos;s <Strong>default branch</Strong>, brought up to date
-        first. Genosyn fetches from the remote before every session and takes the trunk from{""}
+        first. Genosyn fetches from the remote before every session and takes the trunk from{" "}
         <Code>origin/</Code> rather than from the shared checkout, so an employee is never handed a
         copy of the code from weeks ago and never produces a diff against history your team has
         already moved past.
@@ -470,7 +470,7 @@ export function Repositories() {
       <H3 id="commands">Commands</H3>
       <P>
         An employee that can only write files has to hand you work it hopes is right. One that can
-        run your tests hands you work it has checked. On the repository&apos;s{""}
+        run your tests hands you work it has checked. On the repository&apos;s{" "}
         <Strong>Settings</Strong> page, under <Strong>Commands</Strong>, you choose which it is:
       </P>
       <UL>
@@ -495,7 +495,7 @@ export function Repositories() {
       <P>
         A pattern is a command with an optional trailing <Code>*</Code> that matches the rest of it,
         so <Code>npm run *</Code> allows every npm script while <Code>npm test</Code> allows only
-        itself. Every part of a chained command is checked separately —{""}
+        itself. Every part of a chained command is checked separately —{" "}
         <Code>npm test &amp;&amp; curl example.com</Code> is refused for the second half — and the
         constructs that would hide what actually runs, such as <Code>$(…)</Code> and redirection,
         are refused rather than guessed at. Lines beginning with <Code>#</Code> are comments.
@@ -505,12 +505,12 @@ export function Repositories() {
         session&apos;s own worktree as its entire filesystem: no shared checkout, no other session,
         no rest of the server, no <Code>git</Code>, and no network unless your installation allows
         one. Nothing is pushed or merged without a human. What the list decides is what an employee
-        will reach for — not what would happen if it did. Where that isolation is unavailable —{""}
+        will reach for — not what would happen if it did. Where that isolation is unavailable —{" "}
         <Code>disabled</Code> or <Code>host</Code> execution — work sessions run without commands
         whatever this setting says. Genosyn does not give an AI Employee a shell outside a sandbox.
       </Callout>
       <Callout kind="warn" title="A working copy holds only what git tracks.">
-        A session&apos;s worktree is created from the repository&apos;s history, so it has no{""}
+        A session&apos;s worktree is created from the repository&apos;s history, so it has no{" "}
         <Code>node_modules</Code>, no virtualenv, and no vendor directory. A repository whose checks
         need those can fetch them only where your installation allows the sandbox a network (
         <Code>agent.codingTools.allowNetwork</Code> in <Code>config.ts</Code>, off by default).
@@ -534,9 +534,9 @@ export function Repositories() {
       <P>
         The branch it opens against comes from the server, not from the value stored on the
         repository: Genosyn asks the API what the repository&apos;s default branch is and corrects
-        its own record when they disagree. That matters for a repository whose trunk is not{""}
+        its own record when they disagree. That matters for a repository whose trunk is not{" "}
         <Code>main</Code> — <Code>master</Code>, <Code>develop</Code>, a release branch — because
-        the clone URL alone never says so. Cloning a remote repository and{""}
+        the clone URL alone never says so. Cloning a remote repository and{" "}
         <Strong>Test connection</Strong> both record the real branch too, so the rest of the product
         stops guessing at it.
       </P>
@@ -544,7 +544,7 @@ export function Repositories() {
         Ask for changes afterwards and the button becomes <Strong>Update pull request</Strong>: the
         new commits are pushed onto the same branch and the pull request that is already open picks
         them up. Genosyn never opens a second one for the same branch. The credential comes from the
-        repository&apos;s stored token or the company&apos;s{""}
+        repository&apos;s stored token or the company&apos;s{" "}
         <DocLink to="/docs/integrations">GitHub or Forgejo Connection</DocLink>, is used only by the
         server, and — like every push — this is owner and admin only.
       </P>
@@ -553,14 +553,14 @@ export function Repositories() {
         Reading, writing and committing depend on nothing: Git runs against a server-owned checkout
         no model process can reach, and the employee&apos;s edits arrive through validated tool
         calls rather than a shell. If bubblewrap cannot start and boot falls back to disabled
-        execution, those Repository surfaces still work — only{""}
+        execution, those Repository surfaces still work — only{" "}
         <DocLink to="#commands">running commands</DocLink> goes away with it.
       </Callout>
 
       <H3 id="sessions-from-chat">Asking for one in chat</H3>
       <P>
         You do not have to open the Repository page first. Ask an employee in ordinary chat to fix a
-        bug, update a document, or make a change, and it starts its own work session with the{""}
+        bug, update a document, or make a change, and it starts its own work session with the{" "}
         <Code>start_repository_work_session</Code> tool. It can only send itself, and only at a
         repository it has already been granted.
       </P>
@@ -573,7 +573,7 @@ export function Repositories() {
       <P>
         Following that link opens the session in a panel beside the thread rather than taking you
         away from it: the same transcript, diff, and review actions the <Strong>AI work</Strong>
-        {""}
+        {" "}
         page gives you, while the conversation stays where it was. Drag the panel&apos;s left edge
         to resize it, collapse it to a rail, or open the full page from its header when you want the
         whole screen. On a narrow window it takes the screen instead of squeezing the conversation.
@@ -599,7 +599,7 @@ export function Repositories() {
 
       <H2 id="authority">Who can do what</H2>
       <P>
-        Editing a file and committing it is the same class of act as writing a{""}
+        Editing a file and committing it is the same class of act as writing a{" "}
         <DocLink to="/docs/bases">Base</DocLink> record or a note — locking it to admins would make
         a repository of strategy documents useless to the people who write them. What does require
         an owner or admin is everything that reaches outside the company, because a local commit can
@@ -620,7 +620,7 @@ export function Repositories() {
       <Callout kind="warn" title="Repositories are read-only in shared SaaS mode.">
         In the multi-tenant hosted profile every write is refused until git can run in a dedicated
         egress worker. Browsing and reading still work. Use a single-tenant deployment for the
-        editor, commits, and work sessions — see{""}
+        editor, commits, and work sessions — see{" "}
         <DocLink to="/docs/saas-hosting">Shared SaaS mode</DocLink>.
       </Callout>
 
@@ -630,7 +630,7 @@ export function Repositories() {
         <LI>
           <Strong>None / Connection.</Strong> Public repositories clone anonymously. For an HTTPS
           URL on a server the company has connected — github.com, or the Forgejo / Gitea server a
-          Connection names — Genosyn authenticates through that{""}
+          Connection names — Genosyn authenticates through that{" "}
           <DocLink to="/docs/integrations">Connection</DocLink> instead of a stored credential — the
           one the repository was connected with, or the only one that can reach that server. With
           several on one server and nothing pinned it refuses rather than guessing which account
@@ -638,8 +638,8 @@ export function Repositories() {
           rule. Local repositories always use this mode; there is no remote to authenticate to.
         </LI>
         <LI>
-          <Strong>HTTPS token / password.</Strong> A username plus a token:{""}
-          <Code>x-access-token</Code> for GitHub, your own login for Forgejo / Gitea,{""}
+          <Strong>HTTPS token / password.</Strong> A username plus a token:{" "}
+          <Code>x-access-token</Code> for GitHub, your own login for Forgejo / Gitea,{" "}
           <Code>oauth2</Code> for GitLab, your account name for Bitbucket. Use the narrowest
           repository scope your host offers.
         </LI>
@@ -694,21 +694,21 @@ export function Repositories() {
       </P>
       <Callout kind="info" title="That older path does need coding execution.">
         The per-employee checkout is materialized only when coding tools are enabled and the
-        execution mode is not <Code>disabled</Code>. The standard Docker install ships{""}
+        execution mode is not <Code>disabled</Code>. The standard Docker install ships{" "}
         <Code>bubblewrap</Code>, so it is — unless boot found no usable Linux user namespaces and
-        fell back, which is what a container created without{""}
+        fell back, which is what a container created without{" "}
         <Code>--security-opt seccomp=unconfined --security-opt systempaths=unconfined</Code> does.
-        {""}
+        {" "}
         <Code>genosyn upgrade</Code> recreates such a container with them. A
-        subscription-authenticated model needs that working bubblewrap either way. See{""}
-        <DocLink to="/docs/models">AI Models</DocLink> for the modes and{""}
+        subscription-authenticated model needs that working bubblewrap either way. See{" "}
+        <DocLink to="/docs/models">AI Models</DocLink> for the modes and{" "}
         <DocLink to="/docs/self-hosting">Configuration</DocLink> for the setting. The browser editor
-        and AI work sessions above need none of this — only{""}
+        and AI work sessions above need none of this — only{" "}
         <DocLink to="#commands">running commands</DocLink> inside a session does.
       </Callout>
       <P>
-        The two <Strong>AI access</Strong> levels apply to that checkout.{""}
-        <Strong>Work locally</Strong> tells the employee it may branch, edit, and commit there;{""}
+        The two <Strong>AI access</Strong> levels apply to that checkout.{" "}
+        <Strong>Work locally</Strong> tells the employee it may branch, edit, and commit there;{" "}
         <Strong>Reference only</Strong> keeps it for reading. Neither level places a reusable
         credential in a model-controlled tool, so a credentialed push is not something an employee
         can perform from its own shell — that is what publishing a work session, or a Member pushing
@@ -719,7 +719,7 @@ export function Repositories() {
         The default branch of that checkout is fast-forwarded before each Run when doing so cannot
         cost anything — the checkout is on the default branch, nothing is uncommitted, and the move
         is a fast-forward. Otherwise it is left exactly as it is, so an employee&apos;s
-        half-finished work is never discarded to make it current. If a repository has an{""}
+        half-finished work is never discarded to make it current. If a repository has an{" "}
         <Code>AGENTS.md</Code>, the employee is told to read it before changing anything there.
       </P>
 
@@ -738,13 +738,13 @@ export function Repositories() {
         talk to github.com because that is a constant; it knows how to talk to your own Forgejo
         because a Connection carries its server URL, and it matches scheme, host, port and path
         prefix exactly before sending a token anywhere. A remote on a host nothing is connected to
-        stays an ordinary git remote — clone, commit, push, and no{""}
+        stays an ordinary git remote — clone, commit, push, and no{" "}
         <Strong>Open pull request</Strong> button, because there is no API to open one with.
       </P>
 
       <Callout kind="warn" title="Least privilege.">
         Scope tokens and deploy keys to exactly the repositories they need, and grant AI Employees
-        only the repositories they work on — see{""}
+        only the repositories they work on — see{" "}
         <DocLink to="/docs/employees">AI Employees</DocLink>. Deleting a repository removes its
         grants, its work sessions, and its server-side checkout, and never touches the remote git
         repository — but a <Strong>local</Strong> repository has no remote, so unless you have

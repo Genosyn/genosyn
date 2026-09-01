@@ -22,7 +22,7 @@ export function Pipelines() {
         title="Pipelines"
         lead={
           <>
-            Pipelines connect a <Strong>trigger</Strong> to predictable, repeatable{""}
+            Pipelines connect a <Strong>trigger</Strong> to predictable, repeatable{" "}
             <Strong>steps</Strong>. The same input follows the same connected path every time, and
             every Run records what happened.
           </>
@@ -36,7 +36,7 @@ export function Pipelines() {
 
       <H2 id="create">Create a Pipeline</H2>
       <P>
-        Open <Strong>Pipelines</Strong> from the section menu and choose{""}
+        Open <Strong>Pipelines</Strong> from the section menu and choose{" "}
         <Strong>Create pipeline</Strong>. Name the outcome in plain language, add an optional
         purpose, then choose how the pipeline starts:
       </P>
@@ -72,19 +72,19 @@ export function Pipelines() {
       <H2 id="builder">Use the builder</H2>
       <OL>
         <LI>
-          Select the trigger or an existing step. Choosing another item from the{""}
+          Select the trigger or an existing step. Choosing another item from the{" "}
           <Strong>Step library</Strong> places it after the selected step and connects it when there
           is one unambiguous path.
         </LI>
         <LI>
           Select a step on the canvas to open its settings. Complete the required fields marked with
-          {""}
+          {" "}
           <Strong>*</Strong>.
         </LI>
         <LI>
           Use <Strong>Next step</Strong> in the Flow section to make or change a connection. For an
           If / else step, choose separate <Strong>If true</Strong> and <Strong>If false</Strong>
-          {""}
+          {" "}
           destinations. You can also drag the dot on the right of one step to the left dot on
           another.
         </LI>
@@ -129,14 +129,14 @@ export function Pipelines() {
       <H2 id="data">Pass data between steps</H2>
       <P>
         Text and JSON fields can insert values with double-brace references. Data that started the
-        Run lives under <Code>trigger.payload</Code>. For example, a webhook body like{""}
-        <Code>{'{"name":"Ada"}'}</Code> can be inserted with{""}
+        Run lives under <Code>trigger.payload</Code>. For example, a webhook body like{" "}
+        <Code>{'{"name":"Ada"}'}</Code> can be inserted with{" "}
         <Code>{"{{trigger.payload.name}}"}</Code>.
       </P>
       <P>
         Each step also shows an <Strong>Output reference</Strong> in its settings. If a step&apos;s
         reference id is <Code>n_abc123</Code>, a later step can read one of its output fields with
-        {""}
+        {" "}
         <Code>{"{{n_abc123.field}}"}</Code>. The Run&apos;s Step outputs section shows the exact
         object produced under each reference id.
       </P>
@@ -150,7 +150,7 @@ export function Pipelines() {
           now.
         </LI>
         <LI>
-          <Strong>Add record (Base)</Strong> keys its JSON by field name — for example{""}
+          <Strong>Add record (Base)</Strong> keys its JSON by field name — for example{" "}
           <Code>{'{"Email": "{{trigger.payload.email}}"}'}</Code>. The step lists the table&apos;s
           field names as you type, and a name that matches no field fails the Run rather than
           writing a cell nobody can read. Pipelines saved before this keep working: field ids are
@@ -223,13 +223,13 @@ return { score: res.data.score };`}</Pre>
             term: "genosyn.base",
             def: (
               <>
-                <DocLink to="/docs/bases">Base</DocLink> records: <Code>listBases()</Code>,{""}
-                <Code>listTables(base)</Code>, <Code>getTable(base, table)</Code>,{""}
-                <Code>createRecord(base, table, values)</Code>,{""}
-                <Code>getRecord(base, table, id)</Code>,{""}
-                <Code>{"queryRecords(base, table, { where, limit, offset, order })"}</Code>,{""}
-                <Code>countRecords(base, table)</Code>,{""}
-                <Code>updateRecord(base, table, id, values)</Code>, and{""}
+                <DocLink to="/docs/bases">Base</DocLink> records: <Code>listBases()</Code>,{" "}
+                <Code>listTables(base)</Code>, <Code>getTable(base, table)</Code>,{" "}
+                <Code>createRecord(base, table, values)</Code>,{" "}
+                <Code>getRecord(base, table, id)</Code>,{" "}
+                <Code>{"queryRecords(base, table, { where, limit, offset, order })"}</Code>,{" "}
+                <Code>countRecords(base, table)</Code>,{" "}
+                <Code>updateRecord(base, table, id, values)</Code>, and{" "}
                 <Code>deleteRecord(base, table, id)</Code>. Bases and tables are addressed by slug;
                 cells accept the column name or field id. Setting a cell to <Code>null</Code> clears
                 it.
@@ -240,9 +240,9 @@ return { score: res.data.score };`}</Pre>
             term: "axios",
             def: (
               <>
-                An axios-style HTTP client: <Code>axios.get(url, config)</Code>,{""}
-                <Code>axios.post(url, data)</Code>, <Code>put</Code>, <Code>patch</Code>,{""}
-                <Code>delete</Code>. Responses come back as{""}
+                An axios-style HTTP client: <Code>axios.get(url, config)</Code>,{" "}
+                <Code>axios.post(url, data)</Code>, <Code>put</Code>, <Code>patch</Code>,{" "}
+                <Code>delete</Code>. Responses come back as{" "}
                 <Code>{"{ status, headers, data }"}</Code> with JSON parsed automatically, and
                 non-2xx statuses throw with <Code>error.response</Code> attached.
               </>
@@ -272,7 +272,7 @@ return { score: res.data.score };`}</Pre>
 
       <H2 id="events">Company event triggers</H2>
       <P>
-        Event triggers start a Run when something changes inside the company. Add one from the{""}
+        Event triggers start a Run when something changes inside the company. Add one from the{" "}
         <Strong>Start the pipeline</Strong> section of the Step library, then use its optional
         filters to decide which events should match.
       </P>
@@ -289,12 +289,12 @@ return { score: res.data.score };`}</Pre>
         ]}
       />
       <P>
-        Email data is available under <Code>trigger.payload.message</Code>, including{""}
+        Email data is available under <Code>trigger.payload.message</Code>, including{" "}
         <Code>from</Code>, <Code>subject</Code>, <Code>bodyText</Code>, <Code>hasAttachments</Code>,
-        {""}
+        {" "}
         <Code>accountAddress</Code> (the mailbox it arrived in), and <Code>receivedAt</Code>. Task
-        data is available under <Code>trigger.payload.task</Code>, with its Project under{""}
-        <Code>trigger.payload.project</Code>. For example, use{""}
+        data is available under <Code>trigger.payload.task</Code>, with its Project under{" "}
+        <Code>trigger.payload.project</Code>. For example, use{" "}
         <Code>{"{{trigger.payload.task.title}}"}</Code> in a later message or task title.
       </P>
       <Callout kind="tip" title="Run now still works for event Pipelines.">
@@ -336,11 +336,11 @@ return { score: res.data.score };`}</Pre>
         AI Employees build and maintain Pipelines through the built-in <Code>genosyn</Code> MCP
         server, not just run inside them. <Code>list_pipeline_node_types</Code> returns the step
         library with every config key; <Code>create_pipeline</Code> and <Code>update_pipeline</Code>
-        {""}
+        {" "}
         write the steps and the connections between them; <Code>run_pipeline</Code> fires a test and
         hands back the log so the employee can fix what broke; <Code>list_pipeline_runs</Code> and
-        {""}
-        <Code>get_pipeline_run</Code> answer &quot;did it work&quot; afterwards.{""}
+        {" "}
+        <Code>get_pipeline_run</Code> answer &quot;did it work&quot; afterwards.{" "}
         <Code>rotate_pipeline_webhook_token</Code> issues a fresh webhook URL. Ask one to
         &quot;stand up a receiver for our marketing events&quot; and it can build the whole thing,
         test it, and hand you the URL.
@@ -384,14 +384,14 @@ return { score: res.data.score };`}</Pre>
         A Member chatting with an employee delegates their own authority, so the same owner-or-admin
         rule as the Pipelines page applies: anyone can ask an employee to read Pipelines and Runs,
         but creating, editing, deleting, running, or rotating a webhook needs an owner or admin
-        driving the conversation. An employee working on its own — a{""}
+        driving the conversation. An employee working on its own — a{" "}
         <DocLink to="/docs/routines">Routine</DocLink> Run — is bound by its Grants instead.
       </P>
 
       <H2 id="pipeline-or-routine">Pipeline or Routine?</H2>
       <P>
         Use a Pipeline when the path should be deterministic: same input, same connected steps. Use
-        a <DocLink to="/docs/routines">Routine</DocLink> when an{""}
+        a <DocLink to="/docs/routines">Routine</DocLink> when an{" "}
         <DocLink to="/docs/employees">AI Employee</DocLink> should interpret a brief, choose tools,
         and decide how to complete the work. A Pipeline can still use AI for one specific decision
         by adding an <Strong>Ask AI Employee</Strong> step.

@@ -20,7 +20,7 @@ export function WordDocuments() {
       <P>
         A Word document that arrives in chat or on an email is read automatically: its text is in
         front of the employee before it calls anything. That covers &quot;what does this contract
-        say?&quot;. Changing the document needs more than text, because an edit has to name{""}
+        say?&quot;. Changing the document needs more than text, because an edit has to name{" "}
         <Strong>where</Strong> it goes — and that is what <Code>read_docx</Code> adds.
       </P>
       <P>
@@ -34,7 +34,7 @@ export function WordDocuments() {
       <Callout kind="warn" title="Read immediately before you edit">
         Ids describe one reading of one file. Inserting a paragraph renumbers everything after it,
         so an employee reads the document, sends every change in a single <Code>edit_docx</Code>
-        {""}
+        {" "}
         call, and reads again if it needs to go round twice. Within one call this is safe by
         construction: every operation is resolved against the document as it was read, so inserting
         after <Code>p4</Code> twice puts two paragraphs after that same <Code>p4</Code>.
@@ -134,7 +134,7 @@ edit_docx({
 
       <H2 id="converting">Converting one to PDF</H2>
       <P>
-        Plenty of things downstream of a Word document want a PDF and will take nothing else.{""}
+        Plenty of things downstream of a Word document want a PDF and will take nothing else.{" "}
         <DocLink to="/docs/signatures">Document signing</DocLink> drafts a request from a PDF
         Resource; the overlay tools on <DocLink to="/docs/pdf-forms">PDF forms</DocLink> work on
         pages; and most counterparties expect a contract as a PDF rather than something they could
@@ -154,7 +154,7 @@ create_resource({ sourceKind: "file", attachmentId, title: "Mutual NDA" })
       <P>
         Headings, numbered clauses, tables, images, fonts and the page size the author chose all
         carry across. Genosyn renders the document in the same Chromium it uses everywhere else
-        rather than shipping an office suite in the image, which is why the result is a faithful{""}
+        rather than shipping an office suite in the image, which is why the result is a faithful{" "}
         <Strong>rendition</Strong> and not a re-save from Word.
       </P>
       <Callout kind="warn" title="Read the warnings before anyone signs it">
@@ -180,15 +180,15 @@ create_resource({ sourceKind: "file", attachmentId, title: "Mutual NDA" })
         All three tools work with an <Code>attachmentId</Code>: a file a teammate uploaded into
         chat, one opened off an email with <Code>read_mail_attachment</Code>, or one pulled from the
         web with <Code>download_web_file</Code>. The edited or created document comes back as a new
-        attachment, and its id goes straight onto a reply through{""}
-        <DocLink to="/docs/email">Email</DocLink>, or to a teammate with{""}
+        attachment, and its id goes straight onto a reply through{" "}
+        <DocLink to="/docs/email">Email</DocLink>, or to a teammate with{" "}
         <Code>send_chat_attachment</Code>. The original is never modified.
       </P>
       <P>
-        For a form that arrived as a PDF rather than a Word file, see{""}
+        For a form that arrived as a PDF rather than a Word file, see{" "}
         <DocLink to="/docs/pdf-forms">PDF forms</DocLink>. For a document that needs a signature
         rather than answers, see <DocLink to="/docs/signatures">Document signing</DocLink> — the
-        route in is <Code>convert_to_pdf</Code> followed by <Code>create_resource</Code> with{""}
+        route in is <Code>convert_to_pdf</Code> followed by <Code>create_resource</Code> with{" "}
         <Code>sourceKind: &quot;file&quot;</Code>.
       </P>
     </>

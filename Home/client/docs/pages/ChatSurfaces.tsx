@@ -30,8 +30,8 @@ export function ChatSurfaces() {
         title="External chat surfaces"
         lead={
           <>
-            Make an AI Employee reachable from <Strong>Slack</Strong>,{""}
-            <Strong>Microsoft Teams</Strong>, <Strong>WhatsApp</Strong> and{""}
+            Make an AI Employee reachable from <Strong>Slack</Strong>,{" "}
+            <Strong>Microsoft Teams</Strong>, <Strong>WhatsApp</Strong> and{" "}
             <Strong>Telegram</Strong>, so people talk to it where the company already talks —
             without opening Genosyn.
           </>
@@ -42,9 +42,9 @@ export function ChatSurfaces() {
       <P>
         A <DocLink to="/docs/integrations">Connection</DocLink> for one of those four platforms
         becomes a chat surface. Grant it to an AI Employee and a direct message or an @-mention
-        reaches the same employee, with the same <DocLink to="/docs/soul">Soul</DocLink> and{""}
+        reaches the same employee, with the same <DocLink to="/docs/soul">Soul</DocLink> and{" "}
         <DocLink to="/docs/skills">Skills</DocLink>, as the chat inside Genosyn. Nothing is
-        duplicated: the thread you have in Slack is a Conversation on that{""}
+        duplicated: the thread you have in Slack is a Conversation on that{" "}
         <DocLink to="/docs/employees">AI Employee</DocLink>, readable in the app, with the same
         history replayed into every turn.
       </P>
@@ -57,7 +57,7 @@ export function ChatSurfaces() {
       <P>
         This is the part every person hits, so it is worth understanding before you connect
         anything. The first time you message an AI Employee on one of these surfaces, Genosyn has no
-        idea who you are — it has a Slack user id, not a colleague. So it answers you{""}
+        idea who you are — it has a Slack user id, not a colleague. So it answers you{" "}
         <Strong>as a stranger</Strong>, and adds a short footer with a link.
       </P>
       <KeyList
@@ -122,7 +122,7 @@ export function ChatSurfaces() {
         It is built from <Strong>Admin → General → Public URL</Strong>. On an install that never set
         one, the link comes out as <Code>localhost</Code> and only works for someone sitting at that
         machine — which is fine for a laptop trial and not fine for a team. Telegram and Slack still
-        {""}
+        {" "}
         <em>receive</em> messages without a public URL; it is the linking step that wants one.
       </Callout>
       <P>
@@ -139,7 +139,7 @@ export function ChatSurfaces() {
       <P>
         Two of the four dial <em>out</em> to their platform, which means they work from a laptop
         behind NAT with nothing published. The other two are webhook-only: the platform has to be
-        able to POST to you, so their cards in the catalog stay disabled until{""}
+        able to POST to you, so their cards in the catalog stay disabled until{" "}
         <Strong>Admin → General → Public URL</Strong> is set.
       </P>
       <div className="mt-6 overflow-hidden border border-hairline bg-white">
@@ -167,7 +167,7 @@ export function ChatSurfaces() {
       <H2 id="setup">Setting up each surface</H2>
       <P>
         Every one of them ends the same way: open <Strong>Settings → Integrations</Strong>, connect
-        the provider, then grant that Connection to an AI Employee at the employee&apos;s{""}
+        the provider, then grant that Connection to an AI Employee at the employee&apos;s{" "}
         <Strong>Settings → Connections</Strong>. Until a grant exists, the surface replies with a
         one-line note telling you to add one.
       </P>
@@ -175,31 +175,31 @@ export function ChatSurfaces() {
       <H3 id="slack">Slack</H3>
       <OL>
         <LI>
-          At <ExtLink href="https://api.slack.com/apps">api.slack.com/apps</ExtLink>, click{""}
+          At <ExtLink href="https://api.slack.com/apps">api.slack.com/apps</ExtLink>, click{" "}
           <Strong>Create New App → From scratch</Strong> and pick your workspace.
         </LI>
         <LI>
-          Under <Strong>OAuth &amp; Permissions</Strong>, add the Bot Token Scopes{""}
-          <Code>app_mentions:read</Code>, <Code>chat:write</Code>, <Code>im:history</Code>,{""}
-          <Code>im:read</Code>, <Code>im:write</Code>, <Code>channels:history</Code>,{""}
+          Under <Strong>OAuth &amp; Permissions</Strong>, add the Bot Token Scopes{" "}
+          <Code>app_mentions:read</Code>, <Code>chat:write</Code>, <Code>im:history</Code>,{" "}
+          <Code>im:read</Code>, <Code>im:write</Code>, <Code>channels:history</Code>,{" "}
           <Code>groups:history</Code>, <Code>channels:read</Code> and <Code>reactions:write</Code>.
         </LI>
         <LI>
-          Under <Strong>Socket Mode</Strong>, turn it on. That generates an{""}
+          Under <Strong>Socket Mode</Strong>, turn it on. That generates an{" "}
           <Strong>app-level token</Strong> (<Code>xapp-…</Code>) with <Code>connections:write</Code>
-          {""}— copy it.
+          {" "}— copy it.
         </LI>
         <LI>
           Under <Strong>Event Subscriptions</Strong>, turn events on and subscribe the app&apos;s
           bot user to <Code>app_mention</Code> and <Code>message.im</Code>.
         </LI>
         <LI>
-          Click <Strong>Install to Workspace</Strong>, then copy the{""}
+          Click <Strong>Install to Workspace</Strong>, then copy the{" "}
           <Strong>Bot User OAuth Token</Strong> (<Code>xoxb-…</Code>).
         </LI>
         <LI>
           In Genosyn, connect <Strong>Slack</Strong> and paste both: <Strong>Bot token</Strong> and
-          {""}
+          {" "}
           <Strong>App-level token</Strong>. Leave <Strong>Signing secret</Strong> empty.
         </LI>
         <LI>
@@ -208,7 +208,7 @@ export function ChatSurfaces() {
         </LI>
       </OL>
       <P>
-        Prefer a public URL to a socket? Skip the app-level token, fill in{""}
+        Prefer a public URL to a socket? Skip the app-level token, fill in{" "}
         <Strong>Signing secret</Strong> instead, and paste the webhook URL Genosyn shows for the
         Connection into Slack&apos;s <Strong>Event Subscriptions → Request URL</Strong>. The
         signature is then the only thing proving a delivery came from Slack, which is why the field
@@ -231,21 +231,21 @@ export function ChatSurfaces() {
         </LI>
         <LI>
           Open that Entra app registration and copy its <Strong>Application (client) ID</Strong>.
-          Under <Strong>Certificates &amp; secrets</Strong>, add a client secret and copy the{""}
+          Under <Strong>Certificates &amp; secrets</Strong>, add a client secret and copy the{" "}
           <Strong>Value</Strong> column — the Secret ID will not work.
         </LI>
         <LI>
-          In Genosyn, connect <Strong>Microsoft Teams</Strong> and paste both. Fill in{""}
+          In Genosyn, connect <Strong>Microsoft Teams</Strong> and paste both. Fill in{" "}
           <Strong>Tenant ID</Strong> only if you registered the bot single-tenant: a multi-tenant
           bot authenticates against <Code>botframework.com</Code>, and filling it in is the classic
           way to break an otherwise perfect secret.
         </LI>
         <LI>
-          Copy the webhook URL Genosyn shows for the Connection into the Azure Bot&apos;s{""}
+          Copy the webhook URL Genosyn shows for the Connection into the Azure Bot&apos;s{" "}
           <Strong>Configuration → Messaging endpoint</Strong>.
         </LI>
         <LI>
-          Under the Azure Bot&apos;s <Strong>Channels</Strong>, add the{""}
+          Under the Azure Bot&apos;s <Strong>Channels</Strong>, add the{" "}
           <Strong>Microsoft Teams</Strong> channel.
         </LI>
         <LI>
@@ -257,13 +257,13 @@ export function ChatSurfaces() {
 
       <H3 id="whatsapp">WhatsApp</H3>
       <P>
-        Also webhook-only, through the Meta WhatsApp Cloud API, so it needs{""}
+        Also webhook-only, through the Meta WhatsApp Cloud API, so it needs{" "}
         <Strong>Admin → General → Public URL</Strong> too.
       </P>
       <OL>
         <LI>
           Create a Meta app of type <Strong>Business</Strong> and add the <Strong>WhatsApp</Strong>
-          {""}
+          {" "}
           product to it.
         </LI>
         <LI>
@@ -272,7 +272,7 @@ export function ChatSurfaces() {
         </LI>
         <LI>
           In Business Settings, create a <Strong>System user</Strong> and generate a permanent token
-          with <Code>whatsapp_business_messaging</Code> and{""}
+          with <Code>whatsapp_business_messaging</Code> and{" "}
           <Code>whatsapp_business_management</Code>. Use that as the <Strong>Access token</Strong>;
           the 24-hour test token on the API Setup page will strand you tomorrow.
         </LI>
@@ -282,9 +282,9 @@ export function ChatSurfaces() {
         </LI>
         <LI>In Genosyn, connect WhatsApp and paste all four fields.</LI>
         <LI>
-          Copy the webhook URL Genosyn shows for the Connection into{""}
+          Copy the webhook URL Genosyn shows for the Connection into{" "}
           <Strong>WhatsApp → Configuration → Callback URL</Strong>, paste the same verify token
-          beside it, click <Strong>Verify and save</Strong>, then subscribe to the{""}
+          beside it, click <Strong>Verify and save</Strong>, then subscribe to the{" "}
           <Code>messages</Code> field.
         </LI>
         <LI>Grant the Connection to an AI Employee and message the number.</LI>
@@ -327,12 +327,12 @@ export function ChatSurfaces() {
 
       <H2 id="who-answers">Who answers</H2>
       <P>
-        A Connection can be granted to several AI Employees. The one granted it{""}
+        A Connection can be granted to several AI Employees. The one granted it{" "}
         <Strong>first</Strong> is the one that answers — deliberately stable, so re-granting a
         Connection never silently changes who is on the other end.
       </P>
       <P>
-        To reach a different one, start the message with its slug:{""}
+        To reach a different one, start the message with its slug:{" "}
         <Code>@finley what is our runway?</Code> The prefix is a routing hint and nothing more —
         only employees already granted that Connection are reachable, so it can never surface an
         employee the company did not put on that surface.
@@ -366,7 +366,7 @@ export function ChatSurfaces() {
           <Strong>Approvals.</Strong> Approving one replays a privileged action the employee already
           attempted, which is why it is admin-gated and its payload is redacted at every boundary. A
           chat window is the wrong place to hold something whose whole design is a deliberate human
-          look at a redacted payload — they stay in the Approvals inbox, described under{""}
+          look at a redacted payload — they stay in the Approvals inbox, described under{" "}
           <DocLink to="/docs/routines#approvals">Routines</DocLink>.
         </LI>
         <LI>
@@ -377,7 +377,7 @@ export function ChatSurfaces() {
         </LI>
       </UL>
       <P>
-        Everything else behaves as it does in the app. Grants, Policies, Goals and{""}
+        Everything else behaves as it does in the app. Grants, Policies, Goals and{" "}
         <DocLink to="/docs/decisions">Decisions</DocLink> are unchanged — a question the employee
         stops to ask still lands in the Decision stack, and the answer is still given by a human in
         Genosyn.
@@ -385,7 +385,7 @@ export function ChatSurfaces() {
 
       <Callout title="Related">
         <DocLink to="/docs/integrations">Integrations</DocLink> covers Connections, Grants and the
-        catalog. <DocLink to="/docs/workspace-chat">Workspace chat</DocLink> is the chat{""}
+        catalog. <DocLink to="/docs/workspace-chat">Workspace chat</DocLink> is the chat{" "}
         <em>inside</em> Genosyn. <DocLink to="/docs/self-hosting">Configuration</DocLink> covers the
         public URL and reverse-proxy setup the webhook surfaces need.
       </Callout>

@@ -47,7 +47,7 @@ export function PdfForms() {
       <UL>
         <LI>
           <Code>read_pdf_layout</Code> reports each page&apos;s displayed size and rotation, plus
-          every run of printed text and where it sits. That is how the employee finds{""}
+          every run of printed text and where it sits. That is how the employee finds{" "}
           <Code>Full name:</Code> and the blank after it instead of guessing at coordinates.
         </LI>
         <LI>
@@ -58,15 +58,15 @@ export function PdfForms() {
 
       <H2 id="coordinates">Coordinates</H2>
       <P>
-        Every coordinate in both tools is measured in{""}
+        Every coordinate in both tools is measured in{" "}
         <Strong>points from the top-left corner of the page as it appears on screen</Strong> — the
         way a person reads a page, not the way PDF stores one. A page&apos;s <Code>/Rotate</Code> is
         already applied, so a landscape scan reports the width and height you actually see and needs
         no adjustment.
       </P>
       <P>
-        Positions round-trip exactly. A run&apos;s <Code>y</Code> handed back as{""}
-        <Code>anchor: &quot;top&quot;</Code>, or its <Code>baselineY</Code> handed back as{""}
+        Positions round-trip exactly. A run&apos;s <Code>y</Code> handed back as{" "}
+        <Code>anchor: &quot;top&quot;</Code>, or its <Code>baselineY</Code> handed back as{" "}
         <Code>anchor: &quot;baseline&quot;</Code>, lands on the line it was read from. Reusing the
         nearby label&apos;s <Code>fontSize</Code> keeps the answer the same size as the form.
       </P>
@@ -89,7 +89,7 @@ overlay_pdf_text({
       <UL>
         <LI>
           <Strong>Text</Strong>, at a point size and colour, optionally wrapped into a column with
-          {""}
+          {" "}
           <Code>maxWidth</Code> and aligned left, centre, or right. Newlines start a new line, so a
           postal address goes on in one item.
         </LI>
@@ -120,11 +120,11 @@ overlay_pdf_text({
       </P>
       <P>
         The completed document comes back as a new attachment. Its id goes straight onto a reply
-        through <DocLink to="/docs/email">Email</DocLink>, or to a teammate with{""}
+        through <DocLink to="/docs/email">Email</DocLink>, or to a teammate with{" "}
         <Code>send_chat_attachment</Code>. The original is never modified.
       </P>
       <P>
-        A form that needs a signature rather than answers belongs in{""}
+        A form that needs a signature rather than answers belongs in{" "}
         <DocLink to="/docs/signatures">Document signing</DocLink>, which collects real recipient
         evidence instead of drawing a name onto a page.
       </P>

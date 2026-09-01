@@ -81,7 +81,7 @@ export function OpenSourceModels() {
 
       <H2 id="run-a-server">Step 1 — Run a local server</H2>
       <P>
-        Pick one of these. They all expose <Code>/v1/chat/completions</Code> and{""}
+        Pick one of these. They all expose <Code>/v1/chat/completions</Code> and{" "}
         <Code>/v1/models</Code> so any OpenAI-compatible client just works.
       </P>
 
@@ -110,15 +110,15 @@ ollama serve`}</Pre>
 
       <Callout kind="tip" title="One command: genosyn vllm up">
         The <Code>genosyn</Code> CLI ships a managed, Dockerized vLLM server so you don&apos;t have
-        to hand-write install or tool-call flags. On a GPU VM with Docker + the{""}
+        to hand-write install or tool-call flags. On a GPU VM with Docker + the{" "}
         <Code>nvidia-container-toolkit</Code>:
         <Pre lang="bash">{`curl -fsSL https://genosyn.com/genosyn -o /usr/local/bin/genosyn && chmod +x /usr/local/bin/genosyn
 
 genosyn vllm up --model Qwen/Qwen2.5-Coder-32B-Instruct --api-key "$(openssl rand -hex 24)"
 genosyn vllm status   # prints the Base URL, Model id, and API key to paste below`}</Pre>
-        It writes a <Code>docker-compose.yml</Code> + <Code>.env</Code> to{""}
+        It writes a <Code>docker-compose.yml</Code> + <Code>.env</Code> to{" "}
         <Code>~/.genosyn/vllm</Code>, sets the tool-call flags for you, and persists downloaded
-        weights across restarts. See the <DocLink to="/docs/cli">CLI reference</DocLink> for{""}
+        weights across restarts. See the <DocLink to="/docs/cli">CLI reference</DocLink> for{" "}
         <Code>status</Code>, <Code>logs</Code>, and <Code>down</Code>.
       </Callout>
 
@@ -138,7 +138,7 @@ vllm serve Qwen/Qwen2.5-Coder-32B-Instruct \\
 
       <H3 id="llama-cpp">llama.cpp (most portable)</H3>
       <P>
-        Smallest dependency surface. CPU works; with a GPU it&apos;s fast too. Ships{""}
+        Smallest dependency surface. CPU works; with a GPU it&apos;s fast too. Ships{" "}
         <Code>llama-server</Code> as its OpenAI-compatible endpoint.
       </P>
       <Pre lang="bash">{`# from a release binary, or build from source
@@ -162,7 +162,7 @@ llama-server \\
 
       <H2 id="wire-into-genosyn">Step 2 — Wire it into Genosyn</H2>
       <P>
-        From the app, either during the hire wizard (Step 2: Model) or afterwards at{""}
+        From the app, either during the hire wizard (Step 2: Model) or afterwards at{" "}
         <Code>Settings → AI Model</Code>:
       </P>
       <OL>
@@ -174,7 +174,7 @@ llama-server \\
           the same Mac/Windows host, or the full LAN URL of your GPU box.
         </LI>
         <LI>
-          <Strong>Model id</Strong>: the raw model name your server exposes — e.g.{""}
+          <Strong>Model id</Strong>: the raw model name your server exposes — e.g.{" "}
           <Code>qwen2.5-coder:32b</Code>.
         </LI>
         <LI>
@@ -203,7 +203,7 @@ llama-server \\
             term: "vLLM",
             def: (
               <>
-                Reports <Code>max_model_len</Code> — whatever you passed to{""}
+                Reports <Code>max_model_len</Code> — whatever you passed to{" "}
                 <Code>--max-model-len</Code>. Detected automatically.
               </>
             ),
@@ -239,23 +239,23 @@ llama-server \\
       />
       <P>
         Use <Strong>Set manually</Strong> on the model card for anything not detected. A number you
-        type always wins over the probe, so it survives key rotations and re-saves;{""}
+        type always wins over the probe, so it survives key rotations and re-saves;{" "}
         <Strong>Clear</Strong> hands the field back.
       </P>
       <P>
-        For everything Genosyn does detect, it re-asks your server{""}
-        <Strong>every three hours</Strong> — so restarting vLLM with a longer{""}
+        For everything Genosyn does detect, it re-asks your server{" "}
+        <Strong>every three hours</Strong> — so restarting vLLM with a longer{" "}
         <Code>--max-model-len</Code>, or swapping the weights behind the same model id, lands on the
         card without you touching anything. A check that can&apos;t reach the box keeps the last
         known number, and <Strong>Ask the provider</Strong> runs it immediately when you don&apos;t
         want to wait.
       </P>
       <Callout kind="warn" title="Small windows fill up fast.">
-        The system prompt carries the Soul, every Skill, and the whole tool catalog on{""}
+        The system prompt carries the Soul, every Skill, and the whole tool catalog on{" "}
         <em>every</em> turn — easily 30k tokens on a well-equipped employee. On a 64k model
         that&apos;s half the window gone before the first tool runs. If routines keep compacting
         away work you wanted kept, trim the employee&apos;s Skills or serve the model at a longer
-        {""}
+        {" "}
         <Code>--max-model-len</Code> before reaching for a bigger box.
       </Callout>
 
@@ -270,7 +270,7 @@ llama-server \\
       <P>
         If you installed Genosyn through <Code>genosyn install</Code>, the app runs inside a Docker
         container. <Code>localhost</Code> inside the container is <Strong>not</Strong> the same as
-        on your host — the LLM server on the host won&apos;t be reachable as{""}
+        on your host — the LLM server on the host won&apos;t be reachable as{" "}
         <Code>http://localhost:11434</Code> from the employee.
       </P>
       <KeyList
@@ -288,7 +288,7 @@ llama-server \\
             term: "Linux",
             def: (
               <>
-                Add <Code>--add-host=host.docker.internal:host-gateway</Code> to your{""}
+                Add <Code>--add-host=host.docker.internal:host-gateway</Code> to your{" "}
                 <Code>docker run</Code>, or run the LLM server bound to <Code>0.0.0.0</Code> and use
                 the host&apos;s LAN IP.
               </>
@@ -355,12 +355,12 @@ llama-server \\
         <LI>
           <Strong>&quot;This model&apos;s maximum context length is N tokens.&quot;</Strong> The
           prompt outgrew the window. Genosyn drops old tool results and retries once, so this
-          shouldn&apos;t fail a run — but seeing <Code>[compact]</Code> with reason{""}
+          shouldn&apos;t fail a run — but seeing <Code>[compact]</Code> with reason{" "}
           <Code>overflow</Code> in the log means it was caught late. Set the model&apos;s context
           window on its card and the next run budgets ahead instead of reacting.
         </LI>
         <LI>
-          <Strong>Employee forgets what a tool told it earlier.</Strong> Look for{""}
+          <Strong>Employee forgets what a tool told it earlier.</Strong> Look for{" "}
           <Code>[compact]</Code> in the run log: history was dropped to fit the window. Give the
           model a longer context, or trim the Skills and tools that ride along on every turn.
         </LI>
@@ -374,7 +374,7 @@ llama-server \\
       <Callout kind="tip" title="Mix and match.">
         You don&apos;t have to choose one path for the whole company. One employee can run on Claude
         via an Anthropic API key; another runs on a local Qwen via a <Code>Custom</Code> endpoint.
-        They share Channels, Notes, and Integrations — only the brain differs. See{""}
+        They share Channels, Notes, and Integrations — only the brain differs. See{" "}
         <DocLink to="/docs/models">AI Models</DocLink> for the bigger picture.
       </Callout>
     </>

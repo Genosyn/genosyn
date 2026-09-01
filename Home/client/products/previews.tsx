@@ -184,7 +184,7 @@ function EmployeesPreview() {
             </div>
             <div>
               <span className="text-muted">[07:00:31]</span> <span className="text-surface">✓</span>
-              {""}
+              {" "}
               ledger balanced — 1 charge flagged for review
             </div>
             <div>
@@ -690,7 +690,7 @@ function PipelinesPreview() {
         />
       </div>
       <div className="border-t border-ground bg-ground/60 px-5 py-2.5 font-mono text-[10.5px] text-muted">
-        {"{{trigger.body.amount}}"} → $4,200 · branch: true · reply captured →{""}
+        {"{{trigger.body.amount}}"} → $4,200 · branch: true · reply captured →{" "}
         {"{{ask-alex.reply}}"}
       </div>
     </Window>
@@ -857,14 +857,14 @@ function ExplorePreview() {
           <div className="flex-1 border border-rule bg-ink p-3.5 font-mono text-[10px] leading-4 text-rule">
             <div className="text-muted">-- saved chart · run by Mira (AI)</div>
             <div>
-              <span className="text-hairline">select</span> month,{""}
+              <span className="text-hairline">select</span> month,{" "}
               <span className="text-hairline">sum</span>(mrr)
             </div>
             <div>
               <span className="text-hairline">from</span> subscriptions
             </div>
             <div>
-              <span className="text-hairline">group by</span> 1{""}
+              <span className="text-hairline">group by</span> 1{" "}
               <span className="text-hairline">order by</span> 1;
             </div>
           </div>
@@ -1334,9 +1334,9 @@ function CodePreview() {
           <div className="mt-3 flex items-center gap-2 text-[11px] text-muted">
             <GitCommitHorizontal className="h-3.5 w-3.5" />
             <span>
-              committed as{""}
+              committed as{" "}
               <span className="font-mono text-[10px] text-ink2">Sam &lt;sam@genosyn.local&gt;</span>
-              {""}· checkout persists between Runs
+              {" "}· checkout persists between Runs
             </span>
           </div>
         </div>

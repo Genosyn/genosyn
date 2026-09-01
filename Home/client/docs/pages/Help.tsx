@@ -21,7 +21,7 @@ export function Help() {
           Click the <Strong>Help</Strong> icon in the app&apos;s top bar.
         </LI>
         <LI>
-          Select an AI Employee. An employee needs a connected{""}
+          Select an AI Employee. An employee needs a connected{" "}
           <DocLink to="/docs/models">AI Model</DocLink> before it can answer.
         </LI>
         <LI>
@@ -67,7 +67,7 @@ export function Help() {
         Help conversations never appear in ordinary employee Chat, so their Genosyn-specific context
         cannot bleed into day-to-day work. Source access cannot edit the running application. To ask
         the employee to perform company work or change one of your granted Repositories, open that
-        {""}
+        {" "}
         <DocLink to="/docs/employees">AI Employee</DocLink>&apos;s regular <Strong>Chat</Strong>.
       </Callout>
     </>

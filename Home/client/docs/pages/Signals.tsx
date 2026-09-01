@@ -35,14 +35,14 @@ export function Signals() {
       <OL>
         <LI>
           <Code>Revenue → Signals → New signal</Code>. Name it after the condition, not the action —
-          {""}
-          <Code>Trial ending in 3 days</Code> reads better on a timeline than{""}
+          {" "}
+          <Code>Trial ending in 3 days</Code> reads better on a timeline than{" "}
           <Code>Enrol trial users</Code>.
         </LI>
         <LI>
           Pick the <Strong>Connection</Strong> to run against: any Postgres, MySQL or ClickHouse
-          connection you have added under{""}
-          <DocLink to="/docs/integrations">Revenue → Integrations</DocLink>, the same ones{""}
+          connection you have added under{" "}
+          <DocLink to="/docs/integrations">Revenue → Integrations</DocLink>, the same ones{" "}
           <DocLink to="/docs/explore">Explore</DocLink> uses.
         </LI>
         <LI>
@@ -103,8 +103,8 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
             term: "Domain",
             def: (
               <>
-                Used to resolve the <DocLink to="/docs/customers">Customer</DocLink> account.{""}
-                <Code>acme.com</Code>, <Code>https://www.acme.com/pricing</Code> and{""}
+                Used to resolve the <DocLink to="/docs/customers">Customer</DocLink> account.{" "}
+                <Code>acme.com</Code>, <Code>https://www.acme.com/pricing</Code> and{" "}
                 <Code>@acme.com</Code> all normalize to the same account.
               </>
             ),
@@ -153,7 +153,7 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
       <P>
         Pick something that does not change: an account id, a subscription id, a user id. If you
         want a condition to be able to fire twice for the same account — a trial that restarts, a
-        limit hit in two different months — put the period into the key in SQL, for example{""}
+        limit hit in two different months — put the period into the key in SQL, for example{" "}
         <Code>account_id || &apos;:&apos; || to_char(now(), &apos;YYYY-MM&apos;)</Code>. That is a
         deliberate choice you can read months later.
       </P>
@@ -190,7 +190,7 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
             term: "Log an activity",
             def: (
               <>
-                Writes a <Code>signal</Code> row onto the contact&apos;s{""}
+                Writes a <Code>signal</Code> row onto the contact&apos;s{" "}
                 <DocLink to="/docs/revenue#timeline">timeline</DocLink>. The safe default and the
                 right setting while you are still tuning the query.
               </>
@@ -227,7 +227,7 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
               <>
                 Wakes the employee you name with the whole result row and an instruction, and lets
                 it decide what to do — research the account, draft an email, open a deal, escalate.
-                It runs with its full <DocLink to="/docs/soul">Soul</DocLink> and{""}
+                It runs with its full <DocLink to="/docs/soul">Soul</DocLink> and{" "}
                 <DocLink to="/docs/skills">Skills</DocLink>, and needs a revenue grant at the level
                 its actions require.
               </>
@@ -239,8 +239,8 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
       <H3 id="events">Events, and failures you can see</H3>
       <P>
         Every firing is a <Strong>Signal event</Strong> carrying the full result row, listed under
-        {""}
-        <Code>Revenue → Signals → Events</Code> with a status: <Code>new</Code>,{""}
+        {" "}
+        <Code>Revenue → Signals → Events</Code> with a status: <Code>new</Code>,{" "}
         <Code>actioned</Code>, <Code>ignored</Code>, or <Code>failed</Code>. <Code>ignored</Code> is
         not an error — an enrolment refused because the person unsubscribed is the system working
         exactly as designed. <Code>failed</Code> means somebody has to fix something.
@@ -262,9 +262,9 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
 
       <H2 id="least-privilege">Connect with a least-privileged role</H2>
       <Callout kind="warn" title="Read-only SQL is not enforced.">
-        Genosyn does not parse or restrict the SQL a signal runs, exactly as in{""}
+        Genosyn does not parse or restrict the SQL a signal runs, exactly as in{" "}
         <DocLink to="/docs/explore">Explore</DocLink>. Whatever the connected database role is
-        allowed to do, a signal can do — including <Code>UPDATE</Code>, <Code>DELETE</Code> and{""}
+        allowed to do, a signal can do — including <Code>UPDATE</Code>, <Code>DELETE</Code> and{" "}
         <Code>DROP</Code>. The guardrail is the credential, not the query box.
       </Callout>
       <P>

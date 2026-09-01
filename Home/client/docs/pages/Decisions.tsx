@@ -74,7 +74,7 @@ export function Decisions() {
       <P>
         Your answer is also written to that employee&apos;s journal, and the last week of its
         journal is part of every prompt it runs. That is the backstop: if no session can start — no
-        {""}
+        {" "}
         <DocLink to="/docs/models">AI Model</DocLink> is connected yet, or the server restarted
         mid-session — the row says so, and the employee still picks the work up on its next run. It
         can also read the answer at any time with its <Code>list_decisions</Code> tool.
@@ -100,8 +100,8 @@ export function Decisions() {
       <H2 id="not-approvals">Decisions are not approvals</H2>
       <P>
         The two look similar and are deliberately separate. An <Strong>Approval</Strong> is Genosyn
-        holding back an action an employee already attempted — a gated{""}
-        <DocLink to="/docs/routines">Routine</DocLink> tick, a payment over your threshold, a{""}
+        holding back an action an employee already attempted — a gated{" "}
+        <DocLink to="/docs/routines">Routine</DocLink> tick, a payment over your threshold, a{" "}
         <DocLink to="/docs/browser">browser form submit</DocLink> — and the server performs that
         exact action once an admin approves it. That is why approvals are admin-only and ask you to
         re-authenticate.
@@ -125,7 +125,7 @@ export function Decisions() {
       <P>
         A routed question skips the creation-time bell. Instead, the decider is briefed in a
         background session under its own authority, investigates with its own tools, and answers —
-        or declines — through its <Code>decide_decision</Code> tool. A decline, or{""}
+        or declines — through its <Code>decide_decision</Code> tool. A decline, or{" "}
         <Strong>4 hours</Strong> of silence, drops the question back into the human flow with
         exactly the bell it skipped, so routing can delay a human&apos;s attention but never lose
         it. Any Member can still answer a routed question from the stack while it waits — a human
@@ -136,7 +136,7 @@ export function Decisions() {
         and the asker&apos;s journal, and starts the asker&apos;s pickup session immediately, the
         same as a human answer. And because answering fires no side effect — the section above — the
         asker&apos;s privileged follow-ups still meet their own gates. Routing decides who picks the
-        option, never what the answer can execute. See{""}
+        option, never what the answer can execute. See{" "}
         <DocLink to="/docs/autonomy">Earned autonomy</DocLink> for the other half of the
         trust-by-evidence story.
       </P>

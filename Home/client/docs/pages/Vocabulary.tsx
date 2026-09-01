@@ -44,7 +44,7 @@ export function Vocabulary() {
             term: "AI Employee",
             def: (
               <>
-                A persistent AI teammate attached to a company. See{""}
+                A persistent AI teammate attached to a company. See{" "}
                 <DocLink to="/docs/employees">AI Employees</DocLink>.
               </>
             ),
@@ -53,7 +53,7 @@ export function Vocabulary() {
             term: "Soul",
             def: (
               <>
-                The employee&apos;s written constitution. Markdown on{""}
+                The employee&apos;s written constitution. Markdown on{" "}
                 <Code>AIEmployee.soulBody</Code>. See <DocLink to="/docs/soul">Soul</DocLink>.
               </>
             ),
@@ -62,7 +62,7 @@ export function Vocabulary() {
             term: "Skill",
             def: (
               <>
-                A reusable playbook. Markdown on <Code>Skill.body</Code>. See{""}
+                A reusable playbook. Markdown on <Code>Skill.body</Code>. See{" "}
                 <DocLink to="/docs/skills">Skills</DocLink>.
               </>
             ),
@@ -71,7 +71,7 @@ export function Vocabulary() {
             term: "Routine",
             def: (
               <>
-                A scheduled, recurring piece of work. Cron-triggered. See{""}
+                A scheduled, recurring piece of work. Cron-triggered. See{" "}
                 <DocLink to="/docs/routines">Routines</DocLink>.
               </>
             ),
@@ -80,7 +80,7 @@ export function Vocabulary() {
             term: "Run",
             def: (
               <>
-                One execution of a Routine. The agent transcript is captured on{""}
+                One execution of a Routine. The agent transcript is captured on{" "}
                 <Code>Run.logContent</Code> (256 KB cap).
               </>
             ),
@@ -92,7 +92,7 @@ export function Vocabulary() {
                 An event subscription that fires a Routine when a resource family changes — id-only
                 frames, so an event routes work but never carries content. Never
                 &quot;Subscription,&quot; &quot;Listener,&quot; or &quot;Hook&quot; — and a Revenue
-                {""}
+                {" "}
                 <DocLink to="/docs/signals">Signal</DocLink> stays a cron-evaluated query, never a
                 Trigger. See <DocLink to="/docs/reactivity">Reactivity</DocLink>.
               </>
@@ -104,7 +104,7 @@ export function Vocabulary() {
               <>
                 A timed follow-up session an AI Employee schedules for itself, with a note its
                 future self reads — at most 20 pending, at most 90 days out. Never
-                &quot;Reminder,&quot; &quot;Timer,&quot; or &quot;Snooze.&quot; See{""}
+                &quot;Reminder,&quot; &quot;Timer,&quot; or &quot;Snooze.&quot; See{" "}
                 <DocLink to="/docs/reactivity">Reactivity</DocLink>.
               </>
             ),
@@ -126,7 +126,7 @@ export function Vocabulary() {
               <>
                 Standing work an AI Employee proposes — evidence, case, and the exact Routine it
                 wants — that exists only once a human accepts it. Never &quot;Suggestion&quot; or
-                &quot;Idea&quot; — and &quot;Proposal&quot; belongs to Revision proposals. See{""}
+                &quot;Idea&quot; — and &quot;Proposal&quot; belongs to Revision proposals. See{" "}
                 <DocLink to="/docs/reactivity">Reactivity</DocLink>.
               </>
             ),
@@ -219,7 +219,7 @@ export function Vocabulary() {
                 A monthly envelope over authorized ad-spend increases, scoped to the company, one
                 Connection, or one AI Employee — every applicable envelope must have headroom, and
                 the tightest binds. Enforced on every spend-increasing path, approval replays
-                included; never blocks a spend decrease. See{""}
+                included; never blocks a spend decrease. See{" "}
                 <DocLink to="/docs/policies#ad-spend-budgets">Company policies</DocLink>.
               </>
             ),
@@ -232,7 +232,7 @@ export function Vocabulary() {
                 predicate over the effects the server recorded, or a command that must exit 0 in the
                 sandbox. Written by an operator, evaluated by the server, and unreachable from every
                 MCP tool. Never a &quot;test,&quot; an &quot;assertion,&quot; or a &quot;gate&quot;
-                — System Health keeps &quot;probe&quot; for its own diagnostics. See{""}
+                — System Health keeps &quot;probe&quot; for its own diagnostics. See{" "}
                 <DocLink to="/docs/verification">What proves a Run worked</DocLink>.
               </>
             ),
@@ -265,7 +265,7 @@ export function Vocabulary() {
                 What a failed, timed-out, <Code>off goal</Code>, or Check-failing Run teaches the
                 next one: a cause and an advice, written by a restricted retrospective turn, opening
                 the Routine&apos;s future Run briefs until dismissed. Never &quot;Learning,&quot;
-                &quot;Insight,&quot; or &quot;Retro.&quot; See{""}
+                &quot;Insight,&quot; or &quot;Retro.&quot; See{" "}
                 <DocLink to="/docs/improvement">The improvement loop</DocLink>.
               </>
             ),
@@ -287,7 +287,7 @@ export function Vocabulary() {
               <>
                 A complete replacement body an AI Employee stages for its own Soul, a Skill, or a
                 Routine&apos;s brief or acceptance criteria, with a rationale and evidence Runs.
-                Nothing changes until an owner/admin applies it from the Revisions page. See{""}
+                Nothing changes until an owner/admin applies it from the Revisions page. See{" "}
                 <DocLink to="/docs/improvement">The improvement loop</DocLink>.
               </>
             ),
@@ -298,10 +298,10 @@ export function Vocabulary() {
               <>
                 A revocable stop on all AI work at company, employee, or Routine scope, placed by an
                 admin or by the consecutive-failure breaker. The exact inverse of a Waiver — imposed
-                rather than earned, broad rather than narrow — and distinct from{""}
+                rather than earned, broad rather than narrow — and distinct from{" "}
                 <Code>Routine.enabled</Code>, which stays the ordinary switch. Never
                 &quot;pause,&quot; &quot;hold,&quot; &quot;suspend,&quot; or &quot;freeze.&quot; See
-                {""}
+                {" "}
                 <DocLink to="/docs/standdowns">Standdowns</DocLink>.
               </>
             ),
@@ -314,7 +314,7 @@ export function Vocabulary() {
                 for the employee, or gated ticks for one Routine. Proposed by the eligibility sweep
                 through the Approvals inbox; revoked automatically by any Run that failed, timed
                 out, graded off goal, or failed a required Check. Never &quot;trust score,&quot;
-                &quot;tier,&quot; or &quot;level.&quot; See{""}
+                &quot;tier,&quot; or &quot;level.&quot; See{" "}
                 <DocLink to="/docs/autonomy">Earned autonomy</DocLink>.
               </>
             ),
