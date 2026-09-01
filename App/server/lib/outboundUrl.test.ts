@@ -237,3 +237,49 @@ test("safe fetch can refuse every redirect before replaying a POST", async () =>
     assert.equal(calls, 1, String(status));
   }
 });
+
+/**
+ * IPv6 literals in a URL.
+ *
+ * `new URL("http://[::1]").hostname` is `"[::1]"` — brackets included — and
+ * `net.isIP` does not recognise that form. Before the brackets were stripped,
+ * every IPv6 literal missed the literal branch entirely and fell through to
+ * `dns.lookup("[::1]")`. That failed closed, so nothing unsafe was ever
+ * reachable, but it failed with `ENOTFOUND` instead of the real reason, and it
+ * refused public IPv6 literals with equal enthusiasm.
+ */
+test("a bracketed IPv6 loopback is refused as non-public, not as a DNS failure", async () => {
+  await assert.rejects(
+    () => assertSafeOutboundUrl("http://[::1]/"),
+    /non-public address \(::1\)/,
+  );
+});
+
+test("bracketed IPv6 private ranges are refused for the right reason", async () => {
+  for (const address of ["fc00::1", "fe80::1", "::", "2001:db8::1", "::ffff:127.0.0.1"]) {
+    await assert.rejects(
+      () => assertSafeOutboundUrl(`http://[${address}]/`),
+      /resolves to a non-public address/,
+      `${address} should be refused as non-public`,
+    );
+  }
+});
+
+test("a bracketed public IPv6 literal is allowed without DNS", async () => {
+  const url = await assertSafeOutboundUrl("http://[2606:4700:4700::1111]/");
+  assert.equal(url.hostname, "[2606:4700:4700::1111]");
+});
+
+test("a bracketed IPv6 literal with a port is still classified as a literal", async () => {
+  const url = await assertSafeOutboundUrl("http://[2606:4700:4700::1111]:587/");
+  assert.equal(url.port, "587");
+});
+
+test("IPv4 literals are unaffected by the bracket handling", async () => {
+  await assert.rejects(
+    () => assertSafeOutboundUrl("http://127.0.0.1/"),
+    /non-public address \(127\.0\.0\.1\)/,
+  );
+  const ok = await assertSafeOutboundUrl("http://8.8.8.8/");
+  assert.equal(ok.hostname, "8.8.8.8");
+});
