@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mark, type MarkState } from "@/components/Marks";
+import { DEPT_FULL, DEPT_TINT, type Dept } from "@/sections/Kit";
+
+/** Lane name to department. The seven lanes are the seven departments. */
+function deptOf(lane: string): Dept | undefined {
+  const key = lane.toLowerCase() as Dept;
+  return key in DEPT_FULL ? key : undefined;
+}
 
 /**
  * The 24-hour chart, and the only implementation of it.
@@ -68,22 +75,6 @@ type Props = {
   events: GanttEvent[];
   /** Hour of the arrival rule, e.g. 9.5 for 09:30. Omit to draw none. */
   arrival?: number;
-  /**
-   * Paint the plot's ground dark from 00:00 up to this hour.
-   *
-   * This is the picture the whole site is built to make. The claim is that the
-   * work happened while nobody was there, and drawing it as pale outlined
-   * rectangles on light paper says the opposite. Splitting the ground at the
-   * arrival rule puts the night inside the instrument: black from midnight to
-   * 09:30, warm paper after it, and the amber rule standing exactly on the
-   * seam at 18.87:1 — the loudest edge on the site, and the ratio of
-   * machine-time to your-time drawn rather than asserted.
-   *
-   * It is deliberately not "make the page dark". A dark hero is the most worn
-   * look in this category and would cost the warm paper the rest of the design
-   * is built on. The dark plane belongs to instruments.
-   */
-  nightUntil?: number;
   arrivalLabel?: string;
   night?: boolean;
   /** The line the readout shows when nothing is selected. */
@@ -148,7 +139,6 @@ export function Gantt({
   lanes,
   events,
   arrival,
-  nightUntil,
   arrivalLabel = "You sign in",
   night = false,
   summary,
@@ -223,15 +213,15 @@ export function Gantt({
     if (best >= 0) move(best);
   }
 
-  const rule = night ? "border-night-600" : "border-paper-400";
-  const quarter = night ? "bg-night-600" : "bg-paper-400";
-  const quiet = night ? "text-zinc-400" : "text-zinc-600";
+  const rule = night ? "border-rule" : "border-rule";
+  const quarter = night ? "bg-rule" : "bg-rule";
+  const quiet = night ? "text-rule" : "text-muted";
 
   return (
     <div className={className}>
       <div
         className={`overflow-x-auto border-x border-b ${
-          night ? "border-night-600 bg-night-950" : "border-paper-400 bg-paper-50"
+          night ? "border-rule bg-ink" : "border-rule bg-surface"
         }`}
       >
         <div style={{ minWidth }} className="p-5">
@@ -250,70 +240,21 @@ export function Gantt({
               data-sweep={swept ? "" : undefined}
               className="relative pt-7"
             >
-              {/* The night ground. It does NOT animate: it is there in frame
-                  zero, so a reader watches an empty night fill with work
-                  rather than watching a black rectangle appear. */}
-              {nightUntil !== undefined && (
-                <div
-                  aria-hidden
-                  className="absolute top-7 bottom-6 left-0 bg-night-950"
-                  style={{ width: pct(nightUntil) }}
-                />
-              )}
-
-              {/* Two rulings when the ground is split, because a hairline that
-                  reads on paper is invisible on black and vice versa. The
-                  night ruling is scaled so its 24 columns still land on the
-                  hour: at 09:30 the dark field is 39.583% of the plot, so the
-                  gradient inside it must be (24 / 9.5) = 252.6% wide. */}
-              {nightUntil !== undefined ? (
-                <>
-                  <div
-                    aria-hidden
-                    className="hours-night absolute top-7 bottom-6 left-0 overflow-hidden"
-                    style={{ width: pct(nightUntil) }}
-                  >
-                    <div
-                      className="hours-night h-full"
-                      style={{ width: `${(24 / nightUntil) * 100}%` }}
-                    />
-                  </div>
-                  <div
-                    aria-hidden
-                    className="hours absolute top-7 right-0 bottom-6"
-                    style={{ left: pct(nightUntil) }}
-                  />
-                </>
-              ) : (
-                <div
-                  aria-hidden
-                  className={`${night ? "hours-night" : "hours"} absolute top-7 right-0 bottom-6 left-0`}
-                />
-              )}
+              <div
+                aria-hidden
+                className={`${night ? "hours-night" : "hours"} absolute top-7 right-0 bottom-6 left-0`}
+              />
               {[6, 12, 18].map((hour) => (
                 <div
                   key={hour}
                   aria-hidden
-                  className={`absolute top-7 bottom-6 w-px ${
-                    nightUntil !== undefined && hour < nightUntil ? "bg-night-600" : quarter
-                  }`}
+                  className={`absolute top-7 bottom-6 w-px ${quarter}`}
                   style={{ left: pct(hour) }}
                 />
               ))}
 
               {lanes.map((lane) => (
                 <div key={lane} className={`relative h-11 border-b ${rule}`}>
-                  {/* On a split plot the lane rule has to change value at the
-                      seam: #8c8880 reads on paper (3.38:1) and on night
-                      (5.58:1), so one solid value serves both grounds where an
-                      alpha composite could not. */}
-                  {nightUntil !== undefined && (
-                    <span
-                      aria-hidden
-                      className="absolute inset-y-0 left-0 border-b border-night-600"
-                      style={{ width: pct(nightUntil) }}
-                    />
-                  )}
                   {events
                     .filter((e) => e.lane === lane)
                     .map((event) => {
@@ -323,7 +264,8 @@ export function Gantt({
                           key={`${lane}-${event.at}`}
                           event={event}
                           index={index}
-                          night={night || (nightUntil !== undefined && event.at < nightUntil)}
+                          night={night}
+                          dept={deptOf(lane)}
                           active={shown === index}
                           dimmed={isolated !== null && isolated !== lane}
                           onEnter={() => setActive(index)}
@@ -341,7 +283,7 @@ export function Gantt({
               {crosshair !== null && crosshair >= 0 && crosshair <= 24 && (
                 <div
                   aria-hidden
-                  className="pointer-events-none absolute top-7 bottom-6 w-px bg-paper-400"
+                  className="pointer-events-none absolute top-7 bottom-6 w-px bg-rule"
                   style={{ left: pct(crosshair) }}
                 />
               )}
@@ -361,14 +303,20 @@ export function Gantt({
                     type="button"
                     onClick={() => setIsolated(on ? null : lane)}
                     aria-pressed={on}
-                    className={`t-cond flex h-11 w-full items-center border-b pl-4 text-left text-[10px] uppercase tracking-field transition-colors ${rule} ${
+                    className={`t-field flex h-11 w-full items-center border-b pl-4 text-left text-[10px] uppercase  transition-colors ${rule} ${
                       on
                         ? night
-                          ? "text-paper-50"
-                          : "text-zinc-950"
-                        : `${quiet} ${night ? "hover:text-paper-50" : "hover:text-zinc-950"}`
+                          ? "text-surface"
+                          : "text-ink"
+                        : `${quiet} ${night ? "hover:text-surface" : "hover:text-ink"}`
                     }`}
                   >
+                    {deptOf(lane) && (
+                      <span
+                        aria-hidden
+                        className={`h-2.5 w-2.5 shrink-0 ${DEPT_FULL[deptOf(lane) as Dept]}`}
+                      />
+                    )}
                     {lane}
                   </button>
                 );
@@ -395,6 +343,7 @@ export function Gantt({
 function Bar({
   event,
   index,
+  dept,
   night,
   active,
   dimmed,
@@ -405,6 +354,7 @@ function Bar({
 }: {
   event: GanttEvent;
   index: number;
+  dept?: Dept;
   night: boolean;
   active: boolean;
   dimmed: boolean;
@@ -421,8 +371,9 @@ function Bar({
   const shared =
     "absolute top-1/2 -translate-y-1/2 focus-visible:outline-2 focus-visible:outline-offset-2";
 
-  // A moment, not a duration: drawn as its mark on an amber field, because on
-  // a light ground amber is a fill carrying near-black and never a stroke.
+  // A moment, not a duration. Drawn as an INK tile: the two states that need a
+  // person carry no hue at all, so on a chart of seven coloured departments the
+  // only black marks are the ones waiting for you.
   if (human) {
     return (
       <button
@@ -436,9 +387,9 @@ function Bar({
         onBlur={onLeave}
         onClick={onPin}
         style={{ left: pct(event.at), "--at": event.at } as React.CSSProperties}
-        className={`strip-draw ${shared} flex h-6 items-center gap-1.5 px-1.5 transition-colors ${
+        className={`strip-draw ${shared} rounded-chip z-10 flex h-6 items-center gap-1.5 px-1.5 transition-colors ${
           dimmed ? "opacity-40" : ""
-        } ${active ? "bg-zinc-950 text-signal-500" : "bg-signal-500 text-zinc-950"}`}
+        } ${active ? "bg-ink2 text-ink" : "bg-ink text-ground"}`}
       >
         <Mark state={event.state} className="h-2.5 w-2.5" />
         <span className="t-data whitespace-nowrap text-[10px] leading-none">{clock(event.at)}</span>
@@ -464,12 +415,14 @@ function Bar({
           "--at": event.at,
         } as React.CSSProperties
       }
-      className={`strip-draw ${shared} h-6 min-w-[3px] border transition-colors ${
+      className={`strip-draw ${shared} rounded-chip h-6 min-w-[3px] border transition-colors ${
         night
-          ? `border-night-600 ${active ? "bg-paper-50" : dimmed ? "bg-transparent" : "bg-paper-300"}`
-          : `border-paper-400 border-l-[3px] border-l-zinc-950 ${
-              active ? "bg-zinc-950" : dimmed ? "bg-transparent" : "bg-paper-50"
-            }`
+          ? `border-rule ${active ? "bg-ground" : dimmed ? "bg-transparent" : "bg-ink2"}`
+          : dept
+            ? `${DEPT_TINT[dept]} border-transparent ${active ? "brightness-95" : ""} ${
+                dimmed ? "opacity-40" : ""
+              }`
+            : `border-hairline ${active ? "bg-ink" : "bg-surface"}`
       }`}
     />
   );
@@ -480,16 +433,16 @@ function Arrival({ at, label }: { at: number; label: string }) {
     <>
       <span
         aria-hidden
-        className="arrive-in absolute top-0 flex h-7 items-center whitespace-nowrap bg-signal-500 px-2"
+        className="arrive-in absolute top-0 flex h-7 items-center whitespace-nowrap bg-ink px-2"
         style={{ left: pct(at), "--at": at } as React.CSSProperties}
       >
-        <span className="t-data text-[10px] leading-none text-zinc-950">
+        <span className="t-data text-[10px] leading-none text-ground">
           {`${clock(at)} ${label.toUpperCase()}`}
         </span>
       </span>
       <span
         aria-hidden
-        className="arrive-wipe absolute top-7 bottom-6 w-0.5 bg-signal-500"
+        className="arrive-wipe absolute top-7 bottom-6 w-0.5 bg-ink"
         style={{ left: pct(at), "--at": at } as React.CSSProperties}
       />
     </>
@@ -497,7 +450,7 @@ function Arrival({ at, label }: { at: number; label: string }) {
 }
 
 function HourScale({ night, crosshair }: { night: boolean; crosshair: number | null }) {
-  const quiet = night ? "text-zinc-400" : "text-zinc-600";
+  const quiet = night ? "text-rule" : "text-muted";
   return (
     <div aria-hidden className="relative h-6">
       {[0, 6, 12, 18].map((hour) => (
@@ -518,7 +471,7 @@ function HourScale({ night, crosshair }: { night: boolean; crosshair: number | n
       {crosshair !== null && crosshair >= 0 && crosshair <= 24 && (
         <span
           className={`t-data absolute top-1.5 -translate-x-1/2 px-1 text-[10px] leading-none ${
-            night ? "bg-paper-50 text-zinc-950" : "bg-zinc-950 text-paper-50"
+            night ? "bg-surface text-ink" : "bg-ink text-surface"
           }`}
           style={{ left: pct(crosshair) }}
         >
@@ -549,8 +502,8 @@ function Readout({
   isolated: string | null;
   onClear: () => void;
 }) {
-  const quiet = night ? "text-zinc-400" : "text-zinc-600";
-  const loud = night ? "text-paper-50" : "text-zinc-950";
+  const quiet = night ? "text-rule" : "text-muted";
+  const loud = night ? "text-surface" : "text-ink";
 
   return (
     <div
@@ -565,10 +518,8 @@ function Readout({
           {event.hours && (
             <span className={`t-data text-[11px] leading-4 ${quiet}`}>{minutes(event.hours)}</span>
           )}
-          <span className={`t-cond text-[11px] uppercase tracking-field ${quiet}`}>
-            {event.lane}
-          </span>
-          <span className={`t-body text-[13px] leading-5 ${loud}`}>{event.label}</span>
+          <span className={`t-field text-[11px] uppercase  ${quiet}`}>{event.lane}</span>
+          <span className={` text-[13px] leading-5 ${loud}`}>{event.label}</span>
         </>
       ) : (
         <span className={`t-data text-[11px] leading-4 ${quiet}`}>{summary}</span>
@@ -578,8 +529,8 @@ function Readout({
         <button
           type="button"
           onClick={onClear}
-          className={`t-cond ml-auto text-[10px] uppercase tracking-field ${quiet} ${
-            night ? "hover:text-paper-50" : "hover:text-zinc-950"
+          className={`t-field ml-auto text-[10px] uppercase  ${quiet} ${
+            night ? "hover:text-surface" : "hover:text-ink"
           }`}
         >
           {`Showing ${isolated} · clear`}

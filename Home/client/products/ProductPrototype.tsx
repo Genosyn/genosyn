@@ -4,9 +4,10 @@ import { productPreview } from "@/products/previews";
 import { LogoMark } from "@/components/Logo";
 import { Mark, type MarkState } from "@/components/Marks";
 import { primaryUseCaseForProduct, SHOWCASE_USE_CASES } from "@/products/useCases";
+import { Chip, DEPT_FULL, type Dept } from "@/sections/Kit";
 
 /**
- * The product prototype — a picture of the running app, on a plate.
+ * The product prototype — a picture of the running app, inside a `Pane`.
  *
  * This is the one animated mock on the marketing site and it survives the
  * revamp, because it is doing a job prose cannot: it shows an AI Employee
@@ -16,23 +17,34 @@ import { primaryUseCaseForProduct, SHOWCASE_USE_CASES } from "@/products/useCase
  * 75px-blur drop shadow, a pulsing emerald "Live" pill, an emerald tick on
  * every finished step and a floating white activity card with a second
  * shadow — was six separate ways of saying "this is important" and none of
- * them said what it was. All six are gone. `ProductPage` mounts what is left
- * inside a `Plate`, so it reads as a numbered figure in a document.
+ * them said what it was. All six are gone.
  *
- * Three rules govern the inside now, and they are the site's rules rather
- * than this file's:
+ * ## HEADCOUNT: the picture is the whole argument in miniature
  *
- *   - **Warm neutrals only.** The emerald, the cool `#f8fafc` stage and the
- *     per-product pastel ring are mapped onto the paper ramp. The single
- *     exception is the story step that needs a person, which takes signal
- *     amber as a fill carrying near-black text.
- *   - **Mono is a predicate.** The clock and the step index are set in the
- *     data face because the software emitted them. The prose beside them is
- *     not.
+ * The mock draws no frame of its own any more. `ProductPage` mounts it in a
+ * `Pane` carrying the page's 3px department edge, which is how every picture
+ * of the application is mounted on this site; a border here as well would be
+ * two frames around one thing.
+ *
+ * Inside, the inversion is drawn three times over:
+ *
+ *   - **The department is in colour.** The identity row carries a `Chip` in
+ *     the product's own department hue, and the step timer draws in the same
+ *     hue, because the timer is the machine working.
+ *   - **The human is in black, and nothing else is.** The fascia used to be
+ *     `ink` — app chrome borrowing the one value reserved for a person, which
+ *     put two black objects in a 22rem picture and cost the strip below its
+ *     meaning. It is paper now. The only ink inside this mock is the step
+ *     that needs someone: the strip across the foot of the stage, and the
+ *     step cell under it, both invert to `ink` the moment the story reaches
+ *     a Decision or an Approval.
  *   - **State is drawn, not iconified.** The four lucide glyphs this file
  *     used (`Check`, `Clock3`, `LockKeyhole`, `Sparkles`) are replaced by the
  *     Marks, which encode Run / Decision / Approval / Standdown rather than
  *     decorating them.
+ *
+ * Mono stays a predicate: the clock and the step index are set in the data
+ * face because the software emitted them; the prose beside them is not.
  *
  * Two structural things are load-bearing and must not be lost:
  *
@@ -130,6 +142,60 @@ const PRODUCT_CLOCK: Record<string, string> = {
   customers: "07:05",
   finance: "04:05",
   repositories: "05:10",
+};
+
+/**
+ * Which department each product belongs to. Colour is the org chart.
+ *
+ * This is the binding the whole product surface is coloured from — the page's
+ * hero chip, its row spines, this mock's pane edge and step timer — so it
+ * lives in one table rather than being repeated per page. It is exported from
+ * here rather than from `products/data.ts` because that file is asserted on by
+ * `tests/catalogue.test.ts` and is out of this pass's scope; it belongs beside
+ * `PRODUCT_CLOCK` in any case, since both are facts about how a product is
+ * *drawn* rather than about what it does.
+ *
+ * Six of the fourteen name their own department and need no argument. The
+ * other eight are placed by whose work they hold, and the test of a placement
+ * is the 24-hour board in `Board.tsx`: if the lane that owns the hue would
+ * plausibly file a Run under this product, the binding is right.
+ *
+ *   ai-employees → operations   the roster, its cron and its transcripts are
+ *                               the instance operating itself, which is the
+ *                               Operations lane (archives, probes, the sweep)
+ *   pipelines    → operations   the plumbing between the other thirteen, run
+ *                               on the same lane's schedule
+ *   tasks        → workspace    a board is where the team coordinates, and the
+ *                               Workspace lane is already threads and tickets
+ *   notes        → repositories a Repository is strategy and policy documents
+ *                               as much as code (AGENTS.md §3); Notes is the
+ *                               same material under the same Grants
+ *   resources    → repositories the company library, filed in the same lane
+ *   bases        → revenue      the shipped templates lead with a CRM, and a
+ *                               Base is where a revenue team keeps its rows
+ *   customers    → revenue      Contacts, Deals and accounts are one lane
+ *   explore      → finance      the dashboards a company closes a month on;
+ *                               Explore's own figure is June at $48,220
+ *
+ * Nothing on this site may use a hue for a mood, so a product that fitted no
+ * department would have to go without one rather than borrow the nearest.
+ * None does.
+ */
+export const PRODUCT_DEPT: Record<string, Dept> = {
+  "ai-employees": "operations",
+  workspace: "workspace",
+  tasks: "workspace",
+  bases: "revenue",
+  notes: "repositories",
+  resources: "repositories",
+  pipelines: "operations",
+  explore: "finance",
+  marketing: "marketing",
+  revenue: "revenue",
+  email: "email",
+  customers: "revenue",
+  finance: "finance",
+  repositories: "repositories",
 };
 
 /**
@@ -411,6 +477,10 @@ export function ProductPrototype({
     productPreview(activeProduct.slug) ??
     productPreview(PREVIEW_ALIAS[activeProduct.slug] ?? activeProduct.slug);
   const clock = PRODUCT_CLOCK[activeProduct.slug] ?? "08:42";
+  // The fallback is Operations rather than nothing: an unbound product would
+  // otherwise draw a colourless mock, and a missing hue reads as a design
+  // decision rather than as the missing table entry it is.
+  const dept = PRODUCT_DEPT[activeProduct.slug] ?? "operations";
 
   useEffect(() => {
     setShowcaseIndex(0);
@@ -441,9 +511,12 @@ export function ProductPrototype({
   }, [motionEnabled, product, stories.length, storyIndex]);
 
   return (
+    // No border of its own. The `Pane` this is mounted in draws the 1px frame
+    // and the 3px department edge, and two frames around one picture is the
+    // "screenshot in a card" move the revamp deleted everywhere else.
     <section
       aria-label={`Animated ${activeProduct.name} product preview`}
-      className={`prototype-shell pointer-events-none select-none overflow-hidden border border-paper-400 bg-paper-50 ${className}`}
+      className={`prototype-shell pointer-events-none select-none overflow-hidden bg-surface ${className}`}
     >
       {/* The one sentence a screen reader gets. Everything below it is a
           picture of a UI, so it is hidden rather than narrated cell by cell. */}
@@ -454,16 +527,29 @@ export function ProductPrototype({
       <div aria-hidden>
         <PrototypeFascia clock={clock} />
 
-        <div className="flex h-11 items-center gap-3 border-b border-paper-300 px-3">
-          <span className="t-cond shrink-0 text-[11px] uppercase tracking-field text-zinc-950">
-            {activeProduct.name}
-          </span>
-          <span className="t-body min-w-0 truncate text-[11px] text-zinc-600">
-            {activeUseCase.role}
-          </span>
-          <span className="ml-auto hidden shrink-0 items-center gap-1.5 text-zinc-600 sm:flex">
+        {/* The identity row, and the one place the department is named in
+            words. The chip carries the department rather than the product,
+            because the hue has to mean the same thing here as it does on the
+            wall and in the row spines below the fold — a product-coloured chip
+            would be fourteen hues meaning fourteen products, which is the
+            legend this system replaced.
+
+            Beside it is the use case's role rather than the product name. Six
+            of the fourteen products are named after their own department, so
+            printing both gave "FINANCE · Finance" on nearly half the pages;
+            the product is named in the figure caption and the headline
+            already, and who is at the keyboard is the fact this row was
+            missing. */}
+        <div className="flex h-11 items-center gap-2.5 border-b border-hairline px-3">
+          <Chip dept={dept} className="shrink-0">
+            {dept}
+          </Chip>
+          <span className="min-w-0 truncate text-[11px] text-ink">{activeUseCase.role}</span>
+          {/* The Approval mark is ink even here, at 10px: it is the state that
+              needs a person, and it takes no hue anywhere on this site. */}
+          <span className="ml-auto hidden shrink-0 items-center gap-1.5 text-ink sm:flex">
             <Mark state="approval" className="h-2.5 w-2.5" />
-            <span className="t-cond text-[10px] uppercase tracking-field">Approvals on</span>
+            <span className="t-field text-[10px]">Approvals on</span>
           </span>
         </div>
 
@@ -486,7 +572,7 @@ export function ProductPrototype({
           {story && <StoryLine story={story} clock={clock} />}
         </div>
 
-        <div className="grid grid-cols-3 border-t border-paper-300">
+        <div className="grid grid-cols-3 border-t border-hairline">
           {stories.map((candidate, index) => (
             <StoryStep
               key={candidate.label}
@@ -494,6 +580,7 @@ export function ProductPrototype({
               index={index}
               storyIndex={storyIndex}
               ticking={motionEnabled}
+              dept={dept}
             />
           ))}
         </div>
@@ -503,21 +590,26 @@ export function ProductPrototype({
 }
 
 /**
- * The mock's own fascia, drawn the way the site's header is: near-black, a
- * wordmark, and facts in mono. The emerald "Live" pill that used to sit on
- * the right is gone — a pulsing dot next to the word "Live" was an assertion
- * with nothing behind it, and a clock is a fact.
+ * The mock's own fascia: whose install this is, and what time it is there.
+ *
+ * It was `ink`, drawn the way the site's own header is. That was wrong under
+ * HEADCOUNT for a reason that is not aesthetic: ink is the value reserved for
+ * the human, and a near-black bar of chrome at the top of the picture meant
+ * the ink strip at the bottom — the step that actually needs a person — was
+ * the second black thing a reader found rather than the only one. Paper with
+ * a hairline under it says "chrome" perfectly well and costs the argument
+ * nothing.
+ *
+ * The emerald "Live" pill that used to sit on the right is gone — a pulsing
+ * dot next to the word "Live" was an assertion with nothing behind it, and a
+ * clock is a fact.
  */
 function PrototypeFascia({ clock }: { clock: string }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 bg-zinc-950 px-3 py-2">
-      <LogoMark className="h-4 w-4 shrink-0 text-paper-50" />
-      <span className="t-cond min-w-0 truncate text-[10px] uppercase tracking-field text-paper-50">
-        Northstar Labs
-      </span>
-      <span className="t-data ml-auto shrink-0 text-[10px] leading-none text-zinc-400">
-        {clock}
-      </span>
+    <div className="flex min-w-0 items-center gap-3 border-b border-hairline bg-ground px-3 py-2">
+      <LogoMark className="h-4 w-4 shrink-0 text-ink" />
+      <span className="t-field min-w-0 truncate text-[10px] text-ink">Northstar Labs</span>
+      <span className="t-data ml-auto shrink-0 text-[10px] leading-none text-muted">{clock}</span>
     </div>
   );
 }
@@ -528,9 +620,9 @@ function PrototypeFascia({ clock }: { clock: string }) {
  * It used to be a floating white card with a rounded corner and a shadow,
  * which is the "badge over a screenshot" move the revamp deleted everywhere
  * else. It is now a full-width strip anchored to the bottom rule of the
- * stage — and when the step is one only a person can clear, the strip is
- * amber carrying near-black text. That is the whole argument of the site
- * happening inside a 22rem-wide picture.
+ * stage — and when the step is one only a person can clear, the whole strip
+ * inverts to ink. It is now the only black object in the picture, which is
+ * the whole argument of the site happening inside a 22rem-wide figure.
  */
 function StoryLine({ story, clock }: { story: PrototypeStory; clock: string }) {
   const human = story.state === "decision" || story.state === "approval";
@@ -538,21 +630,15 @@ function StoryLine({ story, clock }: { story: PrototypeStory; clock: string }) {
   return (
     <div
       className={`absolute inset-x-0 bottom-0 flex items-center gap-2.5 border-t px-3 py-2 ${
-        human ? "border-signal-500 bg-signal-500 text-zinc-950" : "border-paper-400 bg-paper-50"
+        human ? "border-ink bg-ink text-ground" : "border-rule bg-surface text-ink"
       }`}
     >
-      <Mark state={story.state} className={`h-3 w-3 ${human ? "" : "text-zinc-700"}`} />
+      <Mark state={story.state} className={`h-3 w-3 ${human ? "" : "text-ink2"}`} />
       <span className="min-w-0">
+        <span className="t-field block text-[10px]">{story.label}</span>
         <span
-          className={`t-cond block text-[10px] uppercase tracking-field ${
-            human ? "" : "text-zinc-950"
-          }`}
-        >
-          {story.label}
-        </span>
-        <span
-          className={`t-body mt-0.5 block truncate text-[11px] leading-4 ${
-            human ? "" : "text-zinc-600"
+          className={`mt-0.5 block truncate text-[11px] leading-4 ${
+            human ? "text-ground/85" : "text-muted"
           }`}
         >
           {story.detail}
@@ -560,7 +646,7 @@ function StoryLine({ story, clock }: { story: PrototypeStory; clock: string }) {
       </span>
       <span
         className={`t-data ml-auto shrink-0 text-[10px] leading-none ${
-          human ? "" : "text-zinc-600"
+          human ? "text-ground/70" : "text-muted"
         }`}
       >
         {clock}
@@ -573,28 +659,49 @@ function StoryLine({ story, clock }: { story: PrototypeStory; clock: string }) {
  * One of the three steps under the stage.
  *
  * A finished step used to take an emerald tick in a pastel circle. It takes a
- * Run mark now, because that is what a finished step is, and the colour it
- * saved is spent on the step that actually needs someone.
+ * Run mark now, because that is what a finished step is.
+ *
+ * Three cells meeting on 1px seams, and the state is carried by the fill:
+ *
+ *   - A step that needs a person is **ink** — inverted outright while it is
+ *     the live one, and set in full-strength ink before the story reaches it,
+ *     so a reader can see the stop coming two cells away. Every product whose
+ *     story ends in a Decision or an Approval therefore ends dark, and the
+ *     seven that do not, do not. That difference is real and it is the one
+ *     thing about a product a buyer most wants to know.
+ *   - The timer under the live step draws in the **department hue**, because
+ *     the timer is the machine working. On the inverted cell it drops to
+ *     paper: an ochre or a bottle green on near-black is a 2px line nobody
+ *     can see, and a progress bar that cannot be seen is not one.
  */
 function StoryStep({
   story,
   index,
   storyIndex,
   ticking,
+  dept,
 }: {
   story: PrototypeStory;
   index: number;
   storyIndex: number;
   ticking: boolean;
+  dept: Dept;
 }) {
   const current = index === storyIndex;
   const done = index < storyIndex;
+  const human = story.state === "decision" || story.state === "approval";
+
+  const skin = current
+    ? human
+      ? "bg-ink text-ground"
+      : "bg-ground text-ink"
+    : human
+      ? "text-ink"
+      : "text-muted";
 
   return (
     <div
-      className={`relative min-w-0 px-2.5 py-2.5 ${
-        current ? "bg-paper-200 text-zinc-950" : "text-zinc-600"
-      }`}
+      className={`relative min-w-0 border-l border-hairline px-2.5 py-2.5 first:border-l-0 ${skin}`}
     >
       <span className="flex items-center gap-1.5">
         <Mark state={done ? "run" : story.state} className="h-2.5 w-2.5 shrink-0" />
@@ -604,12 +711,14 @@ function StoryStep({
         <span className="t-data hidden shrink-0 text-[9px] leading-none sm:inline">
           {String(index + 1).padStart(2, "0")}
         </span>
-        <span className="t-cond min-w-0 truncate text-[10px] uppercase tracking-field">
-          {story.label}
-        </span>
+        <span className="t-field min-w-0 truncate text-[10px]">{story.label}</span>
       </span>
       {current && ticking && (
-        <span className="prototype-progress absolute inset-x-0 bottom-0 h-0.5 origin-left bg-zinc-950" />
+        <span
+          className={`prototype-progress absolute inset-x-0 bottom-0 h-0.5 origin-left ${
+            human ? "bg-ground" : DEPT_FULL[dept]
+          }`}
+        />
       )}
     </div>
   );

@@ -150,7 +150,8 @@ export function Signatures() {
         ]}
       />
       <P>
-        To delegate a new setup, upload the PDF under <Strong>Resources</Strong>, open it, choose{" "}
+        To delegate a new setup, upload the PDF under <Strong>Resources</Strong>, open it, choose
+        {""}
         <Strong>Share</Strong>, and give the employee View access. Then give that employee Prepare
         drafts access under Signatures and ask them in Chat to create the request. The result is a
         normal draft: a Member should inspect the PDF, recipients, field placement, routing,

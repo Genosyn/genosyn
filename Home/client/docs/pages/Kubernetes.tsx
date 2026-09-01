@@ -22,9 +22,10 @@ export function Kubernetes() {
         title="Kubernetes"
         lead={
           <>
-            Genosyn ships an official Helm chart at{" "}
+            Genosyn ships an official Helm chart at{""}
             <Code>oci://ghcr.io/genosyn/charts/genosyn</Code>, versioned in lockstep with every
-            release. You trade the one-line installer for <Code>helm</Code> — and you give up the{" "}
+            release. You trade the one-line installer for <Code>helm</Code> — and you give up the
+            {""}
             <Code>genosyn upgrade</Code> and <Code>genosyn backup</Code> commands, which only know
             how to drive Docker on a single host.
           </>
@@ -40,7 +41,7 @@ export function Kubernetes() {
 
       <H2 id="helm">Install with Helm</H2>
       <P>
-        The chart is an OCI artifact — no repo to add — and it is also listed on{" "}
+        The chart is an OCI artifact — no repo to add — and it is also listed on{""}
         <ExtLink href="https://artifacthub.io/packages/search?ts_query_web=genosyn">
           Artifact Hub
         </ExtLink>
@@ -50,7 +51,8 @@ export function Kubernetes() {
   --namespace genosyn --create-namespace`}</Pre>
       <P>
         That gives you the same shape as the one-line Docker installer: one replica, SQLite, and a
-        20Gi volume at <Code>/app/data</Code>. The pod becomes Ready once every migration has run —{" "}
+        20Gi volume at <Code>/app/data</Code>. The pod becomes Ready once every migration has run —
+        {""}
         <Code>/api/health</Code> answers <Code>{"{ ok: true, version }"}</Code> only after boot
         completes, so a pending readiness probe during the first minute is normal. The handful of
         values that matter:
@@ -61,7 +63,8 @@ export function Kubernetes() {
             term: "ingress.enabled + ingress.host",
             def: (
               <>
-                Front the app with your Ingress controller. WebSockets share port <Code>8471</Code>{" "}
+                Front the app with your Ingress controller. WebSockets share port <Code>8471</Code>
+                {""}
                 and pass through a plain Ingress rule on nginx and Traefik — no snippet annotations
                 needed.
               </>
@@ -81,7 +84,7 @@ export function Kubernetes() {
             term: "config.db.driver",
             def: (
               <>
-                <Code>sqlite</Code> or <Code>postgres</Code>. For an external Postgres, point{" "}
+                <Code>sqlite</Code> or <Code>postgres</Code>. For an external Postgres, point{""}
                 <Code>config.db.postgresUrlSecret</Code> at a Secret holding the full connection
                 URL.
               </>
@@ -95,7 +98,7 @@ export function Kubernetes() {
             term: "sandbox.enabled",
             def: (
               <>
-                Grants the securityContext the bubblewrap coding sandbox needs (seccomp{" "}
+                Grants the securityContext the bubblewrap coding sandbox needs (seccomp{""}
                 <Code>Unconfined</Code> + <Code>procMount: Unmasked</Code>). Off by default; see the
                 securityContext callout below for what your cluster must permit.
               </>
@@ -106,7 +109,7 @@ export function Kubernetes() {
             def: (
               <>
                 A Secret with <Code>sessionSecret</Code> and <Code>encryptionSecret</Code> keys
-                (each 32+ characters, distinct). Strongly recommended; required for{" "}
+                (each 32+ characters, distinct). Strongly recommended; required for{""}
                 <DocLink to="/docs/saas-hosting">shared SaaS mode</DocLink>.
               </>
             ),
@@ -135,7 +138,7 @@ export function Kubernetes() {
         <LI>
           <Strong>Deployment.</Strong> Keep ordinary self-hosted installs at one replica. Shared
           SaaS mode supports multiple replicas through Postgres leases, database-backed auth flow
-          state, and cross-replica realtime fan-out; follow{" "}
+          state, and cross-replica realtime fan-out; follow{""}
           <DocLink to="/docs/saas-hosting">Shared SaaS mode</DocLink>.
         </LI>
         <LI>
@@ -201,7 +204,7 @@ export function Kubernetes() {
       <H2 id="config-override">Overriding config</H2>
       <P>
         <Code>App/config.ts</Code> is compiled into the image at build time, so the live process
-        reads <Code>/app/dist/config.js</Code>. To change values without rebuilding, mount a{" "}
+        reads <Code>/app/dist/config.js</Code>. To change values without rebuilding, mount a{""}
         <Code>ConfigMap</Code> over that path. The mount <em>replaces</em> the whole object, so
         every key the server still reads has to be present — which is a short list, because the
         compiled shape mirrors <DocLink to="/docs/self-hosting">the source</DocLink> exactly and
@@ -256,7 +259,8 @@ data:
       <P>
         Nothing operational belongs in this file. The SMTP transport, web tools, mail sync pacing,
         meetings, the container&apos;s browser, and the agent&apos;s taint policy, member browsers,
-        and tool discovery all live in the database and are edited at <Code>Admin → Runtime</Code>{" "}
+        and tool discovery all live in the database and are edited at <Code>Admin → Runtime</Code>
+        {""}
         and <Code>Admin → Email transport</Code> — so a settings change is a form submit, not a
         ConfigMap edit and a rollout. Nor is the public URL here: after the first master admin signs
         in, review and save <Code>https://genosyn.example.com</Code> at <Code>Admin → General</Code>
@@ -264,7 +268,7 @@ data:
       </P>
       <Callout kind="info" title="Claiming the first account before SMTP exists.">
         A fresh install has no mail transport, so the bootstrap master admin&apos;s verification
-        link is written to the pod log instead of being sent. Read it with{" "}
+        link is written to the pod log instead of being sent. Read it with{""}
         <Code>kubectl logs -n genosyn deploy/genosyn</Code>, open it in the browser to claim the
         account, then configure SMTP at <Code>Admin → Email transport</Code>. Boot warns until you
         do, and <Code>Admin → Instance Health</Code> flags the transport meanwhile. A link that
@@ -387,7 +391,7 @@ spec:
         attach to one pod at a time. The old pod must terminate before the new one schedules.
       </P>
       <P>
-        Both probes hit <Code>GET /api/health</Code>, which returns{" "}
+        Both probes hit <Code>GET /api/health</Code>, which returns{""}
         <Code>{"{ ok: true, version }"}</Code> without auth — and only once boot has finished,
         migrations included. That makes it exactly right for readiness: traffic arrives only after
         the schema is current.
@@ -395,14 +399,16 @@ spec:
       <Callout kind="info" title="The securityContext is what command execution runs on.">
         Genosyn runs every command an AI Employee asks for inside <Code>bubblewrap</Code>, which
         creates a user namespace and mounts its own <Code>/proc</Code>. A stock pod may do neither:
-        the default seccomp profile rejects the namespace flags, and the runtime&apos;s masked{" "}
+        the default seccomp profile rejects the namespace flags, and the runtime&apos;s masked{""}
         <Code>/proc</Code> entries are locked mounts a nested namespace may not mount over. The two
-        fields above are the cluster equivalents of the Docker options the{" "}
-        <DocLink to="/docs/cli">CLI</DocLink> passes. Both are gated:{" "}
+        fields above are the cluster equivalents of the Docker options the{""}
+        <DocLink to="/docs/cli">CLI</DocLink> passes. Both are gated:{""}
         <Code>procMount: Unmasked</Code> needs the <Code>ProcMountType</Code> feature gate and,
-        depending on your Kubernetes version, either user namespaces (<Code>hostUsers: false</Code>{" "}
+        depending on your Kubernetes version, either user namespaces (<Code>hostUsers: false</Code>
+        {""}
         on the pod) or a privileged container, and Pod Security admission permits neither field
-        below the <Code>privileged</Code> level — <Code>baseline</Code> and <Code>restricted</Code>{" "}
+        below the <Code>privileged</Code> level — <Code>baseline</Code> and <Code>restricted</Code>
+        {""}
         reject both. Genosyn itself never needs a privileged container. If your cluster will not
         take these fields, delete them: Genosyn then boots with command execution disabled and logs
         the reason — chat, Routines, Integrations, browser work, and the repository editor all still
@@ -425,7 +431,8 @@ kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
 
       <H2 id="backups">Backups</H2>
       <P>
-        On Docker, <Code>genosyn backup</Code> tarballs the data volume. On Kubernetes you back up{" "}
+        On Docker, <Code>genosyn backup</Code> tarballs the data volume. On Kubernetes you back up
+        {""}
         <Strong>two</Strong> things, separately:
       </P>
       <UL>
@@ -437,7 +444,8 @@ kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
         <LI>
           <Strong>
             The <Code>genosyn-data</Code> PVC.
-          </Strong>{" "}
+          </Strong>
+          {""}
           Use a VolumeSnapshot if your StorageClass supports it, or a CronJob that <Code>tar</Code>s
           the volume to object storage.
         </LI>
@@ -450,8 +458,8 @@ kubectl -n genosyn rollout status deploy/genosyn`}</Pre>
       <H3 id="next">Next steps</H3>
       <P>
         Once the pod is healthy, open your Ingress host, create the first owner account, and follow
-        the post-install path: pick a <DocLink to="/docs/models">model</DocLink>, create an{" "}
-        <DocLink to="/docs/employees">AI Employee</DocLink>, schedule a{" "}
+        the post-install path: pick a <DocLink to="/docs/models">model</DocLink>, create an{""}
+        <DocLink to="/docs/employees">AI Employee</DocLink>, schedule a{""}
         <DocLink to="/docs/routines">Routine</DocLink>.
       </P>
     </>

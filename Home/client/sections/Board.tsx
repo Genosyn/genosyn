@@ -24,7 +24,7 @@ import { Field, Rule, Sheet } from "@/sections/Kit";
  *   - That ratio, machine-time to your-time, is the entire pitch, drawn.
  *
  * The one animation on the site lives here and it is the argument rather than
- * decoration: bars draw left to right, staggered, so the night fills in and
+ * decoration: bars draw left to right, staggered, so the fills in and
  * then you arrive. It is disabled wholesale under `prefers-reduced-motion`.
  *
  * On the honesty of the data: this is a sample company, and the board says so
@@ -158,7 +158,7 @@ export const DECISIONS_WAITING = ALL.filter((event) => event.state === "decision
  *
  * The hero used to count how many times the scheduler fired, which told a
  * reader the machine was busy and nothing about whether anything now exists.
- * It names one finished thing instead, and everything else on the night is
+ * It names one finished thing instead, and everything else on the is
  * carried by the lede and the readout below it. One checkable claim is worth
  * more than a total, because a reader can picture 42 reconciled payments and
  * cannot picture eighteen Runs.
@@ -174,7 +174,7 @@ export const APPROVALS_WAITING = ALL.filter((event) => event.state === "approval
 /**
  * The readout's resting line.
  *
- * It leads with what the night produced rather than with how many times the
+ * It leads with what the produced rather than with how many times the
  * scheduler fired: a count of Runs tells a reader the machine was busy, which
  * is not the same as telling them anything now exists.
  */
@@ -193,7 +193,6 @@ export function Board() {
           lanes={LANE_NAMES}
           events={GANTT_EVENTS}
           arrival={ARRIVAL}
-          nightUntil={ARRIVAL}
           arrivalLabel="You sign in"
           ariaLabel="One Tuesday at a sample company, midnight to midnight"
           summary={SUMMARY}
@@ -205,7 +204,7 @@ export function Board() {
           about 864px: at `md` the container is 752px, so the chart was
           scrolling sideways across the whole tablet range, which is precisely
           the failure this split exists to avoid. */}
-      <div className="border-x border-b border-paper-400 bg-paper-50 lg:hidden">
+      <div className="border-x border-b border-rule bg-surface lg:hidden">
         <RunLog />
       </div>
     </div>
@@ -215,10 +214,10 @@ export function Board() {
 /** The board's own header. `SAMPLE COMPANY` is a field, not an apology. */
 function BoardFascia() {
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border border-paper-400 bg-zinc-950 px-4 py-2.5">
-      <Sheet className="!text-paper-50">Tuesday</Sheet>
-      <span className="t-data text-[11px] leading-4 text-zinc-300">00:00–24:00</span>
-      <span className="t-data text-[11px] leading-4 text-zinc-400">SAMPLE COMPANY</span>
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border border-rule bg-ink px-4 py-2.5">
+      <Sheet className="!text-surface">Tuesday</Sheet>
+      <span className="t-data text-[11px] leading-4 text-hairline">00:00–24:00</span>
+      <span className="t-data text-[11px] leading-4 text-rule">SAMPLE COMPANY</span>
       <span className="flex w-full items-center gap-4 sm:ml-auto sm:w-auto">
         <LegendItem state="run">Run</LegendItem>
         <LegendItem state="decision">Decision</LegendItem>
@@ -238,8 +237,8 @@ function LegendItem({
   const human = state !== "run";
   return (
     <span
-      className={`t-cond inline-flex items-center gap-1.5 text-[10px] uppercase tracking-field ${
-        human ? "text-signal-500" : "text-zinc-400"
+      className={`t-field inline-flex items-center gap-1.5 text-[10px] uppercase  ${
+        human ? "text-ink" : "text-rule"
       }`}
     >
       <Mark state={state} className="h-2.5 w-2.5" />
@@ -266,8 +265,8 @@ function RunLog() {
       {/* The overnight half is summarised rather than listed. Printing all
           eighteen rows here made the hero 2.2 screens tall on a phone and then
           Autonomy printed the same eighteen again a screen later. The shape is
-          the useful thing at this size; the log lives in the night band. */}
-      <div className="border-b border-paper-300 pb-3">
+          the useful thing at this size; the log lives in the band. */}
+      <div className="border-b border-hairline pb-3">
         <Field>{`${before.length} FINISHED · ${clock(firstAt)}–${clock(lastEnd)}`}</Field>
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
           {LANE_NAMES.map((lane) => (
@@ -279,10 +278,10 @@ function RunLog() {
       </div>
 
       <div className="my-2 flex items-center gap-3">
-        <span className="t-data shrink-0 bg-signal-500 px-1.5 py-1 text-[10px] leading-none text-zinc-950">
+        <span className="t-data shrink-0 bg-ink px-1.5 py-1 text-[10px] leading-none text-ground">
           09:30 YOU SIGN IN
         </span>
-        <span aria-hidden className="h-0.5 flex-1 bg-signal-500" />
+        <span aria-hidden className="h-0.5 flex-1 bg-ink" />
       </div>
 
       {after.map((event) => (
@@ -306,18 +305,16 @@ function RunLog() {
 function LogRow({ event }: { event: BoardEvent & { owner: string } }) {
   const human = event.state !== "run";
   return (
-    <div className="flex items-baseline gap-3 border-b border-paper-300 py-2 last:border-b-0">
-      <span className="t-data w-11 shrink-0 text-[10px] leading-4 text-zinc-600">
+    <div className="flex items-baseline gap-3 border-b border-hairline py-2 last:border-b-0">
+      <span className="t-data w-11 shrink-0 text-[10px] leading-4 text-muted">
         {clock(event.at)}
       </span>
       <Mark
         state={event.state}
-        className={`mt-0.5 h-4 w-4 shrink-0 p-0.5 ${
-          human ? "bg-signal-500 text-zinc-950" : "text-zinc-700"
-        }`}
+        className={`mt-0.5 h-4 w-4 shrink-0 p-0.5 ${human ? "bg-ink text-ground" : "text-ink2"}`}
       />
       <span className="min-w-0 flex-1">
-        <span className="t-body block text-[13px] leading-5 text-zinc-800">{event.label}</span>
+        <span className="block text-[13px] leading-5 text-ink2">{event.label}</span>
         <Sheet className="!text-[10px]">{event.owner}</Sheet>
       </span>
     </div>

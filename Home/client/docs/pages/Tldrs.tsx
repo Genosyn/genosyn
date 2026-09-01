@@ -23,31 +23,31 @@ export function Tldrs() {
       </P>
       <UL>
         <LI>
-          That first <Strong>AI Employee</Strong> is selected as the writer. Connect an active{" "}
+          That first <Strong>AI Employee</Strong> is selected as the writer. Connect an active{""}
           <DocLink to="/docs/models">AI Model</DocLink> before the first TLDR is due.
         </LI>
         <LI>
-          Pick <Strong>Every 4 hours</Strong>, <Strong>Every 8 hours</Strong>,{" "}
+          Pick <Strong>Every 4 hours</Strong>, <Strong>Every 8 hours</Strong>,{""}
           <Strong>Every 12 hours</Strong>, <Strong>Daily</Strong>, or <Strong>Weekly</Strong>. Daily
           is selected by default.
         </LI>
         <LI>Choose another writer or cadence, or pause automatic TLDRs, then save your changes.</LI>
       </UL>
       <P>
-        Owners and admins can change the employee or cadence, pause the schedule, or choose{" "}
+        Owners and admins can change the employee or cadence, pause the schedule, or choose{""}
         <Strong>Generate now</Strong> when a recap is useful before the next interval.
       </P>
 
       <H2 id="standing-questions">Questions every briefing answers</H2>
       <P>
         A recap tells you what happened. The questions you have afterwards are usually the same ones
-        every week — so write them down once instead of asking them every time. Under{" "}
-        <Strong>Questions to answer</Strong> on the TLDR settings page, add up to eight{" "}
+        every week — so write them down once instead of asking them every time. Under{""}
+        <Strong>Questions to answer</Strong> on the TLDR settings page, add up to eight{""}
         <Strong>standing questions</Strong>.
       </P>
       <UL>
         <LI>
-          Add your own, or start from a suggestion such as{" "}
+          Add your own, or start from a suggestion such as{""}
           <Strong>What should we stop doing?</Strong>
         </LI>
         <LI>
@@ -102,7 +102,7 @@ export function Tldrs() {
 
       <H2 id="included">What a TLDR includes</H2>
       <P>
-        Each TLDR covers one bounded period. It can summarize messages from public{" "}
+        Each TLDR covers one bounded period. It can summarize messages from public{""}
         <DocLink to="/docs/workspace-chat">Workspace</DocLink> channels, company-visible journal
         entries, and terminal Routine Run output.
       </P>
@@ -118,7 +118,7 @@ export function Tldrs() {
       <H2 id="questions">Ask your own question about a TLDR</H2>
       <P>
         Standing questions cover what you always want to know. For anything else, ask on the spot:
-        choose <Strong>Ask a question</Strong> on a briefing, or{" "}
+        choose <Strong>Ask a question</Strong> on a briefing, or{""}
         <Strong>Ask … something else</Strong> under the answers it already carries.
       </P>
       <UL>
@@ -146,7 +146,7 @@ export function Tldrs() {
       <P>
         Reply on any card to keep talking. Follow-ups run as ordinary AI Employee Chat with your own
         access, on the same page as the briefing — so when the employee proposes something, you can
-        simply ask for it. <Strong>Add a routine for that</Strong> creates the{" "}
+        simply ask for it. <Strong>Add a routine for that</Strong> creates the{""}
         <DocLink to="/docs/routines">Routine</DocLink>, rather than another paragraph describing
         one.
       </P>

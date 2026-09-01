@@ -22,7 +22,7 @@ export function Marketing() {
           <>
             A complete AI-run ad agency: Campaign strategy, Creative review, Experiments,
             performance history, and autonomous Routines — with per-Connection caps and human
-            approvals still guarding real platform spend. Native Integrations for{" "}
+            approvals still guarding real platform spend. Native Integrations for{""}
             <Strong>Google Ads, Meta Ads, Microsoft Advertising, and Reddit Ads</Strong>.
           </>
         }
@@ -33,7 +33,7 @@ export function Marketing() {
         <LI>
           Open <Strong>Marketing → Campaigns → New Campaign</Strong>. Write the audience, offer,
           operating brief and target; choose the channel, daily budget, autonomy mode, owning AI
-          Employee and — once it exists — the ad Connection and platform ids. Pick a{" "}
+          Employee and — once it exists — the ad Connection and platform ids. Pick a{""}
           <Strong>success metric Genosyn can measure</Strong> (see below) so the Campaign is scored
           against its target rather than merely labelled with one. Everything stays editable
           afterwards from the Campaign page.
@@ -46,14 +46,14 @@ export function Marketing() {
         <LI>
           Under <Strong>Marketing → Experiments</Strong>, compare at least two Creative variants.
           State the hypothesis, primary metric, and minimum sample before starting. A test cannot be
-          decided without a winner from its tested set and a written rationale. Leave{" "}
+          decided without a winner from its tested set and a written rationale. Leave{""}
           <Strong>Apply it</Strong> ticked and the decision is carried out rather than just filed:
           the winner goes live — or waits at approved when the Campaign is not running — and the
           variants that were serving against it retire.
         </LI>
         <LI>
-          Under <Strong>Marketing → AI access</Strong>, grant the Performance Marketer{" "}
-          <Code>operate</Code>. Grant each ad account separately from the employee&apos;s{" "}
+          Under <Strong>Marketing → AI access</Strong>, grant the Performance Marketer{""}
+          <Code>operate</Code>. Grant each ad account separately from the employee&apos;s{""}
           <Strong>Settings → Connections</Strong>; the two grants are deliberately independent.
         </LI>
         <LI>
@@ -96,9 +96,9 @@ export function Marketing() {
       <H2 id="scoring">Targets that are actually checked</H2>
       <P>
         A Campaign&apos;s target is only useful if something compares it to the result. Pick a
-        success metric from the measurable set — <Code>conversions</Code>, <Code>cpa</Code>,{" "}
-        <Code>roas</Code>, <Code>conversion_value</Code>, <Code>conversion_rate</Code>,{" "}
-        <Code>ctr</Code>, <Code>cpc</Code>, <Code>cpm</Code>, <Code>clicks</Code>,{" "}
+        success metric from the measurable set — <Code>conversions</Code>, <Code>cpa</Code>,{""}
+        <Code>roas</Code>, <Code>conversion_value</Code>, <Code>conversion_rate</Code>,{""}
+        <Code>ctr</Code>, <Code>cpc</Code>, <Code>cpm</Code>, <Code>clicks</Code>,{""}
         <Code>impressions</Code>, <Code>spend</Code> — and Genosyn scores every recorded readout
         against it. Write the target in the metric&apos;s own unit: whole currency for money metrics
         (a CPA target of <Code>75</Code> means 75.00), a percentage for rate metrics, a plain
@@ -121,7 +121,7 @@ export function Marketing() {
       <H2 id="performance">Performance that survives the next run</H2>
       <P>
         Every platform read appends a Campaign performance snapshot: exact period, settled spend,
-        impressions, clicks, conversions, conversion value, currency, and source.{" "}
+        impressions, clicks, conversions, conversion value, currency, and source.{""}
         <Code>spendMinor</Code> is in minor units; <Code>conversionValue</Code> is a decimal in
         whole currency. The next Routine inherits the evidence instead of reconstructing it from a
         previous chat. This is separate from <Code>AdSpendEvent</Code>, which records authorized
@@ -162,7 +162,7 @@ export function Marketing() {
       <H2 id="model">The safety model, first</H2>
       <P>
         Ad budgets are real money, so the write surface is deliberately tiny and every layer
-        defaults to human control. Genosyn&apos;s native ad-platform mutation surface remains{" "}
+        defaults to human control. Genosyn&apos;s native ad-platform mutation surface remains{""}
         <Strong>pause, enable, and change budget</Strong>. Broader publishing uses a guarded MCP
         server or approval-gated browser under the same human-visible operating flow:
       </P>
@@ -240,7 +240,7 @@ export function Marketing() {
           ad accounts under it.
         </LI>
         <LI>
-          In the MCC: <Strong>Admin → API Center</Strong> → request a{" "}
+          In the MCC: <Strong>Admin → API Center</Strong> → request a{""}
           <Strong>developer token</Strong>. The auto-granted Explorer tier works on production
           accounts with no review (2,880 operations/day — plenty for one company). Apply for Basic
           access only if you outgrow it.
@@ -334,7 +334,7 @@ export function Marketing() {
       <OL>
         <LI>
           Enable the browser for the employee and pin <Code>browserAllowedHosts</Code> to the ads
-          UI, e.g. <Code>*.linkedin.com</Code>, <Code>ads.x.com</Code>, or{" "}
+          UI, e.g. <Code>*.linkedin.com</Code>, <Code>ads.x.com</Code>, or{""}
           <Code>ads.tiktok.com</Code> (use the <Code>*.</Code> form to allow subdomains; a bare host
           matches exactly).
         </LI>
@@ -355,8 +355,8 @@ export function Marketing() {
       <H2 id="guarded-mcp">Guarded MCP tools</H2>
       <P>
         If you connect an external ads MCP server instead (Meta ships a hosted one), its write tools
-        bypass Genosyn&apos;s spend guardrails — so guard them: at the employee&apos;s{" "}
-        <Strong>Settings → MCP</Strong>, open that server&apos;s config and list patterns like{" "}
+        bypass Genosyn&apos;s spend guardrails — so guard them: at the employee&apos;s{""}
+        <Strong>Settings → MCP</Strong>, open that server&apos;s config and list patterns like{""}
         <Code>ads_create_*, ads_update_*</Code> under <Strong>Guarded tools</Strong>. Matching calls
         queue in the Approvals inbox and run server-side only after a human approves.
       </P>

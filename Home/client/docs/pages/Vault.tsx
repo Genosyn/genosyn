@@ -32,12 +32,12 @@ export function Vault() {
       <Callout kind="info" title="The Vault is not Settings → Secrets">
         Vault items are credentials people and AI Employees use deliberately, with access set on
         each item. <Strong>Settings → Secrets</Strong> holds environment variables for coding tools
-        and Pipelines. Those values are injected by name and do not appear in the Vault. See{" "}
+        and Pipelines. Those values are injected by name and do not appear in the Vault. See{""}
         <DocLink to="/docs/self-hosting#secrets">Configuration</DocLink> for the full distinction.
       </Callout>
 
       <P>
-        The Vault is where a credential belongs when no first-class{" "}
+        The Vault is where a credential belongs when no first-class{""}
         <DocLink to="/docs/integrations">Integration</DocLink> covers the service — an API with no
         connector, or a site an AI Employee has to sign in to.
       </P>
@@ -58,7 +58,7 @@ export function Vault() {
       <H2 id="add">Add a Vault item</H2>
       <OL>
         <LI>
-          Open <Strong>Vault</Strong> from the company navigation and choose{" "}
+          Open <Strong>Vault</Strong> from the company navigation and choose{""}
           <Strong>Add item</Strong>.
         </LI>
         <LI>
@@ -67,12 +67,12 @@ export function Vault() {
           also carry a website and private context.
         </LI>
         <LI>
-          For a login, paste an existing password or choose{" "}
+          For a login, paste an existing password or choose{""}
           <Strong>Generate strong password</Strong>. Copy a generated password before saving when
           you also need to enter it somewhere outside Genosyn.
         </LI>
         <LI>
-          Optionally attach an authenticator by pasting its Base32 setup key or complete{" "}
+          Optionally attach an authenticator by pasting its Base32 setup key or complete{""}
           <Code>otpauth://</Code> URI. Leave the field blank while editing to keep the current
           authenticator. Software passkeys are created from an AI Employee&apos;s Browser flow, not
           imported through this form.
@@ -106,13 +106,13 @@ export function Vault() {
         A mirrored item is marked <Strong>mirrored from</Strong> its source and cannot be edited or
         deleted here. Everything else on this page — Access, Grants, Reveal, Browser autofill, audit
         — behaves exactly as it does for a native item. The full walkthrough, including the
-        Bitwarden API key that avoids two-step login and what happens on disconnect, is on{" "}
+        Bitwarden API key that avoids two-step login and what happens on disconnect, is on{""}
         <DocLink to="/docs/vault-sources">Vault sources</DocLink>.
       </P>
 
       <H2 id="members">Member access</H2>
       <P>
-        A Vault item has either <Strong>Everyone in the company</Strong> visibility or{" "}
+        A Vault item has either <Strong>Everyone in the company</Strong> visibility or{""}
         <Strong>Only selected Members</Strong> visibility. Restricted items are absent from other
         Members&apos; lists instead of advertising that a hidden credential exists. The creator and
         company owners or admins can always manage sharing and deletion.
@@ -241,7 +241,8 @@ export function Vault() {
 
       <H2 id="create">Let an AI Employee create a login safely</H2>
       <P>
-        AI Employees can store new credentials without first learning the password in model context.{" "}
+        AI Employees can store new credentials without first learning the password in model context.
+        {""}
         <Code>create_vault_login</Code> generates a strong password inside Genosyn, encrypts it
         immediately, creates a company-visible login, and gives the creating employee a Manage
         Grant. Members can therefore recover the credential, while other AI Employees still receive
@@ -249,7 +250,7 @@ export function Vault() {
         value into a signup or password-change form.
       </P>
       <P>
-        When a website or browser flow already put a password into an input,{" "}
+        When a website or browser flow already put a password into an input,{""}
         <Code>browser_save_vault_login</Code> can request capture from a same-origin password input.
         Capture always needs approval from a company owner or admin, even when ordinary Browser form
         submissions do not require approval. Once approved, the App saves a restricted Vault item
@@ -262,7 +263,8 @@ export function Vault() {
         AI-created Login to the exact origin and redacts screenshots and model-visible page text
         before the secret appears. <Code>browser_save_vault_totp</Code> then reads the selected
         same-origin setup key, authenticator QR image, or containing element. Genosyn validates and
-        encrypts it server-side. Later, <Code>browser_fill_vault</Code> with the <Code>totp</Code>{" "}
+        encrypts it server-side. Later, <Code>browser_fill_vault</Code> with the <Code>totp</Code>
+        {""}
         field generates and fills a current code without returning the setup key or code. For
         approval-gated forms, <Code>browser_submit_with_vault_totp</Code> generates that code only
         after Approval is claimed and submits it immediately. A QR format Genosyn cannot decode
@@ -271,7 +273,8 @@ export function Vault() {
       <P>
         Passkeys use bounded Browser ceremonies. <Code>browser_create_vault_passkey</Code> triggers
         the selected registration control, captures and encrypts the resulting credential, and
-        removes the temporary authenticator before returning. <Code>browser_use_vault_passkey</Code>{" "}
+        removes the temporary authenticator before returning. <Code>browser_use_vault_passkey</Code>
+        {""}
         similarly restores one granted credential only for the selected sign-in action, saves its
         updated counter, and removes it before returning. These tools are refused in Member browsers
         and never access Touch ID, Face ID, a password-manager passkey, or a hardware security key.
@@ -298,7 +301,8 @@ export function Vault() {
       </P>
       <Callout kind="info" title="The Audit log page is gated.">
         Reading the Audit log needs the Scale plan on Genosyn Cloud, or a Genosyn Enterprise license
-        self-hosted — events are recorded regardless. See <DocLink to="/docs/plans-billing" /> and{" "}
+        self-hosted — events are recorded regardless. See <DocLink to="/docs/plans-billing" /> and
+        {""}
         <DocLink to="/docs/enterprise-license" />.
       </Callout>
       <UL>

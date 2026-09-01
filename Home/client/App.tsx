@@ -63,7 +63,7 @@ export function App() {
  * The landing page, in the order the argument is made.
  *
  * The old sequence was nine bands whose tones alternated white / tint / white /
- * night / white / tint like a checkerboard — the fallback rule you apply when
+ * / white / tint like a checkerboard — the fallback rule you apply when
  * nothing about the content tells you where to break. This one groups by
  * meaning and changes tone exactly once, at the band that is literally about
  * work happening in the dark:
@@ -71,7 +71,7 @@ export function App() {
  *   01 One Tuesday          the claim, and the board that is its evidence
  *   02 A day on the roster  one role, hour by hour
  *   03 The roster           who else you can hire
- *   04 The night shift      NIGHT. what actually ran while nobody was there
+ *   04 The shift      NIGHT. what actually ran while nobody was there
  *   05 What a role is made of
  *   06 Setting one up
  *   07 Where the work happens
@@ -85,7 +85,7 @@ export function App() {
  */
 function Landing() {
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-900">
+    <div className="min-h-screen bg-ground text-ink">
       <Nav />
       <main>
         <Hero />
@@ -106,7 +106,7 @@ function Landing() {
 
 function EnterprisePage() {
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-900">
+    <div className="min-h-screen bg-ground text-ink">
       <Nav />
       <main>
         <Enterprise />
@@ -118,7 +118,7 @@ function EnterprisePage() {
 
 function PricingPage() {
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-900">
+    <div className="min-h-screen bg-ground text-ink">
       <Nav />
       <main>
         <Pricing />
@@ -171,10 +171,10 @@ function ProductNotFound() {
 /** The in-app not-found panel for an unknown product or role slug. */
 function NotFound({ kind, href, cta }: { kind: string; href: string; cta: string }) {
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-900">
+    <div className="min-h-screen bg-ground text-ink">
       <Nav />
       <main>
-        <Band tone="paper" pad="l" rule={false}>
+        <Band tone="ground" pad="l" rule={false}>
           <Container>
             <Rail sheet="404 / No such page" fields={["HTTP 404"]}>
               <Display className="max-w-[20ch]">{`No ${kind} lives at this address.`}</Display>

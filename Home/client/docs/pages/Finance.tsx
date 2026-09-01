@@ -64,7 +64,8 @@ export function Finance() {
         </LI>
         <LI>
           <Strong>Sent</Strong> — clicking <Code>Issue</Code> (or <Code>Issue &amp; send</Code> to
-          email the customer) mints a gapless number prefixed with the customer&apos;s slug — e.g.{" "}
+          email the customer) mints a gapless number prefixed with the customer&apos;s slug — e.g.
+          {""}
           <Code>ACME-CORP-EST-0001</Code> — and locks the line items, so two customers&apos; first
           estimates never both read <Code>EST-0001</Code>. The URL slug becomes the lowercased
           number.
@@ -108,12 +109,13 @@ export function Finance() {
 
       <H3 id="estimates-printing">Sending and printing</H3>
       <P>
-        Every issued estimate has a Print / PDF view at{" "}
-        <Code>/api/companies/:cid/estimates/:slug/html</Code>. Use it from the detail page&apos;s{" "}
+        Every issued estimate has a Print / PDF view at{""}
+        <Code>/api/companies/:cid/estimates/:slug/html</Code>. Use it from the detail page&apos;s
+        {""}
         <Code>Print / PDF</Code> button —<em>File → Save as PDF</em> in your browser produces a
-        clean A4 PDF with no app chrome. The same HTML is what the customer sees when you click{" "}
+        clean A4 PDF with no app chrome. The same HTML is what the customer sees when you click{""}
         <Code>Issue &amp; send</Code> or <Code>Resend email</Code>, and that email now carries a PDF
-        copy of the estimate as an attachment — delivered through whichever{" "}
+        copy of the estimate as an attachment — delivered through whichever{""}
         <DocLink to="/docs/integrations">EmailProvider</DocLink> the company has configured.
       </P>
       <P>
@@ -127,10 +129,10 @@ export function Finance() {
 
       <H2 id="customers">Customers</H2>
       <P>
-        Customers — the billable accounts you invoice — now live in their own top-level{" "}
+        Customers — the billable accounts you invoice — now live in their own top-level{""}
         <DocLink to="/docs/customers">Customers</DocLink> section, alongside the people at each
         account and the signed contracts you hold with them. One detail stays relevant here: each
-        customer&apos;s <Strong>slug</Strong> (auto-derived from its name, e.g.{" "}
+        customer&apos;s <Strong>slug</Strong> (auto-derived from its name, e.g.{""}
         <Code>Acme Corp</Code> → <Code>acme-corp</Code>) is uppercased and prefixed onto every
         invoice and estimate number issued to that customer, so numbers stay unique and
         self-identify across accounts.
@@ -139,16 +141,16 @@ export function Finance() {
       <H2 id="invoices">Invoices</H2>
       <P>
         The invoice flow mirrors estimates with two extras: a <Code>dueDate</Code> and a payments
-        ledger. Issuing mints the same slug-prefixed gapless number estimates use — e.g.{" "}
+        ledger. Issuing mints the same slug-prefixed gapless number estimates use — e.g.{""}
         <Code>ACME-CORP-INV-0001</Code>. Record cash, bank transfers, Stripe charges, or other
-        receipts directly on the invoice; each payment posts a matching{" "}
+        receipts directly on the invoice; each payment posts a matching{""}
         <Code>DR Bank / CR Accounts Receivable</Code> entry. Once the cumulative paid amount reaches
         the invoice total, the status flips from <Code>sent</Code> to <Code>paid</Code>. Sending or
         resending an invoice emails the customer the rendered document. To copy an internal finance
         mailbox on every delivery, open <Code>Finance → Settings</Code> and add one or more
         addresses under <Strong>Always Cc on invoices</Strong>. The saved addresses are added to
         manual sends, recurring auto-sends, and resends automatically. Before a resend, Genosyn
-        shows the exact From and Reply-to addresses in a confirmation modal. Edit the{" "}
+        shows the exact From and Reply-to addresses in a confirmation modal. Edit the{""}
         <Code>To</Code> field to add or remove recipients, see the company&apos;s always-Cc
         recipients, add optional additional <Code>Cc</Code> recipients, include a one-off message,
         and choose whether to attach the invoice PDF. Separate multiple addresses with commas. Every
@@ -167,26 +169,27 @@ export function Finance() {
       <H3 id="invoices-void">Voiding an invoice</H3>
       <P>
         <Code>Void</Code> means <em>this invoice should never have been issued</em>. It posts a
-        reversing entry that unwinds the original{" "}
+        reversing entry that unwinds the original{""}
         <Code>DR Accounts Receivable / CR Revenue + Tax Payable</Code>, keeping both the original
         and the reversal in the journal so the audit trail stays intact.
       </P>
       <P>
-        Two things it deliberately will not do. Voiding an invoice that already has{" "}
+        Two things it deliberately will not do. Voiding an invoice that already has{""}
         <Strong>payments recorded against it</Strong> is refused — money that genuinely arrived is
         given back with a refund or a credit note, never by rewriting history. And voiding an
         invoice issued inside a <Strong>closed accounting period</Strong> is refused too, because
         the reversal carries today&apos;s date and would pull a closed period&apos;s revenue into
-        the current one; reopen the period first. Both rules apply identically to <Code>Void</Code>{" "}
+        the current one; reopen the period first. Both rules apply identically to <Code>Void</Code>
+        {""}
         on a bill.
       </P>
 
       <H3 id="invoices-write-off">Writing off a balance</H3>
       <P>
         When a receivable won&apos;t be collected, open the invoice and click <Code>Write off</Code>
-        . A write-off clears part or all of the open balance <em>without</em> a payment and{" "}
+        . A write-off clears part or all of the open balance <em>without</em> a payment and{""}
         <em>without</em> reversing the sale — the revenue stays recognized in the period it was
-        earned. Pick <Strong>Bad debt</Strong> for an uncollectible debt or{" "}
+        earned. Pick <Strong>Bad debt</Strong> for an uncollectible debt or{""}
         <Strong>Residual</Strong> for an immaterial short-payment (a few cents of rounding or a
         settlement discount). It posts <Code>DR Bad Debt Expense / CR Accounts Receivable</Code> and
         can never exceed the open balance. Unlike a credit note it does <em>not</em> relieve tax — a
@@ -203,16 +206,16 @@ export function Finance() {
       <H3 id="invoices-credit-note">Credit notes</H3>
       <P>
         A credit note reduces a sale you&apos;ve already invoiced — a return, a goodwill adjustment,
-        a billing correction. From an invoice, click <Code>Credit note</Code>: credit it{" "}
+        a billing correction. From an invoice, click <Code>Credit note</Code>: credit it{""}
         <Strong>in full</Strong> (every line, tax included) or a <Strong>partial</Strong> ex-tax
-        amount. Issuing posts{" "}
+        amount. Issuing posts{""}
         <Code>DR Sales Returns &amp; Allowances / DR Tax Payable / CR Customer Credits</Code> — it
         reverses revenue (and tax, on a full credit) but never touches Accounts Receivable directly,
         and credit notes can never total more than the invoice they came from.
       </P>
       <P>
         A credit is spent by <Strong>applying</Strong> it to an invoice, which is the only way to
-        lower a receivable without cash: it posts{" "}
+        lower a receivable without cash: it posts{""}
         <Code>DR Customer Credits / CR Accounts Receivable</Code>, capped so the invoice balance can
         never go negative. Raising a credit against an invoice applies it there by default; an
         on-account credit can be applied to any of that customer&apos;s invoices in the same
@@ -223,15 +226,15 @@ export function Finance() {
 
       <H3 id="refunds-deposits">Refunds, deposits and overpayments</H3>
       <P>
-        A credit can be paid back in cash instead of applied: from a credit note, click{" "}
+        A credit can be paid back in cash instead of applied: from a credit note, click{""}
         <Code>Refund</Code>. It posts <Code>DR Customer Credits / CR Bank</Code> against the
-        credit&apos;s open balance, and can be reversed if the money comes back. A{" "}
-        <Strong>deposit</Strong> takes money before any invoice exists —{" "}
+        credit&apos;s open balance, and can be reversed if the money comes back. A{""}
+        <Strong>deposit</Strong> takes money before any invoice exists —{""}
         <Code>DR Bank / CR Customer Deposits</Code>, held as unearned revenue (no sales tax on
         receipt) until you apply it to the eventual invoice.
       </P>
       <P>
-        When a customer pays more than an invoice&apos;s balance, tick{" "}
+        When a customer pays more than an invoice&apos;s balance, tick{""}
         <Strong>Record the excess as an on-account customer credit</Strong> in the payment dialog:
         the balance-due portion posts as a normal payment and the overage becomes a credit (
         <Code>DR Bank / CR Customer Credits</Code>) you can apply to their next invoice or refund.
@@ -241,10 +244,11 @@ export function Finance() {
       <H2 id="recurring-invoices">Recurring invoices</H2>
       <P>
         Open <Code>Finance → Recurring</Code> and click <Code>New schedule</Code> to set up a
-        template. Pick a customer, choose how often it should bill — every <Strong>N</Strong>{" "}
-        <Strong>days</Strong>, <Strong>weeks</Strong>, <Strong>months</Strong>,{" "}
+        template. Pick a customer, choose how often it should bill — every <Strong>N</Strong>
+        {""}
+        <Strong>days</Strong>, <Strong>weeks</Strong>, <Strong>months</Strong>,{""}
         <Strong>quarters</Strong> or <Strong>years</Strong>, on the day and at the time you set —
-        and compose the line items just like a normal invoice. The count lets you say{" "}
+        and compose the line items just like a normal invoice. The count lets you say{""}
         <Code>every 2 weeks</Code> or <Code>every 3 months</Code>, not just every one. A
         plain-English summary (for example <Code>Every 2 weeks on Monday at 9:00 AM</Code>) appears
         beneath the picker so you can confirm the cadence before saving.
@@ -263,8 +267,8 @@ export function Finance() {
       <P>
         An AI Employee with <Strong>Invoicing</Strong> Finance access can list and inspect recurring
         invoices, create a schedule, and update its cadence, customer, line items, limits, or
-        status. The four tools are <Code>list_recurring_invoices</Code>,{" "}
-        <Code>get_recurring_invoice</Code>, <Code>create_recurring_invoice</Code>, and{" "}
+        status. The four tools are <Code>list_recurring_invoices</Code>,{""}
+        <Code>get_recurring_invoice</Code>, <Code>create_recurring_invoice</Code>, and{""}
         <Code>update_recurring_invoice</Code>. AI-created schedules are draft-only by default: each
         tick creates an invoice for a Member to review. The employee must set <Code>autoSend</Code>
         explicitly to issue and email every future invoice automatically.
@@ -273,7 +277,7 @@ export function Finance() {
       <H3 id="recurring-controls">Pausing, ending, running now</H3>
       <P>
         From the detail page, <Code>Run now</Code> generates an invoice immediately without
-        consuming the scheduled slot, useful for catch-up runs or testing the template. The{" "}
+        consuming the scheduled slot, useful for catch-up runs or testing the template. The{""}
         <Code>More actions</Code> menu holds the lifecycle controls: <Code>Pause</Code> stops
         scheduled runs without losing the template and <Code>Resume</Code> restarts the next tick
         from now; <Code>End</Code> is terminal — the schedule becomes read-only but every invoice it
@@ -286,12 +290,13 @@ export function Finance() {
       <P>
         Open <Code>Finance → Reconciliation</Code> to match external bank lines to the payments and
         journal entries already recorded in Genosyn. CSV upload works with any bank; Stripe payout
-        and Brex Cash feeds can pull directly from an encrypted Connection under{" "}
+        and Brex Cash feeds can pull directly from an encrypted Connection under{""}
         <DocLink to="/docs/integrations">Finance → Integrations</DocLink>.
       </P>
       <P>
-        Expand a line and Genosyn suggests two kinds of match, ranked by amount and date: recorded{" "}
-        <Strong>invoice payments</Strong> (the money-in side), and any posted{" "}
+        Expand a line and Genosyn suggests two kinds of match, ranked by amount and date: recorded
+        {""}
+        <Strong>invoice payments</Strong> (the money-in side), and any posted{""}
         <Strong>journal entry</Strong> that already touches this feed&apos;s bank account — a bill
         payment, a card settlement, a refund, or a manual entry. That second kind covers the whole
         money-out side that payment matching alone used to miss. Entries already matched to another
@@ -307,9 +312,9 @@ export function Finance() {
         home-currency in this release.)
       </P>
       <P>
-        For Brex, create a <Code>Brex</Code> Connection using a read-only user token, then click{" "}
+        For Brex, create a <Code>Brex</Code> Connection using a read-only user token, then click{""}
         <Code>New feed</Code>, choose <Code>Brex Cash</Code>, select the Connection and Cash
-        account, and map it to the corresponding asset account in the chart of accounts.{" "}
+        account, and map it to the corresponding asset account in the chart of accounts.{""}
         <Code>Sync</Code> walks the settled transaction history on the first pull and fetches only
         recent changes after that. Repeated syncs are safe because Genosyn deduplicates rows by Brex
         transaction id.
@@ -318,9 +323,10 @@ export function Finance() {
       <H3 id="vendor-credits">Vendor credits</H3>
       <P>
         The AP mirror of credit notes. When a supplier credits you — a return, a billing correction
-        — open the bill and click <Code>Vendor credit</Code>. Issuing posts{" "}
+        — open the bill and click <Code>Vendor credit</Code>. Issuing posts{""}
         <Code>DR Vendor Credits / CR the expense account(s) / CR Tax Payable</Code>, reversing the
-        bill&apos;s expense and input tax and parking the value in <Code>1300 Vendor Credits</Code>{" "}
+        bill&apos;s expense and input tax and parking the value in <Code>1300 Vendor Credits</Code>
+        {""}
         (an asset — the supplier owes you). Apply it to a bill to reduce what you owe (
         <Code>DR Accounts Payable / CR Vendor Credits</Code>, capped so AP can&apos;t go negative),
         or record a <Code>Refund</Code> when the supplier pays you back in cash (
@@ -332,7 +338,7 @@ export function Finance() {
       <P>
         Open <Code>Finance → Card expenses</Code> to connect the primary Brex corporate card
         account. Choose the <Code>2300 Corporate Card Payable</Code> liability, a default expense
-        category, and the bank asset used to pay the statement. The Brex user token needs{" "}
+        category, and the bank asset used to pay the statement. The Brex user token needs{""}
         <Code>transactions.card.readonly</Code>.
       </P>
       <P>
@@ -350,7 +356,8 @@ export function Finance() {
         defaults on first visit (1100 Bank, 1200 Accounts Receivable, 2100 Tax Payable, 2300
         Corporate Card Payable, 4000 Sales Revenue, 4910 FX Gain, 6900 FX Loss), but you can rename,
         reparent, or add accounts freely as long as you don&apos;t touch the system codes the
-        auto-posting depends on. From there, the <Code>Trial balance</Code> and <Code>Reports</Code>{" "}
+        auto-posting depends on. From there, the <Code>Trial balance</Code> and <Code>Reports</Code>
+        {""}
         pages produce the standard accountant outputs (P&amp;L, balance sheet, cash flow) with
         optional period comparisons. Each report opens with a monthly graph built from the same
         ledger calculation as the table beneath it: revenue, expenses, and net income for P&amp;L;
@@ -363,8 +370,8 @@ export function Finance() {
       <P>
         A journal entry can be <Strong>staged for review</Strong> instead of posted straight away —
         the classic accounting maker-checker control, where one person drafts an entry and another
-        signs it off. Compose the entry as usual under{" "}
-        <Code>Finance → Journal → New manual entry</Code>, then click{" "}
+        signs it off. Compose the entry as usual under{""}
+        <Code>Finance → Journal → New manual entry</Code>, then click{""}
         <Code>Propose for review</Code> rather than <Code>Post entry</Code>. Nothing hits the ledger
         yet.
       </P>
@@ -378,7 +385,7 @@ export function Finance() {
         proposal stays pending so it can be fixed and retried.
       </P>
       <P>
-        This is also the spine that AI Employees post finance work through: an AI can{" "}
+        This is also the spine that AI Employees post finance work through: an AI can{""}
         <Strong>propose</Strong> an entry, but only a person <Strong>applies</Strong> it, so no
         automation ever moves the books unattended. Every apply and reject is recorded in the audit
         log with who decided and when.
@@ -387,7 +394,7 @@ export function Finance() {
       <H2 id="transaction-review">Review and approve transactions</H2>
       <P>
         Open <Code>Finance → Transactions</Code>. Every posted journal entry — whether it came from
-        an invoice, bill, card purchase, or a manual posting — starts under{" "}
+        an invoice, bill, card purchase, or a manual posting — starts under{""}
         <Strong>Needs review</Strong>. Open a row to inspect its complete debits and credits.
         Expense and revenue lines have an account-category picker; control accounts such as Bank,
         Accounts Receivable, and Card Payable stay visible but cannot be casually recategorized.
@@ -401,8 +408,8 @@ export function Finance() {
       </P>
       <P>
         When several transactions call for the same decision, tick the checkbox on each row (or the
-        header checkbox to take the whole list) and a selection bar appears with bulk{" "}
-        <Code>Approve</Code>, <Code>Return</Code>, <Code>Change category</Code>, and{" "}
+        header checkbox to take the whole list) and a selection bar appears with bulk{""}
+        <Code>Approve</Code>, <Code>Return</Code>, <Code>Change category</Code>, and{""}
         <Code>Delete</Code>. <Strong>Change category</Strong> moves each transaction&apos;s single
         expense or revenue line to one category and approves it in the same step. Bulk delete only
         removes unapproved manual drafts. Every action runs per-transaction: rows that don&apos;t
@@ -439,7 +446,8 @@ export function Finance() {
 
       <H2 id="ai-access">Give AI Employees finance access</H2>
       <P>
-        By default an AI Employee cannot touch Finance at all. Open <Code>Finance → AI access</Code>{" "}
+        By default an AI Employee cannot touch Finance at all. Open <Code>Finance → AI access</Code>
+        {""}
         (owners and admins only) to grant an employee access at one of three escalating levels:
       </P>
       <UL>
@@ -471,7 +479,7 @@ export function Finance() {
       </P>
       <P>
         With Invoicing access, an AI Employee can call <Code>create_estimate</Code> with a customer
-        slug and priced line items. Genosyn creates the same editable draft shown under{" "}
+        slug and priced line items. Genosyn creates the same editable draft shown under{""}
         <Code>Finance → Estimates</Code>, using the customer&apos;s currency and a thirty-day
         validity window by default. The tool deliberately stops there: it assigns no number, changes
         no ledger balance, and sends no email. A Member reviews the draft and chooses when to issue
@@ -480,22 +488,24 @@ export function Finance() {
 
       <H3 id="ai-finance-tools">Finance tools</H3>
       <P>
-        Granted employees use granular built-in Finance tools, reached through{" "}
+        Granted employees use granular built-in Finance tools, reached through{""}
         <Code>find_tools</Code> and <Code>call_tool</Code>. The read tools (
-        <Code>list_invoices</Code>, <Code>get_invoice</Code>, <Code>list_customers</Code>,{" "}
-        <Code>get_customer</Code>, <Code>list_recurring_invoices</Code>,{" "}
-        <Code>get_recurring_invoice</Code>, plus the accounts / transactions / report tools) need{" "}
-        <Strong>Read</Strong>. <Code>create_estimate</Code>, <Code>create_recurring_invoice</Code>,{" "}
+        <Code>list_invoices</Code>, <Code>get_invoice</Code>, <Code>list_customers</Code>,{""}
+        <Code>get_customer</Code>, <Code>list_recurring_invoices</Code>,{""}
+        <Code>get_recurring_invoice</Code>, plus the accounts / transactions / report tools) need
+        {""}
+        <Strong>Read</Strong>. <Code>create_estimate</Code>, <Code>create_recurring_invoice</Code>,
+        {""}
         <Code>update_recurring_invoice</Code>, and the invoice lifecycle (
-        <Code>create_invoice</Code>, <Code>send_invoice</Code>, <Code>record_payment</Code>,{" "}
+        <Code>create_invoice</Code>, <Code>send_invoice</Code>, <Code>record_payment</Code>,{""}
         <Code>void_invoice</Code>, <Code>create_customer</Code>, and <Code>update_customer</Code>)
-        need <Strong>Invoicing</Strong>. Amounts are integer minor units (cents), so{" "}
+        need <Strong>Invoicing</Strong>. Amounts are integer minor units (cents), so{""}
         <Code>5000</Code> is $50.00. Without a Finance grant, calls are refused with a clear access
         error and the tools are deprioritized in discovery.
       </P>
       <P>
         When an AI Employee sends an invoice, any <Code>To</Code> / <Code>Cc</Code> it supplies is
-        restricted to the customer&apos;s own email domain or a finance mailbox you saved under{" "}
+        restricted to the customer&apos;s own email domain or a finance mailbox you saved under{""}
         <Code>Finance → Settings → Always Cc</Code> — an AI can&apos;t mail company documents to an
         arbitrary outside address, even if a malicious invoice memo or bank description tries to
         talk it into doing so. A person sending from the invoice page is unaffected and can still
@@ -505,7 +515,8 @@ export function Finance() {
       <H3 id="ai-invoice-email">Emailing an invoice PDF</H3>
       <P>
         An employee that also has an <DocLink to="/docs/email">Email</DocLink> grant can attach an
-        invoice&apos;s PDF straight to a message — no need to dig the file out of a past email. The{" "}
+        invoice&apos;s PDF straight to a message — no need to dig the file out of a past email. The
+        {""}
         <Code>create_mail_draft</Code> and <Code>send_mail</Code> tools (and the Gmail
         integration&apos;s <Code>gmail_create_draft</Code> / <Code>gmail_send_message</Code>) take
         an <Code>attachments</Code> list; name an invoice by <Code>invoiceSlug</Code> and Genosyn
@@ -519,7 +530,7 @@ export function Finance() {
       <P>
         At the <Strong>Full accounting</Strong> level an employee can also inspect posted
         transactions and semi-approve one with a concise review note and optional category
-        proposals. The proposal does not change the ledger. It moves the transaction to{" "}
+        proposals. The proposal does not change the ledger. It moves the transaction to{""}
         <Strong>AI reviewed</Strong> and notifies company owners/admins, who accept the proposal,
         change it, or return the transaction for another look. AI Employees cannot issue final
         approval.

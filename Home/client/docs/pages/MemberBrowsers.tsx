@@ -22,7 +22,7 @@ export function MemberBrowsers() {
           <>
             Let an AI Employee work in a Chrome running on your own computer instead of the one
             inside Genosyn. A small bridge you run on that machine opens a Chrome window, dials
-            Genosyn over an outbound connection, and the employee&apos;s existing{" "}
+            Genosyn over an outbound connection, and the employee&apos;s existing{""}
             <Code>browser_*</Code> tools drive it — on your network, on your screen, with the sites
             you signed into.
           </>
@@ -123,7 +123,7 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
             term: "pair",
             def: (
               <>
-                Exchanges the one-time code for a long-lived bridge token, written to{" "}
+                Exchanges the one-time code for a long-lived bridge token, written to{""}
                 <Code>~/.genosyn/browser-bridge.json</Code> with owner-only permissions.
               </>
             ),
@@ -144,7 +144,8 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       />
       <P>
         The bridge has no dependencies to install, keeps everything under <Code>~/.genosyn/</Code> (
-        the Chrome profile, the token, a log), and refuses to talk to a Genosyn served over plain{" "}
+        the Chrome profile, the token, a log), and refuses to talk to a Genosyn served over plain
+        {""}
         <Code>http</Code> unless it is on the same machine — a bearer token that opens a channel
         into a browser has no business crossing a network in the clear.
       </P>
@@ -166,11 +167,13 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
         The two lists are checked independently and a URL must pass <Strong>both</Strong>, so
         granting an employee your browser can only ever narrow where it may go, never widen it. The
         list is also pushed down to the bridge and re-checked there, on your machine, before the
-        navigation reaches Chrome — along with a refusal of anything that is not <Code>http</Code>{" "}
+        navigation reaches Chrome — along with a refusal of anything that is not <Code>http</Code>
+        {""}
         or <Code>https</Code>, and of Genosyn&apos;s own origin. Edits apply immediately.
       </P>
       <P>
-        The bridge additionally refuses a set of DevTools commands that the <Code>browser_*</Code>{" "}
+        The bridge additionally refuses a set of DevTools commands that the <Code>browser_*</Code>
+        {""}
         tools never need and that would each take something from a personal machine: writing
         downloads to your disk, reading or replacing the profile&apos;s whole cookie jar, turning
         off certificate checks, or closing the browser out from under you. It is defence in depth
@@ -186,7 +189,7 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
         under <Strong>AI Employees allowed to use it</Strong>. Until you do, nothing can reach it.
       </P>
       <P>
-        Then, in the chat header, the browser picker switches the conversation between{" "}
+        Then, in the chat header, the browser picker switches the conversation between{""}
         <Strong>Genosyn&apos;s browser</Strong> and any of your own. The choice sticks to that
         conversation rather than to the next message, and switching mid-thread starts a fresh
         browser session rather than carrying the old one over. There is deliberately no tool for
@@ -234,9 +237,9 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       <P>
         <Strong>Ask me before submitting a form</Strong> is on when you connect a browser. The pages
         reachable here are ones a human deliberately signed into, so a submit is worth a look. It
-        works exactly like the employee-level setting described under{" "}
+        works exactly like the employee-level setting described under{""}
         <DocLink to="/docs/browser">Browser</DocLink>: <Code>browser_submit</Code> queues an
-        Approval with the page URL and a one-line summary, and the employee re-fires it with{" "}
+        Approval with the page URL and a one-line summary, and the employee re-fires it with{""}
         <Code>browser_resume</Code> once a company owner or admin approves. The approval is bound to
         the page it was raised on and fires exactly once.
       </P>
@@ -317,7 +320,8 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
         under a plausible label. That credential is not the company&apos;s to take.
       </Callout>
       <Callout kind="warn" title="TOTP and passkey Vault tools are refused">
-        Member browsers do not allow <Code>browser_fill_vault</Code> with the <Code>totp</Code>{" "}
+        Member browsers do not allow <Code>browser_fill_vault</Code> with the <Code>totp</Code>
+        {""}
         field,
         <Code>browser_prepare_vault_totp</Code>, <Code>browser_save_vault_totp</Code>, or either
         Vault passkey create/use tool. Those flows operate only in Genosyn&apos;s App-owned browser.
@@ -339,8 +343,8 @@ node genosyn-bridge.mjs pair --server https://your-genosyn.example.com --code AB
       </P>
       <P>
         Removing a single employee&apos;s grant is the narrower version of the same thing, and is
-        just as immediate. On the computer, stop the bridge and run{" "}
-        <Code>node genosyn-bridge.mjs logout</Code> to delete the local token; delete{" "}
+        just as immediate. On the computer, stop the bridge and run{""}
+        <Code>node genosyn-bridge.mjs logout</Code> to delete the local token; delete{""}
         <Code>~/.genosyn/chrome-profile</Code> too if you want the signed-in sessions in that window
         gone.
       </P>

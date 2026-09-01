@@ -28,7 +28,7 @@ export function Policies() {
             term: "Prose",
             def: (
               <>
-                Markdown injected into every employee&apos;s system prompt, in a{" "}
+                Markdown injected into every employee&apos;s system prompt, in a{""}
                 <Code>## Company policies</Code> section. &quot;Never discuss pricing over
                 email,&quot; &quot;always disclose that you are an AI&quot; — the rules a human
                 handbook would carry.
@@ -40,7 +40,7 @@ export function Policies() {
             def: (
               <>
                 Recipient domains no email may go to — a competitor, a regulator, a litigation
-                counterparty. Enforced at the same mail-send choke point as the{" "}
+                counterparty. Enforced at the same mail-send choke point as the{""}
                 <DocLink to="/docs/deliverability#suppression">suppression list</DocLink>, for every
                 sender, human or AI. Subdomains are covered; lookalike domains (
                 <Code>notacme.com</Code> for <Code>acme.com</Code>) are not false-matched. The error
@@ -53,7 +53,7 @@ export function Policies() {
             def: (
               <>
                 Genosyn catalogue tool names no employee may call — refused at AI tool dispatch with
-                a <Code>policy.violation</Code> audit event. <Code>find_tools</Code> and{" "}
+                a <Code>policy.violation</Code> audit event. <Code>find_tools</Code> and{""}
                 <Code>call_tool</Code> cannot be forbidden, so an employee can always discover that
                 a refusal came from policy rather than a broken tool.
               </>
@@ -64,7 +64,7 @@ export function Policies() {
 
       <H2 id="above-the-soul">Policies frame the Soul</H2>
       <P>
-        The <Code>## Company policies</Code> section sits <Strong>above</Strong> the{" "}
+        The <Code>## Company policies</Code> section sits <Strong>above</Strong> the{""}
         <DocLink to="/docs/soul">Soul</DocLink> in every employee&apos;s prompt, and that ordering
         is the point: policies bind the whole company, and each employee&apos;s Soul is read inside
         their frame — never the reverse. A Soul describes one employee&apos;s character and
@@ -90,7 +90,7 @@ export function Policies() {
         </LI>
       </UL>
       <P>
-        Every enforcement is on the record. A blocked send or a refused tool call writes a{" "}
+        Every enforcement is on the record. A blocked send or a refused tool call writes a{""}
         <Code>policy.violation</Code> audit event naming the policy, the actor, and what was refused
         — so drift between what the rules say and what employees attempt is legible in the audit
         log, not silent.
@@ -99,7 +99,7 @@ export function Policies() {
       <H2 id="ad-spend-budgets">Ad-spend budgets</H2>
       <P>
         A <Strong>Budget</Strong> is a monthly envelope over authorized ad-spend increases — the
-        company-wide layer above the per-Connection{" "}
+        company-wide layer above the per-Connection{""}
         <DocLink to="/docs/marketing#model">caps</DocLink>. Where a cap says &quot;no single change,
         day, or rolling month may exceed this on this Connection,&quot; a Budget says &quot;this
         scope authorizes at most this much this calendar month,&quot; measured over the UTC calendar
@@ -107,7 +107,7 @@ export function Policies() {
       </P>
       <P>
         A Budget scopes to the <Strong>whole company</Strong>, one <Strong>Connection</Strong>, or
-        one <Strong>AI Employee</Strong>, and a spend increase must fit inside{" "}
+        one <Strong>AI Employee</Strong>, and a spend increase must fit inside{""}
         <Strong>every</Strong> applicable envelope — the tightest binds. Enforcement runs at the
         same seam as the caps, on every spend-increasing mutation on every path, including approval
         replays: an envelope that ran dry between an Approval queueing and a human&apos;s ✓ still
@@ -116,7 +116,7 @@ export function Policies() {
       <UL>
         <LI>
           <Strong>Exhaustion refuses, names, and redirects.</Strong> The mutation fails with the
-          budget named and its remaining headroom, and the employee is told to raise a{" "}
+          budget named and its remaining headroom, and the employee is told to raise a{""}
           <DocLink to="/docs/decisions">Decision</DocLink> or wait for the month — not to retry.
         </LI>
         <LI>
@@ -144,13 +144,13 @@ export function Policies() {
         The open web is where hostile content meets side effects: a page an employee fetched can
         address the model directly, and what an injected instruction most wants is an outbound email
         or a persistent foothold. So Genosyn tracks <Strong>taint</Strong> per turn, on by default.
-        A turn that uses the <DocLink to="/docs/browser#web-tools">web tools</DocLink> —{" "}
+        A turn that uses the <DocLink to="/docs/browser#web-tools">web tools</DocLink> —{""}
         <Code>search_web</Code>, <Code>fetch_web_page</Code>, <Code>download_web_file</Code> — is
         marked tainted for the rest of that turn. There is no untainting: the model has already read
         whatever the page said.
       </P>
       <P>
-        A tainted turn calling a high-risk sink — <Code>send_mail</Code>, or{" "}
+        A tainted turn calling a high-risk sink — <Code>send_mail</Code>, or{""}
         <Code>create_routine</Code> / <Code>update_routine</Code> / <Code>delete_routine</Code>, the
         tools an injection would use to persist itself on a schedule — does not execute it. The
         verbatim call is held as an <Strong>Approval</Strong> (kind <Code>tainted_tool</Code>) in
@@ -169,10 +169,10 @@ export function Policies() {
         </LI>
       </UL>
       <P>
-        The gate is configured by a master admin at <Code>Admin → Runtime</Code>, under{" "}
-        <Strong>Agent</Strong> — <Code>&quot;web&quot;</Code> (the default) arms it,{" "}
+        The gate is configured by a master admin at <Code>Admin → Runtime</Code>, under{""}
+        <Strong>Agent</Strong> — <Code>&quot;web&quot;</Code> (the default) arms it,{""}
         <Code>&quot;off&quot;</Code> disables it. It is stored in the database and takes effect
-        without a restart; see{" "}
+        without a restart; see{""}
         <DocLink to="/docs/self-hosting#runtime-settings">Configuration</DocLink>.
       </P>
       <Callout kind="info" title="Deliberately narrow, for now.">
@@ -184,7 +184,7 @@ export function Policies() {
       </Callout>
 
       <Callout kind="tip" title="Three rails, one shape.">
-        A policy, a Budget, and the taint gate all work the way{" "}
+        A policy, a Budget, and the taint gate all work the way{""}
         <DocLink to="/docs/autonomy">earned autonomy</DocLink> does in reverse: the platform holds
         the line mechanically, humans move it deliberately, and every refusal leaves a record.
       </Callout>

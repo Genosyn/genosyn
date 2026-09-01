@@ -1,26 +1,59 @@
 import type { ReactNode } from "react";
 import { Nav } from "@/sections/Nav";
 import { Footer, InstallCta } from "@/sections/Footer";
-import { PageHero } from "@/sections/HeroKit";
+import { Mark } from "@/components/Marks";
 import {
   ActionStrip,
   Band,
   Body,
+  Chip,
   Container,
+  type Dept,
+  Display,
   Field,
-  Heading,
+  Head,
   Lede,
-  Plate,
-  Rail,
+  Pane,
   Row,
   Sheet,
   TextLink,
 } from "@/sections/Kit";
 import { PRODUCTS, type ProductDef } from "@/products/data";
-import { ProductPrototype, type PrototypeCrop } from "@/products/ProductPrototype";
+import { PRODUCT_DEPT, ProductPrototype, type PrototypeCrop } from "@/products/ProductPrototype";
 
 /**
  * The product detail page. Fourteen routes render it.
+ *
+ * ## The problem this page has, and how HEADCOUNT solves it
+ *
+ * Fourteen pages share one layout, and until now nothing but the nouns told
+ * them apart. Two earlier attempts at a fix are still visible in the file and
+ * both were right as far as they went: every page leads with a concrete
+ * detail written per product in `PAGES`, and every page crops the prototype to
+ * a different height so the picture at the top is a different shape fourteen
+ * times.
+ *
+ * HEADCOUNT adds the thing neither could: **each product belongs to a
+ * department, and the department is a colour.** The binding lives in
+ * `PRODUCT_DEPT` and it is used exactly three times on this page — the hero
+ * chip, the 3px spine down the two row stacks, and the pane edge under the
+ * prototype. Finance is bottle green on every one of its surfaces, Email is
+ * blue on every one of its, and a reader who has decoded the wall on the
+ * landing page arrives here already knowing what the colour means.
+ *
+ * The rule that makes it work rather than decorate: **a hue only ever means
+ * its department.** So the headline is never coloured, the FAQ rows carry no
+ * spine (a reader's question belongs to no department), and the cross-links
+ * at the foot carry *their own* products' hues rather than this page's —
+ * which turns the tail of the page into a small org chart.
+ *
+ * ## The one thing on the page with no hue
+ *
+ * Seven of the fourteen products stop for a person somewhere. Those pages
+ * print the stop as an ink block beside the "who works it" heading, in the
+ * same near-black the wall's eighth cell uses. The other seven print nothing
+ * there, because inventing a stop for a product that does not have one would
+ * be the only actually dishonest thing this page could do.
  *
  * ## What was deleted, and why restyling it was not an option
  *
@@ -29,49 +62,45 @@ import { ProductPrototype, type PrototypeCrop } from "@/products/ProductPrototyp
  * rounded card whose divider classes were computed from each item's index
  * against the column count — a hack that existed only so Paid Marketing's
  * fifth check did not render as a borderless orphan. Under it came a grid of
- * bordered feature cards that lifted on hover, a night band with an aurora
- * wash, and a `<details>` accordion under the heading "Frequently asked."
+ * bordered feature cards that lifted on hover, a band with an aurora wash,
+ * and a `<details>` accordion under the heading "Frequently asked."
  *
  * The features are rules-separated `Row`s now, and a row is correct at one
  * item or at nine, which is what removes the reason the orphan hack existed
  * rather than fixing it. The checklist is gone outright: four claims with
- * green ticks beside them is the least evidential shape a fact can take, and
- * everything the checks said is already in the rail's mono fields or in a
- * feature row.
- *
- * ## The problem this page has that the others do not
- *
- * Fourteen pages, one layout, and — since the accents went — no colour to
- * tell them apart. Two things do the work instead, and neither is decoration:
- *
- *   1. **Every page leads with its own concrete detail.** The headline, the
- *      rail's fields and the three section headings are written per product
- *      in `PAGES` below, out of what that product actually does: a cron line
- *      for AI Employees, `ENG-42` for Tasks, 25 MB for Workspace, the 30
- *      second / 5,000 row cap for Explore. A generated headline would have
- *      produced fourteen identical sentences with a noun swapped, which is
- *      the failure mode being avoided.
- *   2. **Every page shows a different amount of the prototype.** Each crop is
- *      the tallest one still shorter than that product's own mock, measured
- *      rather than guessed, so the figure is always a window onto a screen
- *      that continues past it and never a box with dead space at the bottom.
- *      The result is that the picture at the top of each page is a visibly
- *      different shape rather than the same rectangle fourteen times.
+ * green ticks beside them is the least evidential shape a fact can take.
  */
 
 type PageCopy = {
   /** The h1. One clause, at most nine words, carrying a number or a name. */
   title: string;
-  /** Rail gutter fields. Strings the software emitted, kept under ~20 chars
-      so Martian Mono does not push the line off a 375px screen. */
+  /** Emitted data for the hero's closing strip. Never a claim. */
   fields: string[];
-  /** Sheet 02's heading. */
+  /** The "what it does" band's heading. */
   does: string;
-  /** Sheet 03's heading. */
+  /** The "who works it" band's heading. */
   staff: string;
   /** The figure caption under the prototype. */
   caption: string;
   crop: PrototypeCrop;
+  /**
+   * The moment in this product a person still has to clear, if there is one.
+   *
+   * It is copied from that product's own prototype story rather than written
+   * fresh, so the ink block on the page and the ink strip inside the picture
+   * beside it say the same thing. Six of the seven are verbatim; Paid
+   * Marketing's joins the story's second and third steps, because "the * increase is held" is not a sentence on its own without the amount.
+   *
+   * Nothing enforces the copy — `PRODUCT_STORIES` is private to
+   * `ProductPrototype.tsx` and this is a second literal — so if a story's last
+   * step is reworded, the matching line here has to be reworded with it.
+   * Deriving it instead was rejected because it would export the story table
+   * for one string and would silently overwrite the Paid Marketing exception.
+   *
+   * Seven products have a stop; the other seven leave this undefined and print
+   * nothing, which is the honest answer rather than a softer sentence.
+   */
+  stop?: { kind: "decision" | "approval"; line: string };
 };
 
 const PAGES: Record<string, PageCopy> = {
@@ -82,6 +111,7 @@ const PAGES: Record<string, PageCopy> = {
     staff: "Genosyn owns the model loop.",
     caption: "An AI Employee mid-Run at 06:00, one exception stacked.",
     crop: "screen",
+    stop: { kind: "decision", line: "One exception is waiting for a Member to answer." },
   },
   workspace: {
     title: "An @mention pulls Alex into #marketing.",
@@ -98,6 +128,7 @@ const PAGES: Record<string, PageCopy> = {
     staff: "Employees move work to in_review.",
     caption: "The board at 08:15, one todo held in review.",
     crop: "panel",
+    stop: { kind: "approval", line: "The todo is sitting in a human reviewer's queue." },
   },
   bases: {
     title: "Bases ships eleven field types today.",
@@ -146,6 +177,7 @@ const PAGES: Record<string, PageCopy> = {
     staff: "A Brand Search increase stopped at the Approval.",
     caption: "A budget change at 10:05, held at the Approval.",
     crop: "screen",
+    stop: { kind: "approval", line: "Brand Search wants another $400 a day, and it is held." },
   },
   revenue: {
     title: "The Deal timeline fills itself from Gmail.",
@@ -154,6 +186,7 @@ const PAGES: Record<string, PageCopy> = {
     staff: "A Sequence waits for a human Send.",
     caption: "A Deal at 06:35, one Sequence queued and unsent.",
     crop: "screen",
+    stop: { kind: "approval", line: "A Sequence is queued and nothing has sent." },
   },
   email: {
     title: "Gmail syncs both ways in about a minute.",
@@ -162,6 +195,7 @@ const PAGES: Record<string, PageCopy> = {
     staff: "Mira drafted 31 replies overnight.",
     caption: "The inbox at 05:45, three replies drafted and unsent.",
     crop: "panel",
+    stop: { kind: "approval", line: "Three replies are drafted and none have sent." },
   },
   customers: {
     title: "Statements age receivables into five buckets.",
@@ -178,6 +212,7 @@ const PAGES: Record<string, PageCopy> = {
     staff: "41 of 42 charges matched themselves.",
     caption: "The ledger at 04:05, one charge left to classify.",
     crop: "panel",
+    stop: { kind: "decision", line: "One £42 charge needs a Member to classify it." },
   },
   repositories: {
     title: "Repositories clones any git URL into Genosyn.",
@@ -186,6 +221,7 @@ const PAGES: Record<string, PageCopy> = {
     staff: "Sam left the branch for a human.",
     caption: "A diff at 05:10, waiting on a human merge.",
     crop: "panel",
+    stop: { kind: "approval", line: "The branch is waiting on a human merge." },
   },
 };
 
@@ -193,7 +229,8 @@ const PAGES: Record<string, PageCopy> = {
  * The fallback exists because `PRODUCTS` is data and this table is copy, and
  * a product added to one without the other must still render a page rather
  * than crash the prerenderer. It is deliberately dull: a page that falls
- * through to it is visibly unfinished, which is the correct signal.
+ * through to it is visibly unfinished, which is the correct signal. It
+ * carries no `stop`, because a stop nobody wrote is a stop that is not there.
  */
 function pageFor(product: ProductDef): PageCopy {
   return (
@@ -210,52 +247,15 @@ function pageFor(product: ProductDef): PageCopy {
 
 export function ProductPage({ product }: { product: ProductDef }) {
   const page = pageFor(product);
+  const dept = PRODUCT_DEPT[product.slug] ?? "operations";
 
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-900">
+    <div className="min-h-screen bg-ground text-ink">
       <Nav />
       <main>
-        <PageHero
-          sheet={`01 / ${product.name}`}
-          fields={[product.category.toUpperCase(), ...page.fields]}
-          title={page.title}
-          lede={product.intro}
-          actions={
-            <>
-              {/* The breadcrumb keeps its landmark and its label. It sits
-                  under the lede rather than over the headline because
-                  `PageHero` has one slot and the site has one opening move:
-                  sheet number, headline, lede, then controls. */}
-              <nav
-                aria-label="Breadcrumb"
-                className="mb-7 flex flex-wrap items-baseline gap-x-4 gap-y-2"
-              >
-                <TextLink href="/products">All products</TextLink>
-                <Sheet>{product.category}</Sheet>
-              </nav>
-
-              {/* The install band at the foot of this page carries the same
-                  offer, so the strip goes to the guide rather than scrolling
-                  the reader four screens to find it. */}
-              <ActionStrip href="/docs/install" trailing="Guide">
-                Install Genosyn
-              </ActionStrip>
-              {/* Notes and Resources have no docs page of their own yet, so
-                  the label has to promise the index, not a page. */}
-              <ActionStrip href={product.docsPath ?? "/docs"} trailing="Docs" className="-mt-px">
-                {product.docsPath ? `Read the ${product.name} docs` : "Read the documentation"}
-              </ActionStrip>
-            </>
-          }
-          aside={
-            <Plate figure="Fig. 1" caption={page.caption}>
-              <ProductPrototype product={product} crop={page.crop} />
-            </Plate>
-          }
-        />
-
-        <WhatItDoes product={product} page={page} />
-        <WithEmployees product={product} page={page} />
+        <ProductHero product={product} page={page} dept={dept} />
+        <WhatItDoes product={product} page={page} dept={dept} />
+        <WithEmployees product={product} page={page} dept={dept} />
         <Questions product={product} />
         <MoreProducts current={product} />
 
@@ -266,8 +266,118 @@ export function ProductPage({ product }: { product: ProductDef }) {
   );
 }
 
+/* -------------------------------------------------------------------------
+   The hero
+------------------------------------------------------------------------- */
+
 /**
- * Column widths for the two tables on this page.
+ * The opening band, composed here rather than taken from `PageHero`.
+ *
+ * `PageHero` types its eyebrow as a `string`, and this page's eyebrow is a
+ * department `Chip` — the first and loudest place a reader is told which of
+ * the seven this product belongs to. Rather than reach into a shared
+ * component owned by another part of the revamp, the band is composed from
+ * the Kit directly and keeps `PageHero`'s proportions exactly: the same
+ * `lg` split, the same `gap-x-16`, the same hairline-topped strip of emitted
+ * data closing the band. So the two index pages and the fourteen detail pages
+ * still open on the same shape; only this one names a department.
+ */
+function ProductHero({ product, page, dept }: { product: ProductDef; page: PageCopy; dept: Dept }) {
+  return (
+    <Band tone="ground" pad="m" rule={false}>
+      <Container>
+        <div className="mb-5">
+          <Chip dept={dept}>{dept}</Chip>
+        </div>
+
+        <div className="grid gap-x-16 gap-y-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:items-start">
+          <div className="min-w-0">
+            <Display as="h1" className="max-w-[20ch]">
+              {page.title}
+            </Display>
+
+            <div className="mt-7 min-w-0">
+              <Lede>{product.intro}</Lede>
+
+              {/* The breadcrumb keeps its landmark and its label. It sits
+                  under the lede rather than over the headline because the
+                  eyebrow slot is spent on the department. */}
+              <nav
+                aria-label="Breadcrumb"
+                className="mt-8 flex flex-wrap items-baseline gap-x-4 gap-y-2"
+              >
+                <TextLink href="/products">All products</TextLink>
+                <Sheet>{product.category}</Sheet>
+              </nav>
+
+              {/* The install band at the foot of this page carries the same
+                  offer, so the strip goes to the guide rather than scrolling
+                  the reader four screens to find it. */}
+              <div className="mt-6 max-w-[34rem]">
+                <ActionStrip href="/docs/install" trailing="Guide">
+                  Install Genosyn
+                </ActionStrip>
+                {/* Notes and Resources have no docs page of their own yet, so
+                    the label has to promise the index, not a page. */}
+                <ActionStrip href={product.docsPath ?? "/docs"} trailing="Docs" className="-mt-px">
+                  {product.docsPath ? `Read the ${product.name} docs` : "Read the documentation"}
+                </ActionStrip>
+              </div>
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            <ProductFigure product={product} page={page} dept={dept} />
+          </div>
+        </div>
+
+        <div className="mt-12 flex flex-wrap items-baseline gap-x-8 gap-y-2 border-t border-hairline pt-4">
+          {page.fields.map((field) => (
+            <Field key={field}>{field}</Field>
+          ))}
+        </div>
+      </Container>
+    </Band>
+  );
+}
+
+/**
+ * The prototype as a numbered figure.
+ *
+ * `Plate` would be the obvious primitive and is the wrong one here: it draws
+ * its own 1px frame and takes no department, so using it would mean either a
+ * mock with no hue or two nested frames around one picture. A `Pane` carries
+ * the 3px department edge — the treatment the Kit reserves for "a picture of * the application" — and the caption is the same two-part figcaption `Plate`
+ * prints, so the figure reads identically to every other one on the site.
+ */
+function ProductFigure({
+  product,
+  page,
+  dept,
+}: {
+  product: ProductDef;
+  page: PageCopy;
+  dept: Dept;
+}) {
+  return (
+    <figure>
+      <Pane dept={dept}>
+        <ProductPrototype product={product} crop={page.crop} />
+      </Pane>
+      <figcaption className="mt-3 flex flex-wrap items-baseline gap-x-3">
+        <Sheet>Fig. 1</Sheet>
+        <span className="text-[14px] italic leading-6 text-ink2">{page.caption}</span>
+      </figcaption>
+    </figure>
+  );
+}
+
+/* -------------------------------------------------------------------------
+   The row stacks
+------------------------------------------------------------------------- */
+
+/**
+ * Column widths for the three tables on this page.
  *
  * The grid only exists from `lg`; below it the cells stack, which is the
  * honest projection at 375px. The index column is 2.5rem because a two-digit
@@ -286,15 +396,32 @@ const FAQ_COLUMNS = "gap-x-6 gap-y-2 lg:grid-cols-[20rem_minmax(0,1fr)]";
  * heading list is built from, and on fourteen pages it is the only structure
  * inside a band. This renders the same three type classes `Body` would have
  * resolved to — so nothing moves by a pixel — on the element the content
- * actually is. It composes from the index.css type ramp rather than inventing
- * one, which is what the Kit rule asks for when the Kit has no primitive.
+ * actually is.
  */
 function RowTitle({ children }: { children: ReactNode }) {
-  return <h3 className="t-body text-[1.0625rem] leading-6 text-zinc-950">{children}</h3>;
+  return <h3 className="text-[1.0625rem] leading-6 text-ink">{children}</h3>;
 }
 
 /**
- * Sheet 02 — what the product does.
+ * A spined stack of rows.
+ *
+ * `Row` puts a 3px department edge on its left when given a `dept`, and
+ * because rows share their hairlines the edge runs unbroken from the first
+ * row to the last: one continuous bar saying "all of this is Finance". That
+ * is the Kit's stated shape for a set of things, and it is why this page
+ * needs no card, no tile and no icon to make a list of six features look like
+ * a list of six features.
+ *
+ * The header only exists from `lg`, and its padding has to match a spined
+ * row's `pl-4` rather than an unspined row's `px-1`, or the column titles sit
+ * 12px left of the column.
+ */
+function StackHeader({ columns, children }: { columns: string; children: ReactNode }) {
+  return <div className={`hidden w-full pl-4 pb-2 lg:grid ${columns}`}>{children}</div>;
+}
+
+/**
+ * The "what it does" band.
  *
  * Every feature is a row: an index, a name, and the sentence. There is no
  * card, no tile and no icon, and the important consequence is that the block
@@ -303,118 +430,162 @@ function RowTitle({ children }: { children: ReactNode }) {
  * different column counts to stop the leftovers rendering as orphans, and
  * this needs none, because a stack of rows has no leftovers.
  */
-function WhatItDoes({ product, page }: { product: ProductDef; page: PageCopy }) {
+function WhatItDoes({ product, page, dept }: { product: ProductDef; page: PageCopy; dept: Dept }) {
   return (
-    <Band id="what-it-does" tone="paper" pad="m">
+    <Band id="what-it-does" tone="ground" pad="m">
       <Container>
-        <Rail sheet="02 / What it does" fields={[`${product.features.length} PARTS`]}>
-          <Heading as="h2" className="max-w-[22ch]">
-            {page.does}
-          </Heading>
-          <Lede className="mt-7">{product.summary}</Lede>
+        <Head
+          eyebrow={`What it does · ${product.features.length} parts`}
+          title={page.does}
+          lede={product.summary}
+        />
 
-          <div className="mt-12">
-            <div className={`hidden w-full px-1 pb-2 lg:grid ${FEATURE_COLUMNS}`}>
-              <Sheet>No.</Sheet>
-              <Sheet>Part</Sheet>
-              <Sheet>What it is</Sheet>
-            </div>
+        <div className="mt-12">
+          <StackHeader columns={FEATURE_COLUMNS}>
+            <Sheet>No.</Sheet>
+            <Sheet>Part</Sheet>
+            <Sheet>What it is</Sheet>
+          </StackHeader>
 
-            {product.features.map((feature, index) => (
-              <Row key={feature.title}>
-                <div className={`grid w-full min-w-0 ${FEATURE_COLUMNS}`}>
-                  <Field>{String(index + 1).padStart(2, "0")}</Field>
-                  <RowTitle>{feature.title}</RowTitle>
-                  <Body>{feature.body}</Body>
-                </div>
-              </Row>
-            ))}
-          </div>
-        </Rail>
+          {product.features.map((feature, index) => (
+            <Row key={feature.title} dept={dept}>
+              <div className={`grid w-full min-w-0 ${FEATURE_COLUMNS}`}>
+                <Field>{String(index + 1).padStart(2, "0")}</Field>
+                <RowTitle>{feature.title}</RowTitle>
+                <Body>{feature.body}</Body>
+              </div>
+            </Row>
+          ))}
+        </div>
       </Container>
     </Band>
   );
 }
 
 /**
- * Sheet 03 — with AI Employees.
+ * The "who works it" band.
  *
  * This band used to be near-black with an aurora wash over it, on all
- * fourteen pages. Night is reserved for the section of the landing page that
- * is literally about work happening in the dark; spending it again here is
- * what made every page read as the same sequence of slabs. `raised` is the
- * one tone change this page gets, and it goes to the band carrying the
- * argument.
+ * fourteen pages — which is exactly how every page came to read as the same
+ * sequence of slabs. It is a plain surface band now, and the near-black is
+ * spent on the one thing that earns it: the stop.
  */
-function WithEmployees({ product, page }: { product: ProductDef; page: PageCopy }) {
+function WithEmployees({
+  product,
+  page,
+  dept,
+}: {
+  product: ProductDef;
+  page: PageCopy;
+  dept: Dept;
+}) {
   return (
-    <Band id="with-employees" tone="raised" pad="m">
+    <Band id="with-employees" tone="surface" pad="m">
       <Container>
-        <Rail sheet="03 / Who works it" fields={[`${product.employees.bullets.length} BEHAVIOURS`]}>
-          <Heading as="h2" className="max-w-[22ch]">
-            {page.staff}
-          </Heading>
-          <Lede className="mt-7">{product.employees.body}</Lede>
+        <Head
+          eyebrow={`Who works it · ${product.employees.bullets.length} behaviours`}
+          title={page.staff}
+          lede={product.employees.body}
+          aside={page.stop && <Stop stop={page.stop} />}
+        />
 
-          <div className="mt-12">
-            {product.employees.bullets.map((bullet, index) => (
-              <Row key={bullet.title}>
-                <div className={`grid w-full min-w-0 ${FEATURE_COLUMNS}`}>
-                  <Field>{String(index + 1).padStart(2, "0")}</Field>
-                  <RowTitle>{bullet.title}</RowTitle>
-                  <Body>{bullet.body}</Body>
-                </div>
-              </Row>
-            ))}
-          </div>
-        </Rail>
+        <div className="mt-12">
+          {product.employees.bullets.map((bullet, index) => (
+            <Row key={bullet.title} dept={dept}>
+              <div className={`grid w-full min-w-0 ${FEATURE_COLUMNS}`}>
+                <Field>{String(index + 1).padStart(2, "0")}</Field>
+                <RowTitle>{bullet.title}</RowTitle>
+                <Body>{bullet.body}</Body>
+              </div>
+            </Row>
+          ))}
+        </div>
       </Container>
     </Band>
   );
 }
 
 /**
- * Sheet 04 — questions.
+ * What is still waiting for a person.
+ *
+ * The one object on this page with no hue, in the same near-black the wall's
+ * eighth cell uses, sitting beside a heading whose band is otherwise entirely
+ * one department's colour. That contrast is the argument: the machine is in
+ * colour and the human is in black, and on a product page the reader wants to
+ * know precisely which of the two this product's last step belongs to.
+ *
+ * A Decision and an Approval are named apart rather than collapsed into
+ * "waiting for you". AGENTS.md §3 is explicit that they are different events
+ * — one the employee wrote, one the system interposed — and the Marks encode
+ * the difference in geometry, so the label and the glyph agree.
+ */
+function Stop({ stop }: { stop: NonNullable<PageCopy["stop"]> }) {
+  return (
+    <div className="bg-ink p-4 text-ground">
+      <div className="flex items-center gap-2">
+        <Mark state={stop.kind} className="h-3 w-3" />
+        <span className="t-field">{stop.kind === "decision" ? "Decision" : "Approval"}</span>
+      </div>
+      <p className="mt-3 max-w-[40ch] text-[15px] leading-6">{stop.line}</p>
+    </div>
+  );
+}
+
+/**
+ * The questions.
  *
  * The `<details>` accordion is gone along with its rotating chevron. Hiding
  * five short answers behind five clicks costs the reader every one of them
  * and buys nothing; printed open, they are a two-column table, which is what
- * a question and its answer are. `pad="s"` because this is the tail of the
- * page.
+ * a question and its answer are.
+ *
+ * These rows carry no department spine, and the omission is the point: a
+ * reader's question is not the department's property, and a hue that appeared
+ * on every stack on the page would have stopped meaning anything by the third
+ * one.
  */
 function Questions({ product }: { product: ProductDef }) {
   return (
-    <Band id="questions" tone="paper" pad="s">
+    <Band id="questions" tone="ground" pad="s">
       <Container>
-        <Rail sheet="04 / Questions" fields={[`${product.faqs.length} ANSWERED`]}>
-          <Heading as="h2" className="max-w-[22ch]">
-            {`Readers ask ${product.faqs.length} questions about ${product.name}.`}
-          </Heading>
+        <Head
+          eyebrow={`Questions · ${product.faqs.length} answered`}
+          title={`Readers ask ${product.faqs.length} questions about ${product.name}.`}
+        />
 
-          <div className="mt-10">
-            {product.faqs.map((faq) => (
-              <Row key={faq.q}>
-                <div className={`grid w-full min-w-0 ${FAQ_COLUMNS}`}>
-                  <RowTitle>{faq.q}</RowTitle>
-                  <Body>{faq.a}</Body>
-                </div>
-              </Row>
-            ))}
-          </div>
-        </Rail>
+        <div className="mt-10">
+          {product.faqs.map((faq) => (
+            <Row key={faq.q}>
+              <div className={`grid w-full min-w-0 ${FAQ_COLUMNS}`}>
+                <RowTitle>{faq.q}</RowTitle>
+                <Body>{faq.a}</Body>
+              </div>
+            </Row>
+          ))}
+        </div>
       </Container>
     </Band>
   );
 }
 
 /**
- * Sheet 05 — the rest of the catalogue.
+ * The rest of the catalogue, as a small org chart.
  *
  * Same-category products first, because a reader on the Finance page is more
- * likely to want Revenue than Notes. The rows are links, so they take the
- * hover inversion, and the cells that set their own colour have to answer it
- * — `Row` puts `group` on the link and flips the text on itself, which cannot
- * reach a child that already declared a colour.
+ * likely to want Revenue than Notes.
+ *
+ * Each row takes **its own** product's department spine rather than this
+ * page's, so the four rows carry three or four different hues depending on
+ * which page you are standing on. It is the whole system in four rows: a
+ * reader on `/products/notes` is told that Resources is filed with
+ * Repositories alongside it and that Bases is filed with Revenue, without a
+ * word being spent saying so.
+ *
+ * The rows are links, so they take the hover inversion, and the cells that
+ * set their own colour have to answer it — `Row` puts `group` on the link and
+ * flips the text on itself, which cannot reach a child that already declared
+ * a colour. The spine deliberately survives the inversion: a department does
+ * not stop being that department because a cursor is over it.
  */
 function MoreProducts({ current }: { current: ProductDef }) {
   const related = [
@@ -426,32 +597,33 @@ function MoreProducts({ current }: { current: ProductDef }) {
     ),
   ].slice(0, 4);
 
-  const INVERT = "group-hover:!text-paper-50";
+  const INVERT = "group-hover:!text-ground";
 
   return (
-    <Band tone="paper" pad="s">
+    <Band tone="ground" pad="s">
       <Container>
-        <Rail sheet="05 / More products" fields={[`${PRODUCTS.length} IN TOTAL`]}>
-          <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-3">
-            <Heading as="h2" className="max-w-[22ch]">
-              {`${related.length} more products share one database.`}
-            </Heading>
-            <TextLink href="/products">All products</TextLink>
-          </div>
+        <Head
+          eyebrow={`More products · ${PRODUCTS.length} in total`}
+          title={`${related.length} more products share one database.`}
+          aside={<TextLink href="/products">All products</TextLink>}
+        />
 
-          <div className="mt-10">
-            {related.map((product) => (
-              <Row key={product.slug} href={`/products/${product.slug}`}>
-                <div className={`grid w-full min-w-0 ${FAQ_COLUMNS}`}>
-                  <Body className={`!text-[1.0625rem] !leading-6 !text-zinc-950 ${INVERT}`}>
-                    {product.name}
-                  </Body>
-                  <Body className={INVERT}>{product.summary}</Body>
-                </div>
-              </Row>
-            ))}
-          </div>
-        </Rail>
+        <div className="mt-10">
+          {related.map((product) => (
+            <Row
+              key={product.slug}
+              href={`/products/${product.slug}`}
+              dept={PRODUCT_DEPT[product.slug] ?? "operations"}
+            >
+              <div className={`grid w-full min-w-0 ${FAQ_COLUMNS}`}>
+                <Body className={`!text-[1.0625rem] !leading-6 !text-ink ${INVERT}`}>
+                  {product.name}
+                </Body>
+                <Body className={INVERT}>{product.summary}</Body>
+              </div>
+            </Row>
+          ))}
+        </div>
       </Container>
     </Band>
   );

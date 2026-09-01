@@ -20,12 +20,12 @@ export function Email() {
 
       <H2 id="what">What this is</H2>
       <P>
-        The <Strong>Email</Strong> section is a real mail client backed by your own mailbox.
-        Genosyn imports your <Strong>whole mailbox</Strong> into a local index and keeps it in step
-        with the mail server in both directions: mail that arrives shows up here within about a
-        minute, and anything you do here — read, star, archive, label, draft, send, forward — is
-        written straight back. The goal is that you never need to open your other mail client; read
-        it there or here, act on it here, and neither drifts.
+        The <Strong>Email</Strong> section is a real mail client backed by your own mailbox. Genosyn
+        imports your <Strong>whole mailbox</Strong> into a local index and keeps it in step with the
+        mail server in both directions: mail that arrives shows up here within about a minute, and
+        anything you do here — read, star, archive, label, draft, send, forward — is written
+        straight back. The goal is that you never need to open your other mail client; read it there
+        or here, act on it here, and neither drifts.
       </P>
 
       <Callout kind="info" title="Different from the email that Genosyn sends.">
@@ -130,20 +130,21 @@ export function Email() {
       <H2 id="using">Reading and answering mail</H2>
       <P>
         The folder rail carries the usual views — Inbox, Starred, Sent, Drafts, All mail, Spam,
-        Trash — plus your own labels or folders. Open a thread to read it, then <Strong>Reply</Strong>,{" "}
-        <Strong>Reply all</Strong>, <Strong>Forward</Strong>, or <Strong>Compose</Strong> a new
-        message — with file attachments if you need them, added from the Attach button or by pasting
-        a screenshot straight into the message box. Star, archive, trash, mark read/unread, and
-        apply labels all act on the whole thread and land on the mail server immediately.
+        Trash — plus your own labels or folders. Open a thread to read it, then{" "}
+        <Strong>Reply</Strong>, <Strong>Reply all</Strong>, <Strong>Forward</Strong>, or{" "}
+        <Strong>Compose</Strong> a new message — with file attachments if you need them, added from
+        the Attach button or by pasting a screenshot straight into the message box. Star, archive,
+        trash, mark read/unread, and apply labels all act on the whole thread and land on the mail
+        server immediately.
       </P>
       <P>
         The Inbox header shows when the mailbox last synced <Strong>successfully</Strong>. Click{" "}
-        <Strong>Sync now</Strong> to check for new mail immediately. Genosyn records that pass before it
-        starts, so the button follows a real queued, running, succeeded, or failed state even if you
-        reload the page or miss a live update. A temporary timeout is retried automatically; if the
-        retry budget is exhausted, the button stops, the mailbox shows a useful explanation, and{" "}
-        <Strong>Retry sync</Strong> starts another resumable pass. Background sync also retries an
-        errored mailbox on a slower cadence.
+        <Strong>Sync now</Strong> to check for new mail immediately. Genosyn records that pass
+        before it starts, so the button follows a real queued, running, succeeded, or failed state
+        even if you reload the page or miss a live update. A temporary timeout is retried
+        automatically; if the retry budget is exhausted, the button stops, the mailbox shows a
+        useful explanation, and <Strong>Retry sync</Strong> starts another resumable pass.
+        Background sync also retries an errored mailbox on a slower cadence.
       </P>
       <P>
         If the credential stops working — Google asks you to authorize again, or your provider
@@ -158,8 +159,8 @@ export function Email() {
         Search (press <Code>/</Code> to jump to the box) covers <Strong>all mail</Strong> — every
         folder except Spam and Trash — and matches subjects, participants, and the{" "}
         <Strong>full text of every message</Strong> in the index. Terms combine, quotes match exact
-        phrases, and the familiar operators narrow things down: <Code>from:</Code>, <Code>to:</Code>,{" "}
-        <Code>subject:</Code>, <Code>label:</Code>, <Code>has:attachment</Code>,{" "}
+        phrases, and the familiar operators narrow things down: <Code>from:</Code>, <Code>to:</Code>
+        , <Code>subject:</Code>, <Code>label:</Code>, <Code>has:attachment</Code>,{" "}
         <Code>is:unread</Code>, <Code>is:starred</Code>, <Code>before:</Code>/<Code>after:</Code>{" "}
         with a date, and <Code>in:</Code> to pick a folder (<Code>in:archive</Code>,{" "}
         <Code>in:trash</Code>, …). So <Code>from:acme has:attachment after:2026-01-01 invoice</Code>{" "}
@@ -183,8 +184,8 @@ export function Email() {
         Filter the queue <Strong>by AI Employee</Strong> or <Strong>by routine</Strong> from the
         toolbar — each option carries its own count — and group the list the same way to review one
         routine&apos;s output as a batch. Drafts you wrote yourself show you instead; anything
-        written before this shipped, or synced in from the mail server, reads as <Strong>Unattributed</Strong>{" "}
-        rather than guessing at an author.
+        written before this shipped, or synced in from the mail server, reads as{" "}
+        <Strong>Unattributed</Strong> rather than guessing at an author.
       </P>
       <P>
         Press <Code>Enter</Code> to peek at a draft inline, or open it for full review: the whole
@@ -217,13 +218,13 @@ export function Email() {
       <P>
         A draft with no recipient can never be selected: its checkbox is disabled rather than being
         silently dropped at send time. Those drafts collect in a pinned{" "}
-        <Strong>Needs attention</Strong> group along with anything the mail server refused, so nothing
-        vanishes without being accounted for. Drafts disappear from the review list as soon as they
-        enter the send queue, leaving the page ready for more review. You can add newly approved
-        drafts while sending is in progress; they join the same paced queue and its finish estimate
-        updates automatically. The progress bar disappears when the queue finishes. A failed attempt
-        returns to <Strong>Needs attention</Strong> with the server&apos;s reason while the rest of the
-        queue continues.
+        <Strong>Needs attention</Strong> group along with anything the mail server refused, so
+        nothing vanishes without being accounted for. Drafts disappear from the review list as soon
+        as they enter the send queue, leaving the page ready for more review. You can add newly
+        approved drafts while sending is in progress; they join the same paced queue and its finish
+        estimate updates automatically. The progress bar disappears when the queue finishes. A
+        failed attempt returns to <Strong>Needs attention</Strong> with the server&apos;s reason
+        while the rest of the queue continues.
       </P>
 
       <H2 id="suppressed">Sending refuses suppressed recipients</H2>
@@ -375,8 +376,8 @@ export function Email() {
         instructions and replies never bleed into another conversation. The employee already has the
         opened email and current draft in context — no ids or copy-pasting. With{" "}
         <Strong>Draft</Strong>
-        access it can rewrite the actual draft in place, and the review pane refreshes with
-        the result. An employee without mailbox access can chat but cannot see or change the email.
+        access it can rewrite the actual draft in place, and the review pane refreshes with the
+        result. An employee without mailbox access can chat but cannot see or change the email.
         Everything it actually does appears as a small action pill under its reply.
       </P>
       <P>
@@ -393,10 +394,10 @@ export function Email() {
         itself — a supplier form, a signed order, a statement — without you downloading and
         re-uploading it. Ask it to fill in a PDF form that arrived on the thread and it reads the
         form&apos;s fields, completes them from what your company already knows, and hands the
-        finished file back as a download on its reply. It can attach that same file to a real
-        draft, so the reply leaves with the paperwork on it. If the blank form isn&apos;t on the
-        thread at all, the employee can search the web for the current version, check the page, and
-        download it to work on.
+        finished file back as a download on its reply. It can attach that same file to a real draft,
+        so the reply leaves with the paperwork on it. If the blank form isn&apos;t on the thread at
+        all, the employee can search the web for the current version, check the page, and download
+        it to work on.
       </P>
       <P>
         You can attach files to the chat too — the paperclip in the composer. Text, Markdown, CSV
@@ -430,9 +431,9 @@ export function Email() {
       </P>
       <UL>
         <LI>
-          <Strong>Draft a reply.</Strong> The employee writes a reply as a real draft on the
-          thread. Nothing is sent — you review the draft and press <Strong>Send</Strong> when it is
-          right. This is the default and the safe way to put AI on your inbox.
+          <Strong>Draft a reply.</Strong> The employee writes a reply as a real draft on the thread.
+          Nothing is sent — you review the draft and press <Strong>Send</Strong> when it is right.
+          This is the default and the safe way to put AI on your inbox.
         </LI>
         <LI>
           <Strong>Reply directly.</Strong> The employee composes and sends the reply itself. Only
@@ -521,12 +522,12 @@ export function Email() {
         The action only uses one HTTPS URL advertised by RFC unsubscribe headers that the receiving
         mail server confirms were covered by a valid DKIM signature — which Genosyn can only verify
         for a Gmail mailbox, so the button is not offered on an IMAP one. It rejects redirects,
-        never sends browser cookies or authorization, and never follows body links. If the sender did not provide that
-        standards-based method, the action fails safely and the rule continues with its other
-        actions. Saving an enabled unsubscribe rule always asks for confirmation because the
-        external request cannot be undone. Treat suspicious or phishing mail as spam instead: even a
-        standards-shaped endpoint controlled by an attacker could confirm that your address is
-        active.
+        never sends browser cookies or authorization, and never follows body links. If the sender
+        did not provide that standards-based method, the action fails safely and the rule continues
+        with its other actions. Saving an enabled unsubscribe rule always asks for confirmation
+        because the external request cannot be undone. Treat suspicious or phishing mail as spam
+        instead: even a standards-shaped endpoint controlled by an attacker could confirm that your
+        address is active.
       </Callout>
       <Callout kind="info" title="Rules never fire on your backfill.">
         Connecting a mailbox imports history quietly; rules only run on genuinely new mail after

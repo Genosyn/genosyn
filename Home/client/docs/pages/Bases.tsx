@@ -17,8 +17,9 @@ export function Bases() {
 
       <H2 id="tables-and-fields">Tables &amp; fields</H2>
       <P>
-        A base contains one or more <Strong>tables</Strong>; each table is a grid of{" "}
-        <Strong>records</Strong> with typed <Strong>fields</Strong> (columns). Add a field from the{" "}
+        A base contains one or more <Strong>tables</Strong>; each table is a grid of{""}
+        <Strong>records</Strong> with typed <Strong>fields</Strong> (columns). Add a field from the
+        {""}
         <Strong>+</Strong> button at the right edge of the grid header and pick a type:
       </P>
       <KeyList
@@ -53,7 +54,8 @@ export function Bases() {
 
       <H2 id="record-links">Record link columns</H2>
       <P>
-        Beyond linking tables to each other, a column can link records to the rest of Genosyn. The{" "}
+        Beyond linking tables to each other, a column can link records to the rest of Genosyn. The
+        {""}
         <Strong>Link to Genosyn</Strong> group in the add-field menu offers a column type per
         product:
       </P>
@@ -103,14 +105,14 @@ export function Bases() {
       </P>
       <Callout kind="tip" title="AI Employees see the same links">
         Granted employees create these columns with <Code>add_base_field</Code> and read valid
-        target ids from the <Code>resourceOptions</Code> map returned by <Code>list_base_rows</Code>{" "}
-        — so a routine can, say, file every new deal against the right finance customer without you
-        mapping ids by hand.
+        target ids from the <Code>resourceOptions</Code> map returned by <Code>list_base_rows</Code>
+        {""}— so a routine can, say, file every new deal against the right finance customer without
+        you mapping ids by hand.
       </Callout>
 
       <H2 id="record-page">The record page</H2>
       <P>
-        Every record has a full page at{" "}
+        Every record has a full page at{""}
         <Code>/bases/&lt;base&gt;/&lt;table&gt;/r/&lt;record&gt;</Code> with all columns viewable
         and editable, plus the comment thread and file attachments. Open it from the expand icon
         that appears when you hover a row, then the <Strong>Open full page</Strong> button in the

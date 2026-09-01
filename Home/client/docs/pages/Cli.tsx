@@ -124,7 +124,7 @@ export function Cli() {
         title="CLI reference"
         lead={
           <>
-            <Code>genosyn</Code> is the cluster-maintainer CLI — a thin bash wrapper around{" "}
+            <Code>genosyn</Code> is the cluster-maintainer CLI — a thin bash wrapper around{""}
             <Code>docker</Code>. No Node, no Python, just one shell script.
           </>
         }
@@ -132,24 +132,22 @@ export function Cli() {
 
       <H2 id="installing-the-cli">Installing the CLI</H2>
       <P>
-        The installer at <Code>genosyn.com/install.sh</Code> downloads the script to{" "}
-        <Code>/usr/local/bin/genosyn</Code>, marks it executable, then runs{" "}
+        The installer at <Code>genosyn.com/install.sh</Code> downloads the script to{""}
+        <Code>/usr/local/bin/genosyn</Code>, marks it executable, then runs{""}
         <Code>genosyn install</Code>. You can also grab the raw script:
       </P>
       <Pre lang="bash">{`curl -fsSL https://genosyn.com/genosyn -o /usr/local/bin/genosyn
 chmod +x /usr/local/bin/genosyn`}</Pre>
 
       <H2 id="commands">Commands</H2>
-      <div className="mt-6 divide-y divide-zinc-100 overflow-hidden border border-zinc-200 bg-white">
+      <div className="mt-6 divide-y divide-ground overflow-hidden border border-hairline bg-white">
         {COMMANDS.map((c) => (
           <div key={c.name} className="px-5 py-4">
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="font-mono text-[13px] font-semibold text-zinc-950">
-                genosyn {c.name}
-              </span>
-              {c.flags && <span className="font-mono text-[12.5px] text-zinc-600">{c.flags}</span>}
+              <span className="font-mono text-[13px] font-semibold text-ink">genosyn {c.name}</span>
+              {c.flags && <span className="font-mono text-[12.5px] text-muted">{c.flags}</span>}
             </div>
-            <p className="mt-1 text-[13.5px] leading-[1.6] text-zinc-700">{c.blurb}</p>
+            <p className="mt-1 text-[13.5px] leading-[1.6] text-ink2">{c.blurb}</p>
           </div>
         ))}
       </div>
@@ -181,7 +179,7 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_VOLUME",
             def: (
               <>
-                Data volume name. Default <Code>genosyn-data</Code>. Override flag:{" "}
+                Data volume name. Default <Code>genosyn-data</Code>. Override flag:{""}
                 <Code>--volume</Code>.
               </>
             ),
@@ -190,7 +188,7 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_IMAGE",
             def: (
               <>
-                Image reference. Default <Code>ghcr.io/genosyn/app:latest</Code>. Override flag:{" "}
+                Image reference. Default <Code>ghcr.io/genosyn/app:latest</Code>. Override flag:{""}
                 <Code>--image</Code>.
               </>
             ),
@@ -199,7 +197,7 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_CLI_URL",
             def: (
               <>
-                Fetch URL for the CLI script used by <Code>self-upgrade</Code>. Default{" "}
+                Fetch URL for the CLI script used by <Code>self-upgrade</Code>. Default{""}
                 <Code>https://genosyn.com/genosyn</Code>.
               </>
             ),
@@ -209,7 +207,7 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             def: (
               <>
                 Create the container with the two Docker options bubblewrap needs to isolate what an
-                AI Employee runs (<Code>seccomp=unconfined</Code>,{" "}
+                AI Employee runs (<Code>seccomp=unconfined</Code>,{""}
                 <Code>systempaths=unconfined</Code>). Default <Code>1</Code>; set <Code>0</Code> to
                 keep the stock profile, which leaves Genosyn booting with command execution off.
               </>
@@ -219,7 +217,8 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_AUTO_UPDATE",
             def: (
               <>
-                Enable the daily automatic update during installation. Default <Code>1</Code>; set{" "}
+                Enable the daily automatic update during installation. Default <Code>1</Code>; set
+                {""}
                 <Code>0</Code> to opt out.
               </>
             ),
@@ -228,7 +227,7 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
             term: "GENOSYN_BACKUP_DIR",
             def: (
               <>
-                Host directory for optional, verified pre-upgrade backups. Default{" "}
+                Host directory for optional, verified pre-upgrade backups. Default{""}
                 <Code>~/.genosyn/backups</Code>.
               </>
             ),
@@ -248,7 +247,7 @@ chmod +x /usr/local/bin/genosyn`}</Pre>
 genosyn auto-update off
 genosyn auto-update on`}</Pre>
       <P>
-        Automatic updates use the host&apos;s <Code>crontab</Code> and write logs under{" "}
+        Automatic updates use the host&apos;s <Code>crontab</Code> and write logs under{""}
         <Code>~/.genosyn</Code>. If cron is unavailable, installation still completes and prints the
         command to retry after cron is installed.
       </P>

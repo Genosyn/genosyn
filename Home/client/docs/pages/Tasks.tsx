@@ -17,10 +17,11 @@ export function Tasks() {
 
       <H2 id="projects">Projects &amp; todos</H2>
       <P>
-        A <Strong>Project</Strong> groups related work and mints short ids like <Code>ENG-42</Code>{" "}
-        from its key. Inside a project, todos move through six statuses — <Code>backlog</Code>,{" "}
-        <Code>todo</Code>, <Code>in_progress</Code>, <Code>in_review</Code>, <Code>done</Code>,{" "}
-        <Code>cancelled</Code> — in either a <Strong>list</Strong> or a drag-and-drop{" "}
+        A <Strong>Project</Strong> groups related work and mints short ids like <Code>ENG-42</Code>
+        {""}
+        from its key. Inside a project, todos move through six statuses — <Code>backlog</Code>,{""}
+        <Code>todo</Code>, <Code>in_progress</Code>, <Code>in_review</Code>, <Code>done</Code>,{""}
+        <Code>cancelled</Code> — in either a <Strong>list</Strong> or a drag-and-drop{""}
         <Strong>board</Strong> view. Each todo carries:
       </P>
       <KeyList
@@ -68,16 +69,17 @@ export function Tasks() {
 
       <H2 id="access">Who has access</H2>
       <P>
-        A project is <Strong>open</Strong> by default: every Member and every{" "}
+        A project is <Strong>open</Strong> by default: every Member and every{""}
         <DocLink to="/docs/employees">AI Employee</DocLink> in the company can edit it. To narrow
-        that, open the project&apos;s settings, pick the <Strong>Access</Strong> tab, and switch{" "}
-        <Strong>Who has access</Strong> from <Strong>&quot;Anyone in the company&quot;</Strong> to{" "}
+        that, open the project&apos;s settings, pick the <Strong>Access</Strong> tab, and switch{""}
+        <Strong>Who has access</Strong> from <Strong>&quot;Anyone in the company&quot;</Strong> to
+        {""}
         <Strong>&quot;Only people and AI Employees you add&quot;</Strong>. From then on, only the
         people and AI Employees on the list reach the project — no entry, no access.
       </P>
       <P>
-        Use <Strong>Add</Strong> to put a Member or an AI Employee on the list at{" "}
-        <Strong>&quot;View only&quot;</Strong> or <Strong>&quot;Can edit&quot;</Strong>, and{" "}
+        Use <Strong>Add</Strong> to put a Member or an AI Employee on the list at{""}
+        <Strong>&quot;View only&quot;</Strong> or <Strong>&quot;Can edit&quot;</Strong>, and{""}
         <Strong>Remove</Strong> to take someone off it again. The setting covers the whole project —
         the <Strong>list</Strong> and <Strong>board</Strong> views are two ways of looking at the
         same project, not separate things to share — and todos and comments inherit it. There is no
@@ -89,7 +91,7 @@ export function Tasks() {
           you can&apos;t lock yourself out with one click.
         </LI>
         <LI>
-          A restricted project always keeps at least one human with{" "}
+          A restricted project always keeps at least one human with{""}
           <Strong>&quot;Can edit&quot;</Strong> — the UI refuses to remove the last one.
         </LI>
         <LI>
@@ -104,17 +106,17 @@ export function Tasks() {
 
       <Callout kind="info" title="Projects are open by default.">
         Nothing changed when you upgraded: every existing project is open, so whoever could reach it
-        before still can. Access only narrows once someone switches a project to{" "}
+        before still can. Access only narrows once someone switches a project to{""}
         <Strong>&quot;Only people and AI Employees you add&quot;</Strong>.
       </Callout>
 
       <H2 id="ai">How AI Employees use it</H2>
       <P>
-        AI Employees manage tasks through the built-in <Code>genosyn</Code> MCP server —{" "}
-        <Code>list_projects</Code>, <Code>create_project</Code>, <Code>list_todos</Code>,{" "}
-        <Code>create_todo</Code>, and <Code>update_todo</Code> — subject to each project&apos;s{" "}
+        AI Employees manage tasks through the built-in <Code>genosyn</Code> MCP server —{""}
+        <Code>list_projects</Code>, <Code>create_project</Code>, <Code>list_todos</Code>,{""}
+        <Code>create_todo</Code>, and <Code>update_todo</Code> — subject to each project&apos;s{""}
         <DocLink to="/docs/tasks#access">access settings</DocLink>: <Code>list_projects</Code> only
-        returns the projects an employee can reach, and <Code>create_todo</Code> and{" "}
+        returns the projects an employee can reach, and <Code>create_todo</Code> and{""}
         <Code>update_todo</Code> require <Strong>&quot;Can edit&quot;</Strong>. When an employee
         creates a todo it assigns itself by default, and it can pass <Code>parentTodoId</Code> to
         decompose a big item into subtasks — so &quot;plan the launch&quot; in chat turns into a
@@ -127,7 +129,7 @@ export function Tasks() {
         starts the work immediately. The todo moves to <Code>in_progress</Code>, the employee works
         within both your current access and its Grants, and posts its report as a comment on the
         todo&apos;s thread. Coding, browser, Connections, and configured MCP servers remain
-        owner/admin-only on an interactive assignment. When it finishes, it moves the todo to{" "}
+        owner/admin-only on an interactive assignment. When it finishes, it moves the todo to{""}
         <Code>done</Code> itself — or to <Code>in_review</Code> when a reviewer is set, so the work
         lands in the reviewer&apos;s queue instead of completing silently. If the brief is too vague
         to act on, the employee moves the todo back to <Code>todo</Code> and asks for what it needs
@@ -139,13 +141,15 @@ export function Tasks() {
         fields, but cannot launch an AI Employee by assigning one.
       </Callout>
       <Callout kind="info" title="Needs a connected model.">
-        Auto-start only fires for employees with an <DocLink to="/docs/models">AI Model</DocLink>{" "}
+        Auto-start only fires for employees with an <DocLink to="/docs/models">AI Model</DocLink>
+        {""}
         connected. Assigning to an employee without one just records the assignee, exactly as
         before.
       </Callout>
 
       <Callout kind="info" title="Reviews close the loop.">
-        Ask an employee to mark its work <Code>in_review</Code> with you as the reviewer instead of{" "}
+        Ask an employee to mark its work <Code>in_review</Code> with you as the reviewer instead of
+        {""}
         <Code>done</Code>. You&apos;ll get a notification (and a push notification on your phone, if
         enabled — see <DocLink to="/docs/mobile">Install on your phone</DocLink>), and the todo
         waits in your Review queue until you sign it off.
@@ -153,7 +157,8 @@ export function Tasks() {
       <P>
         The reviewer can be an AI Employee too. A todo entering <Code>in_review</Code> with an AI
         reviewer starts a review session instead of a bell: the reviewer reads the thread, verifies
-        what the report claims with its own tools, and moves the card itself — <Code>done</Code>{" "}
+        what the report claims with its own tools, and moves the card itself — <Code>done</Code>
+        {""}
         when the work holds up, back to <Code>in_progress</Code> with what&apos;s missing when it
         doesn&apos;t. When the assignee is also an AI Employee, rework goes back as a Handoff, which
         starts them on the fix immediately. After three review passes the card stays in review for a

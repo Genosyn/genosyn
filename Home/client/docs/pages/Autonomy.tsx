@@ -64,7 +64,7 @@ export function Autonomy() {
           and no required <DocLink to="/docs/verification">Check</DocLink> failed.
         </LI>
         <LI>
-          Those Runs must be <Strong>verified</Strong>, not merely un-flagged. A Run graded{" "}
+          Those Runs must be <Strong>verified</Strong>, not merely un-flagged. A Run graded{""}
           <Code>unverified</Code> — the checker errored, timed out, or never submitted — no longer
           counts toward the ten. So does a Run nobody has graded at all. Before M58 both were
           recorded with the same word as &quot;the evidence was ambiguous&quot; and read downstream
@@ -84,19 +84,21 @@ export function Autonomy() {
         clear it.
       </P>
       <P>
-        An eligible employee gets no silent upgrade. The sweep drafts an <Strong>Approval</Strong>{" "}
+        An eligible employee gets no silent upgrade. The sweep drafts an <Strong>Approval</Strong>
+        {""}
         of kind <Code>autonomy_promotion</Code>, with the evidence — the run counts, the approval
         tallies, the window — written into its summary, and it lands in the same Approvals inbox as
         everything else. An admin approving it is what applies the gate change and records the
-        waiver; rejecting it means the same promotion is not proposed again for{" "}
+        waiver; rejecting it means the same promotion is not proposed again for{""}
         <Strong>30 days</Strong>.
       </P>
 
       <H2 id="demotion">Demotion is automatic</H2>
       <P>
-        The reverse direction has no inbox and no waiting. Any Run that ends <Code>failed</Code> or{" "}
+        The reverse direction has no inbox and no waiting. Any Run that ends <Code>failed</Code> or
+        {""}
         <Code>timeout</Code>, or completes but is graded <Code>off goal</Code>, or completes with a
-        required <DocLink to="/docs/verification">Check</DocLink> failed, revokes{" "}
+        required <DocLink to="/docs/verification">Check</DocLink> failed, revokes{""}
         <Strong>every</Strong> active waiver the employee holds and re-arms the gates on the spot. A
         failed Check counts here exactly like an off-goal grade — it is the stronger evidence of the
         two, since no model had a say in it. The employee&apos;s journal records what happened and
@@ -106,7 +108,7 @@ export function Autonomy() {
 
       <H2 id="revoking">Seeing and revoking a waiver</H2>
       <P>
-        Active waivers show on the employee&apos;s page under <Strong>Settings</Strong>, in the{" "}
+        Active waivers show on the employee&apos;s page under <Strong>Settings</Strong>, in the{""}
         <Strong>Autonomy</Strong> card — which waiver, when it was granted, and the evidence it was
         granted on. Any admin can revoke a waiver there at any time, no justification required;
         revoking re-arms the gate immediately. Nobody has to wait for a bad Run to change their

@@ -24,7 +24,7 @@ export function Sequences() {
             Multi-step outbound where every touch is <em>written</em>, not interpolated. A sequence
             names an <DocLink to="/docs/employees">AI Employee</DocLink> and a brief; the employee
             drafts each step for each contact from that person&apos;s real context — the threads on
-            their timeline, the open deal, the signal that enrolled them. Find it under{" "}
+            their timeline, the open deal, the signal that enrolled them. Find it under{""}
             <Code>Revenue → Sequences</Code>.
           </>
         }
@@ -32,7 +32,7 @@ export function Sequences() {
 
       <H2 id="why">Why it is not a mail merge</H2>
       <P>
-        A template engine can put a first name in a subject line. It cannot write step 3 as{" "}
+        A template engine can put a first name in a subject line. It cannot write step 3 as{""}
         <em>&quot;reference whatever they said in reply to step 2&quot;</em>. That is the difference
         here: a <Strong>Sequence</Strong> stores instructions, never message bodies. At send time
         the named employee reads the contact&apos;s timeline and writes the actual email. The cost
@@ -47,7 +47,8 @@ export function Sequences() {
         </LI>
         <LI>
           Pick the <Strong>mailbox</Strong> every touch sends from — one of the accounts connected
-          under <DocLink to="/docs/email">Email</DocLink> — and the <Strong>AI Employee</Strong>{" "}
+          under <DocLink to="/docs/email">Email</DocLink> — and the <Strong>AI Employee</Strong>
+          {""}
           that writes them.
         </LI>
         <LI>
@@ -60,7 +61,7 @@ export function Sequences() {
           specific touch should accomplish.
         </LI>
         <LI>
-          Set the guardrails — <DocLink to="/docs/sequences#windows">send window</DocLink>,{" "}
+          Set the guardrails — <DocLink to="/docs/sequences#windows">send window</DocLink>,{""}
           <DocLink to="/docs/sequences#caps">daily cap</DocLink>, stop-on-reply — then move the
           status from <Code>Draft</Code> to <Code>Active</Code>.
         </LI>
@@ -107,7 +108,7 @@ export function Sequences() {
           <Strong>Do not contact</Strong> — the person is flagged as a hard opt-out.
         </LI>
         <LI>
-          <Strong>Suppressed</Strong> — the address is on the do-not-email list. See{" "}
+          <Strong>Suppressed</Strong> — the address is on the do-not-email list. See{""}
           <DocLink to="/docs/deliverability">Deliverability</DocLink>.
         </LI>
         <LI>
@@ -123,7 +124,7 @@ export function Sequences() {
 
       <H2 id="review">The review queue</H2>
       <P>
-        With autoSend off — the default — a drafted touch lands in{" "}
+        With autoSend off — the default — a drafted touch lands in{""}
         <DocLink to="/docs/email#drafts">Email → Drafts</DocLink>, the same review queue built for
         exactly this job. Every row shows the AI Employee and the routine or sequence that produced
         it next to the recipient, subject and preview, so a night&apos;s drafting is one scannable
@@ -142,7 +143,7 @@ export function Sequences() {
       <H2 id="autosend">autoSend, and its two grants</H2>
       <P>
         <Strong>autoSend</Strong> is the one switch in Genosyn that spends your sending reputation
-        with no human in the loop. It is off by default, and turning it on requires{" "}
+        with no human in the loop. It is off by default, and turning it on requires{""}
         <em>two independent grants</em> on the same employee:
       </P>
       <KeyList
@@ -200,7 +201,8 @@ export function Sequences() {
           A window that wraps past midnight is fine: set an end hour lower than the start hour.
         </LI>
         <LI>
-          Daylight saving is handled by the platform&apos;s timezone database, so a window pinned to{" "}
+          Daylight saving is handled by the platform&apos;s timezone database, so a window pinned to
+          {""}
           <Code>America/New_York</Code> stays correct across the change.
         </LI>
       </UL>
@@ -262,7 +264,7 @@ export function Sequences() {
 
       <H3 id="history">What was actually sent</H3>
       <P>
-        Every attempt at every step is recorded on the enrolment: <Code>sent</Code>,{" "}
+        Every attempt at every step is recorded on the enrolment: <Code>sent</Code>,{""}
         <Code>drafted</Code>, <Code>skipped</Code> with the reason, or <Code>failed</Code> with the
         error, plus the subject line and a link to the message. A skip is not a failure — the most
         common one is a suppressed address, which is the system working correctly — but a silent

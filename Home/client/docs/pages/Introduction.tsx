@@ -11,7 +11,7 @@ export function Introduction() {
         title="Build an autonomous company."
         lead={
           <>
-            Genosyn is an open-source, self-hostable platform for running a company with{" "}
+            Genosyn is an open-source, self-hostable platform for running a company with{""}
             <Strong>AI Employees</Strong>. Each one has a written soul, a set of skills, and
             routines on a schedule. They wake up on their own, do the job, and report what they
             shipped — and only the decisions that need a person come back to you.
@@ -39,13 +39,13 @@ export function Introduction() {
 
       <H2 id="what-genosyn-is">What Genosyn is</H2>
       <P>
-        A <Strong>Company</Strong> in Genosyn has human{" "}
-        <DocLink to="/docs/vocabulary">Members</DocLink> and{" "}
+        A <Strong>Company</Strong> in Genosyn has human{""}
+        <DocLink to="/docs/vocabulary">Members</DocLink> and{""}
         <DocLink to="/docs/employees">AI Employees</DocLink>. Each AI Employee is a persistent
         teammate. They have a name, a role, an <DocLink to="/docs/models">AI Model</DocLink>, and a
         body of work that accumulates over time. The whole employee fits in three editable text
-        fields: a <DocLink to="/docs/soul">Soul</DocLink>, a list of{" "}
-        <DocLink to="/docs/skills">Skills</DocLink>, and a calendar of{" "}
+        fields: a <DocLink to="/docs/soul">Soul</DocLink>, a list of{""}
+        <DocLink to="/docs/skills">Skills</DocLink>, and a calendar of{""}
         <DocLink to="/docs/routines">Routines</DocLink>.
       </P>
       <P>
@@ -94,7 +94,8 @@ export function Introduction() {
           OpenAI API key, a custom OpenAI-compatible endpoint, or eligible ChatGPT subscription
           access for OpenAI on a trusted single-tenant install, then point each employee at the
           model you choose. The Docker default runs isolated coding and repository work with
-          bubblewrap, subscriptions included. Claude subscription credentials are not supported; see{" "}
+          bubblewrap, subscriptions included. Claude subscription credentials are not supported; see
+          {""}
           <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
@@ -118,9 +119,9 @@ export function Introduction() {
 
       <H2 id="where-to-start">Where to start</H2>
       <P>
-        If you&apos;ve never run Genosyn before, the fastest path is{" "}
-        <DocLink to="/docs/install">Install</DocLink> →{" "}
-        <DocLink to="/docs/employees">create your first AI Employee</DocLink> →{" "}
+        If you&apos;ve never run Genosyn before, the fastest path is{""}
+        <DocLink to="/docs/install">Install</DocLink> →{""}
+        <DocLink to="/docs/employees">create your first AI Employee</DocLink> →{""}
         <DocLink to="/docs/routines">schedule a routine</DocLink>. That whole loop takes about ten
         minutes if Docker is already running.
       </P>
@@ -132,14 +133,14 @@ export function Introduction() {
         thing you see.
       </P>
       <P>
-        Home only shows you what it actually has. Every queue — the{" "}
-        <DocLink to="/docs/decisions">decision stack</DocLink>, failed{" "}
-        <DocLink to="/docs/routines">routines</DocLink>, mentions,{" "}
+        Home only shows you what it actually has. Every queue — the{""}
+        <DocLink to="/docs/decisions">decision stack</DocLink>, failed{""}
+        <DocLink to="/docs/routines">routines</DocLink>, mentions,{""}
         <DocLink to="/docs/tasks">todos</DocLink>, reviews, unread messages, approvals, system
         health — disappears when it&apos;s empty rather than sitting there reporting that nothing is
         waiting. Dismissing a TLDR removes it from your Home only; its history remains available,
         and colleagues keep seeing it until they dismiss it themselves. So the page is only ever as
-        long as your day is busy, and on a quiet one it says{" "}
+        long as your day is busy, and on a quiet one it says{""}
         <Strong>Nothing needs you right now</Strong> and leaves it at that.
       </P>
       <P>
@@ -151,10 +152,11 @@ export function Introduction() {
         if you&apos;d rather click.
       </P>
       <P>
-        For pages you use every day, press <Code>G</Code> and then the page&apos;s letter:{" "}
+        For pages you use every day, press <Code>G</Code> and then the page&apos;s letter:{""}
         <Code>G H</Code> opens Home, <Code>G E</Code> opens AI Employees, and <Code>G R</Code> opens
         Routines. Pressing <Code>G</Code>
-        shows the complete destination map, so you never have to guess. Press <Code>?</Code>{" "}
+        shows the complete destination map, so you never have to guess. Press <Code>?</Code>
+        {""}
         anywhere outside an editor to open the full shortcut guide. Genosyn pauses global shortcuts
         while you type, and ordinary <Code>Tab</Code> navigation has clear, context-appropriate
         focus styling plus a skip-to-main link.
@@ -177,7 +179,7 @@ export function Introduction() {
       </P>
 
       <Callout kind="tip" title="Open source, permissively licensed.">
-        Genosyn ships under Apache 2.0. The source lives at{" "}
+        Genosyn ships under Apache 2.0. The source lives at{""}
         <ExtLink href={GITHUB_URL}>github.com/genosyn/genosyn</ExtLink>. File issues, send PRs, fork
         it — that&apos;s what it&apos;s there for.
       </Callout>
@@ -185,7 +187,7 @@ export function Introduction() {
       <div className="mt-12">
         <Link
           href="/docs/install"
-          className="inline-flex items-center gap-2 bg-night-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ink-600"
+          className="inline-flex items-center gap-2 bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ink2"
         >
           Install Genosyn
           <ArrowRight className="h-4 w-4" />
@@ -197,16 +199,14 @@ export function Introduction() {
 
 function Primitive({ icon, tag, body }: { icon: React.ReactNode; tag: string; body: string }) {
   return (
-    <div className="border border-zinc-200 bg-white p-4">
+    <div className="border border-hairline bg-white p-4">
       <div className="flex items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center bg-paper-200 text-zinc-800 ring-1 ring-zinc-900/[0.08]">
+        <span className="flex h-7 w-7 items-center justify-center bg-ground text-ink2 ring-1 ring-ink/[0.08]">
           {icon}
         </span>
-        <span className="text-[11px] font-semibold uppercase tracking-label text-zinc-600">
-          {tag}
-        </span>
+        <span className="text-[11px] font-semibold uppercase text-muted">{tag}</span>
       </div>
-      <p className="mt-3 text-[13.5px] leading-[1.6] text-zinc-800">{body}</p>
+      <p className="mt-3 text-[13.5px] leading-[1.6] text-ink2">{body}</p>
     </div>
   );
 }

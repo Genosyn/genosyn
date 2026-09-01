@@ -57,15 +57,15 @@ const RESOURCE_LINKS = [
  * that does not gets a bare label, which is better than a wrong number.
  *
  * It is deliberately NOT a dark band. There is exactly one tone change on the
- * landing page and it belongs to the night shift, which is the section
+ * landing page and it belongs to the shift, which is the section
  * literally about work happening in the dark. Spending the same effect again
  * on the closing CTA is what made the old page read as a sequence of
- * interchangeable slabs, and it costs the night band the thing that made it
+ * interchangeable slabs, and it costs the band the thing that made it
  * worth looking at.
  */
 export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
   return (
-    <Band id="install" tone="raised" open="l" close="s">
+    <Band id="install" tone="surface" open="l" close="s">
       <Container>
         <Rail sheet={sheet} fields={["Apache-2.0", `v${__APP_VERSION__}`]}>
           <Heading as="h2" className="max-w-[16ch]">
@@ -108,17 +108,17 @@ export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
  */
 export function Colophon({ sheet = "Colophon" }: { sheet?: string } = {}) {
   return (
-    <Band tone="paper" open="s" close="m">
+    <Band tone="ground" open="s" close="m">
       <Container>
         <Rail sheet={sheet} fields={[`v${__APP_VERSION__}`, "Apache-2.0"]}>
           <div className="max-w-[54ch]">
-            <Note className="text-[1.25rem] leading-[1.65] text-zinc-800">
+            <Note className="text-[1.25rem] leading-[1.65] text-ink2">
               We build Genosyn in the open, and we run our own company on it, which is the only
               reason we are willing to make the claim on this page. The Tuesday drawn above is a
               sample rather than a recording. The numbers in it are the shape of a real day on a
               small roster, not a log we exported.
             </Note>
-            <Note className="mt-5 text-[1.0625rem] leading-[1.7] text-zinc-700">
+            <Note className="mt-5 text-[1.0625rem] leading-[1.7] text-ink2">
               Some parts of this software are written with AI assistance, and so are parts of this
               site. It is open source and provided without warranty, so you can check any of it.
               What is still not good enough: the roster ships eight worked roles and the rest are
@@ -139,12 +139,12 @@ export function Colophon({ sheet = "Colophon" }: { sheet?: string } = {}) {
 
 export function Footer() {
   return (
-    <footer className="border-t border-paper-400 bg-paper-200">
+    <footer className="border-t border-rule bg-ground">
       <Container className="pt-14 pb-10">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
           <div>
-            <Logo className="text-[15px] text-zinc-950" />
-            <p className="t-body mt-5 max-w-sm text-[0.9375rem] leading-[1.7] text-zinc-700">
+            <Logo className="text-[15px] text-ink" />
+            <p className="mt-5 max-w-sm text-[0.9375rem] leading-[1.7] text-ink2">
               Open source, self-hosted software for running a company with AI Employees.
             </p>
           </div>
@@ -178,7 +178,7 @@ export function Footer() {
           </nav>
         </div>
 
-        <div className="mt-14 flex flex-col gap-3 border-t border-paper-300 pt-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-14 flex flex-col gap-3 border-t border-hairline pt-6 sm:flex-row sm:items-center sm:justify-between">
           <Field>{`© ${__BUILD_YEAR__} HACKERBAY, INC.`}</Field>
           <Field>BUILT IN THE OPEN</Field>
         </div>
@@ -217,7 +217,7 @@ function FooterLink({
   external?: boolean;
   children: React.ReactNode;
 }) {
-  const className = "t-body text-[0.9375rem] text-zinc-700 transition-colors hover:text-zinc-950";
+  const className = "text-[0.9375rem] text-ink2 transition-colors hover:text-ink";
   if (external) {
     return (
       <a href={href} target="_blank" rel="noreferrer" className={className}>

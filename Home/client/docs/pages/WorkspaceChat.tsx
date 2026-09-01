@@ -44,15 +44,15 @@ export function WorkspaceChat() {
 
       <H2 id="incoming-webhooks">Connect Slack-compatible incoming webhooks</H2>
       <P>
-        Open a public or private channel, choose <Strong>Settings</Strong>, then enable{" "}
+        Open a public or private channel, choose <Strong>Settings</Strong>, then enable{""}
         <Strong>Incoming webhook</Strong>. Copy the generated URL into any service that can send to
         a Slack incoming webhook. Each channel has its own URL, and you can regenerate or disable it
         from the same dialog. This is Slack&apos;s <em>payload format</em> and nothing more — to
-        make an AI Employee reachable from a real Slack workspace, see{" "}
+        make an AI Employee reachable from a real Slack workspace, see{""}
         <DocLink to="/docs/chat-surfaces">External chat surfaces</DocLink>.
       </P>
       <P>
-        Genosyn accepts Slack&apos;s top-level <Code>text</Code>, <Code>username</Code>,{" "}
+        Genosyn accepts Slack&apos;s top-level <Code>text</Code>, <Code>username</Code>,{""}
         <Code>blocks</Code>, and <Code>attachments</Code> fields. It also accepts the older
         form-encoded <Code>payload</Code> shape. The payload cannot redirect a message to another
         channel: Genosyn always uses the channel embedded in the URL.
@@ -67,8 +67,8 @@ export function WorkspaceChat() {
       </Callout>
       <P>
         External services must be able to reach your Genosyn installation. If the generated URL
-        starts with <Code>localhost</Code>, set the browser-facing URL under{" "}
-        <Strong>Admin → General</Strong>; see{" "}
+        starts with <Code>localhost</Code>, set the browser-facing URL under{""}
+        <Strong>Admin → General</Strong>; see{""}
         <DocLink to="/docs/self-hosting">Self-hosting</DocLink> for reverse proxy and HTTPS
         guidance.
       </P>
@@ -108,7 +108,7 @@ export function WorkspaceChat() {
         Use <Code>@</Code> for a person or AI Employee and <Code>#</Code> for a place, product area,
         or record. That keeps &ldquo;who should answer?&rdquo; separate from &ldquo;what should they
         work on?&rdquo; A product-area tag is a hint to the AI Employee&apos;s tool discovery: for
-        example, tagging <Code>#Estimates</Code> points it at Finance estimates and{" "}
+        example, tagging <Code>#Estimates</Code> points it at Finance estimates and{""}
         <Code>create_estimate</Code>, while a named channel points it at Workspace messaging.
       </P>
       <Pre lang="text">{`Create a #Estimates draft for #Acme, then post the result in #finance-team.`}</Pre>

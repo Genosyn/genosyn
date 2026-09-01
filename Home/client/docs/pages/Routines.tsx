@@ -30,7 +30,7 @@ export function Routines() {
       />
 
       <Callout kind="info" title='"Routine" is the word.'>
-        Genosyn never calls these &quot;tasks,&quot; &quot;jobs,&quot; or &quot;workflows.&quot;{" "}
+        Genosyn never calls these &quot;tasks,&quot; &quot;jobs,&quot; or &quot;workflows.&quot;{""}
         <Strong>Task</Strong> is reserved for the human-style project/todo manager — different
         feature, different surface.
       </Callout>
@@ -38,15 +38,18 @@ export function Routines() {
       <H2 id="where-they-live">Where they live</H2>
       <P>
         Routines have their own section in the nav, under <Strong>AI → Routines</Strong>. That list
-        is company-wide: every routine, every employee, one page. Filter it by the{" "}
-        <DocLink to="/docs/employees">AI Employee</DocLink> a routine is assigned to, or by health —{" "}
+        is company-wide: every routine, every employee, one page. Filter it by the{""}
+        <DocLink to="/docs/employees">AI Employee</DocLink> a routine is assigned to, or by health —
+        {""}
         <Strong>Active</Strong>, <Strong>Paused</Strong>, <Strong>Needs attention</Strong>. Two more
-        axes group routines across employees: <DocLink to="/docs/routines#folders">folders</DocLink>{" "}
+        axes group routines across employees: <DocLink to="/docs/routines#folders">folders</DocLink>
+        {""}
         in the sidebar, and company <DocLink to="/docs/tags">Tags</DocLink> as chips above the list.
       </P>
       <P>
-        Clicking a routine opens its detail page: <Strong>Overview</Strong>, <Strong>Brief</Strong>,{" "}
-        <Strong>Runs</Strong>, and <Strong>Settings</Strong>, with{" "}
+        Clicking a routine opens its detail page: <Strong>Overview</Strong>, <Strong>Brief</Strong>,
+        {""}
+        <Strong>Runs</Strong>, and <Strong>Settings</Strong>, with{""}
         <DocLink to="/docs/routines#assistant">Ask AI</DocLink> in the header. Each AI Employee
         links to their own slice of that list from <Strong>Settings → Routines</Strong> — same page,
         filtered to them.
@@ -60,14 +63,14 @@ export function Routines() {
         filed in at most one folder, or in none at all.
       </P>
       <P>
-        Create one with the folder button at the top of the sidebar, or from{" "}
+        Create one with the folder button at the top of the sidebar, or from{""}
         <Strong>New folder…</Strong> in any move menu. Selecting a folder narrows the list to that
         folder <Strong>and everything nested inside it</Strong>, so a parent never reads as empty
         just because its routines live one level down. The tag chips narrow with that same folder
-        scope, so every tag shown can match a routine currently in the list.{" "}
+        scope, so every tag shown can match a routine currently in the list.{""}
         <Strong>Unfiled</Strong> at the bottom of the tree collects everything you haven&apos;t
-        filed yet. Each folder&apos;s <Code>⋯</Code> menu holds <Strong>New subfolder</Strong>,{" "}
-        <Strong>Rename</Strong>, <Strong>Move to top level</Strong>, and{" "}
+        filed yet. Each folder&apos;s <Code>⋯</Code> menu holds <Strong>New subfolder</Strong>,{""}
+        <Strong>Rename</Strong>, <Strong>Move to top level</Strong>, and{""}
         <Strong>Delete folder</Strong>.
       </P>
       <Callout kind="info" title="Deleting a folder never deletes routines.">
@@ -85,16 +88,17 @@ export function Routines() {
         created while you are inside a folder lands there by default.
       </P>
       <Callout kind="info" title="Folders and tags answer different questions.">
-        A folder is <Strong>where a routine lives</Strong> — one folder, navigable, exclusive. A{" "}
+        A folder is <Strong>where a routine lives</Strong> — one folder, navigable, exclusive. A{""}
         <DocLink to="/docs/tags">tag</DocLink> is <Strong>what it is about</Strong> — many per
         routine, cutting across the tree. &quot;Finance/Month-end&quot; is a folder;
         &quot;urgent&quot; and &quot;quarterly&quot; are tags. Use both.
       </Callout>
       <P>
-        AI Employees can file their own work too: <Code>create_routine</Code> and{" "}
-        <Code>update_routine</Code> both take a <Code>folder</Code> — a name like{" "}
+        AI Employees can file their own work too: <Code>create_routine</Code> and{""}
+        <Code>update_routine</Code> both take a <Code>folder</Code> — a name like{""}
         <Code>Finance</Code> or a path like <Code>Finance/Month-end</Code>. Any segment that
-        doesn&apos;t exist yet is created, the same way tag names are. Passing an empty string to{" "}
+        doesn&apos;t exist yet is created, the same way tag names are. Passing an empty string to
+        {""}
         <Code>update_routine</Code> unfiles the routine.
       </P>
 
@@ -124,7 +128,7 @@ export function Routines() {
             term: "body",
             def: (
               <>
-                Markdown brief — what the employee should do when this fires. Stored on{" "}
+                Markdown brief — what the employee should do when this fires. Stored on{""}
                 <Code>Routine.body</Code>.
               </>
             ),
@@ -134,7 +138,7 @@ export function Routines() {
             def: (
               <>
                 Boolean. Disabling stops the schedule without losing the row — the ordinary
-                housekeeping switch. To stop work during an incident, place a{" "}
+                housekeeping switch. To stop work during an incident, place a{""}
                 <DocLink to="/docs/standdowns">Standdown</DocLink> instead; it records who and why,
                 and reaches surfaces this switch does not.
               </>
@@ -153,9 +157,9 @@ export function Routines() {
             term: "model",
             def: (
               <>
-                Optional. Which of the employee&apos;s{" "}
-                <DocLink to="/docs/models">AI Models</DocLink> this routine runs on. Defaults to{" "}
-                <Strong>Inherit</Strong> — whichever model is active for the employee. See{" "}
+                Optional. Which of the employee&apos;s{""}
+                <DocLink to="/docs/models">AI Models</DocLink> this routine runs on. Defaults to{""}
+                <Strong>Inherit</Strong> — whichever model is active for the employee. See{""}
                 <DocLink to="/docs/routines#model">Picking a model</DocLink>.
               </>
             ),
@@ -175,9 +179,10 @@ export function Routines() {
             term: "catchUpPolicy",
             def: (
               <>
-                What to do about slots missed while the server was down. <Strong>Run once</Strong>{" "}
+                What to do about slots missed while the server was down. <Strong>Run once</Strong>
+                {""}
                 (the default) fires a single catch-up run; <Strong>Skip</Strong> declines it when
-                the slot is already more than a minute late. See{" "}
+                the slot is already more than a minute late. See{""}
                 <DocLink to="/docs/routines#recovery">Downtime and recovery</DocLink>.
               </>
             ),
@@ -190,7 +195,7 @@ export function Routines() {
                 default — failed and timed-out Runs do not retry, while a newly interrupted initial
                 scheduled Run on an enabled routine without an approval gate still receives one
                 recovery attempt an hour after Genosyn marks it. Higher limits also bound
-                interrupted retries later in the same chain. Paired with{" "}
+                interrupted retries later in the same chain. Paired with{""}
                 <Code>retryBackoffSec</Code> and <Code>retryOnTimeout</Code>.
               </>
             ),
@@ -199,7 +204,7 @@ export function Routines() {
             term: "browserEnabledOverride",
             def: (
               <>
-                Optional per-routine override of the employee&apos;s{" "}
+                Optional per-routine override of the employee&apos;s{""}
                 <DocLink to="/docs/browser">browser</DocLink> toggle — force it on for a research
                 routine, or off for one that must never touch the web. Unset means &quot;inherit
                 from the employee&quot;.
@@ -210,9 +215,9 @@ export function Routines() {
             term: "acceptanceCriteria",
             def: (
               <>
-                Optional plain-language definition of done, edited at{" "}
+                Optional plain-language definition of done, edited at{""}
                 <Strong>Settings → Outcome check</Strong>. When set, the criteria ride along in
-                every Run&apos;s brief and each completed Run is graded against them. See{" "}
+                every Run&apos;s brief and each completed Run is graded against them. See{""}
                 <DocLink to="/docs/routines#outcome-check">The outcome check</DocLink>.
               </>
             ),
@@ -241,8 +246,8 @@ export function Routines() {
         Cron is not the only way a routine fires. A <Strong>Trigger</Strong> subscribes a routine to
         a resource family — deals, mail, Runs, <DocLink to="/docs/goals">Goals</DocLink> — and fires
         it whenever that family changes anywhere in the company, with a per-trigger minimum interval
-        so a busy family can&apos;t hot-loop it. Gated routines still meet their{" "}
-        <DocLink to="/docs/routines#approvals">Approval</DocLink>. See{" "}
+        so a busy family can&apos;t hot-loop it. Gated routines still meet their{""}
+        <DocLink to="/docs/routines#approvals">Approval</DocLink>. See{""}
         <DocLink to="/docs/reactivity#triggers">Reactivity</DocLink>.
       </P>
 
@@ -266,7 +271,7 @@ Post it to the #morning channel.`}</Pre>
       <H2 id="assistant">Ask AI about a routine</H2>
       <P>
         Every routine has its own AI chat. Press <Strong>Ask AI</Strong> in the routine header and a
-        panel docks beside the page — the same idea as the chat beside an{" "}
+        panel docks beside the page — the same idea as the chat beside an{""}
         <DocLink to="/docs/email#assistant">email</DocLink>, pointed at scheduled work instead. Drag
         its left edge to resize it, or wind it down to a spine with the chevron; it stays how you
         left it next time.
@@ -276,14 +281,14 @@ Post it to the #morning channel.`}</Pre>
         their work. They are handed the routine itself before they read your message: the schedule
         and every setting, the brief, how the last ten <Strong>Runs</Strong> went, and the tail of
         the newest Run&apos;s log. So &ldquo;why did last night&apos;s run fail?&rdquo; is answered
-        from the transcript rather than guessed at — and you never have to paste a log in. Type{" "}
+        from the transcript rather than guessed at — and you never have to paste a log in. Type{""}
         <Code>@</Code> to hand the question to somebody else, <Code>#</Code> to reference another
         company resource, or <Code>/new</Code> on its own to clear this routine&apos;s context.
       </P>
       <P>
         Asking is not editing. Any Member who can open a routine can ask about it, while changing
         one still needs an admin — and the employee is told to describe a change rather than make
-        it. If you do ask for the change and you have the rights to make it, it runs with{" "}
+        it. If you do ask for the change and you have the rights to make it, it runs with{""}
         <em>your</em> authority, and whatever it did shows up as a small action pill under the
         reply. You can attach a file to the question too — a spec to check the brief against, a log
         from somewhere else.
@@ -304,7 +309,8 @@ Post it to the #morning channel.`}</Pre>
         Starting a Routine does not make its AI Employee unavailable. You can keep chatting with
         that employee and start other independent Routines while the first Run continues. Genosyn
         places no per-company ceiling on overlapping top-level AI work. Chat threads are independent
-        too: one AI Employee answers several conversations at once, and only a second message in the{" "}
+        too: one AI Employee answers several conversations at once, and only a second message in the
+        {""}
         <em>same</em> thread waits for the reply ahead of it. Your deployment operator and AI Model
         provider still determine real capacity, cost, and rate limits.
       </P>
@@ -316,7 +322,7 @@ Post it to the #morning channel.`}</Pre>
 
       <H2 id="parallel-delegation">Parallel delegation</H2>
       <P>
-        API-key and custom-endpoint Chat turns and Routine runs include{" "}
+        API-key and custom-endpoint Chat turns and Routine runs include{""}
         <Code>delegate_parallel_work</Code>. An AI Employee can split an objective into independent
         briefs, run up to four temporary copies of itself at once, and receive their ordered results
         before it writes the final answer or takes follow-up action. Each worker uses the same Soul,
@@ -337,7 +343,7 @@ Verify the three results, resolve any disagreement, then post one concise brief 
       <H3 id="github-issue-subagents">Copy/paste: one worker per GitHub issue</H3>
       <P>
         Before using this example, connect GitHub, allowlist the repository, and give the AI
-        employee a Grant to that Connection. See{" "}
+        employee a Grant to that Connection. See{""}
         <DocLink to="/docs/integrations#github-engineering">
           GitHub &amp; engineering grants
         </DocLink>
@@ -393,7 +399,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <H2 id="self-serve">Employees manage their own routines</H2>
       <P>
         You don&apos;t have to click through the editor yourself — every AI Employee holds built-in
-        tools for the full routine lifecycle: <Code>list_routines</Code>,{" "}
+        tools for the full routine lifecycle: <Code>list_routines</Code>,{""}
         <Code>create_routine</Code>, <Code>update_routine</Code>, and <Code>delete_routine</Code>.
         Ask an employee in chat to set up a weekly report, move it to Fridays, rewrite its brief, or
         pause it, and they edit the existing routine in place —<Code>update_routine</Code> covers
@@ -401,7 +407,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         duplicate.
       </P>
       <P>
-        Every change made this way is written to the{" "}
+        Every change made this way is written to the{""}
         <DocLink to="/docs/employees">audit log</DocLink>, and creating or deleting a routine also
         lands in the owning employee&apos;s journal, so the humans can always see who rescheduled
         what.
@@ -440,7 +446,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         Every cron tick — and every manual trigger — creates a <Code>Run</Code> row. The runner runs
         the in-process agent in the employee&apos;s directory and stores the agent transcript — the
-        model&apos;s messages and tool trace, not captured CLI stdout — on{" "}
+        model&apos;s messages and tool trace, not captured CLI stdout — on{""}
         <Code>Run.logContent</Code>. It records what each tool <Strong>returned</Strong>, not only
         what was called, and an oversized transcript is elided in the middle rather than cut off at
         the cap: the ending is where a Run says what it did, and it is the last thing worth losing.
@@ -449,7 +455,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       </P>
       <P>
         The transcript is still the model&apos;s account of its own work. What the server recorded
-        the Run actually changing is the separate <Strong>Effects</Strong> list beside it — see{" "}
+        the Run actually changing is the separate <Strong>Effects</Strong> list beside it — see{""}
         <DocLink to="/docs/verification">what proves a Run worked</DocLink>.
       </P>
       <P>
@@ -469,21 +475,21 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         A recording made in Genosyn&apos;s browser is available to company owners and admins, and to
         the Member the AI Employee reports to — supervising an employee&apos;s work should not
         require the admin role over everything else. Where that employee reports to another AI
-        Employee, the line is followed upward to the first human on it. A recording made in a{" "}
+        Employee, the line is followed upward to the first human on it. A recording made in a{""}
         <DocLink to="/docs/member-browsers">Member browser</DocLink> is available only to that
         browser&apos;s exact owner, regardless of company role or org chart. Recordings are kept
         whole: the video shows whatever the page rendered, sign-in screens included.
       </Callout>
       <UL>
         <LI>
-          <Strong>Status</Strong> starts at <Code>running</Code> and ends at one of{" "}
+          <Strong>Status</Strong> starts at <Code>running</Code> and ends at one of{""}
           <Code>completed</Code>, <Code>failed</Code>, <Code>skipped</Code> (no model was
           connected), <Code>timeout</Code>, or <Code>interrupted</Code> (the server stopped
           mid-run). A Run stopped by the step-limit backstop — the model kept calling tools without
           ever finishing — is marked <Code>failed</Code>, with the reason in the transcript.
           Completed only ever means the loop returned cleanly; whether the work met its bar is
-          answered by the other two axes — this routine&apos;s{" "}
-          <DocLink to="/docs/routines#checks">Checks</DocLink> and its{" "}
+          answered by the other two axes — this routine&apos;s{""}
+          <DocLink to="/docs/routines#checks">Checks</DocLink> and its{""}
           <DocLink to="/docs/routines#outcome-check">outcome check</DocLink> — never by the status.
         </LI>
         <LI>
@@ -499,7 +505,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           Manual Runs from the &quot;Run now&quot; button live in the same table as scheduled Runs.
         </LI>
         <LI>
-          <Strong>Retry</Strong> a Run that <Code>failed</Code>, <Code>timed out</Code>, or was{" "}
+          <Strong>Retry</Strong> a Run that <Code>failed</Code>, <Code>timed out</Code>, or was{""}
           <Code>interrupted</Code> straight from its run history. It re-triggers the routine
           immediately, outside the schedule, and opens the live log for the new Run.
         </LI>
@@ -510,10 +516,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         directory and are included in whole-instance backups.
       </P>
       <P>
-        Failures are loud: a Run that ends <Code>failed</Code>, <Code>timeout</Code>, or{" "}
+        Failures are loud: a Run that ends <Code>failed</Code>, <Code>timeout</Code>, or{""}
         <Code>interrupted</Code> with no retry still scheduled sends a bell (and web push)
         notification to the company&apos;s owners and admins and to the Member the employee reports
-        to, deep-linked to the Run log. The Home page additionally shows a{" "}
+        to, deep-linked to the Run log. The Home page additionally shows a{""}
         <Strong>Failed routines</Strong> panel for anything that broke in the last 24 hours, and
         every <Strong>Journal</Strong> entry for a Run links straight to that routine&apos;s run
         history — where the Retry button is one click away. Once you&apos;ve looked at a failure,
@@ -527,7 +533,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         simply didn&apos;t happen — so the button runs it again immediately and dismisses the
         interrupted Run, which keeps the panel from inviting a second, duplicate Run. It confirms
         first, because an interrupted Run may already have sent the email or moved the money before
-        the process died; read the log if you&apos;re not sure repeating the work is safe. Runs that{" "}
+        the process died; read the log if you&apos;re not sure repeating the work is safe. Runs that
+        {""}
         <Code>failed</Code> or <Code>timed out</Code> get no button here — those broke for a reason
         worth reading before you fire them off again.
       </P>
@@ -536,7 +543,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         A green <Code>completed</Code> proves the loop returned — it says nothing about whether the
         work was any good. A convincingly wrong Run used to look byte-identical to a great one. The
-        outcome check is the second axis: give a routine <Strong>acceptance criteria</Strong>{" "}
+        outcome check is the second axis: give a routine <Strong>acceptance criteria</Strong>
+        {""}
         (Settings → Outcome check) — a plain-language definition of done, like &quot;the digest was
         posted to #general and covers every failed run since the last digest&quot; — and two things
         happen.
@@ -548,7 +556,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
         <LI>
           After a completed Run, a restricted checker — a zero-tool model turn on the same brain,
-          reading the transcript as untrusted evidence beside the server-written{" "}
+          reading the transcript as untrusted evidence beside the server-written{""}
           <DocLink to="/docs/verification#effects">Effects</DocLink> list — grades the work and
           stamps a verdict on the Run: <Code>achieved</Code>, <Code>unclear</Code> (it looked and
           could not tell), <Code>off goal</Code>, or <Code>unverified</Code> (no judgement was ever
@@ -573,8 +581,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         objective is <Code>off goal</Code>.
       </P>
       <P>
-        Verdicts also feed forward: a Run that fails, times out, or grades <Code>off goal</Code>{" "}
-        writes a <Strong>Lesson</Strong> into the routine&apos;s future briefs — see{" "}
+        Verdicts also feed forward: a Run that fails, times out, or grades <Code>off goal</Code>
+        {""}
+        writes a <Strong>Lesson</Strong> into the routine&apos;s future briefs — see{""}
         <DocLink to="/docs/improvement">the improvement loop</DocLink>.
       </P>
       <Callout kind="info" title="What it costs">
@@ -584,7 +593,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
 
       <H2 id="checks">Checks</H2>
       <P>
-        The outcome check is still a model reading a transcript another model wrote. A{" "}
+        The outcome check is still a model reading a transcript another model wrote. A{""}
         <Strong>Check</Strong> is the third axis and the only one with no model in it: a
         machine-verifiable assertion the Run must pass before it finalizes green, written by an
         operator on the routine&apos;s <Strong>Settings → Checks</Strong> panel.
@@ -595,7 +604,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           least one <Code>mail.send</Code>, at most three. No shell, no model, no extra cost.
         </LI>
         <LI>
-          A <Strong>command</Strong> Check runs a shell command in the sandbox and passes on exit{" "}
+          A <Strong>command</Strong> Check runs a shell command in the sandbox and passes on exit
+          {""}
           <Code>0</Code> — a test suite, a <Code>git diff --exit-code</Code>, a script that checks
           the thing was deployed.
         </LI>
@@ -606,7 +616,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         earns the employee up to two more briefed attempts inside the routine&apos;s existing
         timeout — never more time, never a third round — and then finalizes as a failure that
         revokes waivers and writes a Lesson like any other. Checks ride into the Run brief, so the
-        employee aims at the bar; no MCP tool can create, edit, or delete one. See{" "}
+        employee aims at the bar; no MCP tool can create, edit, or delete one. See{""}
         <DocLink to="/docs/verification">what proves a Run worked</DocLink>.
       </P>
 
@@ -619,7 +629,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <H3 id="crash-mid-run">The server stopped mid-run</H3>
       <P>
         A Run that was executing when the process died can&apos;t report its own outcome — nobody
-        was left to write the row. The scheduler notices on its next heartbeat and marks it{" "}
+        was left to write the row. The scheduler notices on its next heartbeat and marks it{""}
         <Code>interrupted</Code>, appending a line after the last durable checkpoint. The Run log
         still shows the model text and tool activity captured before the stop, so the final line
         identifies where the visible work ended. Nothing is known about work the employee did after
@@ -643,7 +653,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         A routine fires <Strong>once</Strong> when the server comes back, never once per missed
         slot. An hourly digest that was down overnight produces one run, not twelve. The catch-up
-        run records how many occurrences it stands in for — you&apos;ll see <Code>+11 missed</Code>{" "}
+        run records how many occurrences it stands in for — you&apos;ll see <Code>+11 missed</Code>
+        {""}
         on the run row — and its brief tells the employee to cover the whole period rather than just
         the last interval.
       </P>
@@ -661,9 +672,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
 
       <H3 id="retries">Retries</H3>
       <P>
-        Retries after <Code>failed</Code> Runs are <Strong>off by default.</Strong> Raise{" "}
+        Retries after <Code>failed</Code> Runs are <Strong>off by default.</Strong> Raise{""}
         <Strong>Attempts</Strong> above 1 in the routine&apos;s Settings to retry them
-        automatically, up to 5 attempts, waiting a randomized, doubling interval between each (from{" "}
+        automatically, up to 5 attempts, waiting a randomized, doubling interval between each (from
+        {""}
         <Strong>Retry backoff</Strong>, capped at six hours). Timeouts are opted in separately,
         because retrying one re-burns the routine&apos;s whole time budget. An interrupted initial
         scheduled Run on an enabled routine without an approval gate is the safety exception: even
@@ -677,7 +689,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         its retry becomes due.
       </Callout>
       <P>
-        The retry itself is no longer blind about it. Attempt 2 opens with the{" "}
+        The retry itself is no longer blind about it. Attempt 2 opens with the{""}
         <DocLink to="/docs/verification#effects">Effects</DocLink> the server recorded during every
         earlier attempt in the chain — the emails that went out, the rows that moved — and is told
         to verify each one before doing it again. Deliberately &quot;verify before redoing&quot;
@@ -692,7 +704,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
         <LI>
           A run with a retry pending stays out of the Home <Strong>Failed routines</Strong> panel
-          until its last attempt is spent — it isn&apos;t something to act on yet. It shows under{" "}
+          until its last attempt is spent — it isn&apos;t something to act on yet. It shows under
+          {""}
           <Strong>Runs waiting to retry</Strong> in System Health instead.
         </LI>
         <LI>
@@ -700,7 +713,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           the whole routine — the escape hatch when you&apos;ve decided to fix the failure by hand.
         </LI>
         <LI>
-          These are operator settings. AI Employees managing their own routines through{" "}
+          These are operator settings. AI Employees managing their own routines through{""}
           <Code>update_routine</Code> cannot change them.
         </LI>
       </UL>
@@ -729,7 +742,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           routines that never actually ran because no model was connected.
         </LI>
         <LI>
-          <Strong>Approvals waiting too long</Strong>, <Strong>email delivery failures</Strong>, and{" "}
+          <Strong>Approvals waiting too long</Strong>, <Strong>email delivery failures</Strong>, and
+          {""}
           <Strong>integration connections</Strong> in an error/expired state.
         </LI>
       </UL>
@@ -747,18 +761,19 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         A company owner or admin must approve or reject it from a logged-in browser session with
         recent primary and second-factor authentication; API keys and ordinary Members cannot open
         the inbox or decide approvals. Approval claims are one-shot, so double-clicks and concurrent
-        reviewers cannot replay the action. If the approved action fails, the row moves to{" "}
+        reviewers cannot replay the action. If the approved action fails, the row moves to{""}
         <Code>execution_failed</Code> for investigation instead of becoming eligible to run again.
         Replay payloads, provider results, and raw provider failures are never returned by the inbox
         API.
       </P>
       <P>
         A pending Approval never expires, so a gated tick nobody answers is lost, not queued.
-        Genosyn no longer lets that happen in silence: an Approval still pending after{" "}
+        Genosyn no longer lets that happen in silence: an Approval still pending after{""}
         <Strong>24 hours</Strong> re-pages the owners and admins with a stall reminder — once per
-        row, so the bell nags exactly one extra time. Pending <Strong>Decisions</Strong> and overdue{" "}
-        <Strong>Handoffs</Strong> get the same treatment; see{" "}
-        <DocLink to="/docs/decisions">the Decision Stack</DocLink> and{" "}
+        row, so the bell nags exactly one extra time. Pending <Strong>Decisions</Strong> and overdue
+        {""}
+        <Strong>Handoffs</Strong> get the same treatment; see{""}
+        <DocLink to="/docs/decisions">the Decision Stack</DocLink> and{""}
         <DocLink to="/docs/employees">AI Employees</DocLink>.
       </P>
 
@@ -768,11 +783,11 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           <Code>routine</Code> — the whole Run is gated.
         </LI>
         <LI>
-          <Code>browser_action</Code> — a form submit from an employee whose{" "}
+          <Code>browser_action</Code> — a form submit from an employee whose{""}
           <DocLink to="/docs/browser">Browser</DocLink> requires approval for submits.
         </LI>
         <LI>
-          <Code>mcp_tool</Code> — a guarded tool on a company-configured{" "}
+          <Code>mcp_tool</Code> — a guarded tool on a company-configured{""}
           <DocLink to="/docs/integrations">MCP server</DocLink>. The call is snapshotted and
           replayed on approve.
         </LI>

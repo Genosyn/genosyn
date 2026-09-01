@@ -1,6 +1,7 @@
 import { GITHUB_URL } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
+import { Container } from "@/sections/Kit";
 
 /**
  * The docs header.
@@ -17,6 +18,17 @@ import { Link } from "@/lib/router";
  * GitHub glyph is the word "GitHub", and both are set in the condensed
  * uppercase the site uses for every other control. That is the same set of
  * labels sections/Nav.tsx carries, so the two headers now speak once.
+ *
+ * It sits on the Kit's `Container` rather than on a hand-written 82rem with
+ * its own clamped padding. DocsShell already puts the sidebar and the reading
+ * column inside `Container`, so the two widths disagreed by several rem and
+ * the wordmark did not line up with the sidebar underneath it — a misalignment
+ * that is invisible in a diff and impossible to unsee on the page.
+ *
+ * The bottom edge is the structural rule rather than a hairline. This header
+ * is sticky over a reading column, so it is the one boundary on the docs that
+ * has prose sliding underneath it, and 1.22:1 is not enough to stop a
+ * paragraph ghosting into the header as it goes.
  */
 export function DocsNav({
   onToggleSidebar,
@@ -26,33 +38,33 @@ export function DocsNav({
   sidebarOpen: boolean;
 }) {
   return (
-    <header className="sticky top-0 z-50 border-b border-paper-400 bg-paper-100">
-      <div className="mx-auto flex h-14 w-full max-w-[82rem] items-center gap-4 px-[clamp(1.25rem,4vw,3rem)]">
+    <header className="sticky top-0 z-50 border-b border-rule bg-ground">
+      <Container className="flex h-14 items-center gap-4">
         <button
           type="button"
           onClick={onToggleSidebar}
           aria-label="Toggle docs sidebar"
           aria-expanded={sidebarOpen}
           aria-controls="docs-sidebar"
-          className="t-cond border border-paper-400 px-3 py-2 text-[11px] uppercase tracking-field text-zinc-950 transition-colors hover:bg-zinc-950 hover:text-paper-50 lg:hidden"
+          className="t-field rounded-control border border-rule px-3 py-2.5 text-ink transition-colors hover:bg-ink hover:text-ground lg:hidden"
         >
           {sidebarOpen ? "Close" : "Menu"}
         </button>
 
         <Link
           href="/"
-          className="flex items-center text-zinc-950 transition-opacity hover:opacity-70"
+          className="flex items-center text-ink transition-opacity hover:opacity-70"
           aria-label="Genosyn home"
         >
           <Logo className="text-[15px]" />
         </Link>
 
-        <span className="hidden text-zinc-600 sm:inline" aria-hidden>
+        <span className="hidden text-muted sm:inline" aria-hidden>
           /
         </span>
         <Link
           href="/docs"
-          className="t-cond hidden text-[12px] uppercase tracking-field text-zinc-700 transition-colors hover:text-zinc-950 sm:inline"
+          className="t-field hidden text-[12px] text-ink2 transition-colors hover:text-ink sm:inline"
         >
           Docs
         </Link>
@@ -60,7 +72,7 @@ export function DocsNav({
         <div className="ml-auto flex items-center gap-5">
           <Link
             href="/docs/install"
-            className="t-cond hidden text-[12px] uppercase tracking-field text-zinc-700 transition-colors hover:text-zinc-950 sm:inline"
+            className="t-field hidden text-[12px] text-ink2 transition-colors hover:text-ink sm:inline"
           >
             Install
           </Link>
@@ -72,19 +84,19 @@ export function DocsNav({
             href={GITHUB_URL}
             target="_blank"
             rel="noreferrer"
-            className="t-cond text-[12px] uppercase tracking-field text-zinc-700 transition-colors hover:text-zinc-950"
+            className="t-field text-[12px] text-ink2 transition-colors hover:text-ink"
           >
             GitHub
-            <span className="sr-only">{" (opens in a new tab)"}</span>
+            <span className="sr-only">{"(opens in a new tab)"}</span>
           </a>
           <Link
             href="/"
-            className="t-cond hidden bg-zinc-950 px-4 py-2.5 text-[12px] uppercase tracking-field text-paper-50 transition-colors hover:bg-zinc-800 sm:inline-flex"
+            className="t-field rounded-control hidden bg-ink px-4 py-2.5 text-[12px] text-ground transition-colors hover:bg-ink2 sm:inline-flex"
           >
             Back to site
           </Link>
         </div>
-      </div>
+      </Container>
     </header>
   );
 }

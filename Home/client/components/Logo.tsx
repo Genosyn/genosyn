@@ -70,7 +70,7 @@ export function Logo({ className = "" }: { className?: string }) {
   return (
     <span className={`inline-flex items-center gap-[0.55em] ${className}`}>
       <LogoMark className="h-[1.3em] w-[1.3em] shrink-0" />
-      <span className="t-cond text-[1em] uppercase leading-none tracking-[0.2em]">Genosyn</span>
+      <span className="t-field text-[1em] uppercase leading-none tracking-[0.2em]">Genosyn</span>
     </span>
   );
 }

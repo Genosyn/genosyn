@@ -23,8 +23,8 @@ export function Explore() {
         lead={
           <>
             Self-serve BI over the database integrations your company already connects. Save a SQL
-            query as a <Strong>Chart</Strong>, pick a visualization, pin charts onto a{" "}
-            <Strong>Dashboard</Strong> the team reads at a glance. Distinct from{" "}
+            query as a <Strong>Chart</Strong>, pick a visualization, pin charts onto a{""}
+            <Strong>Dashboard</Strong> the team reads at a glance. Distinct from{""}
             <DocLink to="/docs/vocabulary">Bases</DocLink> (the team writes into those) and from
             running queries inside an Integration tool by hand.
           </>
@@ -60,9 +60,9 @@ export function Explore() {
       <H2 id="what-you-need">What you need first</H2>
       <P>
         Explore reads from <DocLink to="/docs/integrations">Integrations</DocLink> — specifically
-        Connections of provider <Code>postgres</Code>, <Code>mysql</Code>, or{" "}
+        Connections of provider <Code>postgres</Code>, <Code>mysql</Code>, or{""}
         <Code>clickhouse</Code>. Set one up under <Code>Explore → Integrations</Code>, then it shows
-        up in the Connection picker inside Explore. To delegate analytics, click{" "}
+        up in the Connection picker inside Explore. To delegate analytics, click{""}
         <Code>Build with AI</Code>, choose the Connection and an AI Employee, and Genosyn can create
         the Connection Grant before opening Chat.
       </P>
@@ -188,8 +188,8 @@ export function Explore() {
       <P>
         Open the <Code>Share</Code> menu on any Chart or Dashboard to change a teammate&apos;s
         level, revoke a grant, or invite an employee who didn&apos;t default to access. Manage a
-        database Connection Grant from <Code>Build with AI</Code>, the Connection&apos;s{" "}
-        <Code>Manage access</Code> view, or the employee&apos;s{" "}
+        database Connection Grant from <Code>Build with AI</Code>, the Connection&apos;s{""}
+        <Code>Manage access</Code> view, or the employee&apos;s{""}
         <Strong>Settings → Connections</Strong>.
       </P>
 
@@ -200,23 +200,25 @@ export function Explore() {
       </P>
       <UL>
         <LI>
-          <Code>list_explore_connections</Code>, <Code>get_explore_schema</Code>, and{" "}
+          <Code>list_explore_connections</Code>, <Code>get_explore_schema</Code>, and{""}
           <Code>run_explore_query</Code> — the discovery and validation loop over database
           Connections explicitly granted to that employee. Credentials are never returned.
         </LI>
         <LI>
-          <Code>list_charts</Code>, <Code>get_chart</Code>, <Code>run_chart</Code> — read paths. The{" "}
+          <Code>list_charts</Code>, <Code>get_chart</Code>, <Code>run_chart</Code> — read paths. The
+          {""}
           <Code>run_chart</Code> tool is the one most teams hit: a teammate asks &quot;what was MRR
           last month?&quot;, the employee finds the right Chart and runs it.
         </LI>
         <LI>
           <Code>create_chart</Code>, <Code>update_chart</Code>, <Code>delete_chart</Code> — write
           paths. Create requires a Grant on the bound Connection; changing SQL requires both that
-          Connection Grant and <Code>write</Code> on the Chart. Other edits and deletion require{" "}
+          Connection Grant and <Code>write</Code> on the Chart. Other edits and deletion require{""}
           <Code>write</Code> on the Chart.
         </LI>
         <LI>
-          <Code>list_dashboards</Code>, <Code>get_dashboard</Code>, <Code>create_dashboard</Code>,{" "}
+          <Code>list_dashboards</Code>, <Code>get_dashboard</Code>, <Code>create_dashboard</Code>,
+          {""}
           <Code>add_dashboard_card</Code> — dashboard authoring.
         </LI>
       </UL>

@@ -5,13 +5,14 @@ import {
   ActionStrip,
   Band,
   Body,
+  Chip,
   Container,
   Field,
-  Heading,
-  Rail,
+  Head,
   Row,
   Sheet,
   StateTag,
+  type Dept,
 } from "@/sections/Kit";
 import { ROLES, ROLE_DISCIPLINES, type RoleDef, type RoleMoment } from "@/roles/data";
 
@@ -24,9 +25,18 @@ import { ROLES, ROLE_DISCIPLINES, type RoleDef, type RoleMoment } from "@/roles/
  * was the identical page with different nouns in it, which is the clearest
  * possible sign that neither page was saying anything.
  *
- * The hues are gone, so a row has to distinguish itself by what it knows. Two
- * facts do that here and they are the two a reader is actually deciding on:
+ * In HEADCOUNT it is a roster, and it is the whole inversion drawn as a
+ * table. Read a row left to right and you get: the department this role works
+ * in, in that department's hue; the hours it keeps; and then, in ink, with no
+ * hue at all, the one thing it hands back to a person. Eight coloured chips
+ * down one edge, eight black tags down the other, and the black ones are the
+ * only work left.
  *
+ * Three facts do the differentiating, and they are the three a reader is
+ * actually deciding on:
+ *
+ *   - **Where it works.** The department, not the job title — the Recruiter's
+ *     discipline is People and its day happens in the inbox.
  *   - **The hours.** First moment to last moment of the role's own day,
  *     straight out of `data.ts`. Robin works 06:40 to 17:45; nobody starts
  *     that shift.
@@ -45,14 +55,11 @@ import { ROLES, ROLE_DISCIPLINES, type RoleDef, type RoleMoment } from "@/roles/
  */
 export function RolesIndex() {
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-900">
+    <div className="min-h-screen bg-ground text-ink">
       <Nav />
       <main>
         <PageHero
-          // "01 / Roles", not "01 / Roster": the band below is 02 / Roster, and
-          // two sheets on one page carrying the same name stop being a
-          // numbering. Products reads 01 / Products then 02 / Catalogue.
-          sheet="01 / Roles"
+          eyebrow="Roles"
           fields={[`${ROLES.length} ROLES`, `${ROLE_DISCIPLINES.length} DISCIPLINES`, "APACHE-2.0"]}
           title={`${ROLES.length} roles ship written, from ${ROLES[0].short} to ${
             ROLES[ROLES.length - 1].short
@@ -60,8 +67,8 @@ export function RolesIndex() {
           lede={
             <>
               Each role below is a document you edit: a Soul, the Skills its job repeats, and
-              Routines on a cron line. The table gives the hours it works and the question it hands
-              back to a person.
+              Routines on a cron line. The table gives the department it works in, the hours it
+              keeps, and the question it hands back to a person.
             </>
           }
           actions={
@@ -85,64 +92,130 @@ export function RolesIndex() {
   );
 }
 
+/* -------------------------------------------------------------------------
+   Where each role works
+------------------------------------------------------------------------- */
+
+/**
+ * The department a role's day happens in.
+ *
+ * This is not the discipline — the disciplines group the table, and a job
+ * title is not a place. Six of them line up with the obvious surface, and the
+ * two that do not are the interesting ones:
+ *
+ *   - **The Analyst works in Operations.** Its day is Explore and Pipelines,
+ *     which is the machine room rather than a department of its own.
+ *   - **The Recruiter works in Email.** Its Routines are candidate replies
+ *     and a feedback chase; the pipeline lives in a Base, but the day is
+ *     mail. The `people` hue exists for the Recruiter and is deliberately not
+ *     spent here: it is reserved for that role's own page, and a hue that
+ *     appears exactly once on a roster of eight teaches a reader nothing.
+ */
+const ROLE_DEPT: Record<string, Dept> = {
+  sdr: "revenue",
+  "executive-assistant": "workspace",
+  marketer: "marketing",
+  support: "email",
+  bookkeeper: "finance",
+  engineer: "repositories",
+  recruiter: "email",
+  analyst: "operations",
+};
+
+/** The department's name as a reader would say it, for the chip. */
+const DEPT_NAME: Record<Dept, string> = {
+  finance: "Finance",
+  repositories: "Repositories",
+  marketing: "Marketing",
+  workspace: "Workspace",
+  email: "Email",
+  revenue: "Revenue",
+  operations: "Operations",
+  people: "People",
+};
+
+/* -------------------------------------------------------------------------
+   The roster
+------------------------------------------------------------------------- */
+
 /**
  * Column widths, shared by the header and every row so the two stay in step.
  *
- * The grid only exists from `lg`. Below that the cells stack, which is the
- * only honest projection at 375px — the third column is a whole question in
- * prose and a phone has no room to put it beside anything.
+ * The department sits second, directly beside the 3px spine it names: a
+ * legend three columns away from the thing it explains is not a legend. The
+ * grid only exists from `lg`. Below that the cells stack, which is the only
+ * honest projection at 375px — the last column is a whole question in prose
+ * and a phone has no room to put it beside anything.
  */
-const COLUMNS = "gap-x-6 gap-y-2 lg:grid-cols-[13rem_9.5rem_minmax(0,1fr)]";
+const COLUMNS = "gap-x-6 gap-y-2 lg:grid-cols-[13rem_8rem_9.5rem_minmax(0,1fr)]";
 
 /**
  * Row cells set their own colour, so they also have to answer the row's hover
  * inversion — `Row` puts `group` on the link and flips the text on itself,
  * which cannot reach a child that has already declared a colour of its own.
- * The state tag is deliberately left out of that: it is an amber fill
- * carrying near-black text, and near-black is what has to stay on it.
+ * The department chip is deliberately left out of it: it is a department fill
+ * carrying white, and it stays that on ink the way a department stays itself.
+ * The state tag is left out too, but it is not left alone — it answers the
+ * hover by inverting rather than by recolouring its text. See `RoleRow`.
  */
-const INVERT = "group-hover:!text-paper-50";
+const INVERT = "group-hover:!text-surface";
+
+/** Rows are indented by their spine, so every heading above them is too. */
+const SPINE_INDENT = "pl-4";
 
 function Roster() {
   return (
-    <Band id="roster" tone="paper" pad="m">
+    <Band id="roster" tone="ground" pad="m">
       <Container>
-        {/* Both fields are emitted data. "1 STOP PER ROLE" was a claim set in
-            mono, and it restated the count beside it; the clock range is read
-            off the same marked moments the count is. */}
-        <Rail sheet="02 / Roster" fields={[STOP_COUNT_FIELD, STOP_RANGE_FIELD]}>
-          <Heading as="h2" className="max-w-[22ch]">
-            {`${ROLES.length} roles stop once each, ${STOP_WINDOW}.`}
-          </Heading>
-
-          <div className="mt-12">
-            <div className={`hidden w-full px-1 pb-2 lg:grid ${COLUMNS}`}>
-              <Sheet>Role</Sheet>
-              <Sheet>Hours</Sheet>
-              <Sheet>Hands back</Sheet>
+        <Head
+          eyebrow="Roster"
+          title={`${ROLES.length} roles stop once each, ${STOP_WINDOW}.`}
+          lede={
+            <>
+              Every role runs its own day unattended and stops once, at the moment it needs a
+              person. That stop is the black tag on the right of each row — the one thing on this
+              page with no department hue on it.
+            </>
+          }
+          // Both fields are emitted data. "1 STOP PER ROLE" was a claim set in
+          // mono, and it restated the count beside it; the clock range is read
+          // off the same marked moments the count is.
+          aside={
+            <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2">
+              <Field>{STOP_COUNT_FIELD}</Field>
+              <Field>{STOP_RANGE_FIELD}</Field>
             </div>
+          }
+        />
 
-            {ROLE_DISCIPLINES.map((discipline) => {
-              const roles = ROLES.filter((role) => role.discipline === discipline);
-              if (roles.length === 0) return null;
-
-              return (
-                <section key={discipline} aria-label={discipline} className="mt-12 first:mt-0">
-                  {/* The head carries the discipline and nothing else. A count
-                      belongs beside a group that has one worth reading, and
-                      "1 ROLE" printed eight times down the page is furniture. */}
-                  <div className="pb-3">
-                    <Sheet>{discipline}</Sheet>
-                  </div>
-
-                  {roles.map((role, index) => (
-                    <RoleRow key={role.slug} role={role} opens={index === 0} />
-                  ))}
-                </section>
-              );
-            })}
+        <div className="mt-12">
+          <div className={`hidden w-full pb-2 lg:grid ${SPINE_INDENT} ${COLUMNS}`}>
+            <Sheet>Role</Sheet>
+            <Sheet>Works in</Sheet>
+            <Sheet>Hours</Sheet>
+            <Sheet>Hands back</Sheet>
           </div>
-        </Rail>
+
+          {ROLE_DISCIPLINES.map((discipline) => {
+            const roles = ROLES.filter((role) => role.discipline === discipline);
+            if (roles.length === 0) return null;
+
+            return (
+              <section key={discipline} aria-label={discipline} className="mt-12 first:mt-0">
+                {/* The head carries the discipline and nothing else. A count
+                    belongs beside a group that has one worth reading, and
+                    "1 ROLE" printed eight times down the page is furniture. */}
+                <div className={`pb-3 ${SPINE_INDENT}`}>
+                  <Sheet>{discipline}</Sheet>
+                </div>
+
+                {roles.map((role, index) => (
+                  <RoleRow key={role.slug} role={role} opens={index === 0} />
+                ))}
+              </section>
+            );
+          })}
+        </div>
       </Container>
     </Band>
   );
@@ -159,17 +232,20 @@ function Roster() {
 function RoleRow({ role, opens }: { role: RoleDef; opens: boolean }) {
   const moment = stop(role);
   const state = moment?.kind === "approval" ? "approval" : "decision";
+  const dept = ROLE_DEPT[role.slug];
   const first = role.day[0].time;
   const last = role.day[role.day.length - 1].time;
 
   return (
-    <Row href={`/roles/${role.slug}`} className={opens ? "!border-t-paper-400" : ""}>
+    <Row href={`/roles/${role.slug}`} dept={dept} className={opens ? "!border-t-rule" : ""}>
       <div className={`grid w-full min-w-0 ${COLUMNS}`}>
         <div className="min-w-0">
-          <Body className={`!text-[1.0625rem] !leading-6 !text-zinc-950 ${INVERT}`}>
-            {role.name}
-          </Body>
+          <Body className={`!text-[1.0625rem] !leading-6 !text-ink ${INVERT}`}>{role.name}</Body>
           <Sheet className={`mt-1 block ${INVERT}`}>{role.person}</Sheet>
+        </div>
+
+        <div className="min-w-0">
+          <Chip dept={dept}>{DEPT_NAME[dept]}</Chip>
         </div>
 
         {/* The range separator is U+2212, not an arrow: the arrow is outside
@@ -185,7 +261,18 @@ function RoleRow({ role, opens }: { role: RoleDef; opens: boolean }) {
         </div>
 
         <div className="min-w-0">
-          <StateTag state={state}>{state === "approval" ? "Approval" : "Decision"}</StateTag>
+          {/* `Row`'s hover fills the whole row with ink, and `StateTag`'s
+              human skin is also ink — so on the one row a reader is pointing
+              at, the black tag dissolved into the row and "Decision" read as
+              one more word in the sentence beside it. The tag flips instead:
+              ink on ground, ground on ink, 16.43:1 either way. Adding a rule
+              around it was the rejected alternative — an outlined tag on an
+              ink row is a fourth `StateTag` skin nobody declared, and the
+              claim this table makes is that the mark is *inverted* from the
+              colour around it, which is exactly what flipping keeps true. */}
+          <StateTag state={state} className="group-hover:!bg-ground group-hover:!text-ink">
+            {state === "approval" ? "Approval" : "Decision"}
+          </StateTag>
           <Body className={`mt-2 ${INVERT}`}>{role.decisions[0]}</Body>
         </div>
       </div>
@@ -201,8 +288,7 @@ function stop(role: RoleDef): RoleMoment | undefined {
 /**
  * The window the roster's stops fall in, computed rather than asserted.
  *
- * Every role currently has exactly one marked moment, so this reads "between
- * 11:00 and 16:00". A role that ever shipped without one drops out of the
+ * Every role currently has exactly one marked moment, so this reads "between * 11:00 and 16:00". A role that ever shipped without one drops out of the
  * window instead of widening it into a claim the data does not support, and
  * if none of them had one the sentence falls back to saying nothing about
  * clock times at all.
@@ -219,10 +305,10 @@ const STOP_WINDOW = STOP_TIMES.length
 const STOP_COUNT_FIELD = `${STOP_TIMES.length} STOPS A DAY`;
 
 /**
- * The same window as a rail field.
+ * The same window as a field.
  *
- * Written "11:00 TO 16:00" rather than with a dash: a rail field has nowhere
- * to hang an `sr-only` gloss the way the row's hours cell does, and a screen
+ * Written "11:00 TO 16:00" rather than with a dash: this line has nowhere to
+ * hang an `sr-only` gloss the way the row's hours cell does, and a screen
  * reader given "11:00 − 16:00" bare reads the minus as arithmetic.
  */
 const STOP_RANGE_FIELD = STOP_TIMES.length

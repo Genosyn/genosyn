@@ -1,17 +1,5 @@
 import { ArrowEast } from "@/components/Marks";
-import {
-  ActionStrip,
-  Band,
-  Body,
-  Container,
-  Field,
-  Heading,
-  Lede,
-  Plate,
-  Rail,
-  Row,
-  Sheet,
-} from "@/sections/Kit";
+import { ActionStrip, Band, Body, Container, Field, Head, Pane, Row, Sheet } from "@/sections/Kit";
 
 /**
  * The self-hosting band.
@@ -36,9 +24,19 @@ import {
  * the data sits, and what an upgrade does to it. The hero owns the install
  * strip and the pitch; repeating either here would just be the pitch twice.
  *
- * The three "facts" were pastel icon tiles in a three-up grid. They are rows
- * now, each carrying the real artefacts in mono beside the prose: the binary
- * path, the volume name, the image ref, the command that backs it up.
+ * ## Why the whole band is one hue
+ *
+ * Colour is the org chart, so a band that is entirely about the host — the
+ * binary, the volume, the image, the nightly upgrade — belongs to exactly one
+ * department, and Operations is the one that runs the machines. The transcript
+ * carries the operations edge and so do all three rows beneath it, which makes
+ * this the only band on the page written in a single colour. That is the point:
+ * seven hues on the wall upstairs, one down here, because one department owns
+ * this page of the company.
+ *
+ * The transcript itself stays monochrome inside its surface. Terminal output
+ * is a string the software emitted; tinting it would make a hue mean "console"
+ * for the length of one figure, and a hue only ever means its department.
  */
 
 /**
@@ -75,9 +73,10 @@ type TranscriptLine = {
  *
  * The installer's own markers do not survive literally. It prints an arrow
  * (U+2192) and a tick (U+2713) in ANSI colour, and both are outside the latin
- * subset Google serves for Martian Mono, so either one falls back to a system
- * face and changes width mid-line. A step therefore gets the drawn `ArrowEast`
- * and a finished line gets the bright end of the ramp instead of a tick.
+ * subset Google serves for Spline Sans Mono, so either one falls back to a
+ * system face and changes width mid-line. A step therefore gets the drawn
+ * `ArrowEast` and a finished line gets the bright end of the ramp instead of a
+ * tick.
  */
 const TRANSCRIPT: TranscriptLine[] = [
   { kind: "cmd", text: INSTALL_COMMAND },
@@ -86,112 +85,131 @@ const TRANSCRIPT: TranscriptLine[] = [
   { kind: "step", text: "Pulling ghcr.io/genosyn/app:latest" },
   { kind: "step", text: "Starting 'genosyn' on port 8471" },
   { kind: "done", text: "Genosyn is running." },
-  { kind: "quiet", text: "Updates    automatic, daily at 03:17 local time" },
-  { kind: "quiet", text: "Open    http://localhost:8471", gap: true },
-  { kind: "quiet", text: "Logs    genosyn logs -f" },
-  { kind: "quiet", text: "Status  genosyn status" },
+  { kind: "quiet", text: "Updates automatic, daily at 03:17 local time" },
+  { kind: "quiet", text: "Open http://localhost:8471", gap: true },
+  { kind: "quiet", text: "Logs genosyn logs -f" },
+  { kind: "quiet", text: "Status genosyn status" },
   { kind: "quiet", text: "Upgrade genosyn upgrade" },
 ];
 
-/** zinc-400 is 5.58:1 on night and zinc-500 is not, so the ramp stops there. */
+/**
+ * The two values that may carry text on ink, and the ramp stops there.
+ *
+ * `surface` on `ink` is 18.70:1 and `rule` on `ink` is 4.98:1; `muted` inverts
+ * to 3.20:1 on a dark plane and therefore never appears in here. Note that
+ * `rule` is the *structural* neutral rather than the quiet one — the ramp
+ * flips end for end against a dark ground, which is why this map exists at all
+ * instead of the page's usual ink2/muted pair.
+ */
 const LINE_TONE: Record<LineKind, string> = {
-  cmd: "text-paper-50",
-  step: "text-zinc-400",
-  done: "text-paper-50",
-  quiet: "text-zinc-400",
+  cmd: "text-surface",
+  step: "text-rule",
+  done: "text-surface",
+  quiet: "text-rule",
 };
 
 export function CliShowcase() {
   return (
-    <Band id="quickstart" tone="paper" open="m" close="m">
+    <Band id="quickstart" tone="ground" open="m" close="m">
       <Container>
-        <Rail sheet="08 / Your hardware" fields={["Apache-2.0", "1 container", "Port 8471"]}>
-          <Heading as="h2" className="max-w-[22ch]">
-            Genosyn installs as one container on port 8471.
-          </Heading>
+        {/* The eyebrow keeps the sheet number: App.tsx's band sequence is the
+            document's table of contents and renumbering is how it breaks. */}
+        <Head
+          eyebrow="08 / Your hardware"
+          title="Genosyn installs as one container on port 8471."
+          lede="The install needs Docker and one free port. Everything the company knows then lives in a single volume on your own disk: the database, Souls, Skills, Routines, every Run, and the encrypted credentials behind every Connection."
+          aside={
+            <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+              <Field>Apache-2.0</Field>
+              <Field>1 container</Field>
+              <Field>Port 8471</Field>
+            </div>
+          }
+        />
 
-          <Lede className="mt-7">
-            The install needs Docker and one free port. Everything the company knows then lives in a
-            single volume on your own disk: the database, Souls, Skills, Routines, every Run, and
-            the encrypted credentials behind every Connection.
-          </Lede>
-
-          <Plate
-            className="mt-10 max-w-[46rem]"
-            figure="Fig. 8"
-            caption="The installer's own output, on a host where Docker is already running."
-          >
+        {/* Assembled here rather than taken from `Plate`, because a Plate
+            draws a plain hairline box and this figure needs the department
+            edge — the transcript is a picture of the product like anything
+            else on the site, so it is mounted on a Pane. The caption keeps
+            Plate's exact shape so the two figures on the page still match. */}
+        <figure className="mt-10 max-w-[46rem]">
+          <Pane dept="operations" title="genosyn install" meta="port 8471">
             <Transcript />
-          </Plate>
+          </Pane>
+          <figcaption className="mt-3 flex flex-wrap items-baseline gap-x-3">
+            <Sheet>Fig. 8</Sheet>
+            <span className="text-[14px] italic leading-6 text-ink2">
+              The installer&rsquo;s own output, on a host where Docker is already running.
+            </span>
+          </figcaption>
+        </figure>
 
-          <div className="mt-12">
-            <Row>
-              <RowLabel>Installs</RowLabel>
-              <div className="min-w-0 flex-1 max-w-[62ch]">
-                <Body>
-                  The CLI is a single shell script on the host, and the application is a single
-                  container beside it. Nothing else is installed. If the machine has no Docker, the
-                  installer fetches one before it starts.
-                </Body>
-                <RowFields
-                  fields={[
-                    "/usr/local/bin/genosyn",
-                    "ghcr.io/genosyn/app:latest",
-                    "GENOSYN_PORT=8471",
-                  ]}
-                />
-              </div>
-            </Row>
+        <div className="mt-12">
+          <Row dept="operations">
+            <RowLabel>Installs</RowLabel>
+            <div className="min-w-0 max-w-[62ch] flex-1">
+              <Body>
+                The CLI is a single shell script on the host, and the application is a single
+                container beside it. Nothing else is installed. If the machine has no Docker, the
+                installer fetches one before it starts.
+              </Body>
+              <RowFields
+                fields={[
+                  "/usr/local/bin/genosyn",
+                  "ghcr.io/genosyn/app:latest",
+                  "GENOSYN_PORT=8471",
+                ]}
+              />
+            </div>
+          </Row>
 
-            <Row>
-              <RowLabel>Data</RowLabel>
-              <div className="min-w-0 flex-1 max-w-[62ch]">
-                <Body>
-                  One Docker volume holds the lot, SQLite included, so a backup is one archive of
-                  one directory. Move the database to Postgres from config when a single host stops
-                  being enough for the roster.
-                </Body>
-                <RowFields fields={["genosyn-data", "data/app.sqlite", "genosyn backup"]} />
-              </div>
-            </Row>
+          <Row dept="operations">
+            <RowLabel>Data</RowLabel>
+            <div className="min-w-0 max-w-[62ch] flex-1">
+              <Body>
+                One Docker volume holds the lot, SQLite included, so a backup is one archive of one
+                directory. Move the database to Postgres from config when a single host stops being
+                enough for the roster.
+              </Body>
+              <RowFields fields={["genosyn-data", "data/app.sqlite", "genosyn backup"]} />
+            </div>
+          </Row>
 
-            <Row>
-              <RowLabel>Upgrades</RowLabel>
-              <div className="min-w-0 flex-1 max-w-[62ch]">
-                {/* This paragraph used to say an upgrade archives the volume
-                    first and restores it on failure. It does not. `cmd_upgrade`
-                    in CLI/genosyn defaults `take_backup=0`, and the rollback
-                    path warns in so many words that "the previous version was
-                    restarted without restoring the data volume" when no archive
-                    exists. The crontab wrapper runs a bare `upgrade`, so the
-                    nightly one never archives either. Naming the flag is the
-                    honest version and it is also the more useful one. */}
-                <Body>
-                  An upgrade keeps the old container as genosyn-upgrade-rollback until the new one
-                  answers HTTP, and puts it back if the new one never does. That returns the
-                  container, not the data. Pass --backup and the volume is archived and verified
-                  before anything is replaced. A crontab entry runs the plain upgrade at 03:17 local
-                  time until you turn it off.
-                </Body>
-                <RowFields
-                  fields={["genosyn upgrade --backup", "03:17 LOCAL", "genosyn auto-update off"]}
-                />
-              </div>
-            </Row>
-          </div>
+          <Row dept="operations">
+            <RowLabel>Upgrades</RowLabel>
+            <div className="min-w-0 max-w-[62ch] flex-1">
+              {/* This paragraph used to say an upgrade archives the volume
+                  first and restores it on failure. It does not. `cmd_upgrade`
+                  in CLI/genosyn defaults `take_backup=0`, and the rollback
+                  path warns in so many words that "the previous version was restarted without restoring the data volume" when no archive
+                  exists. The crontab wrapper runs a bare `upgrade`, so the
+                  nightly one never archives either. Naming the flag is the
+                  honest version and it is also the more useful one. */}
+              <Body>
+                An upgrade keeps the old container as genosyn-upgrade-rollback until the new one
+                answers HTTP, and puts it back if the new one never does. That returns the
+                container, not the data. Pass --backup and the volume is archived and verified
+                before anything is replaced. A crontab entry runs the plain upgrade at 03:17 local
+                time until you turn it off.
+              </Body>
+              <RowFields
+                fields={["genosyn upgrade --backup", "03:17 LOCAL", "genosyn auto-update off"]}
+              />
+            </div>
+          </Row>
+        </div>
 
-          <div className="mt-12 max-w-[34rem]">
-            {/* Both labels stay under about twenty characters: `ActionStrip`
-                truncates its own text, and at 375px a longer line loses its
-                last word to an ellipsis. */}
-            <ActionStrip href="/docs/self-hosting" trailing="Guide">
-              Where the data lives
-            </ActionStrip>
-            <ActionStrip href="/docs/cli" trailing="Reference" className="-mt-px">
-              Every genosyn command
-            </ActionStrip>
-          </div>
-        </Rail>
+        <div className="mt-12 max-w-[34rem]">
+          {/* Both labels stay under about twenty characters: `ActionStrip`
+              truncates its own text, and at 375px a longer line loses its
+              last word to an ellipsis. */}
+          <ActionStrip href="/docs/self-hosting" trailing="Guide">
+            Where the data lives
+          </ActionStrip>
+          <ActionStrip href="/docs/cli" trailing="Reference" className="-mt-px">
+            Every genosyn command
+          </ActionStrip>
+        </div>
       </Container>
     </Band>
   );
@@ -200,20 +218,20 @@ export function CliShowcase() {
 /**
  * The transcript as a plain ruled block.
  *
- * It scrolls inside itself rather than wrapping. Martian Mono is a wide face
- * and the longest line here is 56 characters, which does not fit 375px at any
- * legible size; a wrapped terminal line stops being a terminal line, and
- * shrinking the type below 11px is worse than a scrollbar. `whitespace-pre`
- * keeps the installer's own column alignment in the summary block, which HTML
- * would otherwise collapse.
+ * It scrolls inside itself rather than wrapping. The mono face is wide and the
+ * longest line here is 56 characters, which does not fit 375px at any legible
+ * size; a wrapped terminal line stops being a terminal line, and shrinking the
+ * type below 11px is worse than a scrollbar. `whitespace-pre` keeps the
+ * installer's own column alignment in the summary block, which HTML would
+ * otherwise collapse.
  */
 function Transcript() {
   return (
-    <div className="on-night overflow-x-auto bg-night-950 px-4 py-5 sm:px-6">
+    <div className="on-night overflow-x-auto bg-ink px-4 py-5 sm:px-6">
       <div className="min-w-max">
         {TRANSCRIPT.map((line) => (
           <div key={line.text} className={`flex items-start gap-2 ${line.gap ? "mt-5" : ""}`}>
-            <span className="flex h-6 w-3 shrink-0 items-center justify-center text-zinc-400">
+            <span className="flex h-6 w-3 shrink-0 items-center justify-center text-rule">
               {line.kind === "cmd" && <span className="t-data text-[11px] leading-none">$</span>}
               {line.kind === "step" && <ArrowEast className="h-3 w-3" />}
             </span>

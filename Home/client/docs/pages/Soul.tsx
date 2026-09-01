@@ -9,7 +9,7 @@ export function Soul() {
         lead={
           <>
             A Soul is the <Strong>written constitution</Strong> of an AI employee. Values, voice,
-            decision rules, things they refuse to do. One markdown document, stored on{" "}
+            decision rules, things they refuse to do. One markdown document, stored on{""}
             <Code>AIEmployee.soulBody</Code>.
           </>
         }
@@ -17,7 +17,7 @@ export function Soul() {
 
       <H2 id="why-not-just-a-prompt">Why not just a prompt?</H2>
       <P>
-        A system prompt tells a model how to act for one conversation. A Soul tells{" "}
+        A system prompt tells a model how to act for one conversation. A Soul tells{""}
         <em>this specific employee</em> how to act forever — across every conversation, every
         routine, every handoff. Treat it like a job description, not a chat instruction.
       </P>
@@ -36,7 +36,7 @@ export function Soul() {
           ambiguous. <Code>Prefer shipping a draft over polishing a blank page.</Code>
         </LI>
         <LI>
-          <Strong>Refusals.</Strong> The explicit list of things they will not do.{" "}
+          <Strong>Refusals.</Strong> The explicit list of things they will not do.{""}
           <Code>Never promise features that haven&apos;t shipped.</Code>
         </LI>
       </UL>
@@ -44,15 +44,16 @@ export function Soul() {
       <H2 id="what-doesnt-belong">What doesn&apos;t belong</H2>
       <UL>
         <LI>
-          <Strong>Step-by-step procedures.</Strong> Those go in{" "}
+          <Strong>Step-by-step procedures.</Strong> Those go in{""}
           <DocLink to="/docs/skills">Skills</DocLink>.
         </LI>
         <LI>
-          <Strong>Schedules and one-time tasks.</Strong> Those go in{" "}
+          <Strong>Schedules and one-time tasks.</Strong> Those go in{""}
           <DocLink to="/docs/routines">Routines</DocLink>.
         </LI>
         <LI>
-          <Strong>Credentials, tokens, secrets.</Strong> The Soul is plain text on the DB row. Use{" "}
+          <Strong>Credentials, tokens, secrets.</Strong> The Soul is plain text on the DB row. Use
+          {""}
           <DocLink to="/docs/integrations">Integrations</DocLink> instead.
         </LI>
       </UL>

@@ -22,9 +22,10 @@ export function Revenue() {
         lead={
           <>
             The people you are selling to, the money you are trying to win, and the timeline of
-            everything that has passed between you. Find it in the sidebar under{" "}
-            <Code>Revenue</Code>. It sits between{" "}
-            <DocLink to="/docs/marketing">Paid Marketing</DocLink> (what you spend on attention) and{" "}
+            everything that has passed between you. Find it in the sidebar under{""}
+            <Code>Revenue</Code>. It sits between{""}
+            <DocLink to="/docs/marketing">Paid Marketing</DocLink> (what you spend on attention) and
+            {""}
             <DocLink to="/docs/finance">Finance</DocLink> (what you collect once somebody signs), so
             ad click → contact → deal → invoice → cash is one chain in one database.
           </>
@@ -92,7 +93,7 @@ export function Revenue() {
             def: (
               <>
                 An <Strong>account</Strong> — prospect, customer, or former customer. It appears
-                under <Code>Revenue → Accounts</Code> for relationship work and{" "}
+                under <Code>Revenue → Accounts</Code> for relationship work and{""}
                 <DocLink to="/docs/customers">Customers</DocLink> for billing details, contracts,
                 and statements.
               </>
@@ -113,14 +114,14 @@ export function Revenue() {
         Each contact carries a <Strong>lifecycle stage</Strong> — subscriber, lead, qualified,
         opportunity, customer, churned, or unqualified — and an <Strong>owner</Strong> who is either
         a Member or an AI Employee, never both. <Strong>Source</Strong> records where they came
-        from. Deal sources and buying-committee roles use the controlled lists in{" "}
+        from. Deal sources and buying-committee roles use the controlled lists in{""}
         <Code>Revenue → Setup</Code>; contact source is filled in automatically for contacts a
         signal created (<Code>signal:trial-expiring</Code>) so attribution survives.
       </P>
       <P>
         <Strong>Do not contact</Strong> is a hard opt-out on the person: it blocks every address you
         hold for them, on every send path. It is separate from — and checked alongside — the
-        address-level suppression list described in{" "}
+        address-level suppression list described in{""}
         <DocLink to="/docs/deliverability">Deliverability</DocLink>. Archiving a contact hides them
         from the list without removing them from historical activities and deals.
       </P>
@@ -142,7 +143,7 @@ export function Revenue() {
       </P>
       <Callout kind="info" title="A merge is atomic, audited, and reversible.">
         Either every linked record moves or none do. Undo verifies that no affected row has changed
-        since the merge, then restores the exact earlier state. See{" "}
+        since the merge, then restores the exact earlier state. See{""}
         <DocLink to="/docs/revenue-data-quality#merge">Merge and archive core records</DocLink>.
       </Callout>
 
@@ -156,20 +157,21 @@ export function Revenue() {
       </P>
       <P>
         Three fields do more work than they look. <Strong>Next step</Strong> says what must happen;
-        <Strong>Next follow-up</Strong> puts it in the shared queue, with an optional reminder; and{" "}
-        <Strong>Probability</Strong> is inherited from the stage unless you override it. See{" "}
+        <Strong>Next follow-up</Strong> puts it in the shared queue, with an optional reminder; and
+        {""}
+        <Strong>Probability</Strong> is inherited from the stage unless you override it. See{""}
         <DocLink to="/docs/revenue-operations#follow-ups">Follow-ups</DocLink>.
       </P>
       <Callout kind="tip" title="Assigning a deal to an AI Employee starts work.">
         Ownership can be an AI Employee, and it is not decoration. Handing a deal to one kicks off a
         background work session the same way assigning a Todo does — it researches the account,
-        drafts the outreach, and logs what it did on the timeline. Give it a{" "}
+        drafts the outreach, and logs what it did on the timeline. Give it a{""}
         <DocLink to="/docs/soul">Soul</DocLink> worth trusting first.
       </Callout>
 
       <H2 id="stages">Deal stages</H2>
       <P>
-        Your sales process is a flat, ordered list of <Strong>deal stages</Strong>, managed from{" "}
+        Your sales process is a flat, ordered list of <Strong>deal stages</Strong>, managed from{""}
         <Code>Revenue → Setup → Deal Stages</Code>. Each stage has a name, a colour, a default
         probability, and a <Strong>kind</Strong> that decides what reaching it means:
       </P>
@@ -190,9 +192,10 @@ export function Revenue() {
         You never set status by hand.
       </P>
       <P>
-        The first time anybody opens the board, Genosyn seeds a conventional B2B ladder —{" "}
-        <Code>New</Code> (10%), <Code>Qualified</Code> (25%), <Code>Demo</Code> (40%),{" "}
-        <Code>Proposal</Code> (60%), <Code>Negotiation</Code> (80%), <Code>Closed Won</Code>, and{" "}
+        The first time anybody opens the board, Genosyn seeds a conventional B2B ladder —{""}
+        <Code>New</Code> (10%), <Code>Qualified</Code> (25%), <Code>Demo</Code> (40%),{""}
+        <Code>Proposal</Code> (60%), <Code>Negotiation</Code> (80%), <Code>Closed Won</Code>, and
+        {""}
         <Code>Closed Lost</Code>. Rename, recolour, reorder and reweight them freely; those
         probabilities are defaults, not claims about your business. Archiving a stage removes it
         from the board and the move-to picker while keeping it resolvable for deals that closed in
@@ -200,7 +203,7 @@ export function Revenue() {
       </P>
       <Callout kind="info" title="Deal stages are not Pipelines.">
         <DocLink to="/docs/pipelines">Pipeline</DocLink> means the DAG automation primitive, and
-        only that. The sales pipeline is this ordered list of deal stages, and the UI calls it{" "}
+        only that. The sales pipeline is this ordered list of deal stages, and the UI calls it{""}
         <Strong>the board</Strong>.
       </Callout>
 
@@ -208,7 +211,7 @@ export function Revenue() {
       <P>
         <Code>Revenue → Board</Code> is one column per open stage, one card per deal, sorted so the
         deals nearest a decision are where your eye lands. Drag a card between columns to move it —
-        that is the same operation as changing the stage on the detail page, so it writes a{" "}
+        that is the same operation as changing the stage on the detail page, so it writes a{""}
         <Code>stage_change</Code> activity, updates the status, and feeds the funnel report.
         Dropping a card into a <Strong>won</Strong> or <Strong>lost</Strong> column closes the deal;
         lost asks for a reason, and the reason is worth typing because it is the only field that
@@ -247,7 +250,7 @@ export function Revenue() {
             term: "From deals",
             def: (
               <>
-                <Code>deal_created</Code>, <Code>stage_change</Code>, <Code>deal_won</Code>,{" "}
+                <Code>deal_created</Code>, <Code>stage_change</Code>, <Code>deal_won</Code>,{""}
                 <Code>deal_lost</Code>. Stage changes are what the funnel report reads.
               </>
             ),
@@ -256,7 +259,7 @@ export function Revenue() {
             term: "From outbound",
             def: (
               <>
-                <Code>enrollment</Code>, <Code>sequence_step</Code>, <Code>unsubscribe</Code>,{" "}
+                <Code>enrollment</Code>, <Code>sequence_step</Code>, <Code>unsubscribe</Code>,{""}
                 <Code>bounce</Code>.
               </>
             ),
@@ -311,9 +314,9 @@ export function Revenue() {
         </LI>
       </OL>
       <P>
-        The same pass does two more jobs: an inbound reply on a thread a{" "}
+        The same pass does two more jobs: an inbound reply on a thread a{""}
         <DocLink to="/docs/sequences">Sequence</DocLink> started stops that enrolment, and a
-        delivery-failure report from a mail daemon suppresses the dead address — see{" "}
+        delivery-failure report from a mail daemon suppresses the dead address — see{""}
         <DocLink to="/docs/deliverability">Deliverability</DocLink>.
       </P>
 
@@ -321,18 +324,18 @@ export function Revenue() {
       <P>
         <Code>Revenue → Insights</Code> reports over a period you choose, defaulting to the trailing
         twelve months. Recurring revenue: <Strong>MRR movement</Strong> split into new, expansion,
-        contraction, churn and reactivation (the waterfall is guaranteed to add up),{" "}
-        <Strong>ARR</Strong>, and <Strong>NRR / GRR</Strong> retention. Pipeline:{" "}
-        <Strong>coverage</Strong> against a target you enter, <Strong>win rate</Strong>, median{" "}
+        contraction, churn and reactivation (the waterfall is guaranteed to add up),{""}
+        <Strong>ARR</Strong>, and <Strong>NRR / GRR</Strong> retention. Pipeline:{""}
+        <Strong>coverage</Strong> against a target you enter, <Strong>win rate</Strong>, median{""}
         <Strong>sales-cycle length</Strong>, original-cohort <Strong>stage conversion</Strong>, and
         entered/progressed counts with median time in each stage. These use timestamped Deal
         history, never adjacent current-stage counts. Imported and history-free Deals are labelled
-        explicitly. Acquisition: <Strong>CAC by channel</Strong>, <Strong>LTV:CAC</Strong>, and{" "}
+        explicitly. Acquisition: <Strong>CAC by channel</Strong>, <Strong>LTV:CAC</Strong>, and{""}
         <Strong>payback months</Strong>. A brand-new company sees zeros, never errors.
       </P>
       <Callout kind="warn" title="CAC currently reads authorized budget, not settled spend.">
-        The acquisition cost figures are computed from the{" "}
-        <DocLink to="/docs/marketing">Paid Marketing</DocLink> ledger of{" "}
+        The acquisition cost figures are computed from the{""}
+        <DocLink to="/docs/marketing">Paid Marketing</DocLink> ledger of{""}
         <em>authorized budget changes</em>, which is a documented proxy rather than invoiced spend
         from the ad platforms. Treat the trend as real and the absolute number as approximate.
       </Callout>
@@ -357,14 +360,14 @@ export function Revenue() {
         <LI>
           <Strong>Send</Strong> — also let a sequence this employee drafts go out without anybody
           pressing Send. This is the only level that spends your sending reputation unattended, and
-          it is gated a second time by the mailbox grant. See{" "}
+          it is gated a second time by the mailbox grant. See{""}
           <DocLink to="/docs/sequences#autosend">autoSend</DocLink>.
         </LI>
       </UL>
       <P>
         Members reach Revenue through the app as usual; these levels govern the AI surface only.
         Every write an employee makes lands in the audit log marked as an AI actor and on the
-        employee&apos;s journal. See{" "}
+        employee&apos;s journal. See{""}
         <DocLink to="/docs/revenue-operations#ai-native">AI-native Revenue operations</DocLink> for
         the full operating model.
       </P>

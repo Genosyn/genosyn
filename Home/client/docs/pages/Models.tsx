@@ -45,7 +45,7 @@ export function Models() {
           the same form. Then select <Strong>Add model</Strong>.
         </LI>
         <LI>
-          On the new card, paste the Anthropic / OpenAI API key, or select{" "}
+          On the new card, paste the Anthropic / OpenAI API key, or select{""}
           <Strong>Sign in with ChatGPT</Strong> for an OpenAI subscription. The newest model becomes
           active automatically; use <Strong>Make active</Strong> when you want to switch back to
           another.
@@ -110,7 +110,7 @@ export function Models() {
         <LI>
           <Strong>OpenAI subscription.</Strong> On a trusted single-tenant Genosyn deployment,
           complete ChatGPT device sign-in or paste a Codex access token from an eligible Business or
-          Enterprise workspace. Genosyn runs this model through the pinned{" "}
+          Enterprise workspace. Genosyn runs this model through the pinned{""}
           <Code>@openai/codex</Code> app-server. The standard Docker default runs it beside
           bubblewrap-isolated coding and repository work; a host without Linux user namespaces falls
           back to subscription Runs with no coding tools.
@@ -125,7 +125,7 @@ export function Models() {
       <P>
         Subscription access is available on a trusted single-tenant deployment when coding execution
         is isolated with working Linux bubblewrap — the standard Docker default — or disabled. In
-        the add-model form, choose <Strong>OpenAI (GPT)</Strong>, set{" "}
+        the add-model form, choose <Strong>OpenAI (GPT)</Strong>, set{""}
         <Strong>Authentication</Strong> to <Strong>ChatGPT subscription</Strong>, choose the model,
         then select <Strong>Add model</Strong>. The model card offers two official Codex
         authentication paths:
@@ -138,7 +138,7 @@ export function Models() {
           your ChatGPT security settings or by your workspace admin.
         </LI>
         <LI>
-          <Strong>Codex access token.</Strong> Open{" "}
+          <Strong>Codex access token.</Strong> Open{""}
           <Strong>Advanced: Business or Enterprise access token</Strong> and paste a token created
           by a permitted member of that workspace. Workspace admins control whether members can
           create these tokens and use Codex Local.
@@ -146,15 +146,16 @@ export function Models() {
       </UL>
       <P>
         This uses the Codex access and limits attached to the selected ChatGPT workspace; it does
-        not turn a ChatGPT subscription into a general OpenAI Platform API key. OpenAI documents the{" "}
+        not turn a ChatGPT subscription into a general OpenAI Platform API key. OpenAI documents the
+        {""}
         <ExtLink href="https://learn.chatgpt.com/docs/auth#login-on-headless-devices">
           device-code flow
         </ExtLink>
-        {", the "}
+        {", the"}
         <ExtLink href="https://learn.chatgpt.com/docs/enterprise/access-tokens">
           Business and Enterprise access-token flow
         </ExtLink>
-        {", and the "}
+        {", and the"}
         <ExtLink href="https://developers.openai.com/codex/app-server/">
           official Codex app-server
         </ExtLink>
@@ -172,7 +173,7 @@ export function Models() {
         gives subscription sign-in and Runs an isolated <Code>bash</Code> and repository work. Where
         Linux user namespaces are unavailable, boot falls back to <Code>disabled</Code>: sign-in and
         Runs still work, with no coding tools, repository materialization, or user-configured stdio
-        MCP. Set <Code>disabled</Code> yourself to make that the posture everywhere.{" "}
+        MCP. Set <Code>disabled</Code> yourself to make that the posture everywhere.{""}
         <Code>host</Code> mode permits same-UID child processes and therefore rejects subscription
         auth. API-key models are unchanged.
       </Callout>
@@ -193,10 +194,11 @@ export function Models() {
       <H3 id="anthropic-subscriptions">Why Claude subscriptions are not offered</H3>
       <P>
         Genosyn does not ask for or accept Claude.ai or Claude Code subscription credentials.
-        Anthropic&apos;s{" "}
+        Anthropic&apos;s{""}
         <ExtLink href="https://support.claude.com/en/articles/13189465-log-in-to-your-claude-account">
           account authentication guidance
-        </ExtLink>{" "}
+        </ExtLink>
+        {""}
         tells developers building third-party products to use an API key and prohibits routing
         third-party traffic against subscription limits. Connect Anthropic with a Console API key
         instead.
@@ -231,9 +233,9 @@ export function Models() {
       </P>
       <P>
         Not every server reports a window. vLLM, LM Studio, and llama.cpp publish one; plain Ollama
-        and OpenAI&apos;s own API don&apos;t. When the card reads <Strong>Unknown</Strong>, use{" "}
+        and OpenAI&apos;s own API don&apos;t. When the card reads <Strong>Unknown</Strong>, use{""}
         <Strong>Ask the provider</Strong> to retry, or <Strong>Set manually</Strong> and type the
-        number in — whatever the server was launched with, such as vLLM&apos;s{" "}
+        number in — whatever the server was launched with, such as vLLM&apos;s{""}
         <Code>--max-model-len</Code> or llama.cpp&apos;s <Code>-c</Code>. A number you set by hand
         always wins over the probe, and <Strong>Clear</Strong> hands the field back to it.
       </P>
@@ -262,16 +264,17 @@ export function Models() {
         granted product and built-in browser <Strong>catalogue</Strong>. Subscription turns omit
         parallel delegation because they serialize on the model&apos;s credential-refresh lock. The
         installation mode controls coding tools and user-configured stdio MCP as described below. An
-        employee is shown a small working set every turn and looks the rest up on demand; see{" "}
+        employee is shown a small working set every turn and looks the rest up on demand; see{""}
         <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>. The catalogue is:
       </P>
       <UL>
         <LI>
           <Strong>Coding tools.</Strong> Disabled mode exposes no coding tools and materializes no
-          repositories. In separately acknowledged host mode, <Code>read_file</Code>,{" "}
+          repositories. In separately acknowledged host mode, <Code>read_file</Code>,{""}
           <Code>write_file</Code>, <Code>edit_file</Code>, <Code>list_dir</Code>, <Code>glob</Code>,
           and <Code>grep</Code> are confined to the employee directory; unrestricted host bash is
-          never exposed to an AI Employee. In bubblewrap mode, every model receives only sandboxed{" "}
+          never exposed to an AI Employee. In bubblewrap mode, every model receives only sandboxed
+          {""}
           <Code>bash</Code> and performs file work through it. OpenAI subscription access supports
           disabled or working bubblewrap mode, but rejects host mode. The dedicated file helpers cap
           full reads, writes, and edits at 400 KiB; <Code>read_file</Code> can still stream a
@@ -282,7 +285,8 @@ export function Models() {
           <Code>genosyn</Code> — the tools the employee calls to run Routines and Todos, write
           journal notes, save Memory, work with Bases, Notes, Resources, charts, mail, finance and
           attachments, and reach <Strong>any registered Integration tool</Strong>. Always available;
-          the frequently-used ones are loaded up-front and the rest are a <Code>find_tools</Code>{" "}
+          the frequently-used ones are loaded up-front and the rest are a <Code>find_tools</Code>
+          {""}
           call away.
         </LI>
         <LI>
@@ -290,7 +294,7 @@ export function Models() {
           catalogue and runs anything in it. Always on.
         </LI>
         <LI>
-          <Code>browser</Code> — browser tools backed by real Chrome when{" "}
+          <Code>browser</Code> — browser tools backed by real Chrome when{""}
           <Code>browserEnabled</Code> is true on the employee. Skipped when off.
         </LI>
         <LI>
@@ -314,14 +318,14 @@ export function Models() {
         endpoint sets its own.
       </P>
       <P>
-        In practice this no longer binds. Only the working set goes on the request — around{" "}
+        In practice this no longer binds. Only the working set goes on the request — around{""}
         <Strong>20 tools</Strong> — so the catalogue behind it can grow without approaching any
         provider&apos;s ceiling. An employee with a dozen Connections is fine.
       </P>
       <P>
         The old trimming behaviour is still there as a backstop: if the working set somehow did
         exceed a cap, Genosyn drops the lowest-value tools until it fits, preferring ones the
-        employee holds no <DocLink to="/docs/integrations">Grant</DocLink> for, and writes a{" "}
+        employee holds no <DocLink to="/docs/integrations">Grant</DocLink> for, and writes a{""}
         <Code>[tools]</Code> line into the run log naming exactly what it dropped. Every run also
         logs how the catalogue was split, so you can always see what the employee was shown.
       </P>
@@ -341,7 +345,7 @@ export function Models() {
         the current brain. Use <Strong>Add model</Strong> to register another.
       </P>
       <P>
-        When at least two models are connected, the dedicated employee Chat composer shows an{" "}
+        When at least two models are connected, the dedicated employee Chat composer shows an{""}
         <Strong>AI Model</Strong> picker. You can choose a different brain for the next message
         without changing the employee&apos;s active model or any Routine. Follow-ups remember the
         model selected when each message entered the queue, including while a durable turn recovers
@@ -358,10 +362,10 @@ export function Models() {
       <H3 id="model-errors">When a chat or Run reports a model error</H3>
       <P>
         For API-key and custom-endpoint models, temporary model-service and network failures are
-        retried automatically before Genosyn reports an error. Each model turn gets{" "}
+        retried automatically before Genosyn reports an error. Each model turn gets{""}
         <Strong>one attempt plus ten retries</Strong> with exponential backoff — waits of roughly
         1s, 2s, 4s, 8s and 16s, then 30s for every retry after that, so a model service that stays
-        down costs about three minutes of waiting before the error surfaces. A provider{" "}
+        down costs about three minutes of waiting before the error surfaces. A provider{""}
         <Code>Retry-After</Code> header wins over that schedule and is respected up to 30 seconds,
         and cancelling the chat or Run cancels the wait. A turn is never replayed after visible
         output has started, because doing so could duplicate a partial answer. Run transcripts
@@ -373,9 +377,10 @@ export function Models() {
         The error names the model used for that turn, shows the safe host-only endpoint, preserves
         the provider&apos;s detail and request ID when available, and lists checks for that failure
         type. In chat, use <Strong>Review AI Model settings</Strong> on the error to jump straight
-        to the active employee&apos;s model roster. A separate{" "}
+        to the active employee&apos;s model roster. A separate{""}
         <Strong>chat connection interrupted</Strong> message means the browser lost its stream to
-        the Genosyn server; confirm the server is running and inspect its logs before retrying. A{" "}
+        the Genosyn server; confirm the server is running and inspect its logs before retrying. A
+        {""}
         <Strong>Genosyn couldn&apos;t complete this chat turn</Strong> message includes the
         conversation ID to search for in those logs and usually points to server-side setup such as
         a Browser or company MCP connection.
@@ -403,23 +408,23 @@ function ProviderCard({
   connects: string;
 }) {
   return (
-    <div className="border border-zinc-200 bg-white p-4">
+    <div className="border border-hairline bg-white p-4">
       <div className="flex items-baseline justify-between gap-2">
-        <div className="font-mono text-[13px] font-semibold text-zinc-950">{name}</div>
-        <div className="text-[11px] uppercase tracking-label text-zinc-600">{vendor}</div>
+        <div className="font-mono text-[13px] font-semibold text-ink">{name}</div>
+        <div className="text-[11px] uppercase text-muted">{vendor}</div>
       </div>
       <dl className="mt-3 space-y-2 text-[13px] leading-[1.6]">
         <div>
-          <dt className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+          <dt className="text-[11px] font-medium uppercase tracking-wider text-muted">
             Credentials
           </dt>
-          <dd className="text-zinc-800">{creds}</dd>
+          <dd className="text-ink2">{creds}</dd>
         </div>
         <div>
-          <dt className="text-[11px] font-medium uppercase tracking-wider text-zinc-600">
+          <dt className="text-[11px] font-medium uppercase tracking-wider text-muted">
             Connects to
           </dt>
-          <dd className="text-zinc-800">{connects}</dd>
+          <dd className="text-ink2">{connects}</dd>
         </div>
       </dl>
     </div>

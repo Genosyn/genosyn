@@ -24,9 +24,10 @@ export function Security() {
         possible credential compromise.
       </P>
       <P>
-        Every install — self-hosted included — shows the state of your own address at{" "}
-        <Strong>Account → Profile</Strong>, under the email field: a green <Strong>Verified</Strong>{" "}
-        tag once the mailbox is proven, or an amber <Strong>Unverified</Strong> one with a{" "}
+        Every install — self-hosted included — shows the state of your own address at{""}
+        <Strong>Account → Profile</Strong>, under the email field: a green <Strong>Verified</Strong>
+        {""}
+        tag once the mailbox is proven, or an amber <Strong>Unverified</Strong> one with a{""}
         <Strong>Resend verification email</Strong> button beside it. Each resend issues a new link
         and retires the previous one, so use the newest email you received. Links are valid for 24
         hours.
@@ -34,7 +35,7 @@ export function Security() {
       <Callout kind="info" title="Self-hosted installs verify too.">
         Instance administration is closed to an unverified account on every install, not only shared
         SaaS — <Code>Admin</Code> answers &ldquo;Verify your email before using instance
-        administration&rdquo; until the mailbox is proven. Resend the link from{" "}
+        administration&rdquo; until the mailbox is proven. Resend the link from{""}
         <Strong>Account → Profile</Strong>. If the instance has no email transport configured yet,
         the page says so rather than claiming the mail was sent, and the link is written to the
         server log — see <DocLink to="/docs/self-hosting">Configuration</DocLink> for how to read it
@@ -84,7 +85,7 @@ export function Security() {
         Enroll as many as you like — a phone, a password manager, and a tablet can all hold a seed,
         and a code from any of them completes a sign-in. Each one is listed separately with the date
         it was added and last used, so you can remove a lost device without disturbing the rest.
-        Names must be unique within your account. Each seed is encrypted on its own{" "}
+        Names must be unique within your account. Each seed is encrypted on its own{""}
         <Code>TotpCredential</Code> row, and Genosyn does not count it as a second factor until its
         first code verifies successfully.
       </P>
@@ -116,9 +117,9 @@ export function Security() {
       <H2 id="https">HTTPS and the public URL</H2>
       <P>
         Browsers allow WebAuthn only on secure origins. <Code>localhost</Code> is the development
-        exception; every remote deployment needs HTTPS. The public URL saved at{" "}
+        exception; every remote deployment needs HTTPS. The public URL saved at{""}
         <Code>Admin → General</Code> supplies the WebAuthn relying-party ID and origin, so it must
-        exactly match the URL Members use to open Genosyn. See{" "}
+        exactly match the URL Members use to open Genosyn. See{""}
         <DocLink to="/docs/self-hosting#public-url">Configuration</DocLink>.
       </P>
 
@@ -206,7 +207,8 @@ export function Security() {
         An owner or admin who already has 2FA can open <Strong>Settings → Company</Strong> and turn
         on <Strong>Require two-factor authentication</Strong>. Members without a method must enroll
         one under <Strong>Account → Security</Strong> before they can access or join that company.
-        Genosyn then prevents them from removing their final method. See the full hosted baseline in{" "}
+        Genosyn then prevents them from removing their final method. See the full hosted baseline in
+        {""}
         <DocLink to="/docs/saas-hosting">Shared SaaS mode</DocLink>.
       </P>
       <P>
@@ -217,7 +219,7 @@ export function Security() {
 
       <Callout kind="tip" title="SSO-only account?">
         Security changes require your current Genosyn password. If SSO created the account with no
-        known password, use <Strong>Forgot password</Strong> once to set one, then return to{" "}
+        known password, use <Strong>Forgot password</Strong> once to set one, then return to{""}
         <Strong>Account → Security</Strong>.
       </Callout>
     </>

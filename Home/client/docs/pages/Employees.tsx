@@ -47,7 +47,7 @@ export function Employees() {
             term: "soulBody",
             def: (
               <>
-                Markdown stored on the row. The employee&apos;s constitution — see{" "}
+                Markdown stored on the row. The employee&apos;s constitution — see{""}
                 <DocLink to="/docs/soul">Soul</DocLink>.
               </>
             ),
@@ -74,7 +74,7 @@ export function Employees() {
             term: "model",
             def: (
               <>
-                One or more <Code>AIModel</Code> brains, one active at a time. See{" "}
+                One or more <Code>AIModel</Code> brains, one active at a time. See{""}
                 <DocLink to="/docs/models">AI Models</DocLink>.
               </>
             ),
@@ -96,7 +96,7 @@ export function Employees() {
             term: "browserAllowedHosts",
             def: (
               <>
-                Newline-separated host patterns limiting where the browser may navigate —{" "}
+                Newline-separated host patterns limiting where the browser may navigate —{""}
                 <Code>github.com</Code> covers the domain and its subdomains. Blank means
                 unrestricted.
               </>
@@ -150,18 +150,18 @@ export function Employees() {
       </OL>
 
       <Callout kind="tip" title="The Launch plan appears after every hire.">
-        The first-company guide opens it between the AI Employee and Gmail steps. The regular{" "}
+        The first-company guide opens it between the AI Employee and Gmail steps. The regular{""}
         <Strong>AI → Employees → Hire AI Employee</Strong> flow opens it after the Soul review. Both
-        use the same recommendation rules, and both can be skipped — in the guide with{" "}
+        use the same recommendation rules, and both can be skipped — in the guide with{""}
         <Strong>Continue without adding them</Strong>. Suggestions never overwrite an existing
         Routine or create a duplicate; skipping creates no Routines, Connections, or Grants.
-        Anything you do add starts running on its own schedule straight away. See{" "}
+        Anything you do add starts running on its own schedule straight away. See{""}
         <DocLink to="/docs/getting-started">Getting started</DocLink> for the full flow.
       </Callout>
 
       <H2 id="working-directory">Working directory</H2>
       <P>Each employee gets their own folder on disk under the company:</P>
-      <pre className="mt-4 overflow-x-auto border border-zinc-200 bg-paper-100 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-800">
+      <pre className="mt-4 overflow-x-auto border border-hairline bg-ground px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-ink2">
         {`data/companies/<co-slug>/employees/<emp-slug>/
 └── ...   # files enabled coding tools read and write`}
       </pre>
@@ -170,7 +170,7 @@ export function Employees() {
         sandboxed <Code>bash</Code> and materializes repositories; where its Linux namespaces are
         unavailable, boot falls back to disabled, which exposes no coding tools and materializes no
         repositories. Separately acknowledged host mode provides path-confined file and search tools
-        rooted in this directory (<Code>read_file</Code>, <Code>write_file</Code>,{" "}
+        rooted in this directory (<Code>read_file</Code>, <Code>write_file</Code>,{""}
         <Code>edit_file</Code>, <Code>list_dir</Code>, <Code>glob</Code>, and <Code>grep</Code>) but
         never exposes <Code>bash</Code>, because a working directory is not a security boundary for
         an unrestricted same-user shell. The runner captures the agent transcript into a Run log.
@@ -193,7 +193,8 @@ export function Employees() {
       <H3 id="org-chart">Org chart</H3>
       <P>
         Set <Code>reportsTo</Code> on an employee to give them a manager. Genosyn renders this as an
-        org chart and surfaces it to the runner — useful when you want a <Strong>Handoff</Strong>{" "}
+        org chart and surfaces it to the runner — useful when you want a <Strong>Handoff</Strong>
+        {""}
         from one employee to another to follow the reporting line.
       </P>
 
@@ -201,7 +202,7 @@ export function Employees() {
       <P>
         An AI Employee is two places: <Strong>Chat</Strong> and <Strong>Settings</Strong>. The
         switch between them sits at the top right of the employee&apos;s header, next to their name.
-        Everything you configure or inspect about an employee lives under Settings, grouped as{" "}
+        Everything you configure or inspect about an employee lives under Settings, grouped as{""}
         <Strong>Employee</Strong> (General, Soul, Model, Memory), <Strong>Work</Strong> (Skills,
         Routines, Journal, Handoffs), and <Strong>Access</Strong> (Connections, MCP, Browser,
         Integrations).
@@ -209,7 +210,7 @@ export function Employees() {
       <UL>
         <LI>
           <Strong>Chat.</Strong> Free-form conversations with the employee. Messages persist; action
-          pills surface tool calls inline. Type <Code>/new</Code> to open a fresh context, or{" "}
+          pills surface tool calls inline. Type <Code>/new</Code> to open a fresh context, or{""}
           <Code>#</Code> and a name to tag a product area or any company resource you can see. Use
           <Code>@</Code> for people and AI Employees; <Code>#</Code> tells the employee what product
           or record to work on, and you can add several tags to one instruction. Attach files with
@@ -237,7 +238,7 @@ export function Employees() {
           moment. Chat stays available while that employee&apos;s Routines run.
           <br />
           <br />
-          Under the composer, next to the model picker, Genosyn shows{" "}
+          Under the composer, next to the model picker, Genosyn shows{""}
           <Strong>how full the model&apos;s context window is</Strong> — the share of it the last
           turn&apos;s prompt occupied. The number comes from the provider&apos;s own token count for
           that turn, never a local estimate, and it updates as the employee works. Hover it for the
@@ -245,14 +246,14 @@ export function Employees() {
           starts dropping the oldest tool results to make room, which is the moment to finish the
           thread or type <Code>/new</Code> for a fresh context. If the AI Model has no known context
           window the badge shows the token count alone and links to the model settings, because
-          there is no ceiling to measure against — see{" "}
+          there is no ceiling to measure against — see{""}
           <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
           <Strong>Settings → Soul.</Strong> The employee&apos;s constitution. Markdown, ⌘S to save.
         </LI>
         <LI>
-          <Strong>Settings → Model.</Strong> The AI Model this employee thinks with — see{" "}
+          <Strong>Settings → Model.</Strong> The AI Model this employee thinks with — see{""}
           <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
@@ -262,7 +263,8 @@ export function Employees() {
         </LI>
         <LI>
           <Strong>Settings → Skills / Routines.</Strong> These are company-wide sections, not
-          per-employee ones: they live at AI → <DocLink to="/docs/skills">Skills</DocLink> and AI →{" "}
+          per-employee ones: they live at AI → <DocLink to="/docs/skills">Skills</DocLink> and AI →
+          {""}
           <DocLink to="/docs/routines">Routines</DocLink>. The two entries under Settings open those
           lists filtered to this employee, and are marked with a corner arrow to say so.
         </LI>
@@ -279,7 +281,7 @@ export function Employees() {
           receiver&apos;s manager and the company&apos;s admins get a bell, once.
         </LI>
         <LI>
-          <Strong>Settings → Connections.</Strong> The list of{" "}
+          <Strong>Settings → Connections.</Strong> The list of{""}
           <DocLink to="/docs/integrations">Grants</DocLink> this employee holds.
         </LI>
         <LI>
@@ -288,7 +290,7 @@ export function Employees() {
           employee.
         </LI>
         <LI>
-          <Strong>Settings → Browser.</Strong> Whether this employee may drive a browser — see{" "}
+          <Strong>Settings → Browser.</Strong> Whether this employee may drive a browser — see{""}
           <DocLink to="/docs/browser">Browser</DocLink>.
         </LI>
         <LI>

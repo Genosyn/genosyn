@@ -23,8 +23,7 @@ const LINKS = [
  *
  * **The clock is the only live thing on the site.** The previous version had
  * twelve pulsing emerald dots, none of which were connected to anything; the
- * "live" indicator on the licence badge was pulsing next to the words "Apache
- * 2.0", which is not an event. This ticks from the reader's own `Date.now()`,
+ * "live" indicator on the licence badge was pulsing next to the words "Apache * 2.0", which is not an event. This ticks from the reader's own `Date.now()`,
  * so it is honest — it is their clock, not a fabricated one — and it is the
  * only claim of liveness the site makes.
  *
@@ -49,14 +48,14 @@ export function Nav() {
     <header className="relative z-50">
       <Fascia />
 
-      <div className="sticky top-0 z-50 border-b border-paper-400 bg-paper-100">
+      <div className="sticky top-0 z-50 border-b border-hairline bg-ground">
         <div className="mx-auto flex h-14 max-w-[82rem] items-center gap-6 px-[clamp(1.25rem,4vw,3rem)]">
           <nav className="hidden items-center gap-7 lg:flex" aria-label="Primary navigation">
             {LINKS.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
-                className="t-cond text-[12px] uppercase tracking-field text-zinc-700 transition-colors hover:text-zinc-950"
+                className="t-field text-[12px] uppercase text-ink2 transition-colors hover:text-ink"
               >
                 {link.label}
               </Link>
@@ -68,14 +67,14 @@ export function Nav() {
               href={GITHUB_URL}
               target="_blank"
               rel="noreferrer"
-              className="t-cond hidden text-[12px] uppercase tracking-field text-zinc-700 transition-colors hover:text-zinc-950 sm:inline"
+              className="t-field hidden text-[12px] uppercase text-ink2 transition-colors hover:text-ink sm:inline"
             >
               GitHub
               <span className="sr-only">{"(opens in a new tab)"}</span>
             </a>
             <a
               href="/#install"
-              className="t-cond bg-zinc-950 px-4 py-2.5 text-[12px] uppercase tracking-field text-paper-50 transition-colors hover:bg-zinc-800"
+              className="t-field rounded-control bg-ink px-4 py-2.5 text-[12px] uppercase text-ground transition-colors hover:bg-ink2"
             >
               Install
             </a>
@@ -84,7 +83,7 @@ export function Nav() {
               onClick={() => setOpen((value) => !value)}
               aria-label="Toggle navigation"
               aria-expanded={open}
-              className="t-cond border border-paper-400 px-3 py-2.5 text-[12px] uppercase tracking-field text-zinc-950 transition-colors hover:bg-zinc-950 hover:text-paper-50 lg:hidden"
+              className="t-field rounded-control border border-rule px-3 py-2.5 text-[12px] uppercase text-ink transition-colors hover:bg-ink hover:text-ground lg:hidden"
             >
               {open ? "Close" : "Menu"}
             </button>
@@ -93,16 +92,16 @@ export function Nav() {
 
         {open && (
           <nav
-            className="border-t border-paper-300 bg-paper-100 lg:hidden"
+            className="border-t border-hairline bg-ground lg:hidden"
             aria-label="Mobile navigation"
           >
-            <div className="mx-auto max-w-[82rem] px-[clamp(1.25rem,4vw,3rem)] py-2">
+            <div className="mx-auto max-w-[90rem] px-5 sm:px-8 lg:px-12 py-2">
               {LINKS.map((link) => (
                 <Link
                   key={link.href}
                   href={link.href}
                   onClick={() => setOpen(false)}
-                  className="t-cond -mt-px flex items-center border-y border-paper-300 py-3 text-[12px] uppercase tracking-field text-zinc-800 transition-colors hover:bg-zinc-950 hover:text-paper-50"
+                  className="t-field -mt-px flex items-center border-y border-hairline py-3 text-[12px] uppercase text-ink transition-colors hover:bg-ink hover:text-ground"
                 >
                   {link.label}
                 </Link>
@@ -117,11 +116,14 @@ export function Nav() {
 
 function Fascia() {
   return (
-    <div className="on-night bg-night-950">
+    <div className="bg-ink">
       <div className="mx-auto flex h-11 max-w-[82rem] items-center px-[clamp(1.25rem,4vw,3rem)]">
+        {/* The fascia is an ink strip, so the wordmark takes the light value.
+            The token swap put `text-ink` on this link and left `text-ground/70`
+            on the fields beside it — the wordmark was 1.00:1 on every page. */}
         <Link
           href="/"
-          className="text-paper-50 transition-opacity hover:opacity-70"
+          className="text-ground transition-opacity hover:opacity-70"
           aria-label="Genosyn home"
         >
           <Logo className="text-[13px]" />
@@ -154,8 +156,8 @@ function FasciaField({
 }) {
   return (
     <span
-      className={`t-data flex items-center px-3 text-[10px] leading-none whitespace-nowrap text-zinc-400 ${
-        last ? "" : "border-r border-night-700"
+      className={`t-data flex items-center px-3 text-[10px] leading-none whitespace-nowrap text-ground/70 ${
+        last ? "" : "border-r border-white/15"
       } ${className}`}
     >
       {children}

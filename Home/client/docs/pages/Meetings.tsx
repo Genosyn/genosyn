@@ -11,7 +11,7 @@ export function Meetings() {
             Connect a Google calendar and Genosyn mirrors your agenda, so you can see what is coming
             up and your <DocLink to="/docs/employees">AI Employees</DocLink> can too. For Google
             Meet, a disclosed notetaker can join and record the call; for any meeting, you can
-            upload audio or paste a transcript. Attendees who are already{" "}
+            upload audio or paste a transcript. Attendees who are already{""}
             <DocLink to="/docs/revenue">Contacts</DocLink> then get the call on their timeline, and
             the assigned employee writes up what was decided and files the follow-ups it promised.
           </>
@@ -29,7 +29,7 @@ export function Meetings() {
       <P>
         The second half is what happens after a call. A meeting with a transcript gets read by the
         AI Employee that owns it, which produces a summary and a list of what people actually
-        committed to. Those commitments become real dated rows in the{" "}
+        committed to. Those commitments become real dated rows in the{""}
         <DocLink to="/docs/revenue">Follow-ups</DocLink> queue your team already works from — not a
         second inbox nobody opens.
       </P>
@@ -50,8 +50,8 @@ export function Meetings() {
       </P>
       <OL>
         <LI>
-          Open <Strong>Settings → Integrations</Strong> and add (or reconnect) a{" "}
-          <Strong>Google</Strong> connection. On Google&apos;s consent screen, tick the{" "}
+          Open <Strong>Settings → Integrations</Strong> and add (or reconnect) a{""}
+          <Strong>Google</Strong> connection. On Google&apos;s consent screen, tick the{""}
           <Strong>Calendar</Strong> product so the connection carries the Calendar scope.
         </LI>
         <LI>
@@ -73,7 +73,7 @@ export function Meetings() {
 
       <H2 id="recording">Capturing a meeting</H2>
       <P>
-        Open any meeting from <Strong>Meetings → Recorded</Strong>, or press{" "}
+        Open any meeting from <Strong>Meetings → Recorded</Strong>, or press{""}
         <Strong>New meeting</Strong> on the agenda for a call that was never on a calendar. Then
         either:
       </P>
@@ -87,7 +87,7 @@ export function Meetings() {
         </LI>
         <LI>
           <Strong>Upload a recording</Strong> — mp3, m4a, wav, webm, ogg, flac, mp4, or mov, up to
-          25 MB by default; a master admin can raise or lower that cap at{" "}
+          25 MB by default; a master admin can raise or lower that cap at{""}
           <Code>Admin → Runtime</Code>. Genosyn transcribes it, then writes it up.
         </LI>
         <LI>
@@ -121,8 +121,8 @@ export function Meetings() {
 
       <H2 id="auto">Recording automatically</H2>
       <P>
-        Each calendar has an <Strong>auto-record</Strong> setting on{" "}
-        <Strong>Meetings → Calendars</Strong>, which only owners and admins can change. It is{" "}
+        Each calendar has an <Strong>auto-record</Strong> setting on{""}
+        <Strong>Meetings → Calendars</Strong>, which only owners and admins can change. It is{""}
         <Strong>off</Strong> by default and stays off until you change it, because the people on the
         other end of a call did not agree to anything. Auto-record applies only to events with a
         Google Meet link; Zoom, Microsoft Teams, Webex, and other conference links remain on the
@@ -142,7 +142,8 @@ export function Meetings() {
       </UL>
       <P>
         A calendar also has to name a <Strong>notetaker</Strong> — the AI Employee that writes the
-        meeting up — and that employee needs a <Strong>Record</Strong> Grant for the calendar under{" "}
+        meeting up — and that employee needs a <Strong>Record</Strong> Grant for the calendar under
+        {""}
         <Strong>Meetings → AI access</Strong>. Without both, nothing is recorded automatically,
         because a recording nobody reads is not worth taking.
       </P>
@@ -156,7 +157,7 @@ export function Meetings() {
       <Callout kind="info" title="The standard Docker install includes meeting presence.">
         The App image includes Chrome, PulseAudio, and ffmpeg, so the normal Docker installation
         needs no separate recorder service. A source installation must provide a
-        Playwright-compatible Chrome or Chromium, a running PulseAudio server with{" "}
+        Playwright-compatible Chrome or Chromium, a running PulseAudio server with{""}
         <Code>pactl</Code>, and ffmpeg built with PulseAudio and libopus support. If any of them is
         unavailable, use the upload or paste path while you correct the host setup.
       </Callout>
@@ -176,7 +177,7 @@ export function Meetings() {
       <H2 id="linking">How a call reaches the customer</H2>
       <P>
         When a transcript lands, Genosyn matches attendee addresses against your existing Contacts
-        and writes the call onto the matching Contact, Deal, and account timelines as a{" "}
+        and writes the call onto the matching Contact, Deal, and account timelines as a{""}
         <Strong>meeting</Strong> activity.
       </P>
       <P>
@@ -210,7 +211,7 @@ export function Meetings() {
 
       <H2 id="ai">Giving an AI Employee access</H2>
       <P>
-        Owners and admins grant Meetings access per calendar under{" "}
+        Owners and admins grant Meetings access per calendar under{""}
         <Strong>Meetings → AI access</Strong>. Members are not listed there: a human with company
         access already sees every meeting, and this table governs only what the AI surface can
         reach.
@@ -244,9 +245,9 @@ export function Meetings() {
         </LI>
       </UL>
       <P>
-        Separately, a Google connection with the Calendar scope gives an employee the{" "}
+        Separately, a Google connection with the Calendar scope gives an employee the{""}
         <Code>calendar_*</Code> tools — listing, creating, moving, and cancelling events on the
-        calendar itself. Those are governed by the connection&apos;s own{" "}
+        calendar itself. Those are governed by the connection&apos;s own{""}
         <DocLink to="/docs/integrations">Grant</DocLink>, not by this table.
       </P>
 

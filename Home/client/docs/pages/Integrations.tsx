@@ -45,8 +45,9 @@ export function Integrations() {
         title="Integrations"
         lead={
           <>
-            An <Strong>Integration</Strong> is a connector type — Stripe, Gmail, GitHub, Postgres. A{" "}
-            <Strong>Connection</Strong> is one authenticated account inside an integration. A{" "}
+            An <Strong>Integration</Strong> is a connector type — Stripe, Gmail, GitHub, Postgres. A
+            {""}
+            <Strong>Connection</Strong> is one authenticated account inside an integration. A{""}
             <Strong>Grant</Strong> gives an AI Employee access to one Connection.
           </>
         }
@@ -59,7 +60,7 @@ export function Integrations() {
             term: "Integration",
             def: (
               <>
-                A connector <em>type</em>, defined in code under{" "}
+                A connector <em>type</em>, defined in code under{""}
                 <Code>server/integrations/providers/</Code>. Static catalog — you add one by writing
                 a provider file, not by clicking a button.
               </>
@@ -112,7 +113,7 @@ export function Integrations() {
         That setup, not the consent screen, is what made connecting email hard.
       </P>
       <P>
-        An instance admin can do it <Strong>once for the whole install</Strong> instead. Open{" "}
+        An instance admin can do it <Strong>once for the whole install</Strong> instead. Open{""}
         <Strong>Admin → Integrations</Strong>, pick a provider, copy the redirect URI it shows into
         the provider&apos;s console, and paste back the Client ID and Client Secret. From then on,
         every company on the instance connects that provider by clicking it and approving on the
@@ -122,15 +123,15 @@ export function Integrations() {
         <Strong>Email account (IMAP)</Strong> below.)
       </P>
       <P>
-        One registration covers every integration that shares the app: registering{" "}
+        One registration covers every integration that shares the app: registering{""}
         <Strong>Google</Strong> unlocks Google Workspace, Google Analytics, Search Console, and
-        Google Ads together. You can register{" "}
+        Google Ads together. You can register{""}
         <Strong>Google, GitHub, Microsoft, LinkedIn, Reddit</Strong>, and <Strong>X</Strong>.
       </P>
       <P>
         Nothing about this is mandatory, and it does not take anything away. A company that needs
         its own client — a Workspace tenant with its own consent policy, a separate quota, an
-        account the instance admin should not see — clicks{" "}
+        account the instance admin should not see — clicks{""}
         <Strong>Use my own OAuth client instead</Strong> on the connect form, which brings back the
         Client ID and Secret fields; those credentials then win for that Connection. An install can
         mix the two freely.
@@ -167,7 +168,7 @@ export function Integrations() {
           authorized, and <Strong>Email account (IMAP)</Strong> for every other provider.
         </LI>
         <LI>
-          <Strong>Code → Integrations</Strong> shows GitHub and Forgejo / Gitea;{" "}
+          <Strong>Code → Integrations</Strong> shows GitHub and Forgejo / Gitea;{""}
           <Strong>Finance → Integrations</Strong> shows payment and banking Connections.
         </LI>
         <LI>
@@ -175,7 +176,7 @@ export function Integrations() {
         </LI>
         <LI>
           AI Employees, Skills, Routines, and Pipelines show the full catalog because they can use
-          any granted Connection. On a single employee that catalog is one entry down in{" "}
+          any granted Connection. On a single employee that catalog is one entry down in{""}
           <Strong>Settings → Integrations</Strong>.
         </LI>
       </UL>
@@ -187,7 +188,7 @@ export function Integrations() {
 
       <H2 id="how-tools-show-up">How tools show up</H2>
       <P>
-        Every run, the in-process agent regenerates the MCP server list. The built-in{" "}
+        Every run, the in-process agent regenerates the MCP server list. The built-in{""}
         <Code>genosyn</Code> server lists every integration tool the employee has a Grant for; the
         agent reaches every one of them the same way and never has to know anything about
         Connections. Integration tools live in the searchable catalogue rather than the up-front
@@ -208,7 +209,8 @@ export function Integrations() {
           the username, the password, and its authenticator setup key if it has one.
         </LI>
         <LI>
-          <Strong>Grant the item, not the password.</Strong> An employee with <Strong>Use</Strong>{" "}
+          <Strong>Grant the item, not the password.</Strong> An employee with <Strong>Use</Strong>
+          {""}
           fills those fields through <Code>browser_fill_vault</Code>, so the plaintext never reaches
           the model, the Run transcript, or a log.
         </LI>
@@ -238,7 +240,7 @@ export function Integrations() {
 
       <H3 id="external-mcp-url">Get the endpoint URL</H3>
       <P>
-        Open the employee, then <Strong>Settings → MCP</Strong>. The{" "}
+        Open the employee, then <Strong>Settings → MCP</Strong>. The{""}
         <Strong>Connect an external harness</Strong> panel at the top shows a copyable URL:
       </P>
       <Pre lang="text">{`https://<your-genosyn-host>/api/companies/<company-id>/employees/<employee-id>/mcp/connect`}</Pre>
@@ -283,7 +285,8 @@ export function Integrations() {
       <P>
         <Strong>Claude Desktop</Strong> has no field for a custom auth header yet, so bridge the
         endpoint through <Code>mcp-remote</Code> in <Code>claude_desktop_config.json</Code>. Keep
-        the token in an env var, where its space survives — passed as a raw <Code>--header</Code>{" "}
+        the token in an env var, where its space survives — passed as a raw <Code>--header</Code>
+        {""}
         arg it can get mangled:
       </P>
       <Pre lang="json">{`{
@@ -319,10 +322,10 @@ export function Integrations() {
         {CATALOG.map((c) => (
           <div
             key={c.name}
-            className="flex items-center justify-between border border-zinc-200 bg-white px-3 py-2 text-[13px]"
+            className="flex items-center justify-between border border-hairline bg-white px-3 py-2 text-[13px]"
           >
-            <span className="font-medium text-zinc-950">{c.name}</span>
-            <span className="text-[11px] uppercase tracking-wider text-zinc-600">{c.kind}</span>
+            <span className="font-medium text-ink">{c.name}</span>
+            <span className="text-[11px] uppercase tracking-wider text-muted">{c.kind}</span>
           </div>
         ))}
       </div>
@@ -338,7 +341,7 @@ export function Integrations() {
       <H2 id="grants-and-revocation">Grants & revocation</H2>
       <UL>
         <LI>
-          <Strong>Add a grant</Strong> at the employee&apos;s{" "}
+          <Strong>Add a grant</Strong> at the employee&apos;s{""}
           <Strong>Settings → Connections</Strong>. The MCP tool list updates on the next run.
         </LI>
         <LI>
@@ -352,7 +355,7 @@ export function Integrations() {
 
       <H3 id="chat-surfaces">Chat surfaces</H3>
       <P>
-        Four connectors face mostly <em>inbound</em>: <Strong>Slack</Strong>,{" "}
+        Four connectors face mostly <em>inbound</em>: <Strong>Slack</Strong>,{""}
         <Strong>Microsoft Teams</Strong>, <Strong>WhatsApp</Strong> and <Strong>Telegram</Strong>.
         Granting one to an AI Employee does more than hand it outbound tools — it makes that
         employee reachable from the platform, so a DM or an @-mention gets an answer with the same
@@ -364,7 +367,7 @@ export function Integrations() {
         one that answers incoming messages; the rest still get the outbound tools. And a person
         messaging from outside is answered as a stranger — no Soul, no Skills, no company data —
         until they open the one-time link the employee replies with. Microsoft Teams and WhatsApp
-        are webhook-only, so their catalog cards stay disabled until{" "}
+        are webhook-only, so their catalog cards stay disabled until{""}
         <Strong>Admin → General → Public URL</Strong> is set.
       </P>
       <P>
@@ -374,19 +377,19 @@ export function Integrations() {
 
       <H3 id="brex">Brex Cash and corporate cards</H3>
       <P>
-        To connect your company&apos;s Brex account, sign in to Brex as an administrator, open{" "}
-        <Code>Developer → Settings</Code>, and create a user token with the{" "}
-        <Code>accounts.cash.readonly</Code>, <Code>transactions.cash.readonly</Code>, and{" "}
-        <Code>transactions.card.readonly</Code> scopes. In Genosyn, open{" "}
+        To connect your company&apos;s Brex account, sign in to Brex as an administrator, open{""}
+        <Code>Developer → Settings</Code>, and create a user token with the{""}
+        <Code>accounts.cash.readonly</Code>, <Code>transactions.cash.readonly</Code>, and{""}
+        <Code>transactions.card.readonly</Code> scopes. In Genosyn, open{""}
         <Code>Finance → Integrations</Code>, choose <Code>Brex</Code>, and paste that token into a
         new Connection. Genosyn encrypts the token and never returns it to the browser after
         creation.
       </P>
       <P>
         The Connection contributes read-only cash-account, Cash transaction, and card transaction
-        tools to employees who receive a Grant. To bring Cash transactions into the books, open{" "}
-        <DocLink to="/docs/finance">Finance → Reconciliation</DocLink>, create a{" "}
-        <Code>Brex Cash</Code> feed, choose the Connection and Cash account, then click{" "}
+        tools to employees who receive a Grant. To bring Cash transactions into the books, open{""}
+        <DocLink to="/docs/finance">Finance → Reconciliation</DocLink>, create a{""}
+        <Code>Brex Cash</Code> feed, choose the Connection and Cash account, then click{""}
         <Code>Sync</Code>.
       </P>
       <P>
@@ -400,7 +403,8 @@ export function Integrations() {
       <P>
         GitHub and Forgejo Connections are special: a Connection holds a list of repositories the
         employee is allowed to touch, and the runner materializes a git checkout of each allowed
-        repository into <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code>{" "}
+        repository into <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code>
+        {""}
         before each run. The git token exists only inside a short-lived server-owned clone or
         refresh operation. It is never copied into the checkout, an environment variable visible to
         the AI Employee, or a reusable credential helper. A matching HTTPS Repository can reuse the
@@ -419,7 +423,7 @@ export function Integrations() {
       </P>
       <P>
         Connect it with two fields: the <Strong>Server URL</Strong> — the root of your install, not
-        its <Code>/api/v1</Code> path — and an <Strong>Access token</Strong> generated at{" "}
+        its <Code>/api/v1</Code> path — and an <Strong>Access token</Strong> generated at{""}
         <Code>&lt;your server&gt;/user/settings/applications</Code> with repository, issue, and user
         scopes. There is no OAuth option: an OAuth app is registered per instance, and
         Genosyn&apos;s instance-wide app registry holds one app per Integration, which fits
@@ -441,14 +445,14 @@ export function Integrations() {
         The server URL is also what makes a Repository on that host reviewable. Genosyn will only
         speak an API to — and only send a token to — a host some Connection was explicitly
         configured for, matching scheme, host, port and path prefix exactly. A server nobody has
-        connected stays an ordinary git remote that can be cloned and pushed but has no{" "}
-        <Strong>Open pull request</Strong> button. See{" "}
+        connected stays an ordinary git remote that can be cloned and pushed but has no{""}
+        <Strong>Open pull request</Strong> button. See{""}
         <DocLink to="/docs/repositories">Repositories</DocLink>.
       </P>
       <P>
         A self-hosted server usually lives on a private network, and Genosyn refuses outbound
-        requests to non-public addresses by default. Add its hostname at{" "}
-        <Strong>Admin → Runtime → Network</Strong> before connecting it — see{" "}
+        requests to non-public addresses by default. Add its hostname at{""}
+        <Strong>Admin → Runtime → Network</Strong> before connecting it — see{""}
         <DocLink to="/docs/self-hosting">Self-hosting</DocLink>.
       </P>
 
@@ -479,7 +483,8 @@ export function Integrations() {
       <H3 id="gmail-search-pagination">Searching busy Gmail inboxes</H3>
       <P>
         Gmail search results are paginated. If a call to <Code>gmail_search_messages</Code> returns
-        a <Code>nextPageToken</Code>, the employee passes that value back as <Code>pageToken</Code>{" "}
+        a <Code>nextPageToken</Code>, the employee passes that value back as <Code>pageToken</Code>
+        {""}
         with the same query and labels. It repeats this until Gmail omits <Code>nextPageToken</Code>
         , so busy date windows are scanned in full instead of stopping at the first 100 messages.
       </P>
@@ -496,7 +501,7 @@ export function Integrations() {
       <P>
         Each attachment picks a <Code>format</Code>. The default, <Code>original</Code>, sends the
         file exactly as it was uploaded — that is what you want for a PDF or EPUB that already
-        exists. The other four (<Code>pdf</Code>, <Code>html</Code>, <Code>md</Code>,{" "}
+        exists. The other four (<Code>pdf</Code>, <Code>html</Code>, <Code>md</Code>,{""}
         <Code>txt</Code>) render the resource&apos;s extracted text into a new document, the same
         rendering the Download menu on the resource page produces. Those are the only options for
         link- and paste-kind resources, which never keep an original file.
@@ -510,10 +515,10 @@ export function Integrations() {
         from Resources you would not want forwarded.
       </Callout>
       <P>
-        Who may send at all is a separate question, and the{" "}
+        Who may send at all is a separate question, and the{""}
         <DocLink to="/docs/email">Email</DocLink> section owns it. Once you connect a mailbox there,
-        the <Code>gmail_*</Code> tools honour that mailbox&apos;s{" "}
-        <Strong>Read / Draft / Send</Strong> level — so an employee on the default{" "}
+        the <Code>gmail_*</Code> tools honour that mailbox&apos;s{""}
+        <Strong>Read / Draft / Send</Strong> level — so an employee on the default{""}
         <Strong>Draft</Strong> can attach a Resource to a draft for you to review, but cannot send
         it itself. Until a mailbox is connected there is no level to honour, and a Connection grant
         alone lets an employee send.
@@ -521,8 +526,8 @@ export function Integrations() {
 
       <H3 id="google-analytics-search-console">Google Analytics &amp; Search Console</H3>
       <P>
-        Two <em>read-only</em> Google integrations for the team&apos;s growth work, listed under{" "}
-        <Strong>Analytics</Strong> in the catalog and separate from the Gmail / Drive{" "}
+        Two <em>read-only</em> Google integrations for the team&apos;s growth work, listed under{""}
+        <Strong>Analytics</Strong> in the catalog and separate from the Gmail / Drive{""}
         <Strong>Google Workspace</Strong> connector. <Strong>Google Analytics</Strong> exposes GA4
         accounts and properties plus report tools (sessions, users, conversions, channels, realtime,
         and the dimension/metric catalog). <Strong>Google Search Console</Strong> exposes verified
@@ -539,29 +544,29 @@ export function Integrations() {
 
       <H3 id="linkedin">LinkedIn</H3>
       <P>
-        Create an app in the{" "}
+        Create an app in the{""}
         <ExtLink href="https://www.linkedin.com/developers/apps">LinkedIn Developer Portal</ExtLink>
-        , add the callback URL shown by Genosyn under <Strong>Auth</Strong>, then enable{" "}
-        <Strong>Sign In with LinkedIn using OpenID Connect</Strong> and{" "}
-        <Strong>Share on LinkedIn</Strong> under <Strong>Products</Strong>. The default{" "}
+        , add the callback URL shown by Genosyn under <Strong>Auth</Strong>, then enable{""}
+        <Strong>Sign In with LinkedIn using OpenID Connect</Strong> and{""}
+        <Strong>Share on LinkedIn</Strong> under <Strong>Products</Strong>. The default{""}
         <Strong>Post on member&apos;s behalf</Strong> choice requests only those self-service
         permissions.
       </P>
       <Callout kind="warn" title="Company-page posting needs LinkedIn approval.">
         Leave <Strong>Post as company pages</Strong> unchecked unless LinkedIn has approved the app
         for the <Strong>Community Management API</Strong>. Selecting it requests reviewed
-        organization permissions; LinkedIn rejects the entire connection with{" "}
+        organization permissions; LinkedIn rejects the entire connection with{""}
         <Code>unauthorized_scope_error</Code> when the app does not have them.
       </Callout>
 
       <H3 id="paid-marketing">Ad platforms (paid marketing)</H3>
       <P>
-        Four ad-platform integrations —{" "}
+        Four ad-platform integrations —{""}
         <Strong>Google Ads, Meta Ads, Microsoft Advertising, Reddit Ads</Strong> — give AI Employees
         read-first campaign visibility plus a tiny, approval-gated mutation surface (pause / enable
         / budget change) bounded by per-Connection spending caps and a kill switch. Spend increases
         queue in the Approvals inbox by default; pausing never does. Setup recipes, the full safety
-        model, and the built-in Browser path for the LinkedIn / X / TikTok ads UIs live on the{" "}
+        model, and the built-in Browser path for the LinkedIn / X / TikTok ads UIs live on the{""}
         <DocLink to="/docs/marketing">Paid Marketing</DocLink> page.
       </P>
     </>

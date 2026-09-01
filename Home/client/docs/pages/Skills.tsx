@@ -39,16 +39,16 @@ export function Skills() {
         A Skill is prose, not code — it tells the employee <Strong>how</Strong> to work, while the
         tools it uses live in <DocLink to="/docs/integrations">Integrations</DocLink> and the
         built-in catalogue. A Skill may <Strong>declare</Strong> which tools its procedure uses,
-        under Settings → Tools, so those are loaded up-front instead of looked up (see{" "}
+        under Settings → Tools, so those are loaded up-front instead of looked up (see{""}
         <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>). Declaring is not
-        granting: access is still decided by Grants. A Skill is the prose around the tool:{" "}
+        granting: access is still decided by Grants. A Skill is the prose around the tool:{""}
         <em>when</em> to reach for it, <em>how</em> to use it, and what good output looks like.
       </P>
 
       <H2 id="anatomy">Anatomy of a good Skill</H2>
       <UL>
         <LI>
-          <Strong>Title.</Strong> A verb-first slug — <Code>write-weekly-digest</Code>,{" "}
+          <Strong>Title.</Strong> A verb-first slug — <Code>write-weekly-digest</Code>,{""}
           <Code>reconcile-stripe-payouts</Code>, <Code>page-oncall-for-checkout-p99</Code>.
           Searchable by what it does.
         </LI>
@@ -65,7 +65,8 @@ export function Skills() {
           the employee will call.
         </LI>
         <LI>
-          <Strong>Definition of done.</Strong> What the output looks like. A markdown report? A new{" "}
+          <Strong>Definition of done.</Strong> What the output looks like. A markdown report? A new
+          {""}
           <DocLink to="/docs/vocabulary">Todo</DocLink>? A Slack message? Spell it out so the model
           has something to check itself against.
         </LI>
@@ -95,10 +96,11 @@ A markdown report posted to #finance with three sections:
 
       <H2 id="composition">Composition</H2>
       <P>
-        Skills compose by reference. A bigger skill can say{" "}
+        Skills compose by reference. A bigger skill can say{""}
         <em>
           &quot;then run <Code>reconcile-stripe-payouts</Code>&quot;
-        </em>{" "}
+        </em>
+        {""}
         and the model will follow that link. This keeps individual skills small and reusable across
         employees.
       </P>

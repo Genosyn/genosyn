@@ -24,7 +24,7 @@ export function Deliverability() {
             Your sending domain is an asset you can destroy in an afternoon and spend months
             rebuilding. This page is the short list of what protects it in Genosyn — the suppression
             list, unsubscribe links, bounce handling and send caps — and what to do if you have
-            already done the damage. Read it before you turn on{" "}
+            already done the damage. Read it before you turn on{""}
             <DocLink to="/docs/sequences#autosend">autoSend</DocLink>.
           </>
         }
@@ -75,7 +75,7 @@ export function Deliverability() {
       <P>
         Adding an address is idempotent — suppressing one that is already suppressed changes nothing
         and keeps the original reason, so a bounce report arriving twice is harmless. If you are
-        moving from another outbound tool,{" "}
+        moving from another outbound tool,{""}
         <Strong>export its opt-out list and import it here before you send anything</Strong>. That
         is the single highest-value five minutes in this page.
       </P>
@@ -88,10 +88,10 @@ export function Deliverability() {
 
       <H3 id="do-not-contact">Do not contact vs. suppression</H3>
       <P>
-        They are different objects and both are checked on every send. A{" "}
-        <Strong>Suppression</Strong> says <em>never mail this address</em>.{" "}
-        <Strong>Do not contact</Strong>, the flag on a{" "}
-        <DocLink to="/docs/revenue#contacts-vs-customers">Contact</DocLink>, says{" "}
+        They are different objects and both are checked on every send. A{""}
+        <Strong>Suppression</Strong> says <em>never mail this address</em>.{""}
+        <Strong>Do not contact</Strong>, the flag on a{""}
+        <DocLink to="/docs/revenue#contacts-vs-customers">Contact</DocLink>, says{""}
         <em>never contact this person</em> — and blocks every address you hold for them, including
         ones that were never suppressed individually. Use the contact flag when somebody asks you to
         stop by phone or in a meeting.
@@ -113,7 +113,7 @@ export function Deliverability() {
           a <DocLink to="/docs/sequences">Sequence</DocLink> step, whether or not autoSend is on;
         </LI>
         <LI>
-          an AI Employee calling its mail tools, at any grant level, including the{" "}
+          an AI Employee calling its mail tools, at any grant level, including the{""}
           <Code>gmail_*</Code> tools from the Google connector.
         </LI>
       </UL>
@@ -160,7 +160,7 @@ export function Deliverability() {
         </LI>
       </OL>
       <P>
-        One click writes three things: a suppression with reason <Code>unsubscribe</Code>, an{" "}
+        One click writes three things: a suppression with reason <Code>unsubscribe</Code>, an{""}
         <Code>unsubscribe</Code> activity on the contact&apos;s timeline, and a stop on every live
         sequence enrolment for that person. There is nothing to process afterwards.
       </P>
@@ -176,14 +176,15 @@ export function Deliverability() {
       <P>
         Mail sync reads the delivery reports that come back to the mailbox. A report from a mail
         daemon — <Code>mailer-daemon@</Code>, <Code>postmaster@</Code> and the other addresses
-        reserved for exactly this — carrying a permanent failure (a 5xx reply or a{" "}
+        reserved for exactly this — carrying a permanent failure (a 5xx reply or a{""}
         <Code>5.x.x</Code> status) is treated as a <Strong>hard bounce</Strong>: the failed address
-        is suppressed with reason <Code>bounce</Code>, the contact is stamped as bounced, a{" "}
+        is suppressed with reason <Code>bounce</Code>, the contact is stamped as bounced, a{""}
         <Code>bounce</Code> activity lands on the timeline, and any live sequence enrolment stops.
       </P>
       <P>
         Soft failures — a full mailbox, a temporary defer — are not suppressed, because the address
-        is fine and will accept mail tomorrow. Vendor envelope senders like <Code>bounces@</Code>{" "}
+        is fine and will accept mail tomorrow. Vendor envelope senders like <Code>bounces@</Code>
+        {""}
         are deliberately not treated as daemons either; they are also used for ordinary bulk mail,
         and treating one as a bounce report would let a newsletter suppress your contacts.
       </P>
@@ -195,7 +196,8 @@ export function Deliverability() {
 
       <H2 id="caps">Send caps and windows</H2>
       <P>
-        Volume and timing are per-sequence, set in the sequence builder and described in full under{" "}
+        Volume and timing are per-sequence, set in the sequence builder and described in full under
+        {""}
         <DocLink to="/docs/sequences#caps">Sequences</DocLink>:
       </P>
       <UL>
@@ -222,7 +224,7 @@ export function Deliverability() {
       <Callout kind="tip" title="Do the boring DNS work first.">
         SPF, DKIM and a DMARC policy on the sending domain are prerequisites, not optimizations —
         Google and Yahoo require them from bulk senders, and Genosyn cannot supply them for you. Set
-        them up on the Google Workspace domain behind the mailbox you connected under{" "}
+        them up on the Google Workspace domain behind the mailbox you connected under{""}
         <DocLink to="/docs/email">Email</DocLink> before your first campaign.
       </Callout>
 
@@ -234,8 +236,8 @@ export function Deliverability() {
       </P>
       <OL>
         <LI>
-          <Strong>Stop sending outbound entirely.</Strong> Pause every{" "}
-          <DocLink to="/docs/sequences">Sequence</DocLink>, disable every{" "}
+          <Strong>Stop sending outbound entirely.</Strong> Pause every{""}
+          <DocLink to="/docs/sequences">Sequence</DocLink>, disable every{""}
           <DocLink to="/docs/signals">Signal</DocLink> whose action enrols or hands off, and turn
           off autoSend. Every additional message makes the hole deeper.
         </LI>
@@ -267,7 +269,7 @@ export function Deliverability() {
       </OL>
       <P>
         Then change the thing that caused it. In practice it is almost always one of three: a list
-        you did not earn, autoSend enabled before anybody read the drafts, or a{" "}
+        you did not earn, autoSend enabled before anybody read the drafts, or a{""}
         <DocLink to="/docs/signals#dedupe">Signal with no dedupe column</DocLink> re-firing the same
         people every tick.
       </P>
@@ -285,7 +287,8 @@ export function Deliverability() {
       </P>
       <H3 id="advanced-secret">Rotating the encryption secret invalidates outstanding links</H3>
       <P>
-        Unsubscribe tokens are signed with a key derived from <Code>security.encryptionSecret</Code>{" "}
+        Unsubscribe tokens are signed with a key derived from <Code>security.encryptionSecret</Code>
+        {""}
         in <DocLink to="/docs/self-hosting">config.ts</DocLink>. Changing that secret makes every
         link already sitting in somebody&apos;s inbox stop verifying, and a dead unsubscribe link is
         the thing this whole page exists to avoid. If you must rotate it, expect complaints from

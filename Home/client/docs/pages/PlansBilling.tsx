@@ -45,7 +45,7 @@ export function PlansBilling() {
             term: "Enterprise",
             def: (
               <>
-                A self-hosted install with a Genosyn Enterprise license activated at{" "}
+                A self-hosted install with a Genosyn Enterprise license activated at{""}
                 <Strong>Admin → License</Strong>. Everything in Community plus Single sign-on and
                 the Audit log. See <DocLink to="/docs/enterprise-license" />.
               </>
@@ -64,7 +64,7 @@ export function PlansBilling() {
         ]}
       />
       <P>
-        Whatever the shape, AI model usage is separate: your AI Employees run on the{" "}
+        Whatever the shape, AI model usage is separate: your AI Employees run on the{""}
         <DocLink to="/docs/models">AI Models</DocLink> you connect, and that API usage is billed by
         your model provider, not by Genosyn.
       </P>
@@ -76,7 +76,7 @@ export function PlansBilling() {
             term: "Free",
             def: (
               <>
-                $0. A starter team: <Strong>1 AI Employee</Strong>, <Strong>2 Routines</Strong>,{" "}
+                $0. A starter team: <Strong>1 AI Employee</Strong>, <Strong>2 Routines</Strong>,{""}
                 <Strong>1 Base</Strong> with <Strong>1 table</Strong>, <Strong>3 Channels</Strong>,
                 and <Strong>1 Project</Strong> with <Strong>20 Todos</Strong>. No Single sign-on, no
                 Audit log.
@@ -96,7 +96,7 @@ export function PlansBilling() {
             term: "Scale",
             def: (
               <>
-                <Strong>$49 / AI Employee / month</Strong>. Everything in Growth, plus{" "}
+                <Strong>$49 / AI Employee / month</Strong>. Everything in Growth, plus{""}
                 <Strong>Single sign-on</Strong> and the <Strong>Audit log</Strong>.
               </>
             ),
@@ -106,12 +106,12 @@ export function PlansBilling() {
       <P>
         Paid Plans are billed per AI Employee hired, with a minimum of one seat. Hiring and firing
         adjust the billed quantity automatically, and Stripe prorates mid-cycle changes. The full
-        comparison lives on{" "}
+        comparison lives on{""}
         <ExtLink href="https://genosyn.com/pricing">genosyn.com/pricing</ExtLink>.
       </P>
       <P>
-        Scale&apos;s Single sign-on is configured per company at{" "}
-        <Strong>Settings → Single sign-on</Strong>. With the Google preset, listing your{" "}
+        Scale&apos;s Single sign-on is configured per company at{""}
+        <Strong>Settings → Single sign-on</Strong>. With the Google preset, listing your{""}
         <Strong>Allowed email domains</Strong> is required before auto-join can be enabled — any
         Google account can authenticate against a Google OAuth client, and the domain list is what
         keeps sign-in to your own company.
@@ -148,47 +148,47 @@ export function PlansBilling() {
       </P>
       <UL>
         <LI>
-          Hiring a second AI Employee:{" "}
+          Hiring a second AI Employee:{""}
           <em>
             &ldquo;Your Free plan includes 1 AI Employee. Upgrade to Growth to hire more.&rdquo;
           </em>
         </LI>
         <LI>
-          Creating a third Routine:{" "}
+          Creating a third Routine:{""}
           <em>
             &ldquo;Your Free plan includes 2 Routines. Upgrade to Growth for unlimited
             Routines.&rdquo;
           </em>
         </LI>
         <LI>
-          Creating a second Base:{" "}
+          Creating a second Base:{""}
           <em>
             &ldquo;Your Free plan includes 1 Base. Upgrade to Growth for unlimited Bases.&rdquo;
           </em>
         </LI>
         <LI>
-          Adding a second table across your Bases:{" "}
+          Adding a second table across your Bases:{""}
           <em>
             &ldquo;Your Free plan includes 1 Base table. Upgrade to Growth for unlimited
             tables.&rdquo;
           </em>
         </LI>
         <LI>
-          Creating a fourth Channel:{" "}
+          Creating a fourth Channel:{""}
           <em>
             &ldquo;Your Free plan includes 3 Channels. Upgrade to Growth for unlimited
             Channels.&rdquo;
           </em>
         </LI>
         <LI>
-          Creating a second Project:{" "}
+          Creating a second Project:{""}
           <em>
             &ldquo;Your Free plan includes 1 Project. Upgrade to Growth for unlimited
             Projects.&rdquo;
           </em>
         </LI>
         <LI>
-          Adding a twenty-first Todo:{" "}
+          Adding a twenty-first Todo:{""}
           <em>
             &ldquo;Your Free plan includes 20 Todos. Upgrade to Growth for unlimited Todos.&rdquo;
           </em>
@@ -214,36 +214,38 @@ export function PlansBilling() {
         away). Turning it on is what makes an install behave like Genosyn Cloud.
       </P>
       <P>
-        Open <Strong>Admin → Billing</Strong> and fill in the <Strong>Stripe configuration</Strong>{" "}
+        Open <Strong>Admin → Billing</Strong> and fill in the <Strong>Stripe configuration</Strong>
+        {""}
         card:
       </P>
       <UL>
         <LI>
           Create two recurring prices in Stripe — Growth ($19 / AI Employee / month) and Scale ($49)
-          — and paste their ids into <Strong>Growth price id</Strong> and{" "}
+          — and paste their ids into <Strong>Growth price id</Strong> and{""}
           <Strong>Scale price id</Strong>.
         </LI>
         <LI>
-          Paste the <Strong>Stripe secret key</Strong> and the{" "}
+          Paste the <Strong>Stripe secret key</Strong> and the{""}
           <Strong>Webhook signing secret</Strong>. Both are stored encrypted and never shown again;
           leave a field blank later to keep the stored value.
         </LI>
         <LI>
-          Flip <Strong>Enable per-company billing</Strong> and{" "}
+          Flip <Strong>Enable per-company billing</Strong> and{""}
           <Strong>Save billing settings</Strong>. The server refuses to enable billing until the
           secret key and both price ids are configured. Companies without a subscription land on the
           Free plan.
         </LI>
       </UL>
       <P>
-        Then point a Stripe webhook at <Code>&lt;your URL&gt;/api/billing/stripe/webhook</Code> (the{" "}
+        Then point a Stripe webhook at <Code>&lt;your URL&gt;/api/billing/stripe/webhook</Code> (the
+        {""}
         <Strong>Stripe webhook endpoint</Strong> card shows the exact URL with a copy button) and
         subscribe it to the checkout and subscription events. The signing secret is how the install
         verifies those deliveries.
       </P>
       <Callout kind="info" title="Plans never cover model usage.">
         A company&apos;s Plan pays for Genosyn seats. The tokens its AI Employees consume are always
-        billed by the customer&apos;s own model provider through the keys they connect at{" "}
+        billed by the customer&apos;s own model provider through the keys they connect at{""}
         <DocLink to="/docs/models">AI Models</DocLink> — separate bill, separate vendor.
       </Callout>
 

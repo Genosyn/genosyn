@@ -2,58 +2,66 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { GITHUB_URL } from "@/lib/constants";
 import {
-  ActionStrip,
   Band,
   Body,
+  Button,
   Container,
   Display,
   Field,
-  Heading,
+  Figure,
+  Head,
   Lede,
-  Rail,
+  Pane,
   Row,
+  Rule,
   Sheet,
+  Subhead,
   TextLink,
 } from "@/sections/Kit";
 
 /**
- * The pricing page.
+ * The pricing page — HEADCOUNT, without a single hue.
  *
- * Five things were removed rather than restyled, and each one was removed for
- * a reason that outlives this file:
+ * A plan is not a department. Free, Growth, Scale, Community and Enterprise
+ * are billing states, and painting one of them finance-green or revenue-orange
+ * would be the first crack in the whole system: the moment a hue means
+ * "premium" instead of "Finance", the wall on the landing page stops being a
+ * legend and becomes decoration. So this page is built from ink, the six
+ * neutrals, density and type, and nothing else. It is the honest test of
+ * whether the system is a system.
  *
- * 1. **The three ringed tier cards.** A ring around "Scale" is a shop telling
- *    you which shelf to look at. The plans are a set, so they are rows in a
- *    fixed column structure — plan, what you get, price — and the reader
- *    compares down a column instead of across three boxes.
+ * Three decisions carry it:
  *
- * 2. **The 44-cell comparison grid.** Nine of its eleven rows read
- *    `1 / Unlimited / Unlimited / Unlimited`, which is one fact about the
- *    Free plan written nine times. What survives is four lines that the plan
- *    rows genuinely cannot carry: who runs the upgrade, where SSO lives, which
- *    licence you are under, and who answers you.
+ * 1. **The price is a `Figure`.** The previous revision set prices as 15px
+ *    mono, arguing that a price is a string the billing system emitted. That
+ *    is true of `$19` on an invoice and false of `$19` on a pricing page,
+ *    where the number is the argument rather than a record. `t-figure` is
+ *    condensed, so it buys scale without buying whitespace, which is the only
+ *    way this page gets a loud moment while staying dense.
  *
- * 3. **The `<details>` accordion.** These answers are the best-written copy on
- *    the site. Six of them are three sentences long. Hiding three sentences
- *    behind a chevron costs a click and buys nothing, so the FAQ is a plain
- *    definition list and it is the last and loudest band.
+ * 2. **Plans are tiles on 1px seams**, the same construction as the landing
+ *    wall — not three ringed cards, and not a bento box. A ring around "Scale"
+ *    is a shop telling you which shelf to look at.
  *
- * 4. **The dark gradient CTA slab.** Rounded to 2rem, dotted, with an indigo
- *    blur orb and a white one, and pasted verbatim onto three pages. A slab
- *    that appears identically on three pages is not an argument for any of
- *    them. The page's controls sit in the bands that earn them.
+ * 3. **One ink object per band, and it is always that band's human action.**
+ *    The install control in 01, the Cloud access cell in 02, the command you
+ *    paste in 03. Nothing else on the page is black, so on five bands of paper
+ *    the eye finds exactly five things and every one of them is a thing you do.
+ *    That is the machine-in-colour / human-in-black inversion doing its job on
+ *    a page with no machine colour to invert against.
  *
- * 5. **"Frequently asked."** An amputated stock phrase with no subject.
- *
- * There is no signal amber anywhere on this page, and that is deliberate.
- * Amber marks the human boundary — a Decision, an Approval, the 09:30 arrival
- * line — and a price is none of those. Spending the site's one colour on a
- * plan name is how it stops meaning anything.
+ * What stayed deleted from the version before last, because the reasons
+ * outlive this file: the 44-cell comparison grid (nine of its eleven rows read
+ * `1 / Unlimited / Unlimited / Unlimited`, which is one fact about the Free
+ * plan written nine times); the `<details>` accordion (a control that hides
+ * three sentences buys nothing); the dark gradient CTA slab pasted onto three
+ * pages; and the headline "Frequently asked", an amputated stock phrase with
+ * no subject.
  *
  * Ordering: the sheet numbers run Cloud then Self-hosted, but the free tier is
- * the loudest thing here. It wins on typography instead of on position — the
- * first headline on the page names it, band 03 is the only tone change and the
- * only `Display` below the hero, and it carries the real install command.
+ * the loudest thing here. It wins on typography rather than on position — the
+ * first headline names it, band 03 is the only tone change on the page, and it
+ * carries the real install command.
  */
 
 const CLOUD_ACCESS_HREF = "mailto:cloud@genosyn.com?subject=Genosyn%20Cloud%20early%20access";
@@ -64,11 +72,11 @@ const INSTALL_COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
 
 type Plan = {
   name: string;
-  /** Where it runs. Sits under the name in the first column. */
+  /** Where it runs. A label, so it is set as a field rather than as prose. */
   host: string;
   /** One sentence. What you get, in the product's own nouns. */
   gets: string;
-  /** The headline price, as a mono field. */
+  /** The headline price. Set as a `Figure`. */
   price: string;
   /** The meter the price is charged against, if there is one. */
   meter?: string;
@@ -121,13 +129,16 @@ const SELF_HOSTED_PLANS: Plan[] = [
   },
 ];
 
+/** The ladder in the masthead is derived, so it cannot drift from the tiles. */
+const ALL_PLANS: Plan[] = [...CLOUD_PLANS, ...SELF_HOSTED_PLANS];
+
 /**
  * The comparison, reduced to the lines that differ.
  *
- * Every row here answers a question the plan rows above cannot: the plan rows
- * say what you get, and these four say who operates it, who is on the hook,
- * and under what terms. A row whose five cells all read the same value has
- * been moved into prose underneath, because a table is for differences.
+ * Every row here answers a question the plan tiles cannot: the tiles say what
+ * you get, and these four say who operates it, who is on the hook, and under
+ * what terms. A row whose five cells all read the same value has been moved
+ * into prose underneath, because a table is for differences.
  */
 type CompareRow = {
   label: string;
@@ -167,11 +178,11 @@ type Question = { q: string; a: string };
 /**
  * The six answers, kept almost word for word.
  *
- * These were already the strongest writing in the codebase and the revamp's
- * job was to stop hiding them, not to rewrite them. Three edits were made:
- * the banned "simply" is gone, five em dashes became full stops and colons,
- * and the arrow in `Admin -> License` became a slash, because U+2192 is not
- * in the served font subset and falls back to a system face mid-line.
+ * These were already the strongest writing in the codebase and every revision
+ * since has left them alone. Three edits were ever made: the banned "simply"
+ * is gone, five em dashes became full stops and colons, and the arrow in
+ * `Admin -> License` became a slash, because U+2192 is not in the served font
+ * subset and falls back to a system face mid-line.
  *
  * There are six of them and the band heading says "Six answers", so a seventh
  * entry means editing that line too. The mono field beside it is derived from
@@ -216,133 +227,208 @@ export function Pricing(): ReactNode {
   );
 }
 
+/* -------------------------------------------------------------------------
+   01 / Pricing
+------------------------------------------------------------------------- */
+
 /**
- * 01 / Pricing.
+ * The masthead.
  *
- * The first sentence on a pricing page should be the price. The old one was a
- * centred badge reading "Simple pricing" over a two-tone headline, which is
- * three elements spent saying nothing a reader could act on.
+ * The first sentence on a pricing page should be the price, and the right
+ * column is the whole answer at once: five plans, five numbers, in a Pane, in
+ * the first screen. That is the density argument applied to a question a
+ * reader arrived with — five rows of paper beats five tiles of scrolling for
+ * "what does it cost", and the tiles below then have room to say why.
  */
 function PricingHead() {
   return (
-    <Band tone="paper" pad="m" rule={false}>
+    <Band tone="ground" pad="m" rule={false}>
       <Container>
-        <Rail sheet="01 / Pricing" fields={["Apache-2.0", `v${__APP_VERSION__}`, "USD"]}>
-          <Display className="max-w-[20ch]">Genosyn is free on your own hardware.</Display>
+        <div className="grid gap-x-16 gap-y-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+          <div className="min-w-0">
+            <Sheet>01 / Pricing</Sheet>
+            <Fields items={["APACHE-2.0", `v${__APP_VERSION__}`, "USD"]} className="mt-3" />
 
-          <Lede className="mt-7">
-            Download it, run it, and hire as many AI Employees as you want. Genosyn Cloud is the
-            same software with us operating it, charged per AI Employee hired.
-          </Lede>
+            <Display className="mt-5 max-w-[20ch]">Genosyn is free on your own hardware.</Display>
 
-          <div className="mt-10 max-w-[34rem]">
-            <ActionStrip href="/docs/install" trailing="Free">
-              Install it on your own hardware
-            </ActionStrip>
-            <ActionStrip href={CLOUD_ACCESS_HREF} trailing="Email" className="-mt-px">
-              Request Genosyn Cloud access
-            </ActionStrip>
+            <Lede className="mt-7">
+              Download it, run it, and hire as many AI Employees as you want. Genosyn Cloud is the
+              same software with us operating it, charged per AI Employee hired.
+            </Lede>
+
+            {/* The one black object in this band. A control is a human action,
+                so it is ink; the paid path beside it is a text link, because
+                the honest hierarchy of an Apache-2.0 product is that the free
+                thing is the product. */}
+            <div className="mt-9 flex flex-wrap items-center gap-x-8 gap-y-4">
+              <Button href="/docs/install">Install it on your own hardware</Button>
+              <TextLink href={CLOUD_ACCESS_HREF}>Request Genosyn Cloud access</TextLink>
+            </div>
           </div>
-        </Rail>
+
+          <div className="min-w-0 lg:pt-1">
+            <Pane title="Every plan" meta="USD / MO">
+              {ALL_PLANS.map((plan) => (
+                <div
+                  key={plan.name}
+                  className="flex items-baseline justify-between gap-4 border-b border-hairline px-4 py-3.5 last:border-b-0"
+                >
+                  <span>
+                    {/* Not a `Subhead`: these five names are also the h3s of
+                        the tiles below, and a summary that duplicates them in
+                        the outline makes a screen reader read the price list
+                        twice. The face is the same; the tag is not. */}
+                    <span className="t-h3 block text-[15px] text-ink">{plan.name}</span>
+                    <span className="mt-0.5 block">
+                      <Sheet className="!text-[10px]">{plan.host}</Sheet>
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    {/* The display face, not `Field`. This file's own argument
+                        is that a price on a pricing page is the claim rather
+                        than a record, so setting it in the data face here
+                        would contradict the `Figure` on every tile below and
+                        break the site's one mono predicate: mono is for
+                        strings the software emitted, and "Quoted" is not one.
+                        `tabular` locks the numerals so five prices line up
+                        down the ladder without a table. */}
+                    <span className="t-h3 tabular block text-[15px] text-ink">{plan.price}</span>
+                    {plan.meter && (
+                      <span className="mt-0.5 block">
+                        <Sheet className="!text-[10px]">{plan.meter}</Sheet>
+                      </span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </Pane>
+          </div>
+        </div>
       </Container>
     </Band>
   );
 }
 
-/** 02 / Cloud. Three plans, one meter, drawn as three rows. */
+/* -------------------------------------------------------------------------
+   02 / Cloud
+------------------------------------------------------------------------- */
+
+/** Three plans, one meter, and the fourth cell is the human one. */
 function CloudPlans() {
   return (
-    <Band id="cloud" tone="paper" pad="m">
+    <Band id="cloud" tone="ground" pad="m">
       <Container>
-        <Rail sheet="02 / Cloud" fields={["3 PLANS", "USD / MO"]}>
-          <Heading as="h2" className="max-w-[22ch]">
-            Genosyn Cloud has three plans and one meter.
-          </Heading>
+        <Head
+          eyebrow="02 / Cloud"
+          title="Genosyn Cloud has three plans and one meter."
+          lede="We run the upgrades, the backups and the hosting. You bring your own AI Model keys on every plan, so token spend is billed to you by Anthropic or OpenAI and never by us."
+          aside={<Fields items={["3 PLANS", "USD / MO"]} />}
+        />
 
-          <Lede className="mt-6">
-            We run the upgrades, the backups and the hosting. You bring your own AI Model keys on
-            every plan, so token spend is billed to you by Anthropic or OpenAI and never by us.
-          </Lede>
+        <TileStrip className="mt-12 sm:grid-cols-2 lg:grid-cols-4">
+          {CLOUD_PLANS.map((plan) => (
+            <PlanTile key={plan.name} plan={plan} />
+          ))}
 
-          <div className="mt-10">
-            {CLOUD_PLANS.map((plan) => (
-              <PlanRow key={plan.name} plan={plan} />
-            ))}
-          </div>
-
-          <div className="mt-8 max-w-[34rem]">
-            <Body className="mb-5 !text-zinc-600">
-              Genosyn Cloud is rolling out now. Send one line about what you want an AI Employee to
-              do and we will onboard you.
-            </Body>
-            <ActionStrip href={CLOUD_ACCESS_HREF} trailing="Email">
-              Request Genosyn Cloud access
-            </ActionStrip>
-          </div>
-        </Rail>
+          {/* The fourth cell is you — the same move the landing wall makes with
+              its eighth cell. It carries no price, so it cannot be misread as
+              a plan, and it is the only thing in the strip with no border and
+              no paper under it. */}
+          <ActionTile
+            eyebrow="Rolling out now"
+            title="Genosyn Cloud access"
+            body="Send one line about what you want an AI Employee to do and we will onboard you."
+            href={CLOUD_ACCESS_HREF}
+            label="cloud@genosyn.com"
+          />
+        </TileStrip>
       </Container>
     </Band>
   );
 }
 
+/* -------------------------------------------------------------------------
+   03 / Self-hosted
+------------------------------------------------------------------------- */
+
 /**
- * 03 / Self-hosted — the band the page is really about.
+ * The band the page is really about.
  *
- * It is the one tone change on the page and the only `Display` below the hero.
- * Both were spent here rather than on the paid tiers because the honest
- * hierarchy of an Apache-2.0 product is that the free thing is the product and
- * the hosted thing is a convenience.
+ * It is the one tone change on the page, spent here rather than on the paid
+ * tiers, and its ink object is the command rather than a button: on this band
+ * the human action is running a line, not writing an email. The strip is the
+ * same object as the landing hero's, inverted — black paper, so that on a page
+ * of five bands the loudest single rectangle belongs to the free path.
  */
 function SelfHosted() {
   return (
-    <Band id="self-hosted" tone="raised" pad="m">
+    <Band id="self-hosted" tone="surface" pad="m">
       <Container>
-        <Rail sheet="03 / Self-hosted" fields={["$0", "APACHE-2.0", `v${__APP_VERSION__}`]}>
-          <Heading as="h2" className="max-w-[20ch]">
-            Unlimited AI Employees cost $0 on your hardware.
-          </Heading>
+        <Head
+          eyebrow="03 / Self-hosted"
+          title="Unlimited AI Employees cost $0 on your hardware."
+          lede="One command puts the whole platform on a machine you own. It sends no telemetry, and the Apache-2.0 licence reads the same at one AI Employee as at five hundred."
+          aside={<Fields items={["$0", "APACHE-2.0", `v${__APP_VERSION__}`]} />}
+        />
 
-          <Lede className="mt-7">
-            One command puts the whole platform on a machine you own. It sends no telemetry, and the
-            Apache-2.0 licence reads the same at one AI Employee as at five hundred.
-          </Lede>
+        <div className="mt-10 max-w-[46rem]">
+          <InstallCommand />
+        </div>
 
-          <div className="mt-9 max-w-[38rem]">
-            <InstallCommand />
-            <ActionStrip href="/docs/install" trailing="Guide" className="-mt-px">
-              Read the install guide
-            </ActionStrip>
-            <ActionStrip href={GITHUB_URL} external trailing="Source" className="-mt-px">
-              Read every line on GitHub
-            </ActionStrip>
-          </div>
+        <div className="mt-6 flex flex-wrap gap-x-8 gap-y-4">
+          <TextLink href="/docs/install">Read the install guide</TextLink>
+          <TextLink href={GITHUB_URL} external>
+            Read every line on GitHub
+          </TextLink>
+        </div>
 
-          <div className="mt-12">
-            {SELF_HOSTED_PLANS.map((plan) => (
-              <PlanRow key={plan.name} plan={plan} />
-            ))}
-          </div>
+        {/* Paper tiles on a white band, the exact inverse of band 02's white
+            tiles on paper. Two white tiles on a white band would have been a
+            ruled grid with nothing to hold, and the tone change this band
+            spent would have bought nothing. */}
+        <TileStrip className="mt-12 lg:grid-cols-2">
+          {SELF_HOSTED_PLANS.map((plan) => (
+            <PlanTile key={plan.name} plan={plan} tone="ground" />
+          ))}
+        </TileStrip>
 
-          <div className="mt-8 flex flex-wrap gap-x-8 gap-y-4">
-            <TextLink href="/enterprise">What Enterprise adds</TextLink>
-            <TextLink href={ENTERPRISE_HREF}>Talk to us about a licence</TextLink>
-          </div>
-        </Rail>
+        <div className="mt-8 flex flex-wrap gap-x-8 gap-y-4">
+          <TextLink href="/enterprise">What Enterprise adds</TextLink>
+          <TextLink href={ENTERPRISE_HREF}>Talk to us about a licence</TextLink>
+        </div>
       </Container>
     </Band>
   );
 }
 
-/** 04 / Compared. Four lines, five columns, and nothing that repeats a row. */
+/* -------------------------------------------------------------------------
+   04 / Compared
+------------------------------------------------------------------------- */
+
+/**
+ * Four lines, five columns, and nothing that repeats a row.
+ *
+ * The lede's quota caveat is load-bearing: the Free plan's limits are a real
+ * difference and they are listed on its tile, so a lede claiming these four
+ * lines are the ONLY difference would be false. It says what the tiles already
+ * carry instead.
+ */
 function Compared() {
   return (
-    <Band tone="paper" pad="m">
+    <Band tone="ground" pad="m">
       <Container>
-        <Rail sheet="04 / Compared" fields={["5 PLANS", "4 LINES"]}>
-          <Heading as="h2" className="max-w-[22ch]">
-            Five plans differ on four lines.
-          </Heading>
+        <Head
+          eyebrow="04 / Compared"
+          title="Five plans differ on four lines."
+          lede="The tiles above carry the quotas each plan enforces. These four lines carry everything else that differs."
+          aside={<Fields items={["5 PLANS", "4 LINES"]} />}
+        />
 
+        {/* A Pane, because a comparison is a picture of the product's own
+            entitlement table rather than a piece of the page's prose. It gets
+            no 3px department edge: five plans are not a department, and a hue
+            here would be the first place the legend breaks. */}
+        <Pane className="mt-10 max-w-[74rem]" title="What differs" meta="5 PLANS · 4 LINES">
           {/* The table keeps a minimum width and scrolls inside its own box.
               Reflowing a five-column comparison into stacked pairs at 375px
               produces five copies of the same four labels, which is worse to
@@ -350,24 +436,25 @@ function Compared() {
           {/* `relative` is load-bearing, not decoration. The `sr-only` spans
               inside the table (the caption, the empty corner header, and each
               "Not included") are `position: absolute`, so without a positioned
-              ancestor here they resolve against the band's own `relative`
-              section, escape this box's clip, and park their 1px selves at
-              x=545 — which pushes the whole document to a 546px scroll width
-              at a 375px viewport. Positioning the scroll container brings them
-              back inside the clip. */}
-          <div className="relative mt-9 overflow-x-auto border border-paper-400 bg-paper-50">
+              ancestor HERE they resolve against an ancestor outside the clip,
+              escape it, and park their 1px selves off to the right — which
+              pushes the whole document to a 546px scroll width at a 375px
+              viewport. Positioning the scroll container brings them back
+              inside. The `Pane` around this is also relative, which is not
+              enough: it is outside the overflow box. */}
+          <div className="relative overflow-x-auto">
             <table className="w-full min-w-[46rem] border-collapse text-left">
               <caption className="sr-only">
                 How the five Genosyn plans differ on upgrades, SSO, licence and support.
               </caption>
               <thead>
-                <tr className="border-b border-paper-400">
+                <tr className="border-b border-rule">
                   <th scope="col" className="px-4 py-3 align-bottom">
                     <span className="sr-only">Line</span>
                   </th>
                   {PLAN_COLUMNS.map(([name, host]) => (
                     <th key={name} scope="col" className="px-4 py-3 align-bottom">
-                      <Sheet className="!text-zinc-950">{name}</Sheet>
+                      <Sheet className="!text-ink">{name}</Sheet>
                       <span className="mt-1 block">
                         <Sheet className="!text-[10px]">{host}</Sheet>
                       </span>
@@ -377,9 +464,9 @@ function Compared() {
               </thead>
               <tbody>
                 {COMPARE_ROWS.map((row) => (
-                  <tr key={row.label} className="border-b border-paper-300 last:border-b-0">
+                  <tr key={row.label} className="border-b border-hairline last:border-b-0">
                     <th scope="row" className="px-4 py-3.5 align-top">
-                      <Sheet className="!text-zinc-950">{row.label}</Sheet>
+                      <Sheet className="!text-ink">{row.label}</Sheet>
                     </th>
                     {row.cells.map((cell, index) => (
                       <td key={PLAN_COLUMNS[index][0]} className="px-4 py-3.5 align-top">
@@ -391,23 +478,24 @@ function Compared() {
               </tbody>
             </table>
           </div>
+        </Pane>
 
-          {/* The two facts that are identical in all five columns. They were
-              rows in the old table, where five repeated cells said "this does
-              not vary" in the most expensive way available. */}
-          <Body className="mt-6 max-w-[62ch]">
-            Human Members are free on all five plans, and every plan uses AI Model keys you register
-            yourself. Only AI Employees are metered, and only on Genosyn Cloud.
-          </Body>
-        </Rail>
+        {/* The two facts that are identical in all five columns. They were
+            rows in the old table, where five repeated cells said "this does not vary" in the most expensive way available. */}
+        <Body className="mt-6 max-w-[62ch]">
+          Human Members are free on all five plans, and every plan uses AI Model keys you register
+          yourself. Only AI Employees are metered, and only on Genosyn Cloud.
+        </Body>
       </Container>
     </Band>
   );
 }
 
+/* -------------------------------------------------------------------------
+   05 / Questions
+------------------------------------------------------------------------- */
+
 /**
- * 05 / Questions.
- *
  * A definition list, at reading size, with the question in the display face
  * and the answer beside it. No accordion: the longest answer here is four
  * sentences, and a control that hides four sentences is a control that exists
@@ -415,95 +503,162 @@ function Compared() {
  */
 function Questions() {
   return (
-    <Band tone="paper" pad="s">
+    <Band tone="ground" pad="s">
       <Container>
-        <Rail sheet="05 / Questions" fields={[`${QUESTIONS.length} QUESTIONS`]}>
-          <Heading as="h2" className="max-w-[24ch]">
-            Six answers cover plans, keys and licences.
-          </Heading>
+        <Head
+          eyebrow="05 / Questions"
+          title="Six answers cover plans, keys and licences."
+          aside={<Fields items={[`${QUESTIONS.length} QUESTIONS`]} />}
+        />
 
-          <dl className="mt-10">
-            {QUESTIONS.map((item) => (
-              <Row
-                key={item.q}
-                className="!grid grid-cols-1 !py-6 lg:grid-cols-[20rem_minmax(0,1fr)]"
-              >
-                <dt>
-                  {/* The Heading face at row scale. A question inside a list is
-                      a step below the band heading above it, and taking the
-                      same face at a smaller size keeps that relationship
-                      without adding a rung to the ramp. */}
-                  <Heading as="h3" className="!text-[1.0625rem] !leading-[1.45]">
-                    {item.q}
-                  </Heading>
-                </dt>
-                <dd className="mt-2 lg:mt-0">
-                  <Body className="max-w-[62ch]">{item.a}</Body>
-                </dd>
-              </Row>
-            ))}
-          </dl>
+        <dl className="mt-10">
+          {QUESTIONS.map((item) => (
+            <Row
+              key={item.q}
+              className="!grid grid-cols-1 !py-6 lg:grid-cols-[22rem_minmax(0,1fr)]"
+            >
+              <dt>
+                {/* The display face at row scale. A question inside a list is a
+                    step below the band heading above it, and taking the same
+                    face at a smaller size keeps that relationship without
+                    adding a rung to the ramp. */}
+                <Subhead className="!text-[1.0625rem] !leading-[1.45]">{item.q}</Subhead>
+              </dt>
+              <dd className="mt-2 lg:mt-0">
+                <Body className="max-w-[62ch]">{item.a}</Body>
+              </dd>
+            </Row>
+          ))}
+        </dl>
 
-          <div className="mt-10">
-            <TextLink href="/docs">Read the documentation</TextLink>
-          </div>
-        </Rail>
+        <div className="mt-10">
+          <TextLink href="/docs">Read the documentation</TextLink>
+        </div>
       </Container>
     </Band>
   );
 }
 
-/**
- * One plan, as a row in a fixed three-column structure.
- *
- * The price is a `Field` rather than a 36px number, which is the whole
- * argument of the redesign applied to a pricing page: the price is a string
- * the billing system emitted, and setting it in mono next to the quota values
- * it belongs with is more honest than setting it in display type to make the
- * plan feel significant. `order` puts the price directly under the plan name
- * on a phone, where a price at the bottom of a paragraph is easy to miss.
- */
-function PlanRow({ plan }: { plan: Plan }) {
+/* -------------------------------------------------------------------------
+   Parts
+------------------------------------------------------------------------- */
+
+/** The mono line that used to live in the rail's gutter. Counts and emitted
+ *  values only — never an adjective in the data face. */
+function Fields({ items, className = "" }: { items: string[]; className?: string }) {
   return (
-    <Row className="!grid grid-cols-1 !gap-y-3 !py-6 lg:grid-cols-[8rem_minmax(0,1fr)_11rem]">
-      <div className="order-1">
-        <h3>
-          <Sheet className="!text-[12px] !text-zinc-950">{plan.name}</Sheet>
-        </h3>
-        <span className="mt-1 block">
-          <Sheet className="!text-[10px]">{plan.host}</Sheet>
-        </span>
-      </div>
-
-      <div className="order-3 lg:order-2">
-        <Body className="max-w-[54ch]">{plan.gets}</Body>
-        <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-          {plan.limits.map((limit) => (
-            <Field key={limit}>{limit}</Field>
-          ))}
-        </div>
-      </div>
-
-      <div className="order-2 lg:order-3 lg:text-right">
-        <Field className="!text-[15px] !leading-5 !text-zinc-950">{plan.price}</Field>
-        {plan.meter && (
-          <span className="mt-1.5 block">
-            <Field>{plan.meter}</Field>
-          </span>
-        )}
-      </div>
-    </Row>
+    <div className={`flex flex-wrap items-baseline gap-x-5 gap-y-1 ${className}`}>
+      {items.map((item) => (
+        <Field key={item}>{item}</Field>
+      ))}
+    </div>
   );
 }
 
 /**
- * The install command, as an object rather than a call to action.
+ * A set of plans, tiled on 1px seams.
  *
- * This is the same pattern as the landing hero's install strip, deliberately
- * not shared: the hero's copy is a private function inside `Hero.tsx`, and
- * lifting it into the Kit would put a stateful control in a file whose whole
- * job is stateless primitives. If a third page needs it, that is the point to
- * promote it.
+ * The seam is the page's only depth: `bg-seam` shows through a `gap-px` grid
+ * and through the `p-px` ring, so the outer edge of the strip is made of the
+ * same 1px line as its interior and the block reads as one object rather than
+ * as N boxes that happen to touch. Nothing floats, nothing has a shadow, and
+ * there is no radius — a rounded tile in a seam grid draws four little white
+ * notches at every junction.
+ */
+function TileStrip({ className = "", children }: { className?: string; children: ReactNode }) {
+  return <div className={`grid gap-px bg-seam p-px ${className}`}>{children}</div>;
+}
+
+/**
+ * One plan.
+ *
+ * The price is a `Figure` — condensed, so a 68px number costs about as much
+ * horizontal room as a 34px one would in the text face, which is the only
+ * reason a page this dense can afford to shout. The meter line under it is
+ * height-reserved: Free has no meter, and letting its body copy ride 20px
+ * higher than its neighbours' would make four deliberate tiles look like four
+ * accidents.
+ */
+function PlanTile({ plan, tone = "surface" }: { plan: Plan; tone?: "surface" | "ground" }) {
+  return (
+    <div className={`flex min-w-0 flex-col p-5 ${tone === "ground" ? "bg-ground" : "bg-surface"}`}>
+      <div className="flex items-baseline justify-between gap-3">
+        <Subhead className="!text-[1.125rem]">{plan.name}</Subhead>
+        <Sheet className="shrink-0">{plan.host}</Sheet>
+      </div>
+
+      <Figure className="mt-6 !text-[clamp(2.75rem,4.6vw,4.25rem)]">{plan.price}</Figure>
+      <div className="mt-2 min-h-[1.125rem]">{plan.meter && <Sheet>{plan.meter}</Sheet>}</div>
+
+      <Rule className="mt-5" />
+      <Body className="mt-4 !text-[14px]">{plan.gets}</Body>
+
+      {/* The quota values sit at the foot of the tile on a ruled ledger, so
+          across a strip the last line of every tile lands on the same rule.
+          A wrapped inline set of fields was tried first and read as a tag
+          cloud — these are enforced numbers, not keywords. */}
+      <ul className="mt-auto pt-6">
+        {plan.limits.map((limit) => (
+          <li key={limit} className="border-t border-hairline py-1.5 last:border-b">
+            <Field>{limit}</Field>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * The human cell in a strip of machine cells.
+ *
+ * `TextLink` is ink by definition, which is invisible here, so the link is
+ * written out in ground with the same left-drawing underline. `on-night`
+ * flips the focus ring to the light end of the ramp: the global ring is
+ * #14120f, which on this tile would be a black outline on a black tile.
+ */
+function ActionTile({
+  eyebrow,
+  title,
+  body,
+  href,
+  label,
+}: {
+  eyebrow: string;
+  title: string;
+  body: string;
+  href: string;
+  label: string;
+}) {
+  return (
+    <div className="on-night flex min-w-0 flex-col justify-between gap-8 bg-ink p-5 text-ground">
+      <span className="t-field text-ground/70">{eyebrow}</span>
+      <div>
+        <h3 className="t-h3 text-[1.125rem] text-ground">{title}</h3>
+        <p className="mt-2 max-w-[28ch] text-[14px] leading-[1.5] text-ground/85">{body}</p>
+        <a href={href} className="group mt-4 inline-flex w-fit items-baseline">
+          <span className="t-data relative text-[13px] text-ground">
+            {label}
+            <span
+              aria-hidden
+              className="absolute -bottom-1 left-0 h-px w-full origin-left scale-x-0 bg-ground transition-transform duration-150 group-hover:scale-x-100"
+            />
+          </span>
+        </a>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The install command, as an object rather than as a call to action.
+ *
+ * Black paper: this is the one thing on the page a person actually runs, and
+ * on a page with no departments the inversion is the only emphasis available
+ * that means something. It is the same pattern as the landing hero's strip and
+ * deliberately not shared — the hero's copy is a private function inside
+ * `Hero.tsx`, and lifting a stateful control into the Kit would put state in a
+ * file whose whole job is stateless primitives. If a third page needs it, that
+ * is the point to promote it.
  */
 function InstallCommand() {
   const [copied, setCopied] = useState(false);
@@ -519,14 +674,14 @@ function InstallCommand() {
   }
 
   return (
-    <div className="flex min-h-[3.25rem] items-center gap-4 border border-paper-400 bg-paper-100 px-4">
-      <code className="t-data min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[12px] text-zinc-950 scrollbar-none sm:text-[13px]">
+    <div className="on-night flex min-h-[3.5rem] items-center gap-4 bg-ink px-4">
+      <code className="t-data scrollbar-none min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[12px] text-ground sm:text-[13px]">
         {INSTALL_COMMAND}
       </code>
       <button
         type="button"
         onClick={copy}
-        className="t-cond shrink-0 text-[11px] uppercase tracking-field text-zinc-600 transition-colors hover:text-zinc-950"
+        className="t-field shrink-0 text-ground/70 transition-colors duration-100 hover:text-ground"
       >
         {copied ? "Copied" : "Copy"}
         <span className="sr-only"> install command</span>
@@ -546,7 +701,7 @@ function InstallCommand() {
 function Absent() {
   return (
     <>
-      <span aria-hidden className="t-data text-[13px] text-zinc-600">
+      <span aria-hidden className="t-data text-[13px] text-muted">
         −
       </span>
       <span className="sr-only">Not included</span>

@@ -9,7 +9,7 @@ export function Standdowns() {
         lead={
           <>
             Every other guardrail in Genosyn is per-action and decided before the fact: an Approval
-            holds one call, a Budget refuses one payment, a Policy blocks one recipient. A{" "}
+            holds one call, a Budget refuses one payment, a Policy blocks one recipient. A{""}
             <Strong>Standdown</Strong> is the other instrument — a revocable stop on all AI work at
             company, employee, or Routine scope, placed by a human or tripped by the
             consecutive-failure breaker.
@@ -20,14 +20,14 @@ export function Standdowns() {
       <Callout kind="info" title='"Standdown" is the word.'>
         Genosyn never says &quot;pause,&quot; &quot;hold,&quot; &quot;suspend,&quot; or
         &quot;freeze&quot; for this — <Strong>hold</Strong> already means a tainted-turn call
-        waiting on an Approval. A Standdown is the exact inverse of a{" "}
+        waiting on an Approval. A Standdown is the exact inverse of a{""}
         <DocLink to="/docs/autonomy">Waiver</DocLink>: a Waiver is earned, narrow, and widens what
         an employee may do without a human; a Standdown is imposed, broad, and stops it.
       </Callout>
 
       <H2 id="why">Why the switch had to exist</H2>
       <P>
-        Before this row, the honest answers to &quot;stop, now, everything&quot; were toggling{" "}
+        Before this row, the honest answers to &quot;stop, now, everything&quot; were toggling{""}
         <Code>enabled</Code> on Routines one at a time — which stops no Wakeup, no Trigger, no mail
         automation, no sequence tick, and nobody who is chatting with the employee right now — or
         deleting the employee. Neither is a stop. A control that a colleague can accidentally route
@@ -47,8 +47,8 @@ export function Standdowns() {
             term: "Company",
             def: (
               <>
-                <Strong>Everything.</Strong> Every Routine, every automatic retry, every{" "}
-                <DocLink to="/docs/reactivity">Wakeup</DocLink> and{" "}
+                <Strong>Everything.</Strong> Every Routine, every automatic retry, every{""}
+                <DocLink to="/docs/reactivity">Wakeup</DocLink> and{""}
                 <DocLink to="/docs/reactivity">Trigger</DocLink>, and interactive chat with every AI
                 Employee in the company. Humans keep using the app in full; the roster stops
                 working.
@@ -82,7 +82,8 @@ export function Standdowns() {
       <H2 id="in-flight">What happens to work already moving</H2>
       <UL>
         <LI>
-          <Strong>In-flight Runs are aborted.</Strong> A covered Run stops where it is and finalizes{" "}
+          <Strong>In-flight Runs are aborted.</Strong> A covered Run stops where it is and finalizes
+          {""}
           <Code>interrupted</Code> — the status that already means &quot;nobody can say what
           happened after this line&quot;. It is not marked <Code>failed</Code>, because nothing
           failed; the work was stopped.
@@ -96,7 +97,7 @@ export function Standdowns() {
         <LI>
           <Strong>Skipped scheduled slots still advance the schedule.</Strong> A slot that arrives
           during a Standdown is declined and the next occurrence is computed as usual, so lifting a
-          month-old Standdown produces no catch-up storm — the same ceiling{" "}
+          month-old Standdown produces no catch-up storm — the same ceiling{""}
           <DocLink to="/docs/routines#missed-slots">downtime recovery</DocLink> keeps, for the same
           reason.
         </LI>
@@ -109,16 +110,16 @@ export function Standdowns() {
 
       <H2 id="breaker">The circuit breaker</H2>
       <P>
-        A Routine can also stand itself down without anyone pressing anything. Genosyn counts{" "}
-        <Strong>consecutive bad Runs</Strong> on each Routine — any terminal Run that is not{" "}
-        <Code>completed</Code>, plus a completed Run whose required{" "}
-        <DocLink to="/docs/verification">Checks</DocLink> failed or whose outcome graded{" "}
+        A Routine can also stand itself down without anyone pressing anything. Genosyn counts{""}
+        <Strong>consecutive bad Runs</Strong> on each Routine — any terminal Run that is not{""}
+        <Code>completed</Code>, plus a completed Run whose required{""}
+        <DocLink to="/docs/verification">Checks</DocLink> failed or whose outcome graded{""}
         <Code>off goal</Code>. The first Run that is clean on every axis resets the counter to zero.
       </P>
       <P>
         On crossing the threshold, the runner places a Standdown on that Routine, recorded with
-        source <Code>breaker</Code> rather than a person. The threshold is at{" "}
-        <Strong>Admin → Runtime</Strong>, under <Strong>Containment</Strong>, and defaults to{" "}
+        source <Code>breaker</Code> rather than a person. The threshold is at{""}
+        <Strong>Admin → Runtime</Strong>, under <Strong>Containment</Strong>, and defaults to{""}
         <Strong>5</Strong>. Setting it to <Code>0</Code> disables the breaker entirely and restores
         the old behaviour: a permanently broken Routine firing every slot forever, burning model
         spend nobody is reading.
@@ -131,7 +132,7 @@ export function Standdowns() {
 
       <H2 id="who">Admin-only, in both directions</H2>
       <P>
-        Placing a Standdown and lifting one are both owner/admin. Placing requires a{" "}
+        Placing a Standdown and lifting one are both owner/admin. Placing requires a{""}
         <Strong>reason</Strong>: a stop nobody explained is a stop nobody can safely lift. Lifting
         takes an optional note, and the row stays as history — lifted Standdowns enforce nothing and
         are never deleted, so &quot;when did we stop the roster, and why&quot; stays answerable

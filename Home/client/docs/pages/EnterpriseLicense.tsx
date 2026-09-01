@@ -31,7 +31,7 @@ export function EnterpriseLicense() {
       <UL>
         <LI>
           <Strong>Single sign-on</Strong> — instance-wide SSO via Google or any OpenID Connect
-          provider, configured at <Code>Admin → SSO</Code>. See the{" "}
+          provider, configured at <Code>Admin → SSO</Code>. See the{""}
           <DocLink to="/docs/self-hosting#sso">SSO section of Configuration</DocLink>.
         </LI>
         <LI>
@@ -60,9 +60,9 @@ export function EnterpriseLicense() {
 
       <H2 id="activating">Activating</H2>
       <P>
-        A master admin opens <Strong>Admin → License</Strong>, pastes the key into the{" "}
+        A master admin opens <Strong>Admin → License</Strong>, pastes the key into the{""}
         <Strong>License key</Strong> field, and clicks <Strong>Activate</Strong>. That is the whole
-        process — no restart, no outbound call. The status card at the top flips from{" "}
+        process — no restart, no outbound call. The status card at the top flips from{""}
         <Strong>Community edition</Strong> to <Strong>Genosyn Enterprise</Strong> and shows:
       </P>
       <KeyList
@@ -99,7 +99,7 @@ export function EnterpriseLicense() {
       <P>
         Expiry works differently for the two kinds of license. A <Strong>paid</Strong> license
         expires <em>soft</em>: features stay on past the date, and the status card shows a renewal
-        warning — a paying customer never loses SSO the day a renewal slips. An{" "}
+        warning — a paying customer never loses SSO the day a renewal slips. An{""}
         <Strong>evaluation</Strong> license expires <em>hard</em>: the day it lapses, enterprise
         features turn off until you activate a full license.
       </P>

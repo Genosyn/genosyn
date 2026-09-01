@@ -52,7 +52,7 @@ export function Browser() {
       <P>
         That last one is the useful chain: an employee working an email thread can find the current
         version of a form online, download it, complete it from what your company already knows, and
-        attach the finished file to a Gmail draft. See{" "}
+        attach the finished file to a Gmail draft. See{""}
         <DocLink to="/docs/email#assistant">AI chat on every email</DocLink>.
       </P>
       <P>
@@ -61,7 +61,7 @@ export function Browser() {
         loopback, private, or cloud-metadata addresses inside your network. Fetched content is fed
         to the model as untrusted data, and the employee is told plainly that a web page giving it
         instructions is a stranger talking, not its teammate. Operators who want this off entirely —
-        or search off while direct fetches stay — flip <Strong>Web tools</Strong> and{" "}
+        or search off while direct fetches stay — flip <Strong>Web tools</Strong> and{""}
         <Strong>Search provider</Strong> at <Code>Admin → Runtime</Code>, which takes effect on the
         next tool call without a restart. Search uses DuckDuckGo&apos;s no-JavaScript endpoint by
         default, so no API key or account is involved.
@@ -73,14 +73,14 @@ export function Browser() {
 
       <H2 id="enabling">Enabling it</H2>
       <P>
-        Browser access is off by default. Open the employee, go to{" "}
+        Browser access is off by default. Open the employee, go to{""}
         <Strong>Settings → Browser</Strong>, and flip on <Strong>Browser access</Strong>. The same
         card holds the two shaping controls: the <Strong>allow list</Strong> (which hosts the
         employee may open) and <Strong>require approval for form submits</Strong> (a
-        human-in-the-loop gate on anything that sends data). The submit gate is{" "}
+        human-in-the-loop gate on anything that sends data). The submit gate is{""}
         <Strong>on by default for newly created employees</Strong> — the open web is exactly where
         hostile content meets side effects, so a human turns it off deliberately; employees created
-        before that default flipped keep their existing setting. A{" "}
+        before that default flipped keep their existing setting. A{""}
         <DocLink to="/docs/routines">Routine</DocLink> can override the toggle per schedule — useful
         for an employee who may browse during a nightly research run but not in ad-hoc chat.
       </P>
@@ -89,7 +89,7 @@ export function Browser() {
         can connect a Chrome running on their own computer and point a conversation at it, so the
         employee works from that machine and its signed-in sites, with the same tools and the same
         live view. It is a dedicated Chrome profile rather than their everyday browser, and it comes
-        with a stricter policy of its own — see{" "}
+        with a stricter policy of its own — see{""}
         <DocLink to="/docs/member-browsers">Member browsers</DocLink>.
       </P>
 
@@ -193,7 +193,8 @@ export function Browser() {
       </P>
       <P>
         Events the employee could not otherwise see — a JavaScript dialog that was auto-dismissed, a
-        popup tab that was adopted, a selector that matched more than one element — are surfaced as{" "}
+        popup tab that was adopted, a selector that matched more than one element — are surfaced as
+        {""}
         <Code>NOTE:</Code> lines at the top of the next snapshot.
       </P>
       <P>
@@ -224,7 +225,7 @@ export function Browser() {
         </LI>
       </UL>
       <P>
-        The list is enforced server-side on <Code>browser_open</Code>, on the{" "}
+        The list is enforced server-side on <Code>browser_open</Code>, on the{""}
         <a href="#live-view">live view&apos;s address bar</a> during take-over, and intersected with
         Vault autofill and capture checks on the live top page and target frame. Edits apply
         immediately — no restart needed — and neither a Vault Grant nor a human holding control
@@ -236,7 +237,8 @@ export function Browser() {
         A granted <DocLink to="/docs/vault">Vault</DocLink> login removes the need to paste a
         password or current authenticator code into Chat or type it during take-over. The employee
         first calls <Code>list_vault_items</Code> for safe metadata, opens the saved website, then
-        calls <Code>browser_fill_vault</Code> for the username, password, or <Code>totp</Code>{" "}
+        calls <Code>browser_fill_vault</Code> for the username, password, or <Code>totp</Code>
+        {""}
         field. The App resolves the current item-level Grant, generates a fresh code when needed,
         and types the value directly into Chrome. The tool result only confirms that the field was
         filled.
@@ -255,12 +257,12 @@ export function Browser() {
         the request. This approval is mandatory even when ordinary form-submit approval is off. The
         result is a restricted Vault item bound to the current origin, with a Manage Grant for the
         employee; other Members do not see it until an owner or admin changes its access. The
-        password is neither read back nor included in model output. An employee can instead use{" "}
+        password is neither read back nor included in model output. An employee can instead use{""}
         <Code>create_vault_login</Code> to have Genosyn generate and encrypt a company-visible
         password before filling it into the page.
       </P>
       <P>
-        If the site offers TOTP during signup, the employee first calls{" "}
+        If the site offers TOTP during signup, the employee first calls{""}
         <Code>browser_prepare_vault_totp</Code> on its AI-created Login, then asks the site to
         reveal enrollment. This immediately redacts screenshots and model-visible page text. The
         employee then calls <Code>browser_save_vault_totp</Code> on the same-origin setup key,
@@ -286,11 +288,12 @@ export function Browser() {
 
       <H2 id="approvals">Approval-gated submits</H2>
       <P>
-        With <Strong>require approval for form submits</Strong> on, a <Code>browser_submit</Code>{" "}
+        With <Strong>require approval for form submits</Strong> on, a <Code>browser_submit</Code>
+        {""}
         does not fire. It queues an Approval — visible in the company Approvals inbox with the page
         URL and a one-line summary of what the employee is trying to do — and the employee is told
-        the submission is pending. Once you approve, the employee re-fires it with{" "}
-        <Code>browser_resume</Code>, in the same turn or a later one. The approval is{" "}
+        the submission is pending. Once you approve, the employee re-fires it with{""}
+        <Code>browser_resume</Code>, in the same turn or a later one. The approval is{""}
         <Strong>bound to the page it was raised on and fires exactly once</Strong>. Genosyn claims
         the approval atomically before touching the page, so concurrent resumes cannot submit it
         twice. If a browser process or network connection fails after that claim, Genosyn treats the
@@ -311,7 +314,7 @@ export function Browser() {
 
       <H2 id="live-view">Live view and takeover</H2>
       <P>
-        While the employee browses, the chat panel shows the page live. Click{" "}
+        While the employee browses, the chat panel shows the page live. Click{""}
         <Strong>Take over</Strong> to drive it yourself — your mouse and keyboard go straight to the
         same Chrome. Use Vault actions for a granted password, authenticator code, or software
         passkey; take-over remains the fallback for a credential not in the Vault, captchas,
@@ -320,7 +323,7 @@ export function Browser() {
         torn down while someone is watching.
       </P>
       <P>
-        The panel keeps whatever you last did to it. Collapse it to a rail, or hide it with the{" "}
+        The panel keeps whatever you last did to it. Collapse it to a rail, or hide it with the{""}
         <Strong>×</Strong> in its header, and it stays that way through a reload and through coming
         back to the thread later — a reload is not a request to reopen a browser you sent away.
         Hiding one session does not hide the next: when the employee opens a browser again, the
@@ -331,7 +334,7 @@ export function Browser() {
         forward and reload. Type a URL and press Enter to go somewhere the employee did not — useful
         when a sign-in bounces you to a settings page the model never opened. <Code>Ctrl</Code>/
         <Code>⌘</Code>+<Code>L</Code> focuses it, as it would in a real browser. It is the same
-        Chrome carrying the same cookies, so the address bar answers to the same{" "}
+        Chrome carrying the same cookies, so the address bar answers to the same{""}
         <a href="#allow-list">allow list</a> <Code>browser_open</Code> does: a host the company
         excluded is refused here too, with the reason shown under the bar. While you are only
         watching, the bar shows the current URL and nothing else.
@@ -377,14 +380,14 @@ export function Browser() {
         authenticator only for a granted, exact-RP Browser action.
       </P>
       <P>
-        Saved Routine recordings are separate from browser state. They live under{" "}
+        Saved Routine recordings are separate from browser state. They live under{""}
         <Code>.private/browser-recordings/&lt;company-id&gt;/&lt;run-id&gt;/</Code> in the data
         directory, outside the AI Employee&apos;s working tree. They remain with Run history, are
         included in whole-instance backups, and are removed when the owning Routine or company is
         deleted. Chat sessions are not recorded.
       </P>
       <P>
-        That per-employee session is also what a sign-in driven from the{" "}
+        That per-employee session is also what a sign-in driven from the{""}
         <DocLink to="/docs/vault">Vault</DocLink> uses. When a site challenges a sign-in with a
         captcha or an authenticator not attached to the Login, the fix is to take over here and sign
         in once — the employee picks up the session you established and stops failing.
@@ -406,7 +409,7 @@ export function Browser() {
         page&apos;s aspect ratio, so the larger working area does not increase recording storage.
       </P>
       <P>
-        Sites rarely detect &quot;automation&quot; as such. They detect{" "}
+        Sites rarely detect &quot;automation&quot; as such. They detect{""}
         <Strong>contradictions</Strong>: a browser claiming to be Chrome on macOS while its fonts,
         GPU strings and <Code>navigator.platform</Code> all say headless Chromium on Linux. Genosyn
         used to ship exactly that — a Chromium wearing a hand-written costume — and the costume was
@@ -420,20 +423,21 @@ export function Browser() {
         it. A sign-in page watches for exactly that, and a field that fills in a single
         keystroke-free burst from a pointer that never moved is read as automation even when the
         browser itself is an honest Chrome — which is why an employee gets challenged from the same
-        address you sign in from cleanly. So the tools <Strong>type character by character</Strong>{" "}
+        address you sign in from cleanly. So the tools <Strong>type character by character</Strong>
+        {""}
         with small randomized gaps and <Strong>approach a control with the pointer</Strong> before
-        clicking. This changes only how the input arrives, never what: a{" "}
+        clicking. This changes only how the input arrives, never what: a{""}
         <DocLink to="/docs/vault">Vault</DocLink> credential is typed into the same field, is never
         revealed to the employee, and stays redacted from snapshots and recordings.
       </P>
       <P>
-        Genosyn still never solves a captcha and never defeats a challenge. This only removes{" "}
+        Genosyn still never solves a captcha and never defeats a challenge. This only removes{""}
         <em>false</em> signals from a browser doing legitimate work. If a site challenges the
-        employee anyway, the answer is still a human: take over here, or use a{" "}
+        employee anyway, the answer is still a human: take over here, or use a{""}
         <DocLink to="/docs/member-browsers">Member browser</DocLink>.
       </P>
       <P>
-        Nothing here needs configuring. The knobs are at <Code>Admin → Runtime</Code> under{" "}
+        Nothing here needs configuring. The knobs are at <Code>Admin → Runtime</Code> under{""}
         <Strong>Browser</Strong> if you need them — a different Chrome binary, forced headless on a
         host that cannot run a virtual display, a locale and timezone matching where your deployment
         egresses from, or <Strong>humanize</Strong> to switch off the character-by-character typing
@@ -453,7 +457,7 @@ export function Browser() {
 
       <Callout title="Reserved name">
         <Code>browser</Code> is a reserved MCP server name — a user-configured server with that name
-        is ignored so it can&apos;t shadow the built-in tools. See{" "}
+        is ignored so it can&apos;t shadow the built-in tools. See{""}
         <DocLink to="/docs/models">AI Models</DocLink> for how the tool list is assembled.
       </Callout>
     </>

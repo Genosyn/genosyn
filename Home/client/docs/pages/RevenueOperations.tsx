@@ -32,7 +32,7 @@ export function RevenueOperations() {
       <H2 id="follow-ups">Follow-ups</H2>
       <P>
         Open <Code>Revenue → Follow-ups</Code> for one chronological queue across deal follow-up
-        dates, partnership follow-up dates, and task activities. Switch between{" "}
+        dates, partnership follow-up dates, and task activities. Switch between{""}
         <Strong>Overdue</Strong>, <Strong>Today</Strong>, and <Strong>Upcoming</Strong> rather than
         opening every deal to find what needs attention.
       </P>
@@ -46,7 +46,7 @@ export function RevenueOperations() {
       <P>
         Filter by arbitrary assignee or unassigned, priority, resource type and ID, status, due-date
         range, age, Deal Stage/status, or closed Deals. Select rows to complete, cancel, reassign,
-        reprioritize, or reschedule them together. For filter-wide dry runs and rollback, use{" "}
+        reprioritize, or reschedule them together. For filter-wide dry runs and rollback, use{""}
         <DocLink to="/docs/revenue-data-quality#bulk">Data quality → Bulk operations</DocLink>.
       </P>
       <Callout kind="tip" title="Use the queue as the daily sales home.">
@@ -58,7 +58,7 @@ export function RevenueOperations() {
       <P>
         <Code>Revenue → Accounts</Code> is the company record from first prospect conversation
         through billing and renewal. Create a prospect without creating an invoice, then keep the
-        same record when it becomes a customer. Issuing its first invoice promotes a prospect to{" "}
+        same record when it becomes a customer. Issuing its first invoice promotes a prospect to{""}
         <Strong>Customer</Strong> automatically.
       </P>
       <KeyList
@@ -121,7 +121,7 @@ export function RevenueOperations() {
       </P>
       <P>
         Use these lists instead of free typing classifications. One <Code>inbound</Code> value with
-        an <Code>Inbound</Code> label keeps reports whole; separate <Code>Inbound</Code>,{" "}
+        an <Code>Inbound</Code> label keeps reports whole; separate <Code>Inbound</Code>,{""}
         <Code>inbound</Code>, and <Code>website</Code> strings do not.
       </P>
       <P>
@@ -139,7 +139,7 @@ export function RevenueOperations() {
         AI Employees can find the right document without parsing a description field.
       </P>
       <P>
-        Signed customer contracts still have their dedicated{" "}
+        Signed customer contracts still have their dedicated{""}
         <DocLink to="/docs/customers#contracts">Customers workflow</DocLink>. Revenue document links
         cover the wider pre-signature and relationship context.
       </P>
@@ -150,7 +150,7 @@ export function RevenueOperations() {
       </P>
       <P>
         Mail sync can also classify relevant attachments and queue reviewed links with source and
-        hash provenance. See{" "}
+        hash provenance. See{""}
         <DocLink to="/docs/revenue-data-quality#document-capture">Revenue document capture</DocLink>
         .
       </P>
@@ -183,7 +183,7 @@ export function RevenueOperations() {
 
       <H2 id="imports">Base and file migration</H2>
       <P>
-        Open <Code>Revenue → Imports</Code> to move data from a Genosyn Base or upload a{" "}
+        Open <Code>Revenue → Imports</Code> to move data from a Genosyn Base or upload a{""}
         <Code>.csv</Code>, <Code>.json</Code>, <Code>.jsonl</Code>, or <Code>.ndjson</Code> file
         directly. Genosyn inspects the source first and shows its fields and row count before any
         mapping or write. Use <Strong>Linked Account + Contact + Deal</Strong> when each legacy row
@@ -219,15 +219,15 @@ export function RevenueOperations() {
       <P>
         Base select and multi-select cells are resolved from their stored option IDs to the labels
         shown in the Base before Revenue validates them. Deal Stage accepts an existing Deal Stage
-        name; the common legacy labels <Code>Lead</Code>, <Code>Demo Scheduled</Code>, and{" "}
-        <Code>Proposal Sent</Code> resolve to <Code>New</Code>, <Code>Demo</Code>, and{" "}
+        name; the common legacy labels <Code>Lead</Code>, <Code>Demo Scheduled</Code>, and{""}
+        <Code>Proposal Sent</Code> resolve to <Code>New</Code>, <Code>Demo</Code>, and{""}
         <Code>Proposal</Code>. If Deal Stage is not mapped, the preview explicitly shows the default
         Deal Stage that will be used.
       </P>
       <P>
         Every committed batch stores the field mapping, duplicate decisions, and source-row to
         native-ID map for reconciliation. Source IDs remain stable across retry and replay, whether
-        they came from a source field, JSON object, NDJSON line, or CSV row. Open{" "}
+        they came from a source field, JSON object, NDJSON line, or CSV row. Open{""}
         <Strong>Report</Strong> to page through decisions without loading the whole batch. For a
         Base import, <Strong>Migrate attachments</Strong> copies the source row attachments into
         Revenue Documents after the structured records exist; the pass is idempotent and reports
@@ -239,19 +239,19 @@ export function RevenueOperations() {
       <P>
         The history list loads summaries rather than every source decision. Open one Import ID for
         its mapping, page and filter the row-level decisions, or download reconciliation CSV/JSON.
-        Historical Deal timestamps use the separate{" "}
+        Historical Deal timestamps use the separate{""}
         <DocLink to="/docs/revenue-data-quality#deal-history">Historical Deal import</DocLink>.
       </P>
       <Callout kind="warn" title="Controlled values must exist before import.">
-        Deal sources and partnership type/status are validated through the lists in{" "}
-        <Code>Revenue → Setup</Code>. Source labels such as <Code>Inbound</Code> and{" "}
+        Deal sources and partnership type/status are validated through the lists in{""}
+        <Code>Revenue → Setup</Code>. Source labels such as <Code>Inbound</Code> and{""}
         <Code>Self-Serve Upgrade</Code> resolve to those native classifications. Add any other
         values first or the dry run will tell you which rows cannot be created.
       </Callout>
 
       <H2 id="ai-native">AI-native operation</H2>
       <P>
-        Grant an AI Employee Revenue access from{" "}
+        Grant an AI Employee Revenue access from{""}
         <DocLink to="/docs/revenue#ai-access">Revenue → AI access</DocLink>. Its granular tools can
         administer custom-field definitions, classifications and Deal Stages; own and update
         Accounts, Contacts, Deals, and Partnerships; preview and merge every core record type with

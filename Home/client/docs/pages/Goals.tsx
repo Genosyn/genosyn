@@ -9,7 +9,7 @@ export function Goals() {
         lead={
           <>
             A <Strong>Goal</Strong> is a measurable objective the company is steering toward — a
-            number, a direction, and optionally a deadline and an accountable{" "}
+            number, a direction, and optionally a deadline and an accountable{""}
             <Strong>AI Employee</Strong>. Humans set the intent; every AI Employee reads it in every
             prompt, and every <DocLink to="/docs/routines">Routine</DocLink> can declare which Goal
             its work serves.
@@ -53,7 +53,8 @@ export function Goals() {
             term: "Unit",
             def: (
               <>
-                Optional free-text label rendered beside values — <Code>$</Code>, <Code>%</Code>,{" "}
+                Optional free-text label rendered beside values — <Code>$</Code>, <Code>%</Code>,
+                {""}
                 <Code>signups</Code>. Display only, never parsed.
               </>
             ),
@@ -62,7 +63,7 @@ export function Goals() {
             term: "Deadline",
             def: (
               <>
-                Optional. A Goal with no deadline is open-ended — it can be achieved but never{" "}
+                Optional. A Goal with no deadline is open-ended — it can be achieved but never{""}
                 <Strong>missed</Strong>.
               </>
             ),
@@ -110,7 +111,7 @@ export function Goals() {
           never computes it; the last reported value stands until the next report.
         </LI>
         <LI>
-          <Strong>Chart</Strong> — the Goal is bound to an{" "}
+          <Strong>Chart</Strong> — the Goal is bound to an{""}
           <DocLink to="/docs/explore">Explore Chart</DocLink>, and the first numeric cell of the
           chart&apos;s first result row becomes the current value. That is the same first-cell
           contract the <DocLink to="/docs/explore#viz-types">scalar visualization</DocLink> renders,
@@ -148,7 +149,7 @@ export function Goals() {
 
       <H2 id="employees">What AI Employees see</H2>
       <P>
-        Every AI Employee&apos;s system prompt now opens with the company&apos;s{" "}
+        Every AI Employee&apos;s system prompt now opens with the company&apos;s{""}
         <Strong>Mission</Strong> and <Strong>Vision</Strong> — written during onboarding or edited
         any time in company <Strong>Settings</Strong> — followed by a <Strong>Goals</Strong> block:
         the active Goals that employee owns, then the company&apos;s top-level Goals for shared
@@ -164,7 +165,7 @@ export function Goals() {
       <H2 id="routines">Goals and Routines</H2>
       <P>
         A <DocLink to="/docs/routines">Routine</DocLink> can declare which Goal its scheduled work
-        serves: pick one in the <Strong>Goal</Strong> field on the routine&apos;s{" "}
+        serves: pick one in the <Strong>Goal</Strong> field on the routine&apos;s{""}
         <Strong>Settings</Strong> tab. Two things follow:
       </P>
       <UL>
@@ -175,7 +176,7 @@ export function Goals() {
         <LI>
           The <DocLink to="/docs/routines#outcome-check">outcome checker</DocLink> receives the Goal
           as judging context. The acceptance criteria remain the bar, but work that met the letter
-          of the criteria while plainly working against the objective is graded{" "}
+          of the criteria while plainly working against the objective is graded{""}
           <Code>off goal</Code> — a digest that technically posted on time but buried the churn
           spike the Goal exists to catch.
         </LI>
@@ -195,7 +196,7 @@ export function Goals() {
             def: (
               <>
                 Report a new current value for a <Strong>Manual</Strong> Goal. Chart-bound Goals
-                refuse it — they track themselves. Every report is written to the{" "}
+                refuse it — they track themselves. Every report is written to the{""}
                 <DocLink to="/docs/employees">audit log</DocLink> and to the reporting
                 employee&apos;s journal, so a number never moves without a trail.
               </>
@@ -204,7 +205,8 @@ export function Goals() {
         ]}
       />
       <P>
-        Employees are told to report when their own work moves a Goal&apos;s number. What they are{" "}
+        Employees are told to report when their own work moves a Goal&apos;s number. What they are
+        {""}
         <em>not</em> given is any tool to create, edit, or archive a Goal — the definitions stay
         human.
       </P>

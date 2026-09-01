@@ -20,7 +20,7 @@ export function MobileApp() {
         while you&apos;re testing, but to install from your phone you&apos;ll want Genosyn reachable
         over <Code>https://</Code> — put it behind a reverse proxy with a TLS certificate, or a
         tunnel like Cloudflare Tunnel or Tailscale. A plain <Code>http://192.168.x.x</Code> LAN
-        address loads in the browser but won&apos;t install cleanly. See{" "}
+        address loads in the browser but won&apos;t install cleanly. See{""}
         <DocLink to="/docs/self-hosting">Configuration</DocLink>.
       </Callout>
 
@@ -47,7 +47,7 @@ export function MobileApp() {
           Open your Genosyn URL in <Strong>Chrome</Strong>.
         </LI>
         <LI>
-          Tap the <Strong>⋮</Strong> menu, then <Strong>Install app</Strong> (or{" "}
+          Tap the <Strong>⋮</Strong> menu, then <Strong>Install app</Strong> (or{""}
           <Strong>Add to Home screen</Strong>).
         </LI>
         <LI>
@@ -72,7 +72,8 @@ export function MobileApp() {
       </P>
       <OL>
         <LI>
-          Sign in and look for the <Strong>Get notified</Strong> banner on the Home page, or go to{" "}
+          Sign in and look for the <Strong>Get notified</Strong> banner on the Home page, or go to
+          {""}
           <Strong>Settings → Profile → Push notifications</Strong>.
         </LI>
         <LI>

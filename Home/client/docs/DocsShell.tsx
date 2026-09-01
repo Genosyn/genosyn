@@ -3,27 +3,51 @@ import type { ReactNode } from "react";
 import { Link } from "@/lib/router";
 import { DocsNav } from "@/docs/DocsNav";
 import { DOCS_FLAT, DOCS_NAV, type DocsPageMeta } from "@/docs/nav";
-import { Container, Field, TextLink } from "@/sections/Kit";
+import { Container, DEPT_FULL, Field, TextLink, type Dept } from "@/sections/Kit";
 import { GITHUB_URL } from "@/lib/constants";
 
 /**
  * The docs chrome.
  *
- * Same brief as Prose.tsx: the palette and the type, none of the furniture.
- * There is no rail here and no sheet number, because the reader did not come
- * to look at the document — they came to find one paragraph in it. What the
- * shell owes them is a measure they can read, a sidebar that says where they
- * are, and nothing that moves.
+ * Same brief as Prose.tsx: the palette and the type, none of the marketing
+ * furniture. The reader did not come to look at the document — they came to
+ * find one paragraph in it. What the shell owes them is a measure they can
+ * read, a sidebar that says where they are, and nothing that moves.
  *
- * Three things changed beyond the repaint. The container is the site's own
- * 82rem with the same clamped inline padding, so the docs sit on the measure
- * the marketing pages sit on. The sidebar carries one continuous vertical
- * hairline down its right edge, which is the nearest thing to the rail a
- * reading surface should have — it separates, it does not announce. And
- * lucide-react is gone from this file: the previous/next arrows and the GitHub
- * glyph are words now, which is the site-wide rule and which also means the
- * two controls read at 375px, where a 12px chevron did not.
+ * **The one place a department hue is allowed in the docs is the sidebar.**
+ *
+ * That is not a licence to decorate; it is the org chart being literally true
+ * here. Four of the ten nav sections are named after departments —
+ * Engineering, Marketing, Revenue, Operations — and a reader who has decoded
+ * the wall on the landing page already knows what those hues mean, so
+ * repeating them in the sidebar is the legend paying off rather than a second
+ * use of the same colour. The remaining six sections get no hue at all,
+ * because inventing one for "Reference" would make a hue mean *a section*, and
+ * a hue means a department or it means nothing.
+ *
+ * The inversion survives the move. The section you are standing in is drawn in
+ * its department colour at the Kit's 3px edge weight; the one page inside it
+ * that is actually open is drawn in ink, over the top of that colour. So the
+ * sidebar makes the same argument the wall does at the same glance: the
+ * machine is in colour, and the black mark is where the person is.
  */
+
+/**
+ * The measure, and it is the one number in this file worth arguing about.
+ *
+ * It was 46rem carrying 15px prose — a little over a hundred characters a
+ * line, which is a wall rather than a column, and the reason the docs were
+ * tiring to read at a laptop width even though every token in them was right.
+ * 41rem at 16px is about seventy-eight, which is the top of the range a
+ * two-column-free reading surface can hold without the eye losing the return
+ * sweep.
+ *
+ * `Pre` and `KeyList` share it rather than breaking out wider. A code block
+ * that escapes the measure is the one element on the page that starts at a
+ * different left edge on every scroll, and a `<pre>` that scrolls on its own
+ * axis already solves the only problem the extra width would have solved.
+ */
+const MEASURE = "max-w-[41rem]";
 
 const DOCS_SOURCE_BASE = `${GITHUB_URL}/blob/main/Home/client/docs/pages`;
 
@@ -94,7 +118,7 @@ export function DocsShell({ pathname, children }: { pathname: string; children: 
   const sourceFile = PATH_TO_SOURCE[pathname];
 
   return (
-    <div className="min-h-screen bg-paper-100 text-zinc-700">
+    <div className="min-h-screen bg-ground text-ink2">
       <DocsNav onToggleSidebar={() => setOpen((v) => !v)} sidebarOpen={open} />
 
       {/* The measure comes from the Kit's `Container` rather than from a
@@ -105,7 +129,7 @@ export function DocsShell({ pathname, children }: { pathname: string; children: 
           <aside
             id="docs-sidebar"
             aria-label="Documentation sections"
-            className={`fixed inset-y-0 left-0 z-40 w-72 transform overflow-y-auto border-r border-paper-400 bg-paper-100 px-6 pb-10 pt-[4.5rem] transition-transform duration-150 lg:sticky lg:top-14 lg:z-auto lg:h-[calc(100vh-3.5rem)] lg:w-60 lg:flex-shrink-0 lg:translate-x-0 lg:border-paper-300 lg:px-0 lg:pb-14 lg:pr-8 lg:pt-12 ${
+            className={`fixed inset-y-0 left-0 z-40 w-72 transform overflow-y-auto border-r border-rule bg-ground px-6 pb-10 pt-[4.5rem] transition-transform duration-150 lg:sticky lg:top-14 lg:z-auto lg:h-[calc(100vh-3.5rem)] lg:w-60 lg:flex-shrink-0 lg:translate-x-0 lg:border-hairline lg:px-0 lg:pb-14 lg:pr-8 lg:pt-12 ${
               open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
             }`}
           >
@@ -117,14 +141,14 @@ export function DocsShell({ pathname, children }: { pathname: string; children: 
               type="button"
               aria-label="Close sidebar"
               onClick={() => setOpen(false)}
-              className="fixed inset-0 z-30 bg-zinc-950/40 lg:hidden"
+              className="fixed inset-0 z-30 bg-ink/40 lg:hidden"
             />
           )}
 
           <main className="min-w-0 flex-1 py-10 pb-24 lg:py-12 lg:pl-10">
-            <article className="max-w-[46rem]">{children}</article>
+            <article className={MEASURE}>{children}</article>
 
-            <div className="mt-16 max-w-[46rem]">
+            <div className={`mt-16 ${MEASURE}`}>
               <PrevNext prev={prev} next={next} />
               <SourceLink file={sourceFile} />
             </div>
@@ -138,43 +162,99 @@ export function DocsShell({ pathname, children }: { pathname: string; children: 
 }
 
 /**
+ * Which department does a nav section belong to?
+ *
+ * Four of the ten sections carry a department's name, and those four get
+ * that department's hue — the same hue the wall on the landing page gave them,
+ * because a hue that meant Revenue there and something else here would not be
+ * a legend, it would be a palette.
+ *
+ * The other six are absent on purpose. "Get started", "Core concepts",
+ * "Brains & tools", "Analytics", "Self-hosting" and "Reference" are shapes of
+ * documentation rather than parts of a company, and `people` — the eighth hue
+ * — is reserved for /roles/recruiter and is not spendable here. They fall
+ * through to the structural rule, which is a neutral that clears 1.4.11 and
+ * says the honest thing: this section is where you are, and it is not a
+ * department.
+ *
+ * Keyed by the label in nav.ts, which this file may not edit. A renamed
+ * section therefore falls out of the map rather than breaking, and falls back
+ * to the neutral — which is the failure worth having, because the alternative
+ * is a section quietly wearing another department's hue.
+ *
+ * The value type says `| undefined` on purpose. `Record<string, Dept>` claims
+ * every label resolves, which is false for six of the ten and would let the
+ * next `DEPT_FULL[SECTION_DEPT[label]]` type-check and then emit
+ * `bg-undefined` — a spine that silently stops drawing. Spelling the miss into
+ * the type is what makes the fallback above a guarantee rather than a habit.
+ */
+const SECTION_DEPT: Record<string, Dept | undefined> = {
+  Engineering: "repositories",
+  Marketing: "marketing",
+  Revenue: "revenue",
+  Operations: "operations",
+};
+
+/**
  * The sidebar tree.
  *
- * The active page used to be a filled, rounded chip. It is now a near-black
- * rule in the left margin against the hairline every other item sits on, which
- * is the same hair-versus-structural distinction `Rule` draws in the Kit: the
- * one line that means something is the one you can see.
+ * Two marks, and they are the whole system in eight inches of column.
+ *
+ * The **section** you are reading in takes a 3px spine down its page list, in
+ * its department hue where it has one — the same weight as the department edge
+ * on a `Pane` and the same weight as a `Row` spine, so it reads as the Kit
+ * rather than as a sidebar convention. Every other section keeps a 1px
+ * hairline, which aligns the list and means nothing.
+ *
+ * The **page** you have open takes a 3px ink mark on top of that spine. It
+ * used to be a filled rounded chip, and then a 1px black border, and it is now
+ * the heaviest neutral on the page laid over the department colour, because
+ * that is the inversion: seven hues working away, one black mark, and the black
+ * mark is you. It is also why the active page keeps `aria-current="page"` —
+ * the colour is the fast channel, not the only one.
+ *
+ * Both spines are absolutely positioned rather than left borders, exactly as
+ * `Row` and `Pane` do it in the Kit, so a 1px section and a 3px one share the
+ * same text edge instead of shifting every title by two pixels when the reader
+ * moves between sections.
  */
 function SidebarTree({ pathname }: { pathname: string }) {
   return (
     <nav className="space-y-8">
-      {DOCS_NAV.map((section) => (
-        <div key={section.label}>
-          <div className="t-cond text-[11px] uppercase tracking-field text-zinc-600">
-            {section.label}
+      {DOCS_NAV.map((section) => {
+        const here = section.pages.some((page) => page.path === pathname);
+        const dept = SECTION_DEPT[section.label];
+        const spine = here ? `w-[3px] ${dept ? DEPT_FULL[dept] : "bg-rule"}` : "w-px bg-hairline";
+        return (
+          <div key={section.label}>
+            <div className="t-field text-muted">{section.label}</div>
+            <div className="relative mt-3">
+              <span aria-hidden className={`absolute inset-y-0 left-0 ${spine}`} />
+              <ul className="pl-4">
+                {section.pages.map((page) => {
+                  const active = page.path === pathname;
+                  return (
+                    <li key={page.path} className="relative">
+                      {active && (
+                        <span aria-hidden className="absolute inset-y-0 -left-4 w-[3px] bg-ink" />
+                      )}
+                      <Link
+                        href={page.path}
+                        aria-current={active ? "page" : undefined}
+                        className={`block py-1.5 text-[14px] leading-snug transition-colors ${
+                          active ? "font-semibold text-ink" : "text-ink2 hover:text-ink"
+                        }`}
+                      >
+                        {page.title}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           </div>
-          <ul className="mt-3 border-l border-paper-300">
-            {section.pages.map((page) => {
-              const active = page.path === pathname;
-              return (
-                <li key={page.path}>
-                  <Link
-                    href={page.path}
-                    aria-current={active ? "page" : undefined}
-                    className={`-ml-px block border-l py-1.5 pl-3 text-[14px] leading-snug transition-colors ${
-                      active
-                        ? "border-zinc-950 text-zinc-950"
-                        : "border-transparent text-zinc-700 hover:border-paper-400 hover:text-zinc-950"
-                    }`}
-                  >
-                    {page.title}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }
@@ -209,14 +289,16 @@ function PageStep({
   return (
     <Link
       href={page.path}
-      className={`group block border-t border-paper-400 pt-4 ${
+      className={`group block border-t border-rule pt-4 ${
         align === "right" ? "sm:text-right" : ""
       }`}
     >
-      <span className="t-cond block text-[11px] uppercase tracking-field text-zinc-600">
-        {direction}
-      </span>
-      <span className="mt-2 block text-[0.9375rem] font-semibold leading-snug text-zinc-950 underline decoration-transparent underline-offset-[3px] transition-colors group-hover:decoration-zinc-950">
+      <span className="t-field block text-muted">{direction}</span>
+      {/* `decoration-zinc-950` was a dead class after the token swap, so the
+          hover underline never drew at all. It is `ink` now, and the resting
+          state stays transparent so the pair reads as two titles under a rule
+          rather than as two links. */}
+      <span className="mt-2 block text-[0.9375rem] font-semibold leading-snug text-ink underline decoration-transparent underline-offset-[3px] transition-colors group-hover:decoration-ink">
         {page.title}
       </span>
     </Link>
@@ -236,7 +318,7 @@ function SourceLink({ file }: { file?: string }) {
 
 function DocsFooter() {
   return (
-    <footer className="border-t border-paper-400 bg-paper-200">
+    <footer className="border-t border-rule bg-ground">
       <Container className="flex flex-col gap-4 py-8 sm:flex-row sm:items-center sm:justify-between">
         <Field>{`© ${__BUILD_YEAR__} HACKERBAY, INC.`}</Field>
         <nav
@@ -250,7 +332,7 @@ function DocsFooter() {
           </FooterLink>
           <a
             href="/install.sh"
-            className="t-data text-[11px] leading-4 text-zinc-600 transition-colors hover:text-zinc-950"
+            className="t-data text-[11px] leading-4 text-muted transition-colors hover:text-ink"
           >
             install.sh
           </a>
@@ -270,13 +352,14 @@ function FooterLink({
   external?: boolean;
   children: ReactNode;
 }) {
-  const className =
-    "t-cond text-[11px] uppercase tracking-field text-zinc-600 transition-colors hover:text-zinc-950";
+  // `t-field` already sets 11px and uppercase; restating them was the kind of
+  // duplication that lets one of the two drift.
+  const className = "t-field text-muted transition-colors hover:text-ink";
   if (external) {
     return (
       <a href={href} target="_blank" rel="noreferrer" className={className}>
         {children}
-        <span className="sr-only">{" (opens in a new tab)"}</span>
+        <span className="sr-only">{"(opens in a new tab)"}</span>
       </a>
     );
   }

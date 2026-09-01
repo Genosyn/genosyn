@@ -51,17 +51,17 @@ export function VaultSources() {
       </P>
       <OL>
         <LI>
-          Open <Strong>Vault</Strong> from the company navigation and choose{" "}
+          Open <Strong>Vault</Strong> from the company navigation and choose{""}
           <Strong>Connect a Vault source</Strong>.
         </LI>
         <LI>
-          <Strong>Label</Strong> — what you would call it out loud, such as{" "}
+          <Strong>Label</Strong> — what you would call it out loud, such as{""}
           <Code>Bitwarden — Engineering</Code>. Every item that comes across is shown as mirrored
           from this label.
         </LI>
         <LI>
-          <Strong>Server URL</Strong> — <Code>https://vault.bitwarden.com</Code>,{" "}
-          <Code>https://vault.bitwarden.eu</Code>, or the web vault URL of your own install. See{" "}
+          <Strong>Server URL</Strong> — <Code>https://vault.bitwarden.com</Code>,{""}
+          <Code>https://vault.bitwarden.eu</Code>, or the web vault URL of your own install. See{""}
           <DocLink to="/docs/vault-sources#self-hosted">self-hosted Vaultwarden</DocLink> below.
         </LI>
         <LI>
@@ -71,7 +71,7 @@ export function VaultSources() {
         </LI>
         <LI>
           <Strong>Client id</Strong> and <Strong>Client secret</Strong> — optional, and the
-          recommended way to connect. This is the Bitwarden API key; supply both or neither. See{" "}
+          recommended way to connect. This is the Bitwarden API key; supply both or neither. See{""}
           <DocLink to="/docs/vault-sources#two-step">two-step login</DocLink>.
         </LI>
         <LI>
@@ -80,12 +80,13 @@ export function VaultSources() {
           The name is matched exactly, ignoring case.
         </LI>
         <LI>
-          <Strong>Default visibility</Strong> — <Strong>Restricted</Strong>, the default, or{" "}
+          <Strong>Default visibility</Strong> — <Strong>Restricted</Strong>, the default, or{""}
           <Strong>Company-wide</Strong>. It applies to items as they arrive; you can change any of
           them afterwards.
         </LI>
         <LI>
-          Save. Genosyn signs in, unlocks the vault, and reports how many items it can read. Choose{" "}
+          Save. Genosyn signs in, unlocks the vault, and reports how many items it can read. Choose
+          {""}
           <Strong>Sync now</Strong> to bring them into the Vault.
         </LI>
       </OL>
@@ -178,7 +179,8 @@ export function VaultSources() {
         record.
       </P>
       <P>
-        Genosyn syncs every source every <Strong>15 minutes</Strong>, and <Strong>Sync now</Strong>{" "}
+        Genosyn syncs every source every <Strong>15 minutes</Strong>, and <Strong>Sync now</Strong>
+        {""}
         does it immediately. Lag matters less than it sounds: because a password is resolved live at
         the moment of use, a rotation in Bitwarden is picked up on the very next use. What the sync
         is actually for is new items appearing, renames landing, and deleted items going away.
@@ -195,9 +197,9 @@ export function VaultSources() {
         Member <Strong>Access</Strong> and AI Employee <Strong>Grants</Strong> on a mirrored item
         work exactly as they do on a native one, and they are Genosyn&apos;s own. They are not read
         from Bitwarden: a Bitwarden collection does not become an Access list, and membership of the
-        Bitwarden organization confers nothing here. New mirrors start at the source&apos;s{" "}
-        <Strong>Default visibility</Strong>, and you set{" "}
-        <DocLink to="/docs/vault#members">Member access</DocLink> and{" "}
+        Bitwarden organization confers nothing here. New mirrors start at the source&apos;s{""}
+        <Strong>Default visibility</Strong>, and you set{""}
+        <DocLink to="/docs/vault#members">Member access</DocLink> and{""}
         <DocLink to="/docs/vault#ai-access">Grants</DocLink> per item from there.
       </P>
       <P>
@@ -225,7 +227,7 @@ export function VaultSources() {
       <H2 id="self-hosted">Self-hosted Vaultwarden</H2>
       <P>
         Give the web vault URL and nothing more — <Code>https://vault.example.com</Code>. Genosyn
-        derives the identity and api paths itself, so do not append <Code>/identity</Code> or{" "}
+        derives the identity and api paths itself, so do not append <Code>/identity</Code> or{""}
         <Code>/api</Code>. A bare hostname is treated as <Code>https</Code>; the URL must not embed
         credentials, a query, or a fragment. The bitwarden.com and bitwarden.eu hosts are recognized
         and mapped to their own identity and api hosts automatically.
@@ -244,7 +246,7 @@ export function VaultSources() {
         Because a company admin is not the operator. Anyone who can sign in can create a company and
         be its owner, so exempting self-hosted installs would give every signed-in person a way to
         probe the host&apos;s own network. Naming the one host that should be reachable is a
-        decision the operator makes once — see{" "}
+        decision the operator makes once — see{""}
         <DocLink to="/docs/self-hosting">Self-hosting</DocLink>.
       </Callout>
 
@@ -318,7 +320,7 @@ export function VaultSources() {
 
       <H2 id="advanced">Advanced</H2>
       <P>
-        Vault sources live inside the Vault API at{" "}
+        Vault sources live inside the Vault API at{""}
         <Code>/api/companies/:companyId/vault/sources</Code>, and every route there is gated to
         company owners and admins on top of the Vault surface&apos;s own guards — no AI Browser
         session, no API key, no caching. Alongside the usual list, create, update, and delete, a
@@ -330,7 +332,7 @@ export function VaultSources() {
         The 15-minute sweep is a poll, because Bitwarden offers no change feed. One process holds
         the scheduler lease at a time, so running several replicas does not multiply the load on an
         operator&apos;s Vaultwarden, and a source that fails is left alone until the next pass.
-        Connecting, updating, disconnecting, and syncing a source are audited under{" "}
+        Connecting, updating, disconnecting, and syncing a source are audited under{""}
         <Strong>Settings → Audit log</Strong>, with no credential in the event.
       </P>
     </>

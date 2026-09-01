@@ -102,8 +102,8 @@ export function GettingStarted() {
       </P>
       <P>
         The step closes with a preview of what is left — hire an AI Employee and connect an AI
-        Model, review their launch plan, connect a mailbox, give them a first request — and the button{" "}
-        <Strong>Hire my first AI Employee</Strong>.
+        Model, review their launch plan, connect a mailbox, give them a first request — and the
+        button <Strong>Hire my first AI Employee</Strong>.
       </P>
 
       <H2 id="employee">Step 2 — AI Employee</H2>
@@ -237,11 +237,11 @@ export function GettingStarted() {
           <Strong>Grant draft access</Strong>.
         </LI>
         <LI>
-          Otherwise, one field. Press Continue and finish however that address wants to be
-          finished: a <Strong>Continue with Google</Strong> button for a Google address on an
-          install whose admin has registered a Google app, or a password field with the servers
-          already filled in for everything else. Connecting here also grants the employee draft
-          access in the same step.
+          Otherwise, one field. Press Continue and finish however that address wants to be finished:
+          a <Strong>Continue with Google</Strong> button for a Google address on an install whose
+          admin has registered a Google app, or a password field with the servers already filled in
+          for everything else. Connecting here also grants the employee draft access in the same
+          step.
         </LI>
       </UL>
       <P>

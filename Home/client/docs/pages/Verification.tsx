@@ -23,14 +23,16 @@ export function Verification() {
           <>
             Almost everything Genosyn used to know about a <Strong>Run</Strong> came from the Run.
             The status said the loop returned; the transcript was the model narrating its own work;
-            the verdict was a second model reading that narration. <Strong>Checks</Strong> and the{" "}
+            the verdict was a second model reading that narration. <Strong>Checks</Strong> and the
+            {""}
             <Strong>Effects</Strong> list are the parts no model has a say in.
           </>
         }
       />
 
       <Callout kind="info" title='"Check" is the word.'>
-        Genosyn never says &quot;test,&quot; &quot;assertion,&quot; or &quot;gate&quot; for this. A{" "}
+        Genosyn never says &quot;test,&quot; &quot;assertion,&quot; or &quot;gate&quot; for this. A
+        {""}
         <Strong>Check</Strong> is a machine-verifiable assertion a Run must pass before it finalizes
         green. System Health keeps the word <Strong>probe</Strong> for its own diagnostics precisely
         so this one stays free.
@@ -59,7 +61,7 @@ export function Verification() {
             term: "checksVerdict",
             def: (
               <>
-                <Strong>The machine-verifiable bar.</Strong> <Code>passed</Code>,{" "}
+                <Strong>The machine-verifiable bar.</Strong> <Code>passed</Code>,{""}
                 <Code>failed</Code>, or <Code>not_run</Code> when the Routine declares no Checks.
                 Decided by the server running assertions an operator wrote — the only axis with no
                 model in it anywhere.
@@ -70,9 +72,9 @@ export function Verification() {
             term: "outcomeVerdict",
             def: (
               <>
-                <Strong>A restricted model graded the evidence.</Strong> <Code>achieved</Code>,{" "}
+                <Strong>A restricted model graded the evidence.</Strong> <Code>achieved</Code>,{""}
                 <Code>unclear</Code>, <Code>off_goal</Code>, or <Code>unverified</Code>, against the
-                Routine&apos;s acceptance criteria. Judgement, not proof — see{" "}
+                Routine&apos;s acceptance criteria. Judgement, not proof — see{""}
                 <DocLink to="/docs/routines#outcome-check">the outcome check</DocLink>.
               </>
             ),
@@ -90,7 +92,7 @@ export function Verification() {
         access.
       </P>
       <P>
-        Checks live on the Routine&apos;s <Strong>Settings → Checks</Strong> panel, beside{" "}
+        Checks live on the Routine&apos;s <Strong>Settings → Checks</Strong> panel, beside{""}
         <Strong>Outcome check</Strong> — at most <Strong>10</Strong> per Routine, run in the order
         you arrange them. Each one has a name, a kind, the assertion itself, and three switches:
       </P>
@@ -126,7 +128,7 @@ export function Verification() {
       </P>
       <UL>
         <LI>
-          <Code>action</Code> — the recorded action to count, such as <Code>mail.send</Code> or{" "}
+          <Code>action</Code> — the recorded action to count, such as <Code>mail.send</Code> or{""}
           <Code>deal.update</Code>.
         </LI>
         <LI>
@@ -142,21 +144,24 @@ export function Verification() {
       </UL>
       <Pre lang="json">{`{ "action": "mail.send", "targetType": "mail_thread", "min": 1, "max": 3 }`}</Pre>
       <P>
-        The result records the arithmetic, not a verdict word — <em>expected at least 1</em>{" "}
+        The result records the arithmetic, not a verdict word — <em>expected at least 1</em>
+        {""}
         <Code>mail.send</Code>, <em>the ledger has 0</em> — so the person reading it later does not
         have to re-derive why it failed.
       </P>
 
       <H3 id="command-checks">Writing a command Check</H3>
       <P>
-        A <Code>command</Code> Check runs a shell command inside the same bubblewrap boundary the{" "}
+        A <Code>command</Code> Check runs a shell command inside the same bubblewrap boundary the
+        {""}
         <Code>bash</Code> tool uses, rooted at the employee&apos;s working directory, and passes on
-        exit <Code>0</Code>. Anything the sandbox can run is fair game — a test suite, a{" "}
+        exit <Code>0</Code>. Anything the sandbox can run is fair game — a test suite, a{""}
         <Code>git diff --exit-code</Code>, a script that curls the endpoint the Run was supposed to
         deploy. The exit code and the tail of the output land on the result.
       </P>
       <Callout kind="warn" title="Command Checks need the sandbox.">
-        They are available only where bubblewrap can actually start — the same rule that governs the{" "}
+        They are available only where bubblewrap can actually start — the same rule that governs the
+        {""}
         <Code>bash</Code> tool, and for the same reason: host mode never gives an AI Employee a
         same-UID shell. On a <Code>disabled</Code>-mode install, write <Code>effect</Code> Checks
         instead. A Check that could not be run records <Strong>not passed</Strong>, with the reason;
@@ -167,7 +172,7 @@ export function Verification() {
       <P>
         Every mutation inside a company already writes an <Strong>audit event</Strong> at the write
         seam, after the change succeeded. Those rows now carry the <Code>runId</Code> of the Run
-        whose token authorized them, and the Run detail view renders them as a plain{" "}
+        whose token authorized them, and the Run detail view renders them as a plain{""}
         <Strong>Effects</Strong> list beside the transcript: what changed, to what, in order.
       </P>
       <P>
@@ -187,7 +192,7 @@ export function Verification() {
           server-written, so it can weigh what happened against what was claimed.
         </LI>
         <LI>
-          A <Strong>retrying Run</Strong> opens with what earlier attempts already did — see{" "}
+          A <Strong>retrying Run</Strong> opens with what earlier attempts already did — see{""}
           <DocLink to="/docs/routines#retries">Retries</DocLink>.
         </LI>
         <LI>
@@ -223,7 +228,7 @@ export function Verification() {
         <P>
           An employee reads its Routine&apos;s Checks in its Run brief and can read any Run&apos;s
           report, but nothing in the catalogue creates, edits or deletes a Check — a bar the graded
-          party can author is not a bar. The same holds for{" "}
+          party can author is not a bar. The same holds for{""}
           <DocLink to="/docs/standdowns">Standdowns</DocLink> in both directions.
         </P>
       </Callout>
@@ -231,8 +236,8 @@ export function Verification() {
         <Code>unverified</Code> is not <Code>unclear</Code>
       </H2>
       <P>
-        The outcome check used to record two very different situations with one word.{" "}
-        <Code>unclear</Code> means the checker read the evidence and honestly could not tell.{" "}
+        The outcome check used to record two very different situations with one word.{""}
+        <Code>unclear</Code> means the checker read the evidence and honestly could not tell.{""}
         <Code>unverified</Code> means <Strong>no judgement was ever produced</Strong> — the checker
         errored, timed out, or ended without submitting.
       </P>
@@ -240,7 +245,7 @@ export function Verification() {
         The collision was load-bearing in the wrong direction. Every consumer downstream read
         &quot;we could not verify&quot; as &quot;nothing was wrong,&quot; so an outage in the
         checker earned an employee the same credit as a graded success. They are separate verdicts
-        now, and <Code>unverified</Code> counts against{" "}
+        now, and <Code>unverified</Code> counts against{""}
         <DocLink to="/docs/autonomy">earned autonomy</DocLink> exactly like a bad Run.
       </P>
       <P>
@@ -274,7 +279,7 @@ export function Verification() {
         </LI>
         <LI>
           It <Strong>writes a Lesson</Strong> into the Routine&apos;s future briefs, with the
-          failing Check as the cause the retrospective starts from. See{" "}
+          failing Check as the cause the retrospective starts from. See{""}
           <DocLink to="/docs/improvement">The improvement loop</DocLink>.
         </LI>
         <LI>

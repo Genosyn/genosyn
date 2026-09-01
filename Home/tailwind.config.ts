@@ -63,90 +63,68 @@ export default {
   theme: {
     extend: {
       colors: {
-        // The neutral ramp. Warm, and deliberately the `zinc` key so every
-        // existing call site across the site and docs is repainted at once.
-        zinc: {
-          50: "#fbfaf7",
-          100: "#f4f3ef",
-          200: "#dad7ce",
-          300: "#c3bfb4",
-          400: "#8c8880",
-          500: "#77746b",
-          600: "#65625a",
-          700: "#56544c",
-          800: "#33322d",
-          900: "#1a1a18",
-          950: "#111110",
+        // ── HEADCOUNT ──────────────────────────────────────────────────────
+        //
+        // Colour is the org chart. Seven departments, seven hues, each one
+        // permanently bound to a department and used at tile scale rather than
+        // as an accent — a spine, a top edge, a chip, a whole tinted pane. It
+        // is never a mood; it is a legend, and a reader decodes it in four
+        // seconds.
+        //
+        // The inversion is the argument: the machine is in colour and the
+        // human is in black. Every Decision, every Approval, the 09:30 arrival
+        // and the primary button are `ink`, the one value with no hue at all.
+        // So on a screen saturated with seven departments working at once, the
+        // eye finds exactly one black thing, and it is you.
+        //
+        // Every ratio below is computed, not estimated. Worst case in the
+        // whole set is 4.89:1 (Revenue on its own tint). Every hue passes AA
+        // as text on white, on ground and on its own tint, and every hue
+        // passes AA carrying white.
+        ink: "#14120f", // 16.43:1 on ground, 18.70:1 on white
+        ink2: "#3e3930", // 10.07:1 on ground — secondary prose
+        muted: "#6b6459", // 5.14:1 on ground — mono labels, timestamps
+        rule: "#8a8378", // 3.30:1 on ground — structural, clears 1.4.11
+        hairline: "#dedad2", // 1.22:1 — decorative separators only
+        seam: "#c9c3b8", // the 1px grid gaps behind the wall
+        ground: "#f2f0ec",
+        surface: "#ffffff",
+
+        dept: {
+          finance: "#0f6b45",
+          repositories: "#5a2fc4",
+          marketing: "#a8156b",
+          workspace: "#0b6673",
+          email: "#1450be",
+          revenue: "#b03d0c",
+          operations: "#7a5a0a",
+          // Reserved for /roles/recruiter, which has no Board lane. Never on
+          // the home page.
+          people: "#b32540",
         },
-        paper: {
-          50: "#fbfaf7", // raised — the board, and the one lighter surface
-          100: "#f4f3ef", // ground
-          200: "#eceae3", // recessed — what a plate is mounted on
-          300: "#dad7ce", // hairline
-          400: "#8c8880", // structural rule
-        },
-        ink: {
-          // ── the quiet half ──
-          50: "#f4f3ef",
-          100: "#eceae3",
-          200: "#dad7ce",
-          300: "#8c8880",
-          400: "#65625a",
-          // ── the loud half ──
-          // The gap between 400 and 500 is kept from the previous token file
-          // and is still the point: there is no mid-grey step, because a
-          // mid-grey is exactly the value that reads as "disabled" wherever
-          // emphasis was intended.
-          500: "#56544c",
-          600: "#33322d",
-          700: "#232320",
-          800: "#1a1a18",
-          900: "#111110",
-        },
-        night: {
-          950: "#0b0b0a", // the dark plane
-          900: "#111110",
-          850: "#161614", // raised on night
-          800: "#1e1e1b",
-          700: "#2a2a26", // hairline on night
-          600: "#6a665c", // structural rule on night — 3.44:1
-        },
-        signal: {
-          // The human boundary. Never text on paper.
-          DEFAULT: "#ffb000",
-          400: "#ffc23d",
-          500: "#ffb000",
-          600: "#d99500",
+        tint: {
+          finance: "#dcefe4",
+          repositories: "#e6e0fb",
+          marketing: "#fbdeec",
+          workspace: "#d9eef1",
+          email: "#dee8fc",
+          revenue: "#fbe4d8",
+          operations: "#f2e9ce",
+          people: "#fbdfe3",
         },
       },
       fontFamily: {
-        // One superfamily carries display and prose, separated by WIDTH rather
-        // than weight (see `.t-display` / `.t-cond` in index.css). Archivo is a
-        // two-axis variable face; a wide engineered grotesque reads as an
-        // instrument fascia, which Inter never does.
-        sans: [
-          "Archivo",
-          "ui-sans-serif",
-          "system-ui",
-          "-apple-system",
-          "Segoe UI",
-          "Roboto",
-          "sans-serif",
-        ],
-        // The data face. Timestamps, Run refs, counts, state labels — strings
-        // the software actually emitted. Never flavour on a sentence.
-        mono: [
-          "'Martian Mono'",
-          "ui-monospace",
-          "SFMono-Regular",
-          "Menlo",
-          "Consolas",
-          "monospace",
-        ],
-        // The second voice, and the only one with a different skeleton: an
-        // italic serif for figure captions, margin notes and the colophon.
-        // A width axis alone is one voice squashed, not two.
-        note: ["Newsreader", "ui-serif", "Georgia", "serif"],
+        // Bricolage Grotesque is display only. It is variable on opsz/wdth/wght,
+        // so one download gives both the huge headline and the ultra-condensed
+        // numerals, and its slightly irregular grotesque skeleton is the reason
+        // it does not read as a framework default. Geist is excluded on purpose
+        // — it is Vercel's face and would be a one-second tell.
+        display: ["'Bricolage Grotesque'", "ui-sans-serif", "system-ui", "sans-serif"],
+        // Everything that is a sentence, a label or a control, including all
+        // text inside the product mocks.
+        sans: ["'Instrument Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
+        // Data the software emitted, and only that.
+        mono: ["'Spline Sans Mono'", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       letterSpacing: {
         // The one tracked-out value, and it belongs to mono fields only.
@@ -154,17 +132,20 @@ export default {
         field: "0.1em",
       },
       borderRadius: {
+        // v2's radius-0 read austere and was rejected; 8-12px everywhere is the
+        // Linear tell. Split by what the thing is instead.
         none: "0",
         DEFAULT: "0",
+        pane: "0", // wall panes, bands, bars — square, so 1px seams read as a grid
+        control: "3px", // buttons, inputs — just enough to say "you can press this"
+        chip: "2px",
         sm: "2px",
-        md: "0",
-        lg: "0",
-        xl: "0",
-        "2xl": "0",
-        "3xl": "0",
-        // Kept: the product mocks contain real circles (avatars, status dots)
-        // and flattening those would break pictures of a working UI.
-        full: "9999px",
+        md: "3px",
+        lg: "3px",
+        xl: "3px",
+        "2xl": "3px",
+        "3xl": "3px",
+        full: "9999px", // avatars, status dots, the logo circle
       },
       boxShadow: {
         // The card shadows are gone because cards are gone. These four keys

@@ -35,7 +35,7 @@ export function Tags() {
       </P>
       <Callout kind="info" title="Tags cut across; folders contain.">
         A resource can carry any number of tags, and a tag can span every section of the app — that
-        is what makes them good at &quot;what is this about?&quot;. Routines additionally have{" "}
+        is what makes them good at &quot;what is this about?&quot;. Routines additionally have{""}
         <DocLink to="/docs/routines#folders">folders</DocLink>, which answer the other question: a
         routine lives in exactly one folder, folders nest, and the Routines sidebar navigates them.
         The two are designed to be used together.
