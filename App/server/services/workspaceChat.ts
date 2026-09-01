@@ -153,11 +153,15 @@ export async function createChannel(params: {
   initialEmployeeIds: string[];
 }): Promise<Channel> {
   const { channels, members } = repos();
+  // Only the caller-supplied lists are checked. `createdByUserId` never comes
+  // from a request body: the browser route passes `req.userId`, already
+  // resolved to a Membership by `requireCompanyMember`, and the MCP route
+  // passes either the delegated requester's id or `Company.ownerId`, derived
+  // server-side. Validating it would add no boundary and would couple channel
+  // creation to an invariant nothing enforces — that `Company.ownerId` always
+  // has a Membership row — which is not true of every company on disk.
   await assertActorsInCompany(params.companyId, {
-    userIds: [
-      ...(params.createdByUserId ? [params.createdByUserId] : []),
-      ...params.initialMemberUserIds,
-    ],
+    userIds: params.initialMemberUserIds,
     employeeIds: params.initialEmployeeIds,
   });
   const slug = slugify(params.name, { lower: true, strict: true }) || "channel";
