@@ -10,6 +10,7 @@ import { validateBody } from "../middleware/validate.js";
 import { recordAudit } from "../services/audit.js";
 import { decryptProviderConfig, sendTestEmail } from "../services/email.js";
 import { buildProviderCatalog } from "../services/emailTransports.js";
+import { normalizeEmail } from "../lib/emailAddress.js";
 import {
   createProvider,
   deleteProvider,
@@ -45,6 +46,33 @@ emailProvidersRouter.use(requireCompanyRoleForMutations("admin"));
 const KIND_VALUES = ["smtp", "sendgrid", "mailgun", "resend", "postmark"] as const;
 const kindSchema = z.enum(KIND_VALUES);
 
+/**
+ * A From address, with the two things `min(3).max(254)` let through.
+ *
+ * A bare CR or LF here is header injection: nodemailer writes this value into
+ * the SMTP dialogue, so a newline lets the author append a `Bcc:` header or a
+ * second message body. `normalizeEmail` alone does not close it — for the
+ * `Display Name <a@b.com>` form it extracts the bracketed address and
+ * validates only that, so a newline hiding in the display name survives. Hence
+ * both checks: no control characters anywhere in the raw value, and the whole
+ * value must still parse as an address.
+ *
+ * `normalizeEmail` rather than `z.string().email()` because the display-name
+ * form is one real installs use, and Zod's email refuses it.
+ */
+export const fromAddressSchema = z
+  .string()
+  .min(3)
+  .max(254)
+  // eslint-disable-next-line no-control-regex
+  .refine((v) => !/[\u0000-\u001f\u007f]/.test(v), {
+    message: "From address must not contain line breaks or control characters",
+  })
+  .refine((v) => normalizeEmail(v) !== null, {
+    message: 'From address must be an email address, optionally as "Name <you@example.com>"',
+  });
+
+
 emailProvidersRouter.get("/catalog", async (_req, res, next) => {
   // Now does a DB read (global-SMTP prefill); forward failures to the error
   // middleware rather than leaving the request hanging on a rejected promise.
@@ -64,7 +92,7 @@ emailProvidersRouter.get("/", async (req, res) => {
 const createSchema = z.object({
   name: z.string().min(1).max(120),
   kind: kindSchema,
-  fromAddress: z.string().min(3).max(254),
+  fromAddress: fromAddressSchema,
   replyTo: z.string().max(254).optional(),
   rawConfig: z.record(z.union([z.string(), z.number(), z.boolean()])),
   isDefault: z.boolean().optional(),
@@ -103,7 +131,7 @@ emailProvidersRouter.post("/", validateBody(createSchema), async (req, res) => {
 const patchSchema = z
   .object({
     name: z.string().min(1).max(120).optional(),
-    fromAddress: z.string().min(3).max(254).optional(),
+    fromAddress: fromAddressSchema.optional(),
     replyTo: z.string().max(254).optional(),
     rawConfig: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
     isDefault: z.boolean().optional(),
@@ -213,7 +241,7 @@ emailProvidersRouter.post("/:pid/test", validateBody(testSavedSchema), async (re
 
 const testInlineSchema = z.object({
   kind: kindSchema,
-  fromAddress: z.string().min(3).max(254),
+  fromAddress: fromAddressSchema,
   replyTo: z.string().max(254).optional(),
   rawConfig: z.record(z.union([z.string(), z.number(), z.boolean()])),
   to: z.string().email(),
