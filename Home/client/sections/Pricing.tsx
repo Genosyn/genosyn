@@ -1,132 +1,186 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
+import { GITHUB_URL } from "@/lib/constants";
 import {
-  ArrowRight,
-  BookOpen,
-  Check,
-  ChevronDown,
-  Cloud,
-  Mail,
-  Server,
-  Sparkles,
-} from "lucide-react";
-import { Eyebrow } from "@/sections/Kit";
-import {
-  HeroBadge,
-  HeroBadgeDot,
-  HeroCopy,
-  HeroLede,
-  HeroSection,
-  HeroTitle,
-  HeroTitleMuted,
-} from "@/sections/HeroKit";
-import { Link } from "@/lib/router";
+  ActionStrip,
+  Band,
+  Body,
+  Container,
+  Display,
+  Field,
+  Heading,
+  Lede,
+  Rail,
+  Row,
+  Sheet,
+  TextLink,
+} from "@/sections/Kit";
+
+/**
+ * The pricing page.
+ *
+ * Five things were removed rather than restyled, and each one was removed for
+ * a reason that outlives this file:
+ *
+ * 1. **The three ringed tier cards.** A ring around "Scale" is a shop telling
+ *    you which shelf to look at. The plans are a set, so they are rows in a
+ *    fixed column structure — plan, what you get, price — and the reader
+ *    compares down a column instead of across three boxes.
+ *
+ * 2. **The 44-cell comparison grid.** Nine of its eleven rows read
+ *    `1 / Unlimited / Unlimited / Unlimited`, which is one fact about the
+ *    Free plan written nine times. What survives is four lines that the plan
+ *    rows genuinely cannot carry: who runs the upgrade, where SSO lives, which
+ *    licence you are under, and who answers you.
+ *
+ * 3. **The `<details>` accordion.** These answers are the best-written copy on
+ *    the site. Six of them are three sentences long. Hiding three sentences
+ *    behind a chevron costs a click and buys nothing, so the FAQ is a plain
+ *    definition list and it is the last and loudest band.
+ *
+ * 4. **The dark gradient CTA slab.** Rounded to 2rem, dotted, with an indigo
+ *    blur orb and a white one, and pasted verbatim onto three pages. A slab
+ *    that appears identically on three pages is not an argument for any of
+ *    them. The page's controls sit in the bands that earn them.
+ *
+ * 5. **"Frequently asked."** An amputated stock phrase with no subject.
+ *
+ * There is no signal amber anywhere on this page, and that is deliberate.
+ * Amber marks the human boundary — a Decision, an Approval, the 09:30 arrival
+ * line — and a price is none of those. Spending the site's one colour on a
+ * plan name is how it stops meaning anything.
+ *
+ * Ordering: the sheet numbers run Cloud then Self-hosted, but the free tier is
+ * the loudest thing here. It wins on typography instead of on position — the
+ * first headline on the page names it, band 03 is the only tone change and the
+ * only `Display` below the hero, and it carries the real install command.
+ */
 
 const CLOUD_ACCESS_HREF = "mailto:cloud@genosyn.com?subject=Genosyn%20Cloud%20early%20access";
 const ENTERPRISE_HREF = "mailto:enterprise@genosyn.com?subject=Genosyn%20Enterprise";
+
+/** The command in `client/public/install.sh` and in the install guide, verbatim. */
 const INSTALL_COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
 
-type CloudPlan = {
+type Plan = {
   name: string;
+  /** Where it runs. Sits under the name in the first column. */
+  host: string;
+  /** One sentence. What you get, in the product's own nouns. */
+  gets: string;
+  /** The headline price, as a mono field. */
   price: string;
-  priceSuffix: string | null;
-  tagline: string;
-  bullets: string[];
-  footnote: string | null;
-  ctaVariant: "primary" | "secondary";
-  highlighted: boolean;
+  /** The meter the price is charged against, if there is one. */
+  meter?: string;
+  /** Quota values the software actually enforces. One line each. */
+  limits: string[];
 };
 
-const CLOUD_PLANS: CloudPlan[] = [
+const CLOUD_PLANS: Plan[] = [
   {
     name: "Free",
+    host: "Genosyn Cloud",
+    gets: "Hire one AI Employee, give it a Soul and two Routines, and let it run on a schedule. It costs $0 in month one and $0 in month twelve.",
     price: "$0",
-    priceSuffix: null,
-    tagline: "Try a real AI employee across every core surface.",
-    bullets: [
-      "1 AI Employee",
-      "2 Routines",
-      "1 Base with 1 table",
-      "3 Channels",
-      "1 Project with 20 Todos",
-      "Bring your own AI Model keys",
-      "Community support",
-    ],
-    footnote: null,
-    ctaVariant: "secondary",
-    highlighted: false,
+    limits: ["1 AI EMPLOYEE", "2 ROUTINES", "1 BASE", "3 CHANNELS", "1 PROJECT", "20 TODOS"],
   },
   {
     name: "Growth",
+    host: "Genosyn Cloud",
+    gets: "Every limit above comes off, and every Integration is available to connect. Support is email, answered by the people who wrote the code.",
     price: "$19",
-    priceSuffix: "/ AI Employee / mo",
-    tagline: "Your first AI department.",
-    bullets: [
-      "Unlimited AI Employees & Routines",
-      "Unlimited Bases, Channels, Projects & Todos",
-      "Every integration",
-      "Priority email support",
-    ],
-    footnote: "Billed per AI Employee hired — vs. thousands for a human hire.",
-    ctaVariant: "primary",
-    highlighted: false,
+    meter: "PER AI EMPLOYEE / MO",
+    limits: ["UNLIMITED AI EMPLOYEES", "UNLIMITED ROUTINES"],
   },
   {
     name: "Scale",
+    host: "Genosyn Cloud",
+    gets: "Everything in Growth, plus single sign-on and the audit log for the whole company. This is the plan an IT review asks for.",
     price: "$49",
-    priceSuffix: "/ AI Employee / mo",
-    tagline: "For companies that run on Genosyn.",
-    bullets: [
-      "Everything in Growth",
-      "Single sign-on (SSO)",
-      "Audit log",
-      "Priority support",
-    ],
-    footnote: "Billed per AI Employee hired — vs. thousands for a human hire.",
-    ctaVariant: "primary",
-    highlighted: true,
+    meter: "PER AI EMPLOYEE / MO",
+    limits: ["SSO", "AUDIT LOG"],
   },
 ];
 
-type ComparisonRow = {
-  label: string;
-  free: ReactNode;
-  growth: ReactNode;
-  scale: ReactNode;
-  enterprise: ReactNode;
-};
-
-function Yes() {
-  return <Check aria-label="Included" className="mx-auto h-4 w-4 text-emerald-600" />;
-}
-
-function No() {
-  return (
-    <span aria-label="Not included" className="text-zinc-300">
-      —
-    </span>
-  );
-}
-
-const COMPARISON_ROWS: ComparisonRow[] = [
-  { label: "AI Employees", free: "1", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
-  { label: "Routines", free: "2", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
-  { label: "Bases", free: "1", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
-  { label: "Base tables", free: "1", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
-  { label: "Channels", free: "3", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
-  { label: "Projects", free: "1", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
-  { label: "Todos", free: "20", growth: "Unlimited", scale: "Unlimited", enterprise: "Unlimited" },
-  { label: "SSO", free: <No />, growth: <No />, scale: <Yes />, enterprise: <Yes /> },
-  { label: "Audit log", free: <No />, growth: <No />, scale: <Yes />, enterprise: <Yes /> },
-  { label: "Support", free: "Community", growth: "Priority email", scale: "Priority", enterprise: "Priority" },
-  { label: "Hosting", free: "Genosyn Cloud", growth: "Genosyn Cloud", scale: "Genosyn Cloud", enterprise: "Self-hosted" },
+const SELF_HOSTED_PLANS: Plan[] = [
+  {
+    name: "Community",
+    host: "Your hardware",
+    gets: "Unlimited AI Employees and unlimited Routines, on a laptop or on a cluster. You keep the database, the model keys and every audit row.",
+    price: "$0",
+    meter: "APACHE-2.0",
+    limits: ["UNLIMITED AI EMPLOYEES", "UNLIMITED ROUTINES", "NO LICENCE KEY"],
+  },
+  {
+    name: "Enterprise",
+    host: "Your hardware",
+    gets: "Community plus single sign-on, the audit log and priority support. A master admin pastes a signed key at Admin / License and it validates offline, so air-gapped installs work.",
+    price: "Quoted",
+    meter: "SIGNED LICENCE KEY",
+    limits: ["SSO", "AUDIT LOG", "OFFLINE VALIDATION"],
+  },
 ];
 
-type Faq = { q: string; a: string };
+/**
+ * The comparison, reduced to the lines that differ.
+ *
+ * Every row here answers a question the plan rows above cannot: the plan rows
+ * say what you get, and these four say who operates it, who is on the hook,
+ * and under what terms. A row whose five cells all read the same value has
+ * been moved into prose underneath, because a table is for differences.
+ */
+type CompareRow = {
+  label: string;
+  /** Free, Growth, Scale, Community, Enterprise — in that order. */
+  cells: [ReactNode, ReactNode, ReactNode, ReactNode, ReactNode];
+};
 
-const FAQS: Faq[] = [
+const PLAN_COLUMNS: Array<[name: string, host: string]> = [
+  ["Free", "Cloud"],
+  ["Growth", "Cloud"],
+  ["Scale", "Cloud"],
+  ["Community", "Self-hosted"],
+  ["Enterprise", "Self-hosted"],
+];
+
+const COMPARE_ROWS: CompareRow[] = [
+  {
+    label: "Upgrades",
+    cells: ["We run them", "We run them", "We run them", "You run them", "You run them"],
+  },
+  {
+    label: "SSO and audit log",
+    cells: [<Absent key="f" />, <Absent key="g" />, "Included", <Absent key="c" />, "Included"],
+  },
+  {
+    label: "Licence",
+    cells: ["Cloud terms", "Cloud terms", "Cloud terms", "Apache-2.0", "Signed key"],
+  },
+  {
+    label: "Support",
+    cells: ["GitHub issues", "Email", "Priority", "GitHub issues", "Priority"],
+  },
+];
+
+type Question = { q: string; a: string };
+
+/**
+ * The six answers, kept almost word for word.
+ *
+ * These were already the strongest writing in the codebase and the revamp's
+ * job was to stop hiding them, not to rewrite them. Three edits were made:
+ * the banned "simply" is gone, five em dashes became full stops and colons,
+ * and the arrow in `Admin -> License` became a slash, because U+2192 is not
+ * in the served font subset and falls back to a system face mid-line.
+ *
+ * There are six of them and the band heading says "Six answers", so a seventh
+ * entry means editing that line too. The mono field beside it is derived from
+ * the array, which is what will make the mismatch visible.
+ */
+const QUESTIONS: Question[] = [
   {
     q: "What counts as an AI Employee?",
-    a: "An AI Employee is a hired teammate on your roster — a persistent role with its own Soul, Skills, and Routines. You pay per AI Employee hired; human Members are always free, on every plan. At $19 a month, that hire costs a fraction of what a person in the same seat would — and it works its Routines around the clock.",
+    a: "An AI Employee is a hired teammate on your roster: a persistent role with its own Soul, Skills and Routines. You pay per AI Employee hired, and human Members are always free on every plan. At $19 a month that hire costs a fraction of what a person in the same seat would, and it works its Routines around the clock.",
   },
   {
     q: "Do I need my own AI Model API keys?",
@@ -134,11 +188,11 @@ const FAQS: Faq[] = [
   },
   {
     q: "Is the self-hosted version really free?",
-    a: "Yes. The community edition is Apache 2.0 licensed with unlimited AI Employees and Routines, forever. Genosyn Enterprise adds SSO, the audit log, and priority support on top for self-hosted installs at work.",
+    a: "Yes. The community edition is Apache 2.0 licensed with unlimited AI Employees and Routines, forever. Genosyn Enterprise adds SSO, the audit log and priority support on top, for self-hosted installs at work.",
   },
   {
     q: "How does Enterprise licensing work?",
-    a: "We issue a signed license key that a master admin pastes at Admin → License in your install. The key validates offline against a public key shipped in the product, so it works in fully air-gapped environments.",
+    a: "We issue a signed license key that a master admin pastes at Admin / License in your install. The key validates offline against a public key shipped in the product, so it works in fully air-gapped environments.",
   },
   {
     q: "Can I switch plans?",
@@ -146,346 +200,356 @@ const FAQS: Faq[] = [
   },
   {
     q: "What happens if I go over a Free plan limit?",
-    a: "Nothing breaks — Genosyn simply asks you to upgrade before hiring another AI Employee, adding a third Routine, a second Base or Base table, a fourth Channel, a second Project, or the twenty-first Todo — everything already running keeps running.",
+    a: "Nothing breaks. Genosyn asks you to upgrade before you hire another AI Employee, add a third Routine, a second Base or Base table, a fourth Channel, a second Project, or the twenty-first Todo. Everything already running keeps running.",
   },
 ];
 
 export function Pricing(): ReactNode {
   return (
     <>
-      <PricingHero />
+      <PricingHead />
       <CloudPlans />
-      <SelfHostedBand />
-      <ComparisonTable />
-      <PricingFaq />
-      <PricingCta />
+      <SelfHosted />
+      <Compared />
+      <Questions />
     </>
   );
 }
 
-function PricingHero() {
+/**
+ * 01 / Pricing.
+ *
+ * The first sentence on a pricing page should be the price. The old one was a
+ * centred badge reading "Simple pricing" over a two-tone headline, which is
+ * three elements spent saying nothing a reader could act on.
+ */
+function PricingHead() {
   return (
-    <HeroSection tight>
-      <div className="mx-auto flex max-w-3xl flex-col items-center text-center">
-        <HeroCopy>
-          <div className="flex flex-col items-center">
-            <HeroBadge>
-              Simple pricing
-              <HeroBadgeDot />
-              <span className="font-medium text-zinc-600">Open source core</span>
-            </HeroBadge>
+    <Band tone="paper" pad="m" rule={false}>
+      <Container>
+        <Rail sheet="01 / Pricing" fields={["Apache-2.0", `v${__APP_VERSION__}`, "USD"]}>
+          <Display className="max-w-[20ch]">Genosyn is free on your own hardware.</Display>
 
-            <HeroTitle>
-              Start free. <HeroTitleMuted>Scale when your AI team does.</HeroTitleMuted>
-            </HeroTitle>
+          <Lede className="mt-7">
+            Download it, run it, and hire as many AI Employees as you want. Genosyn Cloud is the
+            same software with us operating it, charged per AI Employee hired.
+          </Lede>
 
-            <HeroLede>
-              Self-host the Apache 2.0-licensed community edition free forever, or let us run it for you on
-              Genosyn Cloud — an employee-grade hire for $19 a month, not the thousands a human
-              costs.
-            </HeroLede>
+          <div className="mt-10 max-w-[34rem]">
+            <ActionStrip href="/docs/install" trailing="Free">
+              Install it on your own hardware
+            </ActionStrip>
+            <ActionStrip href={CLOUD_ACCESS_HREF} trailing="Email" className="-mt-px">
+              Request Genosyn Cloud access
+            </ActionStrip>
           </div>
-        </HeroCopy>
-      </div>
-    </HeroSection>
+        </Rail>
+      </Container>
+    </Band>
   );
 }
 
+/** 02 / Cloud. Three plans, one meter, drawn as three rows. */
 function CloudPlans() {
   return (
-    <section className="bg-paper-50">
-      <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
-        <div className="mx-auto max-w-3xl text-center">
-          <Eyebrow>Genosyn Cloud</Eyebrow>
-          <h2 className="mt-5 text-balance text-[clamp(1.875rem,3.4vw,2.875rem)] font-semibold leading-[1.06] tracking-[-0.035em] text-zinc-950">
-            We run it. You hire.
-          </h2>
-          <p className="mx-auto mt-6 max-w-xl text-base leading-7 text-zinc-700">
-            A human hire costs thousands a month before they start. An AI Employee on Genosyn is
-            $19 — working its Routines around the clock.
-          </p>
-          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-zinc-600">
-            A fully managed Genosyn — upgrades, backups, and hosting handled. Every plan uses your
-            own AI Model keys, so model usage stays between you and your provider.
-          </p>
-        </div>
+    <Band id="cloud" tone="paper" pad="m">
+      <Container>
+        <Rail sheet="02 / Cloud" fields={["3 PLANS", "USD / MO"]}>
+          <Heading as="h2" className="max-w-[22ch]">
+            Genosyn Cloud has three plans and one meter.
+          </Heading>
 
-        <div className="mt-12 grid gap-4 sm:grid-cols-3">
-          {CLOUD_PLANS.map((plan) => (
-            <PlanCard key={plan.name} plan={plan} />
-          ))}
-        </div>
+          <Lede className="mt-6">
+            We run the upgrades, the backups and the hosting. You bring your own AI Model keys on
+            every plan, so token spend is billed to you by Anthropic or OpenAI and never by us.
+          </Lede>
 
-        <p className="mt-6 text-center text-xs leading-5 text-zinc-600">
-          Genosyn Cloud is rolling out now — request access and we&apos;ll onboard you.
-        </p>
-      </div>
-    </section>
+          <div className="mt-10">
+            {CLOUD_PLANS.map((plan) => (
+              <PlanRow key={plan.name} plan={plan} />
+            ))}
+          </div>
+
+          <div className="mt-8 max-w-[34rem]">
+            <Body className="mb-5 !text-zinc-600">
+              Genosyn Cloud is rolling out now. Send one line about what you want an AI Employee to
+              do and we will onboard you.
+            </Body>
+            <ActionStrip href={CLOUD_ACCESS_HREF} trailing="Email">
+              Request Genosyn Cloud access
+            </ActionStrip>
+          </div>
+        </Rail>
+      </Container>
+    </Band>
   );
 }
 
-function PlanCard({ plan }: { plan: CloudPlan }) {
+/**
+ * 03 / Self-hosted — the band the page is really about.
+ *
+ * It is the one tone change on the page and the only `Display` below the hero.
+ * Both were spent here rather than on the paid tiers because the honest
+ * hierarchy of an Apache-2.0 product is that the free thing is the product and
+ * the hosted thing is a convenience.
+ */
+function SelfHosted() {
   return (
-    <article
-      className={`flex flex-col rounded-2xl border bg-white p-6 shadow-card ${
-        plan.highlighted ? "border-zinc-900 ring-1 ring-zinc-900" : "border-zinc-200"
-      }`}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-zinc-950">{plan.name}</h3>
-        {plan.highlighted && (
-          <span className="rounded-full bg-zinc-950 px-2.5 py-1 text-[11px] font-semibold text-white">
-            SSO + audit log
+    <Band id="self-hosted" tone="raised" pad="m">
+      <Container>
+        <Rail sheet="03 / Self-hosted" fields={["$0", "APACHE-2.0", `v${__APP_VERSION__}`]}>
+          <Display as="h2" className="max-w-[20ch]">
+            Unlimited AI Employees cost $0 on your hardware.
+          </Display>
+
+          <Lede className="mt-7">
+            One command puts the whole platform on a machine you own. It sends no telemetry, and the
+            Apache-2.0 licence reads the same at one AI Employee as at five hundred.
+          </Lede>
+
+          <div className="mt-9 max-w-[38rem]">
+            <InstallCommand />
+            <ActionStrip href="/docs/install" trailing="Guide" className="-mt-px">
+              Read the install guide
+            </ActionStrip>
+            <ActionStrip href={GITHUB_URL} external trailing="Source" className="-mt-px">
+              Read every line on GitHub
+            </ActionStrip>
+          </div>
+
+          <div className="mt-12">
+            {SELF_HOSTED_PLANS.map((plan) => (
+              <PlanRow key={plan.name} plan={plan} />
+            ))}
+          </div>
+
+          <div className="mt-8 flex flex-wrap gap-x-8 gap-y-4">
+            <TextLink href="/enterprise">What Enterprise adds</TextLink>
+            <TextLink href={ENTERPRISE_HREF}>Talk to us about a licence</TextLink>
+          </div>
+        </Rail>
+      </Container>
+    </Band>
+  );
+}
+
+/** 04 / Compared. Four lines, five columns, and nothing that repeats a row. */
+function Compared() {
+  return (
+    <Band tone="paper" pad="m">
+      <Container>
+        <Rail sheet="04 / Compared" fields={["5 PLANS", "4 LINES"]}>
+          <Heading as="h2" className="max-w-[22ch]">
+            Five plans differ on four lines.
+          </Heading>
+
+          {/* The table keeps a minimum width and scrolls inside its own box.
+              Reflowing a five-column comparison into stacked pairs at 375px
+              produces five copies of the same four labels, which is worse to
+              read than a scrollbar. */}
+          {/* `relative` is load-bearing, not decoration. The `sr-only` spans
+              inside the table (the caption, the empty corner header, and each
+              "Not included") are `position: absolute`, so without a positioned
+              ancestor here they resolve against the band's own `relative`
+              section, escape this box's clip, and park their 1px selves at
+              x=545 — which pushes the whole document to a 546px scroll width
+              at a 375px viewport. Positioning the scroll container brings them
+              back inside the clip. */}
+          <div className="relative mt-9 overflow-x-auto border border-paper-400 bg-paper-50">
+            <table className="w-full min-w-[46rem] border-collapse text-left">
+              <caption className="sr-only">
+                How the five Genosyn plans differ on upgrades, SSO, licence and support.
+              </caption>
+              <thead>
+                <tr className="border-b border-paper-400">
+                  <th scope="col" className="px-4 py-3 align-bottom">
+                    <span className="sr-only">Line</span>
+                  </th>
+                  {PLAN_COLUMNS.map(([name, host]) => (
+                    <th key={name} scope="col" className="px-4 py-3 align-bottom">
+                      <Sheet className="!text-zinc-950">{name}</Sheet>
+                      <span className="mt-1 block">
+                        <Sheet className="!text-[10px]">{host}</Sheet>
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {COMPARE_ROWS.map((row) => (
+                  <tr key={row.label} className="border-b border-paper-300 last:border-b-0">
+                    <th scope="row" className="px-4 py-3.5 align-top">
+                      <Sheet className="!text-zinc-950">{row.label}</Sheet>
+                    </th>
+                    {row.cells.map((cell, index) => (
+                      <td key={PLAN_COLUMNS[index][0]} className="px-4 py-3.5 align-top">
+                        <Body className="!text-[13px] !leading-5">{cell}</Body>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* The two facts that are identical in all five columns. They were
+              rows in the old table, where five repeated cells said "this does
+              not vary" in the most expensive way available. */}
+          <Body className="mt-6 max-w-[62ch]">
+            Human Members are free on all five plans, and every plan uses AI Model keys you register
+            yourself. Only AI Employees are metered, and only on Genosyn Cloud.
+          </Body>
+        </Rail>
+      </Container>
+    </Band>
+  );
+}
+
+/**
+ * 05 / Questions.
+ *
+ * A definition list, at reading size, with the question in the display face
+ * and the answer beside it. No accordion: the longest answer here is four
+ * sentences, and a control that hides four sentences is a control that exists
+ * to make the page look shorter than it is.
+ */
+function Questions() {
+  return (
+    <Band tone="paper" pad="s">
+      <Container>
+        <Rail sheet="05 / Questions" fields={[`${QUESTIONS.length} QUESTIONS`]}>
+          <Heading as="h2" className="max-w-[24ch]">
+            Six answers cover plans, keys and licences.
+          </Heading>
+
+          <dl className="mt-10">
+            {QUESTIONS.map((item) => (
+              <Row
+                key={item.q}
+                className="!grid grid-cols-1 !py-6 lg:grid-cols-[20rem_minmax(0,1fr)]"
+              >
+                <dt>
+                  {/* The Heading face at row scale. A question inside a list is
+                      a step below the band heading above it, and taking the
+                      same face at a smaller size keeps that relationship
+                      without adding a rung to the ramp. */}
+                  <Heading as="h3" className="!text-[1.0625rem] !leading-[1.45]">
+                    {item.q}
+                  </Heading>
+                </dt>
+                <dd className="mt-2 lg:mt-0">
+                  <Body className="max-w-[62ch]">{item.a}</Body>
+                </dd>
+              </Row>
+            ))}
+          </dl>
+
+          <div className="mt-10">
+            <TextLink href="/docs">Read the documentation</TextLink>
+          </div>
+        </Rail>
+      </Container>
+    </Band>
+  );
+}
+
+/**
+ * One plan, as a row in a fixed three-column structure.
+ *
+ * The price is a `Field` rather than a 36px number, which is the whole
+ * argument of the redesign applied to a pricing page: the price is a string
+ * the billing system emitted, and setting it in mono next to the quota values
+ * it belongs with is more honest than setting it in display type to make the
+ * plan feel significant. `order` puts the price directly under the plan name
+ * on a phone, where a price at the bottom of a paragraph is easy to miss.
+ */
+function PlanRow({ plan }: { plan: Plan }) {
+  return (
+    <Row className="!grid grid-cols-1 !gap-y-3 !py-6 lg:grid-cols-[8rem_minmax(0,1fr)_11rem]">
+      <div className="order-1">
+        <h3>
+          <Sheet className="!text-[12px] !text-zinc-950">{plan.name}</Sheet>
+        </h3>
+        <span className="mt-1 block">
+          <Sheet className="!text-[10px]">{plan.host}</Sheet>
+        </span>
+      </div>
+
+      <div className="order-3 lg:order-2">
+        <Body className="max-w-[54ch]">{plan.gets}</Body>
+        <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          {plan.limits.map((limit) => (
+            <Field key={limit}>{limit}</Field>
+          ))}
+        </div>
+      </div>
+
+      <div className="order-2 lg:order-3 lg:text-right">
+        <Field className="!text-[15px] !leading-5 !text-zinc-950">{plan.price}</Field>
+        {plan.meter && (
+          <span className="mt-1.5 block">
+            <Field>{plan.meter}</Field>
           </span>
         )}
       </div>
-      <div className="mt-4 flex items-baseline gap-1.5">
-        <span className="text-4xl font-semibold tracking-[-0.03em] text-zinc-950 tabular-nums">
-          {plan.price}
-        </span>
-        {plan.priceSuffix && <span className="text-xs text-zinc-600">{plan.priceSuffix}</span>}
-      </div>
-      <p className="mt-2 text-sm font-medium text-zinc-700">{plan.tagline}</p>
-      <ul className="mt-5 space-y-2.5 text-sm text-zinc-700">
-        {plan.bullets.map((bullet) => (
-          <li key={bullet} className="flex items-start gap-2">
-            <Check aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-            {bullet}
-          </li>
-        ))}
-      </ul>
-      <div className="mt-auto pt-6">
-        <a
-          href={CLOUD_ACCESS_HREF}
-          className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition ${
-            plan.ctaVariant === "primary"
-              ? "bg-ink-900 text-white shadow-card hover:bg-ink-600"
-              : "border border-zinc-200 bg-white text-zinc-900 hover:border-zinc-400 hover:bg-paper-50"
-          }`}
-        >
-          <Mail aria-hidden className="h-4 w-4" />
-          Request early access
-        </a>
-        {plan.footnote && <p className="mt-3 text-[11px] leading-4 text-zinc-400">{plan.footnote}</p>}
-      </div>
-    </article>
+    </Row>
   );
 }
 
-function SelfHostedBand() {
+/**
+ * The install command, as an object rather than a call to action.
+ *
+ * This is the same pattern as the landing hero's install strip, deliberately
+ * not shared: the hero's copy is a private function inside `Hero.tsx`, and
+ * lifting it into the Kit would put a stateful control in a file whose whole
+ * job is stateless primitives. If a third page needs it, that is the point to
+ * promote it.
+ */
+function InstallCommand() {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(INSTALL_COMMAND);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // The command stays selectable when clipboard permission is unavailable.
+    }
+  }
+
   return (
-    <section className="border-y border-zinc-200 bg-paper-200">
-      <div className="mx-auto max-w-[88rem] px-5 py-20 sm:px-8 sm:py-24 lg:py-32">
-        <div className="mx-auto max-w-3xl text-center">
-          <Eyebrow>Self-hosted</Eyebrow>
-          <h2 className="mt-5 text-balance text-[clamp(1.875rem,3.4vw,2.875rem)] font-semibold leading-[1.06] tracking-[-0.035em] text-zinc-950">
-            Your hardware, your rules.
-          </h2>
-        </div>
-
-        <div className="mt-12 grid gap-4 lg:grid-cols-2">
-          {/* min-w-0: without it the nowrap install command sets the grid
-              column's min-content width and the tile overflows the viewport
-              on phones — the code block then scrolls inside the tile. */}
-          <article className="flex min-w-0 flex-col rounded-2xl border border-zinc-200 bg-white p-6 shadow-card sm:p-8">
-            <div className="flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-paper-200 text-zinc-950">
-                <Server className="h-4 w-4" />
-              </span>
-              <div>
-                <h3 className="text-sm font-semibold text-zinc-950">Community</h3>
-                <div className="text-xs font-medium text-emerald-700">Free forever</div>
-              </div>
-            </div>
-            <p className="mt-5 text-base leading-7 text-zinc-700">
-              Apache 2.0 licensed, with unlimited AI Employees and Routines and every core feature. Runs on
-              your hardware, from a laptop to a cluster.
-            </p>
-            <div className="mt-5 overflow-x-auto rounded-lg border border-night-700 bg-night-950 px-4 py-3">
-              <code className="whitespace-nowrap font-mono text-xs text-white">
-                <span aria-hidden className="mr-2 select-none text-zinc-400">
-                  $
-                </span>
-                {INSTALL_COMMAND}
-              </code>
-            </div>
-            <div className="mt-auto pt-6">
-              <Link
-                href="/docs/install"
-                className="inline-flex items-center gap-2 rounded-md border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 transition hover:border-zinc-400 hover:bg-paper-100"
-              >
-                <BookOpen aria-hidden className="h-4 w-4" />
-                Read the install guide
-              </Link>
-            </div>
-          </article>
-
-          <article className="flex min-w-0 flex-col rounded-2xl border border-zinc-200 bg-white p-6 shadow-card sm:p-8">
-            <div className="flex items-center gap-3">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-night-950 text-white">
-                <Sparkles className="h-4 w-4" />
-              </span>
-              <div>
-                <h3 className="text-sm font-semibold text-zinc-950">Enterprise</h3>
-                <div className="text-xs font-medium text-zinc-600">For self-hosted at work</div>
-              </div>
-            </div>
-            <p className="mt-5 text-base leading-7 text-zinc-700">
-              Everything in Community plus single sign-on (SSO), the audit log, priority support, and
-              a signed license that validates fully offline — air-gapped environments included.
-            </p>
-            <div className="mt-auto flex flex-col gap-3 pt-6 sm:flex-row sm:items-center">
-              <a
-                href={ENTERPRISE_HREF}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-ink-900 px-5 py-3 text-sm font-semibold text-white shadow-card transition hover:bg-ink-600"
-              >
-                <Mail aria-hidden className="h-4 w-4" />
-                Talk to us
-              </a>
-              <Link
-                href="/enterprise"
-                className="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-2.5 text-sm font-semibold text-zinc-700 transition hover:text-zinc-950"
-              >
-                Learn about Enterprise
-                <ArrowRight aria-hidden className="h-4 w-4" />
-              </Link>
-            </div>
-          </article>
-        </div>
-      </div>
-    </section>
+    <div className="flex min-h-[3.25rem] items-center gap-4 border border-paper-400 bg-paper-100 px-4">
+      <code className="t-data min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[12px] text-zinc-950 scrollbar-none sm:text-[13px]">
+        {INSTALL_COMMAND}
+      </code>
+      <button
+        type="button"
+        onClick={copy}
+        className="t-cond shrink-0 text-[11px] uppercase tracking-field text-zinc-600 transition-colors hover:text-zinc-950"
+      >
+        {copied ? "Copied" : "Copy"}
+        <span className="sr-only"> install command</span>
+      </button>
+    </div>
   );
 }
 
-function ComparisonTable() {
+/**
+ * A cell where a feature is absent.
+ *
+ * U+2212 rather than a grey em dash, and it carries its own screen-reader
+ * word: the old table used an emerald tick against a light grey dash, which
+ * encoded the answer in a hue at 1.9:1 against paper and in a glyph nobody
+ * announces.
+ */
+function Absent() {
   return (
-    <section className="bg-paper-50">
-      <div className="mx-auto max-w-5xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
-        <div className="text-center">
-          <Eyebrow>Compare</Eyebrow>
-          <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-950">
-            Every plan, side by side.
-          </h2>
-        </div>
-
-        <div className="mt-10 overflow-x-auto rounded-2xl border border-zinc-200 shadow-card">
-          <table className="w-full min-w-[40rem] border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-zinc-200 bg-paper-100 text-left">
-                <th scope="col" className="px-4 py-3.5 font-semibold text-zinc-600">
-                  <span className="sr-only">Feature</span>
-                </th>
-                <th scope="col" className="px-4 py-3.5 text-center font-semibold text-zinc-950">
-                  Free
-                </th>
-                <th scope="col" className="px-4 py-3.5 text-center font-semibold text-zinc-950">
-                  Growth
-                </th>
-                <th scope="col" className="px-4 py-3.5 text-center font-semibold text-zinc-950">
-                  Scale
-                </th>
-                <th scope="col" className="px-4 py-3.5 text-center font-semibold text-zinc-950">
-                  Enterprise
-                  <span className="block text-[10px] font-medium text-zinc-600">self-hosted</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {COMPARISON_ROWS.map((row) => (
-                <tr key={row.label} className="border-b border-zinc-100 last:border-b-0">
-                  <th scope="row" className="px-4 py-3.5 text-left font-medium text-zinc-800">
-                    {row.label}
-                  </th>
-                  <td className="px-4 py-3.5 text-center text-zinc-700 tabular-nums">{row.free}</td>
-                  <td className="px-4 py-3.5 text-center text-zinc-700 tabular-nums">
-                    {row.growth}
-                  </td>
-                  <td className="px-4 py-3.5 text-center text-zinc-700 tabular-nums">
-                    {row.scale}
-                  </td>
-                  <td className="px-4 py-3.5 text-center text-zinc-700 tabular-nums">
-                    {row.enterprise}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function PricingFaq() {
-  return (
-    <section className="bg-paper-50">
-      <div className="mx-auto max-w-3xl px-5 pb-20 sm:px-8 sm:pb-24 lg:pb-28">
-        <div className="text-center">
-          <Eyebrow>Questions</Eyebrow>
-          <h2 className="mt-5 text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-zinc-950">
-            Frequently asked.
-          </h2>
-        </div>
-        <div className="mt-9 space-y-2.5">
-          {FAQS.map((faq) => (
-            <details
-              key={faq.q}
-              className="group rounded-2xl border border-zinc-200 bg-white open:bg-paper-100"
-            >
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-semibold text-zinc-950 [&::-webkit-details-marker]:hidden">
-                {faq.q}
-                <ChevronDown className="h-4 w-4 shrink-0 text-zinc-400 transition group-open:rotate-180" />
-              </summary>
-              <p className="px-5 pb-5 text-sm leading-6 text-zinc-700">{faq.a}</p>
-            </details>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function PricingCta() {
-  return (
-    <section className="bg-paper-50">
-      <div className="mx-auto max-w-[88rem] px-5 pb-20 sm:px-8 sm:pb-24 lg:pb-28">
-        <div className="on-night relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-zinc-900 to-night-850 px-6 py-14 text-center shadow-raise sm:px-12 sm:py-20">
-          <div aria-hidden className="marketing-dots pointer-events-none absolute inset-0 opacity-15" />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -bottom-28 -left-20 h-80 w-80 rounded-full bg-indigo-500/15 blur-3xl"
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -top-24 right-0 h-80 w-80 rounded-full bg-white/[0.07] blur-3xl"
-          />
-          <div className="relative mx-auto max-w-2xl">
-            <h2 className="text-balance text-[clamp(1.75rem,3vw,2.5rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-white">
-              Run your company on autopilot.
-            </h2>
-            <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-zinc-200 sm:text-base">
-              Hire your first AI Employee free — on Genosyn Cloud or your own hardware — and add
-              plans only when the AI team grows.
-            </p>
-            <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <a
-                href={CLOUD_ACCESS_HREF}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-zinc-950 shadow-lg transition duration-200 hover:-translate-y-0.5 hover:bg-paper-100 sm:w-auto"
-              >
-                <Cloud className="h-4 w-4" />
-                Request Cloud access
-              </a>
-              <Link
-                href="/docs"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/40 bg-white/10 px-6 py-3.5 text-sm font-semibold text-white backdrop-blur transition duration-200 hover:-translate-y-0.5 hover:bg-white/20 sm:w-auto"
-              >
-                <BookOpen className="h-4 w-4" />
-                Read the docs
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+    <>
+      <span aria-hidden className="t-data text-[13px] text-zinc-600">
+        −
+      </span>
+      <span className="sr-only">Not included</span>
+    </>
   );
 }

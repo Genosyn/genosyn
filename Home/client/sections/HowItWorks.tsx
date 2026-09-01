@@ -1,141 +1,175 @@
 import {
-  ArrowRight,
-  CalendarClock,
-  Files,
-  ScrollText,
-  ShieldCheck,
-  type LucideIcon,
-} from "lucide-react";
-import { Container, Eyebrow, Heading, Lede, Section, TextLink } from "@/sections/Kit";
+  Band,
+  Body,
+  Container,
+  Display,
+  Field,
+  Heading,
+  Lede,
+  Rail,
+  Row,
+  Sheet,
+  StateTag,
+  TextLink,
+} from "@/sections/Kit";
+
+/**
+ * Sheet 06 — setting one up.
+ *
+ * The editorial row was the right instinct in the version this replaces and it
+ * survives. What went with it: the 2.5rem grey numeral, which was an ornament
+ * loud enough to compete with the step title and too pale to pass a contrast
+ * check, and the pastel icon tile, which was drawn twice per step (once for
+ * mobile, once for desktop) and said nothing either time. The index now sits
+ * in the rail's own idiom — a mono `Field` in the left column of a `Row` —
+ * which is where every other number on this site lives.
+ *
+ * The third column changed job. It used to hold a summarising sentence
+ * ("Autonomy with an audit trail"), which is the kind of line that sounds like
+ * a conclusion and carries no information. It now holds the artefact the step
+ * actually produces: two Grants, three Skill slugs, a cron line, a threshold.
+ * You can read the whole setup down that column without reading a word of the
+ * prose, which is the test.
+ *
+ * **Shape, against sheet 05.** The band above prints one document. This one is
+ * a numbered sequence, and the two are deliberately built from different
+ * primitives — a `Plate` there, a stack of `Row`s here — because two adjacent
+ * four-item bands in the same shape is the monotony that made the old page
+ * read as one long deck of tiles.
+ *
+ * The employee is a Support Rep rather than the Bookkeeper printed above, so
+ * the two bands are not the same company record twice.
+ */
 
 type Step = {
-  number: string;
-  icon: LucideIcon;
+  /** Rendered in the Field column. The `<ol>` carries the real order. */
+  index: string;
   title: string;
   body: string;
-  detail: string;
-  /** Icon-tile skin. The step's one hue, and the only place it appears. */
-  tile: string;
+  /** What this step leaves behind, named. */
+  artefact: string;
+  lines: string[];
+  /**
+   * Set on the one step that is about the human boundary. Amber is spent here
+   * and nowhere else in the band.
+   *
+   * It is a Decision rather than an Approval, and the difference is checkable
+   * rather than a matter of taste. An Approval replays an action the employee
+   * already attempted, so it needs a tool the employee could call; Genosyn
+   * ships none that disburses a refund, and `client/roles/data.ts` files the
+   * Support Rep's over-policy refund as `kind: "decision"` for exactly that
+   * reason. A reader is one click from that page.
+   */
+  decision?: boolean;
 };
 
 const STEPS: Step[] = [
   {
-    number: "01",
-    icon: Files,
-    title: "Give the context",
-    body: "Connect the company knowledge, data, conversations, and repositories the role actually needs.",
-    detail: "Explicit Grants keep the working set scoped.",
-    tile: "bg-sky-100 text-sky-700 ring-sky-200",
+    index: "01",
+    title: "Grant the Support Rep two Connections",
+    body: "A Grant is access to one named resource. Anything you have not granted stays unreachable, including the rest of the same Integration, so the working set is whatever is printed beside this step and nothing else.",
+    artefact: "Grants",
+    lines: ["gmail:support · send", "stripe · read"],
   },
   {
-    number: "02",
-    icon: ScrollText,
-    title: "Write the role",
-    body: "A Soul for judgment, Skills for the playbooks it repeats, and the AI Model behind both.",
-    detail: "The whole role reads like a job description.",
-    tile: "bg-violet-100 text-violet-700 ring-violet-200",
+    index: "02",
+    title: "Write a Soul and three Skills",
+    body: "The Soul is the constitution: judgment, voice, and the lines it will not cross without asking. A Skill is a playbook for one job the company repeats. Both are markdown, and both are edited in place.",
+    artefact: "Skills",
+    lines: ["triage-inbox", "answer-refund-request", "close-resolved-threads"],
   },
   {
-    number: "03",
-    icon: CalendarClock,
-    title: "Hand over the clock",
-    body: "Put the work on cron and stop being the trigger. Routines run whether or not anyone is watching.",
-    detail: "Nothing waits for someone to remember.",
-    tile: "bg-emerald-100 text-emerald-700 ring-emerald-200",
+    index: "03",
+    title: "Schedule the first Routine for 07:00",
+    body: "A Routine is a brief, a schedule, and a Check it has to clear before the Run counts as green. From here it starts itself, and nobody has to remember it.",
+    artefact: "Schedule",
+    lines: ["0 7 * * *", "Europe/London"],
   },
   {
-    number: "04",
-    icon: ShieldCheck,
-    title: "Keep the final say",
-    body: "Sensitive actions stop for a Member. Everything else keeps moving, with a Run you can read afterwards.",
-    detail: "Autonomy with an audit trail.",
-    tile: "bg-amber-100 text-amber-700 ring-amber-200",
+    index: "04",
+    title: "Refunds over £500 stop for you",
+    body: "It writes the question itself and attaches the account history, the contract and its recommendation. A Member answers it. Nothing moved in the meantime: Genosyn ships no tool that lets an AI Employee disburse a refund, so the worst case waiting in your queue is a well-argued question. Everything under £500 closes on its own.",
+    artefact: "Threshold",
+    lines: ["refund > 500 GBP"],
+    decision: true,
   },
 ];
 
-/**
- * The setup story, told as four editorial rows rather than four cards.
- *
- * The section immediately above already ships a four-across grid (the autonomy
- * ladder); repeating that shape here made the page read as one long deck of
- * identical tiles. Hairline-separated rows with a large index numeral give the
- * same four beats a completely different texture.
- */
 export function HowItWorks() {
   return (
-    <Section id="how-it-works" divide={false}>
-      <Container wide>
-        <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-end">
-          <div>
-            <Eyebrow>How autonomy gets built</Eyebrow>
-            <Heading className="mt-6 max-w-xl">
-              Set the role up once. Then get out of its way.
-            </Heading>
-          </div>
-          <div className="lg:pb-1">
-            <Lede className="max-w-xl">
-              An AI Employee is not something you operate. It has a constitution, repeatable
-              playbooks, a schedule of its own, and exactly the access you granted it.
-            </Lede>
-            <TextLink href="/products/ai-employees" className="mt-6">
-              Meet AI Employees
-              <ArrowRight aria-hidden className="h-4 w-4 transition group-hover:translate-x-0.5" />
-            </TextLink>
-          </div>
+    <Band id="how-it-works" pad="m">
+      <Container>
+        <Rail sheet="06 / Setting one up" fields={["4 STEPS", "1 ROUTINE"]}>
+          <Display as="h2" className="max-w-[20ch]">
+            The AI Support Rep is running by 07:00.
+          </Display>
+
+          <Lede className="mt-7">
+            This is the whole setup for one AI Employee. You do it once. After that the schedule
+            owns the work, and the thing you read in the morning is a Run rather than an inbox.
+          </Lede>
+
+          <ol className="mt-12">
+            {STEPS.map((step) => (
+              <li key={step.index}>
+                <StepRow step={step} />
+              </li>
+            ))}
+          </ol>
+
+          <TextLink href="/products/ai-employees" className="mt-10">
+            Read how a role is written
+          </TextLink>
+        </Rail>
+      </Container>
+    </Band>
+  );
+}
+
+/**
+ * One step.
+ *
+ * The Kit's `Row` and nothing else: its -mt-px stacking is what gives a run of
+ * rows one shared rule between each pair rather than two abutting borders, and
+ * re-implementing that inline is how a site ends up with two row primitives.
+ *
+ * It stacks below `sm`. A 2.5rem index gutter beside a display-face heading is
+ * a column at 1024px and a squeeze at 375px, and the artefact list wants the
+ * full measure on a phone.
+ */
+function StepRow({ step }: { step: Step }) {
+  return (
+    <Row className="flex-col sm:flex-row sm:py-9">
+      <Field className="w-10 shrink-0 sm:pt-3">{step.index}</Field>
+
+      <div className="min-w-0 flex-1 lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,0.6fr)] lg:gap-10">
+        <div>
+          <Heading as="h3">{step.title}</Heading>
+          <Body className="mt-4 max-w-[54ch]">{step.body}</Body>
         </div>
 
-        <ol className="mt-16 border-t border-zinc-200">
-          {STEPS.map((step) => (
-            <li
-              key={step.number}
-              className="group grid items-start gap-x-8 gap-y-4 border-b border-zinc-200 py-8 transition-colors hover:bg-paper-100 sm:grid-cols-[auto_minmax(0,1fr)] lg:grid-cols-[7rem_minmax(0,1.05fr)_minmax(0,0.85fr)] lg:py-10"
-            >
-              <div className="flex items-center gap-4">
-                {/* Ornament, not content: the <ol> already carries the order,
-                    and a 2.5rem numeral loud enough to pass a contrast check
-                    would out-shout the step title next to it. */}
-                <span
-                  aria-hidden
-                  className="tabular font-mono text-[2.5rem] font-semibold leading-none tracking-[-0.04em] text-zinc-200 transition-colors group-hover:text-zinc-300"
-                >
-                  {step.number}
-                </span>
-                <span
-                  className={`flex h-10 w-10 items-center justify-center rounded-xl ring-1 ring-inset lg:hidden ${step.tile}`}
-                >
-                  <step.icon aria-hidden className="h-4 w-4" />
-                </span>
-              </div>
-
-              <div>
-                <h3 className="text-xl font-semibold tracking-[-0.02em] text-zinc-950 sm:text-2xl">
-                  {step.title}
-                </h3>
-                <p className="mt-3 max-w-xl text-base leading-7 text-zinc-700">{step.body}</p>
-              </div>
-
-              {/* Anchored to the start of the column, not the end: these
-                  groups are a column of icon + label pairs, and right-aligning
-                  them makes the tiles track the width of each detail string
-                  instead of lining up with each other. */}
-              <div className="hidden items-start gap-3 lg:flex">
-                <span
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ${step.tile}`}
-                >
-                  <step.icon aria-hidden className="h-4 w-4" />
-                </span>
-                <span className="max-w-[15rem] pt-2 text-sm leading-6 text-zinc-600">
-                  {step.detail}
-                </span>
-              </div>
-
-              <p className="text-sm leading-6 text-zinc-600 sm:col-start-2 lg:hidden">
-                {step.detail}
-              </p>
-            </li>
-          ))}
-        </ol>
-      </Container>
-    </Section>
+        <div className="mt-6 lg:mt-2">
+          <Sheet>{step.artefact}</Sheet>
+          <ul className="mt-3 space-y-2">
+            {/* The artefact is the point of this column, so it is set one
+                step darker than Kit's quiet floor. The `!` is not decoration:
+                `text-zinc-700` and Kit's own `text-zinc-600` have identical
+                specificity, so an unprefixed override wins only because
+                Tailwind happens to emit the ramp in ascending order. That is
+                a fact about the build, not about this file. */}
+            {step.lines.map((line) => (
+              <li key={line}>
+                <Field className="block break-all !text-zinc-700">{line}</Field>
+              </li>
+            ))}
+          </ul>
+          {step.decision && (
+            <StateTag state="decision" className="mt-3">
+              Decision
+            </StateTag>
+          )}
+        </div>
+      </div>
+    </Row>
   );
 }

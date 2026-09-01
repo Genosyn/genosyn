@@ -2,150 +2,220 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+   Base.
+
+   The page is warm paper, not white, and not a framework grey. Tabular,
+   slashed-zero figures are on globally rather than opted into: this site is
+   mostly timestamps, counts and durations set in columns, and a clock whose
+   digits change width is not a clock.
+--------------------------------------------------------------------------- */
+
 :root {
   color-scheme: light;
-  font-feature-settings: "cv11", "ss01", "ss03";
 }
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 5rem;
+  scroll-padding-top: 6.5rem;
 }
 
 html,
 body {
   @apply bg-paper-100 font-sans text-zinc-700 antialiased;
+  font-family: Archivo, "ArrowFallback", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: tabular-nums slashed-zero;
 }
 
 ::selection {
-  background-color: #09090b;
-  color: #ffffff;
+  background-color: #111110;
+  color: #fbfaf7;
 }
 
+/* The ring is what has to pass WCAG 1.4.11, not the control beside it. It is
+   deliberately NOT the signal amber: #ffb000 on paper is 1.65:1 and would
+   fail outright. Near-black on paper is 17:1; on a dark plane it flips to the
+   light end of the ramp, where #dad7ce on #0b0b0a is 13.7:1. Radius 0, to
+   match everything else. */
 :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline: 2px solid #09090b;
+  outline: 2px solid #111110;
   outline-offset: 3px;
-  border-radius: 4px;
+  border-radius: 0;
 }
 
-/* The ring is what has to pass WCAG 1.4.11, not the control it sits beside,
-   and a near-black ring on a near-black band is invisible. Flip it to the
-   light end of the ramp there — ink-200 (#dcdce0) on night-950 is 15.9:1,
-   and it stays clear of the 3:1 floor everywhere the band's gradient goes. */
 .on-night :where(a, button, input, textarea, select, [role="button"], [role="option"]):focus-visible {
-  outline-color: #dcdce0;
+  outline-color: #dad7ce;
 }
 
 .tabular {
   font-variant-numeric: tabular-nums slashed-zero;
 }
 
-/* ---------------------------------------------------------------------------
-   Canvas.
+/* A predictable home for the arrows.
 
-   The page is white, so the job of these is to stop large empty bands from
-   looking unpainted. `aurora` is a barely-there cool wash — at these alphas
-   it reads as light falling on the page rather than as a colour; drop it and
-   the hero goes flat, saturate it and the site stops being black and white.
-   `paper-grid` and `night-grid` give the emptiness structure, and `grain`
-   keeps the big gradients from banding on 8-bit displays.
---------------------------------------------------------------------------- */
+   The latin subset Google serves for Archivo and Martian Mono covers U+2191,
+   U+2193 and U+2212 but NOT U+2192, so a literal right arrow falls back to
+   whatever face the browser picks — which differs per platform and changes
+   width mid-line. Marketing surfaces draw arrows as SVG (`ArrowEast` in
+   components/Marks.tsx) and avoid the codepoint entirely, but the docs carry
+   roughly 310 of them inline in prose, where an SVG per arrow is not
+   reasonable.
 
-.aurora {
-  background:
-    radial-gradient(64rem 34rem at 50% -12rem, rgba(9, 9, 11, 0.055), transparent 68%),
-    radial-gradient(46rem 28rem at 88% 0%, rgba(99, 102, 241, 0.05), transparent 70%),
-    radial-gradient(40rem 24rem at 4% 6%, rgba(14, 165, 233, 0.045), transparent 72%);
-}
-
-.aurora-night {
-  background:
-    radial-gradient(52rem 30rem at 18% 0%, rgba(255, 255, 255, 0.08), transparent 66%),
-    radial-gradient(48rem 28rem at 86% 12%, rgba(99, 102, 241, 0.10), transparent 70%);
-}
-
-/* Barely-there structure. At 0.05 alpha and 88px the grid is felt rather than
-   read — enough to keep a large empty band from looking unpainted, not enough
-   to turn the page into graph paper. */
-.paper-grid {
-  background-image:
-    linear-gradient(to right, rgba(9, 9, 11, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(9, 9, 11, 0.05) 1px, transparent 1px);
-  background-size: 88px 88px;
-  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 4%, transparent 70%);
-}
-
-.night-grid {
-  background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 88px 88px;
-  mask-image: radial-gradient(ellipse 82% 64% at 50% 0%, black 4%, transparent 72%);
-}
-
-.grain::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.022;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
-.marketing-dots {
-  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.28) 1px, transparent 1px);
-  background-size: 18px 18px;
+   This pins those glyphs to one predictable local face instead of leaving the
+   choice to the browser. It is a fallback, not a fix: the right arrow will
+   still not be Archivo. Prefer an en dash for a range and `↓` for a direction,
+   both of which the subset does serve. */
+@font-face {
+  font-family: "ArrowFallback";
+  src: local("Helvetica Neue"), local("Arial"), local("Segoe UI Symbol"), local("DejaVu Sans");
+  unicode-range: U+2190-2199, U+21D0-21D2;
 }
 
 /* ---------------------------------------------------------------------------
-   Motion. Every animation is opt-in per element and disabled wholesale under
-   prefers-reduced-motion at the bottom of this file.
+   Type.
+
+   Contrast on this site is carried by WIDTH, not weight — Archivo is a
+   two-axis variable face and these three classes are the only places its axes
+   are ever set. Tailwind cannot express `font-variation-settings`, and a
+   per-call-site inline style is how a type system drifts, so anything that
+   wants a voice takes one of these classes and nothing else.
+
+   `.t-note` is the one face with a different skeleton. It exists because a
+   width axis alone is one voice squashed, not two, and because figure
+   captions, margin notes and the signed colophon need to read as a person
+   talking rather than as more instrument. It is used for those three jobs and
+   no others.
 --------------------------------------------------------------------------- */
 
-@keyframes preview-enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
+@layer components {
+  /* Display: wide, engineered, the instrument fascia. */
+  .t-display {
+    font-variation-settings: "wdth" 118, "wght" 700;
+    letter-spacing: -0.02em;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+
+  /* Condensed uppercase: column headers, lane owners, sheet numbers. */
+  .t-cond {
+    font-variation-settings: "wdth" 82, "wght" 600;
+  }
+
+  /* Prose at its natural width. */
+  .t-body {
+    font-variation-settings: "wdth" 100, "wght" 400;
+  }
+
+  /* Mono fields. Martian Mono is a genuinely wide face, so 11px is the hard
+     floor and it never carries a sentence longer than one line. */
+  .t-data {
+    font-family: "Martian Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-variation-settings: "wdth" 100, "wght" 500;
+    letter-spacing: 0.06em;
+  }
+
+  .t-note {
+    font-family: Newsreader, ui-serif, Georgia, serif;
+    font-style: italic;
+    font-weight: 400;
   }
 }
 
-@keyframes preview-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+/* Below 640px the display face drops to its natural width. Archivo at wdth
+   118 overflows a 375px viewport on any headline of more than two words, and
+   the headline is ragged-right with no reflow escape. */
+@media (max-width: 639px) {
+  .t-display {
+    font-variation-settings: "wdth" 100, "wght" 700;
   }
-  50% {
-    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+}
+
+/* ---------------------------------------------------------------------------
+   The rail.
+
+   Every band on the site shares one grid: a fixed gutter column carrying mono
+   field data and the sheet number, and a content column with a 1px structural
+   rule down its left edge. Because the grid is identical everywhere, that rule
+   is continuous from the header to the footer — one unbroken vertical line
+   down the whole document, across band boundaries. It is the spine, and it
+   costs nothing.
+
+   Below `lg` the gutter collapses and its contents move inline above the
+   content as a mono line, because a 9.5rem gutter on a 375px screen is not a
+   gutter.
+--------------------------------------------------------------------------- */
+
+.rail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1024px) {
+  .rail {
+    grid-template-columns: 9.5rem minmax(0, 1fr);
   }
 }
 
-.preview-enter {
-  animation: preview-enter 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
+/* ---------------------------------------------------------------------------
+   Instrument surfaces.
 
-.preview-live {
-  animation: preview-pulse 2.4s ease-out infinite;
-}
+   `hours` is the 24-column ruling a board is drawn on — one element, one
+   gradient. `hatch` is a Standdown: the 45° out-of-service convention, which
+   is how the site marks "stopped" without spending a second colour on it.
+--------------------------------------------------------------------------- */
 
-/* A slow highlight travelling along the day-strip rule, so the timeline reads
-   as a clock that is still running rather than a static ruler. */
-.day-sweep {
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.35) 45%,
-    rgba(255, 255, 255, 0.9) 50%,
-    rgba(255, 255, 255, 0.35) 55%,
-    transparent
+.hours {
+  background-image: repeating-linear-gradient(
+    to right,
+    #dad7ce 0 1px,
+    transparent 1px calc(100% / 24)
   );
-  animation: sweep 9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
+.hours-night {
+  background-image: repeating-linear-gradient(
+    to right,
+    #2a2a26 0 1px,
+    transparent 1px calc(100% / 24)
+  );
+}
+
+.hatch {
+  background-image: repeating-linear-gradient(45deg, #111110 0 1px, transparent 1px 5px);
+}
+
+.hatch-night {
+  background-image: repeating-linear-gradient(45deg, #8c8880 0 1px, transparent 1px 5px);
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Motion.
+
+   There is one animation on this site and it is the argument, not decoration:
+   the bars on the board draw left to right, so the night fills in before the
+   09:30 line arrives. Everything is opt-in per element and the whole set is
+   disabled under prefers-reduced-motion at the bottom of this file, where each
+   name is enumerated so a new animation cannot quietly escape the switch.
+--------------------------------------------------------------------------- */
+
+.strip-draw {
+  transform-origin: left;
+  animation: strip 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.arrive-in {
+  animation: arrive 400ms 900ms linear both;
+}
+
+/* Product prototype chrome. These mocks are pictures of the real UI and keep
+   their own containment and scroll behaviour; the revamp mounts them on a
+   plate rather than restyling their insides. */
 .prototype-shell {
   contain: layout paint;
   touch-action: pan-y;
@@ -156,16 +226,12 @@ body {
 }
 
 .prototype-stage > :first-child {
-  animation: preview-enter 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: arrive 320ms linear both;
 }
 
 .prototype-stage-compact {
   max-height: 29rem;
   overflow: hidden;
-}
-
-.prototype-activity {
-  animation: preview-enter 460ms 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes prototype-progress {
@@ -179,18 +245,6 @@ body {
 
 .prototype-progress {
   animation: prototype-progress 3.2s linear both;
-}
-
-.prototype-live-dot {
-  animation: preview-pulse 2s ease-out infinite;
-}
-
-.scrollbar-none {
-  scrollbar-width: none;
-}
-
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
 }
 
 @media (max-width: 639px) {
@@ -208,16 +262,12 @@ body {
     scroll-behavior: auto;
   }
 
-  .preview-enter,
-  .preview-live,
-  .day-sweep,
+  .strip-draw,
+  .arrive-in,
   .prototype-stage > :first-child,
-  .prototype-activity,
   .prototype-progress,
-  .prototype-live-dot,
-  .animate-rise,
-  .animate-sweep,
-  .animate-drift {
+  .animate-strip,
+  .animate-arrive {
     animation: none;
   }
 }

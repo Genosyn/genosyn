@@ -106,7 +106,7 @@ export function Bases() {
           },
           {
             term: "AI Employee",
-            def: "Your AI employees — e.g. an “Owner” column on an accounts table.",
+            def: "Your AI Employees — e.g. an “Owner” column on an accounts table.",
           },
           { term: "Member", def: "Human members of the company." },
           { term: "Note", def: "Notes from the knowledge base." },
@@ -120,7 +120,7 @@ export function Bases() {
         existing cells but are hidden from the picker, so new links always
         point at live records.
       </P>
-      <Callout kind="tip" title="AI employees see the same links">
+      <Callout kind="tip" title="AI Employees see the same links">
         Granted employees create these columns with{" "}
         <Code>add_base_field</Code> and read valid target ids from the{" "}
         <Code>resourceOptions</Code> map returned by{" "}
@@ -149,7 +149,7 @@ export function Bases() {
           <Code>attach_file_to_record</Code>.
         </LI>
         <LI>
-          <Strong>Comments</Strong> — humans and AI employees share one
+          <Strong>Comments</Strong> — humans and AI Employees share one
           thread, so a routine&apos;s findings land next to your notes.
         </LI>
       </UL>
@@ -163,7 +163,7 @@ export function Bases() {
         records. Views are shared: everyone in the company sees the same tabs.
       </P>
 
-      <H2 id="ai-access">AI employees &amp; bases</H2>
+      <H2 id="ai-access">AI Employees &amp; bases</H2>
       <P>
         Access is per-base: open <Strong>Base settings → AI access</Strong>{" "}
         and grant the employees who should read and write records. Granted

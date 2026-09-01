@@ -253,7 +253,7 @@ export function SelfHosting() {
         App-private files there too. Souls, Skills, Routines, Run logs, model credentials, and
         Connection credentials live on encrypted/scoped database rows:
       </P>
-      <pre className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-paper-100 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-800">
+      <pre className="mt-4 overflow-x-auto border border-zinc-200 bg-paper-100 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-800">
         {`data/
 ├── .instance-secrets.json
 ├── .instance-secrets.required
@@ -450,7 +450,7 @@ export function SelfHosting() {
         <LI>
           <Strong>Overview</Strong> — an at-a-glance dashboard: instance health status, the running
           version and build, database driver, uptime and memory, and an inventory of companies,
-          members, and AI employees.
+          members, and AI Employees.
         </LI>
         <LI>
           <Strong>Instance Health</Strong> — live probes of the deployment substrate: database
@@ -569,7 +569,7 @@ export function SelfHosting() {
         <Code>Admin → Database</Code> is a raw SQL console wired directly to Genosyn&apos;s own
         application database — the same SQLite or Postgres the app itself runs on. It is meant for
         operators who need to inspect or repair an install directly: check a row the UI doesn&apos;t
-        surface, audit what an AI employee wrote, or fix up data after a botched import. Distinct
+        surface, audit what an AI Employee wrote, or fix up data after a botched import. Distinct
         from <DocLink to="/docs/explore">Explore</DocLink>, which runs SQL against a company&apos;s{" "}
         <em>external</em> database integrations.
       </P>

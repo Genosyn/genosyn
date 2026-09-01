@@ -10,7 +10,7 @@ export function Tasks() {
           <>
             A Linear-style task manager built in: organize work into <Strong>Projects</Strong>,
             break it into <Strong>todos</Strong> and <Strong>subtasks</Strong>, and assign any of it
-            to humans or AI employees. Find it under <Strong>Tasks</Strong> in the section menu.
+            to humans or AI Employees. Find it under <Strong>Tasks</Strong> in the section menu.
           </>
         }
       />
@@ -27,7 +27,7 @@ export function Tasks() {
         rows={[
           {
             term: "Assignee",
-            def: "A human member or an AI employee. New todos default to whoever created them — explicitly clear the picker to leave one unassigned.",
+            def: "A human member or an AI Employee. New todos default to whoever created them — explicitly clear the picker to leave one unassigned.",
           },
           {
             term: "Reviewer",
@@ -43,7 +43,7 @@ export function Tasks() {
           },
           {
             term: "Discussion",
-            def: "A comment thread on every todo. Mention an AI employee and it reads the todo plus the thread and replies inline; type # to tag another company resource in the brief.",
+            def: "A comment thread on every todo. Mention an AI Employee and it reads the todo plus the thread and replies inline; type # to tag another company resource in the brief.",
           },
         ]}
       />
@@ -69,14 +69,14 @@ export function Tasks() {
       <H2 id="access">Who has access</H2>
       <P>
         A project is <Strong>open</Strong> by default: every Member and every{" "}
-        <DocLink to="/docs/employees">AI employee</DocLink> in the company can edit it. To narrow
+        <DocLink to="/docs/employees">AI Employee</DocLink> in the company can edit it. To narrow
         that, open the project&apos;s settings, pick the <Strong>Access</Strong> tab, and switch{" "}
         <Strong>Who has access</Strong> from <Strong>&quot;Anyone in the company&quot;</Strong> to{" "}
-        <Strong>&quot;Only people and AI employees you add&quot;</Strong>. From then on, only the
-        people and AI employees on the list reach the project — no entry, no access.
+        <Strong>&quot;Only people and AI Employees you add&quot;</Strong>. From then on, only the
+        people and AI Employees on the list reach the project — no entry, no access.
       </P>
       <P>
-        Use <Strong>Add</Strong> to put a Member or an AI employee on the list at{" "}
+        Use <Strong>Add</Strong> to put a Member or an AI Employee on the list at{" "}
         <Strong>&quot;View only&quot;</Strong> or <Strong>&quot;Can edit&quot;</Strong>, and{" "}
         <Strong>Remove</Strong> to take someone off it again. The setting covers the whole project —
         the <Strong>list</Strong> and <Strong>board</Strong> views are two ways of looking at the
@@ -105,12 +105,12 @@ export function Tasks() {
       <Callout kind="info" title="Projects are open by default.">
         Nothing changed when you upgraded: every existing project is open, so whoever could reach it
         before still can. Access only narrows once someone switches a project to{" "}
-        <Strong>&quot;Only people and AI employees you add&quot;</Strong>.
+        <Strong>&quot;Only people and AI Employees you add&quot;</Strong>.
       </Callout>
 
-      <H2 id="ai">How AI employees use it</H2>
+      <H2 id="ai">How AI Employees use it</H2>
       <P>
-        AI employees manage tasks through the built-in <Code>genosyn</Code> MCP server —{" "}
+        AI Employees manage tasks through the built-in <Code>genosyn</Code> MCP server —{" "}
         <Code>list_projects</Code>, <Code>create_project</Code>, <Code>list_todos</Code>,{" "}
         <Code>create_todo</Code>, and <Code>update_todo</Code> — subject to each project&apos;s{" "}
         <DocLink to="/docs/tasks#access">access settings</DocLink>: <Code>list_projects</Code> only
@@ -123,7 +123,7 @@ export function Tasks() {
 
       <H2 id="auto-start">Assign it, and it starts</H2>
       <P>
-        Assigning a todo to an AI employee — when you create it, or by changing the assignee later —
+        Assigning a todo to an AI Employee — when you create it, or by changing the assignee later —
         starts the work immediately. The todo moves to <Code>in_progress</Code>, the employee works
         within both your current access and its Grants, and posts its report as a comment on the
         todo&apos;s thread. Coding, browser, Connections, and configured MCP servers remain
@@ -134,9 +134,9 @@ export function Tasks() {
         on the thread.
       </P>
       <Callout kind="warn" title="AI assignment requires a browser session.">
-        Starting an AI employee is an interactive delegation, so creating or changing an AI assignee
+        Starting an AI Employee is an interactive delegation, so creating or changing an AI assignee
         requires a logged-in browser session. Personal API keys can still automate ordinary todo
-        fields, but cannot launch an AI employee by assigning one.
+        fields, but cannot launch an AI Employee by assigning one.
       </Callout>
       <Callout kind="info" title="Needs a connected model.">
         Auto-start only fires for employees with an <DocLink to="/docs/models">AI Model</DocLink>{" "}
@@ -151,11 +151,11 @@ export function Tasks() {
         waits in your Review queue until you sign it off.
       </Callout>
       <P>
-        The reviewer can be an AI employee too. A todo entering <Code>in_review</Code> with an AI
+        The reviewer can be an AI Employee too. A todo entering <Code>in_review</Code> with an AI
         reviewer starts a review session instead of a bell: the reviewer reads the thread, verifies
         what the report claims with its own tools, and moves the card itself —{" "}
         <Code>done</Code> when the work holds up, back to <Code>in_progress</Code> with what&apos;s
-        missing when it doesn&apos;t. When the assignee is also an AI employee, rework goes back as
+        missing when it doesn&apos;t. When the assignee is also an AI Employee, rework goes back as
         a Handoff, which starts them on the fix immediately. After three review passes the card
         stays in review for a human to break the tie, so two AI teammates can&apos;t ping-pong a
         card forever.

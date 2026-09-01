@@ -223,7 +223,7 @@ export function Marketing() {
         ]}
       />
       <Callout kind="warn" title="Set the platform-side backstop too">
-        Genosyn&apos;s caps bound what AI employees <em>authorize</em>. A daily budget approved once
+        Genosyn&apos;s caps bound what AI Employees <em>authorize</em>. A daily budget approved once
         keeps spending every day with no further tool calls. Set the ad platform&apos;s own
         account-level spending limit as the independent last line of defense, and turn off Google
         Ads&apos; auto-apply recommendations so the platform can&apos;t raise its own budgets.

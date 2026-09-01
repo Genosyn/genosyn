@@ -4,11 +4,11 @@ export function Browser() {
   return (
     <>
       <PageHeader
-        eyebrow="Brains &amp; tools"
+        eyebrow="Brains & tools"
         title="Browser"
         lead={
           <>
-            Give an AI employee a real, persistent web browser. Real Google Chrome runs inside the
+            Give an AI Employee a real, persistent web browser. Real Google Chrome runs inside the
             App container; the employee reads pages as ref-annotated snapshots and acts on them with
             a small set of <Code>browser_*</Code> tools, while you watch live and take over whenever
             a human is needed.

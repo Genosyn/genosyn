@@ -21,7 +21,7 @@ export function Employees() {
         title="AI Employees"
         lead={
           <>
-            An AI Employee is a persistent persona attached to a company. They have a name, a role,
+            An AI Employee is a persistent teammate attached to a company. They have a name, a role,
             a model, a sandboxed working directory, and three editable pieces of prose that define
             who they are and how they work.
           </>
@@ -161,7 +161,7 @@ export function Employees() {
 
       <H2 id="working-directory">Working directory</H2>
       <P>Each employee gets their own folder on disk under the company:</P>
-      <pre className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-paper-100 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-800">
+      <pre className="mt-4 overflow-x-auto border border-zinc-200 bg-paper-100 px-5 py-4 font-mono text-[12.5px] leading-[1.7] text-zinc-800">
         {`data/companies/<co-slug>/employees/<emp-slug>/
 └── ...   # files enabled coding tools read and write`}
       </pre>
@@ -175,7 +175,7 @@ export function Employees() {
         never exposes <Code>bash</Code>, because a working directory is not a security boundary for
         an unrestricted same-user shell. The runner captures the agent transcript into a Run log.
         API-key and custom models use Genosyn&apos;s in-process loop; OpenAI subscription models use
-        the official Codex app-server. A Routine does not make its AI employee unavailable: Members
+        the official Codex app-server. A Routine does not make its AI Employee unavailable: Members
         can keep chatting with that employee and start independent Routines in parallel without a
         per-company application cap. Several conversations with the same AI Employee also reply in
         parallel; only two turns in one thread are serialized. Concurrent work shares this directory

@@ -51,7 +51,7 @@ export const PRODUCT_USE_CASES: ProductUseCase[] = [
     steps: [
       "Prioritize the messages that need attention",
       "Read account history and cite the right resource",
-      "Draft a response or escalate with full context",
+      "Draft a response, or stack a Decision with full context",
     ],
     outcome: "A clean support queue and faster, consistent replies",
     productSlugs: ["email", "customers", "resources", "workspace", "tasks", "notes", "repositories"],

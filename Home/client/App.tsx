@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { ArrowRight } from "lucide-react";
 import { Nav } from "@/sections/Nav";
 import { Hero } from "@/sections/Hero";
 import { Roles, Roster } from "@/sections/Roles";
@@ -8,7 +7,7 @@ import { Primitives } from "@/sections/Primitives";
 import { Features } from "@/sections/Features";
 import { HowItWorks } from "@/sections/HowItWorks";
 import { CliShowcase } from "@/sections/CliShowcase";
-import { Footer, InstallCta } from "@/sections/Footer";
+import { Colophon, Footer, InstallCta } from "@/sections/Footer";
 import { Enterprise } from "@/sections/Enterprise";
 import { Pricing } from "@/sections/Pricing";
 import { DocsApp } from "@/docs/DocsApp";
@@ -18,7 +17,8 @@ import { findProduct } from "@/products/data";
 import { RolesIndex } from "@/roles/RolesIndex";
 import { RolePage } from "@/roles/RolePage";
 import { findRole } from "@/roles/data";
-import { Link, usePathname } from "@/lib/router";
+import { ActionStrip, Band, Container, Display, Lede, Rail } from "@/sections/Kit";
+import { usePathname } from "@/lib/router";
 import { applyHead } from "@/lib/head";
 import { findRouteHead } from "@/lib/siteMeta";
 
@@ -59,6 +59,30 @@ export function App() {
   return <Landing />;
 }
 
+/**
+ * The landing page, in the order the argument is made.
+ *
+ * The old sequence was nine bands whose tones alternated white / tint / white /
+ * night / white / tint like a checkerboard — the fallback rule you apply when
+ * nothing about the content tells you where to break. This one groups by
+ * meaning and changes tone exactly once, at the band that is literally about
+ * work happening in the dark:
+ *
+ *   01 One Tuesday          the claim, and the board that is its evidence
+ *   02 A day on the roster  one role, hour by hour
+ *   03 The roster           who else you can hire
+ *   04 The night shift      NIGHT. what actually ran while nobody was there
+ *   05 What a role is made of
+ *   06 Setting one up
+ *   07 Where the work happens
+ *   08 Your own hardware
+ *   09 Install
+ *   10 Colophon             the one place a person speaks
+ *
+ * The sheet numbers in each band's rail are that table of contents, which is
+ * why they run in sequence and why adding a band means renumbering rather than
+ * appending.
+ */
 function Landing() {
   return (
     <div className="min-h-screen bg-paper-100 text-zinc-900">
@@ -68,11 +92,12 @@ function Landing() {
         <Roles />
         <Roster />
         <Autonomy />
-        <HowItWorks />
         <Primitives />
+        <HowItWorks />
         <Features />
         <CliShowcase />
-        <InstallCta />
+        <InstallCta sheet="09 / Install" />
+        <Colophon sheet="10 / Colophon" />
       </main>
       <Footer />
     </div>
@@ -148,22 +173,22 @@ function NotFound({ kind, href, cta }: { kind: string; href: string; cta: string
   return (
     <div className="min-h-screen bg-paper-100 text-zinc-900">
       <Nav />
-      <main className="mx-auto flex max-w-7xl flex-col items-center px-6 py-32 text-center">
-        <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-600">404</div>
-        <h1 className="mt-4 text-4xl font-semibold tracking-[-0.03em] text-zinc-950">
-          {`No ${kind} lives here.`}
-        </h1>
-        <p className="mt-4 max-w-md text-base leading-relaxed text-zinc-700">
-          The page you were looking for does not exist — but everything Genosyn ships is one click
-          away.
-        </p>
-        <Link
-          href={href}
-          className="mt-8 inline-flex items-center gap-2 rounded-xl bg-ink-900 px-5 py-3.5 text-sm font-semibold text-white shadow-card transition hover:bg-ink-600"
-        >
-          {cta}
-          <ArrowRight className="h-4 w-4" />
-        </Link>
+      <main>
+        <Band tone="paper" pad="l" rule={false}>
+          <Container>
+            <Rail sheet="404 / No such page" fields={["HTTP 404"]}>
+              <Display className="max-w-[20ch]">{`No ${kind} lives at this address.`}</Display>
+              <Lede className="mt-7">
+                The page does not exist. Everything Genosyn ships is one click away.
+              </Lede>
+              <div className="mt-10 max-w-[34rem]">
+                <ActionStrip href={href} trailing="Index">
+                  {cta}
+                </ActionStrip>
+              </div>
+            </Rail>
+          </Container>
+        </Band>
       </main>
       <Footer />
     </div>

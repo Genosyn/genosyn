@@ -140,7 +140,7 @@ export function Cli() {
 chmod +x /usr/local/bin/genosyn`}</Pre>
 
       <H2 id="commands">Commands</H2>
-      <div className="mt-6 divide-y divide-zinc-100 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+      <div className="mt-6 divide-y divide-zinc-100 overflow-hidden border border-zinc-200 bg-white">
         {COMMANDS.map((c) => (
           <div key={c.name} className="px-5 py-4">
             <div className="flex flex-wrap items-baseline gap-2">

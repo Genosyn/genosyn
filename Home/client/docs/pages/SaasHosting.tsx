@@ -135,7 +135,7 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
 
       <H2 id="execution">AI execution isolation</H2>
       <P>
-        Each AI employee&apos;s shell runs inside Bubblewrap user, mount, PID, IPC, UTS, and network
+        Each AI Employee&apos;s shell runs inside Bubblewrap user, mount, PID, IPC, UTS, and network
         namespaces, plus a cgroup namespace where the kernel supports it. Only that employee&apos;s
         workspace is writable; the API process environment is not inherited. File tools resolve real
         paths and reject symlink escapes. Top-level AI work, including Routine runs and chat, can

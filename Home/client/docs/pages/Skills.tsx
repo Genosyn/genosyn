@@ -36,7 +36,7 @@ export function Skills() {
       </P>
       <P>
         Clicking a skill opens its detail page: <Strong>Playbook</Strong> — the markdown editor, ⌘S
-        to save — and <Strong>Settings</Strong>, where you rename or delete it. Each AI employee
+        to save — and <Strong>Settings</Strong>, where you rename or delete it. Each AI Employee
         links to their own slice of that list from <Strong>Settings → Skills</Strong> — same page,
         filtered to them.
       </P>

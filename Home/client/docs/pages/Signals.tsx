@@ -25,7 +25,7 @@ export function Signals() {
             A <Strong>Signal</Strong> is a saved query over your own product database plus a rule
             for what to do with the rows that come back. Your database already knows who is about to
             churn, who just hit a seat limit, and whose trial ends on Thursday — this is how that
-            turns into a contact, a deal, a sequence enrolment, or an AI employee doing something
+            turns into a contact, a deal, a sequence enrolment, or an AI Employee doing something
             about it. Find it under <Code>Revenue → Signals</Code>.
           </>
         }
@@ -221,7 +221,7 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
             ),
           },
           {
-            term: "Hand to an AI employee",
+            term: "Hand to an AI Employee",
             def: (
               <>
                 Wakes the employee you name with the whole result row and an instruction, and lets
@@ -268,7 +268,7 @@ ORDER BY a.plan_mrr_cents DESC`}</Pre>
       <P>
         Create a dedicated role for Genosyn, grant it <Code>SELECT</Code> and nothing else, scope it
         to the tables signals need, and point it at a read replica if you have one. Do this before
-        you connect, not after — the same credential is what any AI employee granted that Connection
+        you connect, not after — the same credential is what any AI Employee granted that Connection
         reaches through, and a signal is scheduled, so a destructive query does not need anybody to
         be watching.
       </P>

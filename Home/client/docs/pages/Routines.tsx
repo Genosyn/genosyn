@@ -47,7 +47,7 @@ export function Routines() {
       <P>
         Clicking a routine opens its detail page: <Strong>Overview</Strong>, <Strong>Brief</Strong>,{" "}
         <Strong>Runs</Strong>, and <Strong>Settings</Strong>, with{" "}
-        <DocLink to="/docs/routines#assistant">Ask AI</DocLink> in the header. Each AI employee
+        <DocLink to="/docs/routines#assistant">Ask AI</DocLink> in the header. Each AI Employee
         links to their own slice of that list from <Strong>Settings → Routines</Strong> — same page,
         filtered to them.
       </P>
@@ -90,7 +90,7 @@ export function Routines() {
         &quot;urgent&quot; and &quot;quarterly&quot; are tags. Use both.
       </Callout>
       <P>
-        AI employees can file their own work too: <Code>create_routine</Code> and{" "}
+        AI Employees can file their own work too: <Code>create_routine</Code> and{" "}
         <Code>update_routine</Code> both take a <Code>folder</Code> — a name like{" "}
         <Code>Finance</Code> or a path like <Code>Finance/Month-end</Code>. Any segment that
         doesn&apos;t exist yet is created, the same way tag names are. Passing an empty string to{" "}
@@ -300,7 +300,7 @@ Post it to the #morning channel.`}</Pre>
 
       <H2 id="concurrent-runs">Chat and Runs continue in parallel</H2>
       <P>
-        Starting a Routine does not make its AI employee unavailable. You can keep chatting with
+        Starting a Routine does not make its AI Employee unavailable. You can keep chatting with
         that employee and start other independent Routines while the first Run continues. Genosyn
         places no per-company ceiling on overlapping top-level AI work. Chat threads are independent
         too: one AI Employee answers several conversations at once, and only a second message in the{" "}
@@ -316,7 +316,7 @@ Post it to the #morning channel.`}</Pre>
       <H2 id="parallel-delegation">Parallel delegation</H2>
       <P>
         API-key and custom-endpoint Chat turns and Routine runs include{" "}
-        <Code>delegate_parallel_work</Code>. An AI employee can split an objective into independent
+        <Code>delegate_parallel_work</Code>. An AI Employee can split an objective into independent
         briefs, run up to four temporary copies of itself at once, and receive their ordered results
         before it writes the final answer or takes follow-up action. Each worker uses the same Soul,
         Skills, AI Model, Grants, secrets, and timeout as its parent.
@@ -384,14 +384,14 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
       </UL>
       <Callout kind="info" title="Parallel delegation is not a Handoff.">
-        Temporary workers are copies of the same AI employee and return during the current turn. A
-        Handoff delegates durable work to a different AI employee, with its own inbox and status
+        Temporary workers are copies of the same AI Employee and return during the current turn. A
+        Handoff delegates durable work to a different AI Employee, with its own inbox and status
         trail.
       </Callout>
 
       <H2 id="self-serve">Employees manage their own routines</H2>
       <P>
-        You don&apos;t have to click through the editor yourself — every AI employee holds built-in
+        You don&apos;t have to click through the editor yourself — every AI Employee holds built-in
         tools for the full routine lifecycle: <Code>list_routines</Code>,{" "}
         <Code>create_routine</Code>, <Code>update_routine</Code>, and <Code>delete_routine</Code>.
         Ask an employee in chat to set up a weekly report, move it to Fridays, rewrite its brief, or
@@ -699,7 +699,7 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           the whole routine — the escape hatch when you&apos;ve decided to fix the failure by hand.
         </LI>
         <LI>
-          These are operator settings. AI employees managing their own routines through{" "}
+          These are operator settings. AI Employees managing their own routines through{" "}
           <Code>update_routine</Code> cannot change them.
         </LI>
       </UL>

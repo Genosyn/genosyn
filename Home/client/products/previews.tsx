@@ -70,24 +70,24 @@ function Window({ url, children }: { url: string; children: ReactNode }) {
           </span>
         </div>
         <span className="h-4 w-px shrink-0 bg-zinc-200" />
-        <div className="inline-flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-semibold text-zinc-900">
+        <div className="inline-flex min-w-0 items-center gap-1 px-1.5 py-1 text-[10px] font-semibold text-zinc-900">
           <span className="truncate">Northstar Labs</span>
-          <ChevronDown className="h-3 w-3 shrink-0 text-zinc-400" />
+          <ChevronDown className="h-3 w-3 shrink-0 text-zinc-600" />
         </div>
-        <span className="hidden text-zinc-300 sm:inline">/</span>
+        <span className="hidden text-zinc-600 sm:inline">/</span>
         <div className="hidden min-w-0 items-center gap-1.5 sm:flex">
           <span className="h-4 w-4 rounded bg-zinc-200 text-center text-[9px] font-bold leading-4 text-zinc-900">
             G
           </span>
-          <span className="max-w-48 truncate text-[10px] font-medium text-zinc-700">
+          <span className="max-w-48 truncate text-[10px] font-medium text-zinc-800">
             {url.replace("genosyn.com / ", "")}
           </span>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <span className="hidden rounded border border-zinc-200 bg-paper-100 px-1.5 py-0.5 text-[8px] font-medium text-zinc-400 sm:inline">
+          <span className="hidden rounded border border-zinc-200 bg-paper-100 px-1.5 py-0.5 text-[8px] font-medium text-zinc-600 sm:inline">
             ⌘ K
           </span>
-          <span className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-400">
+          <span className="flex h-6 w-6 items-center justify-center text-zinc-600">
             <Bell className="h-3 w-3" />
           </span>
           <span className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-950 text-[8px] font-semibold text-white">
@@ -103,7 +103,7 @@ function Window({ url, children }: { url: string; children: ReactNode }) {
 function Tag({ tone, children }: { tone: string; children: ReactNode }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${tone}`}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold ring-1 ${tone}`}
     >
       {children}
     </span>
@@ -113,7 +113,7 @@ function Tag({ tone, children }: { tone: string; children: ReactNode }) {
 function Avatar({ initials, color }: { initials: string; color: string }) {
   return (
     <span
-      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[10px] font-semibold ${color}`}
+      className={`flex h-7 w-7 shrink-0 items-center justify-center text-[10px] font-semibold ${color}`}
     >
       {initials}
     </span>
@@ -128,20 +128,20 @@ function EmployeesPreview() {
       <div className="grid grid-cols-1 gap-0 md:grid-cols-5">
         <div className="border-b border-zinc-100 p-5 md:col-span-2 md:border-b-0 md:border-r">
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-sm font-semibold text-emerald-700">
+            <span className="flex h-10 w-10 items-center justify-center bg-paper-200 text-sm font-semibold text-zinc-800">
               MF
             </span>
             <div>
               <div className="text-sm font-semibold text-zinc-950">Mira</div>
               <div className="text-xs text-zinc-600">Bookkeeper · AI Employee</div>
             </div>
-            <span className="ml-auto inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+            <span className="ml-auto inline-flex items-center gap-1 bg-signal-500 px-2 py-0.5 text-[10px] font-semibold text-zinc-950 ring-1 ring-signal-600">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-signal-500" />
               Running
             </span>
           </div>
-          <div className="mt-4 rounded-xl border border-zinc-200 bg-paper-100/60 p-3.5 font-mono text-[11.5px] leading-5 text-zinc-800">
-            <div className="flex items-center gap-1.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+          <div className="mt-4 border border-zinc-200 bg-paper-100/60 p-3.5 font-mono text-[11.5px] leading-5 text-zinc-800">
+            <div className="flex items-center gap-1.5 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-600">
               <BookHeart className="h-3 w-3" />
               Soul
             </div>
@@ -155,7 +155,7 @@ function EmployeesPreview() {
             {["reconcile-stripe", "close-the-month", "chase-overdue"].map((s) => (
               <span
                 key={s}
-                className="inline-flex items-center gap-1 rounded-md bg-paper-200 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-700 ring-1 ring-zinc-900/[0.08]"
+                className="inline-flex items-center gap-1 bg-paper-200 px-1.5 py-0.5 font-mono text-[10px] font-medium text-zinc-800 ring-1 ring-zinc-900/[0.08]"
               >
                 <Sparkles className="h-2.5 w-2.5" />
                 {s}
@@ -167,10 +167,10 @@ function EmployeesPreview() {
           <div className="flex items-center gap-2 text-[11px]">
             <CalendarClock className="h-3.5 w-3.5 text-zinc-600" />
             <span className="font-medium text-zinc-800">Reconcile Stripe</span>
-            <span className="font-mono text-[10px] text-zinc-400">0 7 * * *</span>
-            <span className="ml-auto font-mono text-[10px] text-zinc-400">Run #212 · live</span>
+            <span className="font-mono text-[10px] text-zinc-600">0 7 * * *</span>
+            <span className="ml-auto font-mono text-[10px] text-zinc-600">Run #212 · live</span>
           </div>
-          <div className="mt-3 space-y-1.5 rounded-xl border border-night-700 bg-night-950 p-4 font-mono text-[11px] leading-5 text-zinc-300">
+          <div className="mt-3 space-y-1.5 border border-night-700 bg-night-950 p-4 font-mono text-[11px] leading-5 text-zinc-300">
             <div>
               <span className="text-zinc-400">[07:00:02]</span> stripe_list_charges — 42 since
               yesterday
@@ -184,7 +184,7 @@ function EmployeesPreview() {
             </div>
             <div>
               <span className="text-zinc-400">[07:00:31]</span>{" "}
-              <span className="text-emerald-400">✓</span> ledger balanced — 1 charge flagged for
+              <span className="text-paper-50">✓</span> ledger balanced — 1 charge flagged for
               review
             </div>
             <div>
@@ -193,7 +193,7 @@ function EmployeesPreview() {
           </div>
           <div className="mt-3 flex items-center justify-between text-[11px] text-zinc-600">
             <span className="inline-flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+              <CheckCircle2 className="h-3.5 w-3.5 text-zinc-800" />
               211 successful runs · transcript kept for every one
             </span>
             <span className="font-mono text-[10px]">claude · active model</span>
@@ -212,8 +212,8 @@ function WorkspacePreview() {
       <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-2.5 text-[11px]">
         <Hash className="h-3.5 w-3.5 text-zinc-600" />
         <span className="font-medium text-zinc-800">marketing</span>
-        <span className="text-zinc-400">· Launch week comms</span>
-        <span className="ml-auto font-mono text-[10px] text-zinc-400">4 online</span>
+        <span className="text-zinc-600">· Launch week comms</span>
+        <span className="ml-auto font-mono text-[10px] text-zinc-600">4 online</span>
       </div>
       <div className="space-y-4 px-5 py-5">
         <ChatLine
@@ -228,7 +228,7 @@ function WorkspacePreview() {
         />
         <ChatLine
           initials="AB"
-          color="bg-sky-100 text-sky-700"
+          color="bg-paper-200 text-zinc-800"
           name="Alex"
           time="9:13 AM"
           isAI
@@ -240,7 +240,7 @@ function WorkspacePreview() {
           }
           reaction="👍 2"
         />
-        <div className="flex items-center gap-2 pl-9 text-[11px] text-zinc-400">
+        <div className="flex items-center gap-2 pl-9 text-[11px] text-zinc-600">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-paper-100 px-2.5 py-1">
             <span className="flex gap-0.5">
               <span className="h-1 w-1 animate-pulse rounded-full bg-white/40" />
@@ -281,21 +281,21 @@ function ChatLine({
         <div className="flex items-baseline gap-2">
           <span className="text-[12px] font-semibold text-zinc-950">{name}</span>
           {isAI && (
-            <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-900 ring-1 ring-zinc-300">
+            <span className="bg-zinc-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-zinc-900 ring-1 ring-zinc-300">
               AI
             </span>
           )}
-          <span className="text-[11px] text-zinc-400">{time}</span>
+          <span className="text-[11px] text-zinc-600">{time}</span>
         </div>
         <div className="mt-0.5 text-[12.5px] leading-relaxed text-zinc-800">{message}</div>
         {attachment && (
-          <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-paper-100 px-2.5 py-1.5 text-[11px] font-medium text-zinc-700">
+          <div className="mt-1.5 inline-flex items-center gap-1.5 border border-zinc-200 bg-paper-100 px-2.5 py-1.5 text-[11px] font-medium text-zinc-700">
             <Paperclip className="h-3 w-3" />
             {attachment}
           </div>
         )}
         {reaction && (
-          <div className="mt-1.5 inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[10px] text-zinc-700">
+          <div className="mt-1.5 inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[10px] text-zinc-800">
             {reaction}
           </div>
         )}
@@ -327,13 +327,13 @@ function TasksPreview() {
           id: "ENG-42",
           title: "Ship pricing page A/B test",
           who: "SS",
-          color: "bg-emerald-100 text-emerald-700",
+          color: "bg-paper-200 text-zinc-800",
         },
         {
           id: "MKT-7",
           title: "Draft Friday digest",
           who: "AB",
-          color: "bg-sky-100 text-sky-700",
+          color: "bg-paper-200 text-zinc-800",
           isAI: true,
         },
       ],
@@ -346,7 +346,7 @@ function TasksPreview() {
           id: "FIN-19",
           title: "March close checklist",
           who: "MF",
-          color: "bg-amber-100 text-amber-700",
+          color: "bg-signal-500 text-zinc-950",
           isAI: true,
           review: true,
         },
@@ -354,7 +354,7 @@ function TasksPreview() {
           id: "ENG-38",
           title: "Rotate webhook secrets",
           who: "SS",
-          color: "bg-emerald-100 text-emerald-700",
+          color: "bg-paper-200 text-zinc-800",
           review: true,
         },
       ],
@@ -367,7 +367,7 @@ function TasksPreview() {
           id: "MKT-5",
           title: "Q2 newsletter calendar",
           who: "AB",
-          color: "bg-sky-100 text-sky-700",
+          color: "bg-paper-200 text-zinc-800",
           isAI: true,
         },
       ],
@@ -377,23 +377,23 @@ function TasksPreview() {
     <Window url="genosyn.com / tasks / launch-week — board">
       <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-3">
         {cols.map((col) => (
-          <div key={col.label} className="rounded-xl bg-paper-100/70 p-2.5 ring-1 ring-zinc-900/[0.06]">
+          <div key={col.label} className="bg-paper-100/70 p-2.5 ring-1 ring-zinc-900/[0.06]">
             <div className="flex items-center justify-between px-1 pb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
               {col.label}
-              <span className="font-mono text-zinc-400">{col.count}</span>
+              <span className="font-mono text-zinc-600">{col.count}</span>
             </div>
             <div className="space-y-2">
               {col.cards.map((card) => (
                 <div
                   key={card.id}
-                  className="rounded-lg border border-zinc-200 bg-white p-3 shadow-card"
+                  className="border border-zinc-200 bg-white p-3"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-[10px] font-medium text-zinc-400">
+                    <span className="font-mono text-[10px] font-medium text-zinc-600">
                       {card.id}
                     </span>
                     {card.review && (
-                      <Tag tone="bg-amber-50 text-amber-700 ring-amber-200">awaiting review</Tag>
+                      <Tag tone="bg-signal-500 text-zinc-950 ring-signal-600">awaiting review</Tag>
                     )}
                   </div>
                   <div className="mt-1 text-[12.5px] font-medium leading-snug text-zinc-900">
@@ -401,12 +401,12 @@ function TasksPreview() {
                   </div>
                   <div className="mt-2.5 flex items-center justify-between">
                     <span
-                      className={`flex h-5 w-5 items-center justify-center rounded-md text-[8px] font-semibold ${card.color}`}
+                      className={`flex h-5 w-5 items-center justify-center text-[8px] font-semibold ${card.color}`}
                     >
                       {card.who}
                     </span>
                     {card.isAI && (
-                      <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-zinc-900 ring-1 ring-zinc-300">
+                      <span className="bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-zinc-900 ring-1 ring-zinc-300">
                         AI
                       </span>
                     )}
@@ -435,9 +435,9 @@ function BasesPreview() {
     {
       name: "Acme Co.",
       stage: "Won",
-      tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+      tone: "bg-paper-200 text-zinc-800 ring-paper-400",
       owner: "SS",
-      ownerColor: "bg-emerald-100 text-emerald-700",
+      ownerColor: "bg-paper-200 text-zinc-800",
       acv: "$14,400",
     },
     {
@@ -445,23 +445,23 @@ function BasesPreview() {
       stage: "Proposal",
       tone: "bg-zinc-100 text-zinc-900 ring-zinc-300",
       owner: "AB",
-      ownerColor: "bg-sky-100 text-sky-700",
+      ownerColor: "bg-paper-200 text-zinc-800",
       acv: "$32,000",
     },
     {
       name: "Initech",
       stage: "Discovery",
-      tone: "bg-amber-50 text-amber-700 ring-amber-200",
+      tone: "bg-signal-500 text-zinc-950 ring-signal-600",
       owner: "SS",
-      ownerColor: "bg-emerald-100 text-emerald-700",
+      ownerColor: "bg-paper-200 text-zinc-800",
       acv: "$9,600",
     },
     {
       name: "Umbrella",
       stage: "Won",
-      tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+      tone: "bg-paper-200 text-zinc-800 ring-paper-400",
       owner: "AB",
-      ownerColor: "bg-sky-100 text-sky-700",
+      ownerColor: "bg-paper-200 text-zinc-800",
       acv: "$21,000",
     },
   ];
@@ -470,10 +470,10 @@ function BasesPreview() {
       <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-2.5 text-[11px]">
         <Table2 className="h-3.5 w-3.5 text-zinc-600" />
         <span className="font-medium text-zinc-800">Deals</span>
-        <span className="rounded-md bg-paper-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
+        <span className="bg-paper-200 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600">
           view: Pipeline
         </span>
-        <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[10px] text-zinc-400">
+        <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[10px] text-zinc-600">
           filtered · sorted by ACV
         </span>
       </div>
@@ -496,7 +496,7 @@ function BasesPreview() {
                 </td>
                 <td className="px-3 py-2.5">
                   <span
-                    className={`flex h-5 w-5 items-center justify-center rounded-md text-[8px] font-semibold ${r.ownerColor}`}
+                    className={`flex h-5 w-5 items-center justify-center text-[8px] font-semibold ${r.ownerColor}`}
                   >
                     {r.owner}
                   </span>
@@ -525,35 +525,35 @@ function NotesPreview() {
     <Window url="genosyn.com / notes / ops / incident-runbook">
       <div className="grid grid-cols-1 md:grid-cols-3">
         <div className="border-b border-zinc-100 p-4 md:border-b-0 md:border-r">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
             Ops notebook
           </div>
           <ul className="mt-2 space-y-1 text-[12px] text-zinc-700">
             <li className="flex items-center gap-1.5">
-              <StickyNote className="h-3 w-3 text-zinc-400" />
+              <StickyNote className="h-3 w-3 text-zinc-600" />
               Onboarding SOP
             </li>
-            <li className="flex items-center gap-1.5 rounded-md bg-paper-200 px-1.5 py-1 font-medium text-zinc-950">
+            <li className="flex items-center gap-1.5 bg-paper-200 px-1.5 py-1 font-medium text-zinc-950">
               <StickyNote className="h-3 w-3 text-zinc-600" />
               Incident runbook
             </li>
             <li className="flex items-center gap-1.5 pl-4">
-              <StickyNote className="h-3 w-3 text-zinc-400" />
+              <StickyNote className="h-3 w-3 text-zinc-600" />
               Sev-1 checklist
             </li>
             <li className="flex items-center gap-1.5 pl-4">
-              <StickyNote className="h-3 w-3 text-zinc-400" />
+              <StickyNote className="h-3 w-3 text-zinc-600" />
               Postmortem template
             </li>
             <li className="flex items-center gap-1.5">
-              <StickyNote className="h-3 w-3 text-zinc-400" />
+              <StickyNote className="h-3 w-3 text-zinc-600" />
               Vendor contacts
             </li>
           </ul>
         </div>
         <div className="p-5 md:col-span-2">
           <div className="text-lg font-semibold text-zinc-950">🚨 Incident runbook</div>
-          <div className="mt-1 text-[11px] text-zinc-400">
+          <div className="mt-1 text-[11px] text-zinc-600">
             Last edited by <span className="font-medium text-zinc-700">Sam (AI)</span> · 2 hours
             ago · audit-logged
           </div>
@@ -561,7 +561,7 @@ function NotesPreview() {
             <div className="font-semibold text-zinc-950">## First five minutes</div>
             <div className="flex items-start gap-2">
               <span className="mt-0.5 flex h-3.5 w-3.5 items-center justify-center rounded border border-zinc-300 bg-white">
-                <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                <CheckCircle2 className="h-3 w-3 text-zinc-800" />
               </span>
               Page the on-call — Sam watches p99 every 15 min
             </div>
@@ -594,45 +594,45 @@ function ResourcesPreview() {
       icon: Globe,
       label: "stripe.com/docs/billing",
       kind: "URL",
-      tone: "bg-sky-50 text-sky-700 ring-sky-200",
+      tone: "bg-paper-200 text-zinc-800 ring-paper-400",
       meta: "extracted · 41k chars",
     },
     {
       icon: FileText,
       label: "SOC 2 readiness guide.pdf",
       kind: "PDF",
-      tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+      tone: "bg-paper-200 text-zinc-800 ring-paper-400",
       meta: "18 pages",
     },
     {
       icon: Library,
       label: "The Mom Test",
       kind: "EPUB",
-      tone: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-200",
+      tone: "bg-paper-200 text-zinc-800 ring-paper-400",
       meta: "12 chapters",
     },
     {
       icon: Mic,
       label: "All-hands · Q1 retro",
       kind: "Transcript",
-      tone: "bg-amber-50 text-amber-700 ring-amber-200",
+      tone: "bg-signal-500 text-zinc-950 ring-signal-600",
       meta: "48 min",
     },
   ];
   return (
     <Window url="genosyn.com / resources">
       <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-3">
-        <div className="flex flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-paper-100/60 px-3 py-1.5 text-[12px] text-zinc-600">
+        <div className="flex flex-1 items-center gap-2 border border-zinc-200 bg-paper-100/60 px-3 py-1.5 text-[12px] text-zinc-600">
           <Search className="h-3.5 w-3.5" />
           usage-based billing
         </div>
-        <span className="font-mono text-[10px] text-zinc-400">2 matches</span>
+        <span className="font-mono text-[10px] text-zinc-600">2 matches</span>
       </div>
       <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
         {items.map((it) => (
           <div
             key={it.label}
-            className="flex flex-col rounded-xl border border-zinc-200 bg-white p-3 shadow-card"
+            className="flex flex-col border border-zinc-200 bg-white p-3"
           >
             <Tag tone={it.tone}>
               <it.icon className="h-3 w-3" />
@@ -641,7 +641,7 @@ function ResourcesPreview() {
             <div className="mt-2.5 truncate text-[12.5px] font-medium text-zinc-900">
               {it.label}
             </div>
-            <div className="mt-1 text-[10px] text-zinc-400">{it.meta}</div>
+            <div className="mt-1 text-[10px] text-zinc-600">{it.meta}</div>
           </div>
         ))}
       </div>
@@ -664,11 +664,11 @@ function PipelinesPreview() {
       <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-2.5 text-[11px]">
         <Workflow className="h-3.5 w-3.5 text-zinc-600" />
         <span className="font-medium text-zinc-800">stripe-large-charge</span>
-        <Tag tone="bg-emerald-50 text-emerald-700 ring-emerald-200">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        <Tag tone="bg-paper-200 text-zinc-800 ring-paper-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-zinc-950" />
           Live
         </Tag>
-        <span className="ml-auto font-mono text-[10px] text-zinc-400">
+        <span className="ml-auto font-mono text-[10px] text-zinc-600">
           run #88 · completed in 1.2s
         </span>
       </div>
@@ -677,7 +677,7 @@ function PipelinesPreview() {
           icon={Webhook}
           title="Stripe webhook"
           subtitle="Trigger"
-          tone="bg-amber-50 text-amber-700 ring-amber-200"
+          tone="bg-signal-500 text-zinc-950 ring-signal-600"
         />
         <PipelineConnector />
         <PipelineNode
@@ -690,8 +690,8 @@ function PipelinesPreview() {
         <PipelineNode
           icon={Sparkles}
           title="Ask Alex to summarize"
-          subtitle="AI employee"
-          tone="bg-sky-50 text-sky-700 ring-sky-200"
+          subtitle="AI Employee"
+          tone="bg-paper-200 text-zinc-800 ring-paper-400"
         />
         <PipelineConnector />
         <PipelineNode
@@ -721,10 +721,10 @@ function PipelineNode({
   tone: string;
 }) {
   return (
-    <div className="flex min-w-[150px] flex-1 flex-col rounded-xl border border-zinc-200 bg-white px-3 py-2.5 shadow-card">
+    <div className="flex min-w-[150px] flex-1 flex-col border border-zinc-200 bg-white px-3 py-2.5">
       <div className="flex items-center gap-2">
         <span
-          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ring-1 ${tone}`}
+          className={`flex h-6 w-6 shrink-0 items-center justify-center ring-1 ${tone}`}
         >
           <Icon className="h-3.5 w-3.5" />
         </span>
@@ -756,12 +756,12 @@ function MarketingPreview() {
   return (
     <Window url="genosyn.com / approvals">
       <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-5">
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-card sm:col-span-3">
+        <div className="border border-zinc-200 bg-white p-4 sm:col-span-3">
           <div className="flex items-baseline justify-between">
             <div className="text-[11px] font-semibold text-zinc-800">
               Daily pacing check · last 7 days
             </div>
-            <span className="font-mono text-[10px] text-zinc-400">
+            <span className="font-mono text-[10px] text-zinc-600">
               google-ads + meta-ads · Reese (AI)
             </span>
           </div>
@@ -769,13 +769,13 @@ function MarketingPreview() {
             {rows.map((r) => (
               <div
                 key={r.name}
-                className="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-2"
+                className="flex items-center justify-between border border-zinc-100 px-3 py-2"
               >
                 <span className="text-[11px] font-medium text-zinc-900">{r.name}</span>
                 <span className="font-mono text-[10px] tabular-nums text-zinc-600">{r.spend}</span>
                 <span
                   className={`rounded-full px-2 py-0.5 font-mono text-[9px] ${
-                    r.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"
+                    r.ok ? "bg-paper-200 text-zinc-800" : "bg-paper-200 text-zinc-800"
                   }`}
                 >
                   {r.pace} pace
@@ -783,35 +783,35 @@ function MarketingPreview() {
               </div>
             ))}
           </div>
-          <div className="mt-3 rounded-lg bg-night-950 p-3 font-mono text-[10px] leading-4 text-zinc-400">
+          <div className="mt-3 bg-night-950 p-3 font-mono text-[10px] leading-4 text-zinc-400">
             <div className="text-zinc-400">-- journal · 09:02</div>
             <div>
-              Prospecting — PMax pacing 173% → <span className="text-amber-400">paused</span> (never
+              Prospecting — PMax pacing 173% → <span className="text-signal-500">paused</span> (never
               gated). Proposal filed for review.
             </div>
           </div>
         </div>
         <div className="flex flex-col gap-3 sm:col-span-2">
-          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 shadow-card">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+          <div className="border border-signal-600 bg-signal-500/15 p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-950">
               Approval pending
             </div>
             <div className="mt-1 text-[11px] font-medium text-zinc-950">
               Google Ads · budget increase · 45.00 USD
             </div>
-            <div className="mt-0.5 text-[10px] text-zinc-700">
+            <div className="mt-0.5 text-[10px] text-zinc-800">
               Brand — Search: 30.00 → 45.00/day. CPA $18 vs $25 target.
             </div>
             <div className="mt-3 flex gap-2">
-              <span className="rounded-md bg-zinc-950 px-2.5 py-1 text-[10px] font-medium text-white">
+              <span className="bg-zinc-950 px-2.5 py-1 text-[10px] font-medium text-white">
                 Approve
               </span>
-              <span className="rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-[10px] font-medium text-zinc-700">
+              <span className="border border-zinc-300 bg-white px-2.5 py-1 text-[10px] font-medium text-zinc-800">
                 Reject
               </span>
             </div>
           </div>
-          <div className="flex-1 rounded-xl border border-zinc-200 bg-white p-4 shadow-card">
+          <div className="flex-1 border border-zinc-200 bg-white p-4">
             <div className="text-[11px] font-semibold text-zinc-800">Connection caps</div>
             <div className="mt-2 flex flex-col gap-1.5 font-mono text-[10px] text-zinc-600">
               <div className="flex justify-between">
@@ -828,7 +828,7 @@ function MarketingPreview() {
               </div>
               <div className="flex justify-between">
                 <span>kill switch</span>
-                <span className="text-emerald-600">off</span>
+                <span className="text-zinc-800">off</span>
               </div>
             </div>
           </div>
@@ -843,10 +843,10 @@ function ExplorePreview() {
   return (
     <Window url="genosyn.com / explore / dashboards / revenue">
       <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-3">
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-card sm:col-span-2">
+        <div className="border border-zinc-200 bg-white p-4 sm:col-span-2">
           <div className="flex items-baseline justify-between">
             <div className="text-[11px] font-semibold text-zinc-800">MRR by month</div>
-            <span className="font-mono text-[10px] text-zinc-400">postgres · 8 rows</span>
+            <span className="font-mono text-[10px] text-zinc-600">postgres · 8 rows</span>
           </div>
           <div className="mt-4 flex h-28 items-end gap-2">
             {bars.map((h, i) => (
@@ -857,33 +857,33 @@ function ExplorePreview() {
               />
             ))}
           </div>
-          <div className="mt-2 flex justify-between font-mono text-[9px] text-zinc-400">
+          <div className="mt-2 flex justify-between font-mono text-[9px] text-zinc-600">
             <span>Nov</span>
             <span>Jun</span>
           </div>
         </div>
         <div className="flex flex-col gap-3">
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-card">
+          <div className="border border-zinc-200 bg-white p-4">
             <div className="text-[11px] font-semibold text-zinc-800">MRR</div>
             <div className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-zinc-950">
               $48,220
             </div>
-            <div className="mt-0.5 text-[10px] font-medium text-emerald-600">
+            <div className="mt-0.5 text-[10px] font-medium text-zinc-800">
               +8.4% vs last month
             </div>
           </div>
-          <div className="flex-1 rounded-xl border border-night-700 bg-night-950 p-3.5 font-mono text-[10px] leading-4 text-zinc-400">
+          <div className="flex-1 border border-night-700 bg-night-950 p-3.5 font-mono text-[10px] leading-4 text-zinc-400">
             <div className="text-zinc-400">-- saved chart · run by Mira (AI)</div>
             <div>
-              <span className="text-sky-400">select</span> month,{" "}
-              <span className="text-sky-400">sum</span>(mrr)
+              <span className="text-zinc-300">select</span> month,{" "}
+              <span className="text-zinc-300">sum</span>(mrr)
             </div>
             <div>
-              <span className="text-sky-400">from</span> subscriptions
+              <span className="text-zinc-300">from</span> subscriptions
             </div>
             <div>
-              <span className="text-sky-400">group by</span> 1{" "}
-              <span className="text-sky-400">order by</span> 1;
+              <span className="text-zinc-300">group by</span> 1{" "}
+              <span className="text-zinc-300">order by</span> 1;
             </div>
           </div>
         </div>
@@ -909,7 +909,7 @@ function RevenuePreview() {
         name: "Initech",
         amount: "$9,600",
         who: "SS",
-        color: "bg-emerald-100 text-emerald-700",
+        color: "bg-paper-200 text-zinc-800",
       },
     },
     {
@@ -919,7 +919,7 @@ function RevenuePreview() {
         name: "Umbrella",
         amount: "$21,000",
         who: "AB",
-        color: "bg-sky-100 text-sky-700",
+        color: "bg-paper-200 text-zinc-800",
         isAI: true,
       },
     },
@@ -930,7 +930,7 @@ function RevenuePreview() {
         name: "Globex",
         amount: "$32,000",
         who: "AB",
-        color: "bg-sky-100 text-sky-700",
+        color: "bg-paper-200 text-zinc-800",
         isAI: true,
       },
     },
@@ -941,7 +941,7 @@ function RevenuePreview() {
         name: "Acme Co.",
         amount: "$14,400",
         who: "SS",
-        color: "bg-emerald-100 text-emerald-700",
+        color: "bg-paper-200 text-zinc-800",
       },
     },
   ];
@@ -962,7 +962,7 @@ function RevenuePreview() {
     },
     {
       icon: Zap,
-      tone: "bg-amber-50 text-amber-700",
+      tone: "bg-signal-500 text-zinc-950",
       label: "signal · seats +4 on the trial",
       detail: "saved query on cron · fired once for this account",
       time: "9:14",
@@ -976,7 +976,7 @@ function RevenuePreview() {
     },
     {
       icon: TrendingUp,
-      tone: "bg-emerald-50 text-emerald-700",
+      tone: "bg-paper-200 text-zinc-800",
       label: "stage change · Demo → Proposal",
       detail: "weighted at 60% of $32,000",
       time: "9:31",
@@ -988,8 +988,8 @@ function RevenuePreview() {
       <div className="flex items-center gap-2 border-b border-zinc-100 px-5 py-2.5 text-[11px]">
         <TrendingUp className="h-3.5 w-3.5 text-zinc-600" />
         <span className="font-medium text-zinc-800">Deals</span>
-        <Tag tone="bg-emerald-50 text-emerald-700 ring-emerald-200">7 stages</Tag>
-        <span className="ml-auto font-mono text-[10px] text-zinc-400">
+        <Tag tone="bg-paper-200 text-zinc-800 ring-paper-400">7 stages</Tag>
+        <span className="ml-auto font-mono text-[10px] text-zinc-600">
           weighted $128,400 · coverage 3.2x
         </span>
       </div>
@@ -997,12 +997,12 @@ function RevenuePreview() {
         <div className="border-b border-zinc-100 p-5 md:col-span-3 md:border-b-0 md:border-r">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {stages.map((s) => (
-              <div key={s.label} className="rounded-xl bg-paper-100/70 p-2 ring-1 ring-zinc-900/[0.06]">
+              <div key={s.label} className="bg-paper-100/70 p-2 ring-1 ring-zinc-900/[0.06]">
                 <div className="flex items-center justify-between px-1 pb-1.5 text-[9.5px] font-semibold uppercase tracking-wider text-zinc-600">
                   <span className="truncate">{s.label}</span>
-                  <span className="font-mono text-zinc-400">{s.count}</span>
+                  <span className="font-mono text-zinc-600">{s.count}</span>
                 </div>
-                <div className="rounded-lg border border-zinc-200 bg-white p-2.5 shadow-card">
+                <div className="border border-zinc-200 bg-white p-2.5">
                   <div className="truncate text-[12px] font-medium text-zinc-900">
                     {s.deal.name}
                   </div>
@@ -1011,12 +1011,12 @@ function RevenuePreview() {
                   </div>
                   <div className="mt-2 flex items-center justify-between">
                     <span
-                      className={`flex h-5 w-5 items-center justify-center rounded-md text-[8px] font-semibold ${s.deal.color}`}
+                      className={`flex h-5 w-5 items-center justify-center text-[8px] font-semibold ${s.deal.color}`}
                     >
                       {s.deal.who}
                     </span>
                     {s.deal.isAI && (
-                      <span className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-zinc-900 ring-1 ring-zinc-300">
+                      <span className="bg-zinc-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-zinc-900 ring-1 ring-zinc-300">
                         AI
                       </span>
                     )}
@@ -1026,7 +1026,7 @@ function RevenuePreview() {
             ))}
           </div>
           <div className="mt-3 flex items-center gap-2 text-[11px] text-zinc-600">
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+            <CheckCircle2 className="h-3.5 w-3.5 text-zinc-800" />
             <span>Won deals bill from the same database — invoice, payment, journal entry</span>
           </div>
         </div>
@@ -1035,13 +1035,13 @@ function RevenuePreview() {
             <span className="text-[12px] font-semibold text-zinc-950">
               Globex · renewal expansion
             </span>
-            <span className="font-mono text-[10px] text-zinc-400">timeline</span>
+            <span className="font-mono text-[10px] text-zinc-600">timeline</span>
           </div>
           <div className="mt-3 space-y-2">
             {timeline.map((t) => (
               <div key={t.label} className="flex items-start gap-2">
                 <span
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${t.tone}`}
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center ${t.tone}`}
                 >
                   <t.icon className="h-3 w-3" />
                 </span>
@@ -1049,7 +1049,7 @@ function RevenuePreview() {
                   <div className="truncate text-[11.5px] font-medium text-zinc-900">{t.label}</div>
                   <div className="text-[10px] leading-4 text-zinc-600">{t.detail}</div>
                 </div>
-                <span className="font-mono text-[9.5px] text-zinc-400">{t.time}</span>
+                <span className="font-mono text-[9.5px] text-zinc-600">{t.time}</span>
               </div>
             ))}
           </div>
@@ -1060,7 +1060,7 @@ function RevenuePreview() {
           <span key={step} className="inline-flex items-center gap-1.5">
             {i > 0 && <ArrowRight aria-hidden className="h-3 w-3 text-zinc-300" />}
             <span
-              className={`rounded-md px-1.5 py-0.5 font-medium ${
+              className={` px-1.5 py-0.5 font-medium ${
                 i === REVENUE_LOOP.length - 1
                   ? "bg-zinc-950 text-white"
                   : "bg-white text-zinc-700 ring-1 ring-zinc-900/[0.08]"
@@ -1070,7 +1070,7 @@ function RevenuePreview() {
             </span>
           </span>
         ))}
-        <span className="ml-auto font-mono text-[10px] text-zinc-400">one database</span>
+        <span className="ml-auto font-mono text-[10px] text-zinc-600">one database</span>
       </div>
     </Window>
   );
@@ -1097,7 +1097,7 @@ function EmailPreview() {
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-zinc-900">{m.from}</span>
                 {m.tag && (
-                  <span className="rounded-md bg-cyan-50 px-1.5 py-0.5 text-[9px] font-medium text-cyan-700 ring-1 ring-cyan-200">
+                  <span className="bg-paper-200 px-1.5 py-0.5 text-[9px] font-medium text-zinc-800 ring-1 ring-paper-400">
                     {m.tag}
                   </span>
                 )}
@@ -1108,15 +1108,15 @@ function EmailPreview() {
         </div>
         <div className="p-5 md:col-span-3">
           <div className="flex items-center gap-2">
-            <Mail className="h-3.5 w-3.5 text-zinc-400" />
+            <Mail className="h-3.5 w-3.5 text-zinc-600" />
             <span className="text-[12.5px] font-semibold text-zinc-950">Invoice question</span>
-            <span className="ml-auto font-mono text-[10px] text-zinc-400">9:41 AM</span>
+            <span className="ml-auto font-mono text-[10px] text-zinc-600">9:41 AM</span>
           </div>
           <p className="mt-2.5 text-[12px] leading-relaxed text-zinc-700">
             Hi — our March invoice shows two seats but we downgraded to one on the 3rd. Can you take
             a look?
           </p>
-          <div className="mt-4 rounded-xl border border-zinc-300 bg-zinc-100/50 p-3.5">
+          <div className="mt-4 border border-zinc-300 bg-zinc-100/50 p-3.5">
             <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-900">
               <Sparkles className="h-3 w-3" />
               Draft by Mira (AI) · rule: to contains support@
@@ -1126,13 +1126,13 @@ function EmailPreview() {
               I&apos;ve credited the difference ($29) to your April invoice…
             </p>
             <div className="mt-3 flex items-center gap-2">
-              <span className="rounded-lg bg-night-950 px-3 py-1.5 text-[11px] font-semibold text-white">
+              <span className="bg-night-950 px-3 py-1.5 text-[11px] font-semibold text-white">
                 Send
               </span>
-              <span className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-medium text-zinc-700">
+              <span className="border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-medium text-zinc-700">
                 Edit draft
               </span>
-              <span className="ml-auto text-[10px] font-medium text-zinc-400">
+              <span className="ml-auto text-[10px] font-medium text-zinc-600">
                 grant level: draft
               </span>
             </div>
@@ -1151,7 +1151,7 @@ function CustomersPreview() {
       <div className="grid grid-cols-1 md:grid-cols-5">
         <div className="border-b border-zinc-100 p-5 md:col-span-2 md:border-b-0 md:border-r">
           <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-100 text-sm font-semibold text-orange-700">
+            <span className="flex h-10 w-10 items-center justify-center bg-paper-200 text-sm font-semibold text-zinc-800">
               <Building2 className="h-5 w-5" />
             </span>
             <div>
@@ -1173,7 +1173,7 @@ function CustomersPreview() {
               <dd className="font-medium tabular-nums text-zinc-950">$38,800</dd>
             </div>
           </dl>
-          <div className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-paper-100 px-2.5 py-1.5 text-[11px] font-medium text-zinc-700">
+          <div className="mt-4 inline-flex items-center gap-1.5 border border-zinc-200 bg-paper-100 px-2.5 py-1.5 text-[11px] font-medium text-zinc-700">
             <FileText className="h-3 w-3" />
             MSA — signed Mar 2025
           </div>
@@ -1181,7 +1181,7 @@ function CustomersPreview() {
         <div className="p-5 md:col-span-3">
           <div className="flex items-center justify-between text-[11px]">
             <span className="font-semibold text-zinc-800">Statement · year to date</span>
-            <span className="font-mono text-[10px] text-zinc-400">PDF ↓</span>
+            <span className="font-mono text-[10px] text-zinc-600">PDF ↓</span>
           </div>
           <div className="mt-3 space-y-1.5 text-[12px]">
             {[
@@ -1191,12 +1191,12 @@ function CustomersPreview() {
             ].map((row) => (
               <div
                 key={row.label + row.date}
-                className="flex items-center justify-between rounded-lg border border-zinc-100 bg-white px-3 py-2"
+                className="flex items-center justify-between border border-zinc-100 bg-white px-3 py-2"
               >
                 <span className="font-medium text-zinc-800">{row.label}</span>
-                <span className="text-[10px] text-zinc-400">{row.date}</span>
+                <span className="text-[10px] text-zinc-600">{row.date}</span>
                 <span
-                  className={`tabular-nums font-medium ${row.credit ? "text-emerald-600" : "text-zinc-900"}`}
+                  className={`tabular-nums font-medium ${row.credit ? "text-zinc-800" : "text-zinc-900"}`}
                 >
                   {row.credit ? "−" : ""}
                   {row.amt}
@@ -1206,13 +1206,13 @@ function CustomersPreview() {
           </div>
           <div className="mt-3 grid grid-cols-5 gap-1.5 text-center">
             {[
-              { label: "current", amt: "$1.2k", tone: "bg-emerald-50 text-emerald-700" },
-              { label: "1–30", amt: "$1.2k", tone: "bg-amber-50 text-amber-700" },
-              { label: "31–60", amt: "—", tone: "bg-paper-100 text-zinc-400" },
-              { label: "61–90", amt: "—", tone: "bg-paper-100 text-zinc-400" },
-              { label: "90+", amt: "—", tone: "bg-paper-100 text-zinc-400" },
+              { label: "current", amt: "$1.2k", tone: "bg-paper-200 text-zinc-800" },
+              { label: "1–30", amt: "$1.2k", tone: "bg-signal-500 text-zinc-950" },
+              { label: "31–60", amt: "—", tone: "bg-paper-100 text-zinc-600" },
+              { label: "61–90", amt: "—", tone: "bg-paper-100 text-zinc-600" },
+              { label: "90+", amt: "—", tone: "bg-paper-100 text-zinc-600" },
             ].map((b) => (
-              <div key={b.label} className={`rounded-lg px-1 py-1.5 ${b.tone}`}>
+              <div key={b.label} className={` px-1 py-1.5 ${b.tone}`}>
                 <div className="text-[9px] font-semibold uppercase tracking-wide">{b.label}</div>
                 <div className="text-[11px] font-semibold tabular-nums">{b.amt}</div>
               </div>
@@ -1233,7 +1233,7 @@ function FinancePreview() {
         <div className="border-b border-zinc-100 p-5 md:border-b-0 md:border-r">
           <div className="flex items-center justify-between">
             <span className="text-[12.5px] font-semibold text-zinc-950">ACME-CORP-INV-0007</span>
-            <Tag tone="bg-emerald-50 text-emerald-700 ring-emerald-200">Paid</Tag>
+            <Tag tone="bg-paper-200 text-zinc-800 ring-paper-400">Paid</Tag>
           </div>
           <div className="mt-3 space-y-1.5 text-[12px]">
             <div className="flex justify-between text-zinc-700">
@@ -1253,7 +1253,7 @@ function FinancePreview() {
               <span className="tabular-nums">$1,440.00</span>
             </div>
           </div>
-          <div className="mt-3 flex items-center gap-2 text-[10px] text-zinc-400">
+          <div className="mt-3 flex items-center gap-2 text-[10px] text-zinc-600">
             <Landmark className="h-3 w-3" />
             recurring · every month on the 1st · auto-issue + email PDF
           </div>
@@ -1269,7 +1269,7 @@ function FinancePreview() {
             ].map((l) => (
               <div
                 key={l.acct}
-                className="flex items-center justify-between rounded-lg border border-zinc-100 bg-paper-100/60 px-3 py-2"
+                className="flex items-center justify-between border border-zinc-100 bg-paper-100/60 px-3 py-2"
               >
                 <span className="text-zinc-800">{l.acct}</span>
                 <span className="w-20 text-right tabular-nums text-zinc-950">{l.dr}</span>
@@ -1278,11 +1278,11 @@ function FinancePreview() {
             ))}
           </div>
           <div className="mt-3 flex items-center justify-between text-[11px]">
-            <span className="inline-flex items-center gap-1.5 text-emerald-600">
+            <span className="inline-flex items-center gap-1.5 text-zinc-800">
               <CheckCircle2 className="h-3.5 w-3.5" />
               Ledger balanced
             </span>
-            <span className="font-mono text-[10px] text-zinc-400">
+            <span className="font-mono text-[10px] text-zinc-600">
               trial balance ✓ · period open
             </span>
           </div>
@@ -1290,7 +1290,7 @@ function FinancePreview() {
             {["P&L", "Balance sheet", "Cash flow"].map((r) => (
               <span
                 key={r}
-                className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 font-medium text-zinc-700"
+                className="border border-zinc-200 bg-white px-2 py-1.5 font-medium text-zinc-700"
               >
                 {r}
               </span>
@@ -1309,7 +1309,7 @@ function CodePreview() {
     <Window url="genosyn.com / code / api-server">
       <div className="grid grid-cols-1 md:grid-cols-5">
         <div className="border-b border-zinc-100 p-4 md:col-span-2 md:border-b-0 md:border-r">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
             Repositories
           </div>
           <div className="mt-2 space-y-2">
@@ -1317,12 +1317,12 @@ function CodePreview() {
               {
                 name: "api-server",
                 grant: "work locally",
-                tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+                tone: "bg-paper-200 text-zinc-800 ring-paper-400",
               },
               {
                 name: "marketing-site",
                 grant: "work locally",
-                tone: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+                tone: "bg-paper-200 text-zinc-800 ring-paper-400",
               },
               {
                 name: "infra",
@@ -1332,23 +1332,23 @@ function CodePreview() {
             ].map((r) => (
               <div
                 key={r.name}
-                className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2"
+                className="flex items-center justify-between border border-zinc-200 bg-white px-3 py-2"
               >
                 <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-zinc-800">
-                  <GitBranch className="h-3 w-3 text-zinc-400" />
+                  <GitBranch className="h-3 w-3 text-zinc-600" />
                   {r.name}
                 </span>
                 <Tag tone={r.tone}>{r.grant}</Tag>
               </div>
             ))}
           </div>
-          <div className="mt-3 flex items-center gap-1.5 text-[10px] text-zinc-400">
+          <div className="mt-3 flex items-center gap-1.5 text-[10px] text-zinc-600">
             <Star className="h-3 w-3" />
             granted to Sam (AI) · SSH deploy key, encrypted
           </div>
         </div>
         <div className="p-4 md:col-span-3">
-          <div className="rounded-xl bg-night-950 p-4 font-mono text-[11px] leading-5">
+          <div className="bg-night-950 p-4 font-mono text-[11px] leading-5">
             <div className="flex items-center gap-1.5 pb-2 text-[10px] uppercase tracking-widest text-zinc-400">
               <Terminal className="h-3 w-3" />
               sam@genosyn · code-repos/api-server
@@ -1361,13 +1361,13 @@ function CodePreview() {
               [fix/rate-limit-headers 3f2a91c] 2 files changed, 18 insertions(+)
             </div>
             <div className="text-zinc-400">$ git status --short --branch</div>
-            <div className="text-emerald-400">✓ local commit ready for governed publishing</div>
+            <div className="text-paper-50">✓ local commit ready for governed publishing</div>
           </div>
           <div className="mt-3 flex items-center gap-2 text-[11px] text-zinc-600">
             <GitCommitHorizontal className="h-3.5 w-3.5" />
             <span>
               committed as{" "}
-              <span className="font-mono text-[10px] text-zinc-700">
+              <span className="font-mono text-[10px] text-zinc-800">
                 Sam &lt;sam@genosyn.local&gt;
               </span>{" "}
               · checkout persists between Runs

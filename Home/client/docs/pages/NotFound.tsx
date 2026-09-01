@@ -25,7 +25,7 @@ export function NotFound() {
           <li key={l.href}>
             <Link
               href={l.href}
-              className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-950 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-400 hover:shadow-lift"
+              className="flex items-center justify-between border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-950 transition hover:border-zinc-400 hover:"
             >
               {l.label}
               <ArrowRight className="h-3.5 w-3.5 text-zinc-500" />

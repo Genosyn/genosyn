@@ -1,8 +1,7 @@
-import { ArrowRight, Github } from "lucide-react";
 import { GITHUB_URL, ROADMAP_URL } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
-import { Container, Section } from "@/sections/Kit";
+import { ActionStrip, Band, Container, Display, Field, Lede, Note, Rail, Sheet } from "@/sections/Kit";
 
 const ROLE_LINKS = [
   ["AI SDR", "/roles/sdr"],
@@ -32,78 +31,112 @@ const RESOURCE_LINKS = [
 ] as const;
 
 /**
- * The closing call to action: the darkest element on the site.
+ * The closing band: install, then the colophon.
  *
- * Everything above it is white paper and hairlines. On a black-and-white
- * page the strongest possible ending is not a colour field but the absence of
- * one — a near-black slab that reads as an invitation because nothing else on
- * the page has that much weight.
+ * What used to be here was a near-black rounded slab with a dot pattern, a
+ * white blur orb and an indigo blur orb, centred text and two pill buttons —
+ * copy-pasted verbatim onto three different pages. It is replaced by the two
+ * things a reader at the bottom of this page actually wants: the command, and
+ * some evidence a person made this.
+ *
+ * The sheet number is a prop with an unnumbered default. This band is shared
+ * by the landing page, both index pages, and every product and role page, and
+ * each of those has a different number of bands above it — hard-coding
+ * "09 / Install" meant a role page counted 01, 02, 03, 04, 05, 06 and then
+ * jumped to 09. A page that knows its own sequence passes its number; a page
+ * that does not gets a bare label, which is better than a wrong number.
+ *
+ * It is deliberately NOT a dark band. There is exactly one tone change on the
+ * landing page and it belongs to the night shift, which is the section
+ * literally about work happening in the dark. Spending the same effect again
+ * on the closing CTA is what made the old page read as a sequence of
+ * interchangeable slabs, and it costs the night band the thing that made it
+ * worth looking at.
  */
-export function InstallCta() {
+export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
   return (
-    <Section divide={false}>
-      <Container wide flush className="py-16 sm:py-20">
-        <div className="on-night relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-night-900 to-night-950 px-6 py-14 text-center shadow-raise sm:px-12 sm:py-20">
-          <div
-            aria-hidden
-            className="marketing-dots pointer-events-none absolute inset-0 opacity-15"
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -top-24 right-0 h-80 w-80 rounded-full bg-white/[0.07] blur-3xl"
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -bottom-28 -left-20 h-80 w-80 rounded-full bg-indigo-500/15 blur-3xl"
-          />
-          <div className="relative mx-auto max-w-2xl">
-            <h2 className="text-balance text-[clamp(2rem,4.4vw,3.25rem)] font-semibold leading-[1.04] tracking-[-0.04em] text-white">
-              Build an autonomous company today.
-            </h2>
-            <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-white/85">
-              Install Genosyn, choose an AI Model, write the first role, and put it on a schedule.
-              Tomorrow morning, one job runs without you. The company grows from there.
-            </p>
-            <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <a
-                href="/#quickstart"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-zinc-950 shadow-lg transition duration-200 hover:-translate-y-0.5 hover:bg-paper-100 sm:w-auto"
-              >
-                Install Genosyn
-                <ArrowRight aria-hidden className="h-4 w-4" />
-              </a>
-              <a
-                href={GITHUB_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/40 bg-white/10 px-6 py-3.5 text-sm font-semibold text-white backdrop-blur transition duration-200 hover:-translate-y-0.5 hover:bg-white/20 sm:w-auto"
-              >
-                <Github aria-hidden className="h-4 w-4" />
-                Star on GitHub
-                <span className="sr-only">{"(opens in a new tab)"}</span>
-              </a>
+    <Band id="install" tone="raised" pad="l">
+      <Container>
+        <Rail sheet={sheet} fields={["Apache-2.0", `v${__APP_VERSION__}`]}>
+          <Display as="h2" className="max-w-[16ch]">
+            Tomorrow one job runs without you.
+          </Display>
+
+          <Lede className="mt-7">
+            Install Genosyn, register an AI Model, write one role, and put it on a schedule. The
+            company grows from there.
+          </Lede>
+
+          <div className="mt-10 max-w-[34rem]">
+            <ActionStrip href="/docs/install" trailing="Guide">
+              Install on your own hardware
+            </ActionStrip>
+            <ActionStrip href={GITHUB_URL} external trailing="Source" className="-mt-px">
+              Read every line on GitHub
+            </ActionStrip>
+          </div>
+        </Rail>
+      </Container>
+    </Band>
+  );
+}
+
+/**
+ * The colophon.
+ *
+ * The audit that drove this revamp found four instances of "we" against
+ * eighty-two of "you": the old site was written entirely at a reader by
+ * nobody in particular, which is a large part of why it read as generated.
+ * This is the one place the people who make it speak, and the AI-disclosure
+ * that used to sit in six-point grey at the very bottom of the page is
+ * promoted into it, at reading size, because burying that notice was the least
+ * honest thing on the site.
+ *
+ * It is set in the note face — italic Newsreader — which appears here, on
+ * figure captions and on margin notes, and nowhere else. That is deliberate:
+ * the one voice on the site with a different skeleton is the human one.
+ */
+export function Colophon({ sheet = "Colophon" }: { sheet?: string } = {}) {
+  return (
+    <Band tone="paper" pad="m">
+      <Container>
+        <Rail sheet={sheet} fields={[`v${__APP_VERSION__}`, "Apache-2.0"]}>
+          <div className="max-w-[54ch]">
+            <Note className="text-[1.25rem] leading-[1.65] text-zinc-800">
+              We build Genosyn in the open, and we run our own company on it, which is the only
+              reason we are willing to make the claim on this page. The Tuesday drawn above is a
+              sample rather than a recording. The numbers in it are the shape of a real day on a
+              small roster, not a log we exported.
+            </Note>
+            <Note className="mt-5 text-[1.0625rem] leading-[1.7] text-zinc-700">
+              Some parts of this software are written with AI assistance, and so are parts of this
+              site. It is open source and provided without warranty, so you can check any of it.
+              What is still not good enough: the roster ships eight worked roles and the rest are
+              yours to write, and self-hosted upgrades still want a human watching the first time.
+            </Note>
+
+            <div className="mt-8 flex flex-wrap items-baseline gap-x-4 gap-y-2">
+              <Sheet>HackerBay, Inc.</Sheet>
+              <Field>{`GENOSYN v${__APP_VERSION__}`}</Field>
+              <Field>{`© ${__BUILD_YEAR__}`}</Field>
             </div>
           </div>
-        </div>
+        </Rail>
       </Container>
-    </Section>
+    </Band>
   );
 }
 
 export function Footer() {
   return (
-    <footer className="border-t border-zinc-200 bg-paper-200">
-      <div className="mx-auto max-w-[88rem] px-5 pb-10 pt-14 sm:px-8 sm:pt-16">
+    <footer className="border-t border-paper-400 bg-paper-200">
+      <Container className="pt-14 pb-10">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
           <div>
-            <Logo className="h-7 w-auto text-zinc-950" />
-            <p className="mt-5 max-w-sm text-sm leading-6 text-zinc-700">
-              The open-source, self-hostable operating system for autonomous companies.
+            <Logo className="text-[15px] text-zinc-950" />
+            <p className="t-body mt-5 max-w-sm text-[0.9375rem] leading-[1.7] text-zinc-700">
+              Open source, self-hosted software for running a company with AI Employees.
             </p>
-            <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-zinc-700 shadow-card">
-              <span aria-hidden className="preview-live h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              Apache 2.0 licensed · v{__APP_VERSION__}
-            </div>
           </div>
 
           <FooterColumn title="Roles" links={ROLE_LINKS} />
@@ -111,55 +144,35 @@ export function Footer() {
           <FooterColumn title="Resources" links={RESOURCE_LINKS} />
 
           <nav aria-label="Project">
-            <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-700">Project</div>
-            <ul className="mt-5 space-y-3 text-sm">
+            <Sheet>Project</Sheet>
+            <ul className="mt-5 space-y-3">
               <li>
-                <a
-                  href={GITHUB_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-zinc-700 transition hover:text-zinc-950"
-                >
+                <FooterLink href={GITHUB_URL} external>
                   GitHub
-                </a>
+                </FooterLink>
               </li>
               <li>
-                <a
-                  href={ROADMAP_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-zinc-700 transition hover:text-zinc-950"
-                >
+                <FooterLink href={ROADMAP_URL} external>
                   Roadmap
-                </a>
+                </FooterLink>
               </li>
               <li>
-                <a
-                  href={`${GITHUB_URL}/issues`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-zinc-700 transition hover:text-zinc-950"
-                >
+                <FooterLink href={`${GITHUB_URL}/issues`} external>
                   Issues
-                </a>
+                </FooterLink>
               </li>
               <li>
-                <a href="/install.sh" className="text-zinc-700 transition hover:text-zinc-950">
-                  install.sh
-                </a>
+                <FooterLink href="/install.sh">install.sh</FooterLink>
               </li>
             </ul>
           </nav>
         </div>
 
-        <div className="mt-14 flex flex-col gap-4 border-t border-zinc-200 pt-6 text-[11px] leading-5 text-zinc-700 sm:flex-row sm:items-center sm:justify-between">
-          <span>© {__BUILD_YEAR__} HackerBay, Inc. · Built in the open.</span>
-          <span className="max-w-2xl sm:text-right">
-            Some parts of this software are AI generated. Use at your own risk. Open source and
-            provided without warranty.
-          </span>
+        <div className="mt-14 flex flex-col gap-3 border-t border-paper-300 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <Field>{`© ${__BUILD_YEAR__} HACKERBAY, INC.`}</Field>
+          <Field>BUILT IN THE OPEN</Field>
         </div>
-      </div>
+      </Container>
     </footer>
   );
 }
@@ -173,16 +186,40 @@ function FooterColumn({
 }) {
   return (
     <nav aria-label={title}>
-      <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-700">{title}</div>
-      <ul className="mt-5 space-y-3 text-sm">
+      <Sheet>{title}</Sheet>
+      <ul className="mt-5 space-y-3">
         {links.map(([label, href]) => (
           <li key={href}>
-            <Link href={href} className="text-zinc-700 transition hover:text-zinc-950">
-              {label}
-            </Link>
+            <FooterLink href={href}>{label}</FooterLink>
           </li>
         ))}
       </ul>
     </nav>
+  );
+}
+
+function FooterLink({
+  href,
+  external,
+  children,
+}: {
+  href: string;
+  external?: boolean;
+  children: React.ReactNode;
+}) {
+  const className =
+    "t-body text-[0.9375rem] text-zinc-700 transition-colors hover:text-zinc-950";
+  if (external) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className={className}>
+        {children}
+        <span className="sr-only">{"(opens in a new tab)"}</span>
+      </a>
+    );
+  }
+  return (
+    <Link href={href} className={className}>
+      {children}
+    </Link>
   );
 }

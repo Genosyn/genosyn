@@ -1,86 +1,135 @@
-import {
-  Activity,
-  Bell,
-  Bot,
-  CheckCircle2,
-  ChevronDown,
-  CircleDollarSign,
-  Clock3,
-  Home,
-  ListChecks,
-  Mail,
-  MessageSquare,
-  ShieldCheck,
-  Sparkles,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
+import type { ReactNode } from "react";
 import { Logo, LogoMark } from "@/components/Logo";
+import { Mark } from "@/components/Marks";
+import { StateTag } from "@/sections/Kit";
 
-const NAV_ITEMS = [
-  { label: "Home", icon: Home, active: true },
-  { label: "Workspace", icon: MessageSquare },
-  { label: "AI Employees", icon: Bot },
-  { label: "Routines", icon: Clock3 },
-  { label: "Tasks", icon: ListChecks },
-  { label: "Revenue", icon: CircleDollarSign },
-  { label: "Email", icon: Mail },
+/**
+ * A mock of the product dashboard — Northstar Labs at 09:31 on the Tuesday the
+ * board upstairs draws.
+ *
+ * It is a picture, not a UI: the whole tree is `aria-hidden` behind one
+ * `sr-only` sentence, the same way ProductPrototype handles its own chrome.
+ * Without that, the invented navigation and copy get read out between the
+ * band's real links — and the mock's own landmarks (it used to render a nested
+ * `<main>`, which `tests/catalogue.test.ts` now forbids) collide with the
+ * page's.
+ *
+ * Three things changed with the revamp, and the reasons are worth keeping:
+ *
+ * 1. **It is no longer the hero.** The Board is. A screenshot of a dashboard
+ *    is the one asset every competitor also has, so it stopped being the first
+ *    claim and became the evidence for a later one: it appears exactly once,
+ *    in the product band, mounted on a `Plate` as Fig. 1. Nothing here draws
+ *    its own frame, caption or shadow — the plate does that.
+ *
+ * 2. **The pastels are gone.** It carried emerald, pink, violet and amber
+ *    icon tiles, a violet "live" dot and a green health pill, none of which
+ *    encoded anything: three different hues meant three different employees,
+ *    which is decoration wearing a state machine's clothes. The mock now says
+ *    what the rest of the site says — neutral for work that ran, and signal
+ *    amber for the two Decisions and one Approval waiting on a person, which
+ *    is the only thing on this screen a human has to touch.
+ *
+ * 3. **It keeps its own miniature type scale**, in `.t-*` faces, rather than
+ *    borrowing the marketing ramp. A product UI at 11px is not a section
+ *    heading at 40px scaled down, and pretending otherwise is what made the
+ *    old mock read as a slide rather than as software. `StateTag` is the one
+ *    Kit primitive it does use, because a Decision has to look identical here
+ *    and on the board or the vocabulary is not real.
+ */
+
+const NAV = [
+  { label: "Home", active: true },
+  { label: "Workspace" },
+  { label: "AI Employees" },
+  { label: "Routines" },
+  { label: "Tasks" },
+  { label: "Revenue" },
+  { label: "Finance" },
+  { label: "Repositories" },
 ];
 
-const ACTIVITY = [
+const ROSTER = [
+  { initials: "MF", name: "Mira" },
+  { initials: "AB", name: "Alex" },
+  { initials: "SS", name: "Sam" },
+];
+
+/** The amber cell is first because it is the only one that needs a person. */
+const STATS = [
+  { value: "3", label: "Waiting for you", human: true },
+  { value: "18", label: "Runs today", human: false },
+  { value: "7", label: "AI Employees", human: false },
+  { value: "0", label: "Standdowns", human: false },
+];
+
+const RUNS = [
   {
-    initials: "MF",
-    color: "bg-emerald-100 text-emerald-700 ring-emerald-200",
-    dot: "bg-emerald-500",
+    at: "04:05",
     name: "Mira",
-    action: "reconciled 42 payments",
-    meta: "Finance · 2m ago",
-    status: "Complete",
+    action: "reconciled 42 Stripe payments",
+    meta: "Finance · Complete",
   },
   {
-    initials: "AB",
-    color: "bg-pink-100 text-pink-700 ring-pink-200",
-    dot: "bg-pink-500",
+    at: "07:12",
     name: "Alex",
-    action: "prepared the launch digest",
-    meta: "Marketing · 8m ago",
-    status: "Review",
+    action: "drafted the launch digest",
+    meta: "Marketing · Complete",
   },
   {
-    initials: "SS",
-    color: "bg-violet-100 text-violet-700 ring-violet-200",
-    dot: "bg-violet-500",
+    at: "08:15",
     name: "Sam",
-    action: "opened a reliability fix",
-    meta: "Repositories · 14m ago",
-    status: "Running",
+    action: "opened a fix for the flaky checkout test",
+    meta: "Repositories · Running",
   },
 ];
 
 /**
- * A mock of the product dashboard, used as the landing hero's visual. It is a
- * picture, not a UI: the whole tree is `aria-hidden` behind one `sr-only`
- * sentence, the same way ProductPrototype handles its own chrome. Without that
- * the invented navigation and copy get read out between the hero CTAs and the
- * next section — and the mock's own landmarks (it used to render a nested
- * `<main>`) collide with the page's real ones.
- *
- * It renders at the hero's full container width now, so there is no longer a
- * `compact` variant hiding the activity feed.
+ * Two Decisions and one Approval, and the split is not cosmetic. Mira and Sam
+ * each stopped and wrote a question with its own options; nothing has happened
+ * yet and answering one performs no side effect. Alex already attempted the
+ * publish and the system held it, which is why that row is the Approval and
+ * why it is the only one phrased as an action rather than a question.
  */
+const WAITING = [
+  {
+    state: "decision" as const,
+    word: "Decision",
+    at: "10:40",
+    title: "Write off a £42 discrepancy, or chase it?",
+    meta: "Mira · Finance",
+  },
+  {
+    state: "approval" as const,
+    word: "Approval",
+    at: "13:10",
+    title: "Publish the pricing post",
+    meta: "Alex · Marketing",
+  },
+  {
+    state: "decision" as const,
+    word: "Decision",
+    at: "14:05",
+    title: "Rebase the fix, or reopen the issue?",
+    meta: "Sam · Repositories",
+  },
+];
+
 export function CompanyPreview() {
   return (
-    <div className="preview-enter relative mx-auto select-none">
+    <div className="select-none">
+      {/* The one sentence a screen reader gets, and it has to describe THIS
+          screen. The version it replaces was written for the old mock: it
+          announced "scheduled Routines", a panel this no longer draws, and
+          folded the two Decisions into "pending approvals" — which is the one
+          conflation AGENTS.md §3 exists to prevent. */}
       <span className="sr-only">
-        A Genosyn workspace showing pending approvals, scheduled Routines, and the AI Employees on
-        duty at an example company.
+        Northstar Labs in Genosyn at 09:31: eighteen Runs finished since midnight, two Decisions and
+        one Approval waiting for an answer, and three AI Employees on duty.
       </span>
-      <div
-        aria-hidden
-        className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-raise ring-1 ring-white/80"
-      >
+      <div aria-hidden className="border border-paper-400 bg-paper-50">
         <PreviewHeader />
-        <div className="grid min-h-[31rem] md:grid-cols-[13rem_minmax(0,1fr)]">
+        <div className="grid min-h-[24rem] md:grid-cols-[12.5rem_minmax(0,1fr)]">
           <PreviewSidebar />
           <PreviewMain />
         </div>
@@ -91,238 +140,155 @@ export function CompanyPreview() {
 
 function PreviewHeader() {
   return (
-    <div className="flex h-14 items-center gap-2 border-b border-zinc-200 bg-white px-3 sm:gap-3 sm:px-4">
-      <LogoMark className="h-7 w-7 text-zinc-950 sm:hidden" />
-      <Logo className="hidden h-7 w-auto text-zinc-950 sm:block" />
-      <span className="h-5 w-px bg-zinc-200" />
-      <span className="inline-flex min-w-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-zinc-900">
-        <span className="truncate">Northstar Labs</span>
-        <ChevronDown className="h-3 w-3 text-zinc-600" />
+    <div className="flex h-12 items-center gap-2.5 border-b border-paper-400 bg-paper-100 px-3 sm:gap-3 sm:px-4">
+      <LogoMark className="h-5 w-5 shrink-0 text-zinc-950 sm:hidden" />
+      <Logo className="hidden shrink-0 text-[12px] text-zinc-950 sm:inline-flex" />
+      <span className="h-4 w-px shrink-0 bg-paper-300" />
+      <span className="t-cond min-w-0 truncate text-[12px] uppercase tracking-field text-zinc-950">
+        Northstar Labs
       </span>
-      <span className="hidden text-zinc-300 sm:inline">/</span>
-      <span className="hidden text-xs font-medium text-zinc-600 sm:inline">Home</span>
-      <div className="ml-auto flex items-center gap-2">
-        <span className="hidden rounded border border-zinc-900/10 bg-paper-100 px-1.5 py-0.5 font-mono text-[9px] font-medium text-zinc-600 sm:inline">
-          ⌘ K
-        </span>
-        <span className="flex h-7 w-7 items-center justify-center rounded-md text-zinc-600">
-          <Bell className="h-3.5 w-3.5" />
-        </span>
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-zinc-950 text-[9px] font-bold text-white">
-          ND
-        </span>
-      </div>
+      <span className="t-cond hidden text-[12px] uppercase tracking-field text-zinc-600 sm:inline">
+        / Home
+      </span>
+      <span className="t-cond ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-[10px] text-paper-50">
+        ND
+      </span>
     </div>
   );
 }
 
 function PreviewSidebar() {
   return (
-    <div className="hidden border-r border-zinc-200 bg-paper-100 p-3 md:block">
-      <div className="px-2 pb-2 pt-1 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+    <div className="hidden border-r border-paper-400 bg-paper-100 p-3 md:block">
+      <div className="t-cond px-1 pb-2 text-[10px] uppercase tracking-field text-zinc-600">
         Company
       </div>
-      <div className="space-y-0.5">
-        {NAV_ITEMS.map((item) => (
-          <div
-            key={item.label}
-            className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[11px] font-medium ${
-              item.active
-                ? "bg-zinc-950 text-white"
-                : "text-zinc-700"
-            }`}
-          >
-            <item.icon className="h-3.5 w-3.5" />
-            {item.label}
-          </div>
-        ))}
-      </div>
 
-      <div className="mt-6 px-2 pb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-zinc-600">
+      {NAV.map((item) => (
+        <div
+          key={item.label}
+          className={`t-body -mt-px flex items-center border-y px-2 py-[0.4rem] text-[12px] leading-4 ${
+            item.active
+              ? "border-zinc-950 bg-zinc-950 text-paper-50"
+              : "border-paper-300 text-zinc-700"
+          }`}
+        >
+          {item.label}
+        </div>
+      ))}
+
+      <div className="t-cond mt-5 px-1 pb-2 text-[10px] uppercase tracking-field text-zinc-600">
         On duty
       </div>
-      <div className="space-y-2 px-1">
-        {ACTIVITY.map((item, index) => (
-          <div key={item.name} className="flex items-center gap-2">
-            <span
-              className={`flex h-6 w-6 items-center justify-center rounded-lg text-[8px] font-bold ring-1 ring-inset ${item.color}`}
-            >
-              {item.initials}
-            </span>
-            <span className="text-[10px] font-medium text-zinc-700">{item.name}</span>
-            <span
-              className={`ml-auto h-1.5 w-1.5 rounded-full ${
-                index === 2 ? "preview-live bg-violet-500" : "bg-emerald-500"
-              }`}
-            />
-          </div>
-        ))}
-      </div>
+      {ROSTER.map((member) => (
+        <div key={member.name} className="flex items-center gap-2 px-1 py-1.5">
+          {/* The avatars stay circular. tailwind.config.ts keeps
+              `borderRadius.full` for exactly this: the mocks are pictures of a
+              real UI and flattening a real circle is a lie about it. */}
+          <span className="t-cond flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-paper-200 text-[9px] text-zinc-800 ring-1 ring-inset ring-paper-400">
+            {member.initials}
+          </span>
+          <span className="t-body min-w-0 truncate text-[12px] text-zinc-700">{member.name}</span>
+          <Mark state="run" className="ml-auto h-2.5 w-2.5 text-zinc-600" />
+        </div>
+      ))}
     </div>
   );
 }
 
 function PreviewMain() {
   return (
-    <div className="min-w-0 bg-paper-100 px-4 py-5 sm:px-6 sm:py-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="text-lg font-semibold tracking-[-0.02em] text-zinc-950">
-            Good morning, Nawaz
-          </div>
-          <div className="mt-1 text-[11px] text-zinc-600">
-            Here&apos;s what needs your attention at Northstar Labs.
-          </div>
-        </div>
-        <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
-          <span className="preview-live h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          All systems healthy
-        </div>
+    <div className="min-w-0 px-4 py-5 sm:px-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <span className="t-display text-[1.0625rem] leading-tight text-zinc-950">
+          Good morning, Nawaz
+        </span>
+        <span className="t-data text-[11px] leading-4 text-zinc-600">TUE 09:31</span>
       </div>
+      <p className="t-body mt-1.5 text-[12px] leading-5 text-zinc-700">
+        Eighteen Runs finished before you signed in. Three need an answer.
+      </p>
 
-      <div className="mt-5 grid grid-cols-2 gap-2.5 xl:grid-cols-4">
-        <Stat icon={ShieldCheck} value="3" label="Pending approvals" accent="amber" />
-        <Stat icon={Clock3} value="18" label="Routines today" accent="emerald" />
-        <Stat icon={ListChecks} value="5" label="Waiting for review" accent="violet" />
-        <Stat icon={Users} value="7" label="AI Employees" accent="neutral" />
-      </div>
-
-      <div className="mt-3 grid gap-3 xl:grid-cols-[1.08fr_0.92fr]">
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-card">
-          <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
-            <div className="text-[11px] font-semibold text-zinc-950">AI activity</div>
-            <span className="text-[9px] font-semibold text-zinc-950">View all Runs</span>
-          </div>
-          <div className="divide-y divide-zinc-100 px-4">
-            {ACTIVITY.map((item) => (
-              <div key={item.name} className="flex items-center gap-3 py-3">
-                <span
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[9px] font-bold ring-1 ring-inset ${item.color}`}
-                >
-                  {item.initials}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[10px] text-zinc-700">
-                    <span className="font-semibold text-zinc-950">{item.name}</span> {item.action}
-                  </span>
-                  <span className="mt-0.5 block text-[9px] text-zinc-600">{item.meta}</span>
-                </span>
-                <StatusBadge status={item.status} />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-card">
-          <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-3">
-            <div className="text-[11px] font-semibold text-zinc-950">Needs your attention</div>
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-bold text-amber-700">
-              3 items
-            </span>
-          </div>
-          <div className="space-y-2.5 p-3">
-            <AttentionRow
-              icon={ShieldCheck}
-              title="Approve campaign budget"
-              detail="Alex · Paid Marketing"
-              tone="amber"
-            />
-            <AttentionRow
-              icon={CheckCircle2}
-              title="Review checkout patch"
-              detail="Sam · Repositories"
-              tone="violet"
-            />
-            <AttentionRow
-              icon={Sparkles}
-              title="Classify one payment"
-              detail="Mira · Finance"
-              tone="emerald"
-            />
-          </div>
-          <div className="mx-3 mb-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5">
-            <div className="flex items-center gap-2 text-[10px] font-semibold text-zinc-800">
-              <Activity className="h-3.5 w-3.5" />
-              Work keeps moving. Sensitive changes wait for you.
+      <div className="mt-4 grid grid-cols-2 gap-px border border-paper-300 bg-paper-300 sm:grid-cols-4">
+        {STATS.map((stat) => (
+          <div
+            key={stat.label}
+            className={`px-3 py-2.5 ${stat.human ? "bg-signal-500" : "bg-paper-50"}`}
+          >
+            <div className="tabular t-display text-[19px] leading-none text-zinc-950">
+              {stat.value}
+            </div>
+            <div
+              className={`t-cond mt-1.5 text-[10px] uppercase tracking-field ${
+                stat.human ? "text-zinc-950" : "text-zinc-600"
+              }`}
+            >
+              {stat.label}
             </div>
           </div>
-        </div>
+        ))}
+      </div>
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-[1.05fr_0.95fr]">
+        <PreviewPanel title="Runs since 00:00" count="18">
+          {RUNS.map((run) => (
+            <div
+              key={run.at}
+              className="-mt-px flex items-start gap-2.5 border-y border-paper-300 py-2.5"
+            >
+              <span className="t-data w-[3rem] shrink-0 text-[11px] leading-5 text-zinc-600">
+                {run.at}
+              </span>
+              <Mark state="run" className="mt-1.5 h-2.5 w-2.5 shrink-0 text-zinc-600" />
+              <span className="min-w-0 flex-1">
+                <span className="t-body block text-[12px] leading-5 text-zinc-700">
+                  <span className="text-zinc-950">{run.name}</span> {run.action}
+                </span>
+                <span className="t-cond mt-0.5 block text-[10px] uppercase tracking-field text-zinc-600">
+                  {run.meta}
+                </span>
+              </span>
+            </div>
+          ))}
+        </PreviewPanel>
+
+        <PreviewPanel title="Waiting for you" count="3">
+          {WAITING.map((item) => (
+            <div key={item.at} className="-mt-px border-y border-paper-300 py-2.5">
+              <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                <StateTag state={item.state}>{item.word}</StateTag>
+                <span className="t-data text-[11px] leading-4 text-zinc-600">{item.at}</span>
+              </span>
+              <span className="t-body mt-1.5 block text-[12px] leading-5 text-zinc-800">
+                {item.title}
+              </span>
+              <span className="t-cond mt-0.5 block text-[10px] uppercase tracking-field text-zinc-600">
+                {item.meta}
+              </span>
+            </div>
+          ))}
+        </PreviewPanel>
       </div>
     </div>
   );
 }
 
-const STAT_ACCENTS = {
-  amber: "bg-amber-100 text-amber-700 ring-amber-200",
-  emerald: "bg-emerald-100 text-emerald-700 ring-emerald-200",
-  violet: "bg-violet-100 text-violet-700 ring-violet-200",
-  neutral: "bg-zinc-100 text-zinc-800 ring-zinc-200",
-} as const;
-
-function Stat({
-  icon: Icon,
-  value,
-  label,
-  accent,
-}: {
-  icon: LucideIcon;
-  value: string;
-  label: string;
-  accent: keyof typeof STAT_ACCENTS;
-}) {
-  return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 shadow-card">
-      <span
-        className={`flex h-8 w-8 items-center justify-center rounded-lg ring-1 ring-inset ${STAT_ACCENTS[accent]}`}
-      >
-        <Icon className="h-3.5 w-3.5" />
-      </span>
-      <span>
-        <span className="tabular block text-sm font-bold text-zinc-950">{value}</span>
-        <span className="block text-[9px] text-zinc-600">{label}</span>
-      </span>
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const style =
-    status === "Complete"
-      ? "bg-emerald-100 text-emerald-700"
-      : status === "Review"
-        ? "bg-amber-100 text-amber-700"
-        : "bg-violet-100 text-violet-700";
-  return <span className={`rounded-md px-2 py-1 text-[8px] font-bold ${style}`}>{status}</span>;
-}
-
-const ATTENTION_TONES = {
-  amber: "bg-amber-100 text-amber-700 ring-amber-200",
-  violet: "bg-violet-100 text-violet-700 ring-violet-200",
-  emerald: "bg-emerald-100 text-emerald-700 ring-emerald-200",
-} as const;
-
-function AttentionRow({
-  icon: Icon,
+function PreviewPanel({
   title,
-  detail,
-  tone,
+  count,
+  children,
 }: {
-  icon: LucideIcon;
   title: string;
-  detail: string;
-  tone: keyof typeof ATTENTION_TONES;
+  count: string;
+  children: ReactNode;
 }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-zinc-100 bg-paper-100 p-2.5">
-      <span
-        className={`flex h-7 w-7 items-center justify-center rounded-md ring-1 ring-inset ${ATTENTION_TONES[tone]}`}
-      >
-        <Icon className="h-3.5 w-3.5" />
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-[10px] font-semibold text-zinc-900">{title}</span>
-        <span className="mt-0.5 block truncate text-[9px] text-zinc-600">{detail}</span>
-      </span>
+    <div className="border border-paper-300 bg-paper-50">
+      <div className="flex items-center justify-between gap-3 border-b border-paper-300 px-3 py-2">
+        <span className="t-cond text-[10px] uppercase tracking-field text-zinc-950">{title}</span>
+        <span className="t-data text-[11px] leading-4 text-zinc-600">{count}</span>
+      </div>
+      <div className="px-3">{children}</div>
     </div>
   );
 }

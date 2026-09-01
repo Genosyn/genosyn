@@ -61,15 +61,15 @@ export const PRODUCTS: ProductDef[] = [
     category: "The core",
     icon: "users",
     accent: "bg-zinc-100 text-zinc-900 ring-zinc-300",
-    tagline: "Hire teammates that never log off.",
-    taglineAccent: "A Soul, a set of Skills, and Routines that start without you.",
+    tagline: "Your AI Employees start work at 06:00 without you.",
+    taglineAccent: "Each one runs on a 5-field cron line you wrote.",
     summary:
-      "Persistent AI teammates with a written constitution, markdown playbooks, and work that starts itself on cron — every execution captured as a readable Run.",
-    seoTitle: "AI Employees — Soul, Skills & Routines · Genosyn",
+      "Teammates that carry a markdown Soul and work Routines on your own cron line, with every Run transcribed and costed.",
+    seoTitle: "AI Employees: a Soul, Skills, and a cron line · Genosyn",
     description:
-      "Hire AI employees that work autonomously: a written Soul, reusable Skills, and cron-scheduled Routines nobody has to trigger. Runs on Claude, GPT, or any local model. Open source and self-hosted.",
+      "An AI Employee holds a markdown Soul, named Skills, and Routines on a 5-field cron line. It runs on Claude, GPT, or Ollama, and every Run keeps its transcript.",
     intro:
-      "An AI Employee is not a chatbot persona, and it is not something you have to operate. It is a persistent teammate attached to your company — with a Soul that says who it is, Skills that say what it knows, Routines that say when it works without being asked, and its own sandboxed working directory. It runs while you sleep, and every execution is captured as a Run you can read line by line.",
+      "An AI Employee carries a Soul you edit like a job description and Skills written as markdown playbooks. Its Routines fire on a cron line you wrote: 0 6 * * 1-5 starts the weekday work at six, and nobody presses anything. Every Run streams its transcript live and keeps it afterwards, down to the last tool call and what the tokens cost.",
     checks: [
       "14 role templates or start blank",
       "Works unattended, on cron",
@@ -79,37 +79,37 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "bookHeart",
-        title: "A Soul, not a prompt",
-        body: "One markdown constitution per employee — identity, voice, decision rules, refusals — edited in-app with live preview. Change how they think by editing a document, like a job description.",
+        title: "One markdown Soul per employee, with live preview",
+        body: "The Soul is one markdown constitution per employee: identity, voice, decision rules, refusals. Edit it in-app with live preview and you change how the employee thinks, the way you would rewrite a job description.",
       },
       {
         icon: "sparkles",
-        title: "Skills as playbooks",
-        body: "Named markdown playbooks — trigger, inputs, steps, definition of done — surfaced into the model's context on every run. Browse and reuse them across your team from the company-wide library.",
+        title: "Skills load into context on every Run",
+        body: "Named markdown playbooks carry a trigger, inputs, steps, and a definition of done. Every Run surfaces the relevant ones into the model's context, and your team browses and reuses them from the company-wide library.",
       },
       {
         icon: "calendarClock",
-        title: "Routines on cron",
-        body: "Pair a markdown brief with a 5-field cron expression and a plain-English preview. Per-routine timeouts, enable/disable toggles, an optional approval gate, and one-click Run now.",
+        title: "A 5-field cron line schedules every Routine",
+        body: "A Routine pairs a markdown brief with a 5-field cron line, previewed back to you in plain English. Per-routine timeouts, enable/disable toggles, an optional approval gate, and one-click Run now.",
       },
       {
         icon: "brainCircuit",
-        title: "Bring any brain",
-        body: "Register Anthropic, OpenAI, or any OpenAI-compatible endpoint — Ollama, vLLM, llama.cpp, LM Studio. Keep several models per employee and pin a Routine to a cheap local one while chat stays on the frontier brain.",
+        title: "Point an employee at Ollama, vLLM, or Claude",
+        body: "Register Anthropic, OpenAI, or any OpenAI-compatible endpoint, including Ollama, vLLM, llama.cpp and LM Studio. Keep several models per employee, then pin a Routine to a cheap local one while chat stays on the frontier brain.",
       },
       {
         icon: "scrollText",
-        title: "Runs you can audit",
-        body: "Every execution streams its full agent transcript live over WebSocket and keeps it afterwards. Retry failures in one click; usage and cost roll up per employee and per Routine.",
+        title: "Every Run keeps its transcript and its cost",
+        body: "Every Run streams its full transcript live over WebSocket and keeps it afterwards. Failures retry in one click. Usage and cost roll up per employee and per Routine.",
       },
       {
         icon: "shieldCheck",
-        title: "Approvals and Grants",
-        body: "Access to Connections, repos, notes, Bases, and mailboxes is granted per employee. Sensitive actions — gated Routines, browser form submits, payments over a cap — wait for a human checkmark.",
+        title: "Gated Routines and payments wait for a human checkmark",
+        body: "Grants are per employee across Connections, Repositories, notes, Bases and mailboxes. Sensitive actions wait for a human checkmark, whether that is a gated Routine, a browser form submit, or a payment over your cap.",
       },
     ],
     employees: {
-      heading: "How the pieces fit",
+      heading: "Genosyn runs the model loop in process",
       body: "Genosyn owns the model loop and tool registry. API-key and custom models run in-process; eligible OpenAI subscription models use the official Codex app-server on a trusted single-tenant install. Docker runs isolated coding with bubblewrap by default, subscription Runs included, and falls back to coding-free Runs where Linux namespaces are unavailable. Each turn carries the Soul and relevant Skills, while explicit Grants decide what the employee can reach.",
       bullets: [
         {
@@ -129,7 +129,7 @@ export const PRODUCTS: ProductDef[] = [
     faqs: [
       {
         q: "What exactly is an AI Employee — is it just a chatbot persona?",
-        a: "No. It is a persistent persona attached to your company with a Soul (constitution), Skills (playbooks), Routines (cron-scheduled work), its own AI Models, a sandboxed working directory on disk, and explicit Grants to company resources. Every scheduled or manual execution is recorded as a Run with a full transcript.",
+        a: "No. It is a persistent teammate attached to your company with a Soul (constitution), Skills (playbooks), Routines (cron-scheduled work), its own AI Models, a sandboxed working directory on disk, and explicit Grants to company resources. Every scheduled or manual piece of work is recorded as a Run with a full transcript.",
       },
       {
         q: "Which models can an employee run on?",
@@ -150,11 +150,11 @@ export const PRODUCTS: ProductDef[] = [
     ],
     docsPath: "/docs/employees",
     keywords: [
-      "AI employees",
-      "hire AI employees",
+      "AI Employees",
+      "hire AI Employees",
       "autonomous AI agents for business",
       "self-hosted AI agents",
-      "open source AI employee platform",
+      "open source AI Employee platform",
       "AI agent with cron scheduling",
       "Claude API agent platform",
       "OpenAI-compatible agent runner",
@@ -170,56 +170,56 @@ export const PRODUCTS: ProductDef[] = [
     category: "Essentials",
     icon: "messageSquare",
     accent: "bg-indigo-50 text-indigo-700 ring-indigo-200",
-    tagline: "Team chat where AI shows up to work.",
-    taglineAccent: "Channels, DMs, and files — humans and AI employees together.",
+    tagline: "An @mention pulls an AI Employee into #month-end.",
+    taglineAccent: "It reads the last 20 messages, then answers in place.",
     summary:
-      "Slack-style channels and DMs where AI employees are real members — @mention one and it joins, replies, and reports back from its Routines.",
-    seoTitle: "Workspace — Team chat with AI employees · Genosyn",
+      "Channels, DMs, and 25 MB file uploads where AI Employees are members you can @mention.",
+    seoTitle: "Workspace: channels, DMs, and AI Employees · Genosyn",
     description:
-      "Self-hosted team chat where AI employees are first-class members. Channels, DMs, reactions, file uploads, realtime presence — @mention an employee and it replies.",
+      "Self-hosted channels and DMs where AI Employees are members. @mention one and it reads the last 20 messages, then replies in place. 25 MB uploads.",
     intro:
-      "Workspace is the chat your company actually runs on — public and private channels, 1:1 DMs, reactions, and file uploads, self-hosted next to everything else. The difference from bolting Slack onto your stack: AI employees are members, not webhook bots. @mention one and it joins the channel and answers like a teammate.",
+      "Workspace is public and private channels, 1:1 DMs, reactions, and 25 MB file uploads, self-hosted beside everything else your company runs. AI Employees sit in the member directory with everyone else. Type @finance in #month-end and the employee joins, reads the last 20 messages, and answers in the channel while a typing pill shows it working.",
     checks: [
       "Channels, DMs, threads-ready replies",
       "Realtime over one WebSocket hub",
       "25 MB file uploads, stored on disk",
-      "AI employees read shared files",
+      "AI Employees read shared files",
     ],
     features: [
       {
         icon: "hash",
-        title: "Channels and DMs",
-        body: "Public and private channels with topics and archive; 1:1 DMs between any two members — human or AI — with idempotent pairing, so the same pair always lands in the same conversation.",
+        title: "Public channels, private channels, and one DM per pair",
+        body: "Public and private channels carry topics and an archive, while DMs stay 1:1 between any two members, human or AI, with idempotent pairing that always lands the same pair in the same conversation.",
       },
       {
         icon: "atSign",
-        title: "@mention an employee",
-        body: "Mention an AI employee by slug and it is auto-invited to the channel and replies in place, with the channel's recent history as context. In a DM it answers every message — no tag needed.",
+        title: "An @mention adds the employee to the channel",
+        body: "Mention an AI Employee by slug and it is auto-invited to the channel, then replies in place with the channel's recent history as context. In a DM it answers every message, no tag needed.",
       },
       {
         icon: "zap",
-        title: "Actually realtime",
-        body: "Messages, edits, deletes, reactions, presence, and typing indicators — including an “is typing…” pill while an AI employee thinks — fan out live over an in-process WebSocket hub.",
+        title: "One WebSocket hub carries edits, reactions, and typing",
+        body: "Messages, edits, deletes, reactions, presence and typing indicators all fan out live over an in-process WebSocket hub. That includes the “is typing…” pill you see while an AI Employee thinks.",
       },
       {
         icon: "paperclip",
-        title: "Files AI can read",
-        body: "Upload up to 25 MB per file; images render inline. Text-like attachments — txt, md, csv, json, html, PDF — are extracted and inlined into the employee's prompt, so “summarize this” just works.",
+        title: "30,000 characters of a dropped PDF reach the employee",
+        body: "Upload up to 25 MB per file, and images render inline. Extraction covers txt, md, csv, json, html and PDF, inlining the text into the employee's context so “summarize this” just works.",
       },
       {
         icon: "megaphone",
-        title: "Proactive reports",
-        body: "Routines can post into channels and DM humans through built-in tools — standups, status updates, and handoffs land where the team already looks, on schedule.",
+        title: "A Routine posts the standup into #general at 09:00",
+        body: "Built-in tools let a Routine post into a channel or DM a human, so standups, status updates and handoffs land where the team already looks, on schedule.",
       },
       {
         icon: "listChecks",
-        title: "Nothing slips",
-        body: "Unread badges, read markers, and a sidebar sorted by activity. Mentions land in the bell feed and fan out over Web Push to your phone via the PWA.",
+        title: "Mentions reach your phone over Web Push",
+        body: "Unread badges, read markers, and a sidebar sorted by activity. Mentions land in the bell feed. From there Web Push carries them to your phone through the PWA.",
       },
     ],
     employees: {
-      heading: "Peers in the chat, not integrations",
-      body: "AI employees appear in the member directory and channel lists like anyone else. Chat is part of every employee's built-in tool surface — no Grant setup needed — with guardrails that keep it civilized.",
+      heading: "Employees hold the chat tools without a Grant",
+      body: "AI Employees appear in the member directory and channel lists like anyone else. Chat is part of every employee's built-in tool surface — no Grant setup needed — with guardrails that keep it civilized.",
       bullets: [
         {
           title: "Reply like a teammate",
@@ -227,7 +227,7 @@ export const PRODUCTS: ProductDef[] = [
         },
         {
           title: "Drive the chat themselves",
-          body: "Built-in tools let employees list, create, rename, and archive channels, and send messages to channels, humans, or other AI employees — so Routines file their own reports.",
+          body: "Built-in tools let employees list, create, rename, and archive channels, and send messages to channels, humans, or other AI Employees — so Routines file their own reports.",
         },
         {
           title: "Guardrails built in",
@@ -241,11 +241,11 @@ export const PRODUCTS: ProductDef[] = [
         a: "Workspace ships inside Genosyn: public and private channels, DMs, reactions, file uploads, unread badges, and realtime WebSocket updates — self-hosted with the rest of your company, no extra chat service or per-seat bill.",
       },
       {
-        q: "How do AI employees participate in chat?",
-        a: "@mention an AI employee by its slug and it joins the channel and replies like a teammate; DM one and it answers every message without needing a tag. Employees can also post proactively — Routines can call the built-in send_workspace_message tool to file standups or status updates into a channel.",
+        q: "How do AI Employees participate in chat?",
+        a: "@mention an AI Employee by its slug and it joins the channel and replies like a teammate; DM one and it answers every message without needing a tag. Employees can also post proactively — Routines can call the built-in send_workspace_message tool to file standups or status updates into a channel.",
       },
       {
-        q: "Can an AI employee read the files I drop into a channel?",
+        q: "Can an AI Employee read the files I drop into a channel?",
         a: "Yes — text-like attachments (txt, md, csv, json, yaml, html, and PDFs) are extracted and inlined into the employee's prompt, capped at 30,000 characters per file. Images and other binaries are announced by name.",
       },
       {
@@ -254,7 +254,7 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Does it support threads?",
-        a: "Replies carry a parent message, and AI employees can already reply threaded through the messaging tool. A dedicated split-panel thread UI is on the roadmap; today replies render inline.",
+        a: "Replies carry a parent message, and AI Employees can already reply threaded through the messaging tool. A dedicated split-panel thread UI is on the roadmap; today replies render inline.",
       },
     ],
     docsPath: "/docs/workspace-chat",
@@ -276,15 +276,15 @@ export const PRODUCTS: ProductDef[] = [
     category: "Essentials",
     icon: "listTodo",
     accent: "bg-rose-50 text-rose-700 ring-rose-200",
-    tagline: "One board for people and AI.",
-    taglineAccent: "Projects, todos, and a review queue that keeps humans in charge.",
+    tagline: "ENG-42 belongs to a human or an AI Employee.",
+    taglineAccent: "Finished AI work stops at in_review until a human signs it off.",
     summary:
-      "A Linear-style task manager where any todo can be assigned to a human or an AI employee — with an in-review flow that closes the trust gap.",
-    seoTitle: "Tasks — Projects and kanban for humans + AI · Genosyn",
+      "A task manager where any todo goes to a human or an AI Employee, and AI work stops at in_review until you sign it off.",
+    seoTitle: "Tasks: one board for humans and AI Employees · Genosyn",
     description:
-      "Self-hosted task manager where humans and AI employees share one board. Projects with ENG-42 IDs, kanban, subtasks, recurring todos, and human review queues.",
+      "Self-hosted Projects mint IDs like ENG-42 on one board humans and AI Employees share. AI work stops at in_review until a named reviewer signs it off.",
     intro:
-      "Tasks is Genosyn's built-in task manager — Projects that mint short IDs like ENG-42, todos with six statuses and five priorities, a drag-and-drop board, and subtasks with progress chips. Humans and AI employees work the same board under the same access rules, so the AI's work is visible, reviewable, and never off in a silo.",
+      "Tasks is the task manager built into Genosyn. A Project takes a key of up to six characters and mints todos like ENG-42, which move through six statuses across a board you drag. Humans and AI Employees work that same board under the same access rules, so an employee that finishes something marks it in_review and it waits in your queue.",
     checks: [
       "Kanban board and list views",
       "Assign todos to humans or AI",
@@ -294,42 +294,42 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "layoutGrid",
-        title: "Projects with short IDs",
-        body: "Group work into Projects with a 1–6 character key that mints IDs like ENG-42. Six statuses from backlog to done, five priorities, due dates, and a board or list view of everything.",
+        title: "A project key mints todos like ENG-42",
+        body: "Group work into Projects, where a 1–6 character key mints IDs like ENG-42. Six statuses run backlog to done, with five priorities, due dates, and a board or list view of everything.",
       },
       {
         icon: "userCheck",
-        title: "Review before done",
-        body: "Set a reviewer on any todo. Work moves to in_review instead of done, the reviewer gets a notification — including web push — and a cross-project Review queue collects everything waiting on you.",
+        title: "Name a reviewer and work stops at in_review",
+        body: "A todo with a named reviewer moves to in_review instead of done. The reviewer gets a notification, web push included, and a cross-project Review queue collects everything waiting on you.",
       },
       {
         icon: "gitFork",
-        title: "Subtasks that decompose",
-        body: "Break a todo into subtasks — real todos with their own status, assignee, and discussion. The parent shows a progress bar and a 2/5 chip, and an AI employee can do the decomposing for you.",
+        title: "A parent todo shows a 2/5 progress chip",
+        body: "Break a todo into subtasks that are real todos, each with its own status, assignee, and discussion. The parent shows a progress bar and a 2/5 chip. An AI Employee can do the breaking down for you.",
       },
       {
         icon: "repeat",
-        title: "Recurring todos",
-        body: "Daily, weekdays, weekly, biweekly, monthly, or yearly — completing one occurrence schedules the next automatically. The human-checklist complement to AI Routines.",
+        title: "Completing one occurrence schedules the next, daily to yearly",
+        body: "Complete one occurrence and the next schedules itself: daily, weekdays, weekly, biweekly, monthly or yearly. It is the human checklist that sits beside AI Routines.",
       },
       {
         icon: "lock",
-        title: "Project access control",
-        body: "Projects are open by default; restrict one to a named list of people and AI employees at view-only or can-edit. The rule binds the UI and the AI tool surface identically — no side doors.",
+        title: "An unlisted employee never sees a restricted Project",
+        body: "Projects are open by default. Restrict one and only the people and AI Employees you name get in, at view-only or can-edit. That rule binds the UI and the AI tool surface identically, with no side doors.",
       },
       {
         icon: "messagesSquare",
-        title: "Discussions with AI in them",
-        body: "Every todo has a comment thread. Mention an AI employee and it reads the todo plus the whole thread, then replies inline with what it found or fixed.",
+        title: "Mention an AI Employee inside a todo's comment thread",
+        body: "Every todo carries a comment thread. Mention an AI Employee there and it reads the todo and the whole thread before replying inline with what it found or fixed.",
       },
     ],
     employees: {
-      heading: "AI employees work the board",
+      heading: "An employee only sees Projects it was added to",
       body: "Through built-in tools, employees list and create Projects and todos under exactly the access rules humans get — a project an employee was not added to simply does not appear in its results.",
       bullets: [
         {
           title: "They own their follow-through",
-          body: "A todo created by an AI employee assigns itself by default, so work it commits to in chat becomes tracked, visible work on the board.",
+          body: "A todo created by an AI Employee assigns itself by default, so work it commits to in chat becomes tracked, visible work on the board.",
         },
         {
           title: "Plans become checklists",
@@ -343,16 +343,16 @@ export const PRODUCTS: ProductDef[] = [
     },
     faqs: [
       {
-        q: "Can AI employees actually create and manage tasks, or just read them?",
+        q: "Can AI Employees actually create and manage tasks, or just read them?",
         a: "They fully manage them: listing and creating Projects, and creating and updating todos — status, priority, assignee, reviewer, due date, and subtask nesting — through built-in tools, governed by the same project access rules as humans.",
       },
       {
-        q: "How do I stay in control of what an AI employee marks as finished?",
+        q: "How do I stay in control of what an AI Employee marks as finished?",
         a: "Use the review flow. The employee moves its work to in_review with you as reviewer instead of done. You get a notification (including web push on your phone), and the todo sits in your cross-project Review queue until you sign it off.",
       },
       {
-        q: "Can I keep an AI employee out of a sensitive project?",
-        a: "Yes. Switch the project from open to restricted and add people and AI employees explicitly at view-only or can-edit. The restriction covers the UI and the AI tool surface alike, and safety rails stop you locking yourself out — the last human editor can never be removed.",
+        q: "Can I keep an AI Employee out of a sensitive project?",
+        a: "Yes. Switch the project from open to restricted and add people and AI Employees explicitly at view-only or can-edit. The restriction covers the UI and the AI tool surface alike, and safety rails stop you locking yourself out — the last human editor can never be removed.",
       },
       {
         q: "Does Tasks handle recurring work?",
@@ -366,7 +366,7 @@ export const PRODUCTS: ProductDef[] = [
     docsPath: "/docs/tasks",
     keywords: [
       "AI task manager",
-      "assign tasks to AI employees",
+      "assign tasks to AI Employees",
       "open source Linear alternative",
       "self-hosted task manager",
       "kanban board with AI",
@@ -382,15 +382,16 @@ export const PRODUCTS: ProductDef[] = [
     category: "Knowledge",
     icon: "table2",
     accent: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-    tagline: "Your operational database, on your server.",
-    taglineAccent: "Airtable-style tables that AI employees read and write.",
+    tagline: "Airtable-style tables sit on your own server.",
+    taglineAccent:
+      "One Grant gives an AI Employee 21 tools, and every write it makes is audited.",
     summary:
-      "Multi-table workspaces with typed fields, saved views, comments, and attachments — and 21 built-in tools for granted AI employees.",
-    seoTitle: "Bases — Airtable-style tables for AI teams · Genosyn",
+      "Multi-table workspaces with 11 field types, saved views, comments, and attachments, plus 21 built-in tools for a granted AI Employee.",
+    seoTitle: "Bases: Airtable-style tables with 21 AI tools · Genosyn",
     description:
-      "Self-hosted Airtable alternative for AI teams: multi-table Bases with 11 field types, saved views, comments, and attachments AI employees query and update.",
+      "Self-hosted multi-table Bases with 11 field types, saved views, comments, and attachments. One Grant gives an AI Employee 21 tools, and every write is audited.",
     intro:
-      "Bases are Genosyn's structured-data layer: multi-table workspaces with typed fields, saved views, record comments, and file attachments — the CRM, hiring pipeline, or content calendar your company would otherwise keep in a bolted-on Airtable. Grant an AI employee a Base and it works the same tables you do, with every write audited.",
+      "A Base holds tables with typed fields, saved views, record comments, and file attachments. It is where the CRM or the applicant tracker lives, on your server rather than in a bolted-on Airtable. Grant an AI Employee the Base and it gets 21 tools over the same rows you edit, with every write in the audit log.",
     checks: [
       "11 field types, incl. linked records",
       "Saved views: filters, sorts, hidden fields",
@@ -400,38 +401,38 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "columns3",
-        title: "Typed fields, linked tables",
-        body: "Eleven field types — text, number, checkbox, dates, email, URL, selects, and link fields that reference rows in sibling tables. Renaming a field never migrates data; values key on field IDs.",
+        title: "Eleven field types, including links to sibling tables",
+        body: "Eleven field types: text, number, checkbox, dates, email, URL, selects, and link fields that reference rows in sibling tables. Renaming a field never migrates data, because values key on field IDs.",
       },
       {
         icon: "filter",
-        title: "Views that stick",
-        body: "Save views per table combining type-aware filters (is before, has any of, is empty…), multi-key sorts, and hidden fields — so the pipeline view and the finance view stop fighting.",
+        title: "Save one view for finance and another for sales",
+        body: "Each table keeps saved views that combine type-aware filters (is before, has any of, is empty…), multi-key sorts, and hidden fields, so the sales view and the finance view stop fighting.",
       },
       {
         icon: "panelRight",
-        title: "Records as forms",
-        body: "Open any row in a side drawer: field values as a form, a comment thread, and file attachments. Comments attribute each message to a human Member or an AI employee — one shared stream.",
+        title: "Any row opens as a form with one comment thread",
+        body: "Open any row in a side drawer and you get its field values as a form, a comment thread, and file attachments. Each comment is attributed to a human Member or an AI Employee in one shared stream.",
       },
       {
         icon: "layoutTemplate",
-        title: "Start from a template",
-        body: "Five built-in templates — Blank, CRM, Applicant Tracker, Content Calendar, Project Tracker — seeded with linked tables and starter rows, ready to edit.",
+        title: "Five templates, from CRM to Applicant Tracker",
+        body: "Five templates ship built in. Blank, CRM, Applicant Tracker, Content Calendar and Project Tracker each arrive seeded with linked tables and starter rows, ready to edit.",
       },
       {
         icon: "bot",
-        title: "A Base Assistant",
-        body: "A slide-over chat routes your prompt through an AI employee loaded with the Base's schema and suggests changes — applying them stays your call, keeping the blast radius small.",
+        title: "The Base Assistant knows the schema and suggests changes",
+        body: "A slide-over chat hands your question to an AI Employee loaded with the Base's schema, and it comes back with suggested changes. Applying them stays your call, which keeps the blast radius small.",
       },
       {
         icon: "keyRound",
-        title: "Grants, not guesswork",
-        body: "Access is per-employee, per-Base. One Grant opens read/write on every table; revoking it removes the tools from the employee's next spawn. AI uploads cap at 5 MB so a runaway call can't fill the disk.",
+        title: "One Grant covers every table in that Base",
+        body: "Access is per employee, per Base. One Grant opens read/write on every table in it, and revoking removes those tools from the employee's next spawn. AI uploads cap at 5 MB, so a runaway call cannot fill the disk.",
       },
     ],
     employees: {
-      heading: "21 tools for granted employees",
-      body: "A granted AI employee gets the full Bases surface as built-in tools — schema, rows, comments, and attachments — with pagination, audit trails, and caps designed for autonomous use.",
+      heading: "A granted employee gets 21 tools and 500-row pages",
+      body: "A granted AI Employee gets the full Bases surface as built-in tools — schema, rows, comments, and attachments — with pagination, audit trails, and caps designed for autonomous use.",
       bullets: [
         {
           title: "Schema and data alike",
@@ -449,11 +450,11 @@ export const PRODUCTS: ProductDef[] = [
     },
     faqs: [
       {
-        q: "How do I control which AI employees can touch a Base?",
+        q: "How do I control which AI Employees can touch a Base?",
         a: "Access is per-employee, per-Base via a Grant, managed from the Base's access panel. One Grant gives read/write on every table in that Base, and revoking it means the employee's next spawn doesn't see the Base tools at all.",
       },
       {
-        q: "Can an AI employee change the schema, or only the data?",
+        q: "Can an AI Employee change the schema, or only the data?",
         a: "Both. Granted employees have tools to create tables, add, update, and delete fields of all eleven types, and read and write rows — the same surface humans get. Every write is validated and recorded in the audit log.",
       },
       {
@@ -488,15 +489,16 @@ export const PRODUCTS: ProductDef[] = [
     category: "Knowledge",
     icon: "stickyNote",
     accent: "bg-amber-50 text-amber-700 ring-amber-200",
-    tagline: "A wiki your AI employees can edit.",
-    taglineAccent: "Notion-style pages with Grants that cascade down the tree.",
+    tagline: "An AI Employee revised the runbook at 03:00.",
+    taglineAccent:
+      "Pages nest inside notebooks, and one Grant on a Notebook covers every page under it.",
     summary:
-      "Notion-style markdown pages in nested notebooks — read, written, and searched by humans and AI employees under cascading Grants.",
-    seoTitle: "Notes — A wiki humans and AI write together · Genosyn",
+      "Markdown pages in nested notebooks, with read or write Grants that cascade from a notebook down to every sub-page.",
+    seoTitle: "Notes: markdown pages your AI Employees edit · Genosyn",
     description:
-      "Self-hosted Notion-style knowledge base where AI employees are first-class authors: block editor, nested pages, search, per-employee Grants, and full audit.",
+      "A self-hosted wiki where AI Employees are authors. Nested markdown notebooks, a slash-command block editor, search, and Grants that cascade to sub-pages.",
     intro:
-      "Notes is the company knowledge base: Notion-style markdown pages nested inside Notebooks, with a block editor, sidebar tree, search, and trash. SOPs, briefs, runbooks, research — written by humans and AI employees in the same pages, with every AI edit attributed and audited.",
+      "Notes holds the company wiki: markdown pages nested inside notebooks, with a block editor, a sidebar tree, search, and a Trash you can restore from. One page body takes 200,000 characters. The SOP a Member wrote on Tuesday and the runbook an AI Employee revised at 03:00 sit in the same tree, and each page says who touched it last.",
     checks: [
       "Block editor with slash commands",
       "Unlimited page nesting per notebook",
@@ -506,38 +508,38 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "type",
-        title: "A real block editor",
-        body: "Headings, lists, to-dos, quotes, dividers, a slash-command menu, and a formatting popover — with markdown round-tripping so AI-written prose renders untouched.",
+        title: "Notion-style blocks that save as markdown",
+        body: "Headings, lists, to-dos, quotes, dividers. A slash-command menu and a formatting popover put them in. It all round-trips as markdown, so AI-written prose renders untouched.",
       },
       {
         icon: "folderTree",
-        title: "Notebooks and nesting",
-        body: "Top-level Notebooks hold unlimited Notion-style sub-page trees. Reorder and reparent in the sidebar with cycle protection; moving a page drags its whole sub-tree along.",
+        title: "Move a page and its whole sub-tree follows",
+        body: "Top-level Notebooks hold unlimited Notion-style sub-page trees. Reorder and reparent from the sidebar, with cycle protection, and moving a page drags its whole sub-tree along.",
       },
       {
         icon: "search",
-        title: "Search everything",
-        body: "Search-as-you-type across titles and bodies, up to 50 hits ordered by most recently edited. AI employees get the same search through their tools, scoped to what they were granted.",
+        title: "Search returns 50 hits, newest edit first",
+        body: "Search as you type, across titles and bodies. Up to 50 hits come back with the most recently edited first, and AI Employees run the same search through their tools, scoped to what they were granted.",
       },
       {
         icon: "share2",
-        title: "Cascading Grants",
-        body: "Share a page or a whole Notebook with an AI employee at read or write. The Grant cascades to every descendant and resolves live — revoking takes effect immediately.",
+        title: "One Grant on a Notebook covers every page",
+        body: "Share a page or a whole Notebook with an AI Employee at read or write, and the Grant cascades to every descendant, resolving live so a revoke takes effect immediately.",
       },
       {
         icon: "history",
-        title: "Attribution on every page",
-        body: "Created-by and last-edited-by show whether a Member or an AI employee touched the page. Every AI write also lands in the audit log and the employee's Journal.",
+        title: "Every AI write hits the audit log and the Journal",
+        body: "Created-by and last-edited-by say whether a Member or an AI Employee touched the page. Every AI write lands in the audit log and in that employee's Journal too.",
       },
       {
         icon: "trash2",
-        title: "Trash-safe by design",
-        body: "Soft-delete to Trash and restore anytime. The AI tooling coaches employees to archive rather than hard-delete, and permanent deletes re-parent children so nothing is orphaned.",
+        title: "Deleted pages wait in Trash until someone restores them",
+        body: "Pages soft-delete to Trash and restore any time. The AI tooling coaches employees toward archiving rather than hard deletes, and a permanent delete re-parents the children so nothing is orphaned.",
       },
     ],
     employees: {
-      heading: "First-class authors, on a leash you set",
-      body: "AI employees read and write Notes through built-in tools — list, search, get, create, update, delete — governed by per-employee Grants that only apply to the AI surface. Humans always see everything.",
+      heading: "Six built-in tools reach Notes under one Grant",
+      body: "AI Employees read and write Notes through built-in tools — list, search, get, create, update, delete — governed by per-employee Grants that only apply to the AI surface. Humans always see everything.",
       bullets: [
         {
           title: "Search before create",
@@ -555,15 +557,15 @@ export const PRODUCTS: ProductDef[] = [
     },
     faqs: [
       {
-        q: "Can AI employees edit our notes, or just read them?",
-        a: "Both, if you let them. Each AI employee gets a Grant per Note or per Notebook at read or write level. Write allows creating sub-pages, editing, archiving, and deleting; read allows list, search, and get only. Every AI write is audited and journaled.",
+        q: "Can AI Employees edit our notes, or just read them?",
+        a: "Both, if you let them. Each AI Employee gets a Grant per Note or per Notebook at read or write level. Write allows creating sub-pages, editing, archiving, and deleting; read allows list, search, and get only. Every AI write is audited and journaled.",
       },
       {
         q: "How does sharing work across nested pages?",
         a: "Like Notion: a Grant on a parent page authorizes every descendant, and a Grant on a Notebook authorizes every page inside it. The cascade resolves at access-check time rather than being copied onto children, so reparenting or revoking takes effect immediately.",
       },
       {
-        q: "What happens if an AI employee deletes a page by mistake?",
+        q: "What happens if an AI Employee deletes a page by mistake?",
         a: "The tooling steers employees toward archiving — archived pages sit in a Trash view any human can restore from. Permanent deletes re-parent children one level up so nothing is orphaned, and the action is audited and journaled.",
       },
       {
@@ -594,15 +596,16 @@ export const PRODUCTS: ProductDef[] = [
     category: "Knowledge",
     icon: "library",
     accent: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-200",
-    tagline: "Ingest once. Every employee studies it.",
-    taglineAccent: "URLs, PDFs, ebooks, and transcripts your AI can search and cite.",
+    tagline: "A PDF filed at 09:00 reaches the 09:05 Routine.",
+    taglineAccent:
+      "URLs, PDFs, EPUBs, and transcripts come in as plain text any granted AI Employee can search.",
     summary:
-      "Drop in a URL, PDF, EPUB, or transcript once — every granted AI employee can search it, cite it, export it, and attach it to outgoing email.",
-    seoTitle: "Resources — A reference library your AI reads · Genosyn",
+      "One ingested URL, PDF, or EPUB that every granted AI Employee can search, export, and attach to a Gmail draft.",
+    seoTitle: "Resources: the library your AI Employees read · Genosyn",
     description:
-      "Give AI employees a shared reference library: ingest URLs, PDFs, EPUBs, and transcripts to searchable text. Grant-controlled access, PDF export, Gmail attachments.",
+      "Ingest URLs, PDFs, EPUBs, and transcripts once, up to 25 MB each. Granted AI Employees search the extracted text, export it, or attach it to a Gmail draft.",
     intro:
-      "Resources is the knowledge-ingestion surface: external material your team didn't write — articles, ebooks, PDFs, transcripts — ingested once, extracted to searchable plain text, and served to AI employees on demand. It replaces the copy-paste-into-the-prompt ritual and the shared-drive folder no AI can actually read.",
+      "Resources takes the material your team did not write and makes it machine-readable: paste a URL and the server strips the nav and the scripts, or upload a PDF up to 25 MB and pdf-parse pulls the text out. Search then runs over titles, summaries, tags, and the full extracted body. No embeddings yet.",
     checks: [
       "URL, PDF, EPUB, text, and markdown",
       "Full-text search over extracted bodies",
@@ -612,38 +615,38 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "globe",
-        title: "Paste a URL, get clean text",
-        body: "The server fetches the page and extracts readable text — scripts, nav, and footers stripped — with no browser or scraping stack required. Failed fetches keep the row with the error so a human can fix it.",
+        title: "One paste turns a web page into text",
+        body: "The server fetches the page and extracts readable text, stripping scripts, nav, and footers, with no browser or scraping stack required. A failed fetch keeps the row and its error so a human can fix it.",
       },
       {
         icon: "fileText",
-        title: "Real document formats",
-        body: "PDFs extract via pdf-parse, EPUBs unzip chapter by chapter, and TXT, Markdown, and HTML upload directly — 25 MB per file, with up to 1 MiB of extracted text each.",
+        title: "PDFs, EPUBs, and Markdown up to 25 MB",
+        body: "PDFs extract via pdf-parse, EPUBs unzip chapter by chapter, and TXT, Markdown, and HTML upload directly, up to 25 MB per file and 1 MiB of extracted text each.",
       },
       {
         icon: "search",
-        title: "One search across it all",
-        body: "Full-text search over titles, summaries, tags, and extracted bodies — search-as-you-type for humans, the same query surface as a tool for AI employees.",
+        title: "One query searches titles, tags, and full bodies",
+        body: "Search runs over titles, summaries, tags, and extracted bodies. Humans type and watch the results narrow. AI Employees query that same surface through a tool.",
       },
       {
         icon: "bookOpen",
-        title: "Readable in place",
-        body: "Type-aware detail pages: editable markdown for text, the native viewer for PDFs, an in-app EPUB reader with table of contents and progress, and an open-original card for URLs.",
+        title: "EPUBs open in a reader that remembers your progress",
+        body: "Detail pages know the type they hold. Text is editable markdown, PDFs use the native viewer, EPUBs get an in-app reader with table of contents and saved progress, and a URL gets an open-original card.",
       },
       {
         icon: "fileOutput",
-        title: "Exports that look right",
-        body: "Export any Resource as PDF, HTML, Markdown, or plain text. PDFs render through Chromium, so headings, tables, and code blocks come out styled — ready for a chat reply or a Base record.",
+        title: "Chromium renders the PDF, so tables survive",
+        body: "Export any Resource as PDF, HTML, Markdown, or plain text, with PDFs rendered through Chromium so headings, tables, and code blocks come out styled for a chat reply or a Base record.",
       },
       {
         icon: "mailPlus",
-        title: "Attach to real email",
-        body: "Gmail send and draft tools accept attachments by Resource slug — the server checks the Grant and resolves the bytes, so no base64 ever crosses the model's context window.",
+        title: "Gmail attaches a Resource by its slug",
+        body: "Gmail send and draft tools accept attachments by Resource slug. The server checks the Grant and resolves the bytes, so no base64 ever crosses the model's context window.",
       },
     ],
     employees: {
-      heading: "Study before answering",
-      body: "AI employees reach the library through built-in tools gated by three Grant levels — read, edit, delete. The tool descriptions coach them to check whether the team already ingested a primer before improvising.",
+      heading: "Three Grant levels start at read for everyone",
+      body: "AI Employees reach the library through built-in tools gated by three Grant levels — read, edit, delete. The tool descriptions coach them to check whether the team already ingested a primer before improvising.",
       bullets: [
         {
           title: "They curate it too",
@@ -655,25 +658,25 @@ export const PRODUCTS: ProductDef[] = [
         },
         {
           title: "New material is instantly usable",
-          body: "Every new Resource is automatically granted read to all AI employees, so the primer you drop in at 9:00 informs the Routine that runs at 9:05.",
+          body: "Every new Resource is automatically granted read to all AI Employees, so the primer you drop in at 9:00 informs the Routine that runs at 9:05.",
         },
       ],
     },
     faqs: [
       {
         q: "How is a Resource different from a Note or a Memory?",
-        a: "A Resource is content the team did not write — an article, ebook, or transcript ingested once and queried on demand. A Note is a page the team authors together, and a Memory is a durable fact auto-injected into an AI employee's prompt.",
+        a: "A Resource is content the team did not write — an article, ebook, or transcript ingested once and queried on demand. A Note is a page the team authors together, and a Memory is a durable fact auto-injected into an AI Employee's prompt.",
       },
       {
         q: "What formats can I ingest?",
         a: "Web pages by URL (fetched and extracted to plain text), PDF, EPUB, TXT, Markdown, and HTML uploads up to 25 MB per file, and pasted raw text. Video files are accepted but transcripts aren't extracted yet — upload the transcript as text in the meantime.",
       },
       {
-        q: "Can AI employees add their own Resources?",
+        q: "Can AI Employees add their own Resources?",
         a: "Yes. The create_resource tool lets an employee index a URL, file a pasted transcript or research summary, or file an actual file it already holds — a PDF a customer emailed over, a Word contract it converted to PDF, a form it downloaded. The authoring employee automatically gets full control of its own row; teammates start at read-only. Video files still need a human, because transcripts aren't extracted yet.",
       },
       {
-        q: "Can an AI employee email a Resource to someone?",
+        q: "Can an AI Employee email a Resource to someone?",
         a: "Yes. The Gmail send and draft tools accept attachments by Resource slug and format — the server checks the employee's Grant, resolves the bytes, and attaches the original file or the text rendered as PDF, HTML, Markdown, or plain text.",
       },
       {
@@ -700,15 +703,15 @@ export const PRODUCTS: ProductDef[] = [
     category: "Automation",
     icon: "workflow",
     accent: "bg-lime-50 text-lime-700 ring-lime-200",
-    tagline: "Automation without the improvisation.",
-    taglineAccent: "Visual DAGs for the glue work that doesn't need an LLM.",
+    tagline: "A pipeline wires 17 node types on one canvas.",
+    taglineAccent: "A model enters the flow only at the node that asks an AI Employee.",
     summary:
-      "n8n-style visual automation — triggers, branches, delays, and integration nodes — with an Ask-AI-employee node when a flow needs judgment.",
-    seoTitle: "Pipelines — Visual automation, no LLM required · Genosyn",
+      "A visual DAG of 17 node types fired by cron, a webhook, inbound Gmail, or a new task, with 20 Integrations callable as nodes.",
+    seoTitle: "Pipelines: visual automation, 17 node types · Genosyn",
     description:
-      "Self-hosted visual automation: DAGs of triggers, branches, delays, and integration nodes on a canvas — webhooks, cron, and an Ask-AI-employee node.",
+      "Self-hosted visual automation: 17 node types on a canvas, fired by a cron line, a secret webhook URL, inbound Gmail, or a new task. 20 Integrations callable.",
     intro:
-      "Pipelines are deterministic glue: company-scoped DAGs of typed nodes that fire manually, on a schedule, on a secret-token webhook, on an inbound email, or on a new task. Routines are AI-driven; Pipelines are wire-driven — same result every run, no model call unless you explicitly put an AI employee in the middle of the flow.",
+      "Pipelines are the wire-driven half of the company. A pipeline is a DAG of typed nodes that fires from a Run-now button, a 5-field cron line, a webhook URL only you hold, an inbound Gmail message, or a new task in a Project, and it does the same thing on every pass. Put an AI Employee in the middle only where a step needs judgment.",
     checks: [
       "17 node types across 4 families",
       "Manual, schedule, webhook, email, and task triggers",
@@ -718,41 +721,41 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "mousePointer",
-        title: "A canvas, not a DSL",
-        body: "Drag nodes from a catalog palette, wire edges between handles, configure each node in a side panel. Data flows with {{trigger.body.name}} templates — whole-token values keep their types.",
+        title: "Drag a node, then type {{trigger.body.name}}",
+        body: "Drag nodes from a catalog palette, wire edges between handles, and configure each node in a side panel. Data moves between them as {{trigger.body.name}} templates, and a whole-token value keeps its type.",
       },
       {
         icon: "webhook",
-        title: "Five ways to fire",
-        body: "A manual Run-now button, a 5-field cron schedule, an incoming webhook with its own secret URL, an inbound email on a connected Gmail mailbox, or a new task added to a Project. The scheduler runs on a 30-second heartbeat that advances before firing, so slow runs can't double-fire.",
+        title: "Five triggers, from a cron line to inbound Gmail",
+        body: "Fire a pipeline from a Run-now button, a 5-field cron schedule, an incoming webhook with its own secret URL, an inbound email on a connected Gmail mailbox, or a new task added to a Project. The scheduler's 30-second heartbeat advances before firing, so slow runs can't double-fire.",
       },
       {
         icon: "boxes",
-        title: "Write into your workspace",
-        body: "Six built-in actions post a channel message, add a todo, create a project, append a Base record, ask an AI employee, or write a journal note — straight into the primitives your team already uses.",
+        title: "Six actions write into Bases, Projects, and channels",
+        body: "Six built-in actions write straight into the primitives your team already uses: post a channel message, add a todo, create a project, append a Base record, ask an AI Employee, or write a journal note.",
       },
       {
         icon: "split",
-        title: "Branches, delays, HTTP",
-        body: "If/else branches with color-coded true/false edges, set-variable nodes, delays, and a full HTTP request node with method, headers, and body — responses auto-parse as JSON.",
+        title: "Color-coded true/false edges and a full HTTP node",
+        body: "If/else branches carry color-coded true/false edges. Set-variable nodes and delays sit alongside a full HTTP request node with method, headers, and body, whose responses auto-parse as JSON.",
       },
       {
         icon: "plug",
-        title: "Call any Integration",
-        body: "One node invokes any tool on any connected Integration — Stripe, Gmail, GitHub, Notion, Linear, Airtable, Postgres, Telegram, and more — with the result captured for downstream nodes.",
+        title: "One node calls Stripe, Postgres, or 18 more",
+        body: "One node invokes any tool on any connected Integration, from Stripe and Gmail to GitHub, Notion, Linear, Airtable, Postgres, Telegram and more, with the result captured for downstream nodes.",
       },
       {
         icon: "scrollText",
-        title: "Runs you can replay",
-        body: "Every execution records status, which trigger fired, the payload, per-node outputs, and a step-by-step log. The Runs tab lists the last 50 and auto-refreshes while a run is in flight.",
+        title: "The Runs tab holds your last 50 runs",
+        body: "Every run records its status, which trigger fired, the payload, per-node outputs, and a step-by-step log. The Runs tab lists the last 50 and refreshes itself while one is in flight.",
       },
     ],
     employees: {
-      heading: "Where wires meet judgment",
-      body: "Pipelines and AI employees are complements, not competitors. Keep the deterministic 90% on wires and drop a model in only where a decision is genuinely needed.",
+      heading: "One node hands the flow to an AI Employee",
+      body: "Pipelines and AI Employees are complements, not competitors. Keep the deterministic 90% on wires and drop a model in only where a decision is genuinely needed.",
       bullets: [
         {
-          title: "Ask AI employee, mid-flow",
+          title: "Ask AI Employee, mid-flow",
           body: "One node sends a message to an employee and captures its reply for downstream nodes — a webhook arrives, the employee summarizes or decides, the pipeline carries on deterministically.",
         },
         {
@@ -772,7 +775,7 @@ export const PRODUCTS: ProductDef[] = [
     faqs: [
       {
         q: "How are Pipelines different from Routines?",
-        a: "Routines are scheduled work performed by an AI employee — a model is always in the loop. Pipelines are deterministic DAGs of typed nodes: same result every run, no LLM involved unless you explicitly add an Ask-AI-employee node. Routines are AI-driven; Pipelines are wire-driven.",
+        a: "Routines are scheduled work performed by an AI Employee — a model is always in the loop. Pipelines are deterministic DAGs of typed nodes: same result every run, no LLM involved unless you explicitly add an Ask-AI-employee node. Routines are AI-driven; Pipelines are wire-driven.",
       },
       {
         q: "What can trigger a pipeline?",
@@ -799,7 +802,7 @@ export const PRODUCTS: ProductDef[] = [
       "visual DAG editor",
       "webhook automation self-hosted",
       "cron triggered automation",
-      "AI employee automation platform",
+      "AI Employee automation platform",
     ],
   },
 
@@ -810,15 +813,15 @@ export const PRODUCTS: ProductDef[] = [
     category: "Analytics",
     icon: "barChart3",
     accent: "bg-sky-50 text-sky-700 ring-sky-200",
-    tagline: "Ask your database a question.",
-    taglineAccent: "Charts and Dashboards your AI employees can run too.",
+    tagline: "Save the MRR query once as a Chart.",
+    taglineAccent: "Every run stops at 30 seconds and 5,000 rows, Member or AI Employee.",
     summary:
-      "Metabase-style BI over the Postgres, MySQL, or ClickHouse databases you already connect — SQL saved as Charts, pinned to Dashboards, runnable by AI.",
-    seoTitle: "Explore — Self-hosted BI, charts & dashboards · Genosyn",
+      "BI on the database Connections you already have: SQL saved as Charts, pinned to a 12-column Dashboard, runnable by any AI Employee.",
+    seoTitle: "Explore: SQL saved as Charts and Dashboards · Genosyn",
     description:
-      "Self-hosted BI built into Genosyn: save SQL against Postgres, MySQL, or ClickHouse as Charts, pin them to Dashboards, and let AI employees run the numbers.",
+      "Self-hosted BI over the Postgres, MySQL, and ClickHouse Connections you already have. Save SQL as Charts, pin them to Dashboards, and let AI Employees run them.",
     intro:
-      "Explore is self-serve BI without another deployment: save SQL queries against the database Connections your company already has as named Charts, choose a visualization, and pin the results onto Dashboards the whole team reads at a glance. “What was MRR last month?” becomes a question any teammate — or any AI employee — can answer by running the Chart instead of improvising SQL.",
+      "Explore is BI without a second deployment. Write SQL against a database Connection your company already configured, watch the rows come back in the preview, and save the query as a named Chart with one of six visualizations. Pin that Chart to a 12-column Dashboard and \"what was MRR last month\" costs one click, for a Member or an AI Employee.",
     checks: [
       "Postgres, MySQL, ClickHouse",
       "Six viz types, rendered as SVG",
@@ -828,38 +831,38 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "database",
-        title: "Reuse your Connections",
-        body: "Charts run against the Integration Connections you already configured — no separate BI credentials. Configs stay encrypted and are decrypted per run, with a fresh client per query.",
+        title: "Postgres, MySQL, and ClickHouse Connections you already have",
+        body: "Charts run against the Integration Connections you already configured, so there are no separate BI credentials to hold. Configs stay encrypted and are decrypted per run, with a fresh client for every query.",
       },
       {
         icon: "code2",
-        title: "SQL in, Chart out",
-        body: "Write SQL in the editor with inline errors and a live result preview, then save it as a named Chart. Every execution runs under a 30-second timeout and a 5,000-row cap.",
+        title: "One save turns the SQL into a Chart",
+        body: "Write SQL in the editor with inline errors and a live result preview, then save it as a named Chart. Every run stops at a 30-second timeout and a 5,000-row cap.",
       },
       {
         icon: "pieChart",
-        title: "Six visualizations",
-        body: "Table, scalar, bar, line, area, and pie — with a live preview of each against your current result set, configured in a side panel. All rendered as inline SVG, no chart-library dependency.",
+        title: "Six visualizations render as inline SVG",
+        body: "Table, scalar, bar, line, area, and pie, each configured in a side panel and previewed live against your current result set. Everything renders as inline SVG, with no chart-library dependency.",
       },
       {
         icon: "layoutDashboard",
-        title: "Dashboards on a grid",
-        body: "Pin Charts as cards on a drag-and-drop 12-column grid with per-card resize, and override a Chart's title per context — MRR on the finance board, Revenue (MTD) on the home one.",
+        title: "Pin Charts to a 12-column drag-and-drop grid",
+        body: "Pin Charts as cards on a drag-and-drop 12-column grid with per-card resize. A Chart's title can be overridden per context: MRR on the finance board, Revenue (MTD) on the home one.",
       },
       {
         icon: "share2",
-        title: "Share with your AI",
-        body: "Charts and Dashboards default to read for every AI employee; authors get write on what they create. Humans grant, revoke, or promote from the Share menu.",
+        title: "Every AI Employee starts at read on a Chart",
+        body: "Charts and Dashboards default to read for every AI Employee, authors get write on what they create, and humans grant, revoke, or promote from the Share menu.",
       },
       {
         icon: "shieldAlert",
-        title: "Least-privilege by advice",
-        body: "The executor doesn't pretend to enforce read-only — the docs tell you to connect a SELECT-only database role, so even a write-granted employee can't UPDATE your production data.",
+        title: "A SELECT-only database user is the actual guard",
+        body: "The executor doesn't pretend to enforce read-only. Connect a SELECT-only database role, as the docs tell you to, and even a write-granted employee can't UPDATE your production data.",
       },
     ],
     employees: {
-      heading: "An analyst on the roster",
-      body: "AI employees use Explore through ten built-in tools — list, get, and run Charts; create and update them; assemble Dashboards — under the same execution envelope humans get.",
+      heading: "Ten built-in tools under the same 30-second timeout",
+      body: "AI Employees use Explore through ten built-in tools — list, get, and run Charts; create and update them; assemble Dashboards — under the same execution envelope humans get.",
       bullets: [
         {
           title: "Find, don't improvise",
@@ -885,12 +888,12 @@ export const PRODUCTS: ProductDef[] = [
         a: "No. Explore reuses your existing Integration Connections — set one up under Settings → Integrations and it appears in Explore's Connection picker. Credentials stay encrypted on the Connection row and are decrypted per run.",
       },
       {
-        q: "Can AI employees run and build charts?",
+        q: "Can AI Employees run and build charts?",
         a: "Yes. Every employee defaults to read access on every Chart and Dashboard — list, get, run — and gets write on ones it authors. Humans grant or revoke per Chart or Dashboard from the Share menu.",
       },
       {
         q: "What are the query limits?",
-        a: "Every execution — ad-hoc from the editor, a saved Chart, or an AI employee's run — goes through the same executor with a 30-second wall-clock timeout and a 5,000-row cap; larger result sets are truncated server-side.",
+        a: "Every execution — ad-hoc from the editor, a saved Chart, or an AI Employee's run — goes through the same executor with a 30-second wall-clock timeout and a 5,000-row cap; larger result sets are truncated server-side.",
       },
       {
         q: "Is Explore read-only against my database?",
@@ -916,15 +919,16 @@ export const PRODUCTS: ProductDef[] = [
     category: "Marketing",
     icon: "megaphone",
     accent: "bg-pink-50 text-pink-700 ring-pink-200",
-    tagline: "A complete AI ad agency in your company.",
-    taglineAccent: "With spending caps it cannot talk its way around.",
+    tagline: "An AI Employee works your Google Ads account.",
+    taglineAccent:
+      "Meta, Microsoft Advertising, and Reddit are native Integrations, and every budget increase queues an Approval.",
     summary:
-      "Campaign strategy, Creative review, Experiments, and autonomous optimization across Google, Meta, Microsoft, and Reddit — with real spend still behind hard guardrails.",
-    seoTitle: "Autonomous Paid Marketing — AI ad agency with spend caps · Genosyn",
+      "Campaign briefs, Creative review, Experiments, and a spend ledger across Google, Meta, Microsoft Advertising, and Reddit Ads.",
+    seoTitle: "Paid Marketing: Google, Meta, Microsoft, Reddit · Genosyn",
     description:
-      "An AI-run ad agency for Campaign briefs, Creative, Experiments, performance history, and guarded delivery across Google, Meta, Microsoft, and Reddit.",
+      "An AI Employee reads your Google, Meta, Microsoft, and Reddit ad accounts every morning, records performance, and queues every budget increase for a human.",
     intro:
-      "Paid Marketing gives an AI employee a durable agency workspace and the live ad-account tools to operate it. Campaign policy, Creative variants, Experiments, and immutable performance snapshots survive every Routine run. Every external spend increase still queues in Approvals by default; pausing a runaway Campaign never waits for anyone.",
+      "A Campaign brief in Genosyn carries the audience, the offer, the KPI, the budget, the platform ids, and the autonomy policy an AI Employee has to work inside. Creative goes through review, and an Experiment needs a hypothesis and a sample threshold before it starts. Raising a budget queues an Approval, and pausing a runaway campaign at 02:00 never waits for anyone.",
     checks: [
       "Google, Meta, Microsoft, Reddit Ads",
       "Campaign, Creative & Experiment workspace",
@@ -935,37 +939,37 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "layoutDashboard",
-        title: "The whole agency workspace",
-        body: "Campaign briefs carry audience, offer, KPI, target, budget, owner, platform ids, and autonomy policy. Creative moves through review; Experiments require a hypothesis, sample threshold, winner, and rationale.",
+        title: "One Campaign brief holds audience, offer, KPI, and budget",
+        body: "A Campaign brief carries audience, offer, KPI, target, budget, owner, platform ids, and autonomy policy. Creative moves through review, and an Experiment needs a hypothesis, sample threshold, winner, and rationale.",
       },
       {
         icon: "shieldAlert",
-        title: "Caps above approvals",
-        body: "Per-change, rolling 24-hour, and rolling 30-day limits on authorized budget increases, plus a kill switch — enforced on every path, so even a human approval cannot exceed a hard cap.",
+        title: "Three caps sit above every human approval",
+        body: "Per-change, rolling 24-hour, and rolling 30-day limits on authorized budget increases, plus a kill switch. All of it is enforced on every path, so even a human Approval cannot exceed a hard cap.",
       },
       {
         icon: "bell",
-        title: "Approvals that reach you",
-        body: "A budget raise or campaign enable queues an Approval with a before→after snapshot; owners and admins get bell, websocket, and web-push. If the campaign changed by the time you approve, the replay aborts instead of firing stale.",
+        title: "Approvals reach you three ways: bell, websocket, push",
+        body: "A budget raise or campaign enable queues an Approval carrying a before→after snapshot, and owners and admins hear about it by bell, websocket, and web-push. If the campaign changed by the time you approve, the replay aborts instead of firing stale.",
       },
       {
         icon: "zap",
-        title: "The emergency lever stays fast",
-        body: "Spend-decreasing actions — pause a campaign, lower a budget — never wait in a queue. A runaway campaign at 2am gets paused first and explained after.",
+        title: "Pausing a campaign at 02:00 skips the queue",
+        body: "Spend-decreasing actions never wait in a queue. Pausing a campaign or lowering a budget happens immediately. A runaway at 2am is stopped first and explained after.",
       },
       {
         icon: "table2",
-        title: "Performance that survives the run",
-        body: "Immutable Campaign snapshots record settled spend, impressions, clicks, conversions, value, period, and source. They stay distinct from the AdSpendEvent ledger of authorized budget changes.",
+        title: "Every Campaign snapshot records spend, clicks, and conversions",
+        body: "Immutable Campaign snapshots record settled spend, impressions, clicks, conversions, value, period, and source, and stay distinct from the AdSpendEvent ledger of authorized budget changes.",
       },
       {
         icon: "globe",
-        title: "A path for the gatekept platforms",
-        body: "LinkedIn, X, and TikTok gate their ads APIs behind months-long reviews — so the documented path is the built-in browser with pinned hosts, approval-gated form submits, and human take-over for logins and 2FA.",
+        title: "LinkedIn, X, and TikTok run through the browser",
+        body: "LinkedIn, X, and TikTok gate their ads APIs behind months-long reviews, so the documented path is the built-in browser: pinned hosts, approval-gated form submits, and human take-over for logins and 2FA.",
       },
     ],
     employees: {
-      heading: "A performance marketer on the roster",
+      heading: "The Performance Marketer template ships three Routines",
       body: "The Performance Marketer template ships a Soul, agency operating Skill, and three Routines that treat evidence and budget discipline as the job.",
       bullets: [
         {
@@ -1023,15 +1027,15 @@ export const PRODUCTS: ProductDef[] = [
     category: "Operations",
     icon: "trendingUp",
     accent: "bg-green-50 text-green-700 ring-green-200",
-    tagline: "From ad click to collected cash.",
-    taglineAccent: "One loop, one database, worked by AI employees.",
+    tagline: "Seven Deal Stages run from New to Closed Won.",
+    taglineAccent: "The Deal, the invoice, and the payment against it are rows in one database.",
     summary:
-      "Contacts, deals, outbound sequences, and product signals in the same database as your invoices and ledger — with timelines that fill themselves from email.",
-    seoTitle: "Revenue — A CRM that reaches your ledger · Genosyn",
+      "Contacts, Deals, Sequences, and Signals in the same database as your invoices, with timelines that fill from synced mail.",
+    seoTitle: "Revenue: Deals, Sequences, and Signals · Genosyn",
     description:
-      "Self-hosted go-to-market inside Genosyn: deals and contacts whose timelines fill from email, AI-drafted sequences a human approves, and metrics joined to your ledger.",
+      "Contacts, Deals, Sequences, and Signals in the same database as your invoices. Timelines fill from synced mail, and every outbound draft waits for a human.",
     intro:
-      "Revenue is the middle of the loop most stacks leave open. A CRM has no ledger, a ledger has no deals, and the product-signal tools have neither — so ad click, contact, deal, invoice, collected cash, and journal entry live in four systems that agree only when somebody reconciles them. In Genosyn they are rows in one database, worked by AI employees under a grant a human sets.",
+      "Most stacks keep the ad click, the Contact, the Deal, the invoice, and the payment in four systems that agree only after somebody reconciles them. In Genosyn they are rows in one database. An AI Employee works them at read, write, or send, whichever level a human wrote on its Grant.",
     checks: [
       "Deals, contacts, and one timeline",
       "The timeline fills itself from email",
@@ -1041,37 +1045,37 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "layoutGrid",
-        title: "Deals on a board",
-        body: "Seven Deal Stages seeded from a conventional B2B ladder — New through Closed Won — as a flat ordered list you edit, each carrying a forecast probability. Moving a deal into a won or lost stage closes it and stamps the date. Pipeline is the word Genosyn reserves for its DAG automation, so here it is stages and a board.",
+        title: "Moving a Deal to Closed Won stamps the date",
+        body: "Seven Deal Stages seeded from a conventional B2B ladder, New through Closed Won, arrive as a flat ordered list you edit, each carrying a forecast probability. Moving a deal into a won or lost stage closes it and stamps the date. Genosyn reserves Pipeline for its DAG automation, so here you get stages and a board.",
       },
       {
         icon: "history",
-        title: "The timeline fills itself",
-        body: "Mail sync matches thread participants against known Contacts and writes each message onto the timeline as it lands, so opening a contact shows every conversation you have ever had without anyone logging a thing. It links only to contacts that already exist — a mailbox is mostly newsletters and receipts, and auto-creating from strangers would bury the list in a week.",
+        title: "Every synced message lands on one Contact timeline",
+        body: "Mail sync matches thread participants against known Contacts and writes each message onto the timeline as it lands, so opening a contact shows every conversation you have ever had without anyone logging a thing. It links only to contacts that already exist. A mailbox is mostly newsletters and receipts, and auto-creating from strangers would bury the list in a week.",
       },
       {
         icon: "mailPlus",
-        title: "Sequences drafted, not merged",
-        body: "A Sequence names an AI employee and a standing brief instead of storing message bodies: every touch is written for that contact from their real context — prior threads, the open deal, the signal that enrolled them. Drafts land in the same review queue your mail already uses, and a reply stops the enrolment within a heartbeat.",
+        title: "A Sequence names one AI Employee and a brief",
+        body: "A Sequence stores no message bodies. It names an AI Employee and a standing brief, so every touch is written for that contact from their real context: prior threads, the open deal, the Signal that enrolled them. Drafts land in the same review queue your mail already uses, and a reply stops the enrolment within a heartbeat.",
       },
       {
         icon: "shieldCheck",
-        title: "Deliverability before volume",
-        body: "Suppression is enforced at the single outbound choke-point every send path shares, re-checked at send rather than at draft time. RFC 8058 List-Unsubscribe with one-click POST, a public unsubscribe endpoint, weekday send windows, and a per-sequence daily cap are on from the first message.",
+        title: "RFC 8058 unsubscribe ships with the first message",
+        body: "Every send path shares one outbound choke-point, and suppression is re-checked there at send rather than at draft time. RFC 8058 List-Unsubscribe with one-click POST, a public unsubscribe endpoint, weekday send windows, and a per-sequence daily cap are on from the first message.",
       },
       {
         icon: "zap",
-        title: "Signals over your own database",
-        body: "A saved query against a connected Postgres, MySQL, ClickHouse, or Stripe account, evaluated on cron and deduplicated so an account triggers once instead of every tick. A firing logs an activity, sends a notification, opens a Deal, enrols a Sequence, or wakes an AI employee with the payload.",
+        title: "A Signal queries Postgres, ClickHouse, or Stripe on cron",
+        body: "A saved query against a connected Postgres, MySQL, ClickHouse, or Stripe account runs on cron, deduplicated so an account fires once instead of on every tick. A firing then logs an activity, sends a notification, opens a Deal, enrols a Sequence, or wakes an AI Employee with the payload.",
       },
       {
         icon: "barChart3",
-        title: "Metrics that reach the ledger",
-        body: "MRR movement — new, expansion, contraction, churn, reactivation — with ARR, NRR and GRR cohorts, win rate, sales-cycle length, stage conversion, pipeline coverage, CAC by channel, LTV:CAC and payback. The arithmetic is pure and property-tested, and collected cash comes from recorded invoice payments rather than from a deal marked won.",
+        title: "Collected cash sums the payments actually recorded",
+        body: "MRR movement covers new, expansion, contraction, churn, and reactivation, alongside ARR, NRR and GRR cohorts, win rate, sales-cycle length, stage conversion, pipeline coverage, CAC by channel, LTV:CAC and payback. The arithmetic is pure and property-tested, and collected cash comes from recorded invoice payments rather than a deal marked won.",
       },
     ],
     employees: {
-      heading: "Inside what a human authorized",
+      heading: "One Grant per employee: read, write, or send",
       body: "Revenue is one company-wide Grant per employee at read, write, or send — the same shape Finance uses. An employee with no grant gets no revenue tools at all, and the level it does hold is written into its prompt in plain English, so it knows where the line is before it reaches one.",
       bullets: [
         {
@@ -1084,7 +1088,7 @@ export const PRODUCTS: ProductDef[] = [
         },
         {
           title: "Attributed, then auditable",
-          body: "Every AI write is recorded against the employee's name in the audit log, and the timeline shows whether a Member or an AI employee logged each event. A contact or a deal can be owned by either.",
+          body: "Every AI write is recorded against the employee's name in the audit log, and the timeline shows whether a Member or an AI Employee logged each event. A contact or a deal can be owned by either.",
         },
       ],
     },
@@ -1098,12 +1102,12 @@ export const PRODUCTS: ProductDef[] = [
         a: "Mail sync links each mirrored message to Contacts that already exist and writes an inbound or outbound activity, so a contact page shows the whole conversation history with nobody doing data entry. It never creates a Contact from an unknown address, and idempotency is keyed on the message, so re-syncing a mailbox never doubles a thread. Creating a contact stays an explicit act — a human, an import, or a Signal.",
       },
       {
-        q: "Can an AI employee send outbound email without me?",
+        q: "Can an AI Employee send outbound email without me?",
         a: "Not by default. Every drafted touch lands in the Drafts review queue and a human presses Send. Unattended sending requires the sequence to be marked auto-send and the employee to hold send on both its revenue grant and that mailbox — and suppression, send windows, and daily caps still apply, with no path around them.",
       },
       {
         q: "What exactly is a Signal?",
-        a: "A saved query over a connected product database or Stripe, plus a rule for what to do with the rows it returns, evaluated on a standard 5-field cron. It runs through the same executor and the same 30-second, 5,000-row envelope as an Explore chart, and a unique dedupe key means one row fires once rather than on every tick. Actions are: log an activity, notify, open a Deal, enrol a Sequence, or hand it to an AI employee.",
+        a: "A saved query over a connected product database or Stripe, plus a rule for what to do with the rows it returns, evaluated on a standard 5-field cron. It runs through the same executor and the same 30-second, 5,000-row envelope as an Explore chart, and a unique dedupe key means one row fires once rather than on every tick. Actions are: log an activity, notify, open a Deal, enrol a Sequence, or hand it to an AI Employee.",
       },
       {
         q: "Where do the CAC numbers come from?",
@@ -1129,15 +1133,15 @@ export const PRODUCTS: ProductDef[] = [
     category: "Operations",
     icon: "mail",
     accent: "bg-cyan-50 text-cyan-700 ring-cyan-200",
-    tagline: "Your inbox, with staff.",
-    taglineAccent: "An agentic Gmail client where AI triages, drafts, and earns send.",
+    tagline: "Your whole Gmail mailbox is mirrored inside Genosyn.",
+    taglineAccent: "An AI Employee holds read, draft, or send on it, and draft is the default.",
     summary:
-      "A real mail client over your Gmail mailbox — two-way sync, rules, and hand-to-AI flows gated by read < draft < send access levels.",
-    seoTitle: "Email — An agentic Gmail client · Genosyn",
+      "A real client over your Gmail mailbox: two-way sync, full-text search, inbound rules, and AI Employees granted read, draft, or send.",
+    seoTitle: "Email: a Gmail client staffed by AI Employees · Genosyn",
     description:
-      "Work your Gmail inbox inside Genosyn: two-way sync, full-text search, rules, and AI employees that triage and draft replies — humans keep the Send button.",
+      "Work your Gmail inbox inside Genosyn: two-way sync every 30 seconds, full-text search, inbound rules, and AI Employees that triage and draft. You press Send.",
     intro:
-      "Email is a real mail client backed by your Gmail mailbox: Genosyn imports the whole mailbox into a local index, keeps it in two-way sync, and gives you folders, labels, search, and compose. What it really replaces is the copy-paste loop between your inbox and an AI chat — employees are granted directly on the mailbox, so a support email can be triaged and answered with a draft the moment it arrives.",
+      "Genosyn imports the whole Gmail mailbox into a local index and keeps it in two-way sync: folders, labels, search, compose. What it really replaces is the copy-paste loop between your inbox and a chat window. Grant an employee draft on the mailbox and a support email arrives already triaged, with a reply sitting on the thread.",
     checks: [
       "Two-way Gmail sync, ~1 min fresh",
       "No Pub/Sub or extra infra",
@@ -1147,37 +1151,37 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "refreshCw",
-        title: "Sync that never drifts",
-        body: "First sync imports the entire mailbox newest-first and resumes in the background; after that, 30-second incremental polling. Every action writes through to the Gmail API first, so Gmail and Genosyn always agree.",
+        title: "Incremental polling runs every 30 seconds",
+        body: "First sync imports the entire mailbox newest-first and resumes in the background, after which 30-second incremental polling takes over. Every action writes through to the Gmail API first, so Gmail and Genosyn always agree.",
       },
       {
         icon: "inbox",
-        title: "A full mail client",
-        body: "Folder and label sidebar with unread counts, compose, reply, reply-all, forward, attachments in and out, and drafts — including AI-written drafts you edit and send.",
+        title: "Compose, reply, forward, and attach inside Genosyn",
+        body: "Folder and label sidebar with unread counts, compose, reply, reply-all, forward, attachments in and out, and drafts. That includes the AI-written drafts you edit and send.",
       },
       {
         icon: "search",
-        title: "Search the whole mailbox",
-        body: "Full-text search over subjects, participants, and complete message bodies, with structured filters — from, to, date range, label, unread, has-attachment.",
+        title: "Search the whole Gmail mailbox, bodies included",
+        body: "Full-text search runs over subjects, participants, and complete message bodies. Structured filters narrow it: from, to, date range, label, unread, has-attachment.",
       },
       {
         icon: "handshake",
-        title: "Hand a thread to AI",
-        body: "Pick a granted employee, give an instruction, choose a mode — draft a reply, reply directly, or triage. The employee runs with its full Soul, Skills, and memory, and the result lands on the thread.",
+        title: "Hand a thread over in one of three modes",
+        body: "Pick a granted employee, give an instruction, and choose one of three modes. Draft a reply, reply directly, or triage. The employee runs with its full Soul, Skills, and memory, and the result lands on the thread.",
       },
       {
         icon: "filter",
-        title: "Rules on inbound mail",
-        body: "Conditions on from, to, subject, body, or attachments trigger actions: label, mark read, star, archive, or hand the thread to an AI employee. Rules never fire on backfill or your own sent mail.",
+        title: "One rule sends support@ mail to an employee",
+        body: "Conditions on from, to, subject, body, or attachments fire an action: label, mark read, star, archive, or hand the thread to an AI Employee. Rules never run on backfill or on your own sent mail.",
       },
       {
         icon: "shieldCheck",
-        title: "Levels, not trust falls",
-        body: "Per-employee, per-mailbox access at read, draft, or send — draft is the default, so AI leaves a finished reply and a human presses Send. The levels also bind the Gmail integration tools: no side doors.",
+        title: "Three levels per mailbox: read, draft, send",
+        body: "Access is per employee and per mailbox at read, draft, or send. Draft is the default, so an employee leaves a finished reply and a human presses Send. The levels bind the Gmail integration tools too, so there are no side doors.",
       },
     ],
     employees: {
-      heading: "AI on customer email, safely",
+      heading: "AI Employees reach the mailbox three ways",
       body: "Granted employees work the mailbox through a built-in mail tool family — search, read threads, draft, triage, send — and reach it three ways: a human hands over a thread, a Rule fires on inbound mail, or a Routine runs on schedule.",
       bullets: [
         {
@@ -1200,7 +1204,7 @@ export const PRODUCTS: ProductDef[] = [
         a: "No. Sync is poll-based on a 30-second heartbeat, so new mail shows up within about a minute with nothing to set up beyond the Google OAuth client you already registered.",
       },
       {
-        q: "Can an AI employee send email without my approval?",
+        q: "Can an AI Employee send email without my approval?",
         a: "Only if you explicitly grant the send level. The default is draft: the employee can triage and write a reply as a Gmail draft, but a human reviews and presses Send. The levels bind every route to the mailbox — including the Gmail integration tools.",
       },
       {
@@ -1235,15 +1239,15 @@ export const PRODUCTS: ProductDef[] = [
     category: "Operations",
     icon: "building2",
     accent: "bg-orange-50 text-orange-700 ring-orange-200",
-    tagline: "Know every account cold.",
-    taglineAccent: "Contacts, contract value, signed documents, and statements.",
+    tagline: "A statement ages the balance into five buckets.",
+    taglineAccent: "Every figure on it comes off the invoices Finance already issued.",
     summary:
-      "A lightweight CRM wired into your books — accounts, contacts, ACV, uploaded contracts, and on-the-fly statements with aging.",
-    seoTitle: "Customers — A CRM wired into your books · Genosyn",
+      "Accounts with contacts, ACV, and signed contracts, plus statements that age receivables across five buckets straight from your invoices.",
+    seoTitle: "Customers: accounts, ACV, contracts, statements · Genosyn",
     description:
-      "Self-hosted CRM built into Genosyn: accounts with contacts and ACV, signed contract uploads, and per-customer statements with AR aging, in sync with invoices.",
+      "A CRM inside Genosyn: accounts with contacts and ACV, signed contracts up to 25 MB, and per-customer statements that age balances across five buckets.",
     intro:
-      "Customers is the account layer behind every invoice and estimate: who you sell to, what each account is worth, who to call there, and where the signed MSA lives. Because it shares a platform with Finance, customer records stay consistent with billing reality instead of drifting in a separate CRM.",
+      "A Customer record carries the billing email, the tax ID, the default currency, and the address that prints on every invoice. Its slug prefixes the document numbers: ACME-CORP-INV-0001. Contacts, Annual Contract Value, and the signed MSA hang off that same row, and the statement is derived live from Finance rather than kept as a second ledger.",
     checks: [
       "Accounts, contacts, and ACV",
       "Contract uploads to 25 MB",
@@ -1253,38 +1257,38 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "building2",
-        title: "Accounts built for billing",
-        body: "Name, billing email, phone, tax ID, default currency, and addresses — the record that appears on every invoice. Each account's slug prefixes its document numbers: ACME-CORP-INV-0001.",
+        title: "ACME-CORP-INV-0001 comes from the account slug",
+        body: "Name, billing email, phone, tax ID, default currency, and addresses make up the record that appears on every invoice. Each account's slug prefixes its document numbers: ACME-CORP-INV-0001.",
       },
       {
         icon: "contactRound",
-        title: "The people at the account",
-        body: "Any number of contacts per customer — name, role, email, phone — with one markable as primary, managed inline on the customer page.",
+        title: "Any number of contacts, one marked primary",
+        body: "Add as many contacts per customer as the account needs, each with name, role, email, and phone. Mark one primary. All of it is managed inline on the customer page.",
       },
       {
         icon: "trendingUp",
-        title: "ACV as a first-class column",
-        body: "Track Annual Contract Value per account in its default currency as an independent sales metric — editing it never touches issued invoices.",
+        title: "ACV gets its own column, independent of invoices",
+        body: "Annual Contract Value is tracked per account in its default currency as an independent sales metric. Editing it never touches issued invoices.",
       },
       {
         icon: "fileSignature",
-        title: "Contracts where you look",
-        body: "Upload signed MSAs, order forms, and NDAs — PDF, image, or document up to 25 MB — browsable globally or per customer, stored on your own server.",
+        title: "Signed MSAs and NDAs upload to 25 MB",
+        body: "Upload signed MSAs, order forms, and NDAs as PDF, image, or document up to 25 MB. They sit on your own server, browsable globally or per customer.",
       },
       {
         icon: "receipt",
-        title: "Statements on demand",
-        body: "Every issued invoice as a charge, every payment as a credit, in date order with opening balance, running balance, and balance due — derived live, so there's no second ledger to drift.",
+        title: "One statement, derived live from invoices and payments",
+        body: "Every issued invoice lands as a charge and every payment as a credit, in date order with opening balance, running balance, and balance due. It is derived live, so there is no second ledger to drift.",
       },
       {
         icon: "clock",
-        title: "Aging at a glance",
-        body: "Outstanding balance bucketed into current, 1–30, 31–60, 61–90, and 90+ days past due, filterable by period and switchable per currency — never summed across currencies.",
+        title: "Five buckets: current, 1–30, 31–60, 61–90, 90+",
+        body: "Outstanding balance is bucketed into current, 1–30, 31–60, 61–90, and 90+ days past due, filterable by period and switchable per currency. Balances are never summed across currencies.",
       },
     ],
     employees: {
-      heading: "Wired into the same platform your AI works",
-      body: "Customer data flows straight into Finance — invoices, estimates, payments, exports — on the platform your AI employees already operate, with one permission model and one audit trail.",
+      heading: "One permission model across Customers and Finance",
+      body: "Customer data flows straight into Finance — invoices, estimates, payments, exports — on the platform your AI Employees already operate, with one permission model and one audit trail.",
       bullets: [
         {
           title: "Overviews with an action queue",
@@ -1292,11 +1296,11 @@ export const PRODUCTS: ProductDef[] = [
         },
         {
           title: "PDFs from the same pipeline",
-          body: "Statements render server-side through headless Chromium — the same rendering path invoices use and the same artifact machinery AI employees hand you PDFs with.",
+          body: "Statements render server-side through headless Chromium — the same rendering path invoices use and the same artifact machinery AI Employees hand you PDFs with.",
         },
         {
           title: "Stripe-side visibility today",
-          body: "An employee granted a Stripe Connection can already browse the Stripe-side customer catalog read-only; native customer tools for AI employees are on the roadmap, gated by approvals.",
+          body: "An employee granted a Stripe Connection can already browse the Stripe-side customer catalog read-only; native customer tools for AI Employees are on the roadmap, gated by approvals.",
         },
       ],
     },
@@ -1341,15 +1345,15 @@ export const PRODUCTS: ProductDef[] = [
     category: "Operations",
     icon: "landmark",
     accent: "bg-teal-50 text-teal-700 ring-teal-200",
-    tagline: "Books that live where the work happens.",
-    taglineAccent: "Invoices, bills, and a real double-entry ledger.",
+    tagline: "Invoice ACME-CORP-INV-0001 posts to the ledger at issue.",
+    taglineAccent: "Voiding it reverses every entry that posting made.",
     summary:
-      "Estimates, invoices, recurring billing, bills and vendors, a double-entry general ledger, reports, reconciliation, and period close — native.",
-    seoTitle: "Finance — Invoicing & double-entry ledger · Genosyn",
+      "Estimates become invoices, invoices post to a double-entry ledger, and the period closes into Retained Earnings.",
+    seoTitle: "Finance: invoicing and a double-entry ledger · Genosyn",
     description:
-      "Self-hosted accounting built into Genosyn: estimates, invoices, recurring billing, bills, a double-entry ledger, reports, reconciliation, and period close.",
+      "Self-hosted accounting inside Genosyn: estimates, invoices, recurring billing, bills, a double-entry ledger, three reports, Stripe reconciliation, and period close.",
     intro:
-      "Finance is a full accounting suite inside your company's platform: quote to invoice to payment to close, on a real double-entry general ledger. It replaces the invoicing-SaaS-plus-QuickBooks stack for companies that want their books to live where their work — and their AI workforce — already happens.",
+      "Money is stored as integer minor units with a 3-letter ISO currency code on every row, so nothing rounds twice. Finance runs the whole cycle: an estimate converts to an invoice, the invoice mints its number and posts a journal entry, Stripe payouts reconcile against it, and the period locks with a closing entry into Retained Earnings. Nobody exports anything to a second accounting tab.",
     checks: [
       "Real double-entry ledger",
       "Gapless, customer-prefixed numbering",
@@ -1359,38 +1363,38 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "fileText",
-        title: "Quote to cash",
-        body: "Estimates with a full lifecycle convert to invoices in one click — every line copied, the invoice issued, the journal entry posted. Line items carry per-line inclusive or exclusive tax.",
+        title: "One click turns an estimate into an invoice",
+        body: "Estimates run a full lifecycle and convert to invoices in one click, copying every line, issuing the invoice, and posting the journal entry. Line items carry per-line inclusive or exclusive tax.",
       },
       {
         icon: "repeat",
-        title: "Recurring billing",
-        body: "Schedules fire every N days, weeks, months, quarters, or years with a plain-English preview. Draft-per-tick by default, or auto-issue and email the PDF through your configured provider.",
+        title: "Schedules fire every 14 days and email the PDF",
+        body: "Schedules fire every N days, weeks, months, quarters, or years, and a plain-English preview says when. Each tick drafts by default, or auto-issues and emails the PDF through your configured provider.",
       },
       {
         icon: "bookOpenCheck",
-        title: "A ledger, not a report",
-        body: "Chart of accounts seeded with ten system accounts, balance enforcement at the service layer, manual journal entries, and a trial balance. Document lifecycles auto-post; voiding reverses every entry.",
+        title: "Ten system accounts seed the chart on day one",
+        body: "The chart of accounts arrives seeded with ten system accounts, alongside balance enforcement at the service layer, manual journal entries, and a trial balance. Document lifecycles post themselves, and voiding reverses every entry.",
       },
       {
         icon: "barChart3",
-        title: "The three reports",
-        body: "P&L, balance sheet, and cash flow with period filters, prior-period comparison columns, and drill-through from any account row to its source entries.",
+        title: "Drill from a P&L row to its journal entries",
+        body: "P&L, balance sheet, and cash flow, each with period filters and prior-period comparison columns. Drill through from any account row to the entries behind it.",
       },
       {
         icon: "landmark",
-        title: "Bills and reconciliation",
-        body: "Vendors and bills mirror the receivable side with auto-posting and FX gain/loss. Reconcile against Stripe payouts or CSV imports with auto-match heuristics and a manual matching UI.",
+        title: "Stripe payouts and CSV imports auto-match your bills",
+        body: "Vendors and bills mirror the receivable side, auto-posting with FX gain/loss. Reconcile against Stripe payouts or CSV imports using auto-match heuristics, with a manual matching UI for whatever is left.",
       },
       {
         icon: "lock",
-        title: "Close the period",
-        body: "Accounting periods lock with a closing entry into Retained Earnings; the ledger refuses writes inside closed periods. Hand your accountant plain-CSV exports of the journal and trial balance.",
+        title: "The closing entry posts to Retained Earnings",
+        body: "Accounting periods lock with a closing entry into Retained Earnings, after which the ledger refuses writes inside them. Hand your accountant plain-CSV exports of the journal and trial balance.",
       },
     ],
     employees: {
-      heading: "The same books your AI can reach",
-      body: "Finance is not a silo behind a third-party API — it shares one platform, one permission model, and one audit trail with your AI employees.",
+      heading: "Browser-enabled AI Employees drive Finance today",
+      body: "Finance is not a silo behind a third-party API — it shares one platform, one permission model, and one audit trail with your AI Employees.",
       bullets: [
         {
           title: "API-first surface",
@@ -1398,7 +1402,7 @@ export const PRODUCTS: ProductDef[] = [
         },
         {
           title: "Browser-driven today",
-          body: "Browser-enabled AI employees can drive the Finance UI directly through the built-in browser tools, with approval-gated form submits.",
+          body: "Browser-enabled AI Employees can drive the Finance UI directly through the built-in browser tools, with approval-gated form submits.",
         },
         {
           title: "Native tools, gated, next",
@@ -1447,15 +1451,15 @@ export const PRODUCTS: ProductDef[] = [
     category: "Engineering",
     icon: "gitBranch",
     accent: "bg-violet-50 text-violet-700 ring-violet-200",
-    tagline: "Version control your team can actually use.",
-    taglineAccent: "Code or documents, edited in the browser, reviewed before it ships.",
+    tagline: "Genosyn runs git init on your own server.",
+    taglineAccent: "An AI Employee commits to its own branch for a human to read.",
     summary:
-      "A Repository is any version-controlled workspace — a service's source, a quarter's strategy, a set of policies. Start one empty inside Genosyn or clone one, edit it in the browser, and publish it to GitHub when it outgrows living here.",
-    seoTitle: "Repositories — Git workspaces for humans & AI · Genosyn",
+      "A git repository for code or a quarter's strategy: browser editor, branches, and AI work sessions you read before merging.",
+    seoTitle: "Repositories: git for code and documents · Genosyn",
     description:
-      "Version-controlled workspaces for code and documents. Edit files in the browser, commit and branch, connect a local repository to GitHub later, and hand work to an AI Employee that commits to its own branch for you to review.",
+      "Version-controlled workspaces for code and documents. Edit and commit in the browser, publish a repository to GitHub, and review what an AI Employee wrote.",
     intro:
-      "Not every repository is a codebase. A Repository is a real git repository your company owns — clone one from GitHub, GitLab, Bitbucket, or a self-hosted server, or create one empty inside Genosyn with no git host at all. Starting empty is not a dead end: connect that repository to GitHub later and Genosyn creates it there through your existing GitHub Connection and pushes the history across, with no personal access token minted or pasted. Members browse, search, and edit files in the browser, read the diff, and commit under their own name. AI Employees get their own isolated worktree, edit through Genosyn-executed tools rather than a shell, run your tests and linter against what they wrote, and commit to their own branch — which a human reviews and merges. Reading, writing and committing run on the standard Docker install with no coding tools and no sandbox required; running commands is a per-repository decision, behind the sandbox.",
+      "A Repository holds a service's source or a quarter's strategy, and either way it is a plain git repository your company owns. Members browse, search, edit, and commit under their own name in the browser. Hand a piece of work to a granted AI Employee and it takes its own worktree and its own branch, runs your tests against what it wrote, and reports back for a human to merge or discard.",
     checks: [
       "Start empty inside Genosyn, or clone any git URL",
       "Publish a local repository to GitHub later",
@@ -1467,37 +1471,37 @@ export const PRODUCTS: ProductDef[] = [
     features: [
       {
         icon: "folderGit2",
-        title: "Code or documents",
-        body: "Mark a Repository as code or documents and the copy, editor defaults, and AI briefing follow. Underneath it is a plain git repository either way, so a quarter's strategy gets the same branches, diffs, and history as a service.",
+        title: "Strategy docs get the same git history as code",
+        body: "Mark a Repository as code or documents and the copy, editor defaults, and AI briefing follow. Underneath, both are a plain git repository, so a quarter's strategy gets the same branches, diffs, and history as a service.",
       },
       {
         icon: "gitFork",
-        title: "Start local, publish to GitHub later",
-        body: "Clone any HTTPS or SSH URL, or create one empty with git init and no remote at all. When it outgrows that, pick a connected GitHub Connection: Genosyn creates the repository on GitHub — private by default — and pushes the history. No personal access token is minted or pasted, and AI session branches are left behind.",
+        title: "Genosyn creates the GitHub repository and pushes your history",
+        body: "Clone any HTTPS or SSH URL, or create one empty with git init and no remote at all. When it outgrows that, pick a connected GitHub Connection. Genosyn creates the repository on GitHub, private by default, and pushes the history. No personal access token is minted or pasted, and AI session branches are left behind.",
       },
       {
         icon: "fileText",
-        title: "A real editor in the browser",
-        body: "Tree, editor with syntax highlighting, create, rename, move, delete. The tree respects .gitignore, search is literal and includes uncommitted files, and the README renders on the Overview. Diffs per file or whole-tree, and commits attributed to the Member who made them.",
+        title: "The browser editor respects .gitignore and renders README.md",
+        body: "A tree that respects .gitignore, an editor with syntax highlighting, and create, rename, move, and delete. Search is literal and includes uncommitted files, the README renders on the Overview, and diffs come per file or whole-tree, with every commit attributed to the Member who made it.",
       },
       {
         icon: "history",
-        title: "Branches and history",
-        body: "Create a branch from any revision, switch between them, and read the log for the repository or one file, each commit with its own diff. Open a file as it was at an older commit. Fast-forward pull and push for owners and admins.",
+        title: "Open a file as it was 40 commits ago",
+        body: "Create a branch from any revision, switch between them, and read the log for the repository or one file, each commit with its own diff. Open a file as it stood at an older commit. Fast-forward pull and push belong to owners and admins.",
       },
       {
         icon: "bot",
-        title: "AI work sessions",
-        body: "Describe the work, pick a granted AI Employee, and it runs in its own git worktree on its own branch — editing through Genosyn-executed tools, and running your tests and linter against what it wrote so the diff you read has already been checked. It commits and reports. You read it and merge, or discard it.",
+        title: "An AI Employee runs your tests on its branch",
+        body: "Describe the work and pick a granted AI Employee. It runs in its own git worktree on its own branch, editing through Genosyn-executed tools and running your tests and linter against what it wrote, so the diff you read has already been checked. It commits and reports. You merge it, or discard it.",
       },
       {
         icon: "shieldCheck",
-        title: "Nothing ships unreviewed",
-        body: "The checkout that holds credentials is unreachable by any model process. Tokens and SSH keys are AES-256-GCM encrypted, never returned to the client, and used only in the push path — which only an owner or admin can trigger.",
+        title: "AES-256-GCM encrypts the tokens no model can reach",
+        body: "The checkout that holds credentials is unreachable by any model process. Tokens and SSH keys are AES-256-GCM encrypted and never returned to the client. They are used only in the push path, which only an owner or admin can trigger.",
       },
     ],
     employees: {
-      heading: "An AI Employee that works like a colleague",
+      heading: "A session ends with one branch and one report",
       body: "Grant an employee a Repository and you can hand it a piece of work the way you would hand it to a person: describe the outcome, let it work in isolation, then read what it did before any of it lands.",
       bullets: [
         {
@@ -1552,7 +1556,7 @@ export const PRODUCTS: ProductDef[] = [
     keywords: [
       "version control for documents",
       "git repository web editor self-hosted",
-      "AI employee edit and commit code",
+      "AI Employee edit and commit code",
       "review AI code changes before merge",
       "self-hosted AI software engineer",
       "per-agent repository permissions",

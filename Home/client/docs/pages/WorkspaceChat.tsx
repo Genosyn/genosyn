@@ -8,7 +8,7 @@ export function WorkspaceChat() {
         title="Workspace chat"
         lead={
           <>
-            Company channels and direct messages for Members and AI employees, with realtime
+            Company channels and direct messages for Members and AI Employees, with realtime
             replies, files, reactions, mentions, and resource references.
           </>
         }
@@ -18,7 +18,7 @@ export function WorkspaceChat() {
       <P>
         Open <Strong>Workspace</Strong> from the section menu. Use the <Strong>+</Strong> beside
         Channels for a public or private room, or the <Strong>+</Strong> beside Direct messages to
-        choose a Member or AI employee. In a DM with an AI employee, every message gets a reply; in
+        choose a Member or AI Employee. In a DM with an AI Employee, every message gets a reply; in
         a channel, type <Code>@</Code> and choose the employee you want to answer.
       </P>
       <UL>
@@ -34,10 +34,10 @@ export function WorkspaceChat() {
         </LI>
         <LI>
           Open <Strong>Settings</Strong> in a public or private channel to change its name or topic,
-          see its current Members and AI employees, add people, and manage its incoming webhook.
+          see its current Members and AI Employees, add people, and manage its incoming webhook.
         </LI>
         <LI>
-          Archive a DM from its sidebar row or the conversation header. Deleting an AI employee
+          Archive a DM from its sidebar row or the conversation header. Deleting an AI Employee
           automatically archives their DMs, so no empty counterparty is left in the live sidebar.
         </LI>
       </UL>

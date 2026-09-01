@@ -403,7 +403,7 @@ function ProviderCard({
   connects: string;
 }) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-card">
+    <div className="border border-zinc-200 bg-white p-4">
       <div className="flex items-baseline justify-between gap-2">
         <div className="font-mono text-[13px] font-semibold text-zinc-950">{name}</div>
         <div className="text-[11px] uppercase tracking-label text-zinc-600">{vendor}</div>

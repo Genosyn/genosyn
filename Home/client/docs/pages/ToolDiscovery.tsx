@@ -8,7 +8,7 @@ export function ToolDiscovery() {
         title="How tools reach the model"
         lead={
           <>
-            An AI employee has more tools than it is shown. A small working set goes out with every
+            An AI Employee has more tools than it is shown. A small working set goes out with every
             request; everything else sits in a searchable catalogue the employee reaches on demand.
             This is what keeps a turn cheap as Genosyn grows.
           </>

@@ -19,8 +19,13 @@ export type RouteHead = {
   jsonLd: object[];
 };
 
+// The old description opened on "operating system for autonomous companies",
+// which is a positioning cliché and, worse, says nothing a reader can check.
+// This one leads with the thing that is actually true and unusual: the work
+// happens while nobody is there, and it is Apache-2.0 software you run
+// yourself.
 const SITE_DESCRIPTION =
-  "Open-source, self-hosted operating system for autonomous companies: AI Employees hold real roles, run the work on their own schedule, and escalate only the decisions that need a human.";
+  "Open-source, self-hosted software for running a company with AI Employees. They hold real roles, work on their own schedule through the night, and stop for a Member only when a job genuinely needs a person.";
 
 const ORGANIZATION = {
   "@context": "https://schema.org",
@@ -163,13 +168,13 @@ export function allRoutes(): RouteHead[] {
   const routes: RouteHead[] = [
     {
       path: "/",
-      title: "Genosyn — Build an autonomous company",
+      title: "Genosyn — Eighteen Routines ran before anyone signed in",
       description: SITE_DESCRIPTION,
       jsonLd: [ORGANIZATION, WEBSITE, SOFTWARE_APPLICATION],
     },
     {
       path: "/products",
-      title: "Products — the tools an autonomous company runs on · Genosyn",
+      title: "Products — the fourteen tools the work happens in · Genosyn",
       // Derived, not hand-listed: the hand-written version had drifted and
       // omitted Paid Marketing while the page itself advertised the full count.
       description: `Every tool an autonomous company runs on, built in: ${PRODUCTS.map((p) => p.name).join(", ")}.`,
@@ -197,10 +202,10 @@ export function allRoutes(): RouteHead[] {
     ...PRODUCTS.map(productRoute),
     {
       path: "/roles",
-      title: "AI roles — what each one does all day · Genosyn",
+      title: "8 AI roles, written hour by hour · Genosyn",
       // Derived rather than hand-listed, for the same reason /products is:
       // a hand-written list drifts the moment a role is added.
-      description: `What an AI employee actually does, hour by hour, in eight roles: ${ROLES.map((r) => r.name).join(", ")}.`,
+      description: `What an AI Employee actually does, hour by hour, in eight roles: ${ROLES.map((r) => r.name).join(", ")}.`,
       jsonLd: [
         ORGANIZATION,
         WEBSITE,
@@ -225,9 +230,9 @@ export function allRoutes(): RouteHead[] {
     ...ROLES.map(roleRoute),
     {
       path: "/enterprise",
-      title: "Genosyn for Enterprise — Autonomous operations, your perimeter",
+      title: "Genosyn Enterprise: SSO, audit log, your perimeter",
       description:
-        "Run an autonomous company inside your own environment: self-hosted AI employees on your infrastructure, your model keys, your data. Apache 2.0 licensed with no vendor lock-in.",
+        "Run an autonomous company inside your own environment: self-hosted AI Employees on your infrastructure, your model keys, your data. Apache 2.0 licensed with no vendor lock-in.",
       jsonLd: [
         ORGANIZATION,
         WEBSITE,
@@ -239,7 +244,7 @@ export function allRoutes(): RouteHead[] {
     },
     {
       path: "/pricing",
-      title: "Pricing — Genosyn",
+      title: "Pricing: free self-hosted, $19 per AI Employee · Genosyn",
       description:
         "Self-host the free Apache 2.0-licensed community edition, run on Genosyn Cloud plans starting at $0 and priced per AI Employee, or unlock SSO and audit logging with Genosyn Enterprise.",
       jsonLd: [
@@ -318,7 +323,7 @@ export function llmsTxt(): string {
     "## Optional",
     "",
     `- [GitHub repository](${GITHUB_URL}): source code, issues, and roadmap`,
-    `- [Roles](${SITE_URL}/roles): what an AI employee does all day, in eight worked examples`,
+    `- [Roles](${SITE_URL}/roles): what an AI Employee does all day, in eight worked examples`,
     `- [Pricing](${SITE_URL}/pricing): free community edition, Genosyn Cloud plans, and Enterprise licensing`,
     `- [Enterprise](${SITE_URL}/enterprise): running Genosyn in your own environment`,
     `- [llms-full.txt](${SITE_URL}/llms-full.txt): expanded product and platform reference for LLMs`,
@@ -339,13 +344,13 @@ export function llmsFullTxt(): string {
     "",
     "## Vocabulary",
     "",
-    "- **AI Employee** — a persistent persona attached to a company (never called an agent or bot in product copy).",
+    "- **AI Employee** — a persistent teammate attached to a company (never called an agent or bot in product copy).",
     "- **Soul** — the employee's written constitution, one markdown document.",
     "- **Skill** — a reusable markdown playbook.",
     "- **Routine** — scheduled, cron-driven AI work; one execution is a **Run**.",
     "- **AI Model** — a model API connection owned by an employee (Anthropic, OpenAI, or custom endpoint).",
     "- **Member** — a human user in a company.",
-    "- **Integration / Connection / Grant** — a connector type / one authenticated account / an AI employee's access to a resource.",
+    "- **Integration / Connection / Grant** — a connector type / one authenticated account / an AI Employee's access to a resource.",
     "- **Tasks** — the task-manager feature (Projects + todos). Scheduled AI work is always a Routine, never a task.",
     "",
   ];
@@ -355,7 +360,7 @@ export function llmsFullTxt(): string {
     lines.push(r.intro, "");
     lines.push("A working day:", "");
     for (const m of r.day) {
-      const flag = m.kind === "decision" ? " [escalated to a human]" : "";
+      const flag = m.kind === "decision" ? " [stopped and asked a human]" : "";
       lines.push(`- **${m.time} — ${m.title}** (${m.where})${flag}. ${m.body}`);
     }
     lines.push("", "Routines:", "");
@@ -378,7 +383,7 @@ export function llmsFullTxt(): string {
     for (const f of p.features) {
       lines.push(`- **${f.title}.** ${f.body}`);
     }
-    lines.push("", `With AI employees: ${p.employees.body}`, "");
+    lines.push("", `With AI Employees: ${p.employees.body}`, "");
     for (const b of p.employees.bullets) {
       lines.push(`- **${b.title}.** ${b.body}`);
     }

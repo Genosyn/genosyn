@@ -12,7 +12,7 @@ export function Introduction() {
         lead={
           <>
             Genosyn is an open-source, self-hostable platform for running a company with{" "}
-            <Strong>AI employees</Strong>. Each one has a written soul, a set of skills, and
+            <Strong>AI Employees</Strong>. Each one has a written soul, a set of skills, and
             routines on a schedule. They wake up on their own, do the job, and report what they
             shipped — and only the decisions that need a person come back to you.
           </>
@@ -41,8 +41,8 @@ export function Introduction() {
       <P>
         A <Strong>Company</Strong> in Genosyn has human{" "}
         <DocLink to="/docs/vocabulary">Members</DocLink> and{" "}
-        <DocLink to="/docs/employees">AI Employees</DocLink>. Each AI employee is a persistent
-        persona — they have a name, a role, an <DocLink to="/docs/models">AI Model</DocLink>, and a
+        <DocLink to="/docs/employees">AI Employees</DocLink>. Each AI Employee is a persistent
+        teammate. They have a name, a role, an <DocLink to="/docs/models">AI Model</DocLink>, and a
         body of work that accumulates over time. The whole employee fits in three editable text
         fields: a <DocLink to="/docs/soul">Soul</DocLink>, a list of{" "}
         <DocLink to="/docs/skills">Skills</DocLink>, and a calendar of{" "}
@@ -108,7 +108,7 @@ export function Introduction() {
           surfaces retain focused line lengths.
         </LI>
         <LI>
-          <Strong>Live by default.</Strong> Because your AI employees work on their own schedule,
+          <Strong>Live by default.</Strong> Because your AI Employees work on their own schedule,
           the screens stay live: a routine finishing, an employee moving a todo or leaving a
           comment, an invoice going out, a base record being written — the list or page you&apos;re
           looking at refreshes itself over a single WebSocket, no reload required. It works the same
@@ -120,7 +120,7 @@ export function Introduction() {
       <P>
         If you&apos;ve never run Genosyn before, the fastest path is{" "}
         <DocLink to="/docs/install">Install</DocLink> →{" "}
-        <DocLink to="/docs/employees">create your first AI employee</DocLink> →{" "}
+        <DocLink to="/docs/employees">create your first AI Employee</DocLink> →{" "}
         <DocLink to="/docs/routines">schedule a routine</DocLink>. That whole loop takes about ten
         minutes if Docker is already running.
       </P>
@@ -167,7 +167,7 @@ export function Introduction() {
       </P>
       <P>
         The palette searches your company&apos;s content too, not just the section list. Type two or
-        more characters and matching AI employees, skills, routines, notebooks, notes, bases,
+        more characters and matching AI Employees, skills, routines, notebooks, notes, bases,
         channels, projects, todos, customers, charts, dashboards, repositories, and pipelines appear
         grouped beneath the sections. It matches <em>names</em> — plus a few fields you&apos;d
         naturally reach for, like a customer&apos;s email, a channel&apos;s topic, or an
@@ -185,7 +185,7 @@ export function Introduction() {
       <div className="mt-12">
         <Link
           href="/docs/install"
-          className="inline-flex items-center gap-2 rounded-xl bg-night-950 px-5 py-2.5 text-sm font-semibold text-white shadow-card transition hover:bg-ink-600"
+          className="inline-flex items-center gap-2 bg-night-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ink-600"
         >
           Install Genosyn
           <ArrowRight className="h-4 w-4" />
@@ -197,9 +197,9 @@ export function Introduction() {
 
 function Primitive({ icon, tag, body }: { icon: React.ReactNode; tag: string; body: string }) {
   return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-card">
+    <div className="border border-zinc-200 bg-white p-4">
       <div className="flex items-center gap-2">
-        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-paper-200 text-zinc-800 ring-1 ring-zinc-900/[0.08]">
+        <span className="flex h-7 w-7 items-center justify-center bg-paper-200 text-zinc-800 ring-1 ring-zinc-900/[0.08]">
           {icon}
         </span>
         <span className="text-[11px] font-semibold uppercase tracking-label text-zinc-600">

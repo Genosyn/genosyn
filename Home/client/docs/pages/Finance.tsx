@@ -378,7 +378,7 @@ export function Finance() {
         proposal stays pending so it can be fixed and retried.
       </P>
       <P>
-        This is also the spine that AI employees post finance work through: an AI can{" "}
+        This is also the spine that AI Employees post finance work through: an AI can{" "}
         <Strong>propose</Strong> an entry, but only a person <Strong>applies</Strong> it, so no
         automation ever moves the books unattended. Every apply and reject is recorded in the audit
         log with who decided and when.
@@ -437,9 +437,9 @@ export function Finance() {
         change to a member&apos;s level is written to the audit log.
       </P>
 
-      <H2 id="ai-access">Give AI employees finance access</H2>
+      <H2 id="ai-access">Give AI Employees finance access</H2>
       <P>
-        By default an AI employee cannot touch Finance at all. Open <Code>Finance → AI access</Code>{" "}
+        By default an AI Employee cannot touch Finance at all. Open <Code>Finance → AI access</Code>{" "}
         (owners and admins only) to grant an employee access at one of three escalating levels:
       </P>
       <UL>
@@ -464,7 +464,7 @@ export function Finance() {
       </UL>
       <P>
         Access is per employee and takes effect immediately — grant it, change the level, or revoke
-        it from <Code>Finance → AI access</Code>. Every write an AI employee makes lands in the
+        it from <Code>Finance → AI access</Code>. Every write an AI Employee makes lands in the
         audit log (marked as an AI actor) and on the employee&apos;s journal, exactly like the human
         finance routes. Members still reach Finance through the app as usual; grants govern the AI
         surface only.
@@ -494,7 +494,7 @@ export function Finance() {
         error and the tools are deprioritized in discovery.
       </P>
       <P>
-        When an AI employee sends an invoice, any <Code>To</Code> / <Code>Cc</Code> it supplies is
+        When an AI Employee sends an invoice, any <Code>To</Code> / <Code>Cc</Code> it supplies is
         restricted to the customer&apos;s own email domain or a finance mailbox you saved under{" "}
         <Code>Finance → Settings → Always Cc</Code> — an AI can&apos;t mail company documents to an
         arbitrary outside address, even if a malicious invoice memo or bank description tries to
@@ -521,7 +521,7 @@ export function Finance() {
         transactions and semi-approve one with a concise review note and optional category
         proposals. The proposal does not change the ledger. It moves the transaction to{" "}
         <Strong>AI reviewed</Strong> and notifies company owners/admins, who accept the proposal,
-        change it, or return the transaction for another look. AI employees cannot issue final
+        change it, or return the transaction for another look. AI Employees cannot issue final
         approval.
       </P>
     </>

@@ -16,7 +16,7 @@ export function MemberBrowsers() {
   return (
     <>
       <PageHeader
-        eyebrow="Brains &amp; tools"
+        eyebrow="Brains & tools"
         title="Member browsers"
         lead={
           <>

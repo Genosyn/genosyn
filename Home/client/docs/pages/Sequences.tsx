@@ -22,7 +22,7 @@ export function Sequences() {
         lead={
           <>
             Multi-step outbound where every touch is <em>written</em>, not interpolated. A sequence
-            names an <DocLink to="/docs/employees">AI employee</DocLink> and a brief; the employee
+            names an <DocLink to="/docs/employees">AI Employee</DocLink> and a brief; the employee
             drafts each step for each contact from that person&apos;s real context — the threads on
             their timeline, the open deal, the signal that enrolled them. Find it under{" "}
             <Code>Revenue → Sequences</Code>.
@@ -47,7 +47,7 @@ export function Sequences() {
         </LI>
         <LI>
           Pick the <Strong>mailbox</Strong> every touch sends from — one of the accounts connected
-          under <DocLink to="/docs/email">Email</DocLink> — and the <Strong>AI employee</Strong>{" "}
+          under <DocLink to="/docs/email">Email</DocLink> — and the <Strong>AI Employee</Strong>{" "}
           that writes them.
         </LI>
         <LI>
@@ -125,7 +125,7 @@ export function Sequences() {
       <P>
         With autoSend off — the default — a drafted touch lands in{" "}
         <DocLink to="/docs/email#drafts">Email → Drafts</DocLink>, the same review queue built for
-        exactly this job. Every row shows the AI employee and the routine or sequence that produced
+        exactly this job. Every row shows the AI Employee and the routine or sequence that produced
         it next to the recipient, subject and preview, so a night&apos;s drafting is one scannable
         list. Filter or group by employee, open a draft to see the message, its attachments and the
         thread it replies to, then send the ones you like — individually, by ticking a selection, or

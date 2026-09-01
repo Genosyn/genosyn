@@ -1,143 +1,226 @@
 import type { ReactNode } from "react";
 import { Link } from "@/lib/router";
+import { ArrowEast, Mark, type MarkState } from "@/components/Marks";
 
 /**
- * The marketing design kit.
+ * The marketing design kit — "Night Board".
  *
- * Every marketing page — landing, roles, role detail, products, product
- * detail, pricing, enterprise — composes these. The rule this file exists to
- * enforce is that a section never invents its own surface, eyebrow, heading
- * ramp, or button skin: those drifted across six files before, which is how
- * the site ended up with four heading ramps and three secondary-button
- * shadows.
+ * Every marketing page composes these, and the rule the file exists to
+ * enforce is unchanged from the version before it: a section never invents
+ * its own surface, label, heading ramp or control skin. What changed is what
+ * those primitives are.
  *
- * The palette is black, white and grey (see tailwind.config.ts). Emphasis is
- * carried by darkness and weight, never by a brand hue: the loud half of a
- * two-tone headline is `Accent` (near-black) and the quiet half is `Muted`
- * (grey). Getting that the wrong way round is the one mistake that makes a
- * neutral palette read as flat, because a lighter word always reads as
- * de-emphasis no matter what the designer intended by it.
+ * The site is an operations board. Left-to-right is time, a bar's width is a
+ * duration, a rule is a boundary, and one colour marks the row that needs a
+ * person. Three consequences run through everything below:
+ *
+ * 1. **A set of things is a stack of rows, not a grid of cards.** `Row` is the
+ *    workhorse; there is no `Panel`. Cards were doing two jobs — grouping and
+ *    signalling importance — and a hairline plus a column does the first
+ *    without pretending to do the second.
+ *
+ * 2. **Contrast is width, not weight.** `Display`, `Sheet` and `Body` set the
+ *    Archivo axes through the `.t-*` classes in index.css and nowhere else.
+ *
+ * 3. **Mono is a predicate, not a texture.** `Field` is for strings the
+ *    software emitted or ingested — a timestamp, a Run ref, a count, a cron
+ *    line, a command. It is never flavour on a sentence. The previous site had
+ *    68 mono spans on marketing prose, which is what made the data look
+ *    decorative rather than real.
  */
 
 /* -------------------------------------------------------------------------
    Surfaces
 ------------------------------------------------------------------------- */
 
-export type SectionTone = "paper" | "tint" | "night";
+export type BandTone = "paper" | "raised" | "night";
 
-const SECTION_TONE: Record<SectionTone, string> = {
-  paper: "bg-white text-zinc-800",
-  tint: "bg-paper-200 text-zinc-800",
+/**
+ * Vertical rhythm, and the rule for choosing it.
+ *
+ * The previous site had one padding value on all eight bands, which is why it
+ * had no dynamics: nothing got more room because it mattered more. The rule
+ * here is a condition rather than a preference — **a band gets `l` only if it
+ * contains a timetable.** Everything else is `m`, a strip band is `xs`, and
+ * `s` is for the tail of a page (FAQ, footer nav). Without that sentence this
+ * drifts back to uniform inside a month.
+ */
+export type BandPad = "xs" | "s" | "m" | "l" | "none";
+
+const BAND_TONE: Record<BandTone, string> = {
+  paper: "bg-paper-100 text-zinc-700",
+  raised: "bg-paper-50 text-zinc-700",
   night: "on-night bg-night-950 text-zinc-400",
 };
 
-const SECTION_DIVIDE: Record<SectionTone, string> = {
-  paper: "border-t border-zinc-200",
-  tint: "border-t border-zinc-200",
-  night: "",
+const BAND_PAD: Record<BandPad, string> = {
+  none: "",
+  xs: "py-10",
+  s: "py-14 sm:py-[4.5rem]",
+  m: "py-20 sm:py-24 lg:py-28",
+  l: "py-24 sm:py-32 lg:py-44",
 };
 
 /**
- * A full-bleed band. `divide` draws the hairline that separates one band from
- * the next; the dark bands need no rule because the colour change is the rule.
+ * A full-bleed band.
+ *
+ * Bands are grouped by meaning rather than alternated. The landing page runs
+ * paper / paper / paper / NIGHT / paper / paper: exactly one tone change,
+ * placed where the argument actually goes dark. The previous checkerboard
+ * (white, tint, white, night, white, tint…) was the fallback rule you apply
+ * when you have no reason of your own.
  */
-export function Section({
+export function Band({
   id,
   tone = "paper",
-  divide = true,
+  pad = "m",
+  rule = true,
   className = "",
   children,
 }: {
   id?: string;
-  tone?: SectionTone;
-  divide?: boolean;
+  tone?: BandTone;
+  pad?: BandPad;
+  rule?: boolean;
   className?: string;
   children: ReactNode;
 }) {
   return (
     <section
       id={id}
-      className={`relative isolate overflow-hidden ${SECTION_TONE[tone]} ${
-        divide ? SECTION_DIVIDE[tone] : ""
+      className={`relative ${BAND_TONE[tone]} ${
+        rule && tone !== "night" ? "border-t border-paper-300" : ""
       } ${className}`}
     >
-      {children}
+      <div className={BAND_PAD[pad]}>{children}</div>
     </section>
   );
 }
 
-/** The one container width for the whole site, and the one vertical rhythm. */
+/**
+ * The one container width.
+ *
+ * 82rem, narrower than the 88rem it replaces, so a measure is a measure. The
+ * inline padding is a clamp rather than a breakpoint step because the rail's
+ * vertical rule has to land in the same place at every width or it stops
+ * being one line.
+ */
 export function Container({
-  wide = false,
-  flush = false,
   className = "",
   children,
 }: {
-  wide?: boolean;
-  flush?: boolean;
   className?: string;
   children: ReactNode;
 }) {
   return (
-    <div
-      className={`relative z-10 mx-auto w-full px-5 sm:px-8 ${
-        wide ? "max-w-[88rem]" : "max-w-7xl"
-      } ${flush ? "" : "py-20 sm:py-24 lg:py-32"} ${className}`}
-    >
+    <div className={`mx-auto w-full max-w-[82rem] px-[clamp(1.25rem,4vw,3rem)] ${className}`}>
       {children}
     </div>
   );
 }
 
 /**
- * A card on paper. Interactive cards get `hover`.
+ * The rail — the site-wide layout primitive and the thing that holds it
+ * together.
  *
- * The border is a real `zinc-200` hairline rather than a black at 7% alpha.
- * On a white page a card and its band are the same colour, so the border is
- * the only thing drawing the card at all — it has to be visible.
+ * A fixed gutter column carries the sheet number and whatever mono fields the
+ * band has (a date, a count, a Run ref); the content column carries a 1px
+ * structural rule down its left edge. Because every band uses the identical
+ * grid, that rule is continuous from the header to the footer — one unbroken
+ * vertical line down the whole document. It replaces the Eyebrow component's
+ * 27 call sites and its 8 hand-inlined copies, and unlike an eyebrow it has a
+ * job on bands that have nothing to announce.
+ *
+ * Below `lg` the gutter collapses and its contents move inline above the
+ * content, because a 9.5rem gutter on a 375px screen is not a gutter.
  */
-export function Panel({
-  hover = false,
+export function Rail({
+  sheet,
+  fields,
+  night = false,
   className = "",
   children,
 }: {
-  hover?: boolean;
+  /** e.g. "02 / NIGHT SHIFT". Names the band without a heading. */
+  sheet?: string;
+  /** Mono field lines: a date, a count, a Run ref. */
+  fields?: string[];
+  night?: boolean;
   className?: string;
   children: ReactNode;
 }) {
+  const line = night ? "border-night-600" : "border-paper-400";
+  const quiet = night ? "text-zinc-400" : "text-zinc-600";
+
   return (
-    <div
-      className={`rounded-2xl border border-zinc-200 bg-white shadow-card ${
-        hover
-          ? "transition duration-200 hover:-translate-y-1 hover:border-zinc-300 hover:shadow-lift"
-          : ""
-      } ${className}`}
-    >
-      {children}
+    <div className={`rail ${className}`}>
+      <div className={`hidden pr-6 text-right lg:block ${quiet}`}>
+        {sheet && <div className="t-cond text-[11px] uppercase tracking-field">{sheet}</div>}
+        {fields?.map((field) => (
+          <div key={field} className="t-data mt-2 text-[11px] leading-4">
+            {field}
+          </div>
+        ))}
+      </div>
+      <div className={`border-l-0 pl-0 lg:border-l lg:pl-10 ${line}`}>
+        {(sheet || fields?.length) && (
+          <div className={`mb-6 flex flex-wrap items-baseline gap-x-4 gap-y-1 lg:hidden ${quiet}`}>
+            {sheet && <span className="t-cond text-[11px] uppercase tracking-field">{sheet}</span>}
+            {fields?.map((field) => (
+              <span key={field} className="t-data text-[11px]">
+                {field}
+              </span>
+            ))}
+          </div>
+        )}
+        {children}
+      </div>
     </div>
   );
 }
 
-/** The same card on a dark band. */
-export function NightPanel({
-  hover = false,
+/**
+ * A plate — how a picture of the product gets mounted.
+ *
+ * The product mocks are cool-white screenshots of a real UI and this site is
+ * warm paper; dropping one straight onto the page reads as a foreign object.
+ * A plate makes that deliberate instead: recessed ground, a 1px structural
+ * rule, no radius, and a numbered caption in the note face underneath. It
+ * stops being a screenshot floating in a glow and becomes a figure in a
+ * document, which is also the honest description of what it is.
+ */
+export function Plate({
+  figure,
+  caption,
+  night = false,
   className = "",
   children,
 }: {
-  hover?: boolean;
+  /** e.g. "Fig. 3". */
+  figure: string;
+  caption: string;
+  night?: boolean;
   className?: string;
   children: ReactNode;
 }) {
   return (
-    <div
-      className={`rounded-2xl border border-white/[0.10] bg-white/[0.04] shadow-panel ${
-        hover
-          ? "transition duration-200 hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.08]"
-          : ""
-      } ${className}`}
-    >
-      {children}
-    </div>
+    <figure className={className}>
+      <div
+        className={`border p-2 sm:p-3 ${
+          night ? "border-night-600 bg-night-850" : "border-paper-400 bg-paper-200"
+        }`}
+      >
+        {children}
+      </div>
+      <figcaption
+        className={`mt-3 flex flex-wrap items-baseline gap-x-3 ${
+          night ? "text-zinc-400" : "text-zinc-600"
+        }`}
+      >
+        <span className="t-data text-[11px] uppercase tracking-field">{figure}</span>
+        <span className="t-note text-[15px] leading-6">{caption}</span>
+      </figcaption>
+    </figure>
   );
 }
 
@@ -146,53 +229,38 @@ export function NightPanel({
 ------------------------------------------------------------------------- */
 
 /**
- * Section eyebrow — a tracked-out uppercase label that names the band.
+ * The headline ramp, and the rule that governs what may be set in it.
  *
- * It is grey, not coloured, and it is the only uppercase text on the site.
- * That combination is what lets it orient a reader without competing with the
- * heading two lines below it: uppercase reads as a label wherever it appears,
- * so the eyebrow does not need colour to be legible as one.
- */
-export function Eyebrow({ night = false, children }: { night?: boolean; children: ReactNode }) {
-  return (
-    <div
-      className={`text-[11px] font-semibold uppercase tracking-label ${
-        night ? "text-zinc-400" : "text-zinc-700"
-      }`}
-    >
-      {children}
-    </div>
-  );
-}
-
-/**
- * The one headline ramp. `clamp` carries it from phones to 1440px without a
- * breakpoint step, and the negative tracking tightens as it grows so the large
- * sizes do not read airy.
+ * **Every headline contains a number, a clock time, or a proper noun, is one
+ * clause, and is at most nine words.** That is a form constraint rather than
+ * a style note, and it is doing the work an editor would otherwise have to do
+ * by hand: it mechanically forbids the antithesis ("Not a prompt. A role that
+ * can run unattended."), the negation-definition, the aphorism ("Autonomy
+ * stops at the edge of the tools.") and the triad ("Your company. Your
+ * infrastructure. Your keys.") — every one of which needs an abstraction as
+ * its subject, and all of which the previous site was built from.
+ *
+ * There is no two-tone variant, and that is the point. The old `Accent` /
+ * `Muted` pair encoded a real insight — de-emphasis has to be *darker*, never
+ * lighter — but it hard-coded the antithesis sentence into the type system, so
+ * every heading on the site came out the same rhetorical shape. One tone, one
+ * clause, and the emphasis lives in the words.
  */
 export function Display({
   as: Tag = "h1",
   night = false,
-  /**
-   * `text-balance` evens the line lengths, which is right for most headlines
-   * but wrong for a two-tone one: it can orphan a word onto the second line
-   * and split the accent mid-line. Pass false to wrap greedily so the break
-   * falls at the accent instead.
-   */
-  balance = true,
   className = "",
   children,
 }: {
   as?: "h1" | "h2";
   night?: boolean;
-  balance?: boolean;
   className?: string;
   children: ReactNode;
 }) {
   return (
     <Tag
-      className={`${balance ? "text-balance" : ""} text-[clamp(2.5rem,6vw,4.5rem)] font-semibold leading-[0.98] tracking-[-0.045em] ${
-        night ? "text-white" : "text-zinc-950"
+      className={`t-display text-[clamp(2.4rem,5.4vw,4.75rem)] leading-[0.94] ${
+        night ? "text-paper-50" : "text-zinc-950"
       } ${className}`}
     >
       {children}
@@ -200,7 +268,7 @@ export function Display({
   );
 }
 
-/** Section headings — one step down from Display. */
+/** Section headings — one step down from Display, same rule. */
 export function Heading({
   as: Tag = "h2",
   night = false,
@@ -214,8 +282,8 @@ export function Heading({
 }) {
   return (
     <Tag
-      className={`text-balance text-[clamp(1.875rem,3.4vw,2.875rem)] font-semibold leading-[1.06] tracking-[-0.035em] ${
-        night ? "text-white" : "text-zinc-950"
+      className={`t-display text-[clamp(1.75rem,3.2vw,2.6rem)] leading-[1.04] ${
+        night ? "text-paper-50" : "text-zinc-950"
       } ${className}`}
     >
       {children}
@@ -224,33 +292,63 @@ export function Heading({
 }
 
 /**
- * The loud half of a two-tone headline, used once per page at most, on the
- * words the page is actually about.
+ * A condensed uppercase label — column headers, lane owners, sheet numbers.
  *
- * It is the darkest value on the page, and `Muted` — grey — carries the
- * setup around it. That inversion is deliberate and it is the whole reason a
- * neutral palette can hold a two-tone headline at all: a grey accent against
- * a black heading has to go lighter to be distinguishable, and a lighter word
- * reads as de-emphasis. Darker never does.
+ * This is not the old `Eyebrow`. An eyebrow announced the band the reader was
+ * already looking at, fifteen times a page. A `Sheet` names a column or a lane
+ * inside a structure, which is a job that actually needs doing.
  */
-export function Accent({ children }: { children: ReactNode }) {
-  return <span className="text-zinc-950">{children}</span>;
+export function Sheet({
+  night = false,
+  className = "",
+  children,
+}: {
+  night?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      className={`t-cond text-[11px] uppercase tracking-field ${
+        night ? "text-zinc-400" : "text-zinc-600"
+      } ${className}`}
+    >
+      {children}
+    </span>
+  );
 }
 
 /**
- * The quiet half of a two-tone headline.
+ * A mono field — and the predicate that decides whether something is one.
  *
- * zinc-700 on light — the same value as body copy, which is deliberate. At
- * 96px the quiet half of a headline is the largest area of grey anywhere on
- * the site, so it is what decides whether the palette reads as black-and-white
- * or merely as grey. Every lighter value was wrong twice over: zinc-400 on
- * white is 2.6:1, under the 3:1 floor WCAG 1.4.3 sets even for large type, and
- * anything through zinc-600 still reads washed at display size. Against a
- * zinc-950 payoff this is a tonal shift rather than a colour change, which is
- * the whole effect being aimed at.
+ * Mono is permitted only for a string the software literally emitted or
+ * ingested: a timestamp, a Run ref, a cron line, a count, a shell command, a
+ * state name. It is never applied to a marketing sentence for texture. That
+ * one test is what makes the timestamps on this site read as real data rather
+ * than as a typographic effect, and it is why "3 Routines · 4 Skills" set in
+ * mono was wrong on the old site while "04:05" is right on this one.
+ *
+ * 11px is the hard floor — Martian Mono is a wide face and goes uncomfortable
+ * below it — and a field never carries more than one line.
  */
-export function Muted({ night = false, children }: { night?: boolean; children: ReactNode }) {
-  return <span className={night ? "text-zinc-400" : "text-zinc-700"}>{children}</span>;
+export function Field({
+  night = false,
+  className = "",
+  children,
+}: {
+  night?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <span
+      className={`t-data text-[11px] leading-4 ${
+        night ? "text-zinc-400" : "text-zinc-600"
+      } ${className}`}
+    >
+      {children}
+    </span>
+  );
 }
 
 export function Lede({
@@ -264,8 +362,8 @@ export function Lede({
 }) {
   return (
     <p
-      className={`text-pretty text-lg leading-8 sm:text-xl sm:leading-9 ${
-        night ? "text-zinc-400" : "text-zinc-700"
+      className={`t-body max-w-[46ch] text-[1.1875rem] leading-[1.55] ${
+        night ? "text-zinc-300" : "text-zinc-700"
       } ${className}`}
     >
       {children}
@@ -283,7 +381,39 @@ export function Body({
   children: ReactNode;
 }) {
   return (
-    <p className={`text-base leading-7 ${night ? "text-zinc-400" : "text-zinc-700"} ${className}`}>
+    <p
+      className={`t-body text-[0.9375rem] leading-[1.7] ${
+        night ? "text-zinc-300" : "text-zinc-700"
+      } ${className}`}
+    >
+      {children}
+    </p>
+  );
+}
+
+/**
+ * The note face — italic Newsreader, and the only voice on the site with a
+ * different skeleton from everything else.
+ *
+ * It exists because a width axis alone is one voice squashed, not two. It has
+ * exactly three jobs: figure captions, margin notes, and the signed colophon.
+ * Anywhere else it is decoration and should not be used.
+ */
+export function Note({
+  night = false,
+  className = "",
+  children,
+}: {
+  night?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <p
+      className={`t-note text-[1.0625rem] leading-[1.6] ${
+        night ? "text-zinc-300" : "text-zinc-700"
+      } ${className}`}
+    >
       {children}
     </p>
   );
@@ -293,39 +423,89 @@ export function Body({
    Controls
 ------------------------------------------------------------------------- */
 
-export type ButtonVariant = "primary" | "secondary" | "night" | "ghost";
-
-const BUTTON_SKIN: Record<ButtonVariant, string> = {
-  // Near-black fill. On a black-and-white page the primary action is the
-  // darkest thing on screen, which is both the loudest it can be and the
-  // cheapest kind of loud — no hue to clash with the twenty small ones the
-  // product mocks carry.
-  primary: "bg-ink-900 text-white shadow-card hover:bg-ink-600",
-  secondary: "border border-zinc-300 bg-white text-zinc-950 shadow-card hover:border-zinc-400 hover:bg-paper-100",
-  night: "bg-white text-zinc-950 hover:bg-zinc-200",
-  ghost: "text-zinc-600 hover:text-zinc-950",
-};
-
-export function Button({
+/**
+ * An action strip.
+ *
+ * The primary control on the site is a full-width rule-bounded strip, not a
+ * pill. Strips stack with `-mt-px` so a run of them shares one rule between
+ * each pair, which is how a form or a menu is drawn on an instrument.
+ *
+ * Hover has exactly one behaviour site-wide and it applies only to real
+ * links: the strip inverts. No translate, no shadow, no arrow slide — the
+ * previous site had roughly twenty-five elements that jumped when the pointer
+ * crossed them, which means the gesture signalled nothing.
+ */
+export function ActionStrip({
   href,
   external,
-  variant = "primary",
-  block = false,
+  mono = false,
+  trailing,
+  night = false,
   className = "",
   children,
 }: {
   href: string;
   external?: boolean;
-  variant?: ButtonVariant;
-  block?: boolean;
+  /** True when the strip's content is a command or another emitted string. */
+  mono?: boolean;
+  /** Right-hand affordance — a word, not a glyph. */
+  trailing?: ReactNode;
+  night?: boolean;
   className?: string;
   children: ReactNode;
 }) {
-  const shape =
-    variant === "ghost"
-      ? "px-3 py-3"
-      : `px-5 py-3.5 ${block ? "w-full" : "w-full sm:w-auto"} hover:-translate-y-0.5`;
-  const classes = `inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold transition duration-200 ${shape} ${BUTTON_SKIN[variant]} ${className}`;
+  const skin = night
+    ? "border-night-600 text-paper-50 hover:bg-paper-50 hover:text-zinc-950"
+    : "border-paper-400 text-zinc-950 hover:bg-zinc-950 hover:text-paper-50";
+  const classes = `group flex min-h-[3.25rem] w-full items-center justify-between gap-4 border px-4 transition-colors duration-100 ${skin} ${className}`;
+
+  const inner = (
+    <>
+      <span className={`min-w-0 truncate ${mono ? "t-data text-[13px]" : "t-body text-[15px]"}`}>
+        {children}
+      </span>
+      {trailing && (
+        <span className="t-cond shrink-0 text-[11px] uppercase tracking-field">{trailing}</span>
+      )}
+    </>
+  );
+
+  if (external) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className={classes}>
+        {inner}
+        <span className="sr-only">{"(opens in a new tab)"}</span>
+      </a>
+    );
+  }
+
+  return (
+    <Link href={href} className={classes}>
+      {inner}
+    </Link>
+  );
+}
+
+/** A compact inline control, for places a full-width strip would be absurd. */
+export function Button({
+  href,
+  external,
+  variant = "primary",
+  className = "",
+  children,
+}: {
+  href: string;
+  external?: boolean;
+  variant?: "primary" | "secondary" | "night";
+  className?: string;
+  children: ReactNode;
+}) {
+  const skin = {
+    primary: "bg-zinc-950 text-paper-50 hover:bg-zinc-800",
+    secondary: "border border-paper-400 text-zinc-950 hover:bg-zinc-950 hover:text-paper-50",
+    night: "bg-paper-50 text-zinc-950 hover:bg-signal-500",
+  }[variant];
+  const classes = `t-cond inline-flex items-center gap-2 px-4 py-3 text-[12px] uppercase tracking-field transition-colors duration-100 ${skin} ${className}`;
 
   if (external) {
     return (
@@ -335,7 +515,6 @@ export function Button({
       </a>
     );
   }
-
   return (
     <Link href={href} className={classes}>
       {children}
@@ -357,22 +536,28 @@ export function TextLink({
   className?: string;
   children: ReactNode;
 }) {
-  const classes = `group inline-flex items-center gap-2 border-b pb-1 text-sm font-semibold transition ${
+  const classes = `t-cond group inline-flex items-center gap-2 border-b pb-1 text-[12px] uppercase tracking-field transition-colors ${
     night
-      ? "border-white/25 text-white hover:border-white"
-      : "border-zinc-300 text-zinc-950 hover:border-zinc-900"
+      ? "border-night-600 text-paper-50 hover:border-paper-50"
+      : "border-paper-400 text-zinc-950 hover:border-zinc-950"
   } ${className}`;
+  const inner = (
+    <>
+      {children}
+      <ArrowEast className="h-3 w-3" />
+    </>
+  );
   if (external) {
     return (
       <a href={href} target="_blank" rel="noreferrer" className={classes}>
-        {children}
+        {inner}
         <span className="sr-only">{"(opens in a new tab)"}</span>
       </a>
     );
   }
   return (
     <Link href={href} className={classes}>
-      {children}
+      {inner}
     </Link>
   );
 }
@@ -381,84 +566,112 @@ export function TextLink({
    Fragments
 ------------------------------------------------------------------------- */
 
-export type PillTone = "neutral" | "live" | "waiting" | "ink" | "violet";
+/**
+ * A hairline, and the distinction that makes the grid work.
+ *
+ * `hair` separates; `structural` means something. Keeping those two apart is
+ * what stops the page becoming uniformly ruled graph paper — a structural rule
+ * clears 3:1 because the reader has to be able to see it, a hairline
+ * deliberately does not because it is only tidying.
+ */
+export function Rule({
+  weight = "hair",
+  night = false,
+  className = "",
+}: {
+  weight?: "hair" | "structural";
+  night?: boolean;
+  className?: string;
+}) {
+  const colour = night
+    ? weight === "structural"
+      ? "bg-night-600"
+      : "bg-night-700"
+    : weight === "structural"
+      ? "bg-paper-400"
+      : "bg-paper-300";
+  return <span aria-hidden className={`block h-px w-full ${colour} ${className}`} />;
+}
 
 /**
- * Status pill. `tone` maps to the site-wide state colours, and those are the
- * only place a hue means something on its own: emerald is running, amber is
- * waiting for a human.
+ * A row — the replacement for the card, and the workhorse of the site.
+ *
+ * A set of things is rendered as rows sharing one rule between each pair, in
+ * a fixed column structure, never as a grid of bordered boxes. Rows only take
+ * the hover inversion when they are actually links.
  */
-export function Pill({
-  tone = "neutral",
+export function Row({
+  href,
+  external,
   night = false,
   className = "",
   children,
 }: {
-  tone?: PillTone;
+  href?: string;
+  external?: boolean;
   night?: boolean;
   className?: string;
   children: ReactNode;
 }) {
-  const light: Record<PillTone, string> = {
-    neutral: "border-zinc-200 bg-white text-zinc-700",
-    live: "border-emerald-500/25 bg-emerald-50 text-emerald-700",
-    waiting: "border-amber-500/30 bg-amber-50 text-amber-700",
-    ink: "border-zinc-300 bg-zinc-100 text-zinc-900",
-    violet: "border-violet-200 bg-violet-50 text-violet-700",
-  };
-  const dark: Record<PillTone, string> = {
-    neutral: "border-white/12 bg-white/[0.06] text-zinc-300",
-    live: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-    waiting: "border-amber-400/30 bg-amber-400/10 text-amber-200",
-    ink: "border-white/20 bg-white/[0.12] text-white",
-    violet: "border-violet-400/35 bg-violet-400/12 text-violet-200",
-  };
+  const base = `-mt-px flex items-start gap-x-6 gap-y-2 border-y px-1 py-5 ${
+    night ? "border-night-700" : "border-paper-300"
+  } ${className}`;
+
+  if (!href) return <div className={base}>{children}</div>;
+
+  const hover = night
+    ? "transition-colors duration-100 hover:bg-paper-50 hover:text-zinc-950"
+    : "transition-colors duration-100 hover:bg-zinc-950 hover:text-paper-50";
+
+  if (external) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className={`group ${base} ${hover}`}>
+        {children}
+        <span className="sr-only">{"(opens in a new tab)"}</span>
+      </a>
+    );
+  }
+  return (
+    <Link href={href} className={`group ${base} ${hover}`}>
+      {children}
+    </Link>
+  );
+}
+
+/**
+ * A state mark with its word beside it.
+ *
+ * Amber appears here and in the board's 09:30 line and nowhere else. Its usage
+ * rule is an accessibility rule: `#ffb000` on paper is 1.65:1, so on light
+ * ground it is a *fill* carrying near-black text (10.31:1), never a text
+ * colour. On night it inverts and may be text (10.75:1).
+ */
+export function StateTag({
+  state,
+  night = false,
+  className = "",
+  children,
+}: {
+  state: MarkState;
+  night?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  const human = state === "decision" || state === "approval";
+  const skin = human
+    ? night
+      ? "text-signal-500"
+      : "bg-signal-500 px-2 py-1 text-zinc-950"
+    : night
+      ? "text-zinc-300"
+      : "text-zinc-700";
+
   return (
     <span
-      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${
-        night ? dark[tone] : light[tone]
-      } ${className}`}
+      className={`t-cond inline-flex items-center gap-1.5 text-[11px] uppercase tracking-field ${skin} ${className}`}
     >
+      <Mark state={state} className="h-3 w-3" />
       {children}
     </span>
-  );
-}
-
-/** The pulsing dot that means "this is happening right now". */
-export function LiveDot({ className = "" }: { className?: string }) {
-  return (
-    <span
-      aria-hidden
-      className={`preview-live inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500 ${className}`}
-    />
-  );
-}
-
-/** A hairline rule with a label sitting on it, used to head a card grid. */
-export function Rule({
-  label,
-  count,
-  night = false,
-}: {
-  label?: string;
-  count?: string;
-  night?: boolean;
-}) {
-  const line = night ? "bg-white/[0.12]" : "bg-zinc-200";
-  if (!label) return <span aria-hidden className={`block h-px w-full ${line}`} />;
-  return (
-    <div className="flex items-center gap-4">
-      <h2
-        className={`text-[11px] font-semibold uppercase tracking-label ${
-          night ? "text-zinc-400" : "text-zinc-700"
-        }`}
-      >
-        {label}
-      </h2>
-      <span aria-hidden className={`h-px flex-1 ${line}`} />
-      {count && (
-        <span className={`text-xs ${night ? "text-zinc-400" : "text-zinc-600"}`}>{count}</span>
-      )}
-    </div>
   );
 }

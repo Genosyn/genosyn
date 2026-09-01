@@ -44,7 +44,7 @@ export function Vocabulary() {
             term: "AI Employee",
             def: (
               <>
-                A persistent AI persona attached to a company. See{" "}
+                A persistent AI teammate attached to a company. See{" "}
                 <DocLink to="/docs/employees">AI Employees</DocLink>.
               </>
             ),
@@ -101,7 +101,7 @@ export function Vocabulary() {
             term: "Wakeup",
             def: (
               <>
-                A timed follow-up session an AI employee schedules for itself, with a note its
+                A timed follow-up session an AI Employee schedules for itself, with a note its
                 future self reads — at most 20 pending, at most 90 days out. Never
                 &quot;Reminder,&quot; &quot;Timer,&quot; or &quot;Snooze.&quot; See{" "}
                 <DocLink to="/docs/reactivity">Reactivity</DocLink>.
@@ -124,7 +124,7 @@ export function Vocabulary() {
             term: "Initiative",
             def: (
               <>
-                Standing work an AI employee proposes — evidence, case, and the exact Routine it
+                Standing work an AI Employee proposes — evidence, case, and the exact Routine it
                 wants — that exists only once a human accepts it. Never &quot;Suggestion&quot; or
                 &quot;Idea&quot; — and &quot;Proposal&quot; belongs to Revision proposals. See{" "}
                 <DocLink to="/docs/reactivity">Reactivity</DocLink>.
@@ -135,7 +135,7 @@ export function Vocabulary() {
             term: "AI Model",
             def: (
               <>
-                A brain an AI employee runs on — an Anthropic or OpenAI API connection, a custom
+                A brain an AI Employee runs on — an Anthropic or OpenAI API connection, a custom
                 OpenAI-compatible endpoint, or a trusted single-tenant OpenAI subscription
                 connection through the official Codex app-server. An employee can hold several and
                 keep one active. See <DocLink to="/docs/models">AI Models</DocLink>.
@@ -162,7 +162,7 @@ export function Vocabulary() {
           },
           {
             term: "Grant",
-            def: "An AI employee's access to a specific Connection.",
+            def: "An AI Employee's access to a specific Connection.",
           },
           {
             term: "MCP server",
@@ -241,7 +241,7 @@ export function Vocabulary() {
             term: "Decision",
             def: (
               <>
-                A question an AI employee stopped to ask, with the options it will act on. The
+                A question an AI Employee stopped to ask, with the options it will act on. The
                 employee raises it and a Member answers; unlike an Approval, nothing is executed on
                 your behalf. See <DocLink to="/docs/decisions">Decision stack</DocLink>.
               </>

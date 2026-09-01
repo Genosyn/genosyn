@@ -47,7 +47,7 @@ export function Integrations() {
           <>
             An <Strong>Integration</Strong> is a connector type — Stripe, Gmail, GitHub, Postgres. A{" "}
             <Strong>Connection</Strong> is one authenticated account inside an integration. A{" "}
-            <Strong>Grant</Strong> gives an AI employee access to one Connection.
+            <Strong>Grant</Strong> gives an AI Employee access to one Connection.
           </>
         }
       />
@@ -318,7 +318,7 @@ export function Integrations() {
         {CATALOG.map((c) => (
           <div
             key={c.name}
-            className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2 text-[13px]"
+            className="flex items-center justify-between border border-zinc-200 bg-white px-3 py-2 text-[13px]"
           >
             <span className="font-medium text-zinc-950">{c.name}</span>
             <span className="text-[11px] uppercase tracking-wider text-zinc-600">{c.kind}</span>
@@ -402,7 +402,7 @@ export function Integrations() {
         to touch, and the runner materializes a git checkout of each allowed repository into{" "}
         <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code> before each run. The
         git token exists only inside a short-lived server-owned clone or refresh operation. It is
-        never copied into the checkout, an environment variable visible to the AI employee, or a
+        never copied into the checkout, an environment variable visible to the AI Employee, or a
         reusable credential helper. A matching HTTPS Repository can reuse the same server-held
         credential when the Connection is granted to that employee. Genosyn prefers an exact
         owner/repository allowlist match and can use the employee&apos;s sole Connection for that
@@ -533,7 +533,7 @@ export function Integrations() {
       <H3 id="paid-marketing">Ad platforms (paid marketing)</H3>
       <P>
         Four ad-platform integrations —{" "}
-        <Strong>Google Ads, Meta Ads, Microsoft Advertising, Reddit Ads</Strong> — give AI employees
+        <Strong>Google Ads, Meta Ads, Microsoft Advertising, Reddit Ads</Strong> — give AI Employees
         read-first campaign visibility plus a tiny, approval-gated mutation surface (pause / enable
         / budget change) bounded by per-Connection spending caps and a kill switch. Spend increases
         queue in the Approvals inbox by default; pausing never does. Setup recipes, the full safety

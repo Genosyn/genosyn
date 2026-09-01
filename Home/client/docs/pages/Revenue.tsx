@@ -59,7 +59,7 @@ export function Revenue() {
         </LI>
         <LI>
           <DocLink to="/docs/sequences">Sequences</DocLink> — multi-step outbound where each touch
-          is drafted individually by an AI employee.
+          is drafted individually by an AI Employee.
         </LI>
         <LI>
           <DocLink to="/docs/signals">Signals</DocLink> — product-usage triggers over your own
@@ -112,7 +112,7 @@ export function Revenue() {
       <P>
         Each contact carries a <Strong>lifecycle stage</Strong> — subscriber, lead, qualified,
         opportunity, customer, churned, or unqualified — and an <Strong>owner</Strong> who is either
-        a Member or an AI employee, never both. <Strong>Source</Strong> records where they came
+        a Member or an AI Employee, never both. <Strong>Source</Strong> records where they came
         from. Deal sources and buying-committee roles use the controlled lists in{" "}
         <Code>Revenue → Setup</Code>; contact source is filled in automatically for contacts a
         signal created (<Code>signal:trial-expiring</Code>) so attribution survives.
@@ -160,8 +160,8 @@ export function Revenue() {
         <Strong>Probability</Strong> is inherited from the stage unless you override it. See{" "}
         <DocLink to="/docs/revenue-operations#follow-ups">Follow-ups</DocLink>.
       </P>
-      <Callout kind="tip" title="Assigning a deal to an AI employee starts work.">
-        Ownership can be an AI employee, and it is not decoration. Handing a deal to one kicks off a
+      <Callout kind="tip" title="Assigning a deal to an AI Employee starts work.">
+        Ownership can be an AI Employee, and it is not decoration. Handing a deal to one kicks off a
         background work session the same way assigning a Todo does — it researches the account,
         drafts the outreach, and logs what it did on the timeline. Give it a{" "}
         <DocLink to="/docs/soul">Soul</DocLink> worth trusting first.
@@ -338,9 +338,9 @@ export function Revenue() {
         from the ad platforms. Treat the trend as real and the absolute number as approximate.
       </Callout>
 
-      <H2 id="ai-access">Giving AI employees revenue access</H2>
+      <H2 id="ai-access">Giving AI Employees revenue access</H2>
       <P>
-        By default an AI employee cannot see the revenue section at all — no grant means no revenue
+        By default an AI Employee cannot see the revenue section at all — no grant means no revenue
         tool. Owners and admins grant access from <Code>Revenue → AI access</Code> at one of three
         escalating levels:
       </P>

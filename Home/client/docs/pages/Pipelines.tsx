@@ -97,7 +97,7 @@ export function Pipelines() {
       </OL>
 
       <Callout kind="tip" title="Pick company objects instead of copying ids.">
-        Channels, Projects, Bases, tables, AI employees, and Connections appear as pickers in step
+        Channels, Projects, Bases, tables, AI Employees, and Connections appear as pickers in step
         settings. If the list is empty, use the link below the picker to create or connect the thing
         you need.
       </Callout>
@@ -111,7 +111,7 @@ export function Pipelines() {
           },
           {
             term: "Work in Genosyn",
-            def: "Send a channel message, add a task, create a Project, add a Base record, ask an AI employee, or write a journal note.",
+            def: "Send a channel message, add a task, create a Project, add a Base record, ask an AI Employee, or write a journal note.",
           },
           {
             term: "Transform or decide",
@@ -166,7 +166,7 @@ export function Pipelines() {
         step&apos;s output: return an object to give later steps named fields, and read it like any
         other step with <Code>{"{{<reference-id>.field}}"}</Code>. A thrown error fails the Run
         with that message in the log. Because the code carries company-wide authority, only a
-        human can add or edit this step — an AI employee authoring a Pipeline is refused it.
+        human can add or edit this step — an AI Employee authoring a Pipeline is refused it.
       </P>
       <Pre lang="javascript">{`// Look up a lead, call an external API, and keep a score in a Base.
 const [lead] = await genosyn.base.queryRecords("crm", "leads", {
@@ -270,7 +270,7 @@ return { score: res.data.score };`}</Pre>
           },
           {
             term: "Task created",
-            def: "Starts when a task is added by a Member, AI employee, recurrence, or another Pipeline. Filter by Project, priority, or words in the title.",
+            def: "Starts when a task is added by a Member, AI Employee, recurrence, or another Pipeline. Filter by Project, priority, or words in the title.",
           },
         ]}
       />
@@ -317,9 +317,9 @@ return { score: res.data.score };`}</Pre>
         with the schedule, webhook, or event that started them.
       </P>
 
-      <H2 id="ai">How AI employees use it</H2>
+      <H2 id="ai">How AI Employees use it</H2>
       <P>
-        AI employees build and maintain Pipelines through the built-in <Code>genosyn</Code> MCP
+        AI Employees build and maintain Pipelines through the built-in <Code>genosyn</Code> MCP
         server, not just run inside them. <Code>list_pipeline_node_types</Code> returns the step
         library with every config key; <Code>create_pipeline</Code> and{" "}
         <Code>update_pipeline</Code> write the steps and the connections between them;{" "}
@@ -376,9 +376,9 @@ return { score: res.data.score };`}</Pre>
       <P>
         Use a Pipeline when the path should be deterministic: same input, same connected steps. Use
         a <DocLink to="/docs/routines">Routine</DocLink> when an{" "}
-        <DocLink to="/docs/employees">AI employee</DocLink> should interpret a brief, choose tools,
+        <DocLink to="/docs/employees">AI Employee</DocLink> should interpret a brief, choose tools,
         and decide how to complete the work. A Pipeline can still use AI for one specific decision
-        by adding an <Strong>Ask AI employee</Strong> step.
+        by adding an <Strong>Ask AI Employee</Strong> step.
       </P>
     </>
   );

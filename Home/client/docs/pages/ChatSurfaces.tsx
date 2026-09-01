@@ -141,7 +141,7 @@ export function ChatSurfaces() {
         able to POST to you, so their cards in the catalog stay disabled until{" "}
         <Strong>Admin → General → Public URL</Strong> is set.
       </P>
-      <div className="mt-6 overflow-hidden rounded-xl border border-zinc-200 bg-white">
+      <div className="mt-6 overflow-hidden border border-zinc-200 bg-white">
         <div className="grid grid-cols-[1fr_1fr] gap-4 border-b border-zinc-100 px-5 py-3 text-[11px] font-semibold uppercase tracking-label text-zinc-600 sm:grid-cols-[200px_1fr_150px]">
           <span>Surface</span>
           <span className="hidden sm:block">How messages arrive</span>

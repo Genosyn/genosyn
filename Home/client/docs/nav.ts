@@ -168,7 +168,7 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/sequences",
         title: "Sequences",
         blurb:
-          "Multi-step outbound drafted per contact by an AI employee, with review, send windows, and caps.",
+          "Multi-step outbound drafted per contact by an AI Employee, with review, send windows, and caps.",
       },
       {
         path: "/docs/signals",
@@ -232,13 +232,13 @@ export const DOCS_NAV: DocsSection[] = [
         path: "/docs/tasks",
         title: "Tasks",
         blurb:
-          "Projects, todos, and subtasks — assigned to humans or AI employees; restrict who reaches each project.",
+          "Projects, todos, and subtasks — assigned to humans or AI Employees; restrict who reaches each project.",
       },
       {
         path: "/docs/decisions",
         title: "Decision stack",
         blurb:
-          "Questions your AI employees stopped to ask, with the options they will act on — answered from Home.",
+          "Questions your AI Employees stopped to ask, with the options they will act on — answered from Home.",
       },
       {
         path: "/docs/goals",

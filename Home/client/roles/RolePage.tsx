@@ -1,449 +1,571 @@
-import {
-  ArrowRight,
-  BookOpen,
-  CalendarClock,
-  KeyRound,
-  ScrollText,
-  Sparkles,
-  type LucideIcon,
-} from "lucide-react";
+import type { ReactNode } from "react";
 import { Nav } from "@/sections/Nav";
 import { Footer, InstallCta } from "@/sections/Footer";
+import { PageHero } from "@/sections/HeroKit";
 import {
-  HeroActions,
-  HeroBadge,
-  HeroButton,
-  HeroCopy,
-  HeroGrid,
-  HeroLede,
-  HeroSection,
-  HeroTitle,
-  HeroTitleMuted,
-} from "@/sections/HeroKit";
-import { Container, Eyebrow, Heading, Lede, Panel, Section, TextLink } from "@/sections/Kit";
+  ActionStrip,
+  Band,
+  Body,
+  Container,
+  Field,
+  Heading,
+  Lede,
+  Note,
+  Rail,
+  Row,
+  Sheet,
+  StateTag,
+  TextLink,
+} from "@/sections/Kit";
 import { DaySchedule, RoleRail } from "@/roles/RoleDay";
-import { ROLES, type RoleDef } from "@/roles/data";
-import { roleIcon } from "@/roles/roleIcons";
+import { ROLES, type RoleDef, type RoleMoment } from "@/roles/data";
 import { findProduct } from "@/products/data";
-import { productIcon } from "@/products/productIcons";
-import { Link } from "@/lib/router";
 
 /**
- * One role, in full.
+ * One role, in full. Eight routes share this page.
  *
- * The page is ordered the way somebody evaluates a hire: what is this, what
- * does it do all day, what can it actually do, what would I have to set up,
- * where does the work land, and what am I still worried about. The day is the
- * largest thing on the page because it is the only part that is hard to fake.
+ * The order is the order somebody evaluates a hire: who is this and what does
+ * a person currently lose to the work, what does it do all day, what can it
+ * do, what would I have to write, and what am I still worried about. The day
+ * gets `pad="l"` and nothing else does, because the day is the only part of
+ * this page that is hard to fake — every other band is a claim, and that one
+ * is a timetable with clock times on it.
+ *
+ * What is gone, and why it is gone rather than restyled:
+ *
+ *   - **The `EmployeeCard`.** A rounded, shadowed slab under a radial glow,
+ *     with a pastel initials tile, a pulsing emerald "On duty" dot and the
+ *     Routine list rendered as decoration inside it. Every one of those is a
+ *     thing the redesign deleted site-wide, and the card's actual content —
+ *     Routines, Skills, the next Run — is now printed as rows where a reader
+ *     can compare them.
+ *   - **`role.accent` and `roleIcon`.** Eight roles in eight hues, each with a
+ *     tinted icon tile. The site owns one colour and it means "a person is
+ *     needed here", so a role cannot have one of its own.
+ *   - **The Setup cards.** Four bordered boxes on a night band with an aurora
+ *     wash behind them. The same four documents are four stacks of rows now,
+ *     and the night band went with the boxes: this page's argument never goes
+ *     dark, so spending the site's one tone change here would make the change
+ *     mean nothing.
+ *   - **The third FAQ treatment.** The site keeps one, on Pricing, and this is
+ *     now that one.
+ *
+ * `role.reclaims` is promoted to the top. It is the only sentence in the role
+ * registry written about a human rather than about software — the two hours an
+ * AE loses to list building, the first ninety minutes of somebody's morning —
+ * and it was buried in a tinted box below the fold. It sits in the note face
+ * beside the headline, which is the treatment the site reserves for a person
+ * talking.
  */
 export function RolePage({ role }: { role: RoleDef }) {
-  const Icon = roleIcon(role.icon);
-
   return (
     <div className="min-h-screen bg-paper-100 text-zinc-900">
       <Nav />
       <main>
-        <HeroSection>
-          <HeroGrid>
-            <HeroCopy>
-              <HeroBadge
-                href="/roles"
-                leading={
-                  <span
-                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ring-1 ring-inset ${role.accent}`}
-                  >
-                    <Icon aria-hidden className="h-3 w-3" />
-                  </span>
-                }
-              >
-                {role.discipline}
-              </HeroBadge>
-              <HeroTitle>
-                {role.headline} <HeroTitleMuted>{role.headlineMuted}</HeroTitleMuted>
-              </HeroTitle>
-              <HeroLede>{role.intro}</HeroLede>
-
-              <HeroActions>
-                <HeroButton href="/#quickstart">
-                  Install Genosyn
-                  <ArrowRight aria-hidden className="h-4 w-4" />
-                </HeroButton>
-                <HeroButton href="/docs/employees" variant="secondary">
-                  <BookOpen aria-hidden className="h-4 w-4" />
-                  How employees are built
-                </HeroButton>
-              </HeroActions>
-
-              <div className="mt-10 rounded-2xl border border-zinc-200 bg-white/70 p-5 backdrop-blur">
-                <div className="text-[11px] font-semibold uppercase tracking-label text-zinc-600">
-                  What you stop doing
-                </div>
-                <p className="mt-2.5 text-[15px] leading-6 text-zinc-800">{role.reclaims}</p>
-              </div>
-            </HeroCopy>
-
-            <EmployeeCard role={role} />
-          </HeroGrid>
-        </HeroSection>
-
-        <Section id="day" tone="tint">
-          <Container wide>
-            <div className="grid gap-10 lg:grid-cols-[1fr_0.8fr] lg:items-end">
-              <div>
-                <Eyebrow>The working day</Eyebrow>
-                <Heading className="mt-5 max-w-2xl">
-                  {`What ${role.person} does between waking the servers and going quiet.`}
-                </Heading>
-              </div>
-              <Lede className="max-w-xl lg:pb-1">
-                Every hour below is one Routine you can open, read, and change — including the one
-                where it stopped and asked a human.
-              </Lede>
-            </div>
-
-            <div className="mt-12 grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
-              <DaySchedule role={role} />
-              <RoleRail role={role} identity={false} />
-            </div>
-          </Container>
-        </Section>
-
-        <Section>
-          <Container wide>
-            <div className="mx-auto max-w-3xl text-center">
-              <div className="flex justify-center">
-                <Eyebrow>{`What ${role.noun} can do`}</Eyebrow>
-              </div>
-              <Heading className="mt-5">Capable in the ways that matter, bounded in the ways that count.</Heading>
-            </div>
-            <div className="mt-14 grid gap-4 sm:grid-cols-2">
-              {role.capabilities.map((capability) => {
-                const CapIcon = productIcon(capability.icon);
-                return (
-                  <Panel key={capability.title} className="p-7">
-                    <span
-                      className={`flex h-11 w-11 items-center justify-center rounded-xl ring-1 ring-inset ${role.accent}`}
-                    >
-                      <CapIcon aria-hidden className="h-5 w-5" />
-                    </span>
-                    <h3 className="mt-5 text-lg font-semibold tracking-[-0.015em] text-zinc-950">
-                      {capability.title}
-                    </h3>
-                    <p className="mt-2.5 text-[14px] leading-6 text-zinc-700">{capability.body}</p>
-                  </Panel>
-                );
-              })}
-            </div>
-          </Container>
-        </Section>
-
+        <Head role={role} />
+        <Day role={role} />
+        <Capabilities role={role} />
         <Setup role={role} />
-
-        <Section>
-          <Container wide>
-            <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-center lg:gap-16">
-              <div>
-                <Eyebrow>Where the work lands</Eyebrow>
-                <Heading className="mt-5 max-w-lg">
-                  It works your records, not a copy of them.
-                </Heading>
-                <Lede className="mt-6 max-w-lg">
-                  {`Everything ${role.person} does happens inside the products your team already
-                  uses — the same rows, the same threads, the same queues. There is no export step
-                  and no second system of record.`}
-                </Lede>
-                <TextLink href="/products" className="mt-8">
-                  See every product
-                  <ArrowRight aria-hidden className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                </TextLink>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                {role.products.map((slug) => {
-                  const product = findProduct(slug);
-                  if (!product) return null;
-                  const ProductIcon = productIcon(product.icon);
-                  return (
-                    <Link
-                      key={slug}
-                      href={`/products/${slug}`}
-                      className="group flex items-start gap-3.5 rounded-2xl border border-zinc-200 bg-white p-5 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift"
-                    >
-                      <span
-                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset ${product.accent}`}
-                      >
-                        <ProductIcon aria-hidden className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-sm font-semibold text-zinc-950">
-                          {product.name}
-                        </span>
-                        <span className="mt-1 block line-clamp-2 text-[12px] leading-5 text-zinc-600">
-                          {product.summary}
-                        </span>
-                      </span>
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          </Container>
-        </Section>
-
-        <Section tone="tint">
-          <Container>
-            <div className="grid gap-10 lg:grid-cols-[0.7fr_1.3fr] lg:gap-16">
-              <div>
-                <Eyebrow>Questions</Eyebrow>
-                <Heading className="mt-5">The ones people actually ask.</Heading>
-              </div>
-              <dl className="divide-y divide-zinc-200 border-y border-zinc-200">
-                {role.faqs.map((faq) => (
-                  <div key={faq.q} className="py-7">
-                    <dt className="text-lg font-semibold tracking-[-0.015em] text-zinc-950">
-                      {faq.q}
-                    </dt>
-                    <dd className="mt-3 text-[15px] leading-7 text-zinc-700">{faq.a}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          </Container>
-        </Section>
-
-        <OtherRoles current={role.slug} />
-        <InstallCta />
+        <Questions role={role} />
+        <Roster current={role.slug} />
+        {/* The sheet numbers are this page's table of contents, so they have
+            to run 01 to 07 without a gap. `InstallCta` is shared with the
+            landing page, where it is 09, and takes the number as a prop for
+            exactly this reason. */}
+        <InstallCta sheet="07 / Install" />
       </main>
       <Footer />
     </div>
   );
 }
 
+/* -------------------------------------------------------------------------
+   The day, read off the data
+------------------------------------------------------------------------- */
+
+/** The employee stopped here: a Decision it wrote, or an Approval it tripped. */
+function isStop(moment: RoleMoment): moment is RoleMoment & { kind: "decision" | "approval" } {
+  return moment.kind === "decision" || moment.kind === "approval";
+}
+
+const STOP_WORD = { decision: "Decision", approval: "Approval" } as const;
+
+/** First and last clock time of the role's own day. Nobody starts that shift. */
+function hours(role: RoleDef): string {
+  return `${role.day[0].time}–${role.day[role.day.length - 1].time}`;
+}
+
+/* -------------------------------------------------------------------------
+   01 / The role
+------------------------------------------------------------------------- */
+
 /**
- * The hero's right column: the employee as it appears on the roster — a Soul,
- * a model, a Routine list, and the next thing it will do without being asked.
+ * The opening band.
+ *
+ * The headline is derived rather than authored: the role name, and the first
+ * and last clock time of its own day. That is a sentence the data cannot
+ * drift away from, and it replaces a two-tone headline whose second half was
+ * always a subordinate clause about an abstraction ("while the pipeline builds
+ * itself").
+ *
+ * The aside carries `reclaims` as a margin note and then four facts as rows.
+ * Putting the employee's name and discipline in that little table is what lets
+ * the rest of the page say "Robin" without introducing her again.
  */
-function EmployeeCard({ role }: { role: RoleDef }) {
-  const Icon = roleIcon(role.icon);
-  const initials = role.person.slice(0, 2).toUpperCase();
+function Head({ role }: { role: RoleDef }) {
+  const stop = role.day.find(isStop);
+
   return (
-    <div className="relative">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -inset-10 -z-10 rounded-[3rem] bg-[radial-gradient(60%_55%_at_50%_40%,rgba(9,9,11,0.10),transparent_72%)] blur-2xl"
-      />
-      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-raise">
-        <div className="flex items-center gap-3 border-b border-zinc-200 px-6 py-5">
-          <span
-            className={`flex h-11 w-11 items-center justify-center rounded-xl text-[13px] font-bold ring-1 ring-inset ${role.accent}`}
-          >
-            {initials}
-          </span>
-          <div className="min-w-0">
-            <div className="text-[15px] font-semibold tracking-[-0.01em] text-zinc-950">
-              {role.person}
-            </div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-zinc-600">
-              <Icon aria-hidden className="h-3 w-3" />
-              {role.name}
-            </div>
-          </div>
-          <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
-            <span aria-hidden className="preview-live h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            On duty
-          </span>
-        </div>
+    <PageHero
+      sheet={`01 / ${role.name}`}
+      fields={[
+        hours(role),
+        `${role.day.length} RUNS`,
+        stop ? `1 ${STOP_WORD[stop.kind].toUpperCase()}` : "NO STOPS",
+      ]}
+      title={`${role.name} works ${role.day[0].time} to ${role.day[role.day.length - 1].time}.`}
+      lede={role.intro}
+      actions={
+        <>
+          <ActionStrip href="/docs/install" trailing="Free">
+            Install it on your own hardware
+          </ActionStrip>
+          <ActionStrip href="/docs/employees" trailing="Docs" className="-mt-px">
+            How a Soul and its Skills are written
+          </ActionStrip>
+        </>
+      }
+      aside={
+        <div className="border-t border-paper-400 pt-8 xl:border-t-0 xl:pt-1">
+          <Sheet>What a human loses today</Sheet>
+          {/* The note face, at the size the colophon uses. It is the one voice
+              on the site with a different skeleton, and this is the one
+              sentence on the page about a person's afternoon. */}
+          <Note className="mt-4 text-[1.25rem] leading-[1.6] text-zinc-800">{role.reclaims}</Note>
 
-        <div className="grid gap-px bg-zinc-200 sm:grid-cols-2">
-          <div className="bg-white px-6 py-5">
-            <div className="text-[10px] font-semibold uppercase tracking-label text-zinc-600">
-              Routines
-            </div>
-            <ul className="mt-3 space-y-2.5">
-              {role.routines.map((routine) => (
-                <li key={routine.name} className="flex items-start gap-2.5">
-                  <span aria-hidden className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${role.dot}`} />
-                  <span className="min-w-0">
-                    <span className="block text-[12px] font-medium leading-4 text-zinc-900">
-                      {routine.name}
-                    </span>
-                    <span className="mt-0.5 block font-mono text-[10px] text-zinc-600">
-                      {routine.when}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="bg-white px-6 py-5">
-            <div className="text-[10px] font-semibold uppercase tracking-label text-zinc-600">
-              Skills
-            </div>
-            <ul className="mt-3 flex flex-wrap gap-1.5">
-              {role.skills.map((skill) => (
-                <li
-                  key={skill}
-                  className="rounded-md bg-zinc-100 px-2 py-1 font-mono text-[10px] text-zinc-700"
-                >
-                  {skill}
-                </li>
-              ))}
-            </ul>
+          <div className="mt-9">
+            <Fact label="Employee">
+              <Body className="!text-[15px] !leading-5 !text-zinc-950">{role.person}</Body>
+            </Fact>
+            <Fact label="Discipline">
+              <Body className="!text-[15px] !leading-5 !text-zinc-950">{role.discipline}</Body>
+            </Fact>
+            <Fact label="Hours">
+              <Field className="!text-zinc-950">{hours(role)}</Field>
+            </Fact>
+            {stop && (
+              <Fact label="Stops">
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <StateTag state={stop.kind}>{STOP_WORD[stop.kind]}</StateTag>
+                  <Field className="!text-zinc-950">{stop.time}</Field>
+                </span>
+              </Fact>
+            )}
           </div>
         </div>
-
-        <div className="border-t border-zinc-200 bg-paper-100 px-6 py-4">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-600">
-            <span aria-hidden className="preview-live h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            <span className="font-medium text-zinc-800">Next Run</span>
-            <span className="font-mono">{role.routines[0]?.when}</span>
-            <span aria-hidden className="hidden h-3 w-px bg-zinc-300 sm:block" />
-            <span className="hidden sm:inline">no one has to start it</span>
-          </div>
-        </div>
-      </div>
-    </div>
+      }
+    />
   );
 }
 
-/** What a human sets up once: the Soul, the Skills, the Routines, the Grants. */
+/** One labelled fact. The label column is fixed so the four values line up. */
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Row className="items-baseline">
+      <div className="w-[6.5rem] shrink-0">
+        <Sheet>{label}</Sheet>
+      </div>
+      <div className="min-w-0 flex-1">{children}</div>
+    </Row>
+  );
+}
+
+/* -------------------------------------------------------------------------
+   02 / The day
+------------------------------------------------------------------------- */
+
+/**
+ * The day-in-the-life, and the only band on this page with `pad="l"`.
+ *
+ * The padding rule is a condition rather than a preference: a band gets `l`
+ * only if it holds a timetable. This one does, and it is also the best asset
+ * on the site, so it leads — three screens ahead of where the old page put it,
+ * which was below a hero panel restating the same Routine list in miniature.
+ *
+ * `DaySchedule` and `RoleRail` come from RoleDay.tsx and are shared with the
+ * landing page. The rail runs without its identity block: the band above has
+ * already said who this is, and repeating the name, the summary and a link to
+ * the page you are standing on is how a page starts to feel padded.
+ */
+function Day({ role }: { role: RoleDef }) {
+  const stop = role.day.find(isStop);
+
+  return (
+    <Band id="day" tone="paper" pad="l">
+      <Container>
+        <Rail sheet="02 / The day" fields={[`${role.day.length} RUNS`, "TUESDAY", "SAMPLE DAY"]}>
+          <Heading as="h2" className="max-w-[20ch]">
+            {stop
+              ? `${role.person} stops once, at ${stop.time}.`
+              : `${role.person} runs ${role.day.length} times on Tuesday.`}
+          </Heading>
+
+          <Lede className="mt-6">
+            Every hour below is one Routine you can open and edit.{" "}
+            {stop
+              ? stop.kind === "decision"
+                ? `The Decision ${role.person} writes at ${stop.time} is the only moment of the day that needs a person, and any Member can answer it.`
+                : `The Approval ${role.person} trips at ${stop.time} is the only moment of the day that needs a person, and an admin releases it.`
+              : `Nothing in it waits on you.`}
+          </Lede>
+
+          <div className="mt-12 grid gap-12 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,0.55fr)] xl:gap-10">
+            <DaySchedule role={role} />
+            <RoleRail role={role} identity={false} />
+          </div>
+        </Rail>
+      </Container>
+    </Band>
+  );
+}
+
+/* -------------------------------------------------------------------------
+   03 / What it runs
+------------------------------------------------------------------------- */
+
+/**
+ * What the role can do, and which of your products it does it in.
+ *
+ * Four capability rows and a product list, both as rules-separated rows. The
+ * old version drew the capabilities as four bordered cards each opening with a
+ * pastel icon tile, and the products as eight more cards that lifted on hover;
+ * between them they spent sixteen boxes and eight hues on twelve sentences.
+ */
+function Capabilities({ role }: { role: RoleDef }) {
+  // `flatMap` with an empty array is the terse way to drop a slug that no
+  // longer resolves: `products/data.ts` is owned by another pass and a role
+  // must not render an empty row when a product is renamed out from under it.
+  const products = role.products.flatMap((slug) => findProduct(slug) ?? []);
+
+  return (
+    <Band tone="raised" pad="m">
+      <Container>
+        <Rail
+          sheet="03 / What it runs"
+          // "PARTS", not "CAPABILITIES". §3 lists Capability among the words
+          // that must not stand in for Skill, and this page prints a SKILLS
+          // count two bands down — two mono counts on one page, one of them
+          // using the other's forbidden synonym, is exactly the collision the
+          // table exists to prevent. ProductPage's feature rows already say
+          // PARTS for the same shape.
+          fields={[`${role.capabilities.length} PARTS`, `${products.length} PRODUCTS`]}
+        >
+          <Heading as="h2" className="max-w-[22ch]">
+            {`${role.capabilities.length} things ${role.person} does unattended.`}
+          </Heading>
+
+          <Lede className="mt-6">
+            The work happens in the products your team already opens, on the same rows a Member
+            edits. Nothing is exported and there is no second system of record.
+          </Lede>
+
+          <div className="mt-10">
+            {role.capabilities.map((capability) => (
+              <Row
+                key={capability.title}
+                className="!grid grid-cols-1 !gap-y-2 !py-6 lg:grid-cols-[18rem_minmax(0,1fr)]"
+              >
+                {/* `Heading`, not `Sheet`. Pricing sets a plan name in a
+                    `Sheet` inside its `h3` and that is right there — "Growth"
+                    is a label. These titles are sentences ("A Decision is a
+                    first-class outcome"), and a Sheet uppercases them, which
+                    costs the reader the sentence and flattens the capital on
+                    Decision. AGENTS.md §3 spends a paragraph keeping Decision
+                    and Approval apart; a stylesheet must not undo it. The size
+                    is the FAQ row's, because band 05 below is the same shape:
+                    a title in the display face beside its paragraph. */}
+                <Heading as="h3" className="!text-[1.0625rem] !leading-[1.45]">
+                  {capability.title}
+                </Heading>
+                <Body className="max-w-[62ch]">{capability.body}</Body>
+              </Row>
+            ))}
+          </div>
+
+          <div className="mt-12">
+            <Sheet>Where the work lands</Sheet>
+            <div className="mt-4">
+              {products.map((product) => (
+                <Row
+                  key={product.slug}
+                  href={`/products/${product.slug}`}
+                  className="items-baseline"
+                >
+                  <span className="t-body min-w-0 flex-1 text-[15px] leading-6 text-zinc-950 group-hover:!text-paper-50">
+                    {product.name}
+                  </span>
+                  <Sheet className="shrink-0 group-hover:!text-paper-50">{product.category}</Sheet>
+                </Row>
+              ))}
+            </div>
+          </div>
+        </Rail>
+      </Container>
+    </Band>
+  );
+}
+
+/* -------------------------------------------------------------------------
+   04 / Setting it up
+------------------------------------------------------------------------- */
+
+/**
+ * The four documents a human writes once.
+ *
+ * The Routines print their real cron line. That is the point of the band: a
+ * schedule described in English ("every weekday, first thing") is a claim, and
+ * `40 6 * * 1-5` is the thing the server actually holds. Mono is a predicate
+ * here rather than a texture — the cron line is a string the software ingested,
+ * so it is a `Field`; the Routine's name beside it is not, so it is not.
+ */
 function Setup({ role }: { role: RoleDef }) {
   return (
-    <Section tone="night" divide={false}>
-      <div aria-hidden className="pointer-events-none absolute inset-0 aurora-night" />
-      <div aria-hidden className="pointer-events-none absolute inset-0 night-grid" />
-      <Container wide>
-        <div className="grid gap-10 lg:grid-cols-[1fr_0.85fr] lg:items-end">
-          <div>
-            <Eyebrow night>Setting it up</Eyebrow>
-            <Heading night className="mt-5 max-w-2xl">
-              Four documents, and then you stop being the trigger.
-            </Heading>
-          </div>
-          <Lede night className="max-w-xl lg:pb-1">
-            {`Everything that makes this ${role.noun} rather than any other role is plain, editable
-            text. Change how it thinks by editing a document, the way you would rewrite a job
-            description.`}
+    <Band id="setup" tone="paper" pad="m">
+      <Container>
+        <Rail
+          sheet="04 / Setting it up"
+          fields={[
+            `${role.skills.length} SKILLS`,
+            `${role.routines.length} ROUTINES`,
+            `${role.grants.length} GRANTS`,
+          ]}
+        >
+          <Heading as="h2" className="max-w-[22ch]">
+            {`4 documents decide how ${role.person} works.`}
+          </Heading>
+
+          <Lede className="mt-6">
+            {`Everything that makes this ${role.noun} rather than another role is plain text you can
+            edit. Change the Soul and the next Run reads the new version.`}
           </Lede>
-        </div>
 
-        <div className="mt-14 grid gap-px overflow-hidden rounded-2xl border border-white/[0.10] bg-white/[0.10] md:grid-cols-2 xl:grid-cols-4">
-          <SetupCard
-            icon={ScrollText}
-            label="Soul"
-            title="How it judges"
-            lines={[`Voice, priorities, and the lines ${role.person} will not cross alone.`]}
-          />
-          <SetupCard icon={Sparkles} label="Skills" title="What it repeats" lines={role.skills} mono />
-          <SetupCard
-            icon={CalendarClock}
-            label="Routines"
-            title="When it works"
-            lines={role.routines.map((routine) => `${routine.name} — ${routine.when}`)}
-          />
-          <SetupCard icon={KeyRound} label="Grants" title="What it can reach" lines={role.grants} />
-        </div>
+          {/* Two columns, split by what the reader is looking at rather than
+              by count: prose a person writes on the left, strings the software
+              reads literally on the right. A 2x2 grid of the four documents was
+              tried first and left a column of dead space under the Soul, which
+              has one paragraph in it against the Skills column's five rows. */}
+          <div className="mt-12 grid gap-x-12 gap-y-12 lg:grid-cols-2">
+            <div className="flex flex-col gap-12">
+              <div>
+                <Sheet>Soul</Sheet>
+                <div className="mt-4">
+                  <Row>
+                    <Body className="max-w-[56ch]">
+                      {`One document says how ${role.person} judges: what to work on first, and when
+                      to stop and ask rather than guess. You rewrite it the way you would rewrite a
+                      job description.`}
+                    </Body>
+                  </Row>
+                </div>
+              </div>
 
-        <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
-          <TextLink href="/docs/employees" night>
-            Read how an employee is assembled
-            <ArrowRight aria-hidden className="h-4 w-4 transition group-hover:translate-x-0.5" />
-          </TextLink>
-          <TextLink href="/docs/routines" night>
-            Read how Routines and Runs work
-            <ArrowRight aria-hidden className="h-4 w-4 transition group-hover:translate-x-0.5" />
-          </TextLink>
-        </div>
-      </Container>
-    </Section>
-  );
-}
+              <div>
+                <Sheet>Grants</Sheet>
+                <div className="mt-4">
+                  {role.grants.map((grant) => (
+                    <Row key={grant}>
+                      <Body className="max-w-[56ch]">{grant}</Body>
+                    </Row>
+                  ))}
+                </div>
+                <Body className="mt-4 !text-[13px] !leading-5 !text-zinc-600">
+                  A Grant is one resource, granted on purpose. Anything not on this list is not
+                  reachable, including by a Routine that asks for it politely.
+                </Body>
+              </div>
+            </div>
 
-function SetupCard({
-  icon: SetupIcon,
-  label,
-  title,
-  lines,
-  mono = false,
-}: {
-  icon: LucideIcon;
-  label: string;
-  title: string;
-  lines: string[];
-  mono?: boolean;
-}) {
-  return (
-    <div className="bg-night-950 p-6">
-      <div className="flex items-center justify-between">
-        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.08] text-white ring-1 ring-inset ring-white/15">
-          <SetupIcon aria-hidden className="h-4 w-4" />
-        </span>
-        <span className="text-[10px] font-semibold uppercase tracking-label text-zinc-400">
-          {label}
-        </span>
-      </div>
-      <h3 className="mt-6 text-base font-semibold text-white">{title}</h3>
-      <ul className="mt-4 space-y-2">
-        {lines.map((line) => (
-          <li
-            key={line}
-            className={`flex items-start gap-2.5 leading-5 text-zinc-400 ${
-              mono ? "font-mono text-[11px]" : "text-[12px]"
-            }`}
-          >
-            <span aria-hidden className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
-            {line}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+            <div className="flex flex-col gap-12">
+              <div>
+                <Sheet>Skills</Sheet>
+                <div className="mt-4">
+                  {role.skills.map((skill) => (
+                    <Row key={skill} className="items-baseline">
+                      <Field className="!text-[12px] !text-zinc-950">{skill}</Field>
+                    </Row>
+                  ))}
+                </div>
+                <Body className="mt-4 !text-[13px] !leading-5 !text-zinc-600">
+                  Each Skill is one markdown playbook, and the employee reads it the way a new hire
+                  reads the runbook.
+                </Body>
+              </div>
 
-/** The rest of the roster, so a reader who is on the wrong page can leave. */
-function OtherRoles({ current }: { current: string }) {
-  const others = ROLES.filter((role) => role.slug !== current);
-  return (
-    <Section tone="tint">
-      <Container wide>
-        <div className="flex flex-wrap items-end justify-between gap-6">
-          <div>
-            <Eyebrow>The rest of the roster</Eyebrow>
-            <Heading className="mt-5 max-w-xl">Every other role, working the same way.</Heading>
+              <div>
+                <Sheet>Routines</Sheet>
+                <div className="mt-4">
+                  {role.routines.map((routine) => (
+                    <Row key={routine.name} className="flex-wrap items-baseline">
+                      <span className="t-body min-w-[8rem] flex-1 text-[15px] leading-6 text-zinc-950">
+                        {routine.name}
+                      </span>
+                      <Field className="shrink-0 !text-zinc-950">{cron(routine.when)}</Field>
+                    </Row>
+                  ))}
+                </div>
+                <Body className="mt-4 !text-[13px] !leading-5 !text-zinc-600">
+                  Those are the schedules as the server stores them. A Run starts when the line
+                  fires, and no one has to be awake for it.
+                </Body>
+              </div>
+            </div>
           </div>
-          <TextLink href="/roles">
-            See all roles
-            <ArrowRight aria-hidden className="h-4 w-4 transition group-hover:translate-x-0.5" />
-          </TextLink>
-        </div>
 
-        <div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {others.map((role) => {
-            const OtherIcon = roleIcon(role.icon);
-            return (
-              <Link
-                key={role.slug}
-                href={`/roles/${role.slug}`}
-                className="group flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3.5 shadow-card transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lift"
+          <div className="mt-12 flex flex-wrap gap-x-8 gap-y-4">
+            <TextLink href="/docs/employees">How an employee is assembled</TextLink>
+            <TextLink href="/docs/routines">How Routines and Runs work</TextLink>
+          </div>
+        </Rail>
+      </Container>
+    </Band>
+  );
+}
+
+/**
+ * The plain-English schedule, back as the cron line it came from.
+ *
+ * `data.ts` stores "Every weekday, 06:40" because that is what reads on a
+ * roster, and this page needs `40 6 * * 1-5` because that is what a reader
+ * evaluating the product wants to see. Deriving it here rather than adding a
+ * second field to the registry keeps one source of truth for the schedule:
+ * two hand-maintained spellings of the same time drift, and the one that
+ * drifts is always the one nobody reads.
+ *
+ * Anything this cannot parse falls back to the English, which is honest — an
+ * unparsed line printed as a fake cron expression would be exactly the kind of
+ * decorative data the redesign exists to remove.
+ */
+const CRON_DAYS: Record<string, string> = {
+  "every day": "*",
+  "every weekday": "1-5",
+  mondays: "1",
+  tuesdays: "2",
+  wednesdays: "3",
+  thursdays: "4",
+  fridays: "5",
+  saturdays: "6",
+  sundays: "0",
+};
+
+function cron(when: string): string {
+  const [head = "", tail = ""] = when.split(",").map((part) => part.trim());
+
+  // "08:00–19:00" narrows the hour field; "around the clock" leaves it open.
+  const range = tail.match(/^(\d{1,2}):\d{2}\s*[–—-]\s*(\d{1,2}):\d{2}$/);
+  const hourField = range ? `${Number(range[1])}-${Number(range[2])}` : "*";
+
+  const everyMinutes = head.match(/^every (\d+) minutes$/i);
+  if (everyMinutes) return `*/${everyMinutes[1]} ${hourField} * * *`;
+  if (/^hourly$/i.test(head)) return `0 ${hourField} * * *`;
+
+  const at = tail.match(/^(\d{1,2}):(\d{2})$/);
+  const days = CRON_DAYS[head.toLowerCase()];
+  if (at && days) return `${Number(at[2])} ${Number(at[1])} * * ${days}`;
+
+  return when;
+}
+
+/* -------------------------------------------------------------------------
+   05 / Questions
+------------------------------------------------------------------------- */
+
+/**
+ * The site's one FAQ treatment: a definition list at reading size, the
+ * question in the display face beside its answer. No accordion, because a
+ * control that hides three sentences exists to make the page look shorter than
+ * it is.
+ */
+function Questions({ role }: { role: RoleDef }) {
+  return (
+    <Band tone="paper" pad="s">
+      <Container>
+        <Rail sheet="05 / Questions" fields={[`${role.faqs.length} QUESTIONS`]}>
+          <Heading as="h2" className="max-w-[24ch]">
+            {`${role.faqs.length} questions about the ${role.name}.`}
+          </Heading>
+
+          <dl className="mt-10">
+            {role.faqs.map((faq) => (
+              <Row
+                key={faq.q}
+                className="!grid grid-cols-1 !py-6 lg:grid-cols-[20rem_minmax(0,1fr)]"
               >
-                <span
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset ${role.accent}`}
-                >
-                  <OtherIcon aria-hidden className="h-3.5 w-3.5" />
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-950">
+                <dt>
+                  <Heading as="h3" className="!text-[1.0625rem] !leading-[1.45]">
+                    {faq.q}
+                  </Heading>
+                </dt>
+                <dd className="mt-2 lg:mt-0">
+                  <Body className="max-w-[62ch]">{faq.a}</Body>
+                </dd>
+              </Row>
+            ))}
+          </dl>
+
+          <div className="mt-10">
+            <TextLink href="/docs/employees">Read the documentation</TextLink>
+          </div>
+        </Rail>
+      </Container>
+    </Band>
+  );
+}
+
+/* -------------------------------------------------------------------------
+   06 / Roster
+------------------------------------------------------------------------- */
+
+/**
+ * The tail: the rest of the roster, so a reader on the wrong page can leave.
+ *
+ * Rows rather than the eight hover-lifting tiles that were here, and each one
+ * carries the discipline it belongs to — which is the fact a reader who is on
+ * the wrong page is actually scanning for.
+ */
+function Roster({ current }: { current: string }) {
+  const others = ROLES.filter((role) => role.slug !== current);
+
+  return (
+    // `paper`, not `raised`: `InstallCta` below this is the raised band, and
+    // two lifted surfaces in a row read as one long band with a rule in it.
+    <Band tone="paper" pad="s">
+      <Container>
+        <Rail sheet="06 / Roster" fields={[`${ROLES.length} ROLES`]}>
+          <Heading as="h2" className="max-w-[22ch]">
+            {`${others.length} other roles ship written.`}
+          </Heading>
+
+          <div className="mt-10">
+            {others.map((role) => (
+              <Row key={role.slug} href={`/roles/${role.slug}`} className="items-baseline">
+                <span className="t-body min-w-0 flex-1 text-[15px] leading-6 text-zinc-950 group-hover:!text-paper-50">
                   {role.name}
                 </span>
-                <ArrowRight
-                  aria-hidden
-                  className="h-4 w-4 shrink-0 text-zinc-300 transition group-hover:translate-x-0.5 group-hover:text-zinc-950"
-                />
-              </Link>
-            );
-          })}
-        </div>
+                <Sheet className="hidden shrink-0 group-hover:!text-paper-50 sm:inline">
+                  {role.discipline}
+                </Sheet>
+                <span className="shrink-0">
+                  <Field className="group-hover:!text-paper-50">{hours(role)}</Field>
+                </span>
+              </Row>
+            ))}
+          </div>
+
+          <div className="mt-10">
+            <TextLink href="/roles">{`All ${ROLES.length} roles, side by side`}</TextLink>
+          </div>
+        </Rail>
       </Container>
-    </Section>
+    </Band>
   );
 }

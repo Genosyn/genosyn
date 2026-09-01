@@ -1,89 +1,131 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Genosyn marketing design tokens.
+ * Genosyn marketing design tokens — "Night Board".
  *
- * The site is black, white and grey, and it earns its life from contrast and
- * structure rather than from a brand hue. Three families carry it:
+ * The site is an operations board for last night. Left-to-right is time, a
+ * bar's width is a duration, a rule is a boundary, and colour is reserved for
+ * the one row that needs a person. Everything below serves that.
  *
- * - `paper`  the canvas. Pure white through to a light grey band, so sections
- *            alternate white / near-white / white / grey and the page has a
- *            rhythm you can feel while scrolling.
- * - `ink`    emphasis. A neutral ramp, deliberately not a hue — it fills the
- *            buttons, paints the dark bands' bright text, and marks the words
- *            the page is about.
- * - `night`  the punctuation. Near-black bands for the sections that are
- *            literally about the night shift, the terminal, and the close.
+ * ## The neutrals are warm, and `zinc` is the ramp
  *
- * Text and hairlines use Tailwind `zinc` — a clean, very slightly cool
- * neutral that sits on white without the brown cast `stone` drags in.
+ * `zinc` is redefined here rather than shadowed by a new family. The whole
+ * site — marketing sections, product and role pages, and 57 docs pages —
+ * already uses `zinc` as "the neutral ramp", so remapping it is what repaints
+ * every surface at once instead of leaving a cool-grey docs section behind a
+ * warm marketing site. The ramp is warm (a yellow-leaning neutral, not
+ * Tailwind's cool grey) so the page reads as printed strip stock rather than
+ * as a framework default. That difference is most of why the site no longer
+ * looks stamped out of the same tin as every other one.
  *
- * ## Why `ink` is not a lightness ramp
+ * Measured against `#F4F3EF` (paper), computed not estimated:
  *
- * This accent was a hue (rose) before, and the argument for it was that a
- * neutral accent has to go *lighter* than the near-black headings to be
- * distinguishable from them, and a lighter word reads as de-emphasis. That
- * argument is sound, and the fix is not a different grey — it is to stop
- * asking a neutral to be the loud half of a two-tone headline. Emphasis on
- * this site is carried by weight and darkness: the payoff half of a headline
- * is `zinc-950`, and the setup half is the grey. `Accent` and `Muted` in
- * sections/Kit.tsx implement exactly that inversion.
+ *   200 #DAD7CE  1.30:1  hairline. Decorative separation only, never meaning.
+ *   400 #8C8880  3.18:1  structural rule. Clears WCAG 1.4.11 because the rail
+ *                        carries meaning and therefore has to be visible.
+ *   600 #65625A  5.49:1  the quiet floor. Nothing lighter may carry text.
+ *   700 #56544C  6.83:1  body.
+ *   950 #111110 17.02:1  the one black — headings, fills and rules alike.
  *
- * So `ink` is compressed on purpose. 50–400 are the quiet half — tile fills,
- * hairlines, separator dots, and the light text that sits on a dark band.
- * 500–900 are the loud half — near-black fills and the words that have to
- * out-shout a heading. The gap between 400 and 500 is the point: there is no
- * mid-grey step, because a mid-grey is exactly the value that reads as
- * "disabled" wherever emphasis was intended.
+ * On night (`#0B0B0A`): 300 is 10.72:1, 400 is 5.58:1. Those are the two
+ * values that may carry text there; 500 and below may not.
  *
- * ## Where colour lives
+ * ## `signal` is the only hue, and it means one thing
  *
- * Colour did not leave the site; it stopped being decoration. Every hue is
- * now load-bearing and small: emerald means running, amber means waiting for
- * a human, rose means something broke, and each role (roles/data.ts) and
- * product (products/data.ts) owns one hue that repeats across its icon tile,
- * its dot on a timeline, and its card. A screen should be able to hold twenty
- * of them without the page reading as coloured — that ratio is the design.
+ * `#FFB000` is amber phosphor — a VT220 / IBM 3278 referent an operations
+ * audience reads as instrumentation. It marks the human boundary and nothing
+ * else: the 09:30 arrival line, Decisions, Approvals.
+ *
+ * Its usage rule is an accessibility rule rather than a taste one. Amber on
+ * paper is 1.65:1, so on light ground it is only ever a *fill* with ink on it
+ * (10.31:1) or a 2px rule — never text. On night it inverts and becomes a
+ * text colour (10.75:1). The focus ring is deliberately not amber for the
+ * same reason.
+ *
+ * A Standdown gets no hue at all. It is drawn as a 45° hatch (`.hatch` in
+ * index.css) — the instrument convention for out-of-service — which keeps the
+ * "one colour, one meaning" rule intact instead of spending a second hue.
+ *
+ * ## What is absent, and why
+ *
+ * There is no radius above 2px and there are no drop shadows. Both were doing
+ * the same job — making a rectangle look like a floating card — and cards are
+ * not a category on this site: a set of things is a stack of rules-separated
+ * rows, not a grid of bordered boxes. `panel` survives alone because a lit top
+ * edge is how elevation actually reads on a dark plane.
+ *
+ * `borderRadius.full` stays at 9999px on purpose. Flattening it would also
+ * flatten the avatars and status dots inside the product mocks, which are
+ * pictures of a real UI and are meant to keep their own shapes.
  */
 export default {
   content: ["./client/index.html", "./client/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
+        // The neutral ramp. Warm, and deliberately the `zinc` key so every
+        // existing call site across the site and docs is repainted at once.
+        zinc: {
+          50: "#fbfaf7",
+          100: "#f4f3ef",
+          200: "#dad7ce",
+          300: "#c3bfb4",
+          400: "#8c8880",
+          500: "#77746b",
+          600: "#65625a",
+          700: "#56544c",
+          800: "#33322d",
+          900: "#1a1a18",
+          950: "#111110",
+        },
         paper: {
-          50: "#ffffff",
-          100: "#fafafa",
-          200: "#f4f4f5",
-          300: "#ebebed",
-          400: "#dcdce0",
+          50: "#fbfaf7", // raised — the board, and the one lighter surface
+          100: "#f4f3ef", // ground
+          200: "#eceae3", // recessed — what a plate is mounted on
+          300: "#dad7ce", // hairline
+          400: "#8c8880", // structural rule
         },
         ink: {
-          50: "#f7f7f8",
-          100: "#eeeef0",
-          200: "#dcdce0",
-          300: "#b9b9c0",
-          400: "#8e8e97",
+          // ── the quiet half ──
+          50: "#f4f3ef",
+          100: "#eceae3",
+          200: "#dad7ce",
+          300: "#8c8880",
+          400: "#65625a",
           // ── the loud half ──
-          500: "#2f2f35",
-          600: "#1c1c20",
-          700: "#131316",
-          800: "#0e0e11",
-          // Exactly zinc-950, so a filled button and a heading are the same
-          // black — the page has one black, not two that almost match.
-          900: "#09090b",
+          // The gap between 400 and 500 is kept from the previous token file
+          // and is still the point: there is no mid-grey step, because a
+          // mid-grey is exactly the value that reads as "disabled" wherever
+          // emphasis was intended.
+          500: "#56544c",
+          600: "#33322d",
+          700: "#232320",
+          800: "#1a1a18",
+          900: "#111110",
         },
         night: {
-          950: "#060608",
-          900: "#0f0f12",
-          850: "#16161b",
-          800: "#1d1d23",
-          700: "#2a2a31",
-          600: "#3c3c45",
+          950: "#0b0b0a", // the dark plane
+          900: "#111110",
+          850: "#161614", // raised on night
+          800: "#1e1e1b",
+          700: "#2a2a26", // hairline on night
+          600: "#6a665c", // structural rule on night — 3.44:1
+        },
+        signal: {
+          // The human boundary. Never text on paper.
+          DEFAULT: "#ffb000",
+          400: "#ffc23d",
+          500: "#ffb000",
+          600: "#d99500",
         },
       },
       fontFamily: {
+        // One superfamily carries display and prose, separated by WIDTH rather
+        // than weight (see `.t-display` / `.t-cond` in index.css). Archivo is a
+        // two-axis variable face; a wide engineered grotesque reads as an
+        // instrument fascia, which Inter never does.
         sans: [
-          "Inter",
+          "Archivo",
           "ui-sans-serif",
           "system-ui",
           "-apple-system",
@@ -91,48 +133,65 @@ export default {
           "Roboto",
           "sans-serif",
         ],
+        // The data face. Timestamps, Run refs, counts, state labels — strings
+        // the software actually emitted. Never flavour on a sentence.
         mono: [
-          "'JetBrains Mono'",
+          "'Martian Mono'",
           "ui-monospace",
           "SFMono-Regular",
           "Menlo",
           "Consolas",
           "monospace",
         ],
+        // The second voice, and the only one with a different skeleton: an
+        // italic serif for figure captions, margin notes and the colophon.
+        // A width axis alone is one voice squashed, not two.
+        note: ["Newsreader", "ui-serif", "Georgia", "serif"],
       },
       letterSpacing: {
-        // The one tracked-out value the whole site uses for mono eyebrows.
-        label: "0.14em",
+        // The one tracked-out value, and it belongs to mono fields only.
+        label: "0.16em",
+        field: "0.1em",
+      },
+      borderRadius: {
+        none: "0",
+        DEFAULT: "0",
+        sm: "2px",
+        md: "0",
+        lg: "0",
+        xl: "0",
+        "2xl": "0",
+        "3xl": "0",
+        // Kept: the product mocks contain real circles (avatars, status dots)
+        // and flattening those would break pictures of a working UI.
+        full: "9999px",
       },
       boxShadow: {
-        // Neutral and shallow. On a white page the hairline does most of the
-        // separating; the shadow only has to lift a card off the grey bands.
-        card: "0 1px 2px rgba(9, 9, 11, 0.05), 0 1px 1px rgba(9, 9, 11, 0.04)",
-        lift: "0 14px 34px -14px rgba(9, 9, 11, 0.16), 0 3px 10px -3px rgba(9, 9, 11, 0.07)",
-        raise: "0 28px 60px -26px rgba(9, 9, 11, 0.28), 0 6px 18px -8px rgba(9, 9, 11, 0.12)",
-        float: "0 48px 96px -40px rgba(9, 9, 11, 0.5), 0 10px 28px -14px rgba(9, 9, 11, 0.3)",
-        // Elevation on the dark bands is a lit top edge, not a drop shadow.
-        panel: "inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 2px rgba(0,0,0,0.4)",
+        // The card shadows are gone because cards are gone. These four keys
+        // stay defined as `none` so the ~79 existing call sites collapse
+        // without a sweep, and can be deleted incrementally.
+        card: "none",
+        lift: "none",
+        raise: "none",
+        float: "none",
+        // Elevation on a dark plane is a lit top edge, not a drop shadow.
+        panel: "inset 0 1px 0 rgba(251, 250, 247, 0.08)",
       },
       keyframes: {
-        rise: {
-          from: { opacity: "0", transform: "translateY(14px)" },
-          to: { opacity: "1", transform: "translateY(0)" },
+        // The one animation on the site, and it is the argument: bars draw
+        // left to right, so the night fills in before you arrive.
+        strip: {
+          from: { transform: "scaleX(0)" },
+          to: { transform: "scaleX(1)" },
         },
-        sweep: {
-          from: { transform: "translateX(-100%)" },
-          to: { transform: "translateX(320%)" },
-        },
-        // Slow parallax on the hero wash, so the background is never quite still.
-        drift: {
-          "0%, 100%": { transform: "translate3d(0, 0, 0) scale(1)" },
-          "50%": { transform: "translate3d(-2%, 1.5%, 0) scale(1.06)" },
+        arrive: {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
         },
       },
       animation: {
-        rise: "rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both",
-        sweep: "sweep 9s cubic-bezier(0.45, 0, 0.55, 1) infinite",
-        drift: "drift 26s ease-in-out infinite",
+        strip: "strip 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both",
+        arrive: "arrive 400ms 900ms linear both",
       },
     },
   },

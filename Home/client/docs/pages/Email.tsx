@@ -10,7 +10,7 @@ export function Email() {
           <>
             Connect a Gmail account and work your inbox inside Genosyn — read threads, reply, and
             file mail like a normal client. Then put your{" "}
-            <DocLink to="/docs/employees">AI employees</DocLink> on it: chat with them right beside
+            <DocLink to="/docs/employees">AI Employees</DocLink> on it: chat with them right beside
             the inbox, hand them threads to draft answers, and set <Strong>rules</Strong> that use
             static filters or AI judgment to act on new mail. Everything syncs both ways.
           </>
@@ -114,7 +114,7 @@ export function Email() {
         with a date, and <Code>in:</Code> to pick a folder (<Code>in:archive</Code>,{" "}
         <Code>in:trash</Code>, …). So <Code>from:acme has:attachment after:2026-01-01 invoice</Code>{" "}
         finds the attachment-carrying Acme invoice threads from this year, wherever they were filed.
-        AI employees get the exact same grammar through their mail search tool.
+        AI Employees get the exact same grammar through their mail search tool.
       </P>
       <P>
         Message bodies are rendered safely — scripts are stripped and remote images stay blocked
@@ -123,14 +123,14 @@ export function Email() {
       </P>
       <H2 id="drafts">The Drafts review queue</H2>
       <P>
-        AI employees write drafts; you decide what actually goes out. <Strong>Drafts</Strong> opens
+        AI Employees write drafts; you decide what actually goes out. <Strong>Drafts</Strong> opens
         as a review queue built for that job — one row per draft rather than one per thread, so a
         night&apos;s work is a single scannable list instead of a folder to click through.
       </P>
       <P>
-        Every row shows who wrote it: the <Strong>AI employee</Strong> and the{" "}
+        Every row shows who wrote it: the <Strong>AI Employee</Strong> and the{" "}
         <Strong>Routine</Strong> that produced it, next to the recipient, subject, and a preview.
-        Filter the queue <Strong>by AI employee</Strong> or <Strong>by routine</Strong> from the
+        Filter the queue <Strong>by AI Employee</Strong> or <Strong>by routine</Strong> from the
         toolbar — each option carries its own count — and group the list the same way to review one
         routine&apos;s output as a batch. Drafts you wrote yourself show you instead; anything
         written before this shipped, or synced in from Gmail, reads as <Strong>Unattributed</Strong>{" "}
@@ -182,7 +182,7 @@ export function Email() {
         <DocLink to="/docs/deliverability">suppression list</DocLink> — the addresses that
         unsubscribed, hard-bounced, or were marked do-not-email. The check sits at the one outbound
         choke-point, so it covers a Member pressing Send, a bulk send from the Drafts queue, a
-        sequence step, and an AI employee&apos;s mail tools identically, and it runs when the
+        sequence step, and an AI Employee&apos;s mail tools identically, and it runs when the
         message actually goes out rather than when the draft was written.
       </P>
       <P>
@@ -231,7 +231,7 @@ export function Email() {
 
       <H2 id="analysis">Every email arrives already triaged</H2>
       <P>
-        You do not have to ask. As each email lands, an AI employee reads it once and puts a short
+        You do not have to ask. As each email lands, an AI Employee reads it once and puts a short
         summary and a row of <Strong>action buttons</Strong> at the top of the thread — the next
         steps that <em>this</em> email actually deserves. A customer asking to be billed gets{" "}
         <Strong>Create the invoice</Strong>. Someone asking what it would cost gets{" "}
@@ -312,7 +312,7 @@ export function Email() {
         Open any email and its <Strong>Ask AI</Strong> chat is already docked beside it. Type what
         you want directly — &ldquo;summarize this email&rdquo;, &ldquo;draft a reply&rdquo;,
         &ldquo;make this draft shorter and friendlier&rdquo;, or &ldquo;label and archive
-        this&rdquo;. Type <Code>@</Code> when you want to choose a particular AI employee. The
+        this&rdquo;. Type <Code>@</Code> when you want to choose a particular AI Employee. The
         employee you tagged stays on that email until you tag somebody else. Type <Code>#</Code> to
         attach a product area or company resource to the instruction, or <Code>/new</Code> by itself
         to clear this email&apos;s AI context. Use several <Code>#</Code> tags when the work crosses
@@ -373,7 +373,7 @@ export function Email() {
         <Strong>Try again</Strong>, which re-sends that same instruction.
       </P>
 
-      <H2 id="hand-to-ai">Handing a thread to an AI employee</H2>
+      <H2 id="hand-to-ai">Handing a thread to an AI Employee</H2>
       <P>
         Open any thread and click <Strong>Hand to AI</Strong>. Pick an employee, write a short
         instruction, and choose what it should do:
@@ -402,7 +402,7 @@ export function Email() {
         <Strong>AI handovers</Strong> page, and Genosyn notifies you when the handover finishes.
       </P>
 
-      <H2 id="access">Giving AI employees mailbox access</H2>
+      <H2 id="access">Giving AI Employees mailbox access</H2>
       <P>
         Under <Strong>Email → Settings → AI access</Strong>, grant the employees who should be able
         to act on the mailbox, at one of three levels:
@@ -429,7 +429,7 @@ export function Email() {
       </P>
       <Callout kind="warn" title="Members always have full access; grants govern AI only.">
         Human members of the company can already use every connected mailbox. These levels only
-        decide what an AI employee&apos;s tools and rules are allowed to do.
+        decide what an AI Employee&apos;s tools and rules are allowed to do.
       </Callout>
       <P>
         The level covers <em>every</em> route an employee has to the mailbox, not just the mail
@@ -454,7 +454,7 @@ export function Email() {
         sender, recipient, subject, body text, and whether there&apos;s an attachment. Every filled
         filter must match. You can then turn on <Strong>AI judgment</Strong>, choose an eligible AI
         employee, and describe the messages that count in plain language. Static filters run first;
-        the AI employee sees only mail that passes them, and its answer must also be yes before any
+        the AI Employee sees only mail that passes them, and its answer must also be yes before any
         action runs. Each message that reaches AI judgment uses the employee&apos;s active model, so
         narrow static filters are also the simplest way to control cost on a busy mailbox.
       </P>
@@ -463,7 +463,7 @@ export function Email() {
         judgment, and write &ldquo;Legitimate marketing or newsletter email I did not ask for;
         exclude receipts, security alerts, suspicious spam, and messages from people.&rdquo; Add{" "}
         <Strong>Unsubscribe safely</Strong> and, if you want, <Strong>Archive</Strong>. Static
-        filters are optional, but adding one is a useful way to narrow what the AI employee has to
+        filters are optional, but adding one is a useful way to narrow what the AI Employee has to
         review. Every rule that matches still fires, so labelling, filing, safe unsubscribe, and
         handovers compose naturally.
       </P>

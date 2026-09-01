@@ -109,7 +109,7 @@ export function Deliverability() {
           a <DocLink to="/docs/sequences">Sequence</DocLink> step, whether or not autoSend is on;
         </LI>
         <LI>
-          an AI employee calling its mail tools, at any grant level, including the{" "}
+          an AI Employee calling its mail tools, at any grant level, including the{" "}
           <Code>gmail_*</Code> tools from the Google connector.
         </LI>
       </UL>
