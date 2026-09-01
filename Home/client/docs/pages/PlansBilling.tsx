@@ -87,7 +87,8 @@ export function PlansBilling() {
             term: "Growth",
             def: (
               <>
-                <Strong>$19 / AI Employee / month</Strong>. Unlimited AI Employees and unlimited
+                <Strong>$19 / AI Employee / month</Strong>, or{" "}
+                <Strong>$205.20 / AI Employee / year</Strong>. Unlimited AI Employees and unlimited
                 Routines.
               </>
             ),
@@ -96,7 +97,8 @@ export function PlansBilling() {
             term: "Scale",
             def: (
               <>
-                <Strong>$49 / AI Employee / month</Strong>. Everything in Growth, plus{" "}
+                <Strong>$49 / AI Employee / month</Strong>, or{" "}
+                <Strong>$529.20 / AI Employee / year</Strong>. Everything in Growth, plus{" "}
                 <Strong>Single sign-on</Strong> and the <Strong>Audit log</Strong>.
               </>
             ),
@@ -110,6 +112,12 @@ export function PlansBilling() {
         <ExtLink href="https://genosyn.com/pricing">genosyn.com/pricing</ExtLink>.
       </P>
       <P>
+        Both paid Plans bill <Strong>monthly or annually</Strong>, and annual is ten percent off
+        twelve months — Growth works out to $17.10 per AI Employee per month, Scale to $44.10.
+        Whichever you pick, the seat count still follows your roster: hiring mid-year adds a
+        prorated seat rather than waiting for renewal.
+      </P>
+      <P>
         Scale&apos;s Single sign-on is configured per company at{" "}
         <Strong>Settings → Single sign-on</Strong>. With the Google preset, listing your{" "}
         <Strong>Allowed email domains</Strong> is required before auto-join can be enabled — any
@@ -119,16 +127,23 @@ export function PlansBilling() {
 
       <H2 id="upgrading">Upgrading your company</H2>
       <P>
-        Open <Strong>Settings → Billing</Strong>. The top card shows your current plan, its
-        subscription status, how many AI Employees you have, and — on Free — how many of your
-        Routines are used. Below it, the three plan cards each list what they include; your plan is
-        marked <Strong>Current plan</Strong>.
+        Open <Strong>Settings → Billing</Strong>. The top card shows your current plan, whether it
+        bills monthly or annually, its subscription status, how many AI Employees you have, and —
+        on Free — how many of your Routines are used. Below it, a{" "}
+        <Strong>Monthly / Annual</Strong> switch sets which prices the three plan cards quote, and
+        each card lists what it includes; your plan is marked <Strong>Current plan</Strong>.
       </P>
       <UL>
         <LI>
           Click <Strong>Upgrade to Growth</Strong> or <Strong>Upgrade to Scale</Strong> on a plan
           card. You are redirected to Stripe Checkout; on success you land back on the Billing page
           with the new plan active.
+        </LI>
+        <LI>
+          To keep your Plan and change only how often you pay, flip the switch and click{" "}
+          <Strong>Switch to annual billing</Strong> (or back to monthly) on the card you are
+          already on. There is no second subscription: the one you have is repriced in place and
+          Stripe credits the unused remainder of the period you had paid for.
         </LI>
         <LI>
           <Strong>Manage billing</Strong> opens the Stripe billing portal, where you update cards,
@@ -220,9 +235,11 @@ export function PlansBilling() {
       </P>
       <UL>
         <LI>
-          Create two recurring prices in Stripe — Growth ($19 / AI Employee / month) and Scale ($49)
-          — and paste their ids into <Strong>Growth price id</Strong> and{" "}
-          <Strong>Scale price id</Strong>.
+          Create recurring per-seat prices in Stripe and paste their ids into the four price
+          fields: <Strong>Growth — monthly</Strong> ($19), <Strong>Growth — annual</Strong>{" "}
+          ($205.20), <Strong>Scale — monthly</Strong> ($49) and <Strong>Scale — annual</Strong>{" "}
+          ($529.20). Only the two monthly ids are required; leave the annual pair blank and the
+          Monthly / Annual switch never appears on a company&apos;s Billing page.
         </LI>
         <LI>
           Paste the <Strong>Stripe secret key</Strong> and the{" "}
@@ -232,8 +249,8 @@ export function PlansBilling() {
         <LI>
           Flip <Strong>Enable per-company billing</Strong> and{" "}
           <Strong>Save billing settings</Strong>. The server refuses to enable billing until the
-          secret key and both price ids are configured. Companies without a subscription land on the
-          Free plan.
+          secret key and both monthly price ids are configured. Companies without a subscription
+          land on the Free plan.
         </LI>
       </UL>
       <P>

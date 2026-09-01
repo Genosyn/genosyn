@@ -9,7 +9,13 @@ import {
   getBillingSettings,
   getStripeSecrets,
 } from "./billingSettings.js";
-import { PLANS, planForPriceId } from "./plans.js";
+import {
+  PLANS,
+  isBillingInterval,
+  planForPriceId,
+  type BillingInterval,
+  type BillingPriceIds,
+} from "./plans.js";
 import {
   StripeApiError,
   getSubscription,
@@ -44,9 +50,14 @@ export async function getOrCreateBillingRow(companyId: string): Promise<CompanyB
   return repo.save(repo.create({ companyId, plan: "free" }));
 }
 
+/** What one Plan costs on one interval, and whether this install can sell it. */
+export type PlanPrice = { unitAmount: number; configured: boolean };
+
 export type BillingSummary = {
   enabled: boolean;
   plan: "free" | "growth" | "scale";
+  /** Which interval the live subscription bills on; null on Free. */
+  interval: BillingInterval | null;
   status: string | null;
   seatCount: number | null;
   aiEmployeeCount: number;
@@ -63,8 +74,9 @@ export type BillingSummary = {
   };
   features: { sso: boolean; auditLog: boolean };
   prices: {
-    growth: { unitAmount: number; currency: "usd"; configured: boolean };
-    scale: { unitAmount: number; currency: "usd"; configured: boolean };
+    currency: "usd";
+    growth: Record<BillingInterval, PlanPrice>;
+    scale: Record<BillingInterval, PlanPrice>;
   };
   stripeConfigured: boolean;
   portalAvailable: boolean;
@@ -72,6 +84,18 @@ export type BillingSummary = {
 
 export async function countCompanyAiEmployees(companyId: string): Promise<number> {
   return AppDataSource.getRepository(AIEmployee).countBy({ companyId });
+}
+
+/**
+ * Which interval a billing row pays on. Rows written before annual billing
+ * existed carry no value and were necessarily monthly, so that is what
+ * an absent one means — the summary and the checkout guard must agree on this
+ * or a legacy monthly subscriber would be offered "switch to monthly".
+ */
+export function intervalOf(row: CompanyBilling | null | undefined): BillingInterval {
+  return row?.billingInterval && isBillingInterval(row.billingInterval)
+    ? row.billingInterval
+    : "month";
 }
 
 async function countCompanyRoutines(companyId: string): Promise<number> {
@@ -98,9 +122,15 @@ export async function billingSummary(companyId: string): Promise<BillingSummary>
       countCompanyAiEmployees(companyId),
       countCompanyRoutines(companyId),
     ]);
+  const plan = entitlements.plan ?? "free";
   return {
     enabled,
-    plan: entitlements.plan ?? "free",
+    plan,
+    // Free is not billed on any interval, so it reports none even when a
+    // lapsed row still carries the value from the plan the company used to
+    // pay for. A paid row with no stored interval predates annual billing and
+    // was therefore monthly — the same reading the checkout guard takes.
+    interval: plan === "free" ? null : intervalOf(row),
     status: row?.status ?? null,
     seatCount: row?.seatCount ?? null,
     aiEmployeeCount,
@@ -117,51 +147,66 @@ export async function billingSummary(companyId: string): Promise<BillingSummary>
     },
     features: { ...entitlements.features },
     prices: {
+      currency: "usd",
       growth: {
-        unitAmount: PLANS.growth.unitAmount,
-        currency: "usd",
-        configured: Boolean(settings.growthPriceId),
+        month: {
+          unitAmount: PLANS.growth.monthlyUnitAmount,
+          configured: Boolean(settings.growthMonthlyPriceId),
+        },
+        year: {
+          unitAmount: PLANS.growth.annualUnitAmount,
+          configured: Boolean(settings.growthAnnualPriceId),
+        },
       },
       scale: {
-        unitAmount: PLANS.scale.unitAmount,
-        currency: "usd",
-        configured: Boolean(settings.scalePriceId),
+        month: {
+          unitAmount: PLANS.scale.monthlyUnitAmount,
+          configured: Boolean(settings.scaleMonthlyPriceId),
+        },
+        year: {
+          unitAmount: PLANS.scale.annualUnitAmount,
+          configured: Boolean(settings.scaleAnnualPriceId),
+        },
       },
     },
+    // Monthly is the floor: an install that cannot sell monthly cannot sell
+    // anything. Annual is reported per plan above and offered when present.
     stripeConfigured: Boolean(
-      secrets.secretKey && settings.growthPriceId && settings.scalePriceId,
+      secrets.secretKey && settings.growthMonthlyPriceId && settings.scaleMonthlyPriceId,
     ),
     portalAvailable: Boolean(row?.stripeCustomerId),
   };
 }
 
 /**
- * Upsert the local row from a subscription's current state. The plan comes
- * from the price id (per the operator's configured price ids), the seat count
- * from the item quantity. `customerId`, when known, rides along so a checkout
- * completed by webhook also records the customer for the portal.
+ * Upsert the local row from a subscription's current state. The plan and the
+ * billing interval both come from the price id (per the operator's configured
+ * price ids), the seat count from the item quantity. `customerId`, when known,
+ * rides along so a checkout completed by webhook also records the customer for
+ * the portal.
  */
 export async function applySubscriptionState(
   companyId: string,
   sub: StripeSubscription,
-  settings: { growthPriceId: string; scalePriceId: string },
+  settings: BillingPriceIds,
   customerId?: string | null,
 ): Promise<CompanyBilling> {
   const repo = AppDataSource.getRepository(CompanyBilling);
   const row = await getOrCreateBillingRow(companyId);
   const item = sub.items[0];
-  const plan = item ? planForPriceId(settings, item.priceId) : null;
-  if (item && plan === null) {
+  const sold = item ? planForPriceId(settings, item.priceId) : null;
+  if (item && sold === null) {
     // The subscription bills a price this install no longer knows — most
     // likely the operator rotated a price id at Admin → Billing. Keep the
-    // row's current plan instead of silently downgrading a paying subscriber
-    // to Free entitlements.
+    // row's current plan and interval instead of silently downgrading a
+    // paying subscriber to Free entitlements.
     // eslint-disable-next-line no-console
     console.warn(
-      `[billing] subscription ${sub.id} for company ${companyId} carries price ${item.priceId}, which matches neither configured price id — keeping plan "${row.plan}". Were the price ids rotated at Admin → Billing?`,
+      `[billing] subscription ${sub.id} for company ${companyId} carries price ${item.priceId}, which matches none of the configured price ids — keeping plan "${row.plan}". Were the price ids rotated at Admin → Billing?`,
     );
   } else {
-    row.plan = plan ?? "free";
+    row.plan = sold?.plan ?? "free";
+    row.billingInterval = sold?.interval ?? null;
   }
   row.status = sub.status || null;
   row.stripeSubscriptionId = sub.id || null;

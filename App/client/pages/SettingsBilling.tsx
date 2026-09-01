@@ -1,7 +1,7 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
 import { Check } from "lucide-react";
-import { api, BillingSummary, PlanId } from "../lib/api";
+import { api, BillingInterval, BillingSummary, PlanId } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { TopBar } from "../components/AppShell";
 import { Button } from "../components/ui/Button";
@@ -58,6 +58,71 @@ function formatCents(cents: number): string {
   return Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`;
 }
 
+/** What an annual seat works out to per month — the number people actually
+ *  compare against the monthly price. */
+function monthlyEquivalent(annualCents: number): string {
+  return formatCents(Math.round(annualCents / 12));
+}
+
+const INTERVAL_SUFFIX: Record<BillingInterval, string> = {
+  month: "/ AI Employee / month",
+  year: "/ AI Employee / year",
+};
+
+/** Whether this install sells annual at all. An interval nobody can buy would
+ *  be a dead control, so the switch is hidden when neither price exists. */
+export function annualOffered(prices: BillingSummary["prices"]): boolean {
+  return prices.growth.year.configured || prices.scale.year.configured;
+}
+
+export type PlanCardState = {
+  /** The headline amount for the interval being viewed. */
+  price: string;
+  /** An annual price expressed per month; null on monthly. */
+  perMonth: string | null;
+  /** This is exactly what the company already pays for — no button. */
+  current: boolean;
+  /** Same Plan, other interval: the button changes cadence, not tier. */
+  samePlan: boolean;
+  upgrade: boolean;
+  /** Stripe is wired up AND this Plan has a price id for this interval. */
+  available: boolean;
+  label: string;
+};
+
+/**
+ * What one plan card says, given the company's subscription and the interval
+ * being viewed.
+ *
+ * Pure and exported because the distinctions here are the feature. A company
+ * on Growth monthly looking at the annual prices must not see Growth marked
+ * "Current plan" — that was the old behaviour, and it is what made annual
+ * unsellable — and the button it shows instead has to say it is changing the
+ * billing cadence rather than the tier.
+ */
+export function planCardState(
+  summary: Pick<BillingSummary, "plan" | "interval" | "prices" | "stripeConfigured">,
+  plan: PlanId,
+  selectedInterval: BillingInterval,
+): PlanCardState {
+  const price = plan === "free" ? null : summary.prices[plan][selectedInterval];
+  const samePlan = summary.plan === plan;
+  const upgrade = PLAN_ORDER[plan] > PLAN_ORDER[summary.plan];
+  return {
+    price: price ? formatCents(price.unitAmount) : "$0",
+    perMonth:
+      price && selectedInterval === "year" ? monthlyEquivalent(price.unitAmount) : null,
+    // Free is not billed on an interval, so being on Free is enough.
+    current: samePlan && (plan === "free" || summary.interval === selectedInterval),
+    samePlan,
+    upgrade,
+    available: summary.stripeConfigured && Boolean(price?.configured),
+    label: samePlan
+      ? `Switch to ${selectedInterval === "year" ? "annual" : "monthly"} billing`
+      : `${upgrade ? "Upgrade" : "Switch"} to ${PLAN_META[plan].name}`,
+  };
+}
+
 function statusChipClass(status: string | null): string {
   if (status === "active" || status === "trialing") {
     return "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300";
@@ -76,7 +141,9 @@ export function SettingsBilling() {
   const [notice, setNotice] = React.useState<string | null>(null);
   const [busyPlan, setBusyPlan] = React.useState<PlanId | null>(null);
   const [portalBusy, setPortalBusy] = React.useState(false);
+  const [selectedInterval, setSelectedInterval] = React.useState<BillingInterval>("month");
   const checkoutHandledRef = React.useRef(false);
+  const intervalSeededRef = React.useRef(false);
 
   const isOwner = company.role === "owner";
 
@@ -121,6 +188,15 @@ export function SettingsBilling() {
     }
     void reload();
   }, [company.id, reload]);
+
+  // Open on the interval the company already pays for, so a subscriber sees
+  // their own plan marked current instead of a pitch to switch. Seeded once —
+  // after that the segmented control is the person's to drive.
+  React.useEffect(() => {
+    if (!summary || intervalSeededRef.current) return;
+    intervalSeededRef.current = true;
+    if (summary.interval) setSelectedInterval(summary.interval);
+  }, [summary]);
 
   if (loadError) {
     return (
@@ -183,7 +259,7 @@ export function SettingsBilling() {
     try {
       const { url } = await api.post<{ url: string }>(
         `/api/companies/${company.id}/billing/checkout`,
-        { plan },
+        { plan, interval: selectedInterval },
       );
       window.location.assign(url);
     } catch (err) {
@@ -194,12 +270,7 @@ export function SettingsBilling() {
 
   const meta = PLAN_META[summary.plan];
   const limited = summary.limits.maxRoutines !== null;
-  const priceFor = (plan: PlanId): string =>
-    plan === "free"
-      ? "$0"
-      : plan === "growth"
-        ? formatCents(summary.prices.growth.unitAmount)
-        : formatCents(summary.prices.scale.unitAmount);
+  const showIntervalSwitch = annualOffered(summary.prices);
 
   return (
     <>
@@ -239,6 +310,9 @@ export function SettingsBilling() {
               {summary.aiEmployeeCount} AI Employee
               {summary.aiEmployeeCount === 1 ? "" : "s"}
               {summary.seatCount !== null && <> &middot; billed seats {summary.seatCount}</>}
+              {summary.interval && (
+                <> &middot; billed {summary.interval === "year" ? "annually" : "monthly"}</>
+              )}
             </div>
             {limited && (
               <div>
@@ -255,16 +329,42 @@ export function SettingsBilling() {
 
         <FormSuccess message={notice} />
 
+        {showIntervalSwitch && (
+          <div className="flex justify-center">
+            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-700 dark:bg-slate-800/60">
+              {(["month", "year"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  aria-pressed={selectedInterval === option}
+                  onClick={() => setSelectedInterval(option)}
+                  className={clsx(
+                    "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                    selectedInterval === option
+                      ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
+                      : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200",
+                  )}
+                >
+                  {option === "month" ? "Monthly" : "Annual"}
+                  {option === "year" && (
+                    <span className="ml-1.5 text-emerald-600 dark:text-emerald-400">
+                      Save 10%
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-3">
           {(["free", "growth", "scale"] as const).map((plan) => (
             <PlanCard
               key={plan}
               plan={plan}
-              price={priceFor(plan)}
-              current={summary.plan === plan}
-              upgrade={PLAN_ORDER[plan] > PLAN_ORDER[summary.plan]}
+              interval={selectedInterval}
+              state={planCardState(summary, plan, selectedInterval)}
               isOwner={isOwner}
-              stripeConfigured={summary.stripeConfigured}
               busy={busyPlan === plan}
               anyBusy={busyPlan !== null}
               onChoose={() => checkout(plan)}
@@ -273,7 +373,9 @@ export function SettingsBilling() {
         </div>
 
         <p className="text-xs text-slate-400 dark:text-slate-500">
-          An AI Employee is $19 a month — not a salary.
+          {selectedInterval === "year"
+            ? `An AI Employee is ${monthlyEquivalent(summary.prices.growth.year.unitAmount)} a month billed annually — not a salary.`
+            : `An AI Employee is ${formatCents(summary.prices.growth.month.unitAmount)} a month — not a salary.`}
         </p>
 
         <FormError message={error} />
@@ -296,28 +398,24 @@ export function SettingsBilling() {
 
 function PlanCard({
   plan,
-  price,
-  current,
-  upgrade,
+  interval,
+  state,
   isOwner,
-  stripeConfigured,
   busy,
   anyBusy,
   onChoose,
 }: {
   plan: PlanId;
-  price: string;
-  current: boolean;
-  upgrade: boolean;
+  interval: BillingInterval;
+  state: PlanCardState;
   isOwner: boolean;
-  stripeConfigured: boolean;
   busy: boolean;
   anyBusy: boolean;
   onChoose: () => void;
 }) {
   const meta = PLAN_META[plan];
   const paid = plan !== "free";
-  const label = `${upgrade ? "Upgrade" : "Switch"} to ${meta.name}`;
+  const { price, perMonth, current, upgrade, available, label } = state;
   return (
     <Card className={clsx("flex flex-col", current && "ring-1 ring-indigo-200 dark:ring-indigo-500/30")}>
       <CardBody className="flex flex-1 flex-col gap-3 p-5">
@@ -334,10 +432,15 @@ function PlanCard({
           {paid && (
             <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
               {" "}
-              / AI Employee / month
+              {INTERVAL_SUFFIX[interval]}
             </span>
           )}
         </div>
+        {perMonth && (
+          <p className="-mt-2 text-xs tabular-nums text-slate-500 dark:text-slate-400">
+            {perMonth} / AI Employee / month, billed annually
+          </p>
+        )}
         <p className="text-xs text-slate-500 dark:text-slate-400">{meta.blurb}</p>
         <ul className="flex flex-col gap-1.5 text-sm text-slate-600 dark:text-slate-300">
           {meta.bullets.map((bullet) => (
@@ -353,13 +456,15 @@ function PlanCard({
               className="w-full"
               size="sm"
               variant={upgrade ? "primary" : "secondary"}
-              disabled={!isOwner || !stripeConfigured || anyBusy}
+              disabled={!isOwner || !available || anyBusy}
               onClick={onChoose}
               title={
                 !isOwner
                   ? "Only the company owner can change the plan"
-                  : !stripeConfigured
-                    ? "Billing is not fully configured yet"
+                  : !available
+                    ? interval === "year"
+                      ? "Annual billing is not configured for this plan yet"
+                      : "Billing is not fully configured yet"
                     : undefined
               }
             >

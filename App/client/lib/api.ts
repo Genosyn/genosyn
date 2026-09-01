@@ -3336,6 +3336,9 @@ export type CompanySsoLinkResponse =
 /** A Genosyn Cloud pricing tier. */
 export type PlanId = "free" | "growth" | "scale";
 
+/** How a paid Plan is billed. Annual is twelve months less 10% (M56). */
+export type BillingInterval = "month" | "year";
+
 /** Resolved server-side facts about what a company may use — carried on every
  *  /api/companies row and on GET /api/companies/:cid. */
 export type CompanyEntitlements = {
@@ -3362,6 +3365,8 @@ export type BillingSummary = {
   /** Instance billing enabled (Genosyn Cloud). */
   enabled: boolean;
   plan: PlanId;
+  /** Which interval the live subscription bills on; null on Free. */
+  interval: BillingInterval | null;
   /** Raw Stripe subscription status; null when none. */
   status: string | null;
   /** Billed quantity; null when no subscription. */
@@ -3380,12 +3385,15 @@ export type BillingSummary = {
     maxTodos: number | null;
   };
   features: { sso: boolean; auditLog: boolean };
-  /** unitAmount in cents (1900 / 4900). */
+  /** Per-seat amount in cents for each Plan on each interval — monthly
+   *  1900 / 4900, annual 20520 / 52920. `configured` is whether the operator
+   *  pasted a Stripe price id for that combination; annual is optional. */
   prices: {
-    growth: { unitAmount: number; currency: "usd"; configured: boolean };
-    scale: { unitAmount: number; currency: "usd"; configured: boolean };
+    currency: "usd";
+    growth: Record<BillingInterval, { unitAmount: number; configured: boolean }>;
+    scale: Record<BillingInterval, { unitAmount: number; configured: boolean }>;
   };
-  /** Secret key + both price ids present on the instance. */
+  /** Secret key + both monthly price ids present on the instance. */
   stripeConfigured: boolean;
   /** The company has a Stripe customer, so POST /billing/portal will work. */
   portalAvailable: boolean;
@@ -3395,8 +3403,12 @@ export type BillingSummary = {
  *  the blank-keeps-stored pattern; only their presence is reported. */
 export type AdminBillingSettings = {
   enabled: boolean;
-  growthPriceId: string;
-  scalePriceId: string;
+  /** One Stripe price id per paid Plan per interval. The annual pair may be
+   *  blank — an install that only sells monthly simply doesn't offer it. */
+  growthMonthlyPriceId: string;
+  growthAnnualPriceId: string;
+  scaleMonthlyPriceId: string;
+  scaleAnnualPriceId: string;
   hasSecretKey: boolean;
   hasWebhookSecret: boolean;
 };

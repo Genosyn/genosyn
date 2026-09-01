@@ -597,8 +597,12 @@ adminRouter.get("/billing", async (_req, res, next) => {
 
 const billingSettingsSchema = z.object({
   enabled: z.boolean(),
-  growthPriceId: z.string().max(255),
-  scalePriceId: z.string().max(255),
+  // One price id per paid Plan per billing interval (M56). The annual pair is
+  // optional — an operator who only sells monthly leaves them blank.
+  growthMonthlyPriceId: z.string().max(255),
+  growthAnnualPriceId: z.string().max(255).default(""),
+  scaleMonthlyPriceId: z.string().max(255),
+  scaleAnnualPriceId: z.string().max(255).default(""),
   // Blank or omitted keeps the stored secret.
   secretKey: z.string().max(1024).optional(),
   webhookSecret: z.string().max(1024).optional(),

@@ -1,6 +1,7 @@
 import { AppDataSource } from "../../db/datasource.js";
 import { AppSetting } from "../../db/entities/AppSetting.js";
 import { decryptSecret, encryptSecret } from "../../lib/secret.js";
+import type { BillingPriceIds } from "./plans.js";
 
 /**
  * Instance-wide billing configuration (M56) — whether this install charges
@@ -10,32 +11,32 @@ import { decryptSecret, encryptSecret } from "../../lib/secret.js";
  * secrets encrypted at rest, never echoed back (the admin GET returns
  * `hasSecretKey` / `hasWebhookSecret` flags), blank on save keeps the stored
  * value. Disabled by default — self-hosted installs never see billing.
+ *
+ * Four price ids (M56), one per paid Plan per billing interval. The two
+ * monthly ids were stored as `growthPriceId` / `scalePriceId` before annual
+ * existed; {@link readStoredBilling} still reads those keys so an install
+ * that upgrades keeps billing without the operator touching anything, and the
+ * next save rewrites the row under the current names.
  */
 
 export const BILLING_SETTING_KEY = "billing.settings";
 
 /** Shape persisted in the `AppSetting` value column (JSON). */
-type StoredBilling = {
+type StoredBilling = BillingPriceIds & {
   enabled: boolean;
-  growthPriceId: string;
-  scalePriceId: string;
   encryptedSecretKey: string;
   encryptedWebhookSecret: string;
 };
 
 /** Non-secret view returned to the admin client. */
-export type BillingSettingsDescriptor = {
+export type BillingSettingsDescriptor = BillingPriceIds & {
   enabled: boolean;
-  growthPriceId: string;
-  scalePriceId: string;
   hasSecretKey: boolean;
   hasWebhookSecret: boolean;
 };
 
-export type BillingSettingsPatch = {
+export type BillingSettingsPatch = BillingPriceIds & {
   enabled: boolean;
-  growthPriceId: string;
-  scalePriceId: string;
   /** Blank or omitted keeps the stored secret. */
   secretKey?: string;
   webhookSecret?: string;
@@ -43,11 +44,17 @@ export type BillingSettingsPatch = {
 
 const DEFAULTS: StoredBilling = {
   enabled: false,
-  growthPriceId: "",
-  scalePriceId: "",
+  growthMonthlyPriceId: "",
+  growthAnnualPriceId: "",
+  scaleMonthlyPriceId: "",
+  scaleAnnualPriceId: "",
   encryptedSecretKey: "",
   encryptedWebhookSecret: "",
 };
+
+function str(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
 
 async function readStoredBilling(): Promise<StoredBilling> {
   const row = await AppDataSource.getRepository(AppSetting).findOneBy({
@@ -67,19 +74,26 @@ async function readStoredBilling(): Promise<StoredBilling> {
   const o = parsed as Record<string, unknown>;
   return {
     enabled: Boolean(o.enabled),
-    growthPriceId: typeof o.growthPriceId === "string" ? o.growthPriceId : "",
-    scalePriceId: typeof o.scalePriceId === "string" ? o.scalePriceId : "",
-    encryptedSecretKey: typeof o.encryptedSecretKey === "string" ? o.encryptedSecretKey : "",
-    encryptedWebhookSecret:
-      typeof o.encryptedWebhookSecret === "string" ? o.encryptedWebhookSecret : "",
+    // `growthPriceId` / `scalePriceId` are the names the monthly ids were
+    // stored under before annual billing existed. Read them as a fallback so
+    // an upgraded install keeps charging without the operator re-entering
+    // anything.
+    growthMonthlyPriceId: str(o.growthMonthlyPriceId) || str(o.growthPriceId),
+    growthAnnualPriceId: str(o.growthAnnualPriceId),
+    scaleMonthlyPriceId: str(o.scaleMonthlyPriceId) || str(o.scalePriceId),
+    scaleAnnualPriceId: str(o.scaleAnnualPriceId),
+    encryptedSecretKey: str(o.encryptedSecretKey),
+    encryptedWebhookSecret: str(o.encryptedWebhookSecret),
   };
 }
 
 function describe(stored: StoredBilling): BillingSettingsDescriptor {
   return {
     enabled: stored.enabled,
-    growthPriceId: stored.growthPriceId,
-    scalePriceId: stored.scalePriceId,
+    growthMonthlyPriceId: stored.growthMonthlyPriceId,
+    growthAnnualPriceId: stored.growthAnnualPriceId,
+    scaleMonthlyPriceId: stored.scaleMonthlyPriceId,
+    scaleAnnualPriceId: stored.scaleAnnualPriceId,
     hasSecretKey: Boolean(stored.encryptedSecretKey),
     hasWebhookSecret: Boolean(stored.encryptedWebhookSecret),
   };
@@ -116,8 +130,10 @@ export async function getStripeSecrets(): Promise<{
 
 /**
  * Persist the admin form. Blank secrets keep what is stored; enabling billing
- * requires the secret key and both price ids to be present (counting stored
- * secrets) so a live install can never advertise checkout it cannot complete.
+ * requires the secret key and both monthly price ids to be present (counting
+ * stored secrets) so a live install can never advertise checkout it cannot
+ * complete. The annual ids stay optional — an operator who only sells monthly
+ * leaves them blank and the plan cards simply don't offer annual.
  */
 export async function updateBillingSettings(
   patch: BillingSettingsPatch,
@@ -125,8 +141,10 @@ export async function updateBillingSettings(
   const current = await readStoredBilling();
   const next: StoredBilling = {
     enabled: patch.enabled,
-    growthPriceId: patch.growthPriceId.trim(),
-    scalePriceId: patch.scalePriceId.trim(),
+    growthMonthlyPriceId: patch.growthMonthlyPriceId.trim(),
+    growthAnnualPriceId: patch.growthAnnualPriceId.trim(),
+    scaleMonthlyPriceId: patch.scaleMonthlyPriceId.trim(),
+    scaleAnnualPriceId: patch.scaleAnnualPriceId.trim(),
     encryptedSecretKey: patch.secretKey?.trim()
       ? encryptSecret(patch.secretKey.trim())
       : current.encryptedSecretKey,
@@ -134,9 +152,12 @@ export async function updateBillingSettings(
       ? encryptSecret(patch.webhookSecret.trim())
       : current.encryptedWebhookSecret,
   };
-  if (next.enabled && (!next.encryptedSecretKey || !next.growthPriceId || !next.scalePriceId)) {
+  if (
+    next.enabled &&
+    (!next.encryptedSecretKey || !next.growthMonthlyPriceId || !next.scaleMonthlyPriceId)
+  ) {
     throw new Error(
-      "Enter the Stripe secret key and both price IDs before enabling billing.",
+      "Enter the Stripe secret key and both monthly price IDs before enabling billing.",
     );
   }
   const repo = AppDataSource.getRepository(AppSetting);

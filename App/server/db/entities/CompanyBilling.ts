@@ -33,6 +33,12 @@ export class CompanyBilling {
   @Column({ type: "varchar", default: "free" })
   plan!: string;
 
+  /** "month" | "year" — which price the live subscription bills on (M56).
+   * Null on Free and on rows written before annual existed; resolved from the
+   * subscription's price id every time state is applied. */
+  @Column({ type: "varchar", nullable: true })
+  billingInterval!: string | null;
+
   @Column({ type: "varchar", nullable: true })
   stripeCustomerId!: string | null;
 

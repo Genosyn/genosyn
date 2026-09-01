@@ -18,6 +18,7 @@ import {
 } from "./billingSettings.js";
 import {
   applySubscriptionState,
+  intervalOf,
   syncFromStripe,
   syncSeatCount,
 } from "./companyBilling.js";
@@ -30,7 +31,12 @@ import { parseSubscription } from "./stripe.js";
  * sync can adopt a first subscription the webhook has not delivered yet.
  */
 
-const SETTINGS = { growthPriceId: "price_growth", scalePriceId: "price_scale" };
+const SETTINGS = {
+  growthMonthlyPriceId: "price_growth",
+  growthAnnualPriceId: "price_growth_year",
+  scaleMonthlyPriceId: "price_scale",
+  scaleAnnualPriceId: "price_scale_year",
+};
 
 // Selective mock: api.stripe.com is answered by `stripeHandler`; anything
 // else passes through to the real fetch.
@@ -88,8 +94,7 @@ async function configureBilling(): Promise<void> {
     key: BILLING_SETTING_KEY,
     value: JSON.stringify({
       enabled: true,
-      growthPriceId: SETTINGS.growthPriceId,
-      scalePriceId: SETTINGS.scalePriceId,
+      ...SETTINGS,
       encryptedSecretKey: encryptSecret("sk_test_service"),
       encryptedWebhookSecret: "",
     }),
@@ -133,7 +138,7 @@ describe("applySubscriptionState", () => {
     await applySubscriptionState(
       cid,
       parseSubscription(rawSubscription(cid, { quantity: 5 })),
-      { growthPriceId: "price_growth_v2", scalePriceId: "price_scale" },
+      { ...SETTINGS, growthMonthlyPriceId: "price_growth_v2" },
     );
     row = await AppDataSource.getRepository(CompanyBilling).findOneByOrFail({
       companyId: cid,
@@ -141,6 +146,52 @@ describe("applySubscriptionState", () => {
     assert.equal(row.plan, "growth", "paying subscriber must not drop to free");
     assert.equal(row.status, "active");
     assert.equal(row.seatCount, 5, "the rest of the state still applies");
+  });
+
+  test("an annual price records the year interval, and switching back records month", async () => {
+    const cid = testCompanyId();
+    const repo = AppDataSource.getRepository(CompanyBilling);
+
+    await applySubscriptionState(
+      cid,
+      parseSubscription(rawSubscription(cid, { priceId: SETTINGS.scaleAnnualPriceId })),
+      SETTINGS,
+      "cus_1",
+    );
+    let row = await repo.findOneByOrFail({ companyId: cid });
+    assert.equal(row.plan, "scale");
+    assert.equal(row.billingInterval, "year");
+
+    // The company moves back to monthly: the interval must follow the price,
+    // not linger from the subscription it used to be on.
+    await applySubscriptionState(
+      cid,
+      parseSubscription(rawSubscription(cid, { priceId: SETTINGS.scaleMonthlyPriceId })),
+      SETTINGS,
+    );
+    row = await repo.findOneByOrFail({ companyId: cid });
+    assert.equal(row.plan, "scale");
+    assert.equal(row.billingInterval, "month");
+  });
+
+  test("cancelling clears the interval along with the plan", async () => {
+    const cid = testCompanyId();
+    const repo = AppDataSource.getRepository(CompanyBilling);
+    await applySubscriptionState(
+      cid,
+      parseSubscription(rawSubscription(cid, { priceId: SETTINGS.growthAnnualPriceId })),
+      SETTINGS,
+    );
+    assert.equal((await repo.findOneByOrFail({ companyId: cid })).billingInterval, "year");
+
+    await applySubscriptionState(
+      cid,
+      parseSubscription({ id: "sub_1", status: "canceled" }),
+      SETTINGS,
+    );
+    const row = await repo.findOneByOrFail({ companyId: cid });
+    assert.equal(row.plan, "free");
+    assert.equal(row.billingInterval, null);
   });
 
   test("a subscription without items still lands on free", async () => {
@@ -155,6 +206,19 @@ describe("applySubscriptionState", () => {
     });
     assert.equal(row.plan, "free");
     assert.equal(row.status, "canceled");
+  });
+});
+
+describe("intervalOf", () => {
+  // The whole point of this helper: a subscriber from before annual billing
+  // existed has no stored interval, and reading that as anything but monthly
+  // would offer them a "switch to monthly billing" they are already on.
+  test("reads a row written before annual billing as monthly", () => {
+    assert.equal(intervalOf({ billingInterval: null } as never), "month");
+    assert.equal(intervalOf({ billingInterval: "" } as never), "month");
+    assert.equal(intervalOf(null), "month");
+    assert.equal(intervalOf({ billingInterval: "quarter" } as never), "month");
+    assert.equal(intervalOf({ billingInterval: "year" } as never), "year");
   });
 });
 
@@ -188,6 +252,68 @@ describe("syncSeatCount", () => {
     assert.equal(updated.seatCount, 1, "the seat count was pushed");
     assert.equal(updated.status, "canceled", "the concurrent webhook write survives");
     assert.equal(updated.plan, "free", "the concurrent webhook write survives");
+  });
+});
+
+describe("annual subscriptions in the rest of the lifecycle", () => {
+  test("seats still resync on an annual subscription — a year is not a lock", async () => {
+    const cid = testCompanyId();
+    await configureBilling();
+    const repo = AppDataSource.getRepository(CompanyBilling);
+    await insert(CompanyBilling, {
+      companyId: cid,
+      plan: "growth",
+      billingInterval: "year",
+      status: "active",
+      stripeCustomerId: "cus_1",
+      stripeSubscriptionId: "sub_1",
+      stripeSubscriptionItemId: "si_1",
+      seatCount: 2,
+    });
+    // Two AI Employees on the row, none in the database — the sync should push
+    // the floor of one seat rather than leaving the stale count.
+    stripeHandler = () =>
+      new Response(
+        JSON.stringify(
+          rawSubscription(cid, { priceId: SETTINGS.growthAnnualPriceId, quantity: 1 }),
+        ),
+        { status: 200 },
+      );
+
+    await syncSeatCount(cid);
+
+    const updated = await repo.findOneByOrFail({ companyId: cid });
+    assert.equal(updated.seatCount, 1);
+    assert.equal(updated.billingInterval, "year", "the interval is untouched by a seat push");
+    const post = stripeCalls.find((c) => c.method === "POST");
+    assert.ok(post);
+    assert.equal(new URLSearchParams(post.body).get("proration_behavior"), "create_prorations");
+  });
+
+  test("an adopted annual subscription brings its interval with it", async () => {
+    const cid = testCompanyId();
+    await configureBilling();
+    await insert(CompanyBilling, { companyId: cid, plan: "free", stripeCustomerId: "cus_1" });
+    stripeHandler = (call) => {
+      if (call.url.includes("customer=cus_1")) {
+        return new Response(
+          JSON.stringify({
+            data: [rawSubscription(cid, { priceId: SETTINGS.scaleAnnualPriceId })],
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected Stripe call: ${call.method} ${call.url}`);
+    };
+
+    const summary = await syncFromStripe(cid);
+
+    assert.equal(summary.plan, "scale");
+    assert.equal(summary.interval, "year");
+    const row = await AppDataSource.getRepository(CompanyBilling).findOneByOrFail({
+      companyId: cid,
+    });
+    assert.equal(row.billingInterval, "year");
   });
 });
 

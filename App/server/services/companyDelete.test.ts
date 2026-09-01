@@ -217,8 +217,8 @@ describe("company deletion and Stripe", () => {
       key: BILLING_SETTING_KEY,
       value: JSON.stringify({
         enabled: true,
-        growthPriceId: "price_growth",
-        scalePriceId: "price_scale",
+        growthMonthlyPriceId: "price_growth",
+        scaleMonthlyPriceId: "price_scale",
         encryptedSecretKey: encryptSecret("sk_test_delete"),
         encryptedWebhookSecret: "",
       }),

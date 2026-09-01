@@ -3609,6 +3609,16 @@ hired). See decision 14 for the model.
       month, unlimited AI Employees and Routines), Scale ($49 / AI Employee /
       month, everything in Growth plus SSO and the Audit log). Constants in
       `services/billing/plans.ts`; `CompanyBilling` row per company.
+- [x] **Monthly or annual, ten percent off for the year.** Both paid Plans sell
+      on two intervals — Growth $19/mo or $205.20/yr, Scale $49/mo or
+      $529.20/yr — so the operator configures four price ids rather than two
+      and Settings → Billing carries a Monthly / Annual switch. Annual is
+      optional configuration: leave the two annual ids blank and the switch
+      never appears. Changing interval on the Plan you already hold reprices
+      the existing subscription in place (prorated), never a second one, and
+      `CompanyBilling.billingInterval` mirrors whichever price is live. A
+      subscription written before this existed has no stored interval and
+      reads as monthly, which is what it was.
 - [x] **Entitlements.** One resolver (`services/entitlements.ts`) answers
       every gate: billing enabled → the company's Plan; billing disabled →
       the instance license (valid = enterprise, else community, limits always
@@ -3622,7 +3632,7 @@ hired). See decision 14 for the model.
       quantity = AI Employees hired, min 1), billing portal, webhook with
       verified signatures updating the local row, seat quantity re-synced
       best-effort on hire/fire plus webhook plus explicit sync. Configured by
-      the operator at Admin → Billing (secret key, webhook secret, two price
+      the operator at Admin → Billing (secret key, webhook secret, four price
       ids — encrypted in `AppSetting`).
 - [x] **Enterprise licenses, offline.** `genlic1.<payload>.<sig>` — an
       Ed25519 signature over the license payload (company, email, expiry,

@@ -87,8 +87,8 @@ beforeEach(async () => {
     key: BILLING_SETTING_KEY,
     value: JSON.stringify({
       enabled: true,
-      growthPriceId: "price_growth",
-      scalePriceId: "price_scale",
+      growthMonthlyPriceId: "price_growth",
+      scaleMonthlyPriceId: "price_scale",
       encryptedSecretKey: "",
       encryptedWebhookSecret: "",
     }),
@@ -117,6 +117,7 @@ describe("GET /billing", () => {
     assert.deepEqual(got.body, {
       enabled: true,
       plan: "free",
+      interval: null,
       status: null,
       seatCount: null,
       aiEmployeeCount: 0,
@@ -133,8 +134,17 @@ describe("GET /billing", () => {
       },
       features: { sso: false, auditLog: false },
       prices: {
-        growth: { unitAmount: 1900, currency: "usd", configured: true },
-        scale: { unitAmount: 4900, currency: "usd", configured: true },
+        currency: "usd",
+        // Annual is unconfigured in this fixture — the shape still carries the
+        // list prices so the client can render them as unavailable.
+        growth: {
+          month: { unitAmount: 1900, configured: true },
+          year: { unitAmount: 20520, configured: false },
+        },
+        scale: {
+          month: { unitAmount: 4900, configured: true },
+          year: { unitAmount: 52920, configured: false },
+        },
       },
       stripeConfigured: false,
       portalAvailable: false,
@@ -146,6 +156,74 @@ describe("GET /billing", () => {
     assert.equal((await call("GET", "/billing")).status, 200);
     actingUserId = member.id;
     assert.equal((await call("GET", "/billing")).status, 403);
+  });
+
+  test("annual price ids flip the configured flags without changing the amounts", async () => {
+    const repo = AppDataSource.getRepository(AppSetting);
+    const setting = await repo.findOneByOrFail({ key: BILLING_SETTING_KEY });
+    setting.value = JSON.stringify({
+      enabled: true,
+      growthMonthlyPriceId: "price_growth",
+      growthAnnualPriceId: "price_growth_year",
+      scaleMonthlyPriceId: "price_scale",
+      scaleAnnualPriceId: "",
+      encryptedSecretKey: "",
+      encryptedWebhookSecret: "",
+    });
+    await repo.save(setting);
+    invalidateBillingSettingsCache();
+
+    const got = await call<{ prices: Record<string, Record<string, unknown>> }>(
+      "GET",
+      "/billing",
+    );
+    assert.deepEqual(got.body.prices.growth, {
+      month: { unitAmount: 1900, configured: true },
+      year: { unitAmount: 20520, configured: true },
+    });
+    assert.deepEqual(got.body.prices.scale, {
+      month: { unitAmount: 4900, configured: true },
+      year: { unitAmount: 52920, configured: false },
+    });
+  });
+
+  test("a company on an annual subscription reports the year interval", async () => {
+    await insert(CompanyBilling, {
+      companyId: company.id,
+      plan: "scale",
+      billingInterval: "year",
+      status: "active",
+      seatCount: 3,
+    });
+    const got = await call<{ plan: string; interval: string | null }>("GET", "/billing");
+    assert.equal(got.body.plan, "scale");
+    assert.equal(got.body.interval, "year");
+  });
+
+  test("a paid row from before annual existed reports monthly, which is what it was", async () => {
+    await insert(CompanyBilling, {
+      companyId: company.id,
+      plan: "growth",
+      status: "active",
+      seatCount: 1,
+    });
+    const got = await call<{ interval: string | null }>("GET", "/billing");
+    assert.equal(got.body.interval, "month");
+  });
+
+  test("a lapsed subscription reports Free with no interval at all", async () => {
+    // The row still carries "year" from the plan they used to pay for; a
+    // canceled company is not billed annually, it is not billed.
+    await insert(CompanyBilling, {
+      companyId: company.id,
+      plan: "scale",
+      billingInterval: "year",
+      status: "canceled",
+      seatCount: 3,
+    });
+    const got = await call<{ plan: string; interval: string | null }>("GET", "/billing");
+    assert.equal(got.body.plan, "free");
+    assert.equal(got.body.interval, null);
   });
 });
 
@@ -230,8 +308,8 @@ describe("POST /billing/checkout with Stripe configured", () => {
     const setting = await repo.findOneByOrFail({ key: BILLING_SETTING_KEY });
     setting.value = JSON.stringify({
       enabled: true,
-      growthPriceId: "price_growth",
-      scalePriceId: "price_scale",
+      growthMonthlyPriceId: "price_growth",
+      scaleMonthlyPriceId: "price_scale",
       encryptedSecretKey: encryptSecret("sk_test_route"),
       encryptedWebhookSecret: "",
     });
@@ -359,5 +437,149 @@ describe("POST /billing/checkout with Stripe configured", () => {
     const params = new URLSearchParams(sessionCall.body);
     assert.equal(params.get("customer"), "cus_1");
     assert.equal(params.get("line_items[0][price]"), "price_growth");
+  });
+
+  /** Add the annual price ids the base fixture deliberately leaves blank. */
+  async function configureAnnualPrices(): Promise<void> {
+    const repo = AppDataSource.getRepository(AppSetting);
+    const setting = await repo.findOneByOrFail({ key: BILLING_SETTING_KEY });
+    setting.value = JSON.stringify({
+      enabled: true,
+      growthMonthlyPriceId: "price_growth",
+      growthAnnualPriceId: "price_growth_year",
+      scaleMonthlyPriceId: "price_scale",
+      scaleAnnualPriceId: "price_scale_year",
+      encryptedSecretKey: encryptSecret("sk_test_route"),
+      encryptedWebhookSecret: "",
+    });
+    await repo.save(setting);
+    invalidateBillingSettingsCache();
+  }
+
+  test("asking for annual on an install that never configured it is a named 400", async () => {
+    const got = await call<{ error: string }>("POST", "/billing/checkout", {
+      plan: "growth",
+      interval: "year",
+    });
+    assert.equal(got.status, 400);
+    assert.match(got.body.error, /Annual billing is not configured for the growth plan/);
+    assert.equal(stripeCalls.length, 0, "nothing is sent to Stripe");
+  });
+
+  test("a first annual checkout sells the annual price", async () => {
+    await configureAnnualPrices();
+    stripeHandler = (stripeCall) => {
+      if (stripeCall.url.includes("/v1/customers")) {
+        return new Response(JSON.stringify({ id: "cus_new" }), { status: 200 });
+      }
+      if (stripeCall.url.includes("/v1/checkout/sessions")) {
+        return new Response(JSON.stringify({ url: "https://checkout.stripe.com/pay/cs_2" }), {
+          status: 200,
+        });
+      }
+      throw new Error(`unexpected Stripe call: ${stripeCall.method} ${stripeCall.url}`);
+    };
+
+    const got = await call<{ url: string }>("POST", "/billing/checkout", {
+      plan: "scale",
+      interval: "year",
+    });
+
+    assert.equal(got.status, 200);
+    const sessionCall = stripeCalls.find((c) => c.url.includes("/v1/checkout/sessions"));
+    assert.ok(sessionCall);
+    assert.equal(
+      new URLSearchParams(sessionCall.body).get("line_items[0][price]"),
+      "price_scale_year",
+    );
+  });
+
+  // The bug this whole change exists to fix: before intervals, "same plan"
+  // was the only comparison, so a monthly subscriber asking for annual was
+  // told they were already on it.
+  test("moving from monthly to annual on the same plan switches in place instead of being refused", async () => {
+    await configureAnnualPrices();
+    await insert(CompanyBilling, {
+      companyId: company.id,
+      plan: "growth",
+      billingInterval: "month",
+      status: "active",
+      stripeCustomerId: "cus_1",
+      stripeSubscriptionId: "sub_1",
+      stripeSubscriptionItemId: "si_1",
+      seatCount: 1,
+    });
+    stripeHandler = (stripeCall) => {
+      if (stripeCall.method === "GET" && stripeCall.url.includes("/v1/subscriptions/sub_1")) {
+        return new Response(JSON.stringify(rawSubscription()), { status: 200 });
+      }
+      if (stripeCall.method === "POST" && stripeCall.url.endsWith("/v1/subscriptions/sub_1")) {
+        return new Response(
+          JSON.stringify(rawSubscription({ priceId: "price_growth_year" })),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unexpected Stripe call: ${stripeCall.method} ${stripeCall.url}`);
+    };
+
+    const got = await call<{ url: string }>("POST", "/billing/checkout", {
+      plan: "growth",
+      interval: "year",
+    });
+
+    assert.equal(got.status, 200);
+    const switchCall = stripeCalls.find((c) => c.method === "POST");
+    assert.ok(switchCall, "the existing subscription was repriced");
+    const params = new URLSearchParams(switchCall.body);
+    assert.equal(params.get("items[0][price]"), "price_growth_year");
+    assert.equal(params.get("proration_behavior"), "create_prorations");
+    assert.ok(
+      !stripeCalls.some((c) => c.url.includes("/v1/checkout/sessions")),
+      "no second subscription is minted",
+    );
+    const row = await AppDataSource.getRepository(CompanyBilling).findOneByOrFail({
+      companyId: company.id,
+    });
+    assert.equal(row.plan, "growth");
+    assert.equal(row.billingInterval, "year");
+  });
+
+  test("asking for the plan and interval already held is still refused", async () => {
+    await configureAnnualPrices();
+    await insert(CompanyBilling, {
+      companyId: company.id,
+      plan: "growth",
+      billingInterval: "year",
+      status: "active",
+      stripeCustomerId: "cus_1",
+      stripeSubscriptionId: "sub_1",
+      stripeSubscriptionItemId: "si_1",
+      seatCount: 1,
+    });
+    stripeHandler = (stripeCall) => {
+      if (stripeCall.method === "GET" && stripeCall.url.includes("/v1/subscriptions/sub_1")) {
+        return new Response(JSON.stringify(rawSubscription({ priceId: "price_growth_year" })), {
+          status: 200,
+        });
+      }
+      throw new Error(`unexpected Stripe call: ${stripeCall.method} ${stripeCall.url}`);
+    };
+
+    const got = await call<{ error: string }>("POST", "/billing/checkout", {
+      plan: "growth",
+      interval: "year",
+    });
+
+    assert.equal(got.status, 400);
+    assert.match(got.body.error, /already on the growth plan, billed annually/);
+  });
+
+  test("a bad interval value is a zod 400", async () => {
+    const got = await call<{ error: string }>("POST", "/billing/checkout", {
+      plan: "growth",
+      interval: "fortnight",
+    });
+    assert.equal(got.status, 400);
+    assert.equal(got.body.error, "ValidationError");
   });
 });

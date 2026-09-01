@@ -20,9 +20,11 @@ import {
   billingSummary,
   countCompanyAiEmployees,
   getOrCreateBillingRow,
+  intervalOf,
   setStripeCustomerId,
   syncFromStripe,
 } from "../services/billing/companyBilling.js";
+import { priceIdFor, type BillingInterval } from "../services/billing/plans.js";
 import {
   StripeApiError,
   createCheckoutSession,
@@ -58,7 +60,18 @@ billingRouter.get(
   },
 );
 
-const checkoutSchema = z.object({ plan: z.enum(["growth", "scale"]) }).strict();
+// `interval` defaults to monthly so a client that predates annual billing
+// keeps checking out exactly as it did.
+const checkoutSchema = z
+  .object({
+    plan: z.enum(["growth", "scale"]),
+    interval: z.enum(["month", "year"]).default("month"),
+  })
+  .strict();
+
+function intervalLabel(interval: BillingInterval): string {
+  return interval === "year" ? "annually" : "monthly";
+}
 
 billingRouter.post(
   "/billing/checkout",
@@ -67,15 +80,22 @@ billingRouter.post(
   validateBody(checkoutSchema),
   async (req, res) => {
     const cid = req.params.cid;
-    const { plan } = req.body as z.infer<typeof checkoutSchema>;
+    const { plan, interval } = req.body as z.infer<typeof checkoutSchema>;
     if (!(await billingEnabled())) {
       return res.status(400).json({ error: "Billing is not enabled on this install." });
     }
     const settings = await getBillingSettings();
     const { secretKey } = await getStripeSecrets();
-    const priceId = plan === "growth" ? settings.growthPriceId : settings.scalePriceId;
+    const priceId = priceIdFor(settings, plan, interval);
     if (!secretKey || !priceId) {
-      return res.status(400).json({ error: "Stripe is not configured on this install." });
+      // Annual is optional configuration, so a missing annual price is an
+      // operator gap worth naming rather than a blanket "not configured".
+      return res.status(400).json({
+        error:
+          secretKey && interval === "year"
+            ? `Annual billing is not configured for the ${plan} plan on this install.`
+            : "Stripe is not configured on this install.",
+      });
     }
     if (!isPublicUrlConfigured()) {
       return res.status(400).json({
@@ -95,14 +115,16 @@ billingRouter.post(
       );
     }
     const entitlements = await getCompanyEntitlements(cid);
-    if (entitlements.plan === plan) {
-      return res.status(400).json({ error: `This company is already on the ${plan} plan.` });
+    const row = await getOrCreateBillingRow(cid);
+    if (entitlements.plan === plan && intervalOf(row) === interval) {
+      return res.status(400).json({
+        error: `This company is already on the ${plan} plan, billed ${intervalLabel(interval)}.`,
+      });
     }
     const company = await AppDataSource.getRepository(Company).findOneBy({ id: cid });
     if (!company) return res.status(404).json({ error: "Company not found" });
 
     try {
-      const row = await getOrCreateBillingRow(cid);
       const base = `${getPublicUrl()}/c/${company.slug}/settings/billing`;
       const quantity = Math.max(1, await countCompanyAiEmployees(cid));
       if (
@@ -114,7 +136,10 @@ billingRouter.post(
         // The company already pays for a live subscription. Checkout would
         // create a second one billing concurrently, so switch the existing
         // subscription to the requested price in place (prorated) and land
-        // the client on the same success URL the Checkout flow uses.
+        // the client on the same success URL the Checkout flow uses. This is
+        // also the monthly↔annual path: swapping the interval is the same
+        // single-item price change as swapping the Plan, and Stripe credits
+        // the unused remainder of the old period either way.
         const sub = await updateSubscriptionPlan(secretKey, {
           subscriptionId: row.stripeSubscriptionId,
           itemId: row.stripeSubscriptionItemId,
@@ -129,7 +154,7 @@ billingRouter.post(
           action: "billing.plan_switched",
           targetType: "billing",
           targetId: cid,
-          metadata: { plan, quantity },
+          metadata: { plan, interval, quantity },
         });
         return res.json({ url: `${base}?checkout=success` });
       }

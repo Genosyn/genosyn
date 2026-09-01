@@ -90,8 +90,10 @@ beforeEach(async () => {
     key: BILLING_SETTING_KEY,
     value: JSON.stringify({
       enabled: true,
-      growthPriceId: "price_growth",
-      scalePriceId: "price_scale",
+      growthMonthlyPriceId: "price_growth",
+      growthAnnualPriceId: "price_growth_year",
+      scaleMonthlyPriceId: "price_scale",
+      scaleAnnualPriceId: "price_scale_year",
       encryptedSecretKey: encryptSecret(SECRET_KEY),
       encryptedWebhookSecret: encryptSecret(WEBHOOK_SECRET),
     }),
@@ -124,7 +126,7 @@ async function post(rawBody: string, header: string): Promise<{ status: number; 
 
 function rawSubscription(
   companyId: string,
-  overrides: Partial<{ status: string; quantity: number }> = {},
+  overrides: Partial<{ status: string; quantity: number; priceId: string }> = {},
 ): Record<string, unknown> {
   return {
     id: "sub_123",
@@ -133,7 +135,13 @@ function rawSubscription(
     customer: "cus_9",
     current_period_end: 1_900_000_000,
     items: {
-      data: [{ id: "si_1", price: { id: "price_scale" }, quantity: overrides.quantity ?? 4 }],
+      data: [
+        {
+          id: "si_1",
+          price: { id: overrides.priceId ?? "price_scale" },
+          quantity: overrides.quantity ?? 4,
+        },
+      ],
     },
     metadata: { companyId },
   };
@@ -166,6 +174,51 @@ describe("POST /api/billing/stripe/webhook", () => {
     assert.equal(row.stripeSubscriptionItemId, "si_1");
     assert.equal(row.stripeCustomerId, "cus_9");
     assert.equal(row.currentPeriodEnd?.getTime(), 1_900_000_000_000);
+  });
+
+  test("an annual price on the wire is recorded as the year interval", async () => {
+    const cid = testCompanyId();
+    stripeSubscriptions["sub_123"] = rawSubscription(cid, { priceId: "price_scale_year" });
+    const raw = JSON.stringify({
+      id: "evt_annual",
+      type: "customer.subscription.updated",
+      data: { object: rawSubscription(cid, { priceId: "price_scale_year" }) },
+    });
+    const got = await post(raw, stripeHeader(raw));
+    assert.equal(got.status, 200);
+
+    const row = await AppDataSource.getRepository(CompanyBilling).findOneBy({ companyId: cid });
+    assert.ok(row);
+    assert.equal(row.plan, "scale");
+    assert.equal(row.billingInterval, "year");
+    assert.equal(row.seatCount, 4, "annual is still billed per seat");
+  });
+
+  test("an interval change arriving by webhook overwrites the stored one", async () => {
+    const cid = testCompanyId();
+    stripeSubscriptions["sub_123"] = rawSubscription(cid, { priceId: "price_growth_year" });
+    const first = JSON.stringify({
+      id: "evt_1",
+      type: "customer.subscription.updated",
+      data: { object: rawSubscription(cid, { priceId: "price_growth_year" }) },
+    });
+    await post(first, stripeHeader(first));
+    assert.equal(
+      (await AppDataSource.getRepository(CompanyBilling).findOneByOrFail({ companyId: cid }))
+        .billingInterval,
+      "year",
+    );
+
+    // The customer moves back to monthly in the Stripe portal.
+    stripeSubscriptions["sub_123"] = rawSubscription(cid, { priceId: "price_growth" });
+    const second = first.replace('"evt_1"', '"evt_2"');
+    await post(second, stripeHeader(second));
+
+    const row = await AppDataSource.getRepository(CompanyBilling).findOneByOrFail({
+      companyId: cid,
+    });
+    assert.equal(row.plan, "growth");
+    assert.equal(row.billingInterval, "month");
   });
 
   test("a later event updates the same row instead of adding one", async () => {
@@ -213,8 +266,8 @@ describe("POST /api/billing/stripe/webhook", () => {
     const setting = await repo.findOneByOrFail({ key: BILLING_SETTING_KEY });
     setting.value = JSON.stringify({
       enabled: true,
-      growthPriceId: "price_growth",
-      scalePriceId: "price_scale",
+      growthMonthlyPriceId: "price_growth",
+      scaleMonthlyPriceId: "price_scale",
       encryptedSecretKey: "",
       encryptedWebhookSecret: encryptSecret(WEBHOOK_SECRET),
     });

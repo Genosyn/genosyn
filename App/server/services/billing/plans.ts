@@ -6,13 +6,25 @@
  *
  * `null` limits mean unlimited. Feature keys are exhaustive for this
  * milestone: `sso`, `auditLog`.
+ *
+ * Each paid Plan sells on two billing intervals (M56): monthly, and annual at
+ * ten percent off twelve months. Both amounts are written out rather than
+ * derived, because these are the numbers that must match Stripe exactly —
+ * `plans.test.ts` asserts the discount arithmetic still holds.
  */
 export type PlanId = "free" | "growth" | "scale";
+
+/** How a subscription is billed. Mirrors Stripe's `recurring.interval`. */
+export type BillingInterval = "month" | "year";
+
+/** Annual list price is twelve months less this fraction. */
+export const ANNUAL_DISCOUNT = 0.1;
 
 export const PLANS = {
   free: {
     name: "Free",
-    unitAmount: 0,
+    monthlyUnitAmount: 0,
+    annualUnitAmount: 0,
     maxAiEmployees: 1,
     maxRoutines: 2,
     maxBases: 1,
@@ -24,7 +36,8 @@ export const PLANS = {
   },
   growth: {
     name: "Growth",
-    unitAmount: 1900,
+    monthlyUnitAmount: 1900,
+    annualUnitAmount: 20520,
     maxAiEmployees: null,
     maxRoutines: null,
     maxBases: null,
@@ -36,7 +49,8 @@ export const PLANS = {
   },
   scale: {
     name: "Scale",
-    unitAmount: 4900,
+    monthlyUnitAmount: 4900,
+    annualUnitAmount: 52920,
     maxAiEmployees: null,
     maxRoutines: null,
     maxBases: null,
@@ -52,14 +66,56 @@ export function isPlanId(value: string): value is PlanId {
   return value === "free" || value === "growth" || value === "scale";
 }
 
-/** Which Plan a Stripe price id sells, per the operator's Admin → Billing
- * configuration; null for a price this install doesn't know. */
+export function isBillingInterval(value: string): value is BillingInterval {
+  return value === "month" || value === "year";
+}
+
+/** What one seat costs per billing period on this Plan and interval. */
+export function unitAmountFor(plan: PlanId, interval: BillingInterval): number {
+  return interval === "year" ? PLANS[plan].annualUnitAmount : PLANS[plan].monthlyUnitAmount;
+}
+
+/**
+ * The four Stripe price ids an operator configures at Admin → Billing — one
+ * per paid Plan per interval. Free is never sold through Stripe (it is the
+ * absence of a subscription), so it has no price id.
+ */
+export type BillingPriceIds = {
+  growthMonthlyPriceId: string;
+  growthAnnualPriceId: string;
+  scaleMonthlyPriceId: string;
+  scaleAnnualPriceId: string;
+};
+
+/** Which stored price id sells this Plan on this interval; "" when the
+ * operator has not configured one (annual is optional). */
+export function priceIdFor(
+  ids: BillingPriceIds,
+  plan: Exclude<PlanId, "free">,
+  interval: BillingInterval,
+): string {
+  if (plan === "growth") {
+    return interval === "year" ? ids.growthAnnualPriceId : ids.growthMonthlyPriceId;
+  }
+  return interval === "year" ? ids.scaleAnnualPriceId : ids.scaleMonthlyPriceId;
+}
+
+/**
+ * What a Stripe price id sells, per the operator's Admin → Billing
+ * configuration; null for a price this install doesn't know.
+ *
+ * Blank stored ids never match — an install with no annual prices configured
+ * would otherwise resolve a subscription carrying an empty price id, which
+ * cannot happen but would be a silent mis-classification if it did.
+ */
 export function planForPriceId(
-  settings: { growthPriceId: string; scalePriceId: string },
+  ids: BillingPriceIds,
   priceId: string,
-): PlanId | null {
+): { plan: Exclude<PlanId, "free">; interval: BillingInterval } | null {
   if (!priceId) return null;
-  if (priceId === settings.growthPriceId) return "growth";
-  if (priceId === settings.scalePriceId) return "scale";
+  if (priceId === ids.growthMonthlyPriceId) return { plan: "growth", interval: "month" };
+  if (priceId === ids.growthAnnualPriceId) return { plan: "growth", interval: "year" };
+  if (priceId === ids.scaleMonthlyPriceId) return { plan: "scale", interval: "month" };
+  if (priceId === ids.scaleAnnualPriceId) return { plan: "scale", interval: "year" };
   return null;
 }

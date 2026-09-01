@@ -23,10 +23,19 @@ const FIELD_CLASS =
   "h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900";
 const LABEL_CLASS = "mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300";
 
-type Draft = {
+/** The four price id fields, in the order they are laid out. Keeping them as
+ *  data means the form, the dirty check and the save payload cannot drift. */
+const PRICE_FIELDS = [
+  { key: "growthMonthlyPriceId", label: "Growth — monthly", hint: "$19 / AI Employee" },
+  { key: "growthAnnualPriceId", label: "Growth — annual", hint: "$205.20 / AI Employee" },
+  { key: "scaleMonthlyPriceId", label: "Scale — monthly", hint: "$49 / AI Employee" },
+  { key: "scaleAnnualPriceId", label: "Scale — annual", hint: "$529.20 / AI Employee" },
+] as const;
+
+type PriceField = (typeof PRICE_FIELDS)[number]["key"];
+
+type Draft = Record<PriceField, string> & {
   enabled: boolean;
-  growthPriceId: string;
-  scalePriceId: string;
   secretKey: string;
   webhookSecret: string;
 };
@@ -34,8 +43,10 @@ type Draft = {
 function seedDraft(d: AdminBillingSettings): Draft {
   return {
     enabled: d.enabled,
-    growthPriceId: d.growthPriceId,
-    scalePriceId: d.scalePriceId,
+    growthMonthlyPriceId: d.growthMonthlyPriceId,
+    growthAnnualPriceId: d.growthAnnualPriceId,
+    scaleMonthlyPriceId: d.scaleMonthlyPriceId,
+    scaleAnnualPriceId: d.scaleAnnualPriceId,
     // Secrets are never sent back to the client; blank means "keep stored".
     secretKey: "",
     webhookSecret: "",
@@ -79,8 +90,7 @@ export function AdminBilling() {
 
   const dirty =
     draft.enabled !== data.enabled ||
-    draft.growthPriceId !== data.growthPriceId ||
-    draft.scalePriceId !== data.scalePriceId ||
+    PRICE_FIELDS.some((field) => draft[field.key] !== data[field.key]) ||
     draft.secretKey !== "" ||
     draft.webhookSecret !== "";
 
@@ -92,8 +102,9 @@ export function AdminBilling() {
     try {
       const next = await api.put<AdminBillingSettings>("/api/admin/billing", {
         enabled: draft.enabled,
-        growthPriceId: draft.growthPriceId.trim(),
-        scalePriceId: draft.scalePriceId.trim(),
+        ...Object.fromEntries(
+          PRICE_FIELDS.map((field) => [field.key, draft[field.key].trim()]),
+        ),
         ...(draft.secretKey ? { secretKey: draft.secretKey } : {}),
         ...(draft.webhookSecret ? { webhookSecret: draft.webhookSecret } : {}),
       });
@@ -159,9 +170,10 @@ export function AdminBilling() {
           <CardHeader>
             <h2 className="text-sm font-semibold">Stripe configuration</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Create two recurring prices in Stripe — Growth ($19 / AI Employee /
-              month) and Scale ($49) — and paste their price ids here along with
-              the API secret key and the webhook signing secret.
+              Create recurring per-seat prices in Stripe for Growth and Scale and
+              paste their price ids here, along with the API secret key and the
+              webhook signing secret. The monthly pair is required; leave the
+              annual pair blank and companies are only offered monthly.
             </p>
           </CardHeader>
           <CardBody>
@@ -178,8 +190,9 @@ export function AdminBilling() {
                     Enable per-company billing
                   </div>
                   <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    Requires the secret key and both price ids to be configured
-                    first. Companies without a subscription land on the Free plan.
+                    Requires the secret key and both monthly price ids to be
+                    configured first. Companies without a subscription land on the
+                    Free plan.
                   </p>
                 </div>
                 <Toggle
@@ -191,32 +204,24 @@ export function AdminBilling() {
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className={LABEL_CLASS} htmlFor="billing-growth-price">
-                    Growth price id
-                  </label>
-                  <input
-                    id="billing-growth-price"
-                    className={clsx(FIELD_CLASS, "font-mono")}
-                    placeholder="price_..."
-                    autoComplete="off"
-                    value={draft.growthPriceId}
-                    onChange={(e) => setDraft({ ...draft, growthPriceId: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className={LABEL_CLASS} htmlFor="billing-scale-price">
-                    Scale price id
-                  </label>
-                  <input
-                    id="billing-scale-price"
-                    className={clsx(FIELD_CLASS, "font-mono")}
-                    placeholder="price_..."
-                    autoComplete="off"
-                    value={draft.scalePriceId}
-                    onChange={(e) => setDraft({ ...draft, scalePriceId: e.target.value })}
-                  />
-                </div>
+                {PRICE_FIELDS.map((field) => (
+                  <div key={field.key}>
+                    <label className={LABEL_CLASS} htmlFor={`billing-${field.key}`}>
+                      {field.label}{" "}
+                      <span className="font-normal text-slate-400 dark:text-slate-500">
+                        {field.hint}
+                      </span>
+                    </label>
+                    <input
+                      id={`billing-${field.key}`}
+                      className={clsx(FIELD_CLASS, "font-mono")}
+                      placeholder="price_..."
+                      autoComplete="off"
+                      value={draft[field.key]}
+                      onChange={(e) => setDraft({ ...draft, [field.key]: e.target.value })}
+                    />
+                  </div>
+                ))}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
