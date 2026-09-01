@@ -25,7 +25,7 @@ import { finalizeInterruptedAssistantTurns } from "./services/mail/assistant.js"
 import { finalizeInterruptedAssistantTurns as finalizeInterruptedRoutineAssistantTurns } from "./services/routineAssistant.js";
 import { finalizeInterruptedTldrQuestionTurns } from "./services/tldrQuestions.js";
 import { attachRealtime, bootRealtimeBridge } from "./services/realtime.js";
-import { errorHandler } from "./middleware/error.js";
+import { errorHandler, installProcessErrorHandlers } from "./middleware/error.js";
 import { authRouter } from "./routes/auth.js";
 import { ssoRouter } from "./routes/sso.js";
 import { companySsoAuthRouter } from "./routes/companySsoAuth.js";
@@ -120,6 +120,7 @@ import { backfillLegacyResourceTags, backfillTagColors } from "./services/tags.j
 import { billingRouter } from "./routes/billing.js";
 import { billingWebhookRouter } from "./routes/billingWebhook.js";
 import { requireTrustedOrigin, securityHeaders } from "./middleware/httpSecurity.js";
+import { loopbackOnly } from "./middleware/loopbackOnly.js";
 import { appVersion } from "./lib/version.js";
 import {
   resolveCodingExecutionMode,
@@ -141,6 +142,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
+  // First, so nothing that follows can print a raw error object. Node's
+  // default handler would dump the whole thing — bound SQL parameters and all
+  // — and log retention makes that unfixable after the fact.
+  installProcessErrorHandlers();
   // Resolve or create durable self-host secrets before migrations, timers or
   // any other subsystem can observe placeholder credentials.
   getEffectiveInstanceSecrets();
@@ -325,12 +330,12 @@ async function main() {
   // every AI employee. Auth is a short-lived Bearer token we issued moments
   // earlier — session-less on purpose, but mounted before the session router
   // anyway so no cookie state leaks into these requests.
-  app.use("/api/internal/mcp", mcpInternalRouter);
+  app.use("/api/internal/mcp", loopbackOnly, mcpInternalRouter);
 
   // Built-in browser-tool RPC. The (now stripped down) `browser` MCP child
   // posts every tool call here; the App owns Chromium so it persists
   // across MCP child spawns / chat turns.
-  app.use("/api/internal/browser/sessions/:id", browserRpcRouter);
+  app.use("/api/internal/browser/sessions/:id", loopbackOnly, browserRpcRouter);
 
   // Public OpenAPI document + Swagger UI. Mounted before the session router
   // so the docs page works for unauthenticated visitors — the spec describes
