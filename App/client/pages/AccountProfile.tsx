@@ -1,6 +1,6 @@
 import React from "react";
 import { useOutletContext } from "react-router-dom";
-import { Camera } from "lucide-react";
+import { AlertCircle, Camera, CheckCircle2, Mail } from "lucide-react";
 import { api, Me } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
@@ -20,6 +20,77 @@ import type { AccountOutletCtx } from "./AccountLayout";
 
 function useCtx(): AccountOutletCtx {
   return useOutletContext<AccountOutletCtx>();
+}
+
+/**
+ * What `POST /api/auth/resend-verification` says actually happened to the mail.
+ * `skipped` is an install with no email transport — the link went to the server
+ * log, not to a mailbox — and `failed` is a transport that rejected it. Neither
+ * is an error the person can fix by clicking again, so both get their own
+ * sentence instead of a green "sent".
+ */
+export type ResendDelivery = "sent" | "skipped" | "failed" | "already_verified";
+
+const RESEND_DELIVERIES: readonly ResendDelivery[] = [
+  "sent",
+  "skipped",
+  "failed",
+  "already_verified",
+];
+
+/** Narrow an unknown JSON field, so a server that predates `delivery` — or a
+ *  proxy that rewrites the body — cannot put an arbitrary string on screen. */
+export function isResendDelivery(value: unknown): value is ResendDelivery {
+  return typeof value === "string" && (RESEND_DELIVERIES as readonly string[]).includes(value);
+}
+
+export type ResendOutcome = { tone: "success" | "error"; message: string };
+
+/**
+ * The sentence to show after a resend. Master admins are told where the link
+ * went and which setting to fix, because they are the only ones who can fix it;
+ * everyone else is told to ask, because naming an install-wide transport to an
+ * ordinary Member is operator configuration they have no business reading.
+ */
+export function resendOutcomeCopy(
+  delivery: ResendDelivery,
+  opts: { email: string; isMasterAdmin: boolean },
+): ResendOutcome {
+  switch (delivery) {
+    case "sent":
+      return {
+        tone: "success",
+        message: `Verification link sent to ${opts.email}. It is valid for 24 hours.`,
+      };
+    case "already_verified":
+      return { tone: "success", message: "This address is already verified." };
+    case "skipped":
+      return {
+        tone: "error",
+        message: opts.isMasterAdmin
+          ? "This instance has no email transport, so the link was printed to the server log instead of being sent. Copy it from there, or configure a transport at Admin → Email transport."
+          : "This instance has no email transport, so the link could not be sent. Ask an administrator to configure one.",
+      };
+    case "failed":
+      return {
+        tone: "error",
+        message: opts.isMasterAdmin
+          ? "The mail server rejected the verification email. Check the settings at Admin → Email transport, then try again."
+          : "The verification email could not be delivered. Ask an administrator to check the instance email transport.",
+      };
+  }
+}
+
+/**
+ * What the unverified block says above the button. A master admin gets told the
+ * consequence they are already hitting — `requireMasterAdmin` refuses an
+ * unverified account on every install, not only shared SaaS — rather than a
+ * generic nudge that explains nothing about why Admin keeps refusing them.
+ */
+export function unverifiedNoticeCopy(opts: { isMasterAdmin: boolean }): string {
+  return opts.isMasterAdmin
+    ? "Genosyn emailed a link when this account was created. Open it to finish verifying — instance administration stays closed until this mailbox is proven."
+    : "Genosyn emailed a link when this account was created. Open it to finish verifying this address.";
 }
 
 export function AccountProfile() {
@@ -109,6 +180,7 @@ export function AccountProfile() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
               />
+              <EmailVerificationNotice me={me} onVerified={onCompaniesChanged} />
               {emailChanged ? (
                 <div>
                   <Input
@@ -234,6 +306,80 @@ export function AccountProfile() {
         </Card>
       </div>
     </>
+  );
+}
+
+/**
+ * Whether the account's own address is proven, and the way to prove it.
+ *
+ * It sits under the email field rather than in a card of its own because the
+ * question it answers is about that exact value. Until this shipped the only
+ * Resend button in the app lived on the full-page gate, which
+ * `emailVerificationRequired()` raises in shared SaaS mode alone — so a
+ * self-hosted operator refused by `requireMasterAdmin` was told to verify an
+ * email with nothing anywhere to click.
+ */
+function EmailVerificationNotice({ me, onVerified }: { me: Me; onVerified: () => void }) {
+  const [sending, setSending] = React.useState(false);
+  const [outcome, setOutcome] = React.useState<ResendOutcome | null>(null);
+
+  // A stale sentence about an address that has since changed, or that another
+  // tab has since verified, is worse than no sentence.
+  React.useEffect(() => {
+    setOutcome(null);
+  }, [me.id, me.email, me.emailVerified]);
+
+  async function resend() {
+    setSending(true);
+    setOutcome(null);
+    try {
+      const result = await api.post<{ ok: boolean; delivery?: unknown }>(
+        "/api/auth/resend-verification",
+        {},
+      );
+      const delivery = isResendDelivery(result?.delivery) ? result.delivery : "sent";
+      setOutcome(resendOutcomeCopy(delivery, { email: me.email, isMasterAdmin: me.isMasterAdmin }));
+      // Verified in another tab while this one sat open: re-read `me` so the
+      // block below swaps itself for the verified line.
+      if (delivery === "already_verified") onVerified();
+    } catch (err) {
+      setOutcome({ tone: "error", message: errorMessage(err) });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (me.emailVerified) {
+    return (
+      <p className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+          <CheckCircle2 size={10} /> Verified
+        </span>
+        <span>{me.email} is confirmed.</span>
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">
+          <AlertCircle size={10} /> Unverified
+        </span>
+        <span className="text-xs font-medium text-amber-900 dark:text-amber-100">{me.email}</span>
+      </div>
+      <p className="text-xs text-amber-800 dark:text-amber-200">
+        {unverifiedNoticeCopy({ isMasterAdmin: me.isMasterAdmin })}
+      </p>
+      {outcome?.tone === "error" ? <FormError message={outcome.message} /> : null}
+      {outcome?.tone === "success" ? <FormSuccess message={outcome.message} /> : null}
+      <div className="flex justify-end">
+        {/* Inside the profile form — without an explicit type this submits it. */}
+        <Button type="button" size="sm" variant="secondary" onClick={resend} disabled={sending}>
+          <Mail size={12} /> {sending ? "Sending…" : "Resend verification email"}
+        </Button>
+      </div>
+    </div>
   );
 }
 

@@ -280,14 +280,24 @@ authRouter.post("/verify-email", validateBody(verifyEmailSchema), async (req, re
   res.json({ ok: true });
 });
 
+/**
+ * Send this account a fresh verification link.
+ *
+ * `delivery` is the honest outcome, not an acknowledgement that the request was
+ * accepted: an install with no email transport prints the link to the server
+ * console and answers `skipped`, and a misconfigured SMTP server answers
+ * `failed`. Account → Profile picks its copy from it. The underlying transport
+ * error is deliberately not returned — it names hosts and credentials from
+ * install-wide settings that an ordinary Member has no business reading.
+ */
 authRouter.post("/resend-verification", requireAuth, requireBrowserSession, async (req, res) => {
   const user = req.user!;
-  if (user.emailVerifiedAt) return res.json({ ok: true });
+  if (user.emailVerifiedAt) return res.json({ ok: true, delivery: "already_verified" });
   const throttleKeys = authThrottleKeys(req, "resend-verification", user.email);
   if (!(await throttleAllowed(throttleKeys, res))) return;
   await consumeAuthAttempt(throttleKeys);
-  await sendEmailVerification(user);
-  res.json({ ok: true });
+  const result = await sendEmailVerification(user);
+  res.json({ ok: true, delivery: result.status });
 });
 
 // ─────────────────── Profile avatar (current user) ──────────────────────

@@ -24,6 +24,24 @@ export function Security() {
         possible credential compromise.
       </P>
       <P>
+        Every install — self-hosted included — shows the state of your own address at{" "}
+        <Strong>Account → Profile</Strong>, under the email field: a green{" "}
+        <Strong>Verified</Strong> tag once the mailbox is proven, or an amber{" "}
+        <Strong>Unverified</Strong> one with a <Strong>Resend verification email</Strong> button
+        beside it. Each resend issues a new link and retires the previous one, so use the newest
+        email you received. Links are valid for 24 hours.
+      </P>
+      <Callout kind="info" title="Self-hosted installs verify too.">
+        Instance administration is closed to an unverified account on every install, not only shared
+        SaaS — <Code>Admin</Code> answers &ldquo;Verify your email before using instance
+        administration&rdquo; until the mailbox is proven. Resend the link from{" "}
+        <Strong>Account → Profile</Strong>. If the instance has no email transport configured yet,
+        the page says so rather than claiming the mail was sent, and the link is written to the
+        server log — see{" "}
+        <DocLink to="/docs/self-hosting">Configuration</DocLink> for how to read it and how to set a
+        transport up.
+      </Callout>
+      <P>
         Changing your account email requires your current password. Genosyn keeps the existing
         address active and sends a single-use confirmation to the new mailbox; the identity changes
         only after that link is opened. Confirmation signs out older sessions and revokes personal

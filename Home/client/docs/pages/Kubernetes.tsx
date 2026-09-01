@@ -267,7 +267,9 @@ data:
         link is written to the pod log instead of being sent. Read it with{" "}
         <Code>kubectl logs -n genosyn deploy/genosyn</Code>, open it in the browser to claim the
         account, then configure SMTP at <Code>Admin → Email transport</Code>. Boot warns until you
-        do, and <Code>Admin → Instance Health</Code> flags the transport meanwhile.
+        do, and <Code>Admin → Instance Health</Code> flags the transport meanwhile. A link that
+        scrolled out of the log can be reissued from <Code>Account → Profile</Code> once signed in —
+        it prints to the log again.
       </Callout>
       <P>
         Sensitive values go in a separate <Code>Secret</Code>:

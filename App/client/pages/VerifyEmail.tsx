@@ -11,6 +11,11 @@ export function VerifyEmailLink({ onVerified }: { onVerified: () => void }) {
   const { token } = useParams();
   const [status, setStatus] = React.useState<"loading" | "done" | "error">("loading");
   const [error, setError] = React.useState<string | null>(null);
+  // The token is single-use, so the second run of this effect would always be
+  // told the link is invalid — and that red message, not the success it just
+  // replaced, is what the person would be left looking at. React 18 runs every
+  // effect twice under StrictMode, and a remount would do it again.
+  const claimed = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     if (!token) {
@@ -18,6 +23,8 @@ export function VerifyEmailLink({ onVerified }: { onVerified: () => void }) {
       setError("The verification link is incomplete.");
       return;
     }
+    if (claimed.current === token) return;
+    claimed.current = token;
     void api
       .post("/api/auth/verify-email", { token })
       .then(() => {

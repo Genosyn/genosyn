@@ -123,8 +123,10 @@ export function Install() {
       <H2 id="next-steps">Next steps</H2>
       <P>
         Open <Code>http://localhost:8471</Code> and sign up, then open the email-verification link.
-        With no SMTP configured, copy that link from <Code>genosyn logs</Code>. To authorize that
-        verified account for install-wide administration, run:
+        With no SMTP configured, copy that link from <Code>genosyn logs</Code>. Need another one?
+        Sign in and press <Strong>Resend verification email</Strong> at{" "}
+        <Strong>Account → Profile</Strong>, which also shows whether the address is verified yet. To
+        authorize that verified account for install-wide administration, run:
       </P>
       <Pre lang="bash">{`genosyn user grant-master-admin you@example.com`}</Pre>
       <P>

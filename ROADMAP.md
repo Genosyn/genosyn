@@ -509,6 +509,14 @@ old shape — including a Kubernetes ConfigMap still rendering the old
 - [x] Email service: per-company `EmailProvider` rows (SMTP, SendGrid,
       Mailgun, Resend, Postmark) with global SMTP fallback and console fallback
 - [x] Session middleware + `requireAuth` / `requireCompanyMember` guards
+- [x] Email-verification state and a **Resend verification email** button at
+      Account → Profile, on every install. `requireMasterAdmin` refuses an
+      unverified account everywhere, but the full-page gate that used to own
+      the only resend button is raised in shared SaaS mode alone — a
+      self-hosted operator was told to verify an email with nothing to click.
+      The resend reports what actually became of the mail (sent / no transport,
+      so it went to the server log / rejected) rather than answering `ok`
+      whatever happened
 
 ### M2 — Companies & Members ✅
 

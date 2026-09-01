@@ -104,12 +104,29 @@ registry.registerPath({
   method: "post",
   path: "/api/auth/resend-verification",
   summary: "Send a fresh email-verification link",
+  description:
+    "Rotates the single-use token, so any earlier link stops working. " +
+    "`delivery` reports what actually became of the mail rather than merely " +
+    "acknowledging the request: `skipped` means the install has no email " +
+    "transport and the link went to the server log, and `failed` means the " +
+    "transport rejected it. The underlying transport error is never returned.",
   tags: ["Auth"],
   security: defaultSecurity,
   responses: {
     200: {
-      description: "Verification email sent or the account was already verified",
-      content: { "application/json": { schema: z.object({ ok: z.literal(true) }) } },
+      description: "Verification email attempted, or the account was already verified",
+      content: {
+        "application/json": {
+          schema: z.object({
+            ok: z.literal(true),
+            delivery: z.enum(["sent", "skipped", "failed", "already_verified"]),
+          }),
+        },
+      },
+    },
+    429: {
+      description: "Too many attempts — retry after the interval in the Retry-After header",
+      content: { "application/json": { schema: ErrorResponse } },
     },
   },
 });

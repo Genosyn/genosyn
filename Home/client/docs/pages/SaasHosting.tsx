@@ -204,9 +204,10 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         <LI>
           Create the operator account using the exact bootstrap email, then verify it. With no
           transport configured yet, that verification link is written to the server log — copy it
-          from there. The account is not a master admin and cannot reach operator APIs before the
-          verification succeeds; verification revokes the pre-verification session, so sign in
-          again.
+          from there, or reissue one with <Strong>Resend verification email</Strong> at{" "}
+          <Strong>Account → Profile</Strong>. The account is not a master admin and cannot reach
+          operator APIs before the verification succeeds; verification revokes the pre-verification
+          session, so sign in again.
         </LI>
         <LI>
           Configure the system SMTP transport at <Strong>Admin → Email transport</Strong> and send

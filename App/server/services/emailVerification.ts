@@ -2,7 +2,7 @@ import { config } from "../../config.js";
 import { AppDataSource } from "../db/datasource.js";
 import { User } from "../db/entities/User.js";
 import { generateToken, hashToken } from "../lib/token.js";
-import { sendEmail } from "./email.js";
+import { sendEmail, type SendEmailResult } from "./email.js";
 import { getPublicUrl } from "./publicUrl.js";
 
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -11,15 +11,23 @@ export function hashEmailVerificationToken(token: string): string {
   return hashToken(token);
 }
 
-/** Rotate the single-use token before sending so older links stop working. */
-export async function sendEmailVerification(user: User): Promise<void> {
+/**
+ * Rotate the single-use token before sending so older links stop working.
+ *
+ * Returns the delivery result rather than swallowing it. A self-hosted install
+ * with no transport configured logs the link to the console and reports
+ * `skipped` — a caller that answers "sent" regardless leaves the person waiting
+ * on a mail that was never posted, which is exactly how an unverified operator
+ * ends up locked out of Admin with nothing to click.
+ */
+export async function sendEmailVerification(user: User): Promise<SendEmailResult> {
   const token = generateToken();
   user.emailVerificationTokenHash = hashEmailVerificationToken(token);
   user.emailVerificationExpiresAt = new Date(Date.now() + VERIFICATION_TTL_MS);
   await AppDataSource.getRepository(User).save(user);
 
   const link = `${getPublicUrl()}/verify-email/${token}`;
-  await sendEmail({
+  return sendEmail({
     to: user.email,
     subject: "Verify your Genosyn email",
     text: `Verify your email address (valid for 24 hours): ${link}`,

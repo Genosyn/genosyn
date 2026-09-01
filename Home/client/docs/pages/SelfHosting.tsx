@@ -436,7 +436,11 @@ export function SelfHosting() {
         install, set <Code>security.bootstrapMasterAdminEmail</Code>, sign up with that exact
         address, and open its verification link. The account remains an ordinary Member until
         mailbox ownership is proven; being first to reach the public sign-up form grants no
-        privilege. Verification revokes every earlier cookie, so sign in again. From{" "}
+        privilege. Verification revokes every earlier cookie, so sign in again. If that link was
+        missed or has expired, sign in and press <Strong>Resend verification email</Strong> at{" "}
+        <Strong>Account → Profile</Strong> — the page shows whether the address is verified, and,
+        on an install with no email transport, says the fresh link went to the server log rather
+        than claiming it was sent. From{" "}
         <Code>Admin → Users</Code> an existing master admin can grant or revoke the flag on anyone
         else (you just can&apos;t revoke your own, so the install always keeps at least one
         operator). Since it&apos;s operator-only, <Code>Admin</Code> isn&apos;t advertised in the

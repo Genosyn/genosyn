@@ -3,9 +3,13 @@
 // typed as Node's would quietly lie about what the browser returns). Keeping
 // the tests in their own project lets them import `node:test` without loosening
 // the code they exercise.
+// A test that imports a page pulls in whatever that page imports, and some of
+// those modules read build-time globals Vite defines. Narrowing `include` to
+// the test files alone dropped the ambient declaration for them, so name it
+// explicitly — it declares constants, so it costs nothing to carry.
 {
   "extends": "./tsconfig.client.json",
   "compilerOptions": { "types": ["node"] },
-  "include": ["client/**/*.test.ts"],
+  "include": ["client/**/*.test.ts", "client/build-info.d.ts"],
   "exclude": []
 }
