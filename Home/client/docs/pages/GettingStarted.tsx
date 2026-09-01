@@ -76,12 +76,11 @@ export function GettingStarted() {
       <H2 id="how-it-works">Step 1 — How it works</H2>
       <P>
         The guide explains the product before asking you to configure it. This step defines every
-        word the rest of the flow leans on, at first use:{" "}
-        <DocLink to="/docs/soul">Soul</DocLink> (their written constitution),{" "}
-        <DocLink to="/docs/skills">Skills</DocLink> (markdown playbooks, one per piece of work they
-        know how to do), and <DocLink to="/docs/routines">Routines</DocLink> (work that runs on a
-        schedule instead of waiting to be asked, where each firing becomes a Run you can read line
-        by line).
+        word the rest of the flow leans on, at first use: <DocLink to="/docs/soul">Soul</DocLink>{" "}
+        (their written constitution), <DocLink to="/docs/skills">Skills</DocLink> (markdown
+        playbooks, one per piece of work they know how to do), and{" "}
+        <DocLink to="/docs/routines">Routines</DocLink> (work that runs on a schedule instead of
+        waiting to be asked, where each firing becomes a Run you can read line by line).
       </P>
       <Callout kind="warn" title="You bring the AI Model.">
         Genosyn does not include one. Each AI Employee runs on an{" "}
@@ -197,12 +196,12 @@ export function GettingStarted() {
 
       <H3 id="recommended-integrations">Recommended Integrations</H3>
       <P>
-        The plan also recommends enabled{" "}
-        <DocLink to="/docs/integrations">Integrations</DocLink> that fit the work, and defines the
-        three words in one sentence: an <Strong>Integration</Strong> is a connector type; a{" "}
-        <Strong>Connection</Strong> is one account your company links through it; a{" "}
-        <Strong>Grant</Strong> is this employee&apos;s access to that one Connection. A
-        recommendation never creates access by itself — its status tells you the next safe action:
+        The plan also recommends enabled <DocLink to="/docs/integrations">Integrations</DocLink>{" "}
+        that fit the work, and defines the three words in one sentence: an{" "}
+        <Strong>Integration</Strong> is a connector type; a <Strong>Connection</Strong> is one
+        account your company links through it; a <Strong>Grant</Strong> is this employee&apos;s
+        access to that one Connection. A recommendation never creates access by itself — its status
+        tells you the next safe action:
       </P>
       <UL>
         <LI>
@@ -268,8 +267,8 @@ export function GettingStarted() {
       <P>
         The guide ends on a summary rather than dropping you into a chat box. It reads the
         company&apos;s onboarding status back from the server — derived from real state, never a
-        stored flag — so it reports what is genuinely true. Under{" "}
-        <Strong>What is set up</Strong> it confirms four things:
+        stored flag — so it reports what is genuinely true. Under <Strong>What is set up</Strong> it
+        confirms four things:
       </P>
       <UL>
         <LI>
@@ -278,8 +277,8 @@ export function GettingStarted() {
         </LI>
         <LI>
           <Strong>AI Model</Strong> — connected, or not connected yet with a link to connect one.
-          When it is missing, the heading also warns that scheduled Runs will be skipped until it
-          is there.
+          When it is missing, the heading also warns that scheduled Runs will be skipped until it is
+          there.
         </LI>
         <LI>
           <Strong>N Routines scheduled</Strong> — counting only the ones that will actually fire,
@@ -331,16 +330,16 @@ export function GettingStarted() {
       <H2 id="return">Leave and come back</H2>
       <P>
         Every step after the first is skippable, and leaving is not a one-way door. While setup is
-        unfinished, Home shows a <Strong>Finish setting up {"{name}"}</Strong> banner —
-        or, before anyone is hired, that the company has no AI Employees yet — with{" "}
+        unfinished, Home shows a <Strong>Finish setting up {"{name}"}</Strong> banner — or, before
+        anyone is hired, that the company has no AI Employees yet — with{" "}
         <Strong>Finish setup</Strong> or <Strong>Open the guide</Strong> leading back to the right
         step. Because the status is derived from the company&apos;s real state (an AI Employee with
         a connected AI Model), the banner disappears by itself when setup is finished outside the
         guide.
       </P>
       <P>
-        You can also open <Code>/c/&lt;company-slug&gt;/onboarding</Code> directly. The URL keeps the
-        current step and employee, and each step re-checks the employee&apos;s Routines,
+        You can also open <Code>/c/&lt;company-slug&gt;/onboarding</Code> directly. The URL keeps
+        the current step and employee, and each step re-checks the employee&apos;s Routines,
         Connections, mailbox, and Grants so completed setup is never repeated.
       </P>
       <P>

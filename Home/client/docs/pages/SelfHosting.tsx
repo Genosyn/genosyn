@@ -21,9 +21,9 @@ export function SelfHosting() {
         title="Configuration"
         lead={
           <>
-            A short list of boot settings lives in <Code>App/config.ts</Code>. Everything an operator
-            can safely change while Genosyn is running lives in the database and is edited from
-            Admin, with no restart.
+            A short list of boot settings lives in <Code>App/config.ts</Code>. Everything an
+            operator can safely change while Genosyn is running lives in the database and is edited
+            from Admin, with no restart.
           </>
         }
       />
@@ -95,10 +95,10 @@ export function SelfHosting() {
 
       <P>
         Genosyn does not impose a per-company ceiling on top-level AI work. Chats and Routine runs
-        can overlap freely, including several conversations with one AI Employee; only replies within
-        a single thread are serialized. Size the host and any worker replicas for the overlap Members
-        and Routines can create, and monitor your AI Model provider&apos;s concurrency, token, spend,
-        and rate limits. Provider-side throttling still applies.
+        can overlap freely, including several conversations with one AI Employee; only replies
+        within a single thread are serialized. Size the host and any worker replicas for the overlap
+        Members and Routines can create, and monitor your AI Model provider&apos;s concurrency,
+        token, spend, and rate limits. Provider-side throttling still applies.
       </P>
       <Callout kind="info" title="Command execution is on by default, behind bubblewrap.">
         The standard Docker image ships the <Code>bwrap</Code> executable, so an out-of-the-box
@@ -160,8 +160,7 @@ export function SelfHosting() {
                 size cap), <Strong>Browser</Strong> (executable path, headless, locale, timezone,
                 humanized input), <Strong>Agent</Strong> (taint policy, member browsers, tool
                 discovery), <Strong>Containment</Strong> (the Routine circuit breaker and the
-                re-grade sweep), and <Strong>Outbound network</Strong> (the private-host
-                allowlist).
+                re-grade sweep), and <Strong>Outbound network</Strong> (the private-host allowlist).
               </>
             ),
           },
@@ -181,29 +180,29 @@ export function SelfHosting() {
       />
       <Callout kind="tip" title="Upgrading from an older release keeps your settings.">
         Earlier versions carried <Code>smtp</Code>, <Code>web</Code>, <Code>mail</Code>,{" "}
-        <Code>meetings</Code>, <Code>browser</Code>, and the agent knobs in{" "}
-        <Code>config.ts</Code>. If yours still does — including a Kubernetes ConfigMap rendering the
-        old file — the first boot after upgrading copies each block into its database row once and
-        logs what it imported. The values you had are the values you keep, and they are editable in
-        Admin from then on. A block already saved in Admin is never overwritten, and the leftover
-        keys in the file are simply ignored.
+        <Code>meetings</Code>, <Code>browser</Code>, and the agent knobs in <Code>config.ts</Code>.
+        If yours still does — including a Kubernetes ConfigMap rendering the old file — the first
+        boot after upgrading copies each block into its database row once and logs what it imported.
+        The values you had are the values you keep, and they are editable in Admin from then on. A
+        block already saved in Admin is never overwritten, and the leftover keys in the file are
+        simply ignored.
       </Callout>
 
       <H3 id="private-hosts">Reaching something on your own network</H3>
       <P>
         Genosyn refuses any outbound request that resolves to a loopback, private, or link-local
-        address, which is what stops a Connection form or a fetched page from being pointed at
-        your internal network. A self-hosted Forgejo at <Code>git.internal</Code>, or a model
-        endpoint at <Code>10.0.0.5</Code>, is caught by that same rule. List those hosts, one per
-        line, under <Strong>Outbound network</Strong> at <Code>Admin → Runtime</Code> and they
-        become reachable within about 30 seconds — no file to edit, no container to restart.
+        address, which is what stops a Connection form or a fetched page from being pointed at your
+        internal network. A self-hosted Forgejo at <Code>git.internal</Code>, or a model endpoint at{" "}
+        <Code>10.0.0.5</Code>, is caught by that same rule. List those hosts, one per line, under{" "}
+        <Strong>Outbound network</Strong> at <Code>Admin → Runtime</Code> and they become reachable
+        within about 30 seconds — no file to edit, no container to restart.
       </P>
       <Callout kind="warn" title="An allowlisted host is exempt from the check, permanently.">
         Everything an AI Employee can be talked into fetching can reach a host on this list, so add
         one only when you mean employees to reach it — and prefer the narrowest hostname over a
         whole internal domain. The list is empty on a fresh install. Hosts set in{" "}
-        <Code>security.outboundPrivateHostAllowlist</Code> in <Code>config.ts</Code> keep working
-        as well; the two lists are combined. Shared multi-tenant installs ignore the Admin list
+        <Code>security.outboundPrivateHostAllowlist</Code> in <Code>config.ts</Code> keep working as
+        well; the two lists are combined. Shared multi-tenant installs ignore the Admin list
         entirely and refuse to boot with a non-empty one in the file.
       </Callout>
 
@@ -330,10 +329,9 @@ export function SelfHosting() {
         the server console. That console fallback is deliberate and useful: on a brand-new install
         the bootstrap master admin&apos;s own verification link prints there, which is how you claim
         the first operator account before any mail server exists. When a global transport is
-        configured, adding a company SMTP
-        provider at <Code>Settings → Email</Code> pre-fills the host, port, encryption, username,
-        and sender address from it — you only enter the password. Every send appends an{" "}
-        <Code>EmailLog</Code> row that company owners and admins can read at{" "}
+        configured, adding a company SMTP provider at <Code>Settings → Email</Code> pre-fills the
+        host, port, encryption, username, and sender address from it — you only enter the password.
+        Every send appends an <Code>EmailLog</Code> row that company owners and admins can read at{" "}
         <Code>Settings → Email Logs</Code>. Member-role accounts cannot read recipient addresses,
         subjects, delivery errors, or body previews. Bearer links such as company invitations are
         redacted from the stored preview.
@@ -438,13 +436,12 @@ export function SelfHosting() {
         mailbox ownership is proven; being first to reach the public sign-up form grants no
         privilege. Verification revokes every earlier cookie, so sign in again. If that link was
         missed or has expired, sign in and press <Strong>Resend verification email</Strong> at{" "}
-        <Strong>Account → Profile</Strong> — the page shows whether the address is verified, and,
-        on an install with no email transport, says the fresh link went to the server log rather
-        than claiming it was sent. From{" "}
-        <Code>Admin → Users</Code> an existing master admin can grant or revoke the flag on anyone
-        else (you just can&apos;t revoke your own, so the install always keeps at least one
-        operator). Since it&apos;s operator-only, <Code>Admin</Code> isn&apos;t advertised in the
-        products section menu — reach it from your avatar menu.
+        <Strong>Account → Profile</Strong> — the page shows whether the address is verified, and, on
+        an install with no email transport, says the fresh link went to the server log rather than
+        claiming it was sent. From <Code>Admin → Users</Code> an existing master admin can grant or
+        revoke the flag on anyone else (you just can&apos;t revoke your own, so the install always
+        keeps at least one operator). Since it&apos;s operator-only, <Code>Admin</Code> isn&apos;t
+        advertised in the products section menu — reach it from your avatar menu.
       </P>
       <UL>
         <LI>
@@ -476,8 +473,8 @@ export function SelfHosting() {
           <Strong>Runtime</Strong> — the operational knobs that used to live in{" "}
           <Code>config.ts</Code>: web tools, mail sync pacing, meetings, the container&apos;s
           browser, and the agent&apos;s taint policy, member browsers, and tool discovery. Each
-          section saves independently and can be reset to its default; changes take effect within
-          30 seconds without a restart. See <Code>config.ts</Code> above.
+          section saves independently and can be reset to its default; changes take effect within 30
+          seconds without a restart. See <Code>config.ts</Code> above.
         </LI>
         <LI>
           <Strong>Sign-ups</Strong> — an instance-wide toggle for self-service registration. See{" "}

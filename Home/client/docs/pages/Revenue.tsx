@@ -327,9 +327,8 @@ export function Revenue() {
         <Strong>sales-cycle length</Strong>, original-cohort <Strong>stage conversion</Strong>, and
         entered/progressed counts with median time in each stage. These use timestamped Deal
         history, never adjacent current-stage counts. Imported and history-free Deals are labelled
-        explicitly. Acquisition: <Strong>CAC by channel</Strong>,{" "}
-        <Strong>LTV:CAC</Strong>, and <Strong>payback months</Strong>. A brand-new company sees
-        zeros, never errors.
+        explicitly. Acquisition: <Strong>CAC by channel</Strong>, <Strong>LTV:CAC</Strong>, and{" "}
+        <Strong>payback months</Strong>. A brand-new company sees zeros, never errors.
       </P>
       <Callout kind="warn" title="CAC currently reads authorized budget, not settled spend.">
         The acquisition cost figures are computed from the{" "}

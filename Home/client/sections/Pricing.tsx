@@ -87,7 +87,7 @@ const CLOUD_PLANS: Plan[] = [
   {
     name: "Growth",
     host: "Genosyn Cloud",
-    gets: "Every limit above comes off, and every Integration is available to connect. Support is email, answered by the people who wrote the code.",
+    gets: "Every limit above comes off. Support is email, answered by the people who wrote the code.",
     price: "$19",
     meter: "PER AI EMPLOYEE / MO",
     limits: ["UNLIMITED AI EMPLOYEES", "UNLIMITED ROUTINES"],
@@ -298,9 +298,9 @@ function SelfHosted() {
     <Band id="self-hosted" tone="raised" pad="m">
       <Container>
         <Rail sheet="03 / Self-hosted" fields={["$0", "APACHE-2.0", `v${__APP_VERSION__}`]}>
-          <Display as="h2" className="max-w-[20ch]">
+          <Heading as="h2" className="max-w-[20ch]">
             Unlimited AI Employees cost $0 on your hardware.
-          </Display>
+          </Heading>
 
           <Lede className="mt-7">
             One command puts the whole platform on a machine you own. It sends no telemetry, and the

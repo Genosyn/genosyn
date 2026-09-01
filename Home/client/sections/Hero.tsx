@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { GITHUB_URL } from "@/lib/constants";
-import { Board, RUNS_BEFORE_ARRIVAL } from "@/sections/Board";
+import { Board, LEAD_CLAIM, LEAD_DONE_BY, OTHERS_BEFORE_ARRIVAL } from "@/sections/Board";
 import { ActionStrip, Band, Container, Display, Lede, Rail } from "@/sections/Kit";
 
-const COMMAND = "curl -fsSL https://genosyn.com/install.sh | sh";
+const COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
 
 /**
  * The landing hero.
@@ -16,29 +16,36 @@ const COMMAND = "curl -fsSL https://genosyn.com/install.sh | sh";
  * default landing page, and no amount of restyling it helps. It had to go
  * rather than improve.
  *
- * What replaces it is one claim and its evidence. The headline is a count
- * ("Eighteen"), not an abstraction, and it is derived from the board below it
- * rather than asserted above it: `RUNS_BEFORE_ARRIVAL` is computed from the
- * actual event list, so the sentence cannot drift away from the picture. Then
- * the install command, as a real object you can copy rather than a button that
- * scrolls somewhere. Then the Tuesday itself, at full width.
+ * What replaces it is one finished thing and its evidence.
+ *
+ * The headline used to count Runs — "Eighteen Routines ran before anyone
+ * signed in" — which told a reader the scheduler had fired eighteen times.
+ * That is activity, not output: it says the machine was busy and nothing about
+ * whether anything now exists. It names one artefact instead, with the clock
+ * time it was finished by, and both halves are read out of the board's own
+ * event list (`LEAD_CLAIM`, `LEAD_DONE_BY`) so the sentence cannot drift away
+ * from the picture underneath it. A reader can hold "42 reconciled payments"
+ * in their head; nobody can picture eighteen Runs.
+ *
+ * The lede then carries the breadth the headline gives up, so the page is
+ * specific first and comprehensive second rather than the other way round.
+ * Then the install command, as a real object you can copy rather than a button
+ * that scrolls somewhere. Then the Tuesday itself, at full width.
  */
 export function Hero() {
   return (
     <Band tone="paper" pad="l" rule={false}>
       <Container>
         <Rail sheet="01 / One Tuesday" fields={["2026-09-01", "TUE", "00:00–24:00"]}>
-          <Display className="max-w-[24ch]">
-            {`${spell(RUNS_BEFORE_ARRIVAL)} Routines ran before anyone signed in.`}
-          </Display>
+          <Display className="max-w-[24ch]">{`${LEAD_CLAIM} by ${LEAD_DONE_BY}.`}</Display>
 
           <Lede className="mt-7">
-            Genosyn is an open-source platform for running a company with AI Employees. They hold
-            real roles, work to their own schedule, and stop for you only when a job genuinely
-            needs a person.
+            Genosyn is an open-source platform for running a company with AI Employees.{" "}
+            {`${spell(OTHERS_BEFORE_ARRIVAL)} other things finished before 09:30`}, from a triaged
+            inbox to 340 audited dependencies, and three were left for a person.
           </Lede>
 
-          <div className="mt-10 max-w-[34rem]">
+          <div className="mt-10 max-w-[36rem]">
             <InstallStrip />
             <ActionStrip href="/roles/sdr" trailing="Read" className="-mt-px">
               One role, hour by hour
@@ -83,7 +90,7 @@ function InstallStrip() {
 
   return (
     <div className="flex min-h-[3.25rem] items-center gap-4 border border-paper-400 bg-paper-50 px-4">
-      <code className="t-data min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[12px] text-zinc-950 scrollbar-none sm:text-[13px]">
+      <code className="t-data min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-[11px] text-zinc-950 scrollbar-none sm:text-[12px]">
         {COMMAND}
       </code>
       <button
@@ -101,9 +108,27 @@ function InstallStrip() {
 /** Counts read as counts when they are words at display size. */
 function spell(value: number): string {
   const words = [
-    "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
-    "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen",
-    "Nineteen", "Twenty",
+    "Zero",
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
+    "Nine",
+    "Ten",
+    "Eleven",
+    "Twelve",
+    "Thirteen",
+    "Fourteen",
+    "Fifteen",
+    "Sixteen",
+    "Seventeen",
+    "Eighteen",
+    "Nineteen",
+    "Twenty",
   ];
   return words[value] ?? String(value);
 }

@@ -77,9 +77,9 @@ export function Browser() {
         <Strong>Settings → Browser</Strong>, and flip on <Strong>Browser access</Strong>. The same
         card holds the two shaping controls: the <Strong>allow list</Strong> (which hosts the
         employee may open) and <Strong>require approval for form submits</Strong> (a
-        human-in-the-loop gate on anything that sends data). The submit gate is <Strong>on by
-        default for newly created employees</Strong> — the open web is exactly where hostile
-        content meets side effects, so a human turns it off deliberately; employees created
+        human-in-the-loop gate on anything that sends data). The submit gate is{" "}
+        <Strong>on by default for newly created employees</Strong> — the open web is exactly where
+        hostile content meets side effects, so a human turns it off deliberately; employees created
         before that default flipped keep their existing setting. A{" "}
         <DocLink to="/docs/routines">Routine</DocLink> can override the toggle per schedule — useful
         for an employee who may browse during a nightly research run but not in ad-hoc chat.
@@ -261,20 +261,19 @@ export function Browser() {
       </P>
       <P>
         If the site offers TOTP during signup, the employee first calls{" "}
-        <Code>browser_prepare_vault_totp</Code> on its AI-created Login, then asks the site to reveal
-        enrollment. This immediately redacts screenshots and model-visible page text. The employee
-        then calls{" "}
-        <Code>browser_save_vault_totp</Code> on the same-origin setup key, authenticator QR image, or
-        containing element. Genosyn validates and encrypts the setup server-side; neither the setup
-        key nor a generated code appears in model output. A Member can also paste a shown Base32 key
-        or <Code>otpauth://</Code> URI through the Vault editor.
+        <Code>browser_prepare_vault_totp</Code> on its AI-created Login, then asks the site to
+        reveal enrollment. This immediately redacts screenshots and model-visible page text. The
+        employee then calls <Code>browser_save_vault_totp</Code> on the same-origin setup key,
+        authenticator QR image, or containing element. Genosyn validates and encrypts the setup
+        server-side; neither the setup key nor a generated code appears in model output. A Member
+        can also paste a shown Base32 key or <Code>otpauth://</Code> URI through the Vault editor.
       </P>
       <P>
         A Vault passkey is created inside Genosyn rather than imported from a person&apos;s device.
         <Code>browser_create_vault_passkey</Code> takes the site&apos;s Create passkey control and
         performs registration, capture, encryption, and browser cleanup as one bounded action. On a
-        later login, <Code>browser_use_vault_passkey</Code> takes the site&apos;s sign-in control, loads
-        only that granted RP-bound credential, completes the assertion, persists its updated
+        later login, <Code>browser_use_vault_passkey</Code> takes the site&apos;s sign-in control,
+        loads only that granted RP-bound credential, completes the assertion, persists its updated
         signature counter, and removes it from Chrome before returning. No private key enters the
         MCP child, model context, transcript, audit detail, or log.
       </P>
@@ -401,10 +400,10 @@ export function Browser() {
       <P>
         App-owned Chrome opens in a larger <Strong>1600 × 1000</Strong> window. The page&apos;s
         usable viewport is slightly shorter because Chrome keeps its normal browser controls. A
-        Member browser keeps the real size of its window instead. The live preview scales the
-        whole page to fit: drag the panel&apos;s left edge wider or use <Strong>Open in new tab</Strong>
-        when you want a larger view. Routine recordings stay capped at 1280 × 800 and preserve
-        the page&apos;s aspect ratio, so the larger working area does not increase recording storage.
+        Member browser keeps the real size of its window instead. The live preview scales the whole
+        page to fit: drag the panel&apos;s left edge wider or use <Strong>Open in new tab</Strong>
+        when you want a larger view. Routine recordings stay capped at 1280 × 800 and preserve the
+        page&apos;s aspect ratio, so the larger working area does not increase recording storage.
       </P>
       <P>
         Sites rarely detect &quot;automation&quot; as such. They detect{" "}
@@ -423,9 +422,9 @@ export function Browser() {
         browser itself is an honest Chrome — which is why an employee gets challenged from the same
         address you sign in from cleanly. So the tools <Strong>type character by character</Strong>{" "}
         with small randomized gaps and <Strong>approach a control with the pointer</Strong> before
-        clicking. This changes only how the input arrives, never what: a <DocLink to="/docs/vault">
-        Vault</DocLink> credential is typed into the same field, is never revealed to the employee,
-        and stays redacted from snapshots and recordings.
+        clicking. This changes only how the input arrives, never what: a{" "}
+        <DocLink to="/docs/vault">Vault</DocLink> credential is typed into the same field, is never
+        revealed to the employee, and stays redacted from snapshots and recordings.
       </P>
       <P>
         Genosyn still never solves a captcha and never defeats a challenge. This only removes{" "}
@@ -436,14 +435,13 @@ export function Browser() {
       <P>
         Nothing here needs configuring. The knobs are at <Code>Admin → Runtime</Code> under{" "}
         <Strong>Browser</Strong> if you need them — a different Chrome binary, forced headless on a
-        host that cannot run a virtual display, a locale and timezone matching where your
-        deployment egresses from, or <Strong>humanize</Strong> to switch off the
-        character-by-character typing and pointer approach in a trusted environment that wants raw
-        speed. A changed binary path applies to the next browser launch. Leave them at their
-        defaults and Chrome tells the truth about itself while behaving like a person, which is the
-        setting you want. A source-managed install on a host with no Chrome falls back to whatever
-        Chromium it finds, and only then does a compatibility layer start filling in the
-        differences.
+        host that cannot run a virtual display, a locale and timezone matching where your deployment
+        egresses from, or <Strong>humanize</Strong> to switch off the character-by-character typing
+        and pointer approach in a trusted environment that wants raw speed. A changed binary path
+        applies to the next browser launch. Leave them at their defaults and Chrome tells the truth
+        about itself while behaving like a person, which is the setting you want. A source-managed
+        install on a host with no Chrome falls back to whatever Chromium it finds, and only then
+        does a compatibility layer start filling in the differences.
       </P>
       <Callout kind="info" title="Checking the profile">
         A master admin can <Code>POST /api/admin/browser-self-test</Code> to launch the real profile

@@ -1,15 +1,4 @@
-import {
-  Callout,
-  Code,
-  DocLink,
-  H2,
-  LI,
-  P,
-  PageHeader,
-  Pre,
-  Strong,
-  UL,
-} from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, LI, P, PageHeader, Pre, Strong, UL } from "@/docs/Prose";
 
 export function Soul() {
   return (
@@ -19,9 +8,8 @@ export function Soul() {
         title="Soul"
         lead={
           <>
-            A Soul is the <Strong>written constitution</Strong> of an AI
-            employee. Values, voice, decision rules, things they refuse to do.
-            One markdown document, stored on{" "}
+            A Soul is the <Strong>written constitution</Strong> of an AI employee. Values, voice,
+            decision rules, things they refuse to do. One markdown document, stored on{" "}
             <Code>AIEmployee.soulBody</Code>.
           </>
         }
@@ -29,30 +17,27 @@ export function Soul() {
 
       <H2 id="why-not-just-a-prompt">Why not just a prompt?</H2>
       <P>
-        A system prompt tells a model how to act for one conversation. A Soul
-        tells <em>this specific employee</em> how to act forever — across every
-        conversation, every routine, every handoff. Treat it like a job
-        description, not a chat instruction.
+        A system prompt tells a model how to act for one conversation. A Soul tells{" "}
+        <em>this specific employee</em> how to act forever — across every conversation, every
+        routine, every handoff. Treat it like a job description, not a chat instruction.
       </P>
 
       <H2 id="what-belongs">What belongs in a Soul</H2>
       <UL>
         <LI>
-          <Strong>Identity.</Strong> Who they are. Role, scope of authority,
-          who they report to.
+          <Strong>Identity.</Strong> Who they are. Role, scope of authority, who they report to.
         </LI>
         <LI>
-          <Strong>Voice.</Strong> How they write. Concrete or theatrical?
-          Short or thorough? Polished or first-person?
+          <Strong>Voice.</Strong> How they write. Concrete or theatrical? Short or thorough?
+          Polished or first-person?
         </LI>
         <LI>
-          <Strong>Decision rules.</Strong> Heuristics the employee applies when
-          something is ambiguous. <Code>Prefer shipping a draft over polishing
-          a blank page.</Code>
+          <Strong>Decision rules.</Strong> Heuristics the employee applies when something is
+          ambiguous. <Code>Prefer shipping a draft over polishing a blank page.</Code>
         </LI>
         <LI>
-          <Strong>Refusals.</Strong> The explicit list of things they will not
-          do. <Code>Never promise features that haven&apos;t shipped.</Code>
+          <Strong>Refusals.</Strong> The explicit list of things they will not do.{" "}
+          <Code>Never promise features that haven&apos;t shipped.</Code>
         </LI>
       </UL>
 
@@ -67,8 +52,7 @@ export function Soul() {
           <DocLink to="/docs/routines">Routines</DocLink>.
         </LI>
         <LI>
-          <Strong>Credentials, tokens, secrets.</Strong> The Soul is plain text
-          on the DB row. Use{" "}
+          <Strong>Credentials, tokens, secrets.</Strong> The Soul is plain text on the DB row. Use{" "}
           <DocLink to="/docs/integrations">Integrations</DocLink> instead.
         </LI>
       </UL>
@@ -93,16 +77,15 @@ Senior brand writer for an open-source company.
 
       <H2 id="editing-it">Editing it</H2>
       <P>
-        The in-app Soul editor renders markdown with a live preview pane. ⌘S
-        saves. Every save replaces the body — there&apos;s no soft history
-        today, so if you want diffs, commit the rendered text outside the app
-        (most teams paste it into a private repo).
+        The in-app Soul editor renders markdown with a live preview pane. ⌘S saves. Every save
+        replaces the body — there&apos;s no soft history today, so if you want diffs, commit the
+        rendered text outside the app (most teams paste it into a private repo).
       </P>
 
       <Callout kind="tip" title="Treat it like a hiring document.">
-        Short Souls work. Long Souls work too. What matters is whether a new
-        teammate could read it and explain how the employee thinks. If they
-        can&apos;t, the model probably can&apos;t either.
+        Short Souls work. Long Souls work too. What matters is whether a new teammate could read it
+        and explain how the employee thinks. If they can&apos;t, the model probably can&apos;t
+        either.
       </Callout>
     </>
   );

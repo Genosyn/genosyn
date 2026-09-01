@@ -30,18 +30,18 @@ export function Verification() {
       />
 
       <Callout kind="info" title='"Check" is the word.'>
-        Genosyn never says &quot;test,&quot; &quot;assertion,&quot; or &quot;gate&quot; for this.
-        A <Strong>Check</Strong> is a machine-verifiable assertion a Run must pass before it
-        finalizes green. System Health keeps the word <Strong>probe</Strong> for its own
-        diagnostics precisely so this one stays free.
+        Genosyn never says &quot;test,&quot; &quot;assertion,&quot; or &quot;gate&quot; for this. A{" "}
+        <Strong>Check</Strong> is a machine-verifiable assertion a Run must pass before it finalizes
+        green. System Health keeps the word <Strong>probe</Strong> for its own diagnostics precisely
+        so this one stays free.
       </Callout>
 
       <H2 id="three-axes">Three axes, three different claims</H2>
       <P>
-        A Run carries three independent judgements, and reading any one of them as the others is
-        how a convincingly wrong Run passes for a good one. They never overwrite each other — a
-        Run with failing Checks still ends <Code>completed</Code>, because that word has a narrow
-        meaning worth keeping.
+        A Run carries three independent judgements, and reading any one of them as the others is how
+        a convincingly wrong Run passes for a good one. They never overwrite each other — a Run with
+        failing Checks still ends <Code>completed</Code>, because that word has a narrow meaning
+        worth keeping.
       </P>
       <KeyList
         rows={[
@@ -51,8 +51,7 @@ export function Verification() {
               <>
                 <Strong>The loop returned.</Strong> <Code>completed</Code> means the agent finished
                 without erroring, timing out, or being interrupted. It is a statement about the
-                runtime, not about the work. See{" "}
-                <DocLink to="/docs/routines#runs">Runs</DocLink>.
+                runtime, not about the work. See <DocLink to="/docs/routines#runs">Runs</DocLink>.
               </>
             ),
           },
@@ -60,9 +59,10 @@ export function Verification() {
             term: "checksVerdict",
             def: (
               <>
-                <Strong>The machine-verifiable bar.</Strong> <Code>passed</Code>, <Code>failed</Code>
-                , or <Code>not_run</Code> when the Routine declares no Checks. Decided by the server
-                running assertions an operator wrote — the only axis with no model in it anywhere.
+                <Strong>The machine-verifiable bar.</Strong> <Code>passed</Code>,{" "}
+                <Code>failed</Code>, or <Code>not_run</Code> when the Routine declares no Checks.
+                Decided by the server running assertions an operator wrote — the only axis with no
+                model in it anywhere.
               </>
             ),
           },
@@ -119,10 +119,10 @@ export function Verification() {
 
       <H3 id="effect-checks">Writing an effect Check</H3>
       <P>
-        An <Code>effect</Code> Check is a predicate over what the server recorded this Run
-        changing — the <DocLink to="/docs/verification#effects">Effects</DocLink> list below. It
-        needs no shell, no sandbox, and no extra model turn, which is what keeps Checks from being
-        a luxury only some installs get. Four fields:
+        An <Code>effect</Code> Check is a predicate over what the server recorded this Run changing
+        — the <DocLink to="/docs/verification#effects">Effects</DocLink> list below. It needs no
+        shell, no sandbox, and no extra model turn, which is what keeps Checks from being a luxury
+        only some installs get. Four fields:
       </P>
       <UL>
         <LI>
@@ -136,8 +136,8 @@ export function Verification() {
           <Code>min</Code> — how many the Run must have recorded. The usual assertion.
         </LI>
         <LI>
-          <Code>max</Code> — optional ceiling. This is the one that catches a loop: a digest
-          routine that sent 400 emails passes every <Code>min</Code> ever written.
+          <Code>max</Code> — optional ceiling. This is the one that catches a loop: a digest routine
+          that sent 400 emails passes every <Code>min</Code> ever written.
         </LI>
       </UL>
       <Pre lang="json">{`{ "action": "mail.send", "targetType": "mail_thread", "min": 1, "max": 3 }`}</Pre>
@@ -156,8 +156,8 @@ export function Verification() {
         deploy. The exit code and the tail of the output land on the result.
       </P>
       <Callout kind="warn" title="Command Checks need the sandbox.">
-        They are available only where bubblewrap can actually start — the same rule that governs
-        the <Code>bash</Code> tool, and for the same reason: host mode never gives an AI Employee a
+        They are available only where bubblewrap can actually start — the same rule that governs the{" "}
+        <Code>bash</Code> tool, and for the same reason: host mode never gives an AI Employee a
         same-UID shell. On a <Code>disabled</Code>-mode install, write <Code>effect</Code> Checks
         instead. A Check that could not be run records <Strong>not passed</Strong>, with the reason;
         it never quietly counts as a pass.
@@ -172,10 +172,10 @@ export function Verification() {
       </P>
       <P>
         It is not a summary of the transcript and it is not derived from one. The transcript is the
-        model&apos;s account of its work; the Effects list is the server&apos;s, written by the
-        code that performed each change. It is the one record of a Run the model had no hand in —
-        which is why a Run that ends with a confident summary of six emails sent, beside an empty
-        Effects list, is now a visibly different object from a Run that sent six emails.
+        model&apos;s account of its work; the Effects list is the server&apos;s, written by the code
+        that performed each change. It is the one record of a Run the model had no hand in — which
+        is why a Run that ends with a confident summary of six emails sent, beside an empty Effects
+        list, is now a visibly different object from a Run that sent six emails.
       </P>
       <P>The same ledger has three other readers:</P>
       <UL>
@@ -204,8 +204,8 @@ export function Verification() {
       <P>
         Until now there was no run-reading tool in Genosyn at all, which made a whole class of
         question unanswerable from inside the company: a manager asked why a colleague&apos;s work
-        was not landing, or an employee briefed about one of its own Routines being stood down,
-        had nothing to open. Two tools close that, and neither writes anything.
+        was not landing, or an employee briefed about one of its own Routines being stood down, had
+        nothing to open. Two tools close that, and neither writes anything.
       </P>
       <KeyList
         rows={[
@@ -284,9 +284,9 @@ export function Verification() {
       </UL>
 
       <Callout kind="info" title="A green Run should be hard to fake.">
-        The graded party wrote the transcript, and every judgement built on it inherits that.
-        Checks and the Effects list exist so that at least one thing the platform believes about a
-        Run came from somewhere else.
+        The graded party wrote the transcript, and every judgement built on it inherits that. Checks
+        and the Effects list exist so that at least one thing the platform believes about a Run came
+        from somewhere else.
       </Callout>
     </>
   );

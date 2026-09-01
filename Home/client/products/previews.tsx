@@ -184,8 +184,7 @@ function EmployeesPreview() {
             </div>
             <div>
               <span className="text-zinc-400">[07:00:31]</span>{" "}
-              <span className="text-paper-50">✓</span> ledger balanced — 1 charge flagged for
-              review
+              <span className="text-paper-50">✓</span> ledger balanced — 1 charge flagged for review
             </div>
             <div>
               <span className="text-zinc-400">[07:00:33]</span> send_workspace_message → #finance
@@ -384,10 +383,7 @@ function TasksPreview() {
             </div>
             <div className="space-y-2">
               {col.cards.map((card) => (
-                <div
-                  key={card.id}
-                  className="border border-zinc-200 bg-white p-3"
-                >
+                <div key={card.id} className="border border-zinc-200 bg-white p-3">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] font-medium text-zinc-600">
                       {card.id}
@@ -554,8 +550,8 @@ function NotesPreview() {
         <div className="p-5 md:col-span-2">
           <div className="text-lg font-semibold text-zinc-950">🚨 Incident runbook</div>
           <div className="mt-1 text-[11px] text-zinc-600">
-            Last edited by <span className="font-medium text-zinc-700">Sam (AI)</span> · 2 hours
-            ago · audit-logged
+            Last edited by <span className="font-medium text-zinc-700">Sam (AI)</span> · 2 hours ago
+            · audit-logged
           </div>
           <div className="mt-4 space-y-2.5 text-[12.5px] leading-relaxed text-zinc-800">
             <div className="font-semibold text-zinc-950">## First five minutes</div>
@@ -630,10 +626,7 @@ function ResourcesPreview() {
       </div>
       <div className="grid grid-cols-2 gap-3 p-5 sm:grid-cols-4">
         {items.map((it) => (
-          <div
-            key={it.label}
-            className="flex flex-col border border-zinc-200 bg-white p-3"
-          >
+          <div key={it.label} className="flex flex-col border border-zinc-200 bg-white p-3">
             <Tag tone={it.tone}>
               <it.icon className="h-3 w-3" />
               {it.kind}
@@ -723,9 +716,7 @@ function PipelineNode({
   return (
     <div className="flex min-w-[150px] flex-1 flex-col border border-zinc-200 bg-white px-3 py-2.5">
       <div className="flex items-center gap-2">
-        <span
-          className={`flex h-6 w-6 shrink-0 items-center justify-center ring-1 ${tone}`}
-        >
+        <span className={`flex h-6 w-6 shrink-0 items-center justify-center ring-1 ${tone}`}>
           <Icon className="h-3.5 w-3.5" />
         </span>
         <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
@@ -786,8 +777,8 @@ function MarketingPreview() {
           <div className="mt-3 bg-night-950 p-3 font-mono text-[10px] leading-4 text-zinc-400">
             <div className="text-zinc-400">-- journal · 09:02</div>
             <div>
-              Prospecting — PMax pacing 173% → <span className="text-signal-500">paused</span> (never
-              gated). Proposal filed for review.
+              Prospecting — PMax pacing 173% → <span className="text-signal-500">paused</span>{" "}
+              (never gated). Proposal filed for review.
             </div>
           </div>
         </div>
@@ -868,9 +859,7 @@ function ExplorePreview() {
             <div className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-zinc-950">
               $48,220
             </div>
-            <div className="mt-0.5 text-[10px] font-medium text-zinc-800">
-              +8.4% vs last month
-            </div>
+            <div className="mt-0.5 text-[10px] font-medium text-zinc-800">+8.4% vs last month</div>
           </div>
           <div className="flex-1 border border-night-700 bg-night-950 p-3.5 font-mono text-[10px] leading-4 text-zinc-400">
             <div className="text-zinc-400">-- saved chart · run by Mira (AI)</div>
@@ -1040,9 +1029,7 @@ function RevenuePreview() {
           <div className="mt-3 space-y-2">
             {timeline.map((t) => (
               <div key={t.label} className="flex items-start gap-2">
-                <span
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center ${t.tone}`}
-                >
+                <span className={`flex h-5 w-5 shrink-0 items-center justify-center ${t.tone}`}>
                   <t.icon className="h-3 w-3" />
                 </span>
                 <div className="min-w-0 flex-1">

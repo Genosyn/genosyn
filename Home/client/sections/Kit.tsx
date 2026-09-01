@@ -44,6 +44,14 @@ export type BandTone = "paper" | "raised" | "night";
  * contains a timetable.** Everything else is `m`, a strip band is `xs`, and
  * `s` is for the tail of a page (FAQ, footer nav). Without that sentence this
  * drifts back to uniform inside a month.
+ *
+ * The padding is ASYMMETRIC, and that is the second half of the rule: a band
+ * declares how much air it OPENS with, and always closes with about half. When
+ * both halves were equal every boundary was the sum of two independent
+ * decisions and nobody had chosen the gap — the Hero closed with 176px and
+ * Roles opened with 176px, so the most important seam on the page was 353px of
+ * empty paper that neither band had asked for. Now the band above owns the
+ * seam and the numbers are readable: Hero to Roles is 96 + 176.
  */
 export type BandPad = "xs" | "s" | "m" | "l" | "none";
 
@@ -55,10 +63,10 @@ const BAND_TONE: Record<BandTone, string> = {
 
 const BAND_PAD: Record<BandPad, string> = {
   none: "",
-  xs: "py-10",
-  s: "py-14 sm:py-[4.5rem]",
-  m: "py-20 sm:py-24 lg:py-28",
-  l: "py-24 sm:py-32 lg:py-44",
+  xs: "pt-10 pb-6",
+  s: "pt-14 pb-8 sm:pt-[4.5rem] sm:pb-10",
+  m: "pt-20 pb-12 sm:pt-24 sm:pb-14 lg:pt-28 lg:pb-16",
+  l: "pt-24 pb-14 sm:pt-32 sm:pb-16 lg:pt-44 lg:pb-24",
 };
 
 /**
@@ -89,10 +97,25 @@ export function Band({
     <section
       id={id}
       className={`relative ${BAND_TONE[tone]} ${
-        rule && tone !== "night" ? "border-t border-paper-300" : ""
+        rule && tone !== "night" ? "border-t border-paper-400" : ""
       } ${className}`}
     >
-      <div className={BAND_PAD[pad]}>{children}</div>
+      {/* The spine. Positioned on the same arithmetic the rail uses — the
+          container's inline padding plus the 9.5rem gutter — so it lands under
+          every rail's left edge and continues through the band padding and
+          behind any instrument that breaks out of the rail. Opaque surfaces
+          (the board, a plate) occlude it, which reads correctly: a rule
+          passing behind an instrument rather than stopping at it. */}
+      <span
+        aria-hidden
+        className={`pointer-events-none absolute inset-y-0 hidden w-px lg:block ${
+          tone === "night" ? "bg-night-600" : "bg-paper-400"
+        }`}
+        style={{
+          left: "calc(max((100% - 82rem) / 2, 0px) + clamp(1.25rem, 4vw, 3rem) + 9.5rem)",
+        }}
+      />
+      <div className={`relative ${BAND_PAD[pad]}`}>{children}</div>
     </section>
   );
 }
@@ -149,7 +172,6 @@ export function Rail({
   className?: string;
   children: ReactNode;
 }) {
-  const line = night ? "border-night-600" : "border-paper-400";
   const quiet = night ? "text-zinc-400" : "text-zinc-600";
 
   return (
@@ -162,7 +184,7 @@ export function Rail({
           </div>
         ))}
       </div>
-      <div className={`border-l-0 pl-0 lg:border-l lg:pl-10 ${line}`}>
+      <div className="border-l-0 pl-0 lg:pl-10">
         {(sheet || fields?.length) && (
           <div className={`mb-6 flex flex-wrap items-baseline gap-x-4 gap-y-1 lg:hidden ${quiet}`}>
             {sheet && <span className="t-cond text-[11px] uppercase tracking-field">{sheet}</span>}
@@ -482,42 +504,6 @@ export function ActionStrip({
   return (
     <Link href={href} className={classes}>
       {inner}
-    </Link>
-  );
-}
-
-/** A compact inline control, for places a full-width strip would be absurd. */
-export function Button({
-  href,
-  external,
-  variant = "primary",
-  className = "",
-  children,
-}: {
-  href: string;
-  external?: boolean;
-  variant?: "primary" | "secondary" | "night";
-  className?: string;
-  children: ReactNode;
-}) {
-  const skin = {
-    primary: "bg-zinc-950 text-paper-50 hover:bg-zinc-800",
-    secondary: "border border-paper-400 text-zinc-950 hover:bg-zinc-950 hover:text-paper-50",
-    night: "bg-paper-50 text-zinc-950 hover:bg-signal-500",
-  }[variant];
-  const classes = `t-cond inline-flex items-center gap-2 px-4 py-3 text-[12px] uppercase tracking-field transition-colors duration-100 ${skin} ${className}`;
-
-  if (external) {
-    return (
-      <a href={href} target="_blank" rel="noreferrer" className={classes}>
-        {children}
-        <span className="sr-only">{"(opens in a new tab)"}</span>
-      </a>
-    );
-  }
-  return (
-    <Link href={href} className={classes}>
-      {children}
     </Link>
   );
 }

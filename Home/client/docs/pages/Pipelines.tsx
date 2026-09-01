@@ -161,12 +161,12 @@ export function Pipelines() {
 
       <H2 id="code">Run JavaScript</H2>
       <P>
-        The <Strong>Run JavaScript</Strong> step runs the code you write, exactly as written, with
-        a chosen timeout (1–60 seconds, 10 by default). Whatever the code returns becomes the
+        The <Strong>Run JavaScript</Strong> step runs the code you write, exactly as written, with a
+        chosen timeout (1–60 seconds, 10 by default). Whatever the code returns becomes the
         step&apos;s output: return an object to give later steps named fields, and read it like any
-        other step with <Code>{"{{<reference-id>.field}}"}</Code>. A thrown error fails the Run
-        with that message in the log. Because the code carries company-wide authority, only a
-        human can add or edit this step — an AI Employee authoring a Pipeline is refused it.
+        other step with <Code>{"{{<reference-id>.field}}"}</Code>. A thrown error fails the Run with
+        that message in the log. Because the code carries company-wide authority, only a human can
+        add or edit this step — an AI Employee authoring a Pipeline is refused it.
       </P>
       <Pre lang="javascript">{`// Look up a lead, call an external API, and keep a score in a Base.
 const [lead] = await genosyn.base.queryRecords("crm", "leads", {
@@ -217,8 +217,8 @@ return { score: res.data.score };`}</Pre>
                 <Code>countRecords(base, table)</Code>,{" "}
                 <Code>updateRecord(base, table, id, values)</Code>, and{" "}
                 <Code>deleteRecord(base, table, id)</Code>. Bases and tables are addressed by slug;
-                cells accept the column name or field id. Setting a cell to <Code>null</Code>{" "}
-                clears it.
+                cells accept the column name or field id. Setting a cell to <Code>null</Code> clears
+                it.
               </>
             ),
           },
@@ -251,8 +251,8 @@ return { score: res.data.score };`}</Pre>
           protections as the HTTP request step.
         </LI>
         <LI>
-          Limits per step: 50 HTTP requests with responses up to 2&nbsp;MB, 200 Base operations
-          with up to 500 records per query, and a returned value up to 256&nbsp;KB of JSON.
+          Limits per step: 50 HTTP requests with responses up to 2&nbsp;MB, 200 Base operations with
+          up to 500 records per query, and a returned value up to 256&nbsp;KB of JSON.
         </LI>
       </UL>
 
@@ -276,10 +276,9 @@ return { score: res.data.score };`}</Pre>
       />
       <P>
         Email data is available under <Code>trigger.payload.message</Code>, including{" "}
-        <Code>from</Code>, <Code>subject</Code>, <Code>bodyText</Code>,{" "}
-        <Code>hasAttachments</Code>, <Code>accountAddress</Code> (the mailbox it arrived in), and{" "}
-        <Code>receivedAt</Code>. Task data is available under{" "}
-        <Code>trigger.payload.task</Code>, with its Project under{" "}
+        <Code>from</Code>, <Code>subject</Code>, <Code>bodyText</Code>, <Code>hasAttachments</Code>,{" "}
+        <Code>accountAddress</Code> (the mailbox it arrived in), and <Code>receivedAt</Code>. Task
+        data is available under <Code>trigger.payload.task</Code>, with its Project under{" "}
         <Code>trigger.payload.project</Code>. For example, use{" "}
         <Code>{"{{trigger.payload.task.title}}"}</Code> in a later message or task title.
       </P>
@@ -313,63 +312,63 @@ return { score: res.data.score };`}</Pre>
       </UL>
       <P>
         Run now is always recorded as <Strong>Started by a Member</Strong>, even when the Pipeline
-        normally starts from a schedule, webhook, or company event. Automatic Runs are labelled
-        with the schedule, webhook, or event that started them.
+        normally starts from a schedule, webhook, or company event. Automatic Runs are labelled with
+        the schedule, webhook, or event that started them.
       </P>
 
       <H2 id="ai">How AI Employees use it</H2>
       <P>
         AI Employees build and maintain Pipelines through the built-in <Code>genosyn</Code> MCP
         server, not just run inside them. <Code>list_pipeline_node_types</Code> returns the step
-        library with every config key; <Code>create_pipeline</Code> and{" "}
-        <Code>update_pipeline</Code> write the steps and the connections between them;{" "}
-        <Code>run_pipeline</Code> fires a test and hands back the log so the employee can fix what
-        broke; <Code>list_pipeline_runs</Code> and <Code>get_pipeline_run</Code> answer &quot;did
-        it work&quot; afterwards. <Code>rotate_pipeline_webhook_token</Code> issues a fresh webhook
-        URL. Ask one to &quot;stand up a receiver for our marketing events&quot; and it can build
-        the whole thing, test it, and hand you the URL.
+        library with every config key; <Code>create_pipeline</Code> and <Code>update_pipeline</Code>{" "}
+        write the steps and the connections between them; <Code>run_pipeline</Code> fires a test and
+        hands back the log so the employee can fix what broke; <Code>list_pipeline_runs</Code> and{" "}
+        <Code>get_pipeline_run</Code> answer &quot;did it work&quot; afterwards.{" "}
+        <Code>rotate_pipeline_webhook_token</Code> issues a fresh webhook URL. Ask one to
+        &quot;stand up a receiver for our marketing events&quot; and it can build the whole thing,
+        test it, and hand you the URL.
       </P>
       <P>
         Every step an employee writes is checked against <Strong>its own</Strong> access before the
         Pipeline is saved. A Pipeline runs as the company, so this is what keeps that from becoming
-        a way around{" "}
-        <DocLink to="/docs/employees">the Grants you gave the employee</DocLink>: it can only wire
-        up work it could already carry out itself. A step writing into a Base it holds no Grant on,
-        posting into a private channel it was never added to, adding tasks to a restricted Project,
-        or calling a Connection it was not granted is refused, and the employee is told which step
-        and why. The <Strong>Run JavaScript</Strong> step is refused outright: its code runs with
-        company-wide authority that no Grant can bound, so only a human can add or edit one.
+        a way around <DocLink to="/docs/employees">the Grants you gave the employee</DocLink>: it
+        can only wire up work it could already carry out itself. A step writing into a Base it holds
+        no Grant on, posting into a private channel it was never added to, adding tasks to a
+        restricted Project, or calling a Connection it was not granted is refused, and the employee
+        is told which step and why. The <Strong>Run JavaScript</Strong> step is refused outright:
+        its code runs with company-wide authority that no Grant can bound, so only a human can add
+        or edit one.
       </P>
       <P>
         The check covers the <Strong>whole</Strong> Pipeline, not just the step being edited — a
         step reads <Code>{"{{other-step.field}}"}</Code> when it runs, so changing the step feeding
         a Connection changes what that Connection does. The practical consequence: once you add a
         step in the builder that an employee could not have written, that Pipeline&apos;s steps
-        become yours. The employee can still see what it does and whether its Runs are passing,
-        but it cannot change it, run it, delete it, read a Run&apos;s payload and outputs, or be
-        handed its webhook URL.
+        become yours. The employee can still see what it does and whether its Runs are passing, but
+        it cannot change it, run it, delete it, read a Run&apos;s payload and outputs, or be handed
+        its webhook URL.
       </P>
       <P>
         Two triggers need more than the usual, because left unscoped both of them watch things the
-        employee may not be allowed to see. <Strong>Email received</Strong> must name the
-        mailboxes, and the employee needs read access on each — empty means every mailbox,
-        including ones connected months later. <Strong>Task created</Strong> must name a Project
-        the employee can read. In both cases a human can still leave the scope empty in the
-        builder; the Pipeline then runs exactly as it always has.
+        employee may not be allowed to see. <Strong>Email received</Strong> must name the mailboxes,
+        and the employee needs read access on each — empty means every mailbox, including ones
+        connected months later. <Strong>Task created</Strong> must name a Project the employee can
+        read. In both cases a human can still leave the scope empty in the builder; the Pipeline
+        then runs exactly as it always has.
       </P>
       <Callout kind="info" title="Grants are checked when the Pipeline is written.">
         Like a Member who builds one and later loses access, an employee&apos;s Pipeline keeps
-        running after a Grant is withdrawn — the Run has no principal to re-check. Open the
-        Pipeline and pause or delete it if that is not what you want. The company audit log records
-        which employee wrote it, and when. A webhook URL it was given also stays valid — if you add
-        a step beyond its reach, rotate the URL from the trigger&apos;s panel.
+        running after a Grant is withdrawn — the Run has no principal to re-check. Open the Pipeline
+        and pause or delete it if that is not what you want. The company audit log records which
+        employee wrote it, and when. A webhook URL it was given also stays valid — if you add a step
+        beyond its reach, rotate the URL from the trigger&apos;s panel.
       </Callout>
       <P>
-        A Member chatting with an employee delegates their own authority, so the same
-        owner-or-admin rule as the Pipelines page applies: anyone can ask an employee to read
-        Pipelines and Runs, but creating, editing, deleting, running, or rotating a webhook needs
-        an owner or admin driving the conversation. An employee working on its own —
-        a <DocLink to="/docs/routines">Routine</DocLink> Run — is bound by its Grants instead.
+        A Member chatting with an employee delegates their own authority, so the same owner-or-admin
+        rule as the Pipelines page applies: anyone can ask an employee to read Pipelines and Runs,
+        but creating, editing, deleting, running, or rotating a webhook needs an owner or admin
+        driving the conversation. An employee working on its own — a{" "}
+        <DocLink to="/docs/routines">Routine</DocLink> Run — is bound by its Grants instead.
       </P>
 
       <H2 id="pipeline-or-routine">Pipeline or Routine?</H2>

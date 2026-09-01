@@ -258,9 +258,9 @@ export function RevenueOperations() {
         explicit conflict choices; resolve tombstone redirects; archive, restore, bulk triage,
         audit, reconcile, and undo; search and correct manual activity; manage Sequences and Signal
         definitions; inspect Deal-history coverage and the commercial-value backlog; review
-        duplicate, domain, commercial-value, and Gmail document evidence; export
-        native and immutable Revenue datasets; and preview, run, reconcile, attach, or roll back
-        Base, CSV, JSON, NDJSON, linked, and historical Deal migrations.
+        duplicate, domain, commercial-value, and Gmail document evidence; export native and
+        immutable Revenue datasets; and preview, run, reconcile, attach, or roll back Base, CSV,
+        JSON, NDJSON, linked, and historical Deal migrations.
       </P>
       <UL>
         <LI>
@@ -278,9 +278,8 @@ export function RevenueOperations() {
         <LI>
           Finance-derived proposals additionally require a Finance Grant; Stripe evidence requires a
           Grant to the chosen Stripe Connection; Gmail capture requires the relevant Mail Grant.
-          Exporting
-          Gmail document candidates also requires the source Mail Account ID and a read Grant to
-          that exact mailbox. Revenue access never bypasses those boundaries.
+          Exporting Gmail document candidates also requires the source Mail Account ID and a read
+          Grant to that exact mailbox. Revenue access never bypasses those boundaries.
         </LI>
       </UL>
       <H3 id="suggested-routine">A useful sales Routine</H3>

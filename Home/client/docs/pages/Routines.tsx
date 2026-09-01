@@ -64,10 +64,11 @@ export function Routines() {
         <Strong>New folder…</Strong> in any move menu. Selecting a folder narrows the list to that
         folder <Strong>and everything nested inside it</Strong>, so a parent never reads as empty
         just because its routines live one level down. The tag chips narrow with that same folder
-        scope, so every tag shown can match a routine currently in the list. <Strong>Unfiled</Strong>{" "}
-        at the bottom of the tree collects everything you haven&apos;t filed yet. Each folder&apos;s{" "}
-        <Code>⋯</Code> menu holds <Strong>New subfolder</Strong>, <Strong>Rename</Strong>,{" "}
-        <Strong>Move to top level</Strong>, and <Strong>Delete folder</Strong>.
+        scope, so every tag shown can match a routine currently in the list.{" "}
+        <Strong>Unfiled</Strong> at the bottom of the tree collects everything you haven&apos;t
+        filed yet. Each folder&apos;s <Code>⋯</Code> menu holds <Strong>New subfolder</Strong>,{" "}
+        <Strong>Rename</Strong>, <Strong>Move to top level</Strong>, and{" "}
+        <Strong>Delete folder</Strong>.
       </P>
       <Callout kind="info" title="Deleting a folder never deletes routines.">
         Its routines and subfolders move up to the folder&apos;s own parent — which for a top-level
@@ -237,10 +238,10 @@ export function Routines() {
         before saving.
       </P>
       <P>
-        Cron is not the only way a routine fires. A <Strong>Trigger</Strong> subscribes a routine
-        to a resource family — deals, mail, Runs, <DocLink to="/docs/goals">Goals</DocLink> — and
-        fires it whenever that family changes anywhere in the company, with a per-trigger minimum
-        interval so a busy family can&apos;t hot-loop it. Gated routines still meet their{" "}
+        Cron is not the only way a routine fires. A <Strong>Trigger</Strong> subscribes a routine to
+        a resource family — deals, mail, Runs, <DocLink to="/docs/goals">Goals</DocLink> — and fires
+        it whenever that family changes anywhere in the company, with a per-trigger minimum interval
+        so a busy family can&apos;t hot-loop it. Gated routines still meet their{" "}
         <DocLink to="/docs/routines#approvals">Approval</DocLink>. See{" "}
         <DocLink to="/docs/reactivity#triggers">Reactivity</DocLink>.
       </P>
@@ -478,17 +479,17 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           <Strong>Status</Strong> starts at <Code>running</Code> and ends at one of{" "}
           <Code>completed</Code>, <Code>failed</Code>, <Code>skipped</Code> (no model was
           connected), <Code>timeout</Code>, or <Code>interrupted</Code> (the server stopped
-          mid-run). A Run stopped by the step-limit backstop — the model kept calling tools
-          without ever finishing — is marked <Code>failed</Code>, with the reason in the
-          transcript. Completed only ever means the loop returned cleanly; whether the work met
-          its bar is answered by the other two axes — this routine&apos;s{" "}
+          mid-run). A Run stopped by the step-limit backstop — the model kept calling tools without
+          ever finishing — is marked <Code>failed</Code>, with the reason in the transcript.
+          Completed only ever means the loop returned cleanly; whether the work met its bar is
+          answered by the other two axes — this routine&apos;s{" "}
           <DocLink to="/docs/routines#checks">Checks</DocLink> and its{" "}
           <DocLink to="/docs/routines#outcome-check">outcome check</DocLink> — never by the status.
         </LI>
         <LI>
           Each Run also records the <Strong>tokens</Strong> it consumed — the provider&apos;s own
-          per-turn counts, summed. They show on the Run log modal and roll up per employee and
-          per routine at <Strong>Settings → Usage</Strong>.
+          per-turn counts, summed. They show on the Run log modal and roll up per employee and per
+          routine at <Strong>Settings → Usage</Strong>.
         </LI>
         <LI>
           The Run detail view tails the transcript while it&apos;s running, then renders the full
@@ -511,14 +512,14 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
       <P>
         Failures are loud: a Run that ends <Code>failed</Code>, <Code>timeout</Code>, or{" "}
         <Code>interrupted</Code> with no retry still scheduled sends a bell (and web push)
-        notification to the company&apos;s owners and admins and to the Member the employee
-        reports to, deep-linked to the Run log. The Home page additionally shows a{" "}
+        notification to the company&apos;s owners and admins and to the Member the employee reports
+        to, deep-linked to the Run log. The Home page additionally shows a{" "}
         <Strong>Failed routines</Strong> panel for anything that broke in the last 24 hours, and
         every <Strong>Journal</Strong> entry for a Run links straight to that routine&apos;s run
-        history — where the Retry button is one click away. Once you&apos;ve looked at a failure, hit the <Strong>✕</Strong> on its row to{" "}
-        <Strong>dismiss</Strong> it — the run stays in the routine&apos;s history, but it drops off
-        the panel (and out of the System Health failed-runs count) so it stops nagging the whole
-        team.
+        history — where the Retry button is one click away. Once you&apos;ve looked at a failure,
+        hit the <Strong>✕</Strong> on its row to <Strong>dismiss</Strong> it — the run stays in the
+        routine&apos;s history, but it drops off the panel (and out of the System Health failed-runs
+        count) so it stops nagging the whole team.
       </P>
       <P>
         Rows marked <Code>interrupted</Code> also carry a <Strong>Rerun</Strong> button. Nothing is
@@ -533,17 +534,17 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
 
       <H2 id="outcome-check">The outcome check</H2>
       <P>
-        A green <Code>completed</Code> proves the loop returned — it says nothing about whether
-        the work was any good. A convincingly wrong Run used to look byte-identical to a great
-        one. The outcome check is the second axis: give a routine{" "}
-        <Strong>acceptance criteria</Strong> (Settings → Outcome check) — a plain-language
-        definition of done, like &quot;the digest was posted to #general and covers every failed
-        run since the last digest&quot; — and two things happen.
+        A green <Code>completed</Code> proves the loop returned — it says nothing about whether the
+        work was any good. A convincingly wrong Run used to look byte-identical to a great one. The
+        outcome check is the second axis: give a routine <Strong>acceptance criteria</Strong>{" "}
+        (Settings → Outcome check) — a plain-language definition of done, like &quot;the digest was
+        posted to #general and covers every failed run since the last digest&quot; — and two things
+        happen.
       </P>
       <UL>
         <LI>
-          The criteria ride along in every Run&apos;s brief, so the employee aims at the same bar
-          it will be graded against.
+          The criteria ride along in every Run&apos;s brief, so the employee aims at the same bar it
+          will be graded against.
         </LI>
         <LI>
           After a completed Run, a restricted checker — a zero-tool model turn on the same brain,
@@ -551,9 +552,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
           <DocLink to="/docs/verification#effects">Effects</DocLink> list — grades the work and
           stamps a verdict on the Run: <Code>achieved</Code>, <Code>unclear</Code> (it looked and
           could not tell), <Code>off goal</Code>, or <Code>unverified</Code> (no judgement was ever
-          produced — the checker errored or never submitted). The verdict shows as a chip beside
-          the status everywhere Runs render, with the checker&apos;s one-line reason on hover and
-          in the log view.
+          produced — the checker errored or never submitted). The verdict shows as a chip beside the
+          status everywhere Runs render, with the checker&apos;s one-line reason on hover and in the
+          log view.
         </LI>
       </UL>
       <P>
@@ -600,9 +601,9 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         </LI>
       </UL>
       <P>
-        Every Check&apos;s result lands on the Run with its detail and how long it took, and the
-        Run carries a <Strong>checks verdict</Strong> chip beside its status. A failing required
-        Check earns the employee up to two more briefed attempts inside the routine&apos;s existing
+        Every Check&apos;s result lands on the Run with its detail and how long it took, and the Run
+        carries a <Strong>checks verdict</Strong> chip beside its status. A failing required Check
+        earns the employee up to two more briefed attempts inside the routine&apos;s existing
         timeout — never more time, never a third round — and then finalizes as a failure that
         revokes waivers and writes a Lesson like any other. Checks ride into the Run brief, so the
         employee aims at the bar; no MCP tool can create, edit, or delete one. See{" "}
@@ -755,8 +756,8 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         A pending Approval never expires, so a gated tick nobody answers is lost, not queued.
         Genosyn no longer lets that happen in silence: an Approval still pending after{" "}
         <Strong>24 hours</Strong> re-pages the owners and admins with a stall reminder — once per
-        row, so the bell nags exactly one extra time. Pending <Strong>Decisions</Strong> and
-        overdue <Strong>Handoffs</Strong> get the same treatment; see{" "}
+        row, so the bell nags exactly one extra time. Pending <Strong>Decisions</Strong> and overdue{" "}
+        <Strong>Handoffs</Strong> get the same treatment; see{" "}
         <DocLink to="/docs/decisions">the Decision Stack</DocLink> and{" "}
         <DocLink to="/docs/employees">AI Employees</DocLink>.
       </P>

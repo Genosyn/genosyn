@@ -40,8 +40,8 @@ export function Deliverability() {
 
       <H2 id="suppression">The suppression list</H2>
       <P>
-        A <Strong>Suppression</Strong> is an address this company must never email. The list lives at{" "}
-        <Code>Revenue → Suppressions</Code>, searchable and filterable by reason.
+        A <Strong>Suppression</Strong> is an address this company must never email. The list lives
+        at <Code>Revenue → Suppressions</Code>, searchable and filterable by reason.
       </P>
       <KeyList
         rows={[
@@ -75,20 +75,22 @@ export function Deliverability() {
       <P>
         Adding an address is idempotent — suppressing one that is already suppressed changes nothing
         and keeps the original reason, so a bounce report arriving twice is harmless. If you are
-        moving from another outbound tool, <Strong>export its opt-out list and import it here before
-        you send anything</Strong>. That is the single highest-value five minutes in this page.
+        moving from another outbound tool,{" "}
+        <Strong>export its opt-out list and import it here before you send anything</Strong>. That
+        is the single highest-value five minutes in this page.
       </P>
       <Callout kind="warn" title="Removing a suppression is a deliberate act, and it is audited.">
-        The cheapest way to get a sending domain blocklisted is to mail somebody who already said no.
-        Deletion asks for confirmation and records who removed it, when, and what reason the row
+        The cheapest way to get a sending domain blocklisted is to mail somebody who already said
+        no. Deletion asks for confirmation and records who removed it, when, and what reason the row
         carried — because &quot;who un-suppressed this address&quot; is the first question asked
         afterwards. Remove one only to correct a mistake you can name.
       </Callout>
 
       <H3 id="do-not-contact">Do not contact vs. suppression</H3>
       <P>
-        They are different objects and both are checked on every send. A <Strong>Suppression</Strong>{" "}
-        says <em>never mail this address</em>. <Strong>Do not contact</Strong>, the flag on a{" "}
+        They are different objects and both are checked on every send. A{" "}
+        <Strong>Suppression</Strong> says <em>never mail this address</em>.{" "}
+        <Strong>Do not contact</Strong>, the flag on a{" "}
         <DocLink to="/docs/revenue#contacts-vs-customers">Contact</DocLink>, says{" "}
         <em>never contact this person</em> — and blocks every address you hold for them, including
         ones that were never suppressed individually. Use the contact flag when somebody asks you to
@@ -101,7 +103,9 @@ export function Deliverability() {
         is deliberately no way to send that skips it:
       </P>
       <UL>
-        <LI>a Member pressing <Strong>Send</Strong> or <Strong>Reply</Strong> in the inbox;</LI>
+        <LI>
+          a Member pressing <Strong>Send</Strong> or <Strong>Reply</Strong> in the inbox;
+        </LI>
         <LI>
           a bulk send from the <DocLink to="/docs/email#drafts">Drafts review queue</DocLink>;
         </LI>
@@ -161,11 +165,11 @@ export function Deliverability() {
         sequence enrolment for that person. There is nothing to process afterwards.
       </P>
       <Callout kind="info" title="A link scanner can unsubscribe somebody who never clicked.">
-        Acting on the plain GET is a deliberate trade. Some corporate security tools follow every URL
-        in an inbound message, so an opt-out occasionally lands that the recipient did not intend.
-        The alternative — a confirmation button — loses real opt-outs from clients that strip forms,
-        and a <em>missed</em> unsubscribe is a spam complaint. An over-eager one is a row you can
-        remove from the list. We chose the recoverable failure.
+        Acting on the plain GET is a deliberate trade. Some corporate security tools follow every
+        URL in an inbound message, so an opt-out occasionally lands that the recipient did not
+        intend. The alternative — a confirmation button — loses real opt-outs from clients that
+        strip forms, and a <em>missed</em> unsubscribe is a spam complaint. An over-eager one is a
+        row you can remove from the list. We chose the recoverable failure.
       </Callout>
 
       <H2 id="bounces">Bounces</H2>
@@ -179,9 +183,9 @@ export function Deliverability() {
       </P>
       <P>
         Soft failures — a full mailbox, a temporary defer — are not suppressed, because the address
-        is fine and will accept mail tomorrow. Vendor envelope senders like <Code>bounces@</Code> are
-        deliberately not treated as daemons either; they are also used for ordinary bulk mail, and
-        treating one as a bounce report would let a newsletter suppress your contacts.
+        is fine and will accept mail tomorrow. Vendor envelope senders like <Code>bounces@</Code>{" "}
+        are deliberately not treated as daemons either; they are also used for ordinary bulk mail,
+        and treating one as a bounce report would let a newsletter suppress your contacts.
       </P>
       <Callout kind="warn" title="A rising bounce rate is a stop signal, not a nuisance.">
         Bounces above roughly 2% of a send mean your list is stale, and mailbox providers read that
@@ -197,8 +201,8 @@ export function Deliverability() {
       <UL>
         <LI>
           <Strong>Daily cap</Strong> — the maximum touches a sequence may produce in a day, default
-          50. Both sent and drafted touches count. <Code>0</Code> means uncapped; it is not a setting
-          for a sequence you have not watched run.
+          50. Both sent and drafted touches count. <Code>0</Code> means uncapped; it is not a
+          setting for a sequence you have not watched run.
         </LI>
         <LI>
           <Strong>Send window</Strong> — weekdays 08:00 to 17:00 in the timezone you choose, by
@@ -232,12 +236,13 @@ export function Deliverability() {
         <LI>
           <Strong>Stop sending outbound entirely.</Strong> Pause every{" "}
           <DocLink to="/docs/sequences">Sequence</DocLink>, disable every{" "}
-          <DocLink to="/docs/signals">Signal</DocLink> whose action enrols or hands off, and turn off
-          autoSend. Every additional message makes the hole deeper.
+          <DocLink to="/docs/signals">Signal</DocLink> whose action enrols or hands off, and turn
+          off autoSend. Every additional message makes the hole deeper.
         </LI>
         <LI>
-          <Strong>Find out what you sent.</Strong> The per-step run history on each enrolment records
-          exactly what went to whom and when, and what was skipped. Read it before you theorize.
+          <Strong>Find out what you sent.</Strong> The per-step run history on each enrolment
+          records exactly what went to whom and when, and what was skipped. Read it before you
+          theorize.
         </LI>
         <LI>
           <Strong>Clean the list.</Strong> Suppress every bounced and unresponsive address, import
@@ -246,8 +251,8 @@ export function Deliverability() {
         </LI>
         <LI>
           <Strong>Protect the transactional path.</Strong> Move invoice, receipt and password-reset
-          mail to a subdomain or a separate sending identity that has never carried cold outbound, so
-          the business keeps working while the reputation recovers.
+          mail to a subdomain or a separate sending identity that has never carried cold outbound,
+          so the business keeps working while the reputation recovers.
         </LI>
         <LI>
           <Strong>Fix authentication and monitor it.</Strong> Confirm SPF, DKIM and DMARC pass, and
@@ -280,12 +285,11 @@ export function Deliverability() {
       </P>
       <H3 id="advanced-secret">Rotating the encryption secret invalidates outstanding links</H3>
       <P>
-        Unsubscribe tokens are signed with a key derived from{" "}
-        <Code>security.encryptionSecret</Code> in{" "}
-        <DocLink to="/docs/self-hosting">config.ts</DocLink>. Changing that secret makes every link
-        already sitting in somebody&apos;s inbox stop verifying, and a dead unsubscribe link is the
-        thing this whole page exists to avoid. If you must rotate it, expect complaints from anyone
-        who tries to opt out of older mail, and be ready to suppress those addresses by hand.
+        Unsubscribe tokens are signed with a key derived from <Code>security.encryptionSecret</Code>{" "}
+        in <DocLink to="/docs/self-hosting">config.ts</DocLink>. Changing that secret makes every
+        link already sitting in somebody&apos;s inbox stop verifying, and a dead unsubscribe link is
+        the thing this whole page exists to avoid. If you must rotate it, expect complaints from
+        anyone who tries to opt out of older mail, and be ready to suppress those addresses by hand.
       </P>
     </>
   );

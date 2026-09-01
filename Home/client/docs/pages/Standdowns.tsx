@@ -1,15 +1,4 @@
-import {
-  Callout,
-  Code,
-  DocLink,
-  H2,
-  KeyList,
-  LI,
-  P,
-  PageHeader,
-  Strong,
-  UL,
-} from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, KeyList, LI, P, PageHeader, Strong, UL } from "@/docs/Prose";
 
 export function Standdowns() {
   return (
@@ -48,9 +37,9 @@ export function Standdowns() {
 
       <H2 id="scopes">The three scopes, exactly</H2>
       <P>
-        Wider scopes subsume narrower ones. What each covers is worth reading precisely, because
-        the difference between them is the difference between an incident contained and an incident
-        that kept going somewhere you weren&apos;t looking.
+        Wider scopes subsume narrower ones. What each covers is worth reading precisely, because the
+        difference between them is the difference between an incident contained and an incident that
+        kept going somewhere you weren&apos;t looking.
       </P>
       <KeyList
         rows={[
@@ -81,10 +70,9 @@ export function Standdowns() {
             def: (
               <>
                 <Strong>One Routine&apos;s scheduled and triggered Runs</Strong> — including its
-                queued retries and a manual &quot;Run now&quot;. It does{" "}
-                <Strong>not</Strong> stop chat with the employee that owns it: this is the
-                surgical scope, for one broken piece of work, not for an employee you have stopped
-                trusting.
+                queued retries and a manual &quot;Run now&quot;. It does <Strong>not</Strong> stop
+                chat with the employee that owns it: this is the surgical scope, for one broken
+                piece of work, not for an employee you have stopped trusting.
               </>
             ),
           },
@@ -136,8 +124,8 @@ export function Standdowns() {
         spend nobody is reading.
       </P>
       <Callout kind="info" title="A breaker Standdown is an ordinary Standdown.">
-        It shows in the same list, needs the same admin to lift it, and carries the same reason
-        line — the streak that tripped it. The source is recorded because it is worth knowing, not
+        It shows in the same list, needs the same admin to lift it, and carries the same reason line
+        — the streak that tripped it. The source is recorded because it is worth knowing, not
         because lifting one is a different act.
       </Callout>
 
@@ -151,8 +139,8 @@ export function Standdowns() {
       </P>
       <Callout kind="warn" title="There is no MCP tool for this — deliberately.">
         No AI Employee can place a Standdown, and far more importantly, none can lift one. A stop
-        the roster could lift is not a stop. This is the one control in Genosyn with no
-        AI-facing surface in either direction.
+        the roster could lift is not a stop. This is the one control in Genosyn with no AI-facing
+        surface in either direction.
       </Callout>
 
       <H2 id="not-enabled">

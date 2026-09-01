@@ -252,9 +252,16 @@ const DATA_LOCATIONS: Array<[string, ReactNode]> = [
 ];
 
 /** The seven Approval kinds, verbatim from `ApprovalKind` in the product. */
+/**
+ * The Approval kinds that ship.
+ *
+ * `lightning_payment` used to be listed here and was removed: M13 retired it
+ * in 1.132.0. It survives as a valid `Approval.kind` so historical rows still
+ * render, which is exactly why it read as current on a marketing page and had
+ * to go — a kind nobody can trigger is not a kind that ships.
+ */
 const APPROVAL_KINDS = [
   "routine",
-  "lightning_payment",
   "browser_action",
   "mcp_tool",
   "ad_spend",
@@ -318,7 +325,7 @@ function Architecture() {
                       The system interposing on an action the employee already attempted. A human
                       ticks it and the server replays that exact call from the snapshot on the row.
                       Approving fires a privileged side effect, so it is admin-gated and the payload
-                      is redacted at every boundary. Seven kinds ship today.
+                      is redacted at every boundary. Six kinds ship today.
                     </Body>
                     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
                       {APPROVAL_KINDS.map((kind) => (
@@ -510,7 +517,7 @@ const TOPOLOGIES: Topology[] = [
   {
     index: "01",
     name: "One Docker host",
-    command: "curl -fsSL https://genosyn.com/install.sh | sh",
+    command: "curl -fsSL https://genosyn.com/install.sh | bash",
     body: (
       <>
         One replica, SQLite in the data volume, the container on <Field>8471</Field> behind whatever

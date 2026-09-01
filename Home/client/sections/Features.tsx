@@ -104,12 +104,12 @@ export function Features() {
   return (
     <Band id="platform" tone="paper" pad="m">
       <Container>
-        <Rail sheet="07 / Where the work happens" fields={["14 PRODUCTS", "8 WORKED ROLES"]}>
+        <Rail sheet="07 / Where work runs" fields={["14 PRODUCTS", "8 WORKED ROLES"]}>
           {/* The headline names a row in Fig. 1 and a product in the index
               below it, so the three parts of the band point at each other
               instead of each restating the band's title. */}
           <Heading as="h2" className="max-w-[18ch]">
-            Mira reconciled 42 payments inside Finance.
+            Pax answered 31 support emails inside Email.
           </Heading>
 
           <Lede className="mt-7">
@@ -120,8 +120,8 @@ export function Features() {
 
           <Plate
             className="mt-12"
-            figure="Fig. 1"
-            caption="Northstar Labs at 09:31. Eighteen Runs finished overnight; two Decisions and one Approval are waiting."
+            figure="Fig. 7"
+            caption="Northstar Labs at 09:31. Eighteen things finished overnight, and three are waiting for a person."
           >
             <CompanyPreview />
           </Plate>

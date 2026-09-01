@@ -92,6 +92,9 @@ body {
   .t-display {
     font-variation-settings: "wdth" 118, "wght" 700;
     letter-spacing: -0.02em;
+    /* One- and two-line headings orphaned their last word at common widths
+       ("… and three | Skills"). Balancing costs nothing at these lengths. */
+    text-wrap: balance;
   }
 
   /* Condensed uppercase: column headers, lane owners, sheet numbers. */
@@ -165,7 +168,7 @@ body {
 .hours {
   background-image: repeating-linear-gradient(
     to right,
-    #dad7ce 0 1px,
+    #e6e3da 0 1px,
     transparent 1px calc(100% / 24)
   );
 }
@@ -173,7 +176,7 @@ body {
 .hours-night {
   background-image: repeating-linear-gradient(
     to right,
-    #2a2a26 0 1px,
+    #1e1e1b 0 1px,
     transparent 1px calc(100% / 24)
   );
 }

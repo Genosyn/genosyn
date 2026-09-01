@@ -61,9 +61,9 @@ export function Kubernetes() {
             term: "ingress.enabled + ingress.host",
             def: (
               <>
-                Front the app with your Ingress controller. WebSockets share port{" "}
-                <Code>8471</Code> and pass through a plain Ingress rule on nginx and Traefik — no
-                snippet annotations needed.
+                Front the app with your Ingress controller. WebSockets share port <Code>8471</Code>{" "}
+                and pass through a plain Ingress rule on nginx and Traefik — no snippet annotations
+                needed.
               </>
             ),
           },
@@ -96,8 +96,8 @@ export function Kubernetes() {
             def: (
               <>
                 Grants the securityContext the bubblewrap coding sandbox needs (seccomp{" "}
-                <Code>Unconfined</Code> + <Code>procMount: Unmasked</Code>). Off by default; see
-                the securityContext callout below for what your cluster must permit.
+                <Code>Unconfined</Code> + <Code>procMount: Unmasked</Code>). Off by default; see the
+                securityContext callout below for what your cluster must permit.
               </>
             ),
           },
@@ -162,8 +162,8 @@ export function Kubernetes() {
       <H2 id="by-hand">Doing it by hand</H2>
       <P>
         Everything below is what the chart renders for you, as raw manifests. Skip it if Helm
-        already did the job; use it when you want to own every object yourself or fold Genosyn
-        into an existing GitOps tree.
+        already did the job; use it when you want to own every object yourself or fold Genosyn into
+        an existing GitOps tree.
       </P>
 
       <H2 id="prerequisites">Prerequisites</H2>
@@ -259,8 +259,8 @@ data:
         and tool discovery all live in the database and are edited at <Code>Admin → Runtime</Code>{" "}
         and <Code>Admin → Email transport</Code> — so a settings change is a form submit, not a
         ConfigMap edit and a rollout. Nor is the public URL here: after the first master admin signs
-        in, review and save <Code>https://genosyn.example.com</Code> at <Code>Admin → General</Code>.
-        Those values are stored in Postgres and shared by every replica.
+        in, review and save <Code>https://genosyn.example.com</Code> at <Code>Admin → General</Code>
+        . Those values are stored in Postgres and shared by every replica.
       </P>
       <Callout kind="info" title="Claiming the first account before SMTP exists.">
         A fresh install has no mail transport, so the bootstrap master admin&apos;s verification

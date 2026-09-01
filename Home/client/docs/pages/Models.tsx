@@ -27,8 +27,7 @@ export function Models() {
             subscription access for OpenAI on a trusted single-tenant install. The standard Docker
             default runs subscription work beside bubblewrap-isolated coding, and without coding
             tools where Linux namespaces are unavailable. Switch the active model any time without
-            losing the
-            others&apos; credentials.
+            losing the others&apos; credentials.
           </>
         }
       />
@@ -113,8 +112,8 @@ export function Models() {
           complete ChatGPT device sign-in or paste a Codex access token from an eligible Business or
           Enterprise workspace. Genosyn runs this model through the pinned{" "}
           <Code>@openai/codex</Code> app-server. The standard Docker default runs it beside
-          bubblewrap-isolated coding and repository work; a host without Linux user namespaces
-          falls back to subscription Runs with no coding tools.
+          bubblewrap-isolated coding and repository work; a host without Linux user namespaces falls
+          back to subscription Runs with no coding tools.
         </LI>
         <LI>
           <Strong>Custom.</Strong> Paste a base URL and a model id, plus an optional API key if your
@@ -125,9 +124,10 @@ export function Models() {
       <H3 id="openai-subscription">Use an OpenAI subscription</H3>
       <P>
         Subscription access is available on a trusted single-tenant deployment when coding execution
-        is isolated with working Linux bubblewrap — the standard Docker default — or disabled. In the add-model form, choose <Strong>OpenAI (GPT)</Strong>,
-        set <Strong>Authentication</Strong> to <Strong>ChatGPT subscription</Strong>, choose the
-        model, then select <Strong>Add model</Strong>. The model card offers two official Codex
+        is isolated with working Linux bubblewrap — the standard Docker default — or disabled. In
+        the add-model form, choose <Strong>OpenAI (GPT)</Strong>, set{" "}
+        <Strong>Authentication</Strong> to <Strong>ChatGPT subscription</Strong>, choose the model,
+        then select <Strong>Add model</Strong>. The model card offers two official Codex
         authentication paths:
       </P>
       <UL>
@@ -350,8 +350,8 @@ export function Models() {
       <P>
         <Strong>Each conversation keeps its own model.</Strong> Reopening a past thread puts the
         picker back on the model that thread last answered on, not on whatever is active now — so a
-        long conversation carries on with the same brain, context window, and billing you started
-        it with. A brand-new thread starts on the active model, and so does a thread whose model has
+        long conversation carries on with the same brain, context window, and billing you started it
+        with. A brand-new thread starts on the active model, and so does a thread whose model has
         since been deleted or disconnected.
       </P>
 

@@ -39,9 +39,7 @@ function setNamedMeta(name: string, content: string): void {
 }
 
 function setPropertyMeta(property: string, content: string): void {
-  let el = document.head.querySelector<HTMLMetaElement>(
-    `meta[property="${property}"]`,
-  );
+  let el = document.head.querySelector<HTMLMetaElement>(`meta[property="${property}"]`);
   if (!el) {
     el = document.createElement("meta");
     el.setAttribute("property", property);
@@ -61,9 +59,7 @@ function setLink(rel: string, href: string): void {
 }
 
 function setJsonLd(blocks: object[]): void {
-  document.head
-    .querySelectorAll('script[data-route-jsonld="true"]')
-    .forEach((el) => el.remove());
+  document.head.querySelectorAll('script[data-route-jsonld="true"]').forEach((el) => el.remove());
   for (const block of blocks) {
     const el = document.createElement("script");
     el.type = "application/ld+json";

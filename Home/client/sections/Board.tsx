@@ -1,3 +1,4 @@
+import { Gantt, type GanttEvent } from "@/components/Gantt";
 import { Mark } from "@/components/Marks";
 import { Field, Rule, Sheet } from "@/sections/Kit";
 
@@ -40,6 +41,14 @@ export type BoardEvent = {
   hours?: number;
   label: string;
   state: "run" | "decision" | "approval";
+  /**
+   * The one Run the hero names. Exactly one event carries this, so the
+   * sentence at the top of the page is built from the chart underneath it and
+   * cannot drift away from it.
+   */
+  lead?: true;
+  /** The hero's phrasing of what this Run produced. */
+  claim?: string;
 };
 
 type Lane = {
@@ -54,68 +63,88 @@ export const LANES: Lane[] = [
   {
     owner: "Finance",
     events: [
-      { at: 0.25, hours: 0.5, label: "Close yesterday's ledger", state: "run" },
-      { at: 4.08, hours: 0.67, label: "Reconcile 42 Stripe payments", state: "run" },
-      { at: 7, hours: 0.5, label: "Draft the VAT return", state: "run" },
+      { at: 0.25, hours: 0.5, label: "Overnight journal entries posted", state: "run" },
+      {
+        at: 4.08,
+        hours: 0.67,
+        label: "42 Stripe payments reconciled, 3 exceptions queued",
+        state: "run",
+        lead: true,
+        claim: "42 Stripe payments were reconciled",
+      },
+      { at: 7, hours: 0.5, label: "Yesterday's ledger, closed and balanced", state: "run" },
       { at: 10.67, label: "Write off a £42 discrepancy, or chase it?", state: "decision" },
     ],
   },
   {
     owner: "Repositories",
     events: [
-      { at: 1.5, hours: 1.2, label: "Audit 340 dependencies", state: "run" },
-      { at: 5.17, hours: 0.75, label: "Open a fix for the flaky checkout test", state: "run" },
-      { at: 8.25, hours: 0.5, label: "Review 3 pull requests", state: "run" },
-      { at: 14.08, hours: 0.5, label: "Rerun the release Check", state: "run" },
+      { at: 1.5, hours: 1.2, label: "340 dependencies audited, 14 brought current", state: "run" },
+      { at: 5.17, hours: 0.75, label: "A fix open on the flaky checkout test", state: "run" },
+      { at: 8.25, hours: 0.5, label: "3 pull requests reviewed", state: "run" },
+      { at: 14.08, hours: 0.5, label: "The release Check, green on a rerun", state: "run" },
     ],
   },
   {
     owner: "Marketing",
     events: [
-      { at: 2.33, hours: 0.9, label: "Draft the launch digest", state: "run" },
-      { at: 6.5, hours: 0.6, label: "Schedule Thursday's posts", state: "run" },
+      { at: 2.33, hours: 0.9, label: "The launch digest, drafted", state: "run" },
+      { at: 6.5, hours: 0.6, label: "Thursday's posts, scheduled", state: "run" },
       { at: 13.17, label: "Publish the pricing post", state: "approval" },
-      { at: 16, hours: 0.5, label: "Cut the weekly report", state: "run" },
+      { at: 16, hours: 0.5, label: "The weekly report, cut and filed", state: "run" },
     ],
   },
   {
     owner: "Workspace",
     events: [
-      { at: 3, hours: 0.4, label: "Summarise 14 threads", state: "run" },
-      { at: 8.83, hours: 0.5, label: "Assemble the 09:00 TLDR", state: "run" },
-      { at: 15.33, hours: 0.4, label: "Answer a question about Q3 churn", state: "run" },
+      { at: 3, hours: 0.4, label: "14 threads summarised into one page", state: "run" },
+      { at: 8.83, hours: 0.5, label: "The 09:00 TLDR, assembled", state: "run" },
+      { at: 15.33, hours: 0.4, label: "The Q3 churn question answered", state: "run" },
     ],
   },
   {
     owner: "Email",
     events: [
-      { at: 0.83, hours: 0.5, label: "Triage the overnight inbox", state: "run" },
-      { at: 5.75, hours: 0.7, label: "Answer 31 support emails", state: "run" },
-      { at: 9.08, hours: 0.4, label: "Hand 2 threads to a Member", state: "run" },
-      { at: 12.5, hours: 0.6, label: "Chase 4 unanswered replies", state: "run" },
+      { at: 0.83, hours: 0.5, label: "The overnight inbox, triaged", state: "run" },
+      { at: 5.75, hours: 0.7, label: "31 support emails answered, 6 min median", state: "run" },
+      { at: 9.08, hours: 0.4, label: "2 threads handed to a Member", state: "run" },
+      { at: 12.5, hours: 0.6, label: "4 unanswered replies chased", state: "run" },
     ],
   },
   {
     owner: "Revenue",
     events: [
-      { at: 2.83, hours: 0.8, label: "Enrich 118 new Contacts", state: "run" },
-      { at: 6.08, hours: 0.9, label: "Send the Tuesday sequence", state: "run" },
-      { at: 8.67, hours: 0.4, label: "Move 6 Deals a stage", state: "run" },
+      { at: 2.83, hours: 0.8, label: "Domains proposed for 6 new Accounts", state: "run" },
+      { at: 6.08, hours: 0.9, label: "The Tuesday Sequence, sent", state: "run" },
+      { at: 8.67, hours: 0.4, label: "6 Deals moved a Stage", state: "run" },
       { at: 11, label: "Which reply goes to Northstar?", state: "decision" },
-      { at: 17.5, hours: 0.4, label: "Log 3 discovery calls", state: "run" },
+      { at: 17.5, hours: 0.4, label: "3 discovery calls logged as Activities", state: "run" },
     ],
   },
   {
     owner: "Operations",
     events: [
-      { at: 3.67, hours: 0.6, label: "Back the volume up to S3", state: "run" },
-      { at: 7.75, hours: 0.35, label: "Run 22 health probes", state: "run" },
-      { at: 21.25, hours: 0.75, label: "Sweep and compact the audit log", state: "run" },
+      { at: 3.67, hours: 0.6, label: "Last night's archive, mirrored to SFTP", state: "run" },
+      { at: 7.75, hours: 0.35, label: "22 health probes, all green", state: "run" },
+      { at: 21.25, hours: 0.75, label: "The audit log, swept and compacted", state: "run" },
     ],
   },
 ];
 
 const ALL = LANES.flatMap((lane) => lane.events.map((event) => ({ ...event, owner: lane.owner })));
+
+/** Lane names in board order, and the events flattened for the shared chart. */
+export const LANE_NAMES = LANES.map((lane) => lane.owner);
+
+export const GANTT_EVENTS: GanttEvent[] = LANES.flatMap((lane) =>
+  lane.events.map((event) => ({
+    lane: lane.owner,
+    at: event.at,
+    hours: event.hours,
+    label: event.label,
+    state: event.state,
+  })),
+);
 
 /** Eighteen. The headline is not a round number because it is a count. */
 export const RUNS_BEFORE_ARRIVAL = ALL.filter(
@@ -123,9 +152,33 @@ export const RUNS_BEFORE_ARRIVAL = ALL.filter(
 ).length;
 
 export const DECISIONS_WAITING = ALL.filter((event) => event.state === "decision").length;
+
+/**
+ * The lead artefact, and the clock time it was finished by.
+ *
+ * The hero used to count how many times the scheduler fired, which told a
+ * reader the machine was busy and nothing about whether anything now exists.
+ * It names one finished thing instead, and everything else on the night is
+ * carried by the lede and the readout below it. One checkable claim is worth
+ * more than a total, because a reader can picture 42 reconciled payments and
+ * cannot picture eighteen Runs.
+ */
+const LEAD = ALL.find((event) => event.lead && event.claim);
+
+export const LEAD_CLAIM = LEAD?.claim ?? "Work finished overnight";
+export const LEAD_DONE_BY = clock((LEAD?.at ?? ARRIVAL) + (LEAD?.hours ?? 0));
+/** Everything else that finished overnight, for the lede's second sentence. */
+export const OTHERS_BEFORE_ARRIVAL = RUNS_BEFORE_ARRIVAL - 1;
 export const APPROVALS_WAITING = ALL.filter((event) => event.state === "approval").length;
 
-const pct = (hours: number) => `${(hours / 24) * 100}%`;
+/**
+ * The readout's resting line.
+ *
+ * It leads with what the night produced rather than with how many times the
+ * scheduler fired: a count of Runs tells a reader the machine was busy, which
+ * is not the same as telling them anything now exists.
+ */
+const SUMMARY = `FIG. 1 · 42 PAYMENTS RECONCILED · ${RUNS_BEFORE_ARRIVAL} FINISHED BY 09:30 · 0 MEMBERS SIGNED IN · ${DECISIONS_WAITING} DECISIONS AND ${APPROVALS_WAITING} APPROVAL WAITING`;
 
 export function Board() {
   return (
@@ -135,23 +188,24 @@ export function Board() {
       {/* Desktop: the chart. It keeps a fixed minimum width and scrolls inside
           its own container rather than reflowing — a timeline that rewraps
           stops being a timeline. */}
-      <div className="hidden overflow-x-auto border-x border-b border-paper-400 bg-paper-50 md:block">
-        <Chart />
+      <div className="hidden lg:block">
+        <Gantt
+          lanes={LANE_NAMES}
+          events={GANTT_EVENTS}
+          arrival={ARRIVAL}
+          arrivalLabel="You sign in"
+          ariaLabel="One Tuesday at a sample company, midnight to midnight"
+          summary={SUMMARY}
+        />
       </div>
 
-      {/* Mobile: a different true projection, not a media query on the chart.
-          Horizontal-scrolling the most important element on the site would be
-          a real usability failure, so below `md` the same data is drawn as the
-          run log it also is: a time column and a line column, which stacks
-          natively at 375px. */}
-      <div className="border-x border-b border-paper-400 bg-paper-50 md:hidden">
+      {/* Below `lg`, a different true projection rather than a media query on
+          the chart. The switch is at `lg` and not `md` because the plot needs
+          about 864px: at `md` the container is 752px, so the chart was
+          scrolling sideways across the whole tablet range, which is precisely
+          the failure this split exists to avoid. */}
+      <div className="border-x border-b border-paper-400 bg-paper-50 lg:hidden">
         <RunLog />
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <Field>{`${RUNS_BEFORE_ARRIVAL} RUNS BEFORE 09:30`}</Field>
-        <Field>0 MEMBERS SIGNED IN</Field>
-        <Field>{`${DECISIONS_WAITING} DECISIONS · ${APPROVALS_WAITING} APPROVAL WAITING`}</Field>
       </div>
     </div>
   );
@@ -164,7 +218,7 @@ function BoardFascia() {
       <Sheet className="!text-paper-50">Tuesday</Sheet>
       <span className="t-data text-[11px] leading-4 text-zinc-300">00:00–24:00</span>
       <span className="t-data text-[11px] leading-4 text-zinc-400">SAMPLE COMPANY</span>
-      <span className="ml-auto hidden items-center gap-4 sm:flex">
+      <span className="flex w-full items-center gap-4 sm:ml-auto sm:w-auto">
         <LegendItem state="run">Run</LegendItem>
         <LegendItem state="decision">Decision</LegendItem>
         <LegendItem state="approval">Approval</LegendItem>
@@ -193,157 +247,6 @@ function LegendItem({
   );
 }
 
-function Chart() {
-  return (
-    <div className="min-w-[58rem] p-5">
-      <div className="grid grid-cols-[minmax(0,1fr)_8.5rem]">
-        <div className="relative pt-7">
-          {/* One element, one gradient: the 24 hour columns. They start below
-              the flag row and stop above the hour scale. */}
-          <div aria-hidden className="hours absolute top-7 right-0 bottom-6 left-0" />
-
-          {/* The quarter marks are drawn stronger, so the eye has something to
-              measure against without turning the chart into graph paper. */}
-          {[6, 12, 18].map((hour) => (
-            <div
-              key={hour}
-              aria-hidden
-              className="absolute top-7 bottom-6 w-px bg-paper-400"
-              style={{ left: pct(hour) }}
-            />
-          ))}
-
-          {LANES.map((lane) => (
-            <div key={lane.owner} className="relative h-[2.375rem] border-b border-paper-300">
-              {lane.events.map((event) => (
-                <Bar key={`${lane.owner}-${event.at}`} event={event} />
-              ))}
-            </div>
-          ))}
-
-          <Arrival />
-          <HourScale />
-        </div>
-
-        {/* The owner column carries the same 1.75rem top offset as the chart,
-            so lane labels line up with their lanes rather than with the flag
-            row above them. */}
-        <div className="pt-7">
-          {LANES.map((lane) => (
-            <div
-              key={lane.owner}
-              className="flex h-[2.375rem] items-center border-b border-paper-300 pl-4"
-            >
-              <Sheet className="!text-[10px]">{lane.owner}</Sheet>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * One event.
- *
- * **A Run carries no label, and that is the design rather than an omission.**
- *
- * The first attempt hung each Run's description beside its bar, which fails
- * twice over: a forty-minute Run is about 28px wide so the text cannot sit
- * inside it, and once the text hangs outside, adjacent Runs in the same lane
- * overlap each other into an unreadable smear. But the deeper problem is that
- * nobody reads twenty-six labels on a chart. A reader takes one thing from
- * this picture — the night is full and the morning has three items in it —
- * and every label competing for attention makes that harder to see, not
- * easier.
- *
- * So the only events on the board carrying words are the Decisions and the
- * Approval. Three labels, on the three things that need a person, in the one
- * colour the site owns. The argument draws itself: everything unlabelled ran
- * without you, and everything you can read is waiting for you. The individual
- * Runs keep their detail in a `title` for a pointer, and the whole log is
- * spelled out hour by hour in the band below.
- */
-function Bar({ event }: { event: BoardEvent }) {
-  const human = event.state !== "run";
-
-  // Moments have no duration, so they are drawn as a mark rather than a bar.
-  if (human) {
-    return (
-      <div
-        className="absolute top-1/2 flex -translate-y-1/2 items-center gap-2"
-        style={{ left: pct(event.at) }}
-      >
-        <span className="strip-draw flex h-[1.375rem] shrink-0 items-center gap-1.5 bg-signal-500 px-1.5 text-zinc-950">
-          <Mark state={event.state} className="h-2.5 w-2.5" />
-          <span className="t-data whitespace-nowrap text-[10px] leading-none">
-            {clock(event.at)}
-          </span>
-        </span>
-        <span className="t-body whitespace-nowrap text-[12px] leading-none text-zinc-800">
-          {event.label}
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="absolute top-1/2 h-[1.375rem] min-w-[3px] -translate-y-1/2"
-      style={{ left: pct(event.at), width: pct(event.hours ?? 0.25) }}
-      title={`${clock(event.at)} · ${event.label}`}
-    >
-      <div className="strip-draw h-full border border-paper-400 border-l-[3px] border-l-zinc-950 bg-paper-50" />
-    </div>
-  );
-}
-
-/**
- * The 09:30 rule and its flag — the only colour in the hero.
- *
- * The flag sits in a reserved row above the lanes rather than on top of the
- * first one. Anchored to the lane stack it landed squarely on the Finance
- * Decision at 10:40 and the two amber elements fought each other, which is a
- * bad outcome for the two things the whole picture is pointing at.
- */
-function Arrival() {
-  return (
-    <>
-      <span
-        aria-hidden
-        className="arrive-in absolute top-0 flex h-[1.375rem] items-center whitespace-nowrap bg-signal-500 px-2"
-        style={{ left: pct(ARRIVAL) }}
-      >
-        <span className="t-data text-[10px] leading-none text-zinc-950">09:30 YOU SIGN IN</span>
-      </span>
-      <span
-        aria-hidden
-        className="arrive-in absolute top-7 bottom-6 w-0.5 bg-signal-500"
-        style={{ left: pct(ARRIVAL) }}
-      />
-    </>
-  );
-}
-
-function HourScale() {
-  return (
-    <div aria-hidden className="relative h-6">
-      {[0, 6, 12, 18].map((hour) => (
-        <span
-          key={hour}
-          className="t-data absolute top-1.5 text-[10px] leading-none text-zinc-600"
-          style={{ left: pct(hour) }}
-        >
-          {clock(hour)}
-        </span>
-      ))}
-      <span className="t-data absolute top-1.5 right-0 text-[10px] leading-none text-zinc-600">
-        24:00
-      </span>
-    </div>
-  );
-}
-
 /**
  * The same Tuesday as a run log — the mobile projection.
  *
@@ -354,12 +257,25 @@ function RunLog() {
   const sorted = [...ALL].sort((a, b) => a.at - b.at);
   const before = sorted.filter((event) => event.at < ARRIVAL);
   const after = sorted.filter((event) => event.at >= ARRIVAL);
+  const firstAt = before[0]?.at ?? 0;
+  const lastEnd = Math.max(...before.map((e) => e.at + (e.hours ?? 0)));
 
   return (
     <div className="px-4 py-3">
-      {before.map((event) => (
-        <LogRow key={`${event.owner}-${event.at}`} event={event} />
-      ))}
+      {/* The overnight half is summarised rather than listed. Printing all
+          eighteen rows here made the hero 2.2 screens tall on a phone and then
+          Autonomy printed the same eighteen again a screen later. The shape is
+          the useful thing at this size; the log lives in the night band. */}
+      <div className="border-b border-paper-300 pb-3">
+        <Field>{`${before.length} FINISHED · ${clock(firstAt)}–${clock(lastEnd)}`}</Field>
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+          {LANE_NAMES.map((lane) => (
+            <Sheet key={lane} className="!text-[10px]">
+              {lane}
+            </Sheet>
+          ))}
+        </div>
+      </div>
 
       <div className="my-2 flex items-center gap-3">
         <span className="t-data shrink-0 bg-signal-500 px-1.5 py-1 text-[10px] leading-none text-zinc-950">

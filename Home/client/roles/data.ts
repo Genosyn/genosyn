@@ -99,6 +99,16 @@ export type RoleDef = {
   intro: string;
   /** The honest version of what a human stops doing. */
   reclaims: string;
+  /**
+   * What this role had DELIVERED by the end of the day, as a verb phrase.
+   *
+   * The roster band used to be headed "Robin worked 06:40 to 17:45", which is
+   * hours on a clock and tells a reader nothing about whether anything exists
+   * now. This is the artefact instead, and each one is drawn from that role's
+   * own first `outputs` entry so the headline and the tally underneath it
+   * cannot disagree.
+   */
+  shipped: string;
   day: RoleMoment[];
   outputs: RoleOutput[];
   /** What it brought back to a human, verbatim. */
@@ -133,11 +143,12 @@ export const ROLES: RoleDef[] = [
     summary: "58 openers go out at 09:00, and the 14 replies are worked before lunch.",
     seoTitle: "AI SDR: 58 outbound emails at 09:00 · Genosyn",
     description:
-      "An AI SDR that works the list every morning: 74 Contacts enriched, 58 first-touch emails at 09:00, 14 replies handled, 3 meetings on an AE's calendar.",
+      "An AI SDR that works the list every morning: 74 Contacts checked against the ones you own, 58 first-touch emails at 09:00, 14 replies handled, 3 meetings on an AE's calendar.",
     intro:
       "Robin is at work by 06:40, reading what your product did overnight: 31 accounts moved, and 9 are worth a person's time. Nobody builds the list. By 09:00 the 58 openers have gone out, each written from something that account actually did, and by 10:20 all 14 replies are handled and 3 are meetings on an AE's calendar.",
     reclaims:
       "Tuesday, 8am: LinkedIn in one tab, the CRM in the other, and the same opener pasted forty times with a different company name typed into it.",
+    shipped: "booked 3 meetings",
     day: [
       {
         time: "06:40",
@@ -150,7 +161,7 @@ export const ROLES: RoleDef[] = [
         time: "07:55",
         at: 7.92,
         title: "Builds the day's list, and kills the duplicates",
-        body: "Enriches 74 new Contacts, merges the 6 that already existed under a different address, drops the 12 sitting inside an open Deal. Nobody gets prospected by a company they are already buying from.",
+        body: "Works 74 new Contacts against the ones you already hold. Merges the 6 that arrived under a different address, drops the 12 sitting inside an open Deal. Nobody gets prospected by a company they are already buying from.",
         where: "Revenue · Contacts",
       },
       {
@@ -276,7 +287,7 @@ export const ROLES: RoleDef[] = [
   {
     slug: "executive-assistant",
     name: "AI Executive Assistant",
-    short: "Executive assistant",
+    short: "Assistant",
     noun: "an executive assistant",
     person: "Avery",
     discipline: "Operations",
@@ -286,8 +297,7 @@ export const ROLES: RoleDef[] = [
     headline: "Avery answers 88% of the inbox without you.",
     headlineMuted:
       "Yesterday's meetings are already 17 Todos with owners, and the 12% that needs you is waiting.",
-    summary:
-      "The calendar is fixed at 06:30, and 88% of the inbox is answered before you open it.",
+    summary: "The calendar is fixed at 06:30, and 88% of the inbox is answered before you open it.",
     seoTitle: "AI Executive Assistant: 88% of the inbox · Genosyn",
     description:
       "An AI executive assistant that sorts the calendar at 06:30, writes your 07:45 briefing, answers 88% of the inbox, and turns meetings into owned Todos.",
@@ -295,6 +305,7 @@ export const ROLES: RoleDef[] = [
       "Avery starts at 06:30, well before you do. By 07:45 tomorrow's double-booking is gone, your briefing is written, and the standing questions you set up once are answered again with this morning's numbers. What reaches you is the 12% only you can settle.",
     reclaims:
       "You wake up, reach for the phone, and spend ninety minutes deciding which of the overnight emails can wait until you are actually at a desk.",
+    shipped: "handled 88% of the inbox",
     day: [
       {
         time: "06:30",
@@ -442,8 +453,7 @@ export const ROLES: RoleDef[] = [
     headline: "$1,180 came off the losing creative by 07:30.",
     headlineMuted:
       "Raising the launch budget from $4,000 to $6,500 queues an Approval and waits for a Member.",
-    summary:
-      "Losing ad sets are paused by 07:30, and every spend increase still goes to a Member.",
+    summary: "Losing ad sets are paused by 07:30, and every spend increase still goes to a Member.",
     seoTitle: "AI Marketer: yesterday's spend, read at 05:50 · Genosyn",
     description:
       "An AI marketer that reads yesterday's spend at 05:50, pauses losing ad sets by 07:30, ships the landing page, and sends every increase to Approvals.",
@@ -451,6 +461,7 @@ export const ROLES: RoleDef[] = [
       "At 05:50 Alex has yesterday's cost, clicks, and conversions from Google, Meta, Microsoft, and Reddit in one view. Two ad sets had spent past target with nothing to show. Both were paused by 07:30, and raising the launch campaign from $4,000 to $6,500 was not Alex's call: that one queued an Approval and waited for a Member.",
     reclaims:
       "You spend Monday morning in four ad-platform tabs, pasting exports into one spreadsheet to work out what the weekend cost and which creative did it.",
+    shipped: "pulled $1,180 off losing creative",
     day: [
       {
         time: "05:50",
@@ -606,6 +617,7 @@ export const ROLES: RoleDef[] = [
       "Four tickets arrived at 02:40, from Europe and Asia. Three were answered inside six minutes from answers somebody in your company had already written down, and the fourth had nothing documented behind it, so Pax said so and left it for a human. At 09:30 the same import error came up for the eleventh time this month, and Pax opened the documentation pull request that ends it.",
     reclaims:
       "Opening the queue at 08:30 to forty tickets that arrived while you slept, a third of them the same import error you already answered on Friday.",
+    shipped: "answered every ticket in 6 minutes",
     day: [
       {
         time: "02:40",
@@ -762,6 +774,7 @@ export const ROLES: RoleDef[] = [
       "Mira starts at 07:00. By 07:30 it has matched 42 payments against invoices on amount, reference, and date, queued the three that will not match cleanly, and left the ledger current. It never invents a number: a cross-border refund that could book to either entity becomes a Decision carrying both readings and the amount at stake, and it waits there for a Member.",
     reclaims:
       "The last five working days of every month go to this: the bank statement in one tab, Stripe in another, scrolling for the one payment that covers two invoices at once.",
+    shipped: "reconciled 42 payments",
     day: [
       {
         time: "07:00",
@@ -917,6 +930,7 @@ export const ROLES: RoleDef[] = [
       "At 02:10 the checkout error rate tripled. Sam reproduced it in a bubblewrap-isolated worktree, isolated the null case, and opened a pull request with a regression test before the standup that would have assigned it. Nothing merged: a Member reads the diff and merges it, and only an owner or admin can push.",
     reclaims:
       "Your phone goes off at 02:10, and the fourteen dependency bumps nobody has volunteered for since March are still waiting on Monday.",
+    shipped: "opened 6 pull requests with tests",
     day: [
       {
         time: "02:10",
@@ -1072,6 +1086,7 @@ export const ROLES: RoleDef[] = [
       "Eleven applications land overnight. By 09:00 Noor has scored each one against the criteria you wrote down, recorded the evidence behind every score, and sent the invitations and the declines in the same batch. Nobody waits nine days to hear no.",
     reclaims:
       "Six emails to find one slot for a three-person panel and a candidate five timezones out, while the applicant from nine days ago is still waiting on your reply.",
+    shipped: "replied to every candidate",
     day: [
       {
         time: "07:20",
@@ -1227,6 +1242,7 @@ export const ROLES: RoleDef[] = [
       "At 06:00 Nova marks the four metrics that moved further than noise explains. Signups are up 22%, one referral spike is behind it, and Nova says plainly that it is too early to know whether that cohort converts like the others. The question someone asks in chat at 09:15 is answered by 09:19, with the SQL attached and the caveat about the two accounts mid-migration.",
     reclaims:
       "A question asked on Monday is answered on Thursday, after the meeting has already decided without it.",
+    shipped: "answered 9 questions in 4 minutes",
     day: [
       {
         time: "06:00",

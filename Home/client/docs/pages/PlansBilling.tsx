@@ -20,9 +20,9 @@ export function PlansBilling() {
         title="Plans &amp; billing"
         lead={
           <>
-            One codebase, three ways to run it: self-hosted Community (free), self-hosted
-            Enterprise (a license), and Genosyn Cloud (per-company Plans billed through Stripe).
-            This page covers what each shape includes and how to move between Plans.
+            One codebase, three ways to run it: self-hosted Community (free), self-hosted Enterprise
+            (a license), and Genosyn Cloud (per-company Plans billed through Stripe). This page
+            covers what each shape includes and how to move between Plans.
           </>
         }
       />
@@ -78,8 +78,8 @@ export function PlansBilling() {
               <>
                 $0. A starter team: <Strong>1 AI Employee</Strong>, <Strong>2 Routines</Strong>,{" "}
                 <Strong>1 Base</Strong> with <Strong>1 table</Strong>, <Strong>3 Channels</Strong>,
-                and <Strong>1 Project</Strong> with <Strong>20 Todos</Strong>. No Single sign-on,
-                no Audit log.
+                and <Strong>1 Project</Strong> with <Strong>20 Todos</Strong>. No Single sign-on, no
+                Audit log.
               </>
             ),
           },
@@ -106,7 +106,8 @@ export function PlansBilling() {
       <P>
         Paid Plans are billed per AI Employee hired, with a minimum of one seat. Hiring and firing
         adjust the billed quantity automatically, and Stripe prorates mid-cycle changes. The full
-        comparison lives on <ExtLink href="https://genosyn.com/pricing">genosyn.com/pricing</ExtLink>.
+        comparison lives on{" "}
+        <ExtLink href="https://genosyn.com/pricing">genosyn.com/pricing</ExtLink>.
       </P>
       <P>
         Scale&apos;s Single sign-on is configured per company at{" "}
@@ -147,32 +148,50 @@ export function PlansBilling() {
       </P>
       <UL>
         <LI>
-          Hiring a second AI Employee: <em>&ldquo;Your Free plan includes 1 AI Employee. Upgrade to
-          Growth to hire more.&rdquo;</em>
+          Hiring a second AI Employee:{" "}
+          <em>
+            &ldquo;Your Free plan includes 1 AI Employee. Upgrade to Growth to hire more.&rdquo;
+          </em>
         </LI>
         <LI>
-          Creating a third Routine: <em>&ldquo;Your Free plan includes 2 Routines. Upgrade to
-          Growth for unlimited Routines.&rdquo;</em>
+          Creating a third Routine:{" "}
+          <em>
+            &ldquo;Your Free plan includes 2 Routines. Upgrade to Growth for unlimited
+            Routines.&rdquo;
+          </em>
         </LI>
         <LI>
-          Creating a second Base: <em>&ldquo;Your Free plan includes 1 Base. Upgrade to Growth for
-          unlimited Bases.&rdquo;</em>
+          Creating a second Base:{" "}
+          <em>
+            &ldquo;Your Free plan includes 1 Base. Upgrade to Growth for unlimited Bases.&rdquo;
+          </em>
         </LI>
         <LI>
-          Adding a second table across your Bases: <em>&ldquo;Your Free plan includes 1 Base
-          table. Upgrade to Growth for unlimited tables.&rdquo;</em>
+          Adding a second table across your Bases:{" "}
+          <em>
+            &ldquo;Your Free plan includes 1 Base table. Upgrade to Growth for unlimited
+            tables.&rdquo;
+          </em>
         </LI>
         <LI>
-          Creating a fourth Channel: <em>&ldquo;Your Free plan includes 3 Channels. Upgrade to
-          Growth for unlimited Channels.&rdquo;</em>
+          Creating a fourth Channel:{" "}
+          <em>
+            &ldquo;Your Free plan includes 3 Channels. Upgrade to Growth for unlimited
+            Channels.&rdquo;
+          </em>
         </LI>
         <LI>
-          Creating a second Project: <em>&ldquo;Your Free plan includes 1 Project. Upgrade to
-          Growth for unlimited Projects.&rdquo;</em>
+          Creating a second Project:{" "}
+          <em>
+            &ldquo;Your Free plan includes 1 Project. Upgrade to Growth for unlimited
+            Projects.&rdquo;
+          </em>
         </LI>
         <LI>
-          Adding a twenty-first Todo: <em>&ldquo;Your Free plan includes 20 Todos. Upgrade to
-          Growth for unlimited Todos.&rdquo;</em>
+          Adding a twenty-first Todo:{" "}
+          <em>
+            &ldquo;Your Free plan includes 20 Todos. Upgrade to Growth for unlimited Todos.&rdquo;
+          </em>
         </LI>
       </UL>
       <P>
@@ -182,11 +201,10 @@ export function PlansBilling() {
       </P>
       <P>
         The Employees and Routines pages also show a banner with a <Strong>View plans</Strong> link
-        once you reach the cap. Gated features answer similarly — for example, opening the Audit
-        log below Scale shows{" "}
-        <em>&ldquo;Audit log is available on the Scale plan.&rdquo;</em> with a card linking to the
-        Billing page. Nothing is lost at a limit: audit history keeps accruing either way, ready
-        the moment you upgrade.
+        once you reach the cap. Gated features answer similarly — for example, opening the Audit log
+        below Scale shows <em>&ldquo;Audit log is available on the Scale plan.&rdquo;</em> with a
+        card linking to the Billing page. Nothing is lost at a limit: audit history keeps accruing
+        either way, ready the moment you upgrade.
       </P>
 
       <H2 id="operators">For operators: enabling instance billing</H2>
@@ -196,13 +214,13 @@ export function PlansBilling() {
         away). Turning it on is what makes an install behave like Genosyn Cloud.
       </P>
       <P>
-        Open <Strong>Admin → Billing</Strong> and fill in the{" "}
-        <Strong>Stripe configuration</Strong> card:
+        Open <Strong>Admin → Billing</Strong> and fill in the <Strong>Stripe configuration</Strong>{" "}
+        card:
       </P>
       <UL>
         <LI>
-          Create two recurring prices in Stripe — Growth ($19 / AI Employee / month) and Scale
-          ($49) — and paste their ids into <Strong>Growth price id</Strong> and{" "}
+          Create two recurring prices in Stripe — Growth ($19 / AI Employee / month) and Scale ($49)
+          — and paste their ids into <Strong>Growth price id</Strong> and{" "}
           <Strong>Scale price id</Strong>.
         </LI>
         <LI>
@@ -213,20 +231,19 @@ export function PlansBilling() {
         <LI>
           Flip <Strong>Enable per-company billing</Strong> and{" "}
           <Strong>Save billing settings</Strong>. The server refuses to enable billing until the
-          secret key and both price ids are configured. Companies without a subscription land on
-          the Free plan.
+          secret key and both price ids are configured. Companies without a subscription land on the
+          Free plan.
         </LI>
       </UL>
       <P>
-        Then point a Stripe webhook at{" "}
-        <Code>&lt;your URL&gt;/api/billing/stripe/webhook</Code> (the{" "}
+        Then point a Stripe webhook at <Code>&lt;your URL&gt;/api/billing/stripe/webhook</Code> (the{" "}
         <Strong>Stripe webhook endpoint</Strong> card shows the exact URL with a copy button) and
         subscribe it to the checkout and subscription events. The signing secret is how the install
         verifies those deliveries.
       </P>
       <Callout kind="info" title="Plans never cover model usage.">
-        A company&apos;s Plan pays for Genosyn seats. The tokens its AI Employees consume are
-        always billed by the customer&apos;s own model provider through the keys they connect at{" "}
+        A company&apos;s Plan pays for Genosyn seats. The tokens its AI Employees consume are always
+        billed by the customer&apos;s own model provider through the keys they connect at{" "}
         <DocLink to="/docs/models">AI Models</DocLink> — separate bill, separate vendor.
       </Callout>
 

@@ -86,14 +86,7 @@ type WithId = { children: ReactNode; id?: string };
  * top of every page — a boundary drawn twice, which reads as a mistake. The
  * first H2 does the separating; a title at display size does not need help.
  */
-export function PageHeader({
-  title,
-  lead,
-}: {
-  eyebrow?: string;
-  title: string;
-  lead?: ReactNode;
-}) {
+export function PageHeader({ title, lead }: { eyebrow?: string; title: string; lead?: ReactNode }) {
   return (
     <header>
       <h1 className="t-display text-balance text-[clamp(2.1rem,4.6vw,3.1rem)] leading-[1.05] text-zinc-950">
@@ -210,13 +203,7 @@ export function Code({ children }: { children: ReactNode }) {
  * than for forty characters of shell, and the `<pre>` scrolls on its own axis
  * for what still does not fit. The page itself never scrolls sideways.
  */
-export function Pre({
-  children,
-  lang,
-}: {
-  children: ReactNode;
-  lang?: string;
-}) {
+export function Pre({ children, lang }: { children: ReactNode; lang?: string }) {
   return (
     <div className="mt-6 border border-paper-400 bg-paper-200">
       {lang && (
@@ -293,11 +280,7 @@ export function Callout({
  * case — needs the room, and it breaks rather than pushing the definition
  * column sideways.
  */
-export function KeyList({
-  rows,
-}: {
-  rows: Array<{ term: string; def: ReactNode }>;
-}) {
+export function KeyList({ rows }: { rows: Array<{ term: string; def: ReactNode }> }) {
   return (
     <dl className="mt-6 border-t border-paper-300">
       {rows.map((r) => (
@@ -329,13 +312,7 @@ export function KeyList({
 const INLINE_LINK =
   "text-zinc-950 underline decoration-paper-400 decoration-1 underline-offset-[3px] transition-colors hover:decoration-zinc-950";
 
-export function DocLink({
-  to,
-  children,
-}: {
-  to: string;
-  children?: ReactNode;
-}) {
+export function DocLink({ to, children }: { to: string; children?: ReactNode }) {
   const meta = findPageMeta(to);
   const label = children ?? meta?.title ?? to;
   return (
@@ -345,13 +322,7 @@ export function DocLink({
   );
 }
 
-export function ExtLink({
-  href,
-  children,
-}: {
-  href: string;
-  children: ReactNode;
-}) {
+export function ExtLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <a href={href} target="_blank" rel="noreferrer" className={INLINE_LINK}>
       {children}

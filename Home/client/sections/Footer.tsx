@@ -1,7 +1,17 @@
 import { GITHUB_URL, ROADMAP_URL } from "@/lib/constants";
 import { Logo } from "@/components/Logo";
 import { Link } from "@/lib/router";
-import { ActionStrip, Band, Container, Display, Field, Lede, Note, Rail, Sheet } from "@/sections/Kit";
+import {
+  ActionStrip,
+  Band,
+  Container,
+  Field,
+  Heading,
+  Lede,
+  Note,
+  Rail,
+  Sheet,
+} from "@/sections/Kit";
 
 const ROLE_LINKS = [
   ["AI SDR", "/roles/sdr"],
@@ -58,16 +68,16 @@ export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
     <Band id="install" tone="raised" pad="l">
       <Container>
         <Rail sheet={sheet} fields={["Apache-2.0", `v${__APP_VERSION__}`]}>
-          <Display as="h2" className="max-w-[16ch]">
-            Tomorrow one job runs without you.
-          </Display>
+          <Heading as="h2" className="max-w-[16ch]">
+            Tomorrow one thing is finished before 09:30.
+          </Heading>
 
           <Lede className="mt-7">
             Install Genosyn, register an AI Model, write one role, and put it on a schedule. The
             company grows from there.
           </Lede>
 
-          <div className="mt-10 max-w-[34rem]">
+          <div className="mt-10 max-w-[36rem]">
             <ActionStrip href="/docs/install" trailing="Guide">
               Install on your own hardware
             </ActionStrip>
@@ -207,8 +217,7 @@ function FooterLink({
   external?: boolean;
   children: React.ReactNode;
 }) {
-  const className =
-    "t-body text-[0.9375rem] text-zinc-700 transition-colors hover:text-zinc-950";
+  const className = "t-body text-[0.9375rem] text-zinc-700 transition-colors hover:text-zinc-950";
   if (external) {
     return (
       <a href={href} target="_blank" rel="noreferrer" className={className}>

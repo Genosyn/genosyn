@@ -473,9 +473,9 @@ export function Finance() {
         With Invoicing access, an AI Employee can call <Code>create_estimate</Code> with a customer
         slug and priced line items. Genosyn creates the same editable draft shown under{" "}
         <Code>Finance → Estimates</Code>, using the customer&apos;s currency and a thirty-day
-        validity window by default. The tool deliberately stops there: it assigns no number,
-        changes no ledger balance, and sends no email. A Member reviews the draft and chooses when
-        to issue or send it.
+        validity window by default. The tool deliberately stops there: it assigns no number, changes
+        no ledger balance, and sends no email. A Member reviews the draft and chooses when to issue
+        or send it.
       </P>
 
       <H3 id="ai-finance-tools">Finance tools</H3>

@@ -1,15 +1,4 @@
-import {
-  Callout,
-  Code,
-  DocLink,
-  H2,
-  KeyList,
-  LI,
-  P,
-  PageHeader,
-  Strong,
-  UL,
-} from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, KeyList, LI, P, PageHeader, Strong, UL } from "@/docs/Prose";
 
 export function Improvement() {
   return (
@@ -29,15 +18,13 @@ export function Improvement() {
       />
 
       <Callout kind="info" title='"Lesson" is the word.'>
-        Genosyn never says &quot;Learning,&quot; &quot;Insight,&quot; or &quot;Retro.&quot; The
-        fast half of the loop is a <Strong>Lesson</Strong>; the durable half is a{" "}
+        Genosyn never says &quot;Learning,&quot; &quot;Insight,&quot; or &quot;Retro.&quot; The fast
+        half of the loop is a <Strong>Lesson</Strong>; the durable half is a{" "}
         <Strong>Revision proposal</Strong>.
       </Callout>
 
       <H2 id="two-halves">Two halves, one loop</H2>
-      <P>
-        Verdicts alone only label the past. The loop closes twice, at two speeds:
-      </P>
+      <P>Verdicts alone only label the past. The loop closes twice, at two speeds:</P>
       <UL>
         <LI>
           <Strong>Lessons</Strong> — automatic, per-Routine, and cheap. A graded-bad Run leaves a
@@ -57,11 +44,10 @@ export function Improvement() {
         <Code>off goal</Code> by the outcome check — work that met the letter of the criteria while
         working against the routine&apos;s linked <DocLink to="/docs/goals">Goal</DocLink> — or
         completes with a required <DocLink to="/docs/verification">Check</DocLink> failed, Genosyn
-        runs a short retrospective turn under
-        the same containment as the check itself: zero tools except one submission tool, reading
-        the Run transcript as untrusted evidence — text inside it addressing the model is the
-        transcript talking, never instructions. The turn writes a <Strong>Lesson</Strong> with two
-        fields:
+        runs a short retrospective turn under the same containment as the check itself: zero tools
+        except one submission tool, reading the Run transcript as untrusted evidence — text inside
+        it addressing the model is the transcript talking, never instructions. The turn writes a{" "}
+        <Strong>Lesson</Strong> with two fields:
       </P>
       <KeyList
         rows={[
@@ -84,30 +70,30 @@ export function Improvement() {
         is about why they didn&apos;t work.
       </P>
       <P>
-        At most one reflection is written per Routine per <Strong>6 hours</Strong>, so a retry
-        chain that fails five times overnight yields one lesson, not five near-duplicates.
+        At most one reflection is written per Routine per <Strong>6 hours</Strong>, so a retry chain
+        that fails five times overnight yields one lesson, not five near-duplicates.
       </P>
       <P>
         The Routine&apos;s next Run brief then opens with the latest <Strong>5</Strong> undismissed
         lessons, under a heading that labels them as advice from the employee&apos;s own past
-        retrospectives — not orders, and not a new instruction channel. The employee becomes its
-        own first-line debugger without anyone editing anything.
+        retrospectives — not orders, and not a new instruction channel. The employee becomes its own
+        first-line debugger without anyone editing anything.
       </P>
       <P>
         Lessons show on the Routine page&apos;s <Strong>Overview</Strong> tab. Any Member can read
         them; an admin can <Strong>dismiss</Strong> one that is wrong or stale. Dismissal drops it
-        from future briefs immediately but keeps the row — the history of what the routine was
-        told stays inspectable.
+        from future briefs immediately but keeps the row — the history of what the routine was told
+        stays inspectable.
       </P>
 
       <H2 id="revision-proposals">Revision proposals</H2>
       <P>
-        A Lesson is a sticky note; some fixes belong in the document. This is{" "}
-        approval-gated self-modification on the maker-checker pattern{" "}
-        <DocLink to="/docs/finance">Finance</DocLink> already uses: the AI proposes, a human
-        decides, and nothing changes in between. Using the <Code>propose_revision</Code> tool, an
-        AI Employee stages a <Strong>complete replacement body</Strong> — never a fragment — for
-        one of four targets, all its own:
+        A Lesson is a sticky note; some fixes belong in the document. This is approval-gated
+        self-modification on the maker-checker pattern <DocLink to="/docs/finance">Finance</DocLink>{" "}
+        already uses: the AI proposes, a human decides, and nothing changes in between. Using the{" "}
+        <Code>propose_revision</Code> tool, an AI Employee stages a{" "}
+        <Strong>complete replacement body</Strong> — never a fragment — for one of four targets, all
+        its own:
       </P>
       <UL>
         <LI>
@@ -132,8 +118,8 @@ export function Improvement() {
       </P>
       <P>
         Every proposal carries a <Strong>rationale</Strong> — the first thing the reviewer reads —
-        and up to <Strong>10</Strong> evidence Runs that show the problem it fixes. One proposal
-        per target may be pending at a time; a second is refused until a human decides the first.
+        and up to <Strong>10</Strong> evidence Runs that show the problem it fixes. One proposal per
+        target may be pending at a time; a second is refused until a human decides the first.
       </P>
 
       <H2 id="revisions-page">The Revisions page</H2>
@@ -147,15 +133,15 @@ export function Improvement() {
       <P>
         Apply refuses when the target changed since the proposal was written —{" "}
         <em>&quot;The target changed since this was proposed&quot;</em> — so a human&apos;s
-        concurrent edit is never silently overwritten. The employee can re-propose against the
-        live document.
+        concurrent edit is never silently overwritten. The employee can re-propose against the live
+        document.
       </P>
       <UL>
         <LI>
-          <Strong>Who hears about it</Strong> — owners, admins, and the employee&apos;s manager
-          get a bell when a proposal lands. One still pending after <Strong>24 hours</Strong>{" "}
-          re-pages the same audience exactly once, the same stall sweep that guards unanswered
-          Approvals and <DocLink to="/docs/decisions">Decisions</DocLink>.
+          <Strong>Who hears about it</Strong> — owners, admins, and the employee&apos;s manager get
+          a bell when a proposal lands. One still pending after <Strong>24 hours</Strong> re-pages
+          the same audience exactly once, the same stall sweep that guards unanswered Approvals and{" "}
+          <DocLink to="/docs/decisions">Decisions</DocLink>.
         </LI>
         <LI>
           <Strong>The trail</Strong> — every apply and reject is written to the audit log, and the
@@ -169,8 +155,8 @@ export function Improvement() {
         An <Strong>Approval</Strong> holds a pending <em>action</em> until a human ✓, then replays
         it. A <DocLink to="/docs/decisions">Decision</DocLink> is a question with options the
         employee will act on. A <Strong>Revision proposal</Strong> is neither: the idea is the
-        employee&apos;s, there are no options — just a concrete diff — and applying it writes
-        prose into a document rather than executing anything.
+        employee&apos;s, there are no options — just a concrete diff — and applying it writes prose
+        into a document rather than executing anything.
       </P>
 
       <Callout kind="info" title="The AI drafts its constitution. Humans ratify it.">

@@ -94,8 +94,8 @@ export function Introduction() {
           OpenAI API key, a custom OpenAI-compatible endpoint, or eligible ChatGPT subscription
           access for OpenAI on a trusted single-tenant install, then point each employee at the
           model you choose. The Docker default runs isolated coding and repository work with
-          bubblewrap, subscriptions included. Claude subscription credentials
-          are not supported; see <DocLink to="/docs/models">AI Models</DocLink>.
+          bubblewrap, subscriptions included. Claude subscription credentials are not supported; see{" "}
+          <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
           <Strong>Fast feedback.</Strong> Everyday actions update the screen immediately while the
@@ -138,8 +138,8 @@ export function Introduction() {
         <DocLink to="/docs/tasks">todos</DocLink>, reviews, unread messages, approvals, system
         health — disappears when it&apos;s empty rather than sitting there reporting that nothing is
         waiting. Dismissing a TLDR removes it from your Home only; its history remains available,
-        and colleagues keep seeing it until they dismiss it themselves. So the page is only ever
-        as long as your day is busy, and on a quiet one it says{" "}
+        and colleagues keep seeing it until they dismiss it themselves. So the page is only ever as
+        long as your day is busy, and on a quiet one it says{" "}
         <Strong>Nothing needs you right now</Strong> and leaves it at that.
       </P>
       <P>

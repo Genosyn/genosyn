@@ -40,10 +40,10 @@ export function Signatures() {
         <LI>
           Place fields on the PDF. Every signer needs at least one signature field; name, email,
           date, initials, text, and checkbox fields can be required or optional. Each signer has a
-          distinct field color and their name stays on every field, so ownership remains clear.
-          Drag a field to move it, or select it and drag its corner handle to resize it. The handle
-          stays inside the page and may move beside fields placed at a page edge. The
-          arrow keys move the selected field; the resize handle also supports arrow keys, with
+          distinct field color and their name stays on every field, so ownership remains clear. Drag
+          a field to move it, or select it and drag its corner handle to resize it. The handle stays
+          inside the page and may move beside fields placed at a page edge. The arrow keys move the
+          selected field; the resize handle also supports arrow keys, with
           <Strong> Shift</Strong> for larger steps.
         </LI>
         <LI>
@@ -61,8 +61,8 @@ export function Signatures() {
         Invitation and reminder emails identify the company and document, show the deadline and
         routing context, preserve the sender&apos;s message, and provide a prominent private signing
         button. Completion emails explain whether the recipient signed or received a copy and attach
-        the completed PDF. Every email includes a plain-text version and guidance for recognizing and
-        protecting the private signing link.
+        the completed PDF. Every email includes a plain-text version and guidance for recognizing
+        and protecting the private signing link.
       </P>
 
       <H2 id="recipient">What the signer sees</H2>
@@ -158,15 +158,15 @@ export function Signatures() {
       </P>
       <P>
         An employee working an inbox does not have to wait for that upload. When a counterparty
-        emails a contract, it can open the attachment with <Code>read_mail_attachment</Code>, turn
-        a Word file into a PDF with <Code>convert_to_pdf</Code>, file the result as a PDF Resource
+        emails a contract, it can open the attachment with <Code>read_mail_attachment</Code>, turn a
+        Word file into a PDF with <Code>convert_to_pdf</Code>, file the result as a PDF Resource
         with <Code>create_resource</Code> (<Code>sourceKind: &quot;file&quot;</Code>), and prepare
         the request from it — see <DocLink to="/docs/word-documents">Word documents</DocLink>. It
-        authors that Resource, so it holds full control of that row and teammates start at View;
-        the row records the employee as its author, and both the filing and the draft are written
-        to the audit log and the employee&apos;s journal. What does not change is the gate that
-        matters: preparing a draft emails nobody, and sending still needs Send to customers access
-        and, in the ordinary setup, a Member who has read the document.
+        authors that Resource, so it holds full control of that row and teammates start at View; the
+        row records the employee as its author, and both the filing and the draft are written to the
+        audit log and the employee&apos;s journal. What does not change is the gate that matters:
+        preparing a draft emails nobody, and sending still needs Send to customers access and, in
+        the ordinary setup, a Member who has read the document.
       </P>
       <P>
         <Strong>Ask AI</Strong> on a request saves valid unsaved changes, lets you choose among

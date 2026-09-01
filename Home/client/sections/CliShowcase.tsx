@@ -4,8 +4,8 @@ import {
   Band,
   Body,
   Container,
-  Display,
   Field,
+  Heading,
   Lede,
   Plate,
   Rail,
@@ -105,10 +105,10 @@ export function CliShowcase() {
   return (
     <Band id="quickstart" tone="paper" pad="m">
       <Container>
-        <Rail sheet="08 / Your own hardware" fields={["Apache-2.0", "1 container", "Port 8471"]}>
-          <Display as="h2" className="max-w-[22ch]">
+        <Rail sheet="08 / Your hardware" fields={["Apache-2.0", "1 container", "Port 8471"]}>
+          <Heading as="h2" className="max-w-[22ch]">
             Genosyn installs as one container on port 8471.
-          </Display>
+          </Heading>
 
           <Lede className="mt-7">
             The install needs Docker and one free port. Everything the company knows then lives in a

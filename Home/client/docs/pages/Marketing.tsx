@@ -45,8 +45,8 @@ export function Marketing() {
         </LI>
         <LI>
           Under <Strong>Marketing → Experiments</Strong>, compare at least two Creative variants.
-          State the hypothesis, primary metric, and minimum sample before starting. A test cannot
-          be decided without a winner from its tested set and a written rationale. Leave{" "}
+          State the hypothesis, primary metric, and minimum sample before starting. A test cannot be
+          decided without a winner from its tested set and a written rationale. Leave{" "}
           <Strong>Apply it</Strong> ticked and the decision is carried out rather than just filed:
           the winner goes live — or waits at approved when the Campaign is not running — and the
           variants that were serving against it retire.
@@ -66,7 +66,11 @@ export function Marketing() {
         rows={[
           {
             term: "Observe",
-            def: <>The employee reads the workspace and live platform, records evidence, and reports.</>,
+            def: (
+              <>
+                The employee reads the workspace and live platform, records evidence, and reports.
+              </>
+            ),
           },
           {
             term: "Optimize",
@@ -96,16 +100,16 @@ export function Marketing() {
         <Code>roas</Code>, <Code>conversion_value</Code>, <Code>conversion_rate</Code>,{" "}
         <Code>ctr</Code>, <Code>cpc</Code>, <Code>cpm</Code>, <Code>clicks</Code>,{" "}
         <Code>impressions</Code>, <Code>spend</Code> — and Genosyn scores every recorded readout
-        against it. Write the target in the metric&apos;s own unit: whole currency for money
-        metrics (a CPA target of <Code>75</Code> means 75.00), a percentage for rate metrics, a
-        plain multiple for ROAS. The direction defaults to the sensible one — costs are met at or
-        below, returns at or above — and you can override it.
+        against it. Write the target in the metric&apos;s own unit: whole currency for money metrics
+        (a CPA target of <Code>75</Code> means 75.00), a percentage for rate metrics, a plain
+        multiple for ROAS. The direction defaults to the sensible one — costs are met at or below,
+        returns at or above — and you can override it.
       </P>
       <P>
         You can still name any metric you like; Genosyn stores it and says plainly that it cannot
-        judge it, rather than showing a target nobody checks. The command center, the Campaign
-        list, the Campaign page, and the AI Employee tools all read the same computed numbers:
-        spend, CTR, CPC, CPA, ROAS, pace against the planned daily budget, and target attainment.
+        judge it, rather than showing a target nobody checks. The command center, the Campaign list,
+        the Campaign page, and the AI Employee tools all read the same computed numbers: spend, CTR,
+        CPC, CPA, ROAS, pace against the planned daily budget, and target attainment.
       </P>
       <Callout kind="info" title="What lands on the command center">
         Marketing leads with <Strong>Needs attention</Strong>: Campaigns off target, spending ahead
@@ -146,8 +150,8 @@ export function Marketing() {
         </LI>
         <LI>
           <Strong>Creative</Strong> — draft → review → approved or rejected; approved → active;
-          active → retired; rejected and retired reopen as drafts. Creative can only go live under
-          a Campaign that is itself active.
+          active → retired; rejected and retired reopen as drafts. Creative can only go live under a
+          Campaign that is itself active.
         </LI>
         <LI>
           <Strong>Experiment</Strong> — draft → running → decided or stopped. Decided and stopped
@@ -353,9 +357,8 @@ export function Marketing() {
         If you connect an external ads MCP server instead (Meta ships a hosted one), its write tools
         bypass Genosyn&apos;s spend guardrails — so guard them: at the employee&apos;s{" "}
         <Strong>Settings → MCP</Strong>, open that server&apos;s config and list patterns like{" "}
-        <Code>ads_create_*, ads_update_*</Code> under{" "}
-        <Strong>Guarded tools</Strong>. Matching calls queue in the Approvals inbox and run
-        server-side only after a human approves.
+        <Code>ads_create_*, ads_update_*</Code> under <Strong>Guarded tools</Strong>. Matching calls
+        queue in the Approvals inbox and run server-side only after a human approves.
       </P>
 
       <H2 id="deliberately-missing">Deliberate boundaries</H2>

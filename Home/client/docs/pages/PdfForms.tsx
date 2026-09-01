@@ -1,15 +1,4 @@
-import {
-  Callout,
-  Code,
-  DocLink,
-  H2,
-  LI,
-  P,
-  PageHeader,
-  Pre,
-  Strong,
-  UL,
-} from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, LI, P, PageHeader, Pre, Strong, UL } from "@/docs/Prose";
 
 export function PdfForms() {
   return (
@@ -29,9 +18,9 @@ export function PdfForms() {
       <H2 id="two-kinds">Two kinds of form</H2>
       <P>
         A PDF that was exported from a form builder carries an <Strong>AcroForm</Strong>: named
-        fields a program can set. A PDF that was printed, scanned, or exported from a word
-        processor carries none — the boxes and ruled lines on it are just bloom. The two need
-        different tools, and the first thing an employee does is find out which it is holding.
+        fields a program can set. A PDF that was printed, scanned, or exported from a word processor
+        carries none — the boxes and ruled lines on it are just bloom. The two need different tools,
+        and the first thing an employee does is find out which it is holding.
       </P>
       <UL>
         <LI>
@@ -40,8 +29,8 @@ export function PdfForms() {
         </LI>
         <LI>
           <Code>fill_pdf_form</Code> sets those fields and returns the filled document. By default
-          it flattens the result so the values are baked in; pass{" "}
-          <Code>flatten: false</Code> to leave it editable.
+          it flattens the result so the values are baked in; pass <Code>flatten: false</Code> to
+          leave it editable.
         </LI>
       </UL>
       <P>
@@ -51,9 +40,9 @@ export function PdfForms() {
 
       <H2 id="no-fields">Forms with no fields</H2>
       <P>
-        These are completed by drawing on top of the original. The source pages stay exactly as
-        they are and become the background, so what the counterparty receives is their own form
-        with answers on it.
+        These are completed by drawing on top of the original. The source pages stay exactly as they
+        are and become the background, so what the counterparty receives is their own form with
+        answers on it.
       </P>
       <UL>
         <LI>
@@ -69,10 +58,11 @@ export function PdfForms() {
 
       <H2 id="coordinates">Coordinates</H2>
       <P>
-        Every coordinate in both tools is measured in <Strong>points from the top-left corner of
-        the page as it appears on screen</Strong> — the way a person reads a page, not the way PDF
-        stores one. A page&apos;s <Code>/Rotate</Code> is already applied, so a landscape scan
-        reports the width and height you actually see and needs no adjustment.
+        Every coordinate in both tools is measured in{" "}
+        <Strong>points from the top-left corner of the page as it appears on screen</Strong> — the
+        way a person reads a page, not the way PDF stores one. A page&apos;s <Code>/Rotate</Code> is
+        already applied, so a landscape scan reports the width and height you actually see and needs
+        no adjustment.
       </P>
       <P>
         Positions round-trip exactly. A run&apos;s <Code>y</Code> handed back as{" "}
@@ -108,16 +98,15 @@ overlay_pdf_text({
         </LI>
       </UL>
       <P>
-        Text is drawn in Noto, with Arabic and Chinese faces embedded only when the text needs
-        them, so a form answered in more than one script comes out right without anyone choosing a
-        font.
+        Text is drawn in Noto, with Arabic and Chinese faces embedded only when the text needs them,
+        so a form answered in more than one script comes out right without anyone choosing a font.
       </P>
 
       <Callout kind="warn" title="Read the warnings">
         Anything unrenderable is refused before a single mark is made — a page that does not exist,
         a size that is not a size, a character no shipped face can draw. But a placement that is
-        merely <Strong>suspicious</Strong>, such as an answer that runs off the edge of the page,
-        is still drawn and reported in <Code>warnings</Code>. Nobody re-reads a form they asked an
+        merely <Strong>suspicious</Strong>, such as an answer that runs off the edge of the page, is
+        still drawn and reported in <Code>warnings</Code>. Nobody re-reads a form they asked an
         employee to fill, so those warnings are the last check before it is sent.
       </Callout>
 

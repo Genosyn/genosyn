@@ -4,56 +4,51 @@ type LogoMarkProps = {
 };
 
 /**
- * Genosyn mark — the 09:30 square.
+ * Genosyn mark — the circle.
  *
- * A 24×24 square cut once at 39.583% of its width, which is 09:30 of 24
- * hours. The left field is solid: the night, already worked. The right field
- * is open: your day, which has not happened yet. It is the same idea the
- * whole site is drawn on, at favicon size, and it shares its geometry and its
- * 2px stroke with the four state marks in components/Marks.tsx.
+ * This is the original mark, restored. A previous revision replaced it with a
+ * square cut at 39.583% (09:30 of 24 hours) to tie the mark to the site's
+ * organising idea. That was a reasonable thing to draw and the wrong thing to
+ * change: a logo is an identity people already recognise, not a slot for the
+ * current design's argument, and a redesign does not get to rename the
+ * company's face on its way past.
  *
- * The previous mark was a stroked circle, which is to say it was a shape with
- * nothing to do with the product. This one can be explained in a sentence.
+ * `variant="plain"` (default) is a stroked circle in `currentColor`, so the
+ * lockup adapts to whatever it sits in. `variant="tile"` fills a rounded
+ * square behind it for constrained slots such as the favicon.
  *
- * `variant="plain"` (default) draws in `currentColor` so the lockup adapts to
- * whatever it sits in. `variant="tile"` fills the square for constrained slots
- * (favicons) and puts the cut in signal amber, which is the only place the
- * mark carries the hue.
+ * The tile fill is the site's own black rather than the `#0f172a` it used to
+ * be. That value was Tailwind's slate-900, a cool blue-black that appeared in
+ * no token file and now sits against a warm palette, where it reads as a
+ * different brand. The geometry, stroke weight and proportions are untouched.
  */
 export function LogoMark({ className = "", variant = "plain" }: LogoMarkProps) {
+  const fg = variant === "tile" ? "#fbfaf7" : "currentColor";
+
+  const Mark = <circle cx="16" cy="16" r="9" fill="none" stroke={fg} strokeWidth="2.4" />;
+
   if (variant === "tile") {
     return (
       <svg
-        viewBox="0 0 24 24"
+        viewBox="0 0 32 32"
         xmlns="http://www.w3.org/2000/svg"
         className={className}
         aria-hidden="true"
       >
-        <rect width="24" height="24" fill="#111110" />
-        <rect x="4" y="4" width="16" height="16" fill="none" stroke="#fbfaf7" strokeWidth="2" />
-        <rect x="4" y="4" width="6.33" height="16" fill="#fbfaf7" />
-        <rect x="10.33" y="4" width="1.6" height="16" fill="#ffb000" />
+        <rect width="32" height="32" rx="8" fill="#111110" />
+        {Mark}
       </svg>
     );
   }
 
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="0 0 32 32"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       aria-hidden="true"
     >
-      <rect
-        x="1"
-        y="1"
-        width="22"
-        height="22"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <rect x="2" y="2" width="8.7" height="20" fill="currentColor" />
+      {Mark}
     </svg>
   );
 }
@@ -74,7 +69,7 @@ export function LogoMark({ className = "", variant = "plain" }: LogoMarkProps) {
 export function Logo({ className = "" }: { className?: string }) {
   return (
     <span className={`inline-flex items-center gap-[0.55em] ${className}`}>
-      <LogoMark className="h-[1.15em] w-[1.15em] shrink-0" />
+      <LogoMark className="h-[1.3em] w-[1.3em] shrink-0" />
       <span className="t-cond text-[1em] uppercase leading-none tracking-[0.2em]">Genosyn</span>
     </span>
   );

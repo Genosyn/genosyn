@@ -45,12 +45,10 @@ export function Roles() {
     <Band id="roles" tone="paper" pad="l">
       <Container>
         <Rail
-          sheet="02 / A day on the roster"
+          sheet="02 / One role's day"
           fields={["TUE", `${first}-${last}`, `${role.day.length} RUNS`]}
         >
-          <Heading className="max-w-[22ch]">
-            {`${role.person} worked ${first} to ${last} on Tuesday.`}
-          </Heading>
+          <Heading className="max-w-[22ch]">{`${role.person} ${role.shipped} by ${last}.`}</Heading>
 
           <Lede className="mt-7">
             Pick a role and read its day. Every line is a Routine on a schedule: what it did, which
@@ -84,7 +82,7 @@ export function Roles() {
  */
 function RoleTabs({ active, onSelect }: { active: string; onSelect: (slug: string) => void }) {
   return (
-    <div className="mt-10 flex flex-wrap">
+    <div className="mt-10 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8">
       {ROLES.map((role) => {
         const selected = role.slug === active;
         return (
@@ -133,7 +131,7 @@ export function Roster() {
       <Container>
         <Rail sheet="03 / The roster" fields={[`${ROLES.length} ROLES`, `${routines} ROUTINES`]}>
           <Heading className="max-w-[20ch]">
-            {`${ROLES.length} roles arrive with ${routines} Routines written.`}
+            {`${ROLES.length} roles arrive with the first day already written.`}
           </Heading>
 
           <Lede className="mt-7">

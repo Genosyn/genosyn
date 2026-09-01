@@ -12,9 +12,7 @@ export function NotFound() {
       />
 
       <H2 id="try">Try one of these</H2>
-      <P>
-        Most of what people land here looking for is one of these:
-      </P>
+      <P>Most of what people land here looking for is one of these:</P>
       <ul className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
         {[
           { href: "/docs", label: "Introduction" },

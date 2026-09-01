@@ -1,5 +1,15 @@
-import { Mark } from "@/components/Marks";
-import { ARRIVAL, LANES, RUNS_BEFORE_ARRIVAL, type BoardEvent } from "@/sections/Board";
+import {
+  ARRIVAL,
+  GANTT_EVENTS,
+  LANE_NAMES,
+  LANES,
+  RUNS_BEFORE_ARRIVAL,
+  type BoardEvent,
+} from "@/sections/Board";
+import { Gantt } from "@/components/Gantt";
+
+/** The night chart's resting readout line. */
+const NIGHT_SUMMARY = `FIG. 4 · ${RUNS_BEFORE_ARRIVAL} RUNS BETWEEN 00:15 AND 09:29 · 0 MEMBERS SIGNED IN`;
 import {
   Band,
   Body,
@@ -7,7 +17,6 @@ import {
   Field,
   Heading,
   Lede,
-  Plate,
   Rail,
   Row,
   Sheet,
@@ -78,7 +87,7 @@ export function Autonomy() {
           fields={["2026-09-01", `${RUNS_BEFORE_ARRIVAL} RUNS`, "0 MEMBERS"]}
         >
           <Heading as="h2" night className="max-w-[20ch]">
-            {`The night shift ran from ${FIRST} to ${LAST}.`}
+            340 dependencies were audited before 03:00.
           </Heading>
 
           <Lede night className="mt-7">
@@ -98,26 +107,29 @@ export function Autonomy() {
             375px, and it carries the 09:30 rule itself. */}
         <div className="mt-14 hidden sm:mt-16 md:block">
           <p className="sr-only">
-            A 24-hour strip of the same Tuesday, one line per lane. Every Run before 09:30 is
-            listed in the log below it.
+            A 24-hour strip of the same Tuesday, one line per lane. Every Run before 09:30 is listed
+            in the log below it.
           </p>
-          <Plate
+          {/* No `Plate` around this one. A plate is a mount for a picture —
+              a rule, a recessed ground and a numbered caption — and the chart
+              now brings its own frame and its own readout line, so plating it
+              drew two borders and printed "Fig. 4" twice.
+
+              It used to be an `aria-hidden` scroll container with
+              `tabIndex={-1}`, because the strip was a picture and the log below
+              it was the real text. It is a widget now: focusable bars,
+              arrow-key navigation, and a readout that names whatever is
+              selected, so hiding it would remove the description rather than
+              tidy it away. */}
+          <Gantt
             night
-            figure="Fig. 4"
-            caption="Seven lanes, one Tuesday. Everything left of the amber rule ran unattended."
-          >
-            {/* `tabIndex={-1}` is load-bearing, not decoration. Chrome puts a
-                scroll container with no focusable children into the sequential
-                tab order so it can be scrolled from the keyboard, and an
-                `aria-hidden` element in the tab order is a 4.1.2 failure: the
-                user tabs into something no screen reader will name. Marking it
-                programmatically-focusable-only resolves that, and costs
-                nothing here because the strip carries no information the log
-                below it does not print as text. */}
-            <div aria-hidden tabIndex={-1} className="overflow-x-auto">
-              <Strip />
-            </div>
-          </Plate>
+            lanes={LANE_NAMES}
+            events={GANTT_EVENTS}
+            arrival={ARRIVAL}
+            arrivalLabel="You sign in"
+            ariaLabel="The same Tuesday, drawn as seven lanes from midnight to midnight"
+            summary={NIGHT_SUMMARY}
+          />
         </div>
 
         {/* The rail resumes so the spine picks up again under the strip. No
@@ -256,132 +268,6 @@ function Arrival() {
  * distinction is fill, never visibility — a bar you cannot see is not a
  * de-emphasised bar, it is a missing one.
  */
-function Strip() {
-  return (
-    <div className="min-w-[52rem] p-4">
-      <div className="grid grid-cols-[minmax(0,1fr)_7.5rem]">
-        <div className="relative pt-7">
-          {/* One element, one gradient: the 24 hour columns. */}
-          <div aria-hidden className="hours-night absolute top-7 right-0 bottom-6 left-0" />
-
-          {/* Quarter marks, so the eye has something to measure against
-              without the whole plate turning into graph paper. */}
-          {[6, 12, 18].map((hour) => (
-            <div
-              key={hour}
-              className="absolute top-7 bottom-6 w-px bg-night-600"
-              style={{ left: pct(hour) }}
-            />
-          ))}
-
-          {LANES.map((lane) => (
-            <div key={lane.owner} className="relative h-[1.875rem] border-b border-night-700">
-              {lane.events.map((event) => (
-                <Bar key={`${lane.owner}-${event.at}`} event={event} />
-              ))}
-            </div>
-          ))}
-
-          <ArrivalRule />
-          <HourScale />
-        </div>
-
-        {/* The owner column carries the chart's 1.75rem top offset so lane
-            labels line up with their lanes, not with the flag row above. */}
-        <div className="pt-7">
-          {LANES.map((lane) => (
-            <div
-              key={lane.owner}
-              className="flex h-[1.875rem] items-center border-b border-night-700 pl-4"
-            >
-              <Sheet night className="!text-[10px]">
-                {lane.owner}
-              </Sheet>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * One event on the strip.
- *
- * A Decision or an Approval has no duration — it is a moment — so it is drawn
- * as its mark and its clock time in amber rather than as a bar. It carries no
- * label here: the three labels live in the "Waited for you" list below, where
- * they have room to be read, and hanging them off the chart is what made
- * adjacent lanes overlap into a smear on the previous version.
- */
-function Bar({ event }: { event: BoardEvent }) {
-  if (event.state !== "run") {
-    return (
-      <div
-        className="absolute top-1/2 flex -translate-y-1/2 items-center gap-1.5 text-signal-500"
-        style={{ left: pct(event.at) }}
-      >
-        <Mark state={event.state} className="h-2.5 w-2.5" />
-        <span className="t-data whitespace-nowrap text-[10px] leading-none">
-          {clock(event.at)}
-        </span>
-      </div>
-    );
-  }
-
-  const overnight = event.at < ARRIVAL;
-
-  return (
-    <div
-      className="absolute top-1/2 h-[1.125rem] min-w-[3px] -translate-y-1/2"
-      style={{ left: pct(event.at), width: pct(event.hours ?? 0.25) }}
-      title={`${clock(event.at)} · ${event.label}`}
-    >
-      <div
-        className={`strip-draw h-full border border-night-600 border-l-[3px] border-l-paper-50 ${
-          overnight ? "bg-night-800" : ""
-        }`}
-      />
-    </div>
-  );
-}
-
-/** The arrival line and its flag, in the one colour the site owns. */
-function ArrivalRule() {
-  return (
-    <>
-      <span
-        className="arrive-in absolute top-0 flex h-[1.125rem] items-center whitespace-nowrap"
-        style={{ left: pct(ARRIVAL) }}
-      >
-        <span className="t-data text-[10px] leading-none text-signal-500">09:30 YOU SIGN IN</span>
-      </span>
-      <span
-        className="arrive-in absolute top-7 bottom-6 w-0.5 bg-signal-500"
-        style={{ left: pct(ARRIVAL) }}
-      />
-    </>
-  );
-}
-
-function HourScale() {
-  return (
-    <div className="relative h-6">
-      {[0, 6, 12, 18].map((hour) => (
-        <span
-          key={hour}
-          className="t-data absolute top-1.5 text-[10px] leading-none text-zinc-400"
-          style={{ left: pct(hour) }}
-        >
-          {clock(hour)}
-        </span>
-      ))}
-      <span className="t-data absolute top-1.5 right-0 text-[10px] leading-none text-zinc-400">
-        24:00
-      </span>
-    </div>
-  );
-}
 
 /* -------------------------------------------------------------------------
    Formatting.
@@ -391,11 +277,6 @@ function HourScale() {
    pure functions would make a data module into a utility one. The event data
    is imported, which is the part that can drift.
 ------------------------------------------------------------------------- */
-
-/** Hours past midnight as a share of the day, for an inline position. */
-function pct(hours: number): string {
-  return `${(hours / 24) * 100}%`;
-}
 
 function clock(hours: number): string {
   const h = Math.floor(hours);

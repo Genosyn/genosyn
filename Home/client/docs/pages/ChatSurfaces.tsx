@@ -42,11 +42,11 @@ export function ChatSurfaces() {
       <P>
         A <DocLink to="/docs/integrations">Connection</DocLink> for one of those four platforms
         becomes a chat surface. Grant it to an AI Employee and a direct message or an @-mention
-        reaches the same employee, with the same{" "}
-        <DocLink to="/docs/soul">Soul</DocLink> and <DocLink to="/docs/skills">Skills</DocLink>, as
-        the chat inside Genosyn. Nothing is duplicated: the thread you have in Slack is a
-        Conversation on that <DocLink to="/docs/employees">AI Employee</DocLink>, readable in the
-        app, with the same history replayed into every turn.
+        reaches the same employee, with the same <DocLink to="/docs/soul">Soul</DocLink> and{" "}
+        <DocLink to="/docs/skills">Skills</DocLink>, as the chat inside Genosyn. Nothing is
+        duplicated: the thread you have in Slack is a Conversation on that{" "}
+        <DocLink to="/docs/employees">AI Employee</DocLink>, readable in the app, with the same
+        history replayed into every turn.
       </P>
       <P>
         All four surfaces run on one shared core, so the rules below are identical whichever
@@ -185,16 +185,16 @@ export function ChatSurfaces() {
         </LI>
         <LI>
           Under <Strong>Socket Mode</Strong>, turn it on. That generates an{" "}
-          <Strong>app-level token</Strong> (<Code>xapp-…</Code>) with{" "}
-          <Code>connections:write</Code> — copy it.
+          <Strong>app-level token</Strong> (<Code>xapp-…</Code>) with <Code>connections:write</Code>{" "}
+          — copy it.
         </LI>
         <LI>
-          Under <Strong>Event Subscriptions</Strong>, turn events on and subscribe the app&apos;s bot user to{" "}
-          <Code>app_mention</Code> and <Code>message.im</Code>.
+          Under <Strong>Event Subscriptions</Strong>, turn events on and subscribe the app&apos;s
+          bot user to <Code>app_mention</Code> and <Code>message.im</Code>.
         </LI>
         <LI>
-          Click <Strong>Install to Workspace</Strong>, then copy the <Strong>Bot User OAuth
-          Token</Strong> (<Code>xoxb-…</Code>).
+          Click <Strong>Install to Workspace</Strong>, then copy the{" "}
+          <Strong>Bot User OAuth Token</Strong> (<Code>xoxb-…</Code>).
         </LI>
         <LI>
           In Genosyn, connect <Strong>Slack</Strong> and paste both: <Strong>Bot token</Strong> and{" "}
@@ -260,25 +260,22 @@ export function ChatSurfaces() {
       </P>
       <OL>
         <LI>
-          Create a Meta app of type <Strong>Business</Strong> and add the{" "}
-          <Strong>WhatsApp</Strong> product to it.
+          Create a Meta app of type <Strong>Business</Strong> and add the <Strong>WhatsApp</Strong>{" "}
+          product to it.
         </LI>
         <LI>
-          Under <Strong>WhatsApp → API Setup</Strong>, copy the{" "}
-          <Strong>Phone number ID</Strong> — Meta&apos;s id for the sending number, not the number
-          itself.
+          Under <Strong>WhatsApp → API Setup</Strong>, copy the <Strong>Phone number ID</Strong> —
+          Meta&apos;s id for the sending number, not the number itself.
         </LI>
         <LI>
           In Business Settings, create a <Strong>System user</Strong> and generate a permanent token
           with <Code>whatsapp_business_messaging</Code> and{" "}
-          <Code>whatsapp_business_management</Code>. Use that as the{" "}
-          <Strong>Access token</Strong>; the 24-hour test token on the API Setup page will strand
-          you tomorrow.
+          <Code>whatsapp_business_management</Code>. Use that as the <Strong>Access token</Strong>;
+          the 24-hour test token on the API Setup page will strand you tomorrow.
         </LI>
         <LI>
-          Copy the <Strong>App secret</Strong> from{" "}
-          <Strong>App → Settings → Basic</Strong>, and invent a long random string for the{" "}
-          <Strong>Verify token</Strong>.
+          Copy the <Strong>App secret</Strong> from <Strong>App → Settings → Basic</Strong>, and
+          invent a long random string for the <Strong>Verify token</Strong>.
         </LI>
         <LI>In Genosyn, connect WhatsApp and paste all four fields.</LI>
         <LI>
@@ -311,8 +308,8 @@ export function ChatSurfaces() {
         </LI>
         <LI>Copy the token BotFather replies with.</LI>
         <LI>
-          In Genosyn, connect <Strong>Telegram</Strong> and paste it into{" "}
-          <Strong>Bot token</Strong>.
+          In Genosyn, connect <Strong>Telegram</Strong> and paste it into <Strong>Bot token</Strong>
+          .
         </LI>
         <LI>
           Grant the Connection to an AI Employee, then DM it. In a group, @-mention it or reply to
@@ -320,8 +317,9 @@ export function ChatSurfaces() {
         </LI>
       </OL>
       <P>
-        Leave BotFather&apos;s <Strong>Group Privacy</Strong> on. It limits what the Telegram bot account sees in a
-        group to messages that address it, which is exactly what Genosyn answers anyway.
+        Leave BotFather&apos;s <Strong>Group Privacy</Strong> on. It limits what the Telegram bot
+        account sees in a group to messages that address it, which is exactly what Genosyn answers
+        anyway.
       </P>
 
       <H2 id="who-answers">Who answers</H2>
@@ -363,9 +361,9 @@ export function ChatSurfaces() {
       <UL>
         <LI>
           <Strong>Approvals.</Strong> Approving one replays a privileged action the employee already
-          attempted, which is why it is admin-gated and its payload is redacted at every boundary.
-          A chat window is the wrong place to hold something whose whole design is a deliberate
-          human look at a redacted payload — they stay in the Approvals inbox, described under{" "}
+          attempted, which is why it is admin-gated and its payload is redacted at every boundary. A
+          chat window is the wrong place to hold something whose whole design is a deliberate human
+          look at a redacted payload — they stay in the Approvals inbox, described under{" "}
           <DocLink to="/docs/routines#approvals">Routines</DocLink>.
         </LI>
         <LI>

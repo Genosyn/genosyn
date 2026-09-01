@@ -242,11 +242,7 @@ export function ProductPage({ product }: { product: ProductDef }) {
               </ActionStrip>
               {/* Notes and Resources have no docs page of their own yet, so
                   the label has to promise the index, not a page. */}
-              <ActionStrip
-                href={product.docsPath ?? "/docs"}
-                trailing="Docs"
-                className="-mt-px"
-              >
+              <ActionStrip href={product.docsPath ?? "/docs"} trailing="Docs" className="-mt-px">
                 {product.docsPath ? `Read the ${product.name} docs` : "Read the documentation"}
               </ActionStrip>
             </>
@@ -311,10 +307,7 @@ function WhatItDoes({ product, page }: { product: ProductDef; page: PageCopy }) 
   return (
     <Band id="what-it-does" tone="paper" pad="m">
       <Container>
-        <Rail
-          sheet="02 / What it does"
-          fields={[`${product.features.length} PARTS`]}
-        >
+        <Rail sheet="02 / What it does" fields={[`${product.features.length} PARTS`]}>
           <Heading as="h2" className="max-w-[22ch]">
             {page.does}
           </Heading>
@@ -357,10 +350,7 @@ function WithEmployees({ product, page }: { product: ProductDef; page: PageCopy 
   return (
     <Band id="with-employees" tone="raised" pad="m">
       <Container>
-        <Rail
-          sheet="03 / With AI Employees"
-          fields={[`${product.employees.bullets.length} BEHAVIOURS`]}
-        >
+        <Rail sheet="03 / Who works it" fields={[`${product.employees.bullets.length} BEHAVIOURS`]}>
           <Heading as="h2" className="max-w-[22ch]">
             {page.staff}
           </Heading>

@@ -77,12 +77,12 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
       </P>
       <P>
         A working global SMTP transport is effectively mandatory because new Members must verify
-        their email and account recovery must reach a mailbox. It is <em>not</em> a boot
-        requirement — a fresh install has no database row and no operator yet, so boot warns loudly
-        and writes system mail to the server log rather than refusing to start. That is how the
-        bootstrap operator claims the first account. Configure{" "}
-        <Strong>Admin → Email transport</Strong> immediately afterwards, before inviting anyone
-        else; <Strong>Admin → Instance Health</Strong> keeps flagging the transport until you do.
+        their email and account recovery must reach a mailbox. It is <em>not</em> a boot requirement
+        — a fresh install has no database row and no operator yet, so boot warns loudly and writes
+        system mail to the server log rather than refusing to start. That is how the bootstrap
+        operator claims the first account. Configure <Strong>Admin → Email transport</Strong>{" "}
+        immediately afterwards, before inviting anyone else;{" "}
+        <Strong>Admin → Instance Health</Strong> keeps flagging the transport until you do.
       </P>
       <P>
         On the first operator sign-in, Genosyn detects the same-origin browser URL. Review and save
@@ -145,15 +145,15 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
       <Callout kind="warn" title="Plan capacity at the deployment and AI Model layers.">
         Genosyn does not queue or cap top-level work by company. Provision enough replicas, CPU,
         memory, and database capacity for the overlap your customers can create, and monitor each AI
-        Model provider&apos;s concurrency, token, spend, and rate limits. Provider-side throttling still
-        applies.
+        Model provider&apos;s concurrency, token, spend, and rate limits. Provider-side throttling
+        still applies.
       </Callout>
       <UL>
         <LI>Company secrets are not injected into hosted coding shells.</LI>
         <LI>Arbitrary stdio MCP servers are not started in shared SaaS mode.</LI>
         <LI>
-          The app-owned browser is unavailable until it moves to a separately isolated
-          browser worker. See <DocLink to="/docs/browser">Browser</DocLink> for self-hosted mode.
+          The app-owned browser is unavailable until it moves to a separately isolated browser
+          worker. See <DocLink to="/docs/browser">Browser</DocLink> for self-hosted mode.
         </LI>
       </UL>
 
@@ -166,9 +166,9 @@ sessionSecret: "<different 32+ character random secret>",`}</Pre>
         egress firewall that blocks metadata and private ranges as defense in depth.
       </P>
       <P>
-        Raw-TCP Postgres and MySQL Connections and arbitrary Repository remotes are
-        disabled in shared SaaS mode until they can run in a dedicated egress worker. Fixed-host
-        GitHub checkouts remain available through a granted GitHub Connection.
+        Raw-TCP Postgres and MySQL Connections and arbitrary Repository remotes are disabled in
+        shared SaaS mode until they can run in a dedicated egress worker. Fixed-host GitHub
+        checkouts remain available through a granted GitHub Connection.
       </P>
 
       <H2 id="replicas">Running more than one replica</H2>

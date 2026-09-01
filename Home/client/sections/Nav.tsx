@@ -51,10 +51,7 @@ export function Nav() {
 
       <div className="sticky top-0 z-50 border-b border-paper-400 bg-paper-100">
         <div className="mx-auto flex h-14 max-w-[82rem] items-center gap-6 px-[clamp(1.25rem,4vw,3rem)]">
-          <nav
-            className="hidden items-center gap-7 lg:flex"
-            aria-label="Primary navigation"
-          >
+          <nav className="hidden items-center gap-7 lg:flex" aria-label="Primary navigation">
             {LINKS.map((link) => (
               <Link
                 key={link.href}

@@ -54,8 +54,8 @@ export function Decisions() {
         one person, only they — or an owner or admin — can answer it, so nothing strands behind
         somebody on holiday. Owners and admins get a notification for every unassigned decision; an
         assigned one notifies only its recipient. A decision still unanswered after 24 hours
-        re-pages the same people once — the employee that stacked it is blocked until someone
-        picks, and a blocked employee should never be a silent one.
+        re-pages the same people once — the employee that stacked it is blocked until someone picks,
+        and a blocked employee should never be a silent one.
       </P>
 
       <Callout kind="info" title="A decision is answered once.">
@@ -114,12 +114,12 @@ export function Decisions() {
 
       <H2 id="routing">Routing to an AI decider</H2>
       <P>
-        By default every question waits for a human — no configuration, exactly the behavior
-        above. A <Strong>routing rule</Strong> (the <Strong>Routing</Strong> tab on the Decisions
-        page, admin-managed) changes that for one asking employee: it names who may answer on a
-        human&apos;s behalf — the employee&apos;s <Strong>manager</Strong>, via the org
-        chart&apos;s reports-to line, or a <Strong>named employee</Strong>. A decision the
-        employee addressed to a specific person is never routed.
+        By default every question waits for a human — no configuration, exactly the behavior above.
+        A <Strong>routing rule</Strong> (the <Strong>Routing</Strong> tab on the Decisions page,
+        admin-managed) changes that for one asking employee: it names who may answer on a
+        human&apos;s behalf — the employee&apos;s <Strong>manager</Strong>, via the org chart&apos;s
+        reports-to line, or a <Strong>named employee</Strong>. A decision the employee addressed to
+        a specific person is never routed.
       </P>
       <P>
         A routed question skips the creation-time bell. Instead, the decider is briefed in a
@@ -133,9 +133,9 @@ export function Decisions() {
       <P>
         An AI answer renders as <em>Answered by {"{name}"} (AI)</em>, is written to the audit log
         and the asker&apos;s journal, and starts the asker&apos;s pickup session immediately, the
-        same as a human answer. And because answering fires no side effect — the section above —
-        the asker&apos;s privileged follow-ups still meet their own gates. Routing decides who
-        picks the option, never what the answer can execute. See{" "}
+        same as a human answer. And because answering fires no side effect — the section above — the
+        asker&apos;s privileged follow-ups still meet their own gates. Routing decides who picks the
+        option, never what the answer can execute. See{" "}
         <DocLink to="/docs/autonomy">Earned autonomy</DocLink> for the other half of the
         trust-by-evidence story.
       </P>

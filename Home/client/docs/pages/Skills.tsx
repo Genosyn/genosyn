@@ -1,16 +1,4 @@
-import {
-  Callout,
-  Code,
-  DocLink,
-  H2,
-  H3,
-  LI,
-  P,
-  PageHeader,
-  Pre,
-  Strong,
-  UL,
-} from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, H3, LI, P, PageHeader, Pre, Strong, UL } from "@/docs/Prose";
 
 export function Skills() {
   return (
@@ -48,14 +36,13 @@ export function Skills() {
         human would skim a runbook: by the title and the first paragraph.
       </P>
       <P>
-        A Skill is prose, not code — it tells the employee <Strong>how</Strong> to work, while the tools it
-        uses live in <DocLink to="/docs/integrations">Integrations</DocLink> and the built-in
-        catalogue. A Skill may <Strong>declare</Strong> which tools its procedure uses, under
-        Settings → Tools, so those are loaded up-front instead of looked up (see{" "}
+        A Skill is prose, not code — it tells the employee <Strong>how</Strong> to work, while the
+        tools it uses live in <DocLink to="/docs/integrations">Integrations</DocLink> and the
+        built-in catalogue. A Skill may <Strong>declare</Strong> which tools its procedure uses,
+        under Settings → Tools, so those are loaded up-front instead of looked up (see{" "}
         <DocLink to="/docs/tool-discovery">How tools reach the model</DocLink>). Declaring is not
-        granting: access is still decided by Grants.
-        A Skill is the prose around the tool: <em>when</em> to reach for it, <em>how</em> to use it,
-        and what good output looks like.
+        granting: access is still decided by Grants. A Skill is the prose around the tool:{" "}
+        <em>when</em> to reach for it, <em>how</em> to use it, and what good output looks like.
       </P>
 
       <H2 id="anatomy">Anatomy of a good Skill</H2>
@@ -109,26 +96,25 @@ A markdown report posted to #finance with three sections:
       <H2 id="composition">Composition</H2>
       <P>
         Skills compose by reference. A bigger skill can say{" "}
-        <em>&quot;then run <Code>reconcile-stripe-payouts</Code>&quot;</em> and
-        the model will follow that link. This keeps individual skills small
-        and reusable across employees.
+        <em>
+          &quot;then run <Code>reconcile-stripe-payouts</Code>&quot;
+        </em>{" "}
+        and the model will follow that link. This keeps individual skills small and reusable across
+        employees.
       </P>
 
       <H2 id="sharing">Sharing skills between employees</H2>
       <P>
-        Today, copying is manual, but the company-wide list makes it quick:
-        open the source skill, copy its playbook, hit <Strong>New skill</Strong>
-        , pick the target employee, paste. The future{" "}
-        <Strong>Marketplace</Strong> milestone (
-        <DocLink to="/docs/vocabulary">M17</DocLink>) will let you export an
-        employee — soul + skills + routines + grants — as a bundle that
+        Today, copying is manual, but the company-wide list makes it quick: open the source skill,
+        copy its playbook, hit <Strong>New skill</Strong>, pick the target employee, paste. The
+        future <Strong>Marketplace</Strong> milestone (<DocLink to="/docs/vocabulary">M17</DocLink>)
+        will let you export an employee — soul + skills + routines + grants — as a bundle that
         imports into another company.
       </P>
 
       <Callout kind="info" title="Write skills like onboarding docs.">
-        The best test of a Skill is: could a new junior hire follow it? If
-        yes, the model can too. If it relies on tribal knowledge, the model
-        will guess.
+        The best test of a Skill is: could a new junior hire follow it? If yes, the model can too.
+        If it relies on tribal knowledge, the model will guess.
       </Callout>
     </>
   );

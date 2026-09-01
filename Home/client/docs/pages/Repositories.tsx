@@ -89,8 +89,8 @@ export function Repositories() {
         <LI>
           Open the repository. For a remote one, <Strong>Test connection</Strong> confirms Genosyn
           can reach it and detects the default branch. The check uses the repository&apos;s token or
-          SSH key when one is stored; otherwise it uses a pinned or sole Connection for that
-          server when one is available, and anonymous access when none is available.
+          SSH key when one is stored; otherwise it uses a pinned or sole Connection for that server
+          when one is available, and anonymous access when none is available.
         </LI>
       </OL>
       <P>
@@ -112,9 +112,8 @@ export function Repositories() {
         <LI>
           Pick one of the company&apos;s connected GitHub or Forgejo / Gitea Connections. Each
           option names its server, so a company with more than one git host can tell them apart
-          before
-          creating a repository on the wrong one. The account each one
-          authenticates as is shown, so a personal and an organisation Connection are told apart.
+          before creating a repository on the wrong one. The account each one authenticates as is
+          shown, so a personal and an organisation Connection are told apart.
         </LI>
         <LI>
           Give the repository a name on that server and, optionally, an organisation to own it. Left
@@ -133,12 +132,11 @@ export function Repositories() {
         The other route is to paste the clone URL of an <Strong>empty</Strong> repository you made
         yourself — on GitLab, Bitbucket, a self-hosted Gitea, anywhere — and let Genosyn push into
         that. An HTTPS URL on a server the company has connected authenticates through that
-        Connection as above; for any other host
-        you can supply an HTTPS token or an SSH key in the same step, and it is stored encrypted
-        exactly as it would be on a repository you cloned. Leave the credentials blank for a remote
-        that accepts anonymous writes. A remote that already has commits is refused with an
-        explanation rather than force-pushed — the right move there is usually to add the existing
-        repository as a Repository of its own.
+        Connection as above; for any other host you can supply an HTTPS token or an SSH key in the
+        same step, and it is stored encrypted exactly as it would be on a repository you cloned.
+        Leave the credentials blank for a remote that accepts anonymous writes. A remote that
+        already has commits is refused with an explanation rather than force-pushed — the right move
+        there is usually to add the existing repository as a Repository of its own.
       </P>
       <UL>
         <LI>
@@ -151,9 +149,9 @@ export function Repositories() {
           push, pull, and refresh behave exactly as they do for a repository that was cloned.
         </LI>
         <LI>
-          Pushes to that HTTPS remote keep authenticating through the same Connection, so
-          the repository still stores no credential of its own. The token is resolved for each
-          operation and never written to the repository.
+          Pushes to that HTTPS remote keep authenticating through the same Connection, so the
+          repository still stores no credential of its own. The token is resolved for each operation
+          and never written to the repository.
         </LI>
         <LI>
           Connecting is <Strong>owner or admin</Strong> only, for the same reason pushing is, and it
@@ -525,16 +523,16 @@ export function Repositories() {
       <H3 id="pull-requests">Opening a pull request</H3>
       <P>
         For a repository whose remote is on a connected git host — GitHub, or a Forgejo / Gitea
-        server you host — <Strong>Open pull request</Strong> is the third
-        thing you can do with reviewed work — instead of merging it here or pushing it straight on,
-        it pushes the session&apos;s branch and opens a pull request against the repository&apos;s
-        default branch, so the work enters whatever review your team already runs. The description
-        is the employee&apos;s own report unless you write your own.
+        server you host — <Strong>Open pull request</Strong> is the third thing you can do with
+        reviewed work — instead of merging it here or pushing it straight on, it pushes the
+        session&apos;s branch and opens a pull request against the repository&apos;s default branch,
+        so the work enters whatever review your team already runs. The description is the
+        employee&apos;s own report unless you write your own.
       </P>
       <P>
-        The branch it opens against comes from the server, not from the value stored on the repository:
-        Genosyn asks the API what the repository&apos;s default branch is and corrects its own
-        record when they disagree. That matters for a repository whose trunk is not{" "}
+        The branch it opens against comes from the server, not from the value stored on the
+        repository: Genosyn asks the API what the repository&apos;s default branch is and corrects
+        its own record when they disagree. That matters for a repository whose trunk is not{" "}
         <Code>main</Code> — <Code>master</Code>, <Code>develop</Code>, a release branch — because
         the clone URL alone never says so. Cloning a remote repository and{" "}
         <Strong>Test connection</Strong> both record the real branch too, so the rest of the product
@@ -545,8 +543,8 @@ export function Repositories() {
         new commits are pushed onto the same branch and the pull request that is already open picks
         them up. Genosyn never opens a second one for the same branch. The credential comes from the
         repository&apos;s stored token or the company&apos;s{" "}
-        <DocLink to="/docs/integrations">GitHub or Forgejo Connection</DocLink>, is used only by the server,
-        and — like every push — this is owner and admin only.
+        <DocLink to="/docs/integrations">GitHub or Forgejo Connection</DocLink>, is used only by the
+        server, and — like every push — this is owner and admin only.
       </P>
 
       <Callout kind="tip" title="This works on the standard Docker install.">
@@ -627,15 +625,14 @@ export function Repositories() {
       <H3 id="auth">Authentication modes</H3>
       <UL>
         <LI>
-          <Strong>None / Connection.</Strong> Public repositories clone anonymously. For an
-          HTTPS URL on a server the company has connected — github.com, or the Forgejo / Gitea
-          server a Connection names — Genosyn authenticates through that{" "}
-          <DocLink to="/docs/integrations">Connection</DocLink> instead of a stored credential —
-          the one the repository was connected with, or the only one that can reach that server.
-          With several on one server and nothing pinned it refuses rather than guessing which
-          account should push the company&apos;s work. <Strong>Test connection</Strong> follows the
-          same rule. Local repositories always use this mode; there is no remote to authenticate
-          to.
+          <Strong>None / Connection.</Strong> Public repositories clone anonymously. For an HTTPS
+          URL on a server the company has connected — github.com, or the Forgejo / Gitea server a
+          Connection names — Genosyn authenticates through that{" "}
+          <DocLink to="/docs/integrations">Connection</DocLink> instead of a stored credential — the
+          one the repository was connected with, or the only one that can reach that server. With
+          several on one server and nothing pinned it refuses rather than guessing which account
+          should push the company&apos;s work. <Strong>Test connection</Strong> follows the same
+          rule. Local repositories always use this mode; there is no remote to authenticate to.
         </LI>
         <LI>
           <Strong>HTTPS token / password.</Strong> A username plus a token:{" "}
@@ -728,9 +725,9 @@ export function Repositories() {
         the right tool when an employee should call the server&apos;s API — open an issue, raise a
         pull request, leave a review — against repositories on a connected account. A Repository is
         the workspace itself: a real working tree that people and AI Employees edit and commit in,
-        on any git host or on none. They compose, and the same Connection serves both: it can
-        create the repository on the server in the first place, and once the change is prepared in
-        the Repository and the branch is published, open the pull request for it.
+        on any git host or on none. They compose, and the same Connection serves both: it can create
+        the repository on the server in the first place, and once the change is prepared in the
+        Repository and the branch is published, open the pull request for it.
       </P>
       <P>
         Which one is available is decided by the Connection, not by the URL. Genosyn knows how to

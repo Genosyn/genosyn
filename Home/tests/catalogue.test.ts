@@ -100,6 +100,7 @@ describe("role catalogue", () => {
         role.description,
         role.intro,
         role.reclaims,
+        role.shipped,
       ]) {
         assert.ok(value.trim(), `${role.slug}: empty copy`);
       }

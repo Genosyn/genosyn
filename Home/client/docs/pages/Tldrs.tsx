@@ -40,8 +40,8 @@ export function Tldrs() {
 
       <H2 id="standing-questions">Questions every briefing answers</H2>
       <P>
-        A recap tells you what happened. The questions you have afterwards are usually the same
-        ones every week — so write them down once instead of asking them every time. Under{" "}
+        A recap tells you what happened. The questions you have afterwards are usually the same ones
+        every week — so write them down once instead of asking them every time. Under{" "}
         <Strong>Questions to answer</Strong> on the TLDR settings page, add up to eight{" "}
         <Strong>standing questions</Strong>.
       </P>
@@ -65,8 +65,8 @@ export function Tldrs() {
         rather than something you have to remember to ask for.
       </P>
       <Callout kind="tip" title="Standing questions apply to future briefings">
-        Adding one never rewrites briefings you have already read. The next briefing is the first
-        to carry it.
+        Adding one never rewrites briefings you have already read. The next briefing is the first to
+        carry it.
       </Callout>
 
       <H2 id="actions">One-click actions on an answer</H2>
@@ -77,16 +77,16 @@ export function Tldrs() {
       </P>
       <UL>
         <LI>
-          Each button carries a short label and the full sentence of what pressing it will ask
-          for. You see that sentence before anything runs, and confirming is what sends it.
+          Each button carries a short label and the full sentence of what pressing it will ask for.
+          You see that sentence before anything runs, and confirming is what sends it.
         </LI>
         <LI>
           The AI Employee then carries it out <Strong>with your access, not its own</Strong>, and
           reports back on the same card. A finished button turns into a tick.
         </LI>
         <LI>
-          <Strong>Discuss</Strong> opens the card&apos;s conversation instead, for anything a
-          button does not cover.
+          <Strong>Discuss</Strong> opens the card&apos;s conversation instead, for anything a button
+          does not cover.
         </LI>
         <LI>
           Not worth doing? Clear a suggestion with the <Strong>×</Strong> beside it. The card still

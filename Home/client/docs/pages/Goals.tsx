@@ -1,15 +1,4 @@
-import {
-  Callout,
-  Code,
-  DocLink,
-  H2,
-  KeyList,
-  LI,
-  P,
-  PageHeader,
-  Strong,
-  UL,
-} from "@/docs/Prose";
+import { Callout, Code, DocLink, H2, KeyList, LI, P, PageHeader, Strong, UL } from "@/docs/Prose";
 
 export function Goals() {
   return (
@@ -180,8 +169,8 @@ export function Goals() {
       </P>
       <UL>
         <LI>
-          The linked Goal is folded into every Run&apos;s brief, beside the acceptance criteria — the
-          employee is told the objective, not just the task.
+          The linked Goal is folded into every Run&apos;s brief, beside the acceptance criteria —
+          the employee is told the objective, not just the task.
         </LI>
         <LI>
           The <DocLink to="/docs/routines#outcome-check">outcome checker</DocLink> receives the Goal

@@ -383,8 +383,7 @@ export const PRODUCTS: ProductDef[] = [
     icon: "table2",
     accent: "bg-emerald-50 text-emerald-700 ring-emerald-200",
     tagline: "Airtable-style tables sit on your own server.",
-    taglineAccent:
-      "One Grant gives an AI Employee 21 tools, and every write it makes is audited.",
+    taglineAccent: "One Grant gives an AI Employee 21 tools, and every write it makes is audited.",
     summary:
       "Multi-table workspaces with 11 field types, saved views, comments, and attachments, plus 21 built-in tools for a granted AI Employee.",
     seoTitle: "Bases: Airtable-style tables with 21 AI tools · Genosyn",
@@ -821,7 +820,7 @@ export const PRODUCTS: ProductDef[] = [
     description:
       "Self-hosted BI over the Postgres, MySQL, and ClickHouse Connections you already have. Save SQL as Charts, pin them to Dashboards, and let AI Employees run them.",
     intro:
-      "Explore is BI without a second deployment. Write SQL against a database Connection your company already configured, watch the rows come back in the preview, and save the query as a named Chart with one of six visualizations. Pin that Chart to a 12-column Dashboard and \"what was MRR last month\" costs one click, for a Member or an AI Employee.",
+      'Explore is BI without a second deployment. Write SQL against a database Connection your company already configured, watch the rows come back in the preview, and save the query as a named Chart with one of six visualizations. Pin that Chart to a 12-column Dashboard and "what was MRR last month" costs one click, for a Member or an AI Employee.',
     checks: [
       "Postgres, MySQL, ClickHouse",
       "Six viz types, rendered as SVG",

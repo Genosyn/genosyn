@@ -62,13 +62,7 @@ type LinkProps = {
   "aria-current"?: "page" | undefined;
 };
 
-export function Link({
-  href,
-  className,
-  children,
-  onClick,
-  ...rest
-}: LinkProps) {
+export function Link({ href, className, children, onClick, ...rest }: LinkProps) {
   return (
     <a
       href={href}

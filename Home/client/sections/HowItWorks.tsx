@@ -2,7 +2,6 @@ import {
   Band,
   Body,
   Container,
-  Display,
   Field,
   Heading,
   Lede,
@@ -100,9 +99,9 @@ export function HowItWorks() {
     <Band id="how-it-works" pad="m">
       <Container>
         <Rail sheet="06 / Setting one up" fields={["4 STEPS", "1 ROUTINE"]}>
-          <Display as="h2" className="max-w-[20ch]">
-            The AI Support Rep is running by 07:00.
-          </Display>
+          <Heading as="h2" className="max-w-[20ch]">
+            The AI Support Rep&apos;s first answer lands at 07:00.
+          </Heading>
 
           <Lede className="mt-7">
             This is the whole setup for one AI Employee. You do it once. After that the schedule

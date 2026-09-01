@@ -2,8 +2,8 @@ import {
   Band,
   Body,
   Container,
-  Display,
   Field,
+  Heading,
   Lede,
   Plate,
   Rail,
@@ -116,10 +116,10 @@ export function Primitives() {
   return (
     <Band pad="m">
       <Container>
-        <Rail sheet="05 / What a role is made of" fields={["BOOKKEEPER", "5 SKILLS", "4 GRANTS"]}>
-          <Display as="h2" className="max-w-[20ch]">
+        <Rail sheet="05 / Inside a role" fields={["BOOKKEEPER", "5 SKILLS", "4 GRANTS"]}>
+          <Heading as="h2" className="max-w-[20ch]">
             The Bookkeeper is four editable parts.
-          </Display>
+          </Heading>
 
           <Lede className="mt-7">
             An AI Employee is a Soul, a set of Skills, the Routines it keeps to, and the Grants that

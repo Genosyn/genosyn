@@ -108,8 +108,8 @@ export function Integrations() {
         client, a GitHub OAuth App, and so on. By default each Connection brings its own, which
         means whoever connects a mailbox first has to create a Google Cloud project, enable the
         Gmail API, configure a consent screen, register a Web client, and paste an ID and secret
-        into the connect form. Then do it again for the next mailbox, and again in the next
-        company. That setup, not the consent screen, is what made connecting email hard.
+        into the connect form. Then do it again for the next mailbox, and again in the next company.
+        That setup, not the consent screen, is what made connecting email hard.
       </P>
       <P>
         An instance admin can do it <Strong>once for the whole install</Strong> instead. Open{" "}
@@ -123,8 +123,8 @@ export function Integrations() {
       <P>
         One registration covers every integration that shares the app: registering{" "}
         <Strong>Google</Strong> unlocks Google Workspace, Google Analytics, Search Console, and
-        Google Ads together. You can register <Strong>Google, GitHub, Microsoft, LinkedIn, Reddit</Strong>, and{" "}
-        <Strong>X</Strong>.
+        Google Ads together. You can register{" "}
+        <Strong>Google, GitHub, Microsoft, LinkedIn, Reddit</Strong>, and <Strong>X</Strong>.
       </P>
       <P>
         Nothing about this is mandatory, and it does not take anything away. A company that needs
@@ -220,10 +220,10 @@ export function Integrations() {
       <P>
         X is the connector this changes most, though not in what it can do: it stays a full OAuth
         Integration exposing search, timelines, posting, replies, likes, retweets, follows and DMs.
-        What went away is its <Strong>browser login</Strong> auth mode, which kept a site password on
-        the Connection row. Connect X over OAuth instead; if you need a site Genosyn ships no
-        Integration for, keep that login in the <DocLink to="/docs/vault">Vault</DocLink> and let the
-        built-in Browser sign in under a Grant.
+        What went away is its <Strong>browser login</Strong> auth mode, which kept a site password
+        on the Connection row. Connect X over OAuth instead; if you need a site Genosyn ships no
+        Integration for, keep that login in the <DocLink to="/docs/vault">Vault</DocLink> and let
+        the built-in Browser sign in under a Grant.
       </P>
 
       <H2 id="external-mcp">Connecting an external MCP client</H2>
@@ -359,8 +359,8 @@ export function Integrations() {
       </P>
       <P>
         Two rules differ from every other connector here, and both surprise people. Where several
-        employees hold a Grant on the same Connection, the <Strong>first</Strong> one granted is
-        the one that answers incoming messages; the rest still get the outbound tools. And a person
+        employees hold a Grant on the same Connection, the <Strong>first</Strong> one granted is the
+        one that answers incoming messages; the rest still get the outbound tools. And a person
         messaging from outside is answered as a stranger — no Soul, no Skills, no company data —
         until they open the one-time link the employee replies with. Microsoft Teams and WhatsApp
         are webhook-only, so their catalog cards stay disabled until{" "}
@@ -398,15 +398,14 @@ export function Integrations() {
       <H3 id="github-engineering">Git hosts &amp; engineering grants</H3>
       <P>
         GitHub and Forgejo Connections are special: a Connection holds a list of repositories the
-        employee is allowed
-        to touch, and the runner materializes a git checkout of each allowed repository into{" "}
-        <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code> before each run. The
-        git token exists only inside a short-lived server-owned clone or refresh operation. It is
-        never copied into the checkout, an environment variable visible to the AI Employee, or a
-        reusable credential helper. A matching HTTPS Repository can reuse the same server-held
-        credential when the Connection is granted to that employee. Genosyn prefers an exact
-        owner/repository allowlist match and can use the employee&apos;s sole Connection for that
-        server when no disambiguation is needed.
+        employee is allowed to touch, and the runner materializes a git checkout of each allowed
+        repository into <Code>data/companies/&lt;co&gt;/employees/&lt;emp&gt;/repos/...</Code>{" "}
+        before each run. The git token exists only inside a short-lived server-owned clone or
+        refresh operation. It is never copied into the checkout, an environment variable visible to
+        the AI Employee, or a reusable credential helper. A matching HTTPS Repository can reuse the
+        same server-held credential when the Connection is granted to that employee. Genosyn prefers
+        an exact owner/repository allowlist match and can use the employee&apos;s sole Connection
+        for that server when no disambiguation is needed.
       </P>
 
       <H3 id="forgejo-gitea">Forgejo / Gitea</H3>
@@ -421,9 +420,9 @@ export function Integrations() {
         Connect it with two fields: the <Strong>Server URL</Strong> — the root of your install, not
         its <Code>/api/v1</Code> path — and an <Strong>Access token</Strong> generated at{" "}
         <Code>&lt;your server&gt;/user/settings/applications</Code> with repository, issue, and user
-        scopes. There is no OAuth option: an OAuth app is registered per instance, and Genosyn&apos;s
-        instance-wide app registry holds one app per Integration, which fits github.com and fits
-        nothing that a hundred companies each host separately.
+        scopes. There is no OAuth option: an OAuth app is registered per instance, and
+        Genosyn&apos;s instance-wide app registry holds one app per Integration, which fits
+        github.com and fits nothing that a hundred companies each host separately.
       </P>
       <P>
         The server URL must be <Code>https://</Code>. Genosyn sends this token on every API call and
@@ -433,9 +432,9 @@ export function Integrations() {
       </P>
       <P>
         An AI Employee granted a Forgejo Connection gets the same tools it gets on GitHub, with one
-        exception: there is no <Code>search_code</Code>. Forgejo has no code-search endpoint, so
-        the tool is absent from the Connection rather than emulated by something that would answer
-        less well than the employee grepping its own checkout.
+        exception: there is no <Code>search_code</Code>. Forgejo has no code-search endpoint, so the
+        tool is absent from the Connection rather than emulated by something that would answer less
+        well than the employee grepping its own checkout.
       </P>
       <P>
         The server URL is also what makes a Repository on that host reviewable. Genosyn will only
