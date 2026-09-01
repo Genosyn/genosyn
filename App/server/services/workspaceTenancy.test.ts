@@ -251,7 +251,28 @@ describe("createChannel", () => {
     assert.equal(await memberCount(), 0);
   });
 
-  test("refuses a foreign creator", async () => {
+  test("attribution is not validated, because it never comes from a request", async () => {
+    // `createdByUserId` is `req.userId` on the browser route — already resolved
+    // to a Membership by `requireCompanyMember` — or `Company.ownerId` derived
+    // server-side on the MCP route. Neither is caller-supplied, so checking it
+    // would buy no boundary while coupling channel creation to an invariant
+    // nothing enforces: that `Company.ownerId` always has a Membership row.
+    // Companies exist on disk for which it does not.
+    const channel = await createChannel({
+      companyId: alpha.id,
+      name: "Team",
+      topic: "",
+      kind: "public",
+      createdByUserId: "owner-with-no-membership",
+      initialMemberUserIds: [],
+      initialEmployeeIds: [],
+    });
+    assert.equal(channel.createdByUserId, "owner-with-no-membership");
+  });
+
+  test("but the caller-supplied member list still is validated", async () => {
+    // The half that IS attacker-controlled. Pinned next to the case above so
+    // the distinction cannot be lost by reading either one alone.
     await assert.rejects(
       () =>
         createChannel({
@@ -259,8 +280,8 @@ describe("createChannel", () => {
           name: "Team",
           topic: "",
           kind: "public",
-          createdByUserId: betaUser.id,
-          initialMemberUserIds: [],
+          createdByUserId: alphaUser.id,
+          initialMemberUserIds: [betaUser.id],
           initialEmployeeIds: [],
         }),
       /User not found/,
