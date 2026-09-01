@@ -471,7 +471,83 @@ export async function initDb(): Promise<void> {
     // run just below never fan out.
     AppDataSource.subscribers.push(new ResourceChangeSubscriber());
   }
-  // Run any pending migrations on boot. Idempotent -- already-run migrations
-  // are tracked in the `migrations` table that TypeORM manages.
-  await AppDataSource.runMigrations();
+  await runMigrationsExclusively();
+}
+
+/**
+ * Advisory-lock keys for the boot migration. `classid` spells "GENO"
+ * (0x47454E4F) so a `pg_locks` row is recognisably ours; `objid` 1 is the
+ * migration lock specifically, leaving the rest of the space for later needs.
+ */
+export const MIGRATION_LOCK_CLASS_ID = 0x47454e4f;
+export const MIGRATION_LOCK_OBJECT_ID = 1;
+
+/**
+ * How long a replica waits for a peer's migration before giving up.
+ *
+ * Generous, because a real migration on a large table legitimately takes
+ * minutes and killing it halfway is far worse than waiting. Bounded, because a
+ * lock held by a pod that died without releasing its session must eventually
+ * fail the boot loudly — Kubernetes then restarts and retries — rather than
+ * hang forever behind a liveness probe that never fires.
+ */
+export const MIGRATION_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * Run pending migrations under a Postgres advisory lock.
+ *
+ * `runMigrations()` reads the `migrations` table, decides what is missing, and
+ * applies it — with no lock between the read and the write. One pod is fine.
+ * Several pods starting together (a RollingUpdate, a scaled Deployment, a
+ * cluster restart) each read "nothing applied" and race the same DDL: the
+ * losers crash on `relation already exists`, and with `failureThreshold: 6` on
+ * the liveness probe that turns into a slow, partial rollout rather than an
+ * obvious failure.
+ *
+ * The lock is session-scoped and taken on a dedicated QueryRunner, so it is
+ * held for exactly the span of the migration and released even if the pool
+ * hands `runMigrations` a different connection. A crashed holder releases it
+ * when Postgres reaps the backend, which is the property a row-in-a-table
+ * lock would not have given us.
+ *
+ * SQLite is single-process by construction and has no advisory locks, so it
+ * keeps the direct call.
+ */
+export async function runMigrationsExclusively(): Promise<void> {
+  if (AppDataSource.options.type !== "postgres") {
+    // Idempotent -- already-run migrations are tracked in the `migrations`
+    // table that TypeORM manages.
+    await AppDataSource.runMigrations();
+    return;
+  }
+
+  const runner = AppDataSource.createQueryRunner();
+  let held = false;
+  try {
+    await runner.connect();
+    // Applies to advisory-lock waits too, so the acquire below fails rather
+    // than blocking boot indefinitely behind a wedged peer.
+    await runner.query(`SET lock_timeout = ${MIGRATION_LOCK_TIMEOUT_MS}`);
+    await runner.query("SELECT pg_advisory_lock($1, $2)", [
+      MIGRATION_LOCK_CLASS_ID,
+      MIGRATION_LOCK_OBJECT_ID,
+    ]);
+    held = true;
+    await AppDataSource.runMigrations();
+  } finally {
+    if (held) {
+      try {
+        await runner.query("SELECT pg_advisory_unlock($1, $2)", [
+          MIGRATION_LOCK_CLASS_ID,
+          MIGRATION_LOCK_OBJECT_ID,
+        ]);
+      } catch (error) {
+        // Releasing the session below drops the lock anyway; failing here
+        // must not mask whatever the migration itself threw.
+        // eslint-disable-next-line no-console
+        console.error("[db] failed to release the migration advisory lock:", error);
+      }
+    }
+    await runner.release();
+  }
 }
