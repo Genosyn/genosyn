@@ -157,6 +157,15 @@ body {
   }
 }
 
+/* The margin column. At 1280px the measure drops from 1024px to about 712px,
+   which still holds a 20ch heading and a 46ch lede without reflowing either,
+   and the page finally has somewhere to put a note. */
+@media (min-width: 1280px) {
+  .rail-3 {
+    grid-template-columns: 9.5rem minmax(0, 1fr) 16rem;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Instrument surfaces.
 
@@ -246,6 +255,23 @@ body {
   animation: arrive 400ms 900ms linear both;
 }
 
+/* The rotating claim. It rises rather than fades, so the line reads as the
+   next record arriving on a board rather than as a crossfade. */
+@keyframes claim-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.45em);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.claim-in {
+  animation: claim-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* Product prototype chrome. These mocks are pictures of the real UI and keep
    their own containment and scroll behaviour; the revamp mounts them on a
    plate rather than restyling their insides. */
@@ -295,6 +321,7 @@ body {
     scroll-behavior: auto;
   }
 
+  .claim-in,
   [data-sweep] .strip-draw,
   [data-sweep] .arrive-wipe,
   [data-sweep] .arrive-in,

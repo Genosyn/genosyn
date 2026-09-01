@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { GITHUB_URL } from "@/lib/constants";
-import { Board, LEAD_CLAIM, LEAD_DONE_BY, OTHERS_BEFORE_ARRIVAL } from "@/sections/Board";
+import { Board, OTHERS_BEFORE_ARRIVAL } from "@/sections/Board";
+import { Claims } from "@/sections/Claims";
 import { ActionStrip, Band, Container, Display, Lede, Note, Rail } from "@/sections/Kit";
 
 const COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
@@ -16,19 +17,20 @@ const COMMAND = "curl -fsSL https://genosyn.com/install.sh | bash";
  * default landing page, and no amount of restyling it helps. It had to go
  * rather than improve.
  *
- * What replaces it is one finished thing and its evidence.
+ * What replaces it is a promise and its rotating evidence.
  *
- * The headline used to count Runs — "Eighteen Routines ran before anyone
- * signed in" — which told a reader the scheduler had fired eighteen times.
- * That is activity, not output: it says the machine was busy and nothing about
- * whether anything now exists. It names one artefact instead, with the clock
- * time it was finished by, and both halves are read out of the board's own
- * event list (`LEAD_CLAIM`, `LEAD_DONE_BY`) so the sentence cannot drift away
- * from the picture underneath it. A reader can hold "42 reconciled payments"
- * in their head; nobody can picture eighteen Runs.
+ * The headline is the claim the product actually makes. Under it, `Claims`
+ * cycles real overnight Runs — 340 dependencies audited, 42 Stripe payments
+ * reconciled, 31 support emails answered — read out of the board's own event
+ * list rather than written for the page, so the promise and the proof cannot
+ * drift apart and a reader sees a different piece of evidence every few
+ * seconds without the headline ever moving.
  *
- * The lede then carries the breadth the headline gives up, so the page is
- * specific first and comprehensive second rather than the other way round.
+ * A single fixed artefact was tried here first ("42 Stripe payments were
+ * reconciled by 04:45"). It was more checkable and less persuasive: one
+ * reconciliation is a fact, and the product's claim is a category of facts.
+ * The rotation is what makes the difference between the two visible.
+ *
  * Then the install command, as a real object you can copy rather than a button
  * that scrolls somewhere. Then the Tuesday itself, at full width.
  */
@@ -36,21 +38,31 @@ export function Hero() {
   return (
     <Band tone="paper" open="xs" close="l" rule={false}>
       <Container>
-        <Rail sheet="01 / One Tuesday" fields={["2026-09-01", "TUE", "00:00–24:00"]}>
-          <Display scale="hero">{`${LEAD_CLAIM} by ${LEAD_DONE_BY}.`}</Display>
-
+        <Rail
+          sheet="01 / One Tuesday"
+          fields={["2026-09-01", "TUE", "00:00–24:00"]}
+          margin={
+            /* The count that used to be the lede's second sentence. It
+               supports the claim rather than making it, which is what a margin
+               is for, and it is the first place on the site where the note
+               face appears at reading size instead of in a 15px caption. */
+            <Note className="text-[1.0625rem] leading-[1.5] text-zinc-800">
+              {`${spell(OTHERS_BEFORE_ARRIVAL)} other things finished before 09:30, from a triaged inbox to 340 audited dependencies. Three were left for a person.`}
+            </Note>
+          }
+          head={
+            <>
+              <Display scale="hero">Your company can now run automatically.</Display>
+              {/* The headline makes the promise; this cycles the evidence. Every
+                  line is a real overnight Run read out of the board's own event
+                  list, so the two cannot drift apart. */}
+              <Claims className="mt-8" />
+            </>
+          }
+        >
           <Lede className="mt-6">
             Genosyn is an open-source platform for running a company with AI Employees.
           </Lede>
-
-          {/* The count moves out of the lede and is set as marginalia in the
-              note face. It is not deleted; it is demoted to the margin, which
-              is what a publication does with a figure that supports a claim
-              rather than makes it — and it is the first place on the site
-              where the third type voice appears at reading size. */}
-          <Note className="mt-5 max-w-[52ch] text-[1.0625rem] leading-[1.5] text-zinc-800">
-            {`${spell(OTHERS_BEFORE_ARRIVAL)} other things finished before 09:30, from a triaged inbox to 340 audited dependencies. Three were left for a person.`}
-          </Note>
 
           <div className="mt-10 max-w-[36rem]">
             <InstallStrip />

@@ -42,7 +42,7 @@ export function Roles() {
   const last = role.day[role.day.length - 1].time;
 
   return (
-    <Band id="roles" tone="paper" pad="l">
+    <Band id="roles" tone="paper" open="l" close="m">
       <Container>
         <Rail
           sheet="02 / One role's day"
@@ -127,7 +127,7 @@ export function Roster() {
   const routines = ROLES.reduce((total, role) => total + role.routines.length, 0);
 
   return (
-    <Band id="roster" tone="paper" pad="m">
+    <Band id="roster" tone="paper" open="s" close="s">
       <Container>
         <Rail sheet="03 / The roster" fields={[`${ROLES.length} ROLES`, `${routines} ROUTINES`]}>
           <Heading className="max-w-[20ch]">

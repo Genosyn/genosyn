@@ -102,7 +102,7 @@ const COLUMNS =
 
 export function Features() {
   return (
-    <Band id="platform" tone="paper" pad="m">
+    <Band id="platform" tone="paper" open="s" close="s">
       <Container>
         <Rail sheet="07 / Where work runs" fields={["14 PRODUCTS", "8 WORKED ROLES"]}>
           {/* The headline names a row in Fig. 1 and a product in the index

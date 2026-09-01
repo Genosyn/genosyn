@@ -114,7 +114,7 @@ const RUNS: RunLine[] = [
 
 export function Primitives() {
   return (
-    <Band pad="m">
+    <Band open="m" close="s">
       <Container>
         <Rail sheet="05 / Inside a role" fields={["BOOKKEEPER", "5 SKILLS", "4 GRANTS"]}>
           <Heading as="h2" className="max-w-[20ch]">

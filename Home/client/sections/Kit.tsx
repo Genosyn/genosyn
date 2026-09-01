@@ -190,6 +190,8 @@ export function Container({
 export function Rail({
   sheet,
   fields,
+  margin,
+  head,
   night = false,
   className = "",
   children,
@@ -198,6 +200,28 @@ export function Rail({
   sheet?: string;
   /** Mono field lines: a date, a count, a Run ref. */
   fields?: string[];
+  /**
+   * The margin column, at 1280px and above.
+   *
+   * Without it the right third of every band was structurally unreachable: the
+   * rail was a two-column grid, so a heading stopped around 540px into a
+   * 1024px content column and the outer ~470px could not hold anything. The
+   * page alternated narrow-left and full-bleed with nothing in between, which
+   * is why it read as a column of prose with pictures under it rather than as
+   * a designed spread. This is where marginalia, running counts and figure
+   * captions live; below `xl` it collapses and renders after the content.
+   */
+  margin?: ReactNode;
+  /**
+   * Content that spans the measure AND the margin.
+   *
+   * A headline is the one thing that should not be narrowed by adding a margin
+   * column. Without this the hero's measure drops from 1024px to 712px and the
+   * headline gains two lines, which is the opposite of what the third column
+   * was added to achieve. Anything here sits on its own grid row across
+   * columns two and three; the margin then starts beside the content below it.
+   */
+  head?: ReactNode;
   night?: boolean;
   className?: string;
   children: ReactNode;
@@ -205,7 +229,14 @@ export function Rail({
   const quiet = night ? "text-zinc-400" : "text-zinc-600";
 
   return (
-    <div className={`rail ${className}`}>
+    <div className={`rail ${margin ? "rail-3" : ""} ${className}`}>
+      {head && (
+        <>
+          {/* An empty gutter cell so the head lands in column two, not one. */}
+          <div aria-hidden className="hidden lg:block" />
+          <div className="xl:col-span-2">{head}</div>
+        </>
+      )}
       <div className={`hidden pr-6 text-right lg:block ${quiet}`}>
         {sheet && <div className="t-cond text-[11px] uppercase tracking-field">{sheet}</div>}
         {fields?.map((field) => (
@@ -226,7 +257,9 @@ export function Rail({
           </div>
         )}
         {children}
+        {margin && <div className="mt-10 xl:hidden">{margin}</div>}
       </div>
+      {margin && <div className="rail-margin hidden pl-10 xl:block">{margin}</div>}
     </div>
   );
 }
@@ -362,6 +395,38 @@ export function Heading({
   return (
     <Tag
       className={`t-display text-[clamp(1.75rem,3.2vw,2.6rem)] leading-[1.04] ${
+        night ? "text-paper-50" : "text-zinc-950"
+      } ${className}`}
+    >
+      {children}
+    </Tag>
+  );
+}
+
+/**
+ * A sub-heading inside a band.
+ *
+ * The ramp had a hole in it. `Heading` is 41.6px and was doing double duty as
+ * both a band's own heading and the heading of an item inside that band, so
+ * several bands had no internal hierarchy at all — the band's argument and its
+ * parts were the same size. The evidence was six `!text-[1.0625rem]` overrides
+ * scattered across five files, which is the type system telling you a step is
+ * missing rather than a call site being unusual.
+ */
+export function Subhead({
+  as: Tag = "h3",
+  night = false,
+  className = "",
+  children,
+}: {
+  as?: "h3" | "h4";
+  night?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <Tag
+      className={`t-display text-[clamp(1.125rem,1.6vw,1.375rem)] leading-[1.35] tracking-[-0.01em] ${
         night ? "text-paper-50" : "text-zinc-950"
       } ${className}`}
     >

@@ -79,12 +79,34 @@ const LAST = clock(Math.max(...OVERNIGHT.map((event) => event.at + (event.hours 
 
 export function Autonomy() {
   return (
-    <Band id="autonomy" tone="night" pad="l">
+    <Band id="autonomy" tone="night" open="m" close="m">
       <Container>
         <Rail
           night
           sheet="04 / The night shift"
           fields={["2026-09-01", `${RUNS_BEFORE_ARRIVAL} RUNS`, "0 MEMBERS"]}
+          margin={
+            /* The three numbers that carry the whole band, promoted out of the
+               mono summary line where nobody was reading them. At Heading
+               scale they are the only figures on the page set large, which is
+               what makes them read as a result rather than as metadata. */
+            <dl className="space-y-6">
+              {[
+                [String(RUNS_BEFORE_ARRIVAL), "Runs finished overnight"],
+                ["0", "Members signed in before 09:30"],
+                ["3", "Things waiting for a person"],
+              ].map(([value, label]) => (
+                <div key={label}>
+                  <dt className="t-display text-[clamp(1.75rem,3.2vw,2.6rem)] leading-none text-paper-50">
+                    {value}
+                  </dt>
+                  <dd className="mt-2">
+                    <Sheet night>{label}</Sheet>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          }
         >
           <Heading as="h2" night className="max-w-[20ch]">
             340 dependencies were audited before 03:00.

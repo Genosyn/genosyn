@@ -103,7 +103,7 @@ const LINE_TONE: Record<LineKind, string> = {
 
 export function CliShowcase() {
   return (
-    <Band id="quickstart" tone="paper" pad="m">
+    <Band id="quickstart" tone="paper" open="m" close="m">
       <Container>
         <Rail sheet="08 / Your hardware" fields={["Apache-2.0", "1 container", "Port 8471"]}>
           <Heading as="h2" className="max-w-[22ch]">

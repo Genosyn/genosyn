@@ -65,7 +65,7 @@ const RESOURCE_LINKS = [
  */
 export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
   return (
-    <Band id="install" tone="raised" pad="l">
+    <Band id="install" tone="raised" open="l" close="s">
       <Container>
         <Rail sheet={sheet} fields={["Apache-2.0", `v${__APP_VERSION__}`]}>
           <Heading as="h2" className="max-w-[16ch]">
@@ -108,7 +108,7 @@ export function InstallCta({ sheet = "Install" }: { sheet?: string } = {}) {
  */
 export function Colophon({ sheet = "Colophon" }: { sheet?: string } = {}) {
   return (
-    <Band tone="paper" pad="m">
+    <Band tone="paper" open="s" close="m">
       <Container>
         <Rail sheet={sheet} fields={[`v${__APP_VERSION__}`, "Apache-2.0"]}>
           <div className="max-w-[54ch]">

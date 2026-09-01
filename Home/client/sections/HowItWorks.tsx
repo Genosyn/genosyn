@@ -96,7 +96,7 @@ const STEPS: Step[] = [
 
 export function HowItWorks() {
   return (
-    <Band id="how-it-works" pad="m">
+    <Band id="how-it-works" open="m" close="s">
       <Container>
         <Rail sheet="06 / Setting one up" fields={["4 STEPS", "1 ROUTINE"]}>
           <Heading as="h2" className="max-w-[20ch]">
