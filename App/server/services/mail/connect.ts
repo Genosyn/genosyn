@@ -5,6 +5,7 @@ import { assertIntegrationAllowed } from "../../integrations/index.js";
 import { createApiKeyConnection, deleteConnection } from "../integrations.js";
 import { registeredOauthApps } from "../oauthApps.js";
 import { createMailAccount } from "./accounts.js";
+import { assertMailConnectionAllowed } from "./hostPolicy.js";
 import {
   discoverMailbox,
   type MailboxConnectRoute,
@@ -118,6 +119,16 @@ export async function connectImapMailbox(args: {
   userId: string | null;
   input: ImapConnectInput;
 }): Promise<{ connection: IntegrationConnection; account: MailAccount }> {
+  // Before the Connection row exists: a hosted tenant must not be able to
+  // store an endpoint pointing into the operator's network, whether or not
+  // anything ever connects to it. The defaults mirror
+  // `parseImapConnectionConfig`, so what is checked is what would be dialled.
+  await assertMailConnectionAllowed({
+    imapHost: args.input.imapHost ?? "",
+    imapPort: args.input.imapPort ?? 993,
+    smtpHost: args.input.smtpHost ?? "",
+    smtpPort: args.input.smtpPort ?? 587,
+  });
   const address = args.input.address.trim().toLowerCase();
   const existing = await AppDataSource.getRepository(MailAccount).findOneBy({
     companyId: args.companyId,

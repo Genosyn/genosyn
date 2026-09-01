@@ -3,6 +3,7 @@ import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
 
 import type { ImapFolder, ImapLocation, ParsedSource } from "./imapModel.js";
+import { assertMailConnectionAllowed, assertMailHostAllowed } from "./hostPolicy.js";
 
 /**
  * The networked half of the IMAP mailbox backend: credentials, a pooled
@@ -210,6 +211,10 @@ export async function withImap<T>(
   config: ImapConnectionConfig,
   work: (client: ImapFlow) => Promise<T>,
 ): Promise<T> {
+  // Checked at the operation, not only where the row is written, so a
+  // connection stored before this guard existed cannot still reach a private
+  // address on a shared install.
+  await assertMailHostAllowed("imap", config.imapHost, config.imapPort);
   for (let attempt = 0; attempt < 2; attempt++) {
     const entry = await acquire(accountId, config);
     const run = entry.chain.then(
@@ -384,6 +389,7 @@ export async function smtpSend(args: {
   envelope: { from: string; to: string[] };
 }): Promise<void> {
   if (args.envelope.to.length === 0) throw new Error("Recipient (to) is required");
+  await assertMailHostAllowed("smtp", args.config.smtpHost, args.config.smtpPort);
   const transport = nodemailer.createTransport({
     host: args.config.smtpHost,
     port: args.config.smtpPort,
@@ -418,6 +424,9 @@ export async function verifyImapCredentials(config: ImapConnectionConfig): Promi
   smtpOk: boolean;
   smtpMessage: string;
 }> {
+  // The connection test is the surface that reads a result back to the tenant,
+  // so it is the one that would be a port scanner. Both halves are checked.
+  await assertMailConnectionAllowed(config);
   const client = buildClient(config);
   let folders: ImapFolder[];
   try {
