@@ -144,6 +144,18 @@ export function Introduction() {
         <Strong>Nothing needs you right now</Strong> and leaves it at that.
       </P>
       <P>
+        <Strong>Clicking a row on Home keeps you on Home.</Strong> An unread channel opens the
+        messages themselves, with a line marking where your unread run starts and a box to reply
+        from; a todo opens its description, pickers and comments; an approval opens what the AI
+        Employee actually asked for, with Approve and Reject on it; a failing health check opens
+        the rows behind the number; a failed{" "}
+        <DocLink to="/docs/routines">routine</DocLink> opens its log. Each one carries a button to
+        the full page — <Strong>Open in Workspace</Strong>, <Strong>Open the board</Strong>,{" "}
+        <Strong>Approvals inbox</Strong> — for when you want the context around the thing rather
+        than the thing. ⌘-click (Ctrl-click on Windows and Linux) or middle-click a row to skip the
+        peek and go straight to the full page, as you always could.
+      </P>
+      <P>
         To get anywhere else, press <Code>⌘K</Code> (<Code>Ctrl K</Code> on Windows and Linux). That
         opens the command palette: every section in one searchable list, with Essentials first —
         type a few letters, press <Code>↵</Code>, done. It answers to the words you already know, so

@@ -2974,6 +2974,12 @@ export type HomeChannel = {
   kind: string;
   label: string;
   unreadCount: number;
+  /**
+   * When this Member last read the channel. The unread count is everything
+   * after it, so a peek can draw the "new messages" line in the right place
+   * rather than guessing from the tail of the page. Null = never opened.
+   */
+  lastReadAt: string | null;
 };
 
 export type HomeFailedRun = {

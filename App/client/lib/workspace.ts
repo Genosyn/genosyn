@@ -56,6 +56,8 @@ export type WorkspaceChannel = {
   lastMessageAt: string | null;
   members: WorkspaceAuthor[];
   unreadCount: number;
+  /** Boundary `unreadCount` is measured from; null when never opened. */
+  lastReadAt: string | null;
 };
 
 export type WorkspaceChannelWebhookSettings = {

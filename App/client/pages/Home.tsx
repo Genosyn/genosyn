@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
@@ -31,6 +31,7 @@ import {
 import {
   api,
   Company,
+  Employee,
   HomeApproval,
   HomeChannel,
   HomeData,
@@ -38,17 +39,26 @@ import {
   HomeTodo,
   HealthSeverity,
   Me,
+  Member,
   Notification as NotificationRow,
   NotificationKind,
   TldrItem,
   TodoPriority,
 } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
+import { ApprovalPeekModal } from "../components/home/ApprovalPeekModal";
+import { ChannelPeekModal } from "../components/home/ChannelPeekModal";
+import { HealthCheckPeekModal } from "../components/home/HealthCheckPeekModal";
+import { NotificationPeekModal } from "../components/home/NotificationPeekModal";
+import { TodoPeekModal } from "../components/home/TodoPeekModal";
+import { RunLiveModal } from "../components/routines/RunViews";
+import { TldrQuestions } from "../components/tldrs/TldrQuestions";
+import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
 import { ChatMarkdown } from "../components/ChatMarkdown";
 import { DecisionCard } from "../components/decisions/DecisionCard";
 import { Avatar, employeeAvatarUrl, memberAvatarUrl } from "../components/ui/Avatar";
 import { Spinner } from "../components/ui/Spinner";
-import { Button, buttonClassName } from "../components/ui/Button";
+import { Button } from "../components/ui/Button";
 import { useBackgroundAction, useDialog } from "../components/ui/Dialog";
 import { useCompanySocketSubscription, useLiveRefetch } from "../components/CompanySocket";
 import { SetupBanner } from "../components/SetupBanner";
@@ -72,9 +82,37 @@ import { clsx } from "../components/ui/clsx";
 
 const PUSH_PROMPT_DISMISSED_KEY = "genosyn.pushPromptDismissed";
 
+/**
+ * Which row Home currently has open over itself.
+ *
+ * One piece of state for the whole page rather than one per card: only ever
+ * one of these is open, and eight independent `open` flags is how two of them
+ * end up on screen at once.
+ */
+type HomeOverlay =
+  | { kind: "channel"; channel: HomeChannel }
+  | { kind: "notification"; notification: NotificationRow }
+  | { kind: "todo"; todo: HomeTodo; review: boolean }
+  | { kind: "approval"; approval: HomeApproval }
+  /**
+   * `onDismiss` rides along because the "I've seen this" flag lives in the
+   * health card's own state (it is per-device, not server state), and the
+   * modal offers the same dismissal the row does.
+   */
+  | { kind: "health"; checkId: string; title: string; onDismiss: () => void }
+  | { kind: "run"; run: HomeFailedRun };
+
 export default function HomePage({ company, me }: { company: Company; me: Me }) {
   const [data, setData] = React.useState<HomeData | null>(null);
+  const [overlay, setOverlay] = React.useState<HomeOverlay | null>(null);
   const background = useBackgroundAction();
+
+  // The todo peek needs the company's people to fill its assignee and reviewer
+  // pickers. Fetched once beside the Home payload rather than on each open, so
+  // the modal has them the moment it appears; both are small reads and a
+  // failure just leaves the pickers listing nobody.
+  const [employees, setEmployees] = React.useState<Employee[]>([]);
+  const [members, setMembers] = React.useState<Member[]>([]);
 
   const reload = React.useCallback(async () => {
     try {
@@ -87,8 +125,25 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
 
   React.useEffect(() => {
     setData(null);
+    setOverlay(null);
     reload();
   }, [reload]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [emps, mems] = await Promise.all([
+        api.get<Employee[]>(`/api/companies/${company.id}/employees`).catch(() => [] as Employee[]),
+        api.get<Member[]>(`/api/companies/${company.id}/members`).catch(() => [] as Member[]),
+      ]);
+      if (cancelled) return;
+      setEmployees(emps);
+      setMembers(mems);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [company.id]);
 
   // Live-refresh when something lands in my bell, and on tab focus so the
   // page is current when the user comes back to it.
@@ -155,26 +210,157 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
         ) : hasAnythingToShow(data) ? (
           <>
             <DecisionStack company={company} data={data} onResolved={reload} />
-            <FailedRoutinesAlert company={company} data={data} onChanged={reload} />
+            <FailedRoutinesAlert
+              company={company}
+              data={data}
+              onChanged={reload}
+              onOpen={setOverlay}
+            />
             <HomeTldrPanel company={company} data={data} onDismiss={dismissTldr} />
             <StatStrip company={company} data={data} />
             {/* `empty:hidden` so the grid's own top margin goes away too on a
                 day when every card inside it has hidden itself. */}
             <div className="mt-4 grid grid-cols-1 gap-4 empty:hidden lg:grid-cols-2">
-              <AttentionCard company={company} data={data} onChanged={reload} />
-              <SystemHealthCard company={company} data={data} />
-              <MyTodosCard company={company} data={data} />
-              <MessagesCard company={company} data={data} />
-              <ReviewsCard company={company} data={data} />
-              <ApprovalsCard company={company} data={data} />
+              <AttentionCard company={company} data={data} onOpen={setOverlay} />
+              <SystemHealthCard company={company} data={data} onOpen={setOverlay} />
+              <MyTodosCard company={company} data={data} onOpen={setOverlay} />
+              <MessagesCard company={company} data={data} onOpen={setOverlay} />
+              <ReviewsCard company={company} data={data} onOpen={setOverlay} />
+              <ApprovalsCard company={company} data={data} onOpen={setOverlay} />
             </div>
           </>
         ) : (
           <AllClear company={company} data={data} />
         )}
       </div>
+      <HomeOverlayHost
+        company={company}
+        me={me}
+        data={data}
+        overlay={overlay}
+        employees={employees}
+        members={members}
+        onClose={() => setOverlay(null)}
+        onChanged={reload}
+      />
     </ContextualLayout>
   );
+}
+
+/**
+ * Whichever row is open, rendered once at the bottom of the page.
+ *
+ * Every one of these used to be a navigation. They are modals now because the
+ * queues on Home are things you answer, not places you go: reading four
+ * messages, approving one gate, marking one todo done. The full page each row
+ * used to jump to is still a labelled button inside its modal, for the times
+ * you want the context around the thing rather than the thing.
+ */
+function HomeOverlayHost({
+  company,
+  me,
+  data,
+  overlay,
+  employees,
+  members,
+  onClose,
+  onChanged,
+}: {
+  company: Company;
+  me: Me;
+  data: HomeData | null;
+  overlay: HomeOverlay | null;
+  employees: Employee[];
+  members: Member[];
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  if (!overlay) return null;
+  switch (overlay.kind) {
+    case "channel":
+      return (
+        <ChannelPeekModal
+          company={company}
+          me={me}
+          channel={overlay.channel}
+          onClose={onClose}
+          onRead={onChanged}
+        />
+      );
+    case "notification":
+      return (
+        <NotificationPeekModal
+          company={company}
+          notification={overlay.notification}
+          decision={
+            overlay.notification.entityKind === "decision"
+              ? (data?.decisions.find((d) => d.id === overlay.notification.entityId) ?? null)
+              : null
+          }
+          onClose={onClose}
+          onChanged={onChanged}
+        />
+      );
+    case "todo":
+      return (
+        <TodoPeekModal
+          company={company}
+          row={overlay.todo}
+          review={overlay.review}
+          employees={employees}
+          members={members}
+          onClose={onClose}
+          onChanged={onChanged}
+        />
+      );
+    case "approval":
+      return (
+        <ApprovalPeekModal
+          company={company}
+          approval={overlay.approval}
+          onClose={onClose}
+          onDecided={onChanged}
+        />
+      );
+    case "health":
+      return (
+        <HealthCheckPeekModal
+          company={company}
+          checkId={overlay.checkId}
+          title={overlay.title}
+          onClose={onClose}
+          onDismiss={overlay.onDismiss}
+        />
+      );
+    case "run":
+      // The routines page's own run viewer — it already tails the log and
+      // shows the checks verdict, so Home has no business growing a second
+      // one.
+      //
+      // `onRetry` is deliberately not passed, which is what suppresses
+      // RunLiveModal's own Retry button. Home already decides who may start a
+      // routine again and on what terms: only an `interrupted` run offers it,
+      // and only behind the confirm in {@link FailedRoutinesAlert} warning
+      // that the run may already have sent the email or moved the money. A
+      // second, unguarded Retry inside this modal would route around both.
+      return (
+        <RunLiveModal
+          key={overlay.run.runId}
+          company={company}
+          routine={{ id: overlay.run.routineId, name: overlay.run.routineName }}
+          run={{
+            id: overlay.run.runId,
+            routineId: overlay.run.routineId,
+            startedAt: overlay.run.startedAt,
+            finishedAt: null,
+            status: overlay.run.status,
+            exitCode: overlay.run.exitCode,
+            createdAt: overlay.run.startedAt,
+          }}
+          onClose={onClose}
+        />
+      );
+  }
 }
 
 // ───────────────────────── visibility ────────────────────────────────────────
@@ -514,11 +700,13 @@ function FailedRoutinesAlert({
   company,
   data,
   onChanged,
+  onOpen,
 }: {
   company: Company;
   data: HomeData;
   /** Refetch Home data after a run is rerun or dismissed so the panel updates. */
   onChanged: () => Promise<void> | void;
+  onOpen: (overlay: HomeOverlay) => void;
 }) {
   const dialog = useDialog();
   // Which row is mid-request, and which of its two buttons owns the spinner.
@@ -596,8 +784,9 @@ function FailedRoutinesAlert({
       <ul className="divide-y divide-rose-100 dark:divide-rose-500/15">
         {data.failedRuns.map((r) => (
           <li key={r.runId} className="flex items-stretch">
-            <Link
+            <HomeRow
               to={failedRunLink(company, r)}
+              onOpen={() => onOpen({ kind: "run", run: r })}
               className="flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 hover:bg-rose-100/50 dark:hover:bg-rose-500/10"
             >
               <Avatar
@@ -617,7 +806,7 @@ function FailedRoutinesAlert({
               <span className="shrink-0 rounded border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-300">
                 {failedRunBadge(r)}
               </span>
-            </Link>
+            </HomeRow>
             {/* An interrupted run is work that never happened, not a routine
                 that misbehaved — offer the redo right where the failure is. */}
             {r.status === "interrupted" && (
@@ -674,6 +863,11 @@ function HomeTldrPanel({
   data: HomeData;
   onDismiss: (item: TldrItem) => void;
 }) {
+  // Which briefings have their "ask something else" composer open. Discussing
+  // one used to mean a trip to the TLDRs page and a scroll back to the card
+  // you were already reading; the conversation belongs under the briefing, and
+  // the briefing is right here.
+  const [discussing, setDiscussing] = React.useState<Record<string, boolean>>({});
   if (data.tldrs.length === 0) return null;
   const visible = data.tldrs.slice(0, 3);
   const hidden = Math.max(0, data.unreadTldrCount - visible.length);
@@ -764,23 +958,26 @@ function HomeTldrPanel({
                     </span>
                   )}
                 </div>
-                <div className="mt-3">
-                  {/* The conversation lives beside the briefing itself. The
-                      hash lands on that card; `discuss` opens it there, so one
-                      click still ends in a composer rather than a scroll. */}
-                  <Link
-                    to={`/c/${company.slug}/tldrs?discuss=${item.id}#tldr-${item.id}`}
-                    className={buttonClassName({ variant: "secondary", size: "sm" })}
-                  >
-                    <MessageSquare size={14} />
-                    Discuss
-                    {item.questionCount > 0 && (
-                      <span className="tabular-nums text-slate-400 dark:text-slate-500">
-                        {item.questionCount}
-                      </span>
-                    )}
-                  </Link>
-                </div>
+                {/* The conversation lives under the briefing itself — the same
+                    cards the TLDRs page renders, so a question asked here and
+                    a question asked there are the same thread. */}
+                {!discussing[item.id] && item.questionCount === 0 && (
+                  <div className="mt-3">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setDiscussing((prev) => ({ ...prev, [item.id]: true }))}
+                    >
+                      <MessageSquare size={14} /> Discuss
+                    </Button>
+                  </div>
+                )}
+                <TldrQuestions
+                  company={company}
+                  item={item}
+                  open={discussing[item.id] ?? false}
+                  onOpenChange={(next) => setDiscussing((prev) => ({ ...prev, [item.id]: next }))}
+                />
               </div>
             </div>
           </article>
@@ -852,24 +1049,32 @@ function HomeCard({
 function AttentionCard({
   company,
   data,
-  onChanged,
+  onOpen,
 }: {
   company: Company;
   data: HomeData;
-  onChanged: () => void;
+  onOpen: (overlay: HomeOverlay) => void;
 }) {
-  const navigate = useNavigate();
+  const background = useBackgroundAction();
 
-  async function open(n: NotificationRow) {
-    try {
-      await api.post(`/api/companies/${company.id}/notifications/mark-read`, {
-        notificationId: n.id,
-      });
-    } catch {
-      // Navigation wins even if the read flag failed to persist.
-    }
-    onChanged();
-    if (n.link) navigate(n.link);
+  /**
+   * Open it, and mark it read on the way.
+   *
+   * This card lists unread notifications only, so marking read is what makes a
+   * row leave — which is why it now happens when you actually look at the
+   * thing rather than the instant you click. The read call is fire-and-forget
+   * against a modal that is already open: if it fails, the row is still there
+   * next refetch, which is the harmless direction to fail in.
+   */
+  function open(n: NotificationRow) {
+    onOpen({ kind: "notification", notification: n });
+    background(
+      () =>
+        api.post(`/api/companies/${company.id}/notifications/mark-read`, {
+          notificationId: n.id,
+        }),
+      { title: "Couldn’t mark the notification read" },
+    );
   }
 
   if (data.notifications.length === 0) return null;
@@ -884,8 +1089,12 @@ function AttentionCard({
       <ul className="divide-y divide-slate-100 dark:divide-slate-800">
         {data.notifications.map((n) => (
           <li key={n.id}>
-            <button
-              onClick={() => open(n)}
+            <HomeRow
+              // Only a notification carrying a link has a full page to fall
+              // back to; the rest are the notification itself, so the row
+              // points at Home and the modal is the whole story.
+              to={n.link ?? `/c/${company.slug}`}
+              onOpen={() => open(n)}
               className="flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
             >
               <NotificationAvatar company={company} n={n} />
@@ -897,7 +1106,7 @@ function AttentionCard({
                   {formatRelative(n.createdAt)}
                 </span>
               </span>
-            </button>
+            </HomeRow>
           </li>
         ))}
       </ul>
@@ -1051,6 +1260,40 @@ const KIND_TONE: Record<NotificationKind, { bg: string; fg: string }> = {
   },
 };
 
+/**
+ * A queue row: a real link that opens in place on a plain click.
+ *
+ * Keeping the anchor is the point. ⌘-click, middle-click and "open in new
+ * tab" keep working, the browser still previews the destination in the status
+ * bar, and the modal is what an ordinary click gets — a product affordance
+ * added without taking a browser one away.
+ */
+function HomeRow({
+  to,
+  onOpen,
+  className,
+  children,
+}: {
+  to: string;
+  onOpen: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      to={to}
+      onClick={(event) => {
+        if (!shouldOpenEventInPlace(event)) return;
+        event.preventDefault();
+        onOpen();
+      }}
+      className={className}
+    >
+      {children}
+    </Link>
+  );
+}
+
 // ───────────────────────── todos / reviews cards ─────────────────────────────
 
 const PRIORITY_DOT: Record<TodoPriority, string> = {
@@ -1061,15 +1304,26 @@ const PRIORITY_DOT: Record<TodoPriority, string> = {
   urgent: "bg-red-500",
 };
 
-function TodoList({ company, todos }: { company: Company; todos: HomeTodo[] }) {
+function TodoList({
+  company,
+  todos,
+  review,
+  onOpen,
+}: {
+  company: Company;
+  todos: HomeTodo[];
+  review: boolean;
+  onOpen: (overlay: HomeOverlay) => void;
+}) {
   return (
     <ul className="divide-y divide-slate-100 dark:divide-slate-800">
       {todos.map((t) => {
         const due = formatDue(t.dueAt);
         return (
           <li key={t.id}>
-            <Link
+            <HomeRow
               to={`/c/${company.slug}/tasks/p/${t.project.slug}`}
+              onOpen={() => onOpen({ kind: "todo", todo: t, review })}
               className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
             >
               <span
@@ -1087,7 +1341,7 @@ function TodoList({ company, todos }: { company: Company; todos: HomeTodo[] }) {
                   <Calendar size={11} /> {due.label}
                 </span>
               )}
-            </Link>
+            </HomeRow>
           </li>
         );
       })}
@@ -1095,7 +1349,15 @@ function TodoList({ company, todos }: { company: Company; todos: HomeTodo[] }) {
   );
 }
 
-function MyTodosCard({ company, data }: { company: Company; data: HomeData }) {
+function MyTodosCard({
+  company,
+  data,
+  onOpen,
+}: {
+  company: Company;
+  data: HomeData;
+  onOpen: (overlay: HomeOverlay) => void;
+}) {
   if (data.myTodos.length === 0) return null;
   return (
     <HomeCard
@@ -1105,12 +1367,20 @@ function MyTodosCard({ company, data }: { company: Company; data: HomeData }) {
       linkTo={`/c/${company.slug}/tasks`}
       linkLabel="All tasks"
     >
-      <TodoList company={company} todos={data.myTodos} />
+      <TodoList company={company} todos={data.myTodos} review={false} onOpen={onOpen} />
     </HomeCard>
   );
 }
 
-function ReviewsCard({ company, data }: { company: Company; data: HomeData }) {
+function ReviewsCard({
+  company,
+  data,
+  onOpen,
+}: {
+  company: Company;
+  data: HomeData;
+  onOpen: (overlay: HomeOverlay) => void;
+}) {
   if (data.reviewTodos.length === 0) return null;
   return (
     <HomeCard
@@ -1120,14 +1390,22 @@ function ReviewsCard({ company, data }: { company: Company; data: HomeData }) {
       linkTo={`/c/${company.slug}/tasks/review`}
       linkLabel="Review queue"
     >
-      <TodoList company={company} todos={data.reviewTodos} />
+      <TodoList company={company} todos={data.reviewTodos} review onOpen={onOpen} />
     </HomeCard>
   );
 }
 
 // ───────────────────────── messages card ─────────────────────────────────────
 
-function MessagesCard({ company, data }: { company: Company; data: HomeData }) {
+function MessagesCard({
+  company,
+  data,
+  onOpen,
+}: {
+  company: Company;
+  data: HomeData;
+  onOpen: (overlay: HomeOverlay) => void;
+}) {
   if (data.unreadChannels.length === 0) return null;
   return (
     <HomeCard
@@ -1140,8 +1418,9 @@ function MessagesCard({ company, data }: { company: Company; data: HomeData }) {
       <ul className="divide-y divide-slate-100 dark:divide-slate-800">
         {data.unreadChannels.map((c: HomeChannel) => (
           <li key={c.id}>
-            <Link
+            <HomeRow
               to={`/c/${company.slug}/workspace/${c.id}`}
+              onOpen={() => onOpen({ kind: "channel", channel: c })}
               className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
             >
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-indigo-100 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
@@ -1153,7 +1432,7 @@ function MessagesCard({ company, data }: { company: Company; data: HomeData }) {
               <span className="shrink-0 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums leading-none text-white">
                 {c.unreadCount > 99 ? "99+" : c.unreadCount}
               </span>
-            </Link>
+            </HomeRow>
           </li>
         ))}
       </ul>
@@ -1172,7 +1451,15 @@ function MessagesCard({ company, data }: { company: Company; data: HomeData }) {
  * company's full backlog, so it can exceed the rows shown when the server
  * withheld a vault-capture row from a non-admin Member.
  */
-function ApprovalsCard({ company, data }: { company: Company; data: HomeData }) {
+function ApprovalsCard({
+  company,
+  data,
+  onOpen,
+}: {
+  company: Company;
+  data: HomeData;
+  onOpen: (overlay: HomeOverlay) => void;
+}) {
   if (data.approvals.length === 0) return null;
   return (
     <HomeCard
@@ -1185,8 +1472,9 @@ function ApprovalsCard({ company, data }: { company: Company; data: HomeData }) 
       <ul className="divide-y divide-slate-100 dark:divide-slate-800">
         {data.approvals.map((a: HomeApproval) => (
           <li key={a.id}>
-            <Link
+            <HomeRow
               to={`/c/${company.slug}/approvals`}
+              onOpen={() => onOpen({ kind: "approval", approval: a })}
               className="flex items-start gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
             >
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
@@ -1201,7 +1489,7 @@ function ApprovalsCard({ company, data }: { company: Company; data: HomeData }) 
                   {formatRelative(a.requestedAt)}
                 </span>
               </span>
-            </Link>
+            </HomeRow>
           </li>
         ))}
       </ul>
@@ -1251,7 +1539,15 @@ function saveHealthDismissed(companyId: string, map: Record<string, number>) {
   }
 }
 
-function SystemHealthCard({ company, data }: { company: Company; data: HomeData }) {
+function SystemHealthCard({
+  company,
+  data,
+  onOpen,
+}: {
+  company: Company;
+  data: HomeData;
+  onOpen: (overlay: HomeOverlay) => void;
+}) {
   const failing = data.systemHealth.checks.filter((c) => c.severity !== "ok");
   const failingKey = failing
     .map((c) => c.id)
@@ -1327,8 +1623,16 @@ function SystemHealthCard({ company, data }: { company: Company; data: HomeData 
         <ul className="divide-y divide-slate-100 dark:divide-slate-800">
           {visible.map((c) => (
             <li key={c.id} className="flex items-center">
-              <Link
+              <HomeRow
                 to={`/c/${company.slug}/settings/system-health`}
+                onOpen={() =>
+                  onOpen({
+                    kind: "health",
+                    checkId: c.id,
+                    title: c.title,
+                    onDismiss: () => dismiss(c.id, c.count),
+                  })
+                }
                 className="flex min-w-0 flex-1 items-center gap-3 py-2.5 pl-4 pr-2 hover:bg-slate-50 dark:hover:bg-slate-800/60"
               >
                 <span
@@ -1348,7 +1652,7 @@ function SystemHealthCard({ company, data }: { company: Company; data: HomeData 
                 >
                   {c.count}
                 </span>
-              </Link>
+              </HomeRow>
               <button
                 type="button"
                 onClick={() => dismiss(c.id, c.count)}

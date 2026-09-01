@@ -64,6 +64,13 @@ export type ChannelSummary = {
   lastMessageAt: string | null;
   members: AuthorSnapshot[];
   unreadCount: number;
+  /**
+   * When the viewer last read this channel — the boundary `unreadCount` is
+   * counted from. Sent so a surface can draw the "new messages" line where the
+   * count actually starts instead of guessing from the tail of the page.
+   * Null for a viewer who has never opened the channel (everything is new).
+   */
+  lastReadAt: string | null;
 };
 
 export type MessageSummary = {
@@ -856,6 +863,7 @@ async function hydrateChannel(c: Channel, viewerUserId: string): Promise<Channel
     lastMessageAt: c.lastMessageAt?.toISOString() ?? null,
     members: snapshots,
     unreadCount,
+    lastReadAt: myMember?.lastReadAt?.toISOString() ?? null,
   };
 }
 

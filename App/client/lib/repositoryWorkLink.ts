@@ -200,33 +200,10 @@ function appendWorkTargets(
   }
 }
 
-/** What a click handler needs to know, without depending on the DOM. */
-export type LinkClickIntent = {
-  /** 0 is the primary button. */
-  button?: number;
-  metaKey?: boolean;
-  ctrlKey?: boolean;
-  shiftKey?: boolean;
-  altKey?: boolean;
-  defaultPrevented?: boolean;
-  /** The anchor's `target` attribute, when it has one. */
-  anchorTarget?: string | null;
-};
-
 /**
  * Whether a click on a work-session link should open the panel instead of
- * navigating.
- *
- * Only a plain left click. ⌘/Ctrl-click, shift-click, and middle-click are how
- * people deliberately ask for a new tab or window, and a panel that swallowed
- * them would be taking away a browser affordance rather than adding a product
- * one. An anchor aimed at another target already says where it wants to open.
+ * navigating. The rule itself is shared — Home asks the same question of its
+ * own rows — and lives in `lib/inPlaceLink.ts`.
  */
-export function shouldOpenWorkLinkInPanel(intent: LinkClickIntent): boolean {
-  if (intent.defaultPrevented) return false;
-  if ((intent.button ?? 0) !== 0) return false;
-  if (intent.metaKey || intent.ctrlKey || intent.shiftKey || intent.altKey) return false;
-  const target = (intent.anchorTarget ?? "").trim().toLowerCase();
-  if (target && target !== "_self") return false;
-  return true;
-}
+export { shouldOpenInPlace as shouldOpenWorkLinkInPanel } from "./inPlaceLink";
+export type { LinkClickIntent } from "./inPlaceLink";

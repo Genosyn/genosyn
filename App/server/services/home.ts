@@ -57,6 +57,8 @@ export type HomeChannel = {
   /** Display label — channel name, or the counterparty for DMs. */
   label: string;
   unreadCount: number;
+  /** Boundary the unread count is measured from; null when never opened. */
+  lastReadAt: string | null;
 };
 
 export type HomeFailedRun = {
@@ -234,7 +236,13 @@ export async function getHomeData(params: {
         c.kind === "dm"
           ? others.map((m) => m.name).join(", ") || "Direct message"
           : `#${c.name ?? c.slug ?? "channel"}`;
-      return { id: c.id, kind: c.kind, label, unreadCount: c.unreadCount };
+      return {
+        id: c.id,
+        kind: c.kind,
+        label,
+        unreadCount: c.unreadCount,
+        lastReadAt: c.lastReadAt,
+      };
     });
 
   const employees = await AppDataSource.getRepository(AIEmployee).find({

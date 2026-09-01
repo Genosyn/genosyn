@@ -520,9 +520,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         <Code>interrupted</Code> with no retry still scheduled sends a bell (and web push)
         notification to the company&apos;s owners and admins and to the Member the employee reports
         to, deep-linked to the Run log. The Home page additionally shows a{""}
-        <Strong>Failed routines</Strong> panel for anything that broke in the last 24 hours, and
-        every <Strong>Journal</Strong> entry for a Run links straight to that routine&apos;s run
-        history — where the Retry button is one click away. Once you&apos;ve looked at a failure,
+        <Strong>Failed routines</Strong> panel for anything that broke in the last 24 hours —
+        clicking a row there opens that Run&apos;s log over Home rather than sending you to the
+        routine — and every <Strong>Journal</Strong> entry for a Run links straight to that
+        routine&apos;s run history, where the Retry button is one click away. Once you&apos;ve looked at a failure,
         hit the <Strong>✕</Strong> on its row to <Strong>dismiss</Strong> it — the run stays in the
         routine&apos;s history, but it drops off the panel (and out of the System Health failed-runs
         count) so it stops nagging the whole team.

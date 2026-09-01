@@ -4087,6 +4087,23 @@ of the original V1 backlog has shipped — what remains is mostly
       approvals, unread channels/DMs, the latest personally unread TLDR,
       today's journal digest, section directory (Employees roster moved to
       `/employees`)
+- [x] **Home answers in place** — every queue row on Home opens over the
+      page instead of navigating away from it. An unread channel opens its
+      messages with a "New" line at the server's own unread boundary
+      (`ChannelMember.lastReadAt`, now on the channel DTO) and a reply box;
+      a todo or review opens the project board's own detail panel with its
+      resolve buttons; an approval opens what the employee asked for, the
+      consequence of approving, and Approve / Reject; a health check opens
+      the rows behind its number; a failed Run opens `RunLiveModal`; a
+      notification opens its body — and embeds the Decision card when it is
+      one — instead of marking itself read on a mis-click. TLDR questions
+      answer under the briefing on Home rather than on `/tldrs`.
+      Each peek carries a labelled button to the full page, and rows stay
+      real anchors so ⌘-click still opens it. The detail surfaces are
+      shared components, not second copies:
+      `components/workspace/MessageList`, `components/todos/TodoDetail`,
+      `components/health/HealthCheckDetail`,
+      `components/approvals/approvalCopy`
 - [x] **SSO / Google login** — instance-wide, Admin → SSO, disabled by
       default; see M16
 - [x] **2FA (TOTP + passkeys / security keys)** — see M15

@@ -1,16 +1,7 @@
 import React from "react";
-import {
-  Award,
-  Check,
-  Globe,
-  Megaphone,
-  Plug,
-  ShieldCheck,
-  ShieldQuestion,
-  X,
-  Zap,
-} from "lucide-react";
-import { api, Approval, ApprovalKind, ApprovalStatus, Company } from "../lib/api";
+import { Check, X } from "lucide-react";
+import { api, Approval, ApprovalStatus, Company } from "../lib/api";
+import { approvalCopy } from "../components/approvals/approvalCopy";
 import { errorMessage } from "../lib/errors";
 import { Button } from "../components/ui/Button";
 import { Card, CardBody } from "../components/ui/Card";
@@ -27,8 +18,10 @@ import { useLiveRefetch } from "../components/CompanySocket";
  * payments over a Connection's threshold, browser form submits
  * (`browserApprovalRequired` — the AI re-fires via `browser_resume` after
  * approval, in the same turn or any later one), guarded MCP tool calls,
- * and ad-spend mutations. The `copyFor` switch below is the per-kind
- * rendering contract.
+ * and ad-spend mutations. `approvalCopy` in
+ * `components/approvals/approvalCopy.ts` is the per-kind rendering contract,
+ * shared with the peek Home opens over a pending row so the two surfaces
+ * cannot describe the same gate differently.
  *
  * Decided rows stick around so the inbox doubles as a recent history of
  * what was gated and what the human decided.
@@ -42,79 +35,6 @@ const STATUS_STYLE: Record<ApprovalStatus, string> = {
   rejected: "bg-rose-50 text-rose-700 border-rose-200",
   expired: "bg-slate-50 text-slate-600 border-slate-200",
 };
-
-type ApprovalCopy = {
-  title: string;
-  subtitle: string;
-  Icon: typeof ShieldCheck;
-  iconClass: string;
-};
-
-function copyFor(a: Approval): ApprovalCopy {
-  switch (a.kind as ApprovalKind) {
-    case "lightning_payment":
-      return {
-        title: a.title ?? "Lightning payment",
-        subtitle: a.summary ?? "Send a Lightning payment",
-        Icon: Zap,
-        iconClass: "text-amber-500",
-      };
-    case "browser_action":
-      // Browser actions don't run server-side — the model re-fires via
-      // browser_resume once the row flips to approved. The re-fire is
-      // bound to the approved page and runs once.
-      return {
-        title: a.title ?? "Browser submit",
-        subtitle: a.summary ?? "AI employee wants to submit a form",
-        Icon: Globe,
-        iconClass: "text-indigo-500",
-      };
-    case "mcp_tool":
-      return {
-        title: a.title ?? "Guarded MCP tool call",
-        subtitle: a.summary ?? "AI employee wants to run a guarded tool",
-        Icon: Plug,
-        iconClass: "text-sky-600",
-      };
-    case "ad_spend":
-      return {
-        title: a.title ?? "Ad spend change",
-        subtitle: a.summary ?? "AI employee wants to change ad spend",
-        Icon: Megaphone,
-        iconClass: "text-rose-500",
-      };
-    case "autonomy_promotion":
-      // The eligibility sweep's proposal, not the employee's request. The
-      // server-set summary is the evidence sentence; approving executes the
-      // settings change (an AutonomyWaiver is granted, the gate goes quiet).
-      return {
-        title: a.title ?? "Autonomy promotion",
-        subtitle: a.summary ?? "Earned autonomy — approving switches the named gate off",
-        Icon: Award,
-        iconClass: "text-emerald-600",
-      };
-    case "tainted_tool":
-      // The turn read web content before a high-risk call, so the call was
-      // held (M53b). Approving replays the recorded call verbatim — nothing
-      // is re-generated from the tainted context.
-      return {
-        title: a.title ?? "Held call from a tainted turn",
-        subtitle:
-          a.summary ??
-          "This turn read web content before a high-risk call. Approving replays it verbatim.",
-        Icon: ShieldQuestion,
-        iconClass: "text-amber-600",
-      };
-    case "routine":
-    default:
-      return {
-        title: a.routine?.name ?? "(deleted routine)",
-        subtitle: "Run scheduled routine",
-        Icon: ShieldCheck,
-        iconClass: "text-amber-600",
-      };
-  }
-}
 
 export default function Approvals({ company }: { company: Company }) {
   const [rows, setRows] = React.useState<Approval[] | null>(null);
@@ -223,7 +143,7 @@ export default function Approvals({ company }: { company: Company }) {
             ) : (
               <ul className="flex flex-col gap-2">
                 {pending.map((a) => {
-                  const c = copyFor(a);
+                  const c = approvalCopy(a);
                   return (
                     <li key={a.id}>
                       <Card>
@@ -268,7 +188,7 @@ export default function Approvals({ company }: { company: Company }) {
               </div>
               <ul className="flex flex-col gap-1">
                 {history.map((a) => {
-                  const c = copyFor(a);
+                  const c = approvalCopy(a);
                   return (
                     <li key={a.id}>
                       <div className="flex items-center gap-2 rounded-md border border-slate-100 bg-white px-3 py-2 text-xs dark:bg-slate-900 dark:border-slate-800">
