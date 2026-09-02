@@ -153,7 +153,16 @@ must declare model-callable tools, whereas a Vault item's whole point is
 per-item `use < manage` Grants and a plaintext path that never reaches the
 model. 1.132.0 spent a milestone moving credentials *out* of connector configs
 and into the Vault; a credentials connector would push that arrow backwards.
-See ROADMAP M59.
+See ROADMAP M59 — Vault sources.
+
+The Vault section's own rail entry is nonetheless called **Integrations**
+(`/c/<slug>/vault/integrations`), because that is the word someone hunting for
+"connect our password manager" reaches for. It is a nav label and nothing more:
+the rows behind it are `VaultSource`s, the page is not
+`ProductIntegrationsPage`, and `vault` is deliberately absent from
+`PRODUCT_INTEGRATION_SCOPES`. Do not "fix" the inconsistency by adding it
+there — that would swap the page for the company Integration catalog and put
+Bitwarden back where the paragraph above says it must not go.
 
 **A Check is not a health check, and a Standdown is not `Routine.enabled`.**
 The word "check" had a second meaning in this codebase — one named condition on

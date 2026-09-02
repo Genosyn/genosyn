@@ -37,9 +37,11 @@ export function VaultSources() {
         secret is still read from Bitwarden at the moment it is used.
       </P>
       <Callout kind="info" title="A Vault source is not an Integration">
-        <DocLink to="/docs/integrations">Integrations</DocLink> and their Connections authenticate
-        Genosyn to a product API. A Vault source is one external password manager mirrored into the
-        Vault. Genosyn supports <Strong>Bitwarden</Strong> and <Strong>Vaultwarden</Strong>, which
+        The Vault has its own <Strong>Integrations</Strong> sidebar entry, and it is not the company
+        Integration catalog. <DocLink to="/docs/integrations">Integrations</DocLink> and their
+        Connections authenticate Genosyn to a product API, and an AI Employee is granted one whole.
+        A Vault source is one external password manager mirrored into the Vault, where access stays
+        per item. Genosyn supports <Strong>Bitwarden</Strong> and <Strong>Vaultwarden</Strong>, which
         speak the same protocol — hosted on bitwarden.com or bitwarden.eu, or self-hosted.
       </Callout>
 
@@ -51,8 +53,10 @@ export function VaultSources() {
       </P>
       <OL>
         <LI>
-          Open <Strong>Vault</Strong> from the company navigation and choose{" "}
-          <Strong>Connect a Vault source</Strong>.
+          Open <Strong>Vault</Strong> from the company navigation, choose{" "}
+          <Strong>Integrations</Strong> in the sidebar, and pick <Strong>Bitwarden</Strong> under{" "}
+          <Strong>Available integrations</Strong>. The same card covers Vaultwarden — the two speak
+          one protocol, and the <Strong>Server URL</Strong> below is what tells them apart.
         </LI>
         <LI>
           <Strong>Label</Strong> — what you would call it out loud, such as{" "}

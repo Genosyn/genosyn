@@ -2413,8 +2413,10 @@ case — a Vaultwarden beside a Genosyn install — and that is the case the des
 is aimed at.
 
 - [x] **A Vault source is not an Integration.** `VaultSource` is a company's
-      connection to an external password manager, connected at Vault → Connect a
-      Vault source and admin-gated. Modelling it as an Integration Connection
+      connection to an external password manager, connected at Vault →
+      Integrations and admin-gated — a rail entry named for what someone
+      looking for one calls it, listing Vault sources and not the company
+      Integration catalog. Modelling it as an Integration Connection
       was rejected deliberately: a Connection is granted to an AI Employee
       wholesale and must declare tools, whereas the entire point of the Vault is
       per-item `use < manage` Grants — and 1.132.0 spent a milestone moving

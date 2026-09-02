@@ -1,4 +1,5 @@
 import React from "react";
+import { useOutletContext } from "react-router-dom";
 import {
   Bot,
   Building2,
@@ -19,7 +20,6 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Select } from "@/components/ui/Select";
 import { Spinner } from "@/components/ui/Spinner";
-import type { Company } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import {
   filterVaultItems,
@@ -30,11 +30,12 @@ import {
   type VaultItemType,
   vaultItemTypeLabel,
 } from "@/lib/vault";
+import type { VaultOutletCtx } from "@/pages/VaultLayout";
 import { VaultItemDetail } from "@/pages/vault/VaultItemDetail";
 import { VaultItemEditor } from "@/pages/vault/VaultItemEditor";
-import { VaultSourcesPanel } from "@/pages/vault/VaultSourcesPanel";
 
-export default function Vault({ company }: { company: Company }) {
+export default function Vault() {
+  const { company } = useOutletContext<VaultOutletCtx>();
   const [items, setItems] = React.useState<VaultItem[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
@@ -119,8 +120,6 @@ export default function Vault({ company }: { company: Company }) {
           detail="AI Employees use passwords, current codes, and passkeys through governed Browser actions."
         />
       </div>
-
-      <VaultSourcesPanel company={company} onChanged={reload} />
 
       <div className="mt-7 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
         <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-end dark:border-slate-800">

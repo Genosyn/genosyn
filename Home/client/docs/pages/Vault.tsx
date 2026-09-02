@@ -95,7 +95,8 @@ export function Vault() {
       <H2 id="sources">Vault sources (Bitwarden and Vaultwarden)</H2>
       <P>
         If the company already runs Bitwarden or Vaultwarden, do not keep those credentials in two
-        places. Open <Strong>Vault</Strong> and choose <Strong>Connect a Vault source</Strong>: its
+        places. An owner or admin opens <Strong>Vault</Strong>, chooses{" "}
+        <Strong>Integrations</Strong> in the sidebar, and picks <Strong>Bitwarden</Strong>: its
         Logins and Secure notes are mirrored into this list, where they can be shared with Members
         and granted to AI Employees like any other item. Genosyn stores only each item&apos;s title,
         username, and website; the password is fetched from Bitwarden at the moment it is revealed,

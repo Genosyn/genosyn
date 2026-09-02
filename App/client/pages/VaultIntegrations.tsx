@@ -1,14 +1,17 @@
 import React from "react";
+import { useOutletContext } from "react-router-dom";
 import {
   AlertCircle,
   CheckCircle2,
   FolderTree,
+  type LucideIcon,
   Pencil,
-  Plus,
+  Plug,
   RefreshCw,
   Trash2,
   Vault,
 } from "lucide-react";
+import { Breadcrumbs } from "@/components/AppShell";
 import { useLiveRefetch } from "@/components/CompanySocket";
 import { Button } from "@/components/ui/Button";
 import { useDialog } from "@/components/ui/Dialog";
@@ -21,35 +24,101 @@ import { Spinner } from "@/components/ui/Spinner";
 import type { Company } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import type { VaultVisibility } from "@/lib/vault";
-import { isTwoStepLoginError, type VaultSource, vaultSourcesApi } from "@/lib/vaultSources";
+import {
+  isTwoStepLoginError,
+  type VaultSource,
+  type VaultSourceKind,
+  vaultSourcesApi,
+} from "@/lib/vaultSources";
+import type { VaultOutletCtx } from "@/pages/VaultLayout";
 
 /**
- * The company's connected Bitwarden and Vaultwarden vaults, and the form that
- * connects one.
+ * Vault → Integrations: the external password managers this Vault mirrors,
+ * and the form that connects one.
+ *
+ * These rows are `VaultSource`s, not Integration Connections — "Integrations"
+ * is what the rail calls them, because that is what someone looking for one
+ * calls them. The distinction is load-bearing and AGENTS.md §3 explains it: a
+ * Connection is granted to an AI Employee wholesale, whereas a mirrored item
+ * keeps the Vault's per-item Grants and its secret never reaches the model.
  *
  * A source holds the master password to an entire external vault, so every
- * route behind this panel is admin-gated on the server. The panel matches that
- * and renders for owners and admins only — a Member sees the mirrored items in
- * the list above, and nothing about where they came from.
+ * route behind this page is admin-gated on the server. The page matches that;
+ * a Member sees the mirrored items on the Vault itself, and nothing about
+ * where they came from.
  */
-export function VaultSourcesPanel({
-  company,
-  onChanged,
-}: {
-  company: Company;
-  onChanged: () => void | Promise<void>;
-}) {
-  if (company.role !== "owner" && company.role !== "admin") return null;
-  return <SourcesPanel company={company} onChanged={onChanged} />;
+
+type VaultSourceCatalogEntry = {
+  kind: VaultSourceKind;
+  name: string;
+  icon: LucideIcon;
+  tagline: string;
+  description: string;
+};
+
+/**
+ * One entry per protocol, not per host: Bitwarden's own cloud and a
+ * Vaultwarden someone self-hosts speak the same API and differ only by the
+ * server URL. A second entry here means a second implementation behind it —
+ * `server/lib/bitwarden/` is Bitwarden-specific all the way down.
+ */
+const VAULT_SOURCE_CATALOG: readonly VaultSourceCatalogEntry[] = [
+  {
+    kind: "bitwarden",
+    name: "Bitwarden",
+    icon: Vault,
+    tagline: "Bitwarden or Vaultwarden — the same protocol, hosted or self-hosted.",
+    description:
+      "Logins and secure notes appear in the Vault as mirrored items. Their passwords stay in Bitwarden and are read at the moment they are used.",
+  },
+];
+
+/** The server refuses a sixth source; the card says so rather than the error. */
+const MAX_VAULT_SOURCES = 5;
+
+export default function VaultIntegrations() {
+  const { company } = useOutletContext<VaultOutletCtx>();
+  const canAdminister = company.role === "owner" || company.role === "admin";
+
+  return (
+    <div className="page-shell p-4 pb-14 sm:p-8">
+      <div className="mb-4">
+        <Breadcrumbs
+          items={[{ label: "Vault", to: `/c/${company.slug}/vault` }, { label: "Integrations" }]}
+        />
+      </div>
+
+      <div className="flex items-start gap-3">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+          <Plug size={21} />
+        </span>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+            Integrations
+          </h1>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+            Mirror the password manager your company already runs. Genosyn reads it and never writes
+            to it: a mirrored item shows its title, username, and website, and its password is
+            fetched from the source at the moment it is used rather than copied here.
+          </p>
+        </div>
+      </div>
+
+      {canAdminister ? (
+        <SourcesPanel company={company} />
+      ) : (
+        <div className="mt-7">
+          <EmptyState
+            title="Only owners and admins manage Vault sources"
+            description="A source holds the master password to an entire external vault. Ask an owner or admin to connect one — the items it mirrors show up in the Vault for everyone it is shared with."
+          />
+        </div>
+      )}
+    </div>
+  );
 }
 
-function SourcesPanel({
-  company,
-  onChanged,
-}: {
-  company: Company;
-  onChanged: () => void | Promise<void>;
-}) {
+function SourcesPanel({ company }: { company: Company }) {
   const dialog = useDialog();
   const [sources, setSources] = React.useState<VaultSource[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -83,7 +152,6 @@ function SourcesPanel({
         (current) =>
           current?.map((row) => (row.id === synced.source.id ? synced.source : row)) ?? current,
       );
-      await onChanged();
     } catch (cause) {
       // A failed read is written back onto the source, so reloading flips this
       // row to "Needs attention" and prints what the external vault said.
@@ -109,7 +177,6 @@ function SourcesPanel({
     try {
       await vaultSourcesApi.remove(company.id, source.id);
       await reload();
-      await onChanged();
     } catch (cause) {
       void dialog.error(cause, { title: "Couldn’t disconnect the Vault source" });
     }
@@ -119,67 +186,86 @@ function SourcesPanel({
     setConnecting(false);
     setEditing(null);
     await reload();
-    await onChanged();
   }
 
-  return (
-    <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-      <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-start sm:justify-between dark:border-slate-800">
-        <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-            <Vault size={15} className="text-slate-400" />
-            Vault sources
-          </h2>
-          <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500 dark:text-slate-400">
-            Mirror a Bitwarden or Vaultwarden vault into this Vault. Genosyn reads the items and
-            never writes to them: a mirrored item shows its title, username, and website, and its
-            password is read from Bitwarden at the moment it is used rather than copied into
-            Genosyn.
-          </p>
-        </div>
-        <Button size="sm" className="self-start" onClick={() => setConnecting(true)}>
-          <Plus size={13} /> Connect a Vault source
-        </Button>
-      </div>
+  // A failed list is an empty array, so the cap cannot be judged from it — the
+  // card says it does not know rather than inviting a connect the server may
+  // refuse as the sixth.
+  const catalogDisabledReason = error
+    ? "How many sources are connected could not be read just now."
+    : (sources?.length ?? 0) >= MAX_VAULT_SOURCES
+      ? `A company can connect at most ${MAX_VAULT_SOURCES} Vault sources.`
+      : null;
 
-      {sources === null ? (
-        <div className="flex min-h-32 items-center justify-center">
-          <Spinner size={18} />
-        </div>
-      ) : error ? (
-        <div className="flex min-h-32 flex-col items-center justify-center gap-3 p-6 text-center">
-          <p className="max-w-md text-sm text-slate-500 dark:text-slate-400">{error}</p>
-          <Button variant="secondary" size="sm" onClick={() => void reload()}>
-            <RefreshCw size={13} /> Try again
-          </Button>
-        </div>
-      ) : sources.length === 0 ? (
-        <div className="p-6">
-          <EmptyState
-            title="No Vault sources connected"
-            description="Connect the company's Bitwarden or Vaultwarden vault and its logins appear here as mirrored items — usable by Members and granted AI Employees, with the secrets left where they already are."
-            action={
-              <Button size="sm" onClick={() => setConnecting(true)}>
-                <Plus size={13} /> Connect a Vault source
-              </Button>
-            }
-          />
-        </div>
-      ) : (
-        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-          {sources.map((source) => (
-            <SourceRow
-              key={source.id}
-              source={source}
-              syncing={syncingId === source.id}
-              syncDisabled={syncingId !== null}
-              onSync={() => void syncNow(source)}
-              onEdit={() => setEditing(source)}
-              onDisconnect={() => void disconnect(source)}
+  return (
+    <>
+      <section className="mt-7">
+        {/* "Your sources", not "Connected" — a row here can be in the error
+            state, and its own pill is what says which. Mirrors the "Your
+            connections" heading on Settings → Integrations. */}
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Your sources</h2>
+        {/* The empty state draws its own dashed frame, so it is the one branch
+            that is not wrapped in the solid card — two nested borders read as a
+            mistake. */}
+        {sources === null ? (
+          <div className="mt-3 flex min-h-32 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <Spinner size={18} />
+          </div>
+        ) : error ? (
+          <div className="mt-3 flex min-h-32 flex-col items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <p className="max-w-md text-sm text-slate-500 dark:text-slate-400">{error}</p>
+            <Button variant="secondary" size="sm" onClick={() => void reload()}>
+              <RefreshCw size={13} /> Try again
+            </Button>
+          </div>
+        ) : sources.length === 0 ? (
+          <div className="mt-3">
+            <EmptyState
+              title="Nothing connected yet"
+              description="Choose a password manager below and its logins appear in the Vault as mirrored items — usable by Members and granted AI Employees, with the secrets left where they already are."
+            />
+          </div>
+        ) : (
+          <ul className="mt-3 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:divide-slate-800 dark:border-slate-700 dark:bg-slate-900">
+            {sources.map((source) => (
+              <SourceRow
+                key={source.id}
+                source={source}
+                syncing={syncingId === source.id}
+                syncDisabled={syncingId !== null}
+                onSync={() => void syncNow(source)}
+                onEdit={() => setEditing(source)}
+                onDisconnect={() => void disconnect(source)}
+              />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="mt-7">
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          Available integrations
+        </h2>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          {VAULT_SOURCE_CATALOG.map((entry) => (
+            <CatalogCard
+              key={entry.kind}
+              entry={entry}
+              connected={
+                error ? 0 : (sources?.filter((source) => source.kind === entry.kind).length ?? 0)
+              }
+              // Inert until the list lands: the cap cannot be judged yet, and a
+              // spinner above plus an inviting card below is a mixed message.
+              disabled={sources === null}
+              disabledReason={catalogDisabledReason}
+              onConnect={() => setConnecting(true)}
             />
           ))}
-        </ul>
-      )}
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-400 dark:text-slate-500">
+          More password managers will appear here as Genosyn learns to read them.
+        </p>
+      </section>
 
       <VaultSourceForm
         companyId={company.id}
@@ -194,7 +280,61 @@ function SourcesPanel({
         onClose={() => setEditing(null)}
         onSaved={handleSaved}
       />
-    </section>
+    </>
+  );
+}
+
+function CatalogCard({
+  entry,
+  connected,
+  disabled,
+  disabledReason,
+  onConnect,
+}: {
+  entry: VaultSourceCatalogEntry;
+  connected: number;
+  disabled: boolean;
+  /** Shown beside the card when there is something to explain about `disabled`. */
+  disabledReason: string | null;
+  onConnect: () => void;
+}) {
+  const Icon = entry.icon;
+  return (
+    <button
+      type="button"
+      onClick={onConnect}
+      disabled={disabled || disabledReason !== null}
+      className="group flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-indigo-300 hover:bg-indigo-50/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/30"
+    >
+      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-700 group-hover:bg-indigo-100 group-hover:text-indigo-600 dark:bg-slate-800 dark:text-slate-200 dark:group-hover:bg-indigo-900 dark:group-hover:text-indigo-300">
+        <Icon size={18} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            {entry.name}
+          </span>
+          {connected > 0 && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {connected} connected
+            </span>
+          )}
+          <span className="ml-auto text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+            Read-only
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{entry.tagline}</p>
+        <p className="mt-1.5 text-xs leading-5 text-slate-500 dark:text-slate-400">
+          {entry.description}
+        </p>
+        {disabledReason && (
+          <p className="mt-2 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
+            <AlertCircle size={12} className="mt-0.5 shrink-0" />
+            <span>{disabledReason}</span>
+          </p>
+        )}
+      </div>
+    </button>
   );
 }
 

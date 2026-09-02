@@ -741,6 +741,7 @@ describe("section routing and command search", () => {
       "skills",
       "routines",
       "tasks",
+      "vault",
       "bases",
       "notes",
       "resources",

@@ -89,6 +89,8 @@ import TasksReview from "./pages/TasksReview";
 import ProjectNew from "./pages/ProjectNew";
 import ProjectDetail from "./pages/ProjectDetail";
 import Vault from "./pages/Vault";
+import VaultLayout from "./pages/VaultLayout";
+import VaultIntegrations from "./pages/VaultIntegrations";
 import Approvals from "./pages/Approvals";
 import Decisions from "./pages/Decisions";
 import Goals from "./pages/Goals";
@@ -483,8 +485,13 @@ function CompanyRoutes({
             <Route path="p/:pSlug" element={<ProjectDetail company={company} me={me} />} />
           </Route>
 
-          {/* Vault — encrypted logins, authenticators, API keys, and secure notes. */}
-          <Route path="vault" element={<Vault company={company} />} />
+          {/* Vault — encrypted logins, authenticators, API keys, and secure notes.
+            Integrations holds the external password managers this Vault
+            mirrors; they stay `VaultSource` rows, not Integration Connections. */}
+          <Route path="vault" element={<VaultLayout company={company} />}>
+            <Route index element={<Vault />} />
+            <Route path="integrations" element={<VaultIntegrations />} />
+          </Route>
 
           {/* Bases (Airtable-style) — structured data for the company. */}
           <Route path="bases" element={<BasesLayout company={company} />}>
