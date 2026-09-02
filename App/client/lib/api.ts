@@ -2997,6 +2997,77 @@ export type HomeFailedRun = {
   };
 };
 
+// ─────────────────── AI Employee work timeline ──────────────────────────
+// What one AI Employee — or the whole roster — actually did in a window,
+// served by GET /api/companies/:cid/work-timeline. Mirrored by hand from
+// server/services/employeeWorkTimeline.ts; the client never imports server
+// code, so these shapes are duplicated on purpose. Keep them in step.
+
+/** One ledger row the timeline tied to an entry. Mirrors the Run effect row. */
+export type WorkEffect = {
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  targetLabel: string;
+  at: string;
+};
+
+export type WorkEntryKind =
+  | "run"
+  | "chat"
+  | "work_session"
+  | "approval"
+  | "wakeup"
+  | "lesson"
+  | "effect";
+
+export type WorkEmployeeRef = {
+  id: string;
+  name: string;
+  slug: string;
+  avatarKey: string | null;
+};
+
+/** Everything a `run` entry's chips need, without a second request. */
+export type WorkEntryRun = {
+  id: string;
+  routineId: string;
+  routineName: string;
+  status: RunStatus;
+  exitCode: number | null;
+  triggerKind: RunTrigger;
+  attempt: number;
+  outcomeVerdict: RunOutcomeVerdict | null;
+  outcomeNote: string | null;
+  checksVerdict: RunChecksVerdict | null;
+};
+
+/** One thing an AI Employee did. */
+export type WorkEntry = {
+  id: string;
+  kind: WorkEntryKind;
+  at: string;
+  endedAt: string | null;
+  employee: WorkEmployeeRef;
+  title: string;
+  detail: string;
+  /** Present only on `kind: "run"`. */
+  run: WorkEntryRun | null;
+  effects: WorkEffect[];
+  /** What the ledger holds before the render cap, so "3 more" is honest. */
+  effectCount: number;
+};
+
+export type WorkTimeline = {
+  since: string;
+  until: string;
+  /** The employee this was narrowed to, or null for the whole roster. */
+  employeeId: string | null;
+  entries: WorkEntry[];
+  /** Entries in the window before `limit` sliced them. */
+  entryCount: number;
+};
+
 // ───────────────────────── System Health ────────────────────────────────
 export type HealthSeverity = "ok" | "warn" | "error";
 export type HealthItem = {

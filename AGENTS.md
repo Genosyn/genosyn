@@ -110,6 +110,7 @@ code, UI copy, commits, and docs.
 | **Wakeup** (a timed follow-up session an employee schedules for itself — `EmployeeWakeup`) | Reminder, Timer, Snooze |
 | **Workstream** (a persistent state document for work spanning many Runs — `Workstream`) | Project (reserved for the task manager), Thread, Epic |
 | **Initiative** (standing work an employee proposes and a human accepts — `Initiative`) | Proposal (Revision proposals own that word), Suggestion, Idea |
+| **Work timeline** (one AI Employee's work over a window, assembled at read time from the rows the server wrote — `services/employeeWorkTimeline.ts`) | Activity feed, Journal (the employee's own diary), Audit trail, History, Shift |
 | **Policy** (a company-wide rule binding every employee — `CompanyPolicy`; a decision-routing rule is a `DecisionPolicy`, always said as "decision policy") | Rule, Guideline, Guardrail |
 | **Standing question** (a question configured once at TLDR settings that every briefing answers — `TldrStandingQuestion`) | Preset, Template question, Default question |
 | **Suggested action** (a one-click next step an AI Employee attached to its own answer — `TldrQuestionAction`) | Quick action, Command, Shortcut |
@@ -226,6 +227,20 @@ every section of the app. M27 shipped tags saying they grouped resources
 because a chip that narrows a flat list is not somewhere to put things. Do not
 add a `folderId` to a resource that only ever needed a tag, and do not model a
 folder as a reserved tag name.
+
+**A work timeline is not a Journal, and it is not the audit log.** All three
+answer "what did this employee do", and the differences are the whole reason
+there are three. A **Journal** entry is written *by the employee*, through an
+MCP tool, and is its own narration. The **audit log** is the company's whole
+history — every actor, all of time, raw metadata — which is why reading it is
+admin-gated and behind the `auditLog` entitlement. A **work timeline** is
+neither: it is assembled at read time over one employee and a bounded window
+from rows the server wrote itself (`runs`, `audit_events` as the effect ledger,
+and five tables audit provably misses), it stores nothing, and it is readable
+by any Member on any plan — for the same reason a Run's own **Effects** are,
+which `routes/routineChecks.ts` states at length. Do not give it an entity, do
+not merge the employee's narration into it, and do not route it through
+`GET /audit`; each of those quietly turns it back into one of the other two.
 
 **"Pipeline" is reserved** for the DAG automation primitive (M10). The sales
 pipeline is a flat, ordered list of **Deal Stages** — there is no container

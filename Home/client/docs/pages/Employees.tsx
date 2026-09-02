@@ -271,7 +271,9 @@ export function Employees() {
         <LI>
           <Strong>Settings → Journal.</Strong> Append-only diary the employee writes about their own
           work via the built-in MCP server. Routine runs land here automatically, and the last seven
-          days are injected into every chat and routine run.
+          days are injected into every chat and routine run. For the server&apos;s own account of
+          the same work, rather than the employee&apos;s, see{" "}
+          <DocLink to="/docs/employees#work-timeline">the work timeline</DocLink> below.
         </LI>
         <LI>
           <Strong>Settings → Handoffs.</Strong> Work this employee has delegated to another, and
@@ -305,6 +307,62 @@ export function Employees() {
         OpenAI subscription credential belongs to that one employee. There&apos;s no shared
         company-wide model credential. Firing an employee deletes all of their encrypted credential
         rows; you don&apos;t have to rotate anything for the rest of the team.
+      </Callout>
+
+      <H2 id="work-timeline">The work timeline</H2>
+      <P>
+        Your <DocLink to="/docs">Home page</DocLink> ends with the{" "}
+        <Strong>work timeline</Strong> — everything your AI Employees actually did in the last 24
+        hours, newest first, grouped under <Strong>Today</Strong> and <Strong>Yesterday</Strong>.
+        Pick a name from the dropdown in its header to narrow it to one employee; the heading
+        follows your choice, so you always know whose day you are looking at.
+      </P>
+      <P>Seven kinds of work land on it:</P>
+      <UL>
+        <LI>
+          <Strong>Routine runs</Strong>, carrying the same status, outcome and checks badges the{" "}
+          <DocLink to="/docs/routines">Routines</DocLink> pages use. Clicking one opens the run
+          viewer over Home rather than navigating away.
+        </LI>
+        <LI>
+          <Strong>Conversations.</Strong> One line per thread, saying how many times the employee
+          replied. A thread you did not start is reported without its subject — transcripts stay
+          private to the Member who asked for them.
+        </LI>
+        <LI>
+          <Strong>Repository work</Strong>, with the files, insertions and deletions each turn
+          produced — see <DocLink to="/docs/repositories">Repositories</DocLink>.
+        </LI>
+        <LI>
+          <Strong>Approvals they asked for</Strong>, so a blocked employee is visible as work in
+          progress rather than only as a queue entry.
+        </LI>
+        <LI>
+          <Strong>Wakeups</Strong> that fired and <Strong>Lessons</Strong> taken from a graded run —
+          see <DocLink to="/docs/reactivity">Reactivity</DocLink> and{" "}
+          <DocLink to="/docs/improvement">Improvement</DocLink>.
+        </LI>
+        <LI>
+          <Strong>Changes</Strong> — the individual records an employee created, edited or sent.
+          Changes made inside a run or a conversation are listed underneath it; the rest stand on
+          their own line.
+        </LI>
+      </UL>
+      <P>
+        The panel hides itself on a day when nothing happened, the same way every other Home panel
+        does. Choose an employee who has been idle, though, and it stays put and says so — a panel
+        that vanished after you picked a name would read as a fault rather than as quiet.
+      </P>
+      <Callout kind="info" title="The timeline is what the server recorded. The Journal is what the employee wrote.">
+        Journal entries are the employee&apos;s own account of its work, written through the
+        built-in MCP server. The work timeline is assembled at read time from the rows the server
+        itself wrote at each write seam — run records, the effect ledger behind{" "}
+        <DocLink to="/docs/verification">Checks and verdicts</DocLink>, approval rows — so an
+        employee cannot narrate its way onto it. When the two disagree, the timeline is the one to
+        trust. It is also not the{" "}
+        <DocLink to="/docs/plans-billing">audit log</DocLink>: that is an admin tool covering every
+        actor and all of history and is a paid feature, while seeing what your own workforce did
+        today is available on every plan, to every Member.
       </Callout>
     </>
   );

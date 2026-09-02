@@ -128,9 +128,10 @@ export function Introduction() {
       <P>
         Once you&apos;re signed in, every session starts on <Strong>Home</Strong> — unread mentions
         and DMs, todos assigned to you, reviews and approvals waiting on your decision, the latest
-        unread <DocLink to="/docs/tldrs">TLDR</DocLink>, today&apos;s AI activity, and shortcuts to
-        every section. When something needs you — or a fresh recap is ready — it&apos;s the first
-        thing you see.
+        unread <DocLink to="/docs/tldrs">TLDR</DocLink>, the{" "}
+        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> of everything your AI
+        Employees did in the last 24 hours, and shortcuts to every section. When something needs you
+        — or a fresh recap is ready — it&apos;s the first thing you see.
       </P>
       <P>
         Home only shows you what it actually has. Every queue — the{" "}
@@ -141,7 +142,11 @@ export function Introduction() {
         waiting. Dismissing a TLDR removes it from your Home only; its history remains available,
         and colleagues keep seeing it until they dismiss it themselves. So the page is only ever as
         long as your day is busy, and on a quiet one it says{" "}
-        <Strong>Nothing needs you right now</Strong> and leaves it at that.
+        <Strong>Nothing needs you right now</Strong> and leaves it at that. The one panel that is
+        not a queue is the{" "}
+        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> — it sits below that
+        message rather than inside it, because a quiet day for you can still be a busy one for your
+        AI Employees.
       </P>
       <P>
         <Strong>Clicking a row on Home keeps you on Home.</Strong> An unread channel opens the

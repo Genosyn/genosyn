@@ -570,7 +570,10 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         routine&apos;s run history, where the Retry button is one click away. Once you&apos;ve looked at a failure,
         hit the <Strong>✕</Strong> on its row to <Strong>dismiss</Strong> it — the run stays in the
         routine&apos;s history, but it drops off the panel (and out of the System Health failed-runs
-        count) so it stops nagging the whole team.
+        count) so it stops nagging the whole team. A dismissed failure still appears on the{" "}
+        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> further down Home,
+        alongside every Run that went fine — that panel is a record of the day rather than a queue,
+        so acknowledging a failure does not remove it from the account of what happened.
       </P>
       <P>
         Every row on that panel carries a <Strong>Retry</Strong> button too, so the commonest answer

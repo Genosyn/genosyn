@@ -3968,6 +3968,69 @@ and MySQL are already held back on, so it sits in
 egress worker. Self-hosted installs — the ones this milestone is for — are
 unaffected.
 
+### M61 — The work timeline ✅
+
+Home could tell you what was *waiting* on you and nothing about what your
+workforce had actually done. The three nearest answers were each a different
+question: Settings → Audit log, which is admin-gated, behind the `auditLog`
+entitlement, and an investigation tool spanning every actor and all of history;
+an employee's Journal, which is the employee narrating itself; and Home's
+failed-routines alert, which by design shows only the Runs that broke. A
+company whose roster ran cleanly all night had no way to see the night.
+
+**Design calls recorded up front.** (1) No entity and no migration — the work is
+already on disk, and a stored timeline is a second copy that drifts from the
+rows it summarizes and that an employee could one day be given a tool to write.
+It is assembled at read time, which is what makes it unable to flatter anyone.
+(2) `audit_events` is the spine, riding the
+`["companyId","actorEmployeeId","createdAt"]` index M58 added for exactly this
+question; six tables are unioned onto it, each because audit provably misses
+it — `runs` above all, since a scheduled tick writes no audit row at all and
+`status` / `outcomeVerdict` / `checksVerdict` live nowhere else. Rows carrying a
+`runId` or `conversationId` collapse into that parent as its **Effects** rather
+than repeating as loose lines. (3) It reads `audit_events` on its own path, not
+through `GET /audit`: browsing the company's whole history is the paid feature,
+and seeing what your own workforce did today is not — the precedent is a Run's
+own Effects, deliberately exempt since M58. The window is what keeps that
+honest: one employee, bounded hours, no metadata blob, no action filter, no
+paging into history. (4) It renders *below* the all-clear rather than inside it.
+Every other panel on Home is a queue and hides when empty; this one is a record,
+and a full night's work hidden behind "Nothing needs you right now" would make
+that sentence a lie. It still hides itself when its own window is empty — except
+when a Member has picked an employee, where a vanishing panel would read as a
+fault rather than as quiet.
+
+- [x] **The work timeline.** `services/employeeWorkTimeline.ts` unions
+      `audit_events` with `runs`, assistant `conversation_messages`,
+      `approvals`, fired `employee_wakeups`, `run_lessons` and
+      `repository_work_session_turns` over a 24-hour window; no entity, no
+      migration, `GET /work-timeline` with a zod-validated window
+- [x] **Effects nest under their parent.** A ledger row carrying a `runId` or
+      `conversationId` attaches to that Run or conversation, capped for render
+      with an honest total; a row whose parent fell outside the window surfaces
+      on its own rather than going missing
+- [x] **Employee selector on Home.** A full-width panel below the queues —
+      sticky Today/Yesterday headers, a rail-and-dot row per entry, the Run
+      status, outcome and checks chips reused from the Routines views, a
+      searchable employee picker, and the run viewer opening in place
+- [x] **Member-safe by construction.** Vault-capture approvals hidden below
+      admin, approval copy through `redactApprovalSummary`, every
+      model-written label through `redactSensitiveText`, `vault.*` rows
+      admin-only, todo labels filtered against `listAccessibleProjectIds`, and
+      another Member's conversation reported without its subject — the same
+      narrowings `getHomeData` already applies, not a new boundary
+- [x] **`workstream.update` now writes a trail.** An employee advancing or
+      closing its own Workstream was the one thing it could do that left no
+      record anywhere
+
+Deliberately **not** in M61. Paging past the window — the panel is a glance at
+today, and the investigation tool for anything older already exists at
+Settings → Audit log. A per-employee timeline *page*, which would be a second
+place to maintain the same renderer before anyone has asked for one. And
+`journal_entries`, which stay out on purpose: the employee's own account of its
+work sitting next to the server's, in one list and one visual language, is
+precisely the confusion this milestone exists to end.
+
 ## V1 backlog (post-MVP)
 
 Items here are not on the active milestone path but worth picking up. Most
@@ -4106,7 +4169,9 @@ of the original V1 backlog has shipped — what remains is mostly
       unread notifications, my todos, reviews waiting on me, pending
       approvals, unread channels/DMs, the latest personally unread TLDR,
       today's journal digest, section directory (Employees roster moved to
-      `/employees`)
+      `/employees`). The digest line is superseded by the M61 work
+      timeline, which reports the server's record of the day rather than
+      the employees' own
 - [x] **Home answers in place** — every queue row on Home opens over the
       page instead of navigating away from it. An unread channel opens its
       messages with a "New" line at the server's own unread boundary

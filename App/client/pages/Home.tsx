@@ -44,6 +44,7 @@ import {
   NotificationKind,
   TldrItem,
   TodoPriority,
+  WorkEntry,
 } from "../lib/api";
 import { ContextualLayout } from "../components/AppShell";
 import { ApprovalPeekModal } from "../components/home/ApprovalPeekModal";
@@ -51,6 +52,7 @@ import { ChannelPeekModal } from "../components/home/ChannelPeekModal";
 import { HealthCheckPeekModal } from "../components/home/HealthCheckPeekModal";
 import { NotificationPeekModal } from "../components/home/NotificationPeekModal";
 import { TodoPeekModal } from "../components/home/TodoPeekModal";
+import { WorkTimelinePanel } from "../components/home/WorkTimelinePanel";
 import { RunLiveModal } from "../components/routines/RunViews";
 import { TldrQuestions } from "../components/tldrs/TldrQuestions";
 import { shouldOpenEventInPlace } from "../lib/inPlaceLink";
@@ -100,7 +102,10 @@ type HomeOverlay =
    * modal offers the same dismissal the row does.
    */
   | { kind: "health"; checkId: string; title: string; onDismiss: () => void }
-  | { kind: "run"; run: HomeFailedRun };
+  | { kind: "run"; run: HomeFailedRun }
+  /** A run opened from the work timeline, where the row is an entry not a
+   *  failure — same viewer, different source row. */
+  | { kind: "workRun"; entry: WorkEntry };
 
 export default function HomePage({ company, me }: { company: Company; me: Me }) {
   const [data, setData] = React.useState<HomeData | null>(null);
@@ -207,30 +212,41 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
           <div className="flex min-h-[40vh] items-center justify-center">
             <Spinner size={22} />
           </div>
-        ) : hasAnythingToShow(data) ? (
-          <>
-            <DecisionStack company={company} data={data} onResolved={reload} />
-            <FailedRoutinesAlert
-              company={company}
-              data={data}
-              onChanged={reload}
-              onOpen={setOverlay}
-            />
-            <HomeTldrPanel company={company} data={data} onDismiss={dismissTldr} />
-            <StatStrip company={company} data={data} />
-            {/* `empty:hidden` so the grid's own top margin goes away too on a
-                day when every card inside it has hidden itself. */}
-            <div className="mt-4 grid grid-cols-1 gap-4 empty:hidden lg:grid-cols-2">
-              <AttentionCard company={company} data={data} onOpen={setOverlay} />
-              <SystemHealthCard company={company} data={data} onOpen={setOverlay} />
-              <MyTodosCard company={company} data={data} onOpen={setOverlay} />
-              <MessagesCard company={company} data={data} onOpen={setOverlay} />
-              <ReviewsCard company={company} data={data} onOpen={setOverlay} />
-              <ApprovalsCard company={company} data={data} onOpen={setOverlay} />
-            </div>
-          </>
         ) : (
-          <AllClear company={company} data={data} />
+          <>
+            {hasAnythingToShow(data) ? (
+              <>
+                <DecisionStack company={company} data={data} onResolved={reload} />
+                <FailedRoutinesAlert
+                  company={company}
+                  data={data}
+                  onChanged={reload}
+                  onOpen={setOverlay}
+                />
+                <HomeTldrPanel company={company} data={data} onDismiss={dismissTldr} />
+                <StatStrip company={company} data={data} />
+                {/* `empty:hidden` so the grid's own top margin goes away too on
+                    a day when every card inside it has hidden itself. */}
+                <div className="mt-4 grid grid-cols-1 gap-4 empty:hidden lg:grid-cols-2">
+                  <AttentionCard company={company} data={data} onOpen={setOverlay} />
+                  <SystemHealthCard company={company} data={data} onOpen={setOverlay} />
+                  <MyTodosCard company={company} data={data} onOpen={setOverlay} />
+                  <MessagesCard company={company} data={data} onOpen={setOverlay} />
+                  <ReviewsCard company={company} data={data} onOpen={setOverlay} />
+                  <ApprovalsCard company={company} data={data} onOpen={setOverlay} />
+                </div>
+              </>
+            ) : (
+              <AllClear company={company} data={data} />
+            )}
+            {/* Outside the all-clear gate on purpose — see the note on
+                {@link hasAnythingToShow}. */}
+            <WorkTimelinePanel
+              company={company}
+              employees={employees}
+              onOpenRun={(entry) => setOverlay({ kind: "workRun", entry })}
+            />
+          </>
         )}
       </div>
       <HomeOverlayHost
@@ -360,6 +376,30 @@ function HomeOverlayHost({
           onClose={onClose}
         />
       );
+    case "workRun": {
+      // The same viewer the failure panel opens, from a work-timeline row.
+      // `onRetry` is withheld here for the same reason it is there: Home
+      // decides who may start a routine again, and on what terms.
+      const run = overlay.entry.run;
+      if (!run) return null;
+      return (
+        <RunLiveModal
+          key={run.id}
+          company={company}
+          routine={{ id: run.routineId, name: run.routineName }}
+          run={{
+            id: run.id,
+            routineId: run.routineId,
+            startedAt: overlay.entry.at,
+            finishedAt: overlay.entry.endedAt,
+            status: run.status,
+            exitCode: run.exitCode,
+            createdAt: overlay.entry.at,
+          }}
+          onClose={onClose}
+        />
+      );
+    }
   }
 }
 
@@ -376,6 +416,14 @@ function HomeOverlayHost({
  * on this device still counts as visible, because the card stays up to offer it
  * back — {@link SystemHealthCard} owns that distinction and only disappears
  * when nothing is failing at all.
+ *
+ * The work timeline is deliberately **not** one of these predicates, and it
+ * renders below the all-clear rather than inside it. Everything above is a
+ * queue, and {@link AllClear} says the queues are empty — which stays true on a
+ * night the roster worked straight through. Folding the timeline in here would
+ * either hide a full day's work behind "Nothing needs you right now" or quietly
+ * change what that sentence means. It keeps the rule the panels follow — it
+ * hides itself when its own window is empty — and applies it to its own data.
  */
 function hasAnythingToShow(data: HomeData): boolean {
   return (
