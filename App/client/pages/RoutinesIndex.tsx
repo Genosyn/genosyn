@@ -10,6 +10,7 @@ import {
   Inbox,
   Pause,
   Play,
+  Search,
   X,
 } from "lucide-react";
 import { api, Company, RoutineFolder, RoutineWithMeta, Run } from "../lib/api";
@@ -32,12 +33,16 @@ import { cronHuman } from "../lib/cron";
 import { RoutinesContext } from "./RoutinesLayout";
 import { PlanLimitBanner } from "../components/FeatureGateCard";
 import { folderAndDescendants, routineTagsInScope } from "../lib/routineFolders";
+import { filterRoutinesBySearch } from "../lib/routineSearch";
+import { shouldIgnoreShortcut } from "../lib/keyboard";
 import { TagChips, TagFilterBar } from "../components/TagPicker";
 
 /**
  * Every routine in the company. Filterable by the employee it's assigned to
  * (`?employee=<slug>`), by the folder it's filed in (`?folder=<slug>`, or
- * `?folder=unfiled` for the ones in no folder), and by health.
+ * `?folder=unfiled` for the ones in no folder), by tag, by health — and by
+ * free text, which is the filter you reach for when you know what the routine
+ * was called but not where anyone filed it (`lib/routineSearch.ts`).
  *
  * Also the landing spot for the `?routine=<id>&run=<id>` deep links the Home
  * "Failed routines" panel and the Journal emit — those know a routine id but
@@ -78,6 +83,8 @@ export default function RoutinesIndex({ company }: { company: Company }) {
   const { routines, folders, loading, refresh } = useOutletContext<RoutinesContext>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [health, setHealth] = React.useState<Health>("all");
+  const [query, setQuery] = React.useState("");
+  const searchRef = React.useRef<HTMLInputElement>(null);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [selecting, setSelecting] = React.useState(false);
   const [activeRun, setActiveRun] = React.useState<{
@@ -137,6 +144,19 @@ export default function RoutinesIndex({ company }: { company: Company }) {
   React.useEffect(() => {
     setSelected(new Set());
   }, [folderSlug, employeeSlug]);
+
+  // "/" jumps to the search box, the same key that focuses search in Resources
+  // and Mail. The shared guard keeps it from stealing a keystroke meant for a
+  // field, a dialog, or the second half of a navigation chord.
+  React.useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "/" || shouldIgnoreShortcut(event)) return;
+      event.preventDefault();
+      searchRef.current?.focus();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   async function triggerRun(r: RoutineWithMeta) {
     try {
@@ -206,17 +226,28 @@ export default function RoutinesIndex({ company }: { company: Company }) {
     return true;
   });
 
+  // Offered from the folder/employee scope rather than from the search
+  // results, so a chip can't vanish mid-keystroke and strand its own filter
+  // with nothing on screen to switch off.
   const availableTags = routineTagsInScope(scoped);
 
+  const searching = query.trim().length > 0;
+
+  const narrowed = filterRoutinesBySearch(scoped, query, folders).filter(
+    (r) => !selectedTagId || (r.tags ?? []).some((tag) => tag.id === selectedTagId),
+  );
+
+  // Each count answers to every filter except the one its own chip sets, so it
+  // says what clicking it would show. Otherwise "All 40" sits above two search
+  // results and neither number means anything.
   const counts = {
-    all: scoped.length,
-    active: scoped.filter((r) => r.enabled).length,
-    paused: scoped.filter((r) => !r.enabled).length,
-    attention: scoped.filter(needsAttention).length,
+    all: narrowed.length,
+    active: narrowed.filter((r) => r.enabled).length,
+    paused: narrowed.filter((r) => !r.enabled).length,
+    attention: narrowed.filter(needsAttention).length,
   };
 
-  const shown = scoped.filter((r) => {
-    if (selectedTagId && !(r.tags ?? []).some((tag) => tag.id === selectedTagId)) return false;
+  const shown = narrowed.filter((r) => {
     if (health === "active") return r.enabled;
     if (health === "paused") return !r.enabled;
     if (health === "attention") return needsAttention(r);
@@ -323,6 +354,43 @@ export default function RoutinesIndex({ company }: { company: Company }) {
         />
       ) : (
         <>
+          <div className="relative mb-3">
+            <Search
+              size={16}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+            />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                // Escape empties the box rather than only blurring it — a
+                // cleared field you can still see is the point of pressing it.
+                if (e.key === "Escape" && query) {
+                  e.preventDefault();
+                  setQuery("");
+                }
+              }}
+              placeholder="Search routines by name, employee, folder, tag, or schedule…"
+              aria-label="Search routines"
+              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-10 text-sm text-slate-700 placeholder:text-slate-400 hover:border-slate-300 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 dark:hover:border-slate-600 dark:focus:ring-indigo-500/25"
+            />
+            {searching ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Clear search"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X size={15} />
+              </button>
+            ) : (
+              <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500 sm:inline-block">
+                /
+              </kbd>
+            )}
+          </div>
+
           <div className="mb-4 flex flex-wrap gap-2">
             {(
               [
@@ -395,7 +463,19 @@ export default function RoutinesIndex({ company }: { company: Company }) {
             </div>
           )}
 
-          {shown.length === 0 ? (
+          {shown.length === 0 && searching ? (
+            <EmptyState
+              title="No routines match your search"
+              description={`Nothing ${
+                folder ? "in this folder" : unfiledView ? "unfiled" : "here"
+              } matches “${query.trim()}”. Search covers a routine’s name, the employee it belongs to, its folder, its tags, and its schedule.`}
+              action={
+                <Button variant="secondary" onClick={() => setQuery("")}>
+                  Clear search
+                </Button>
+              }
+            />
+          ) : shown.length === 0 ? (
             <EmptyState
               title={folder || unfiledView ? "Nothing filed here" : "Nothing here"}
               description={

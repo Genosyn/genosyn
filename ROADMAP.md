@@ -3132,6 +3132,16 @@ tags.
 - [x] **`GET/POST/PATCH/DELETE /routine-folders`**, admin-gated for mutations
       like the routine surface itself, documented in the OpenAPI spec, and
       registered for app-wide live sync (M31) under the existing `routine` kind.
+- [x] **Search the list.** Folders answer *where does this live* and tags
+      answer *what is this about*; both want you to know the answer before you
+      can narrow. A search box above the list is the third question — *what was
+      that thing called?* — and it matches everything the row already shows:
+      name, slug, assigned employee, folder path, tags, and the schedule in
+      both dialects — `0 9 * * 1-5` and "Monday" find the same routine, since
+      which one someone types depends on whether they write cron for a living.
+      Terms are ANDed across fields and folded for case and accents. The health
+      counts re-count against the search, so each chip still says what clicking
+      it would show. Pure and tested in `client/lib/routineSearch.ts`.
 
 ### M49 — Ask AI on a Routine ✅
 

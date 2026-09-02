@@ -38,7 +38,8 @@ export function Routines() {
       <H2 id="where-they-live">Where they live</H2>
       <P>
         Routines have their own section in the nav, under <Strong>AI → Routines</Strong>. That list
-        is company-wide: every routine, every employee, one page. Filter it by the{" "}
+        is company-wide: every routine, every employee, one page. Narrow it with the{" "}
+        <DocLink to="/docs/routines#search">search box</DocLink> at the top, or filter by the{" "}
         <DocLink to="/docs/employees">AI Employee</DocLink> a routine is assigned to, or by health —
         {" "}
         <Strong>Active</Strong>, <Strong>Paused</Strong>, <Strong>Needs attention</Strong>. Two more
@@ -54,6 +55,49 @@ export function Routines() {
         links to their own slice of that list from <Strong>Settings → Routines</Strong> — same page,
         filtered to them.
       </P>
+
+      <H2 id="search">Searching the list</H2>
+      <P>
+        Folders ask <Strong>where does this live</Strong> and tags ask{" "}
+        <Strong>what is this about</Strong> — both want you to know the answer before you can
+        narrow. The search box above the list is the third question:{" "}
+        <Strong>what was that thing called?</Strong> Type into it and the list narrows as you go,
+        matching everything the row already shows.
+      </P>
+      <UL>
+        <LI>
+          The routine&apos;s <Strong>name</Strong>, and its slug — so a link somebody pasted still
+          finds the routine after it was renamed.
+        </LI>
+        <LI>
+          The <Strong>AI Employee</Strong> it is assigned to.
+        </LI>
+        <LI>
+          The <Strong>folder</Strong> it is filed in, by full path — searching{" "}
+          <Code>Finance</Code> finds everything under <Code>Finance/Month-end</Code> too.
+        </LI>
+        <LI>
+          Its <DocLink to="/docs/tags">tags</DocLink>.
+        </LI>
+        <LI>
+          Its <Strong>schedule</Strong>, in either dialect: <Code>0 9 * * 1-5</Code> and{" "}
+          <Code>Monday</Code> both find the routine that runs on weekday mornings, because the
+          plain-English rendering shown on the row — “At 09:00 AM, Monday through Friday” — is
+          searched alongside the cron expression itself.
+        </LI>
+      </UL>
+      <P>
+        Several words are all required, and they may land in different fields —{" "}
+        <Code>finance digest</Code> finds the digest filed under Finance. Case and accents are
+        ignored. Press <Code>/</Code> anywhere on the page to jump into the box and{" "}
+        <Code>Esc</Code> to empty it.
+      </P>
+      <Callout kind="info" title="Search stacks with the other filters.">
+        It narrows within whatever folder or employee you are already looking at, and the{" "}
+        <Strong>Active</Strong> / <Strong>Paused</Strong> / <Strong>Needs attention</Strong> counts
+        re-count themselves against your search, so each number is what clicking that chip would
+        actually show.
+      </Callout>
 
       <H2 id="folders">Folders</H2>
       <P>
