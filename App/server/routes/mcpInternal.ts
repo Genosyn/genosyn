@@ -12493,6 +12493,20 @@ mcpInternalRouter.post(
         closeReason: body.closeReason,
         lastRunId: req.mcpRunId ?? undefined,
       });
+      // `create_workstream` above has always left a trail and this did not, so
+      // an employee advancing or closing its own Workstream was the one thing
+      // it could do that the work timeline never saw.
+      await aiWriteTrail(req, {
+        action: "workstream.update",
+        targetType: "workstream",
+        targetId: workstream.id,
+        targetLabel: workstream.title,
+        journalTitle:
+          workstream.status === "active"
+            ? `Updated the workstream "${workstream.title}"`
+            : `Closed the workstream "${workstream.title}" as ${workstream.status}`,
+        journalBody: workstream.closeReason || workstream.stateDoc,
+      });
       res.json({
         workstream: serializeWorkstream(workstream),
         note:
