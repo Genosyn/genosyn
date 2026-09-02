@@ -610,6 +610,14 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
   try {
     await snapshotSqlite(stagingDbPath);
     await writeZip(outPath, stagingDbPath);
+    // The archive is written and renamed into place, and nothing below reads
+    // the snapshot again — so release it here rather than leaving it to the
+    // `finally`. Off-box delivery can stream a 20 GB archive for hours, and
+    // holding a database-sized snapshot across that doubles peak disk usage
+    // for the whole of it and widens the window in which a SIGKILL strands it.
+    // The `finally` still runs and is idempotent; this only makes it earlier.
+    removeStagingArtifact(stagingDbPath);
+    activeStagingPaths.delete(stagingDbPath);
     const size = fs.existsSync(outPath) ? fs.statSync(outPath).size : 0;
     row.sizeBytes = size;
     row.status = "completed";

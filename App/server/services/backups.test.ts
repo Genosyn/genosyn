@@ -145,7 +145,7 @@ async function withSqliteDriver<T>(fn: () => Promise<T>): Promise<T> {
  * subverted. Returns a restore function. The real runner still does the work
  * unless `onVacuum` throws.
  */
-function patchVacuum(onVacuum: (dest: string) => void | Promise<void>): () => void {
+function patchQuery(onQuery: (sql: string, params: unknown[]) => void | Promise<void>): () => void {
   type Runner = ReturnType<typeof AppDataSource.createQueryRunner>;
   const originalCreate = AppDataSource.createQueryRunner.bind(AppDataSource);
   // better-sqlite3 hands back one shared query runner, so a wrapper installed
@@ -162,8 +162,8 @@ function patchVacuum(onVacuum: (dest: string) => void | Promise<void>): () => vo
     runner.query = async (...args: Parameters<Runner["query"]>) => {
       const result = await originalQuery(...args);
       const [sql, params] = args;
-      if (typeof sql === "string" && sql.includes("VACUUM INTO")) {
-        await onVacuum(String((params as unknown[] | undefined)?.[0] ?? ""));
+      if (typeof sql === "string") {
+        await onQuery(sql, (params as unknown[] | undefined) ?? []);
       }
       return result;
     };
@@ -175,6 +175,13 @@ function patchVacuum(onVacuum: (dest: string) => void | Promise<void>): () => vo
     for (const entry of wrapped.reverse()) entry.runner.query = entry.query;
     wrapped.length = 0;
   };
+}
+
+/** {@link patchQuery} narrowed to the `VACUUM INTO` that stages the snapshot. */
+function patchVacuum(onVacuum: (dest: string) => void | Promise<void>): () => void {
+  return patchQuery(async (sql, params) => {
+    if (sql.includes("VACUUM INTO")) await onVacuum(String(params[0] ?? ""));
+  });
 }
 
 describe("staging snapshot sweep", () => {
@@ -413,5 +420,47 @@ describe("boot recovery", () => {
       assert.equal(await exists(orphan), false, `${path.basename(orphan)} survived boot`);
     }
     assert.equal(await exists(backupFilePath(survivor.filename)), true);
+  });
+});
+
+describe("staging snapshot lifetime", () => {
+  test("releases the snapshot as soon as the archive lands, not at the end of the run", async () => {
+    // The snapshot used to be held until the run's `finally`, which sits after
+    // off-box delivery and retention. Delivery streams the whole archive to a
+    // NAS or remote volume and can run for hours on a large install, so the
+    // snapshot doubled peak disk usage for that entire window — and anything
+    // that killed the process during it stranded a database-sized file.
+    getEffectiveInstanceSecrets();
+
+    let stagingPath = "";
+    let snapshotLiveAfterZip: boolean | null = null;
+    const restore = patchQuery(async (sql, params) => {
+      if (sql.includes("VACUUM INTO")) {
+        stagingPath = String(params[0] ?? "");
+        return;
+      }
+      // The first UPDATE of the backup row after the snapshot is staged is the
+      // one marking it completed — the first thing the run does once the zip
+      // is renamed into place, and well before delivery or retention.
+      if (!stagingPath || snapshotLiveAfterZip !== null) return;
+      if (/^\s*update/i.test(sql) && /backup/i.test(sql)) {
+        snapshotLiveAfterZip = await exists(stagingPath);
+      }
+    });
+
+    let backup;
+    try {
+      backup = await withSqliteDriver(() => runBackup("manual"));
+    } finally {
+      restore();
+    }
+
+    assert.notEqual(stagingPath, "", "never observed a staged snapshot");
+    assert.equal(snapshotLiveAfterZip, false, "the snapshot outlived the archive it was staged for");
+    assert.equal(backup.status, "completed");
+
+    // Releasing early must not cost the archive its database.
+    const archive = await unzipper.Open.file(backupFilePath(backup.filename));
+    assert.ok(archive.files.some((entry) => entry.path === "app.sqlite"));
   });
 });
