@@ -52,9 +52,10 @@ export function Signals() {
           Press <Strong>Test</Strong> and look at the rows before you go any further.
         </LI>
         <LI>
-          Set the <Strong>schedule</Strong> — a standard 5-field cron, validated against the
-          scheduler that will run it, exactly as on a <DocLink to="/docs/routines">Routine</DocLink>
-          . Hourly is a sane starting point.
+          Set the <Strong>schedule</Strong> with the same control a{" "}
+          <DocLink to="/docs/routines#scheduling">Routine</DocLink> uses — pick a cadence, see the
+          next few times it will run, and drop to a custom cron expression if you need one. Hourly
+          is a sane starting point.
         </LI>
         <LI>
           Choose the <Strong>action</Strong>, then flip <Strong>Enabled</Strong> on.

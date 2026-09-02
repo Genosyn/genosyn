@@ -27,7 +27,15 @@ const Routine = z
     employeeId: z.string().uuid(),
     name: z.string(),
     slug: z.string(),
-    cronExpr: z.string(),
+    cronExpr: z.string().openapi({
+    description:
+      "When the routine fires, as a cron expression in the server's local time zone. " +
+      "Accepted if BOTH `node-cron` validates it and `cron-parser` can compute a next " +
+      "run from it — the two disagree, and an expression only the first accepts saves " +
+      "and then never fires. Five fields is the normal shape; six-field second " +
+      "granularity is accepted but cannot be delivered faithfully by a 30-second " +
+      "heartbeat. The dashboard builds this from a schedule picker.",
+  }),
     enabled: z.boolean(),
     body: z.string().describe("Markdown brief that describes what the routine should do."),
     tags: z.array(Tag).describe("Company tags attached to this routine."),
@@ -142,7 +150,15 @@ const RoutineColumns = z.object({
       "Unique per employee rather than per company — which is why the UI addresses a " +
         "routine as /routines/{empSlug}/{routineSlug}.",
     ),
-  cronExpr: z.string(),
+  cronExpr: z.string().openapi({
+    description:
+      "When the routine fires, as a cron expression in the server's local time zone. " +
+      "Accepted if BOTH `node-cron` validates it and `cron-parser` can compute a next " +
+      "run from it — the two disagree, and an expression only the first accepts saves " +
+      "and then never fires. Five fields is the normal shape; six-field second " +
+      "granularity is accepted but cannot be delivered faithfully by a 30-second " +
+      "heartbeat. The dashboard builds this from a schedule picker.",
+  }),
   enabled: z.boolean(),
   folderId: z
     .string()

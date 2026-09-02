@@ -1,5 +1,6 @@
 import type { RoutineFolder, RoutineWithMeta } from "./api";
 import { cronHuman } from "./cron";
+import { describeCronExpr } from "./scheduleBuilder";
 
 /**
  * Free-text search over the Routines list.
@@ -56,8 +57,15 @@ export function searchTerms(query: string): string[] {
 /**
  * Plain-English cron, memoized by expression.
  *
+ * Both renderings, because the two say different words about the same
+ * schedule and someone searching could reasonably type either. `0 9 * * 1-5`
+ * is "Every weekday at 9:00 AM" in the app's own voice — which is what the
+ * row on screen shows, so it has to match — and "Monday through Friday" in
+ * cronstrue's, which is what the row used to show and what a person who
+ * knows the schedule by its days would still reach for.
+ *
  * The list re-filters on every keystroke, and a company with a few hundred
- * routines would otherwise re-parse a few hundred cron expressions per
+ * routines would otherwise re-render a few hundred cron expressions per
  * character typed. The rendering is a pure function of the expression, so the
  * cache can never go stale, and it is bounded by the number of distinct
  * schedules the company has written.
@@ -67,7 +75,7 @@ const cronTextCache = new Map<string, string>();
 function cronText(expr: string): string {
   const hit = cronTextCache.get(expr);
   if (hit !== undefined) return hit;
-  const text = cronHuman(expr);
+  const text = `${describeCronExpr(expr)} ${cronHuman(expr)}`;
   cronTextCache.set(expr, text);
   return text;
 }

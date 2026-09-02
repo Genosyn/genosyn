@@ -73,7 +73,7 @@ import {
   createRevisionProposal,
   serializeRevisionProposal,
 } from "../services/revisionProposals.js";
-import { registerRoutine } from "../services/cron.js";
+import { nextRunFor, registerRoutine } from "../services/cron.js";
 import { currentAuditContext, recordAudit, withAuditContext } from "../services/audit.js";
 import { kickoffHandoff } from "../services/handoffKickoff.js";
 import { kickoffTodoReview } from "../services/reviewKickoff.js";
@@ -8094,11 +8094,25 @@ mcpInternalRouter.post(
   },
 );
 
+/**
+ * The same pair of checks the human route composes (`routes/routines.ts`) and
+ * for the same reason: `node-cron` validates expressions `cron-parser` throws
+ * on — `@annually`, `0 9 1W * *`, `5-1 9 * * *` — and `cron-parser` is what
+ * computes `nextRunAt`. Validating with only the first accepted a routine with
+ * a 200 and a null `nextRunAt`, which the heartbeat then never picked up: work
+ * an AI Employee believes it scheduled and that silently never happens. The
+ * human form cannot produce one of these any more; this is the other door.
+ */
+const routineCronSchema = z
+  .string()
+  .refine((v) => cron.validate(v), "Invalid cron expression")
+  .refine((v) => nextRunFor(v) !== null, "That cron expression cannot be scheduled");
+
 const createRoutineSchema = z
   .object({
     employeeSlug: z.string().min(1).max(120).optional(),
     name: z.string().min(1).max(80),
-    cronExpr: z.string().refine((v) => cron.validate(v), "Invalid cron expression"),
+    cronExpr: routineCronSchema,
     brief: z.string().max(20_000).optional(),
     tags: z.string().max(500).optional(),
     // A folder name or `"Finance/Month-end"` path rather than a uuid: an
@@ -8204,10 +8218,7 @@ const updateRoutineSchema = z
     routineId: z.string().min(1).max(200),
     employeeSlug: z.string().min(1).max(120).optional(),
     name: z.string().min(1).max(80).optional(),
-    cronExpr: z
-      .string()
-      .refine((v) => cron.validate(v), "Invalid cron expression")
-      .optional(),
+    cronExpr: routineCronSchema.optional(),
     brief: z.string().max(20_000).optional(),
     enabled: z.boolean().optional(),
     tags: z.string().max(500).optional(),

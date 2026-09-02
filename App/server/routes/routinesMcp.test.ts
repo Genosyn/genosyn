@@ -311,6 +311,49 @@ describe("delete_routine", () => {
   });
 });
 
+/**
+ * The picker made it impossible for a *person* to author a schedule the
+ * scheduler will not take. These cover the other door into the same table.
+ *
+ * `node-cron` and `cron-parser` disagree about what a valid expression is, and
+ * `cron-parser` is the one that computes `nextRunAt`. Validating with only the
+ * first let an AI Employee create a routine, get a 200 back, and believe it had
+ * scheduled work that the heartbeat would never pick up.
+ */
+describe("an AI Employee cannot schedule work that never happens", () => {
+  const UNSCHEDULABLE = ["@annually", "@midnight", "0 9 1W * *", "5-1 9 * * *"];
+
+  test("create_routine refuses an expression no next run can be computed from", async () => {
+    for (const cronExpr of UNSCHEDULABLE) {
+      const { status } = await tool("create_routine", { name: `Doomed ${cronExpr}`, cronExpr });
+      assert.equal(status, 400, `${cronExpr} was accepted`);
+    }
+    assert.equal(await AppDataSource.getRepository(Routine).count(), 0);
+  });
+
+  test("update_routine refuses to reschedule a live routine onto one", async () => {
+    const routine = await addRoutine({ name: "Digest", slug: "digest", cronExpr: "0 9 * * 1-5" });
+    for (const cronExpr of UNSCHEDULABLE) {
+      const { status } = await tool("update_routine", { routineId: "digest", cronExpr });
+      assert.equal(status, 400, `${cronExpr} was accepted`);
+    }
+    const after = await AppDataSource.getRepository(Routine).findOneByOrFail({ id: routine.id });
+    assert.equal(after.cronExpr, "0 9 * * 1-5", "the working schedule survived");
+  });
+
+  test("the ordinary schedules still go through, and land with a next run", async () => {
+    for (const cronExpr of ["0 9 * * 1-5", "*/15 * * * *", "@daily", "0 9 20 8 *"]) {
+      const { status } = await tool("create_routine", { name: `Fine ${cronExpr}`, cronExpr });
+      assert.equal(status, 200, `${cronExpr} was rejected`);
+    }
+    const saved = await AppDataSource.getRepository(Routine).find();
+    assert.equal(saved.length, 4);
+    for (const routine of saved) {
+      assert.notEqual(routine.nextRunAt, null, `${routine.cronExpr} saved with no next run`);
+    }
+  });
+});
+
 describe("the routine tools are published", () => {
   test("get_routine reaches an MCP client, and the write tools advertise the wider handle", () => {
     const byName = new Map(STATIC_TOOLS.map((t) => [t.name, t]));

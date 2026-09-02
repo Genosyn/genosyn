@@ -59,6 +59,34 @@ export function isTriggerKind(kind: PipelineNodeKind): boolean {
 }
 
 /**
+ * One Schedule node's cron expression, read the same way everywhere.
+ *
+ * `syncScheduleFields` stores a trimmed expression on `Pipeline.cronExpr`
+ * while the graph keeps whatever was authored, and the heartbeat then has to
+ * find the node that expression came from. Comparing the two spellings
+ * directly meant one stray space made the match fail — and because the tick
+ * advances `nextRunAt` before it looks for the node, the slot was consumed
+ * with nothing run and nothing logged. Both sides go through this.
+ */
+export function scheduleNodeCron(node: PipelineNode): string {
+  return String((node.config?.cronExpr as string) ?? "").trim();
+}
+
+/**
+ * The Schedule node a due pipeline's stored expression came from, or null when
+ * the graph no longer holds one — the schedule was edited or removed between
+ * the row being marked due and the tick reaching it.
+ */
+export function findScheduleNode(graph: PipelineGraph, cronExpr: string | null): PipelineNode | null {
+  if (!cronExpr) return null;
+  return (
+    graph.nodes.find(
+      (node) => node.type === "trigger.schedule" && scheduleNodeCron(node) === cronExpr.trim(),
+    ) ?? null
+  );
+}
+
+/**
  * Walk the graph and:
  *   - pick the earliest cron expression among Schedule trigger nodes
  *   - assign a fresh token to any Webhook trigger missing one
@@ -70,7 +98,7 @@ export function syncScheduleFields(pipeline: Pipeline): void {
   const cronExprs: string[] = [];
   for (const node of graph.nodes) {
     if (node.type !== "trigger.schedule") continue;
-    const expr = String((node.config?.cronExpr as string) ?? "").trim();
+    const expr = scheduleNodeCron(node);
     if (!expr) continue;
     if (!isSchedulableCron(expr)) continue;
     cronExprs.push(expr);
@@ -244,9 +272,7 @@ async function tickPipelines(): Promise<void> {
         p.nextRunAt = next;
         await repo.save(p);
         const graph = parseGraph(p.graphJson);
-        const scheduleNode = graph.nodes.find(
-          (n) => n.type === "trigger.schedule" && n.config?.cronExpr === p.cronExpr,
-        );
+        const scheduleNode = findScheduleNode(graph, p.cronExpr);
         if (!scheduleNode) continue;
         runPipeline({
           pipeline: p,

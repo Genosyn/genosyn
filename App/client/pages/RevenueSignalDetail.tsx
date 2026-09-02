@@ -2,7 +2,8 @@ import React from "react";
 import { useOutletContext, useParams } from "react-router-dom";
 import { AlertTriangle, Database, Play, Save, ShieldAlert } from "lucide-react";
 import { api, Employee } from "../lib/api";
-import { cronHuman, cronIsReadable } from "../lib/cron";
+import { cronIsReadable } from "../lib/cron";
+import { ScheduleField } from "../components/ScheduleField";
 import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -407,27 +408,11 @@ export default function RevenueSignalDetail() {
             </div>
           </div>
 
-          <div>
-            <Input
-              label="Schedule (cron)"
-              value={form.cron}
-              maxLength={120}
-              onChange={(e) => patchForm({ cron: e.target.value })}
-              className="font-mono"
-            />
-            <p
-              className={
-                "mt-1 text-xs " +
-                (cronOk
-                  ? "text-slate-500 dark:text-slate-400"
-                  : "text-rose-600 dark:text-rose-400")
-              }
-            >
-              {cronOk
-                ? cronHuman(form.cron)
-                : "That is not a cron expression this scheduler can read."}
-            </p>
-          </div>
+          <ScheduleField
+            value={form.cron}
+            onChange={(cron) => patchForm({ cron })}
+            hint="How often the query runs and the signal looks for new matches."
+          />
 
           <FormError message={testError} />
           {testResult && <TestOutput result={testResult} />}

@@ -29,7 +29,7 @@ import {
   timeAgo,
   timeUntil,
 } from "../components/routines/RunViews";
-import { cronHuman } from "../lib/cron";
+import { describeCronExpr } from "../lib/scheduleBuilder";
 import { RoutinesContext } from "./RoutinesLayout";
 import { PlanLimitBanner } from "../components/FeatureGateCard";
 import { folderAndDescendants, routineTagsInScope } from "../lib/routineFolders";
@@ -711,7 +711,7 @@ function RoutineRow({
             </div>
           )}
           <div className="mt-0.5 truncate text-xs text-slate-400 md:hidden dark:text-slate-500">
-            {cronHuman(r.cronExpr)}
+            {describeCronExpr(r.cronExpr)}
           </div>
         </div>
       </div>
@@ -737,7 +737,7 @@ function RoutineRow({
 
       <div className="hidden min-w-0 md:block">
         <div className="truncate text-sm text-slate-600 dark:text-slate-300" title={r.cronExpr}>
-          {cronHuman(r.cronExpr)}
+          {describeCronExpr(r.cronExpr)}
         </div>
         <div className="truncate text-xs text-slate-400 dark:text-slate-500">
           {brokenSchedule ? (

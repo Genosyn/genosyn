@@ -20,6 +20,7 @@ import {
   UserRound,
   Workflow,
 } from "lucide-react";
+import { describeCronExpr } from "../lib/scheduleBuilder";
 import { api, Company, Employee, EmployeeTemplate } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -600,9 +601,9 @@ function BasicsStep({
                   <li key={r.name}>
                     Routine ·{" "}
                     <span className="font-medium text-slate-800 dark:text-slate-100">{r.name}</span>{" "}
-                    <code className="rounded bg-white px-1 py-0.5 text-[11px] dark:bg-slate-900">
-                      {r.cronExpr}
-                    </code>
+                    <span className="text-slate-500 dark:text-slate-400">
+                      {describeCronExpr(r.cronExpr)}
+                    </span>
                   </li>
                 ))}
               </ul>

@@ -636,6 +636,21 @@ old shape — including a Kubernetes ConfigMap still rendering the old
 
 - [x] Create routine with cron expression
 - [x] Human-readable cron preview
+- [x] **The schedule picker.** `client/components/ScheduleField.tsx` over
+      `client/lib/scheduleBuilder.ts` replaced the raw cron text field
+      everywhere a human sets one — new routine, routine settings, Revenue
+      Signal create and edit, and a Pipeline schedule-trigger node. A person
+      picks a cadence (every few minutes / hourly / daily / weekly / monthly /
+      yearly) and the controls that cadence needs, and the module compiles a
+      5-field expression; nothing about what is stored or what the schedulers
+      read changed. It also shows the sentence, the compiled expression, and
+      the next few fire times, so a schedule is checkable before saving rather
+      than after the first Run. `cronToSchedule()` is deliberately partial —
+      six-field second granularity, hour lists, the day-of-month/day-of-week
+      OR clause and steps the controls do not offer all return null and open
+      in the **Custom (cron)** escape hatch with the expression intact, since
+      an expression an AI Employee wrote through `create_routine` must never
+      be silently rounded to the nearest thing a dropdown can draw
 - [x] Markdown brief editor
 - [x] Enable/disable toggle
 - [x] `node-cron` registration on boot, real Run records

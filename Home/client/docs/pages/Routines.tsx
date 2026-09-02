@@ -21,8 +21,8 @@ export function Routines() {
         title="Routines & Runs"
         lead={
           <>
-            A <Strong>Routine</Strong> is a scheduled, recurring piece of AI work. Cron expression,
-            markdown brief, on/off switch. Every execution becomes a <Strong>Run</Strong> with a
+            A <Strong>Routine</Strong> is a scheduled, recurring piece of AI work. A schedule, a
+            markdown brief, an on/off switch. Every execution becomes a <Strong>Run</Strong> with a
             captured log — and, when it uses a browser, a visual recording you can review beside
             that log.
           </>
@@ -80,10 +80,11 @@ export function Routines() {
           Its <DocLink to="/docs/tags">tags</DocLink>.
         </LI>
         <LI>
-          Its <Strong>schedule</Strong>, in either dialect: <Code>0 9 * * 1-5</Code> and{" "}
-          <Code>Monday</Code> both find the routine that runs on weekday mornings, because the
-          plain-English rendering shown on the row — “At 09:00 AM, Monday through Friday” — is
-          searched alongside the cron expression itself.
+          Its <Strong>schedule</Strong>, in any dialect: <Code>0 9 * * 1-5</Code>,{" "}
+          <Code>weekday</Code> — the words the row itself shows, “Every weekday at 9:00 AM” — and{" "}
+          <Code>Monday</Code> all find the routine that runs on weekday mornings. The cron
+          expression and both plain-English renderings are searched together, so it does not matter
+          whether you remember a schedule by its cadence or by the days it names.
         </LI>
       </UL>
       <P>
@@ -163,8 +164,9 @@ export function Routines() {
             term: "cron",
             def: (
               <>
-                A standard 5-field cron expression. Rendered as a human-readable schedule next to
-                the input field.
+                When it runs. You build this from the <Strong>Schedule</Strong> control — a cadence,
+                the days, a time — and Genosyn compiles it to a standard 5-field cron expression.
+                See <DocLink to="/docs/routines#scheduling">Scheduling</DocLink>.
               </>
             ),
           },
@@ -271,7 +273,45 @@ export function Routines() {
 
       <H2 id="scheduling">Scheduling</H2>
       <P>
-        Routines use <Code>node-cron</Code>, the standard 5-field syntax:
+        The <Strong>Schedule</Strong> control asks when the work should happen, not how to spell it.
+        Pick a cadence and the control offers only what that cadence needs:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Every few minutes</Strong> — 1, 2, 5, 10, 15, 20 or 30.
+        </LI>
+        <LI>
+          <Strong>Hourly</Strong> — every 1 to 12 hours, at a chosen number of minutes past.
+        </LI>
+        <LI>
+          <Strong>Daily</Strong> — a time of day.
+        </LI>
+        <LI>
+          <Strong>Weekly</Strong> — any set of weekdays, plus a time. Mon–Fri reads back as
+          &ldquo;Every weekday&rdquo;.
+        </LI>
+        <LI>
+          <Strong>Monthly</Strong> — a day of the month and a time.
+        </LI>
+        <LI>
+          <Strong>Yearly</Strong> — a month, a day, and a time.
+        </LI>
+      </UL>
+      <P>
+        Underneath, the control writes a plain English sentence, the cron expression it compiled,
+        and the next few times the routine will actually fire — so you can check the schedule
+        before you save rather than after the first Run lands. Times are server-local. The same
+        control appears on <DocLink to="/docs/signals">Revenue Signals</DocLink> and on a{" "}
+        <DocLink to="/docs/pipelines">Pipeline</DocLink> schedule trigger.
+      </P>
+
+      <H3 id="custom-cron">Writing cron by hand</H3>
+      <P>
+        Genosyn stores the schedule as a standard 5-field <Code>node-cron</Code> expression, and the
+        control&apos;s <Strong>Custom (cron)</Strong> option lets you write one directly. Cron can
+        say things the cadences above cannot — two fixed times a day, second-level granularity, the
+        13th and every Friday — and a routine already on such an expression opens in the custom
+        field with it intact rather than being rounded to the nearest cadence.
       </P>
       <Pre lang="text">{`┌───── minute (0 - 59)
 │ ┌─── hour (0 - 23)
@@ -281,10 +321,11 @@ export function Routines() {
 │ │ │ │ │
 0 9 * * 1-5   →  weekdays at 09:00
 */15 * * * *  →  every 15 minutes
-0 17 * * 5    →  Fridays at 17:00`}</Pre>
+0 9,17 * * *  →  09:00 and 17:00, every day`}</Pre>
       <P>
-        The editor previews the cron in plain English next to the field, so you can sanity-check
-        before saving.
+        AI Employees writing a routine through <Code>create_routine</Code> or{" "}
+        <Code>update_routine</Code> pass the cron expression the same way they always did — the
+        control is how humans are asked, not a change to what is stored.
       </P>
       <P>
         Cron is not the only way a routine fires. A <Strong>Trigger</Strong> subscribes a routine to

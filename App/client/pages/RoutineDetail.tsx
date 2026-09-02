@@ -80,7 +80,8 @@ import {
   timeUntil,
   visibleBrowserRecordings,
 } from "../components/routines/RunViews";
-import { cronHuman, cronIsReadable } from "../lib/cron";
+import { describeCronExpr } from "../lib/scheduleBuilder";
+import { ScheduleField } from "../components/ScheduleField";
 import {
   buildCheckSpec,
   checkSpecDraft,
@@ -289,7 +290,7 @@ export default function RoutineDetail({ company }: { company: Company }) {
               )}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
-              <span title={routine.cronExpr}>{cronHuman(routine.cronExpr)}</span>
+              <span title={routine.cronExpr}>{describeCronExpr(routine.cronExpr)}</span>
               {routine.enabled && routine.nextRunAt && (
                 <>
                   <span aria-hidden="true">·</span>
@@ -534,7 +535,7 @@ function OverviewTab({
         <CardBody className="flex flex-col gap-3">
           <SectionLabel>Schedule</SectionLabel>
           <Row icon={<Clock size={14} />} label="Fires">
-            <span title={routine.cronExpr}>{cronHuman(routine.cronExpr)}</span>
+            <span title={routine.cronExpr}>{describeCronExpr(routine.cronExpr)}</span>
           </Row>
           <Row icon={<Clock size={14} />} label="Next run">
             {!routine.enabled ? (
@@ -1323,6 +1324,13 @@ function SettingsTab({
 
   const [name, setName] = React.useState(routine.name);
   const [cronExpr, setCronExpr] = React.useState(routine.cronExpr);
+  // Same re-seed discipline as the folder and goal pickers below: an AI
+  // Employee rescheduling this routine through `update_routine`, or another
+  // Member editing it, must not be silently undone by someone here saving an
+  // unrelated setting — `save()` always sends `cronExpr`.
+  React.useEffect(() => {
+    setCronExpr(routine.cronExpr);
+  }, [routine.id, routine.cronExpr]);
   const [enabled, setEnabled] = React.useState(routine.enabled);
   // "" is the unfiled choice — the routine sits in no folder at all.
   const [folderId, setFolderId] = React.useState(routine.folderId ?? "");
@@ -1510,26 +1518,7 @@ function SettingsTab({
             </div>
           </div>
 
-          <div className="flex flex-col gap-1">
-            <Input
-              label="Schedule"
-              value={cronExpr}
-              onChange={(e) => setCronExpr(e.target.value)}
-              className="font-mono"
-            />
-            <div
-              className={
-                "text-xs " +
-                (cronIsReadable(cronExpr)
-                  ? "text-slate-500 dark:text-slate-400"
-                  : "text-amber-600 dark:text-amber-400")
-              }
-            >
-              {cronIsReadable(cronExpr)
-                ? cronHuman(cronExpr)
-                : "Not a schedule we can read — check the expression."}
-            </div>
-          </div>
+          <ScheduleField value={cronExpr} onChange={setCronExpr} />
 
           <div className="flex flex-col gap-1">
             <Input

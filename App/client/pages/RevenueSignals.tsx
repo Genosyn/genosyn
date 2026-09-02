@@ -2,7 +2,9 @@ import React from "react";
 import { Link, useNavigate, useOutletContext } from "react-router-dom";
 import { AlertTriangle, Database, Plus, Radio } from "lucide-react";
 import { api } from "../lib/api";
-import { cronHuman, cronIsReadable } from "../lib/cron";
+import { DEFAULT_SIGNAL_CRON } from "../lib/cron";
+import { describeCronExpr } from "../lib/scheduleBuilder";
+import { ScheduleField } from "../components/ScheduleField";
 import { errorMessage } from "../lib/errors";
 import { Breadcrumbs } from "../components/AppShell";
 import { useLiveRefetch } from "../components/CompanySocket";
@@ -144,8 +146,6 @@ export const SIGNAL_EVENT_PILL: Record<SignalEventStatus, string> = {
 
 export const SIGNAL_PILL_BASE =
   "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider";
-
-export const DEFAULT_SIGNAL_CRON = "0 * * * *";
 
 export function fmtSignalDate(iso: string | null): string {
   if (!iso) return "Never";
@@ -339,7 +339,7 @@ export default function RevenueSignals() {
                       )}
                     </td>
                     <td className="px-4 py-3 align-top text-slate-600 dark:text-slate-300">
-                      <div className="text-xs">{cronHuman(s.cron)}</div>
+                      <div className="text-xs">{describeCronExpr(s.cron)}</div>
                       <div className="mt-0.5 font-mono text-[11px] text-slate-400 dark:text-slate-500">
                         {s.cron}
                       </div>
@@ -513,28 +513,11 @@ function CreateSignalModal({
             ))}
           </Select>
         </div>
-        <div>
-          <Input
-            label="Schedule (cron)"
-            value={cron}
-            onChange={(e) => setCron(e.target.value)}
-            placeholder={DEFAULT_SIGNAL_CRON}
-            maxLength={120}
-            className="font-mono"
-          />
-          <p
-            className={
-              "mt-1 text-xs " +
-              (cronIsReadable(cron)
-                ? "text-slate-500 dark:text-slate-400"
-                : "text-rose-600 dark:text-rose-400")
-            }
-          >
-            {cronIsReadable(cron)
-              ? cronHuman(cron)
-              : "That is not a cron expression this scheduler can read."}
-          </p>
-        </div>
+        <ScheduleField
+          value={cron}
+          onChange={setCron}
+          hint="How often the query runs and the signal looks for new matches."
+        />
         <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
           New signals start disabled. Add the SQL and the action on the next screen, run a test,
           then switch it on.

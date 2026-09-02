@@ -8,7 +8,8 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Select } from "../components/ui/Select";
-import { CRON_PRESETS, DEFAULT_CRON, cronHuman, cronIsReadable } from "../lib/cron";
+import { DEFAULT_CRON, cronIsReadable } from "../lib/cron";
+import { ScheduleField } from "../components/ScheduleField";
 import { RoutinesContext } from "./RoutinesLayout";
 import { TagPicker } from "../components/TagPicker";
 
@@ -53,6 +54,11 @@ export default function RoutineNew({ company }: { company: Company }) {
     const match = preset ? employees.find((e) => e.slug === preset) : null;
     setEmployeeId(match?.id ?? employees[0].id);
   }, [employees, preset, employeeId]);
+
+  // The schedule control cannot build a bad expression, but its custom-cron
+  // escape hatch can be emptied or mistyped. Gate on it rather than let the
+  // create round-trip to a 400 the person has to read to understand.
+  const scheduleOk = cronIsReadable(cronExpr.trim());
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -134,39 +140,11 @@ export default function RoutineNew({ company }: { company: Company }) {
               ))}
             </Select>
 
-            <div className="flex flex-col gap-1">
-              <Input
-                label="Schedule"
-                value={cronExpr}
-                onChange={(e) => setCronExpr(e.target.value)}
-                className="font-mono"
-                required
-              />
-              <div
-                className={
-                  "text-xs " +
-                  (cronIsReadable(cronExpr)
-                    ? "text-slate-500 dark:text-slate-400"
-                    : "text-amber-600 dark:text-amber-400")
-                }
-              >
-                {cronIsReadable(cronExpr)
-                  ? cronHuman(cronExpr)
-                  : "Not a schedule we can read — check the expression."}
-              </div>
-              <div className="mt-1 flex flex-wrap gap-2">
-                {CRON_PRESETS.map((p) => (
-                  <button
-                    key={p.expr}
-                    type="button"
-                    onClick={() => setCronExpr(p.expr)}
-                    className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <ScheduleField
+              value={cronExpr}
+              onChange={setCronExpr}
+              hint="When the employee picks this work up. Change it any time from the routine."
+            />
 
             {folders.length > 0 && (
               <div className="flex flex-col gap-1">
@@ -199,7 +177,7 @@ export default function RoutineNew({ company }: { company: Company }) {
             {error && <FormError message={error} />}
 
             <div className="flex gap-2">
-              <Button type="submit" disabled={saving || !name.trim()}>
+              <Button type="submit" disabled={saving || !name.trim() || !scheduleOk}>
                 {saving ? "Creating…" : "Create routine"}
               </Button>
               <Button

@@ -11,7 +11,7 @@ import {
   ScrollText,
 } from "lucide-react";
 import { AIModel, api, Company, Employee, EmployeeTemplate } from "../../lib/api";
-import { cronHuman } from "../../lib/cron";
+import { describeCronExpr } from "../../lib/scheduleBuilder";
 import { Button } from "../../components/ui/Button";
 import { FormError } from "../../components/ui/FormError";
 import { Input } from "../../components/ui/Input";
@@ -199,7 +199,7 @@ export function EmployeeStep({
                       <dd className="text-[11px] leading-4 text-slate-500 dark:text-slate-400">
                         {template.routines.length > 0
                           ? template.routines
-                              .map((r) => `${r.name} (${cronHuman(r.cronExpr)})`)
+                              .map((r) => `${r.name} (${describeCronExpr(r.cronExpr)})`)
                               .join(" · ")
                           : "No Routines yet — add them next"}
                       </dd>

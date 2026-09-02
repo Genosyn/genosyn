@@ -112,10 +112,11 @@ describe("routineSearchText", () => {
     }
   });
 
-  test("carries the schedule in both dialects — the raw cron and the English", () => {
+  test("carries the schedule in every dialect a person might type", () => {
     const text = routineSearchText(routine({ cronExpr: "0 9 * * 1-5" }), null);
     assert.ok(text.includes("0 9 * * 1-5"), "raw expression");
-    assert.ok(text.includes("monday"), "plain-English rendering");
+    assert.ok(text.includes("weekday"), "the words the row on screen uses");
+    assert.ok(text.includes("monday"), "the days the schedule actually names");
   });
 
   test("an unreadable cron expression still contributes itself rather than throwing", () => {
@@ -257,6 +258,9 @@ describe("filterRoutinesBySearch", () => {
 
   test("matches on the plain-English schedule the row actually displays", () => {
     assert.deepEqual(names(filterRoutinesBySearch(all, "friday", folders)), ["Month-end close"]);
+    // The row says "Every weekday at 9:00 AM" now, so that has to match too.
+    assert.deepEqual(names(filterRoutinesBySearch(all, "weekday", folders)), ["Month-end close"]);
+    assert.deepEqual(names(filterRoutinesBySearch(all, "15 minutes", folders)), ["Inbox sweep"]);
   });
 
   test("terms are ANDed across different fields", () => {

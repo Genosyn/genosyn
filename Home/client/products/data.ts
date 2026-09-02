@@ -62,17 +62,17 @@ export const PRODUCTS: ProductDef[] = [
     icon: "users",
     accent: "bg-zinc-100 text-zinc-900 ring-zinc-300",
     tagline: "Your AI Employees start work at 06:00 without you.",
-    taglineAccent: "Each one runs on a 5-field cron line you wrote.",
+    taglineAccent: "Each one runs on a schedule you picked, not one you wrote.",
     summary:
-      "Teammates that carry a markdown Soul and work Routines on your own cron line, with every Run transcribed and costed.",
-    seoTitle: "AI Employees: a Soul, Skills, and a cron line · Genosyn",
+      "Teammates that carry a markdown Soul and work Routines on a schedule you pick, with every Run transcribed and costed.",
+    seoTitle: "AI Employees: a Soul, Skills, and a schedule · Genosyn",
     description:
-      "An AI Employee holds a markdown Soul, named Skills, and Routines on a 5-field cron line. It runs on Claude, GPT, or Ollama, and every Run keeps its transcript.",
+      "An AI Employee holds a markdown Soul, named Skills, and Routines on a schedule you pick from a control. It runs on Claude, GPT, or Ollama, and every Run keeps its transcript.",
     intro:
-      "An AI Employee carries a Soul you edit like a job description and Skills written as markdown playbooks. Its Routines fire on a cron line you wrote: 0 6 * * 1-5 starts the weekday work at six, and nobody presses anything. Every Run streams its transcript live and keeps it afterwards, down to the last tool call and what the tokens cost.",
+      "An AI Employee carries a Soul you edit like a job description and Skills written as markdown playbooks. Its Routines fire on a schedule you pick — every weekday at six, and nobody presses anything — with the next few run times shown before you save. Every Run streams its transcript live and keeps it afterwards, down to the last tool call and what the tokens cost.",
     checks: [
       "14 role templates or start blank",
-      "Works unattended, on cron",
+      "Works unattended, on schedule",
       "Claude, GPT, or a custom endpoint",
       "Every Run fully transcribed",
     ],
@@ -89,8 +89,8 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         icon: "calendarClock",
-        title: "A 5-field cron line schedules every Routine",
-        body: "A Routine pairs a markdown brief with a 5-field cron line, previewed back to you in plain English. Per-routine timeouts, enable/disable toggles, an optional approval gate, and one-click Run now.",
+        title: "Pick a schedule, see when it will actually run",
+        body: "A Routine pairs a markdown brief with a schedule you build from a control — hourly, weekdays, the 15th of the month — and it shows you the next few fire times before you save. Cron is still what gets stored, and still there to hand-write when you need it. Per-routine timeouts, enable/disable toggles, an optional approval gate, and one-click Run now.",
       },
       {
         icon: "brainCircuit",

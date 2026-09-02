@@ -1,3 +1,4 @@
+import cron from "node-cron";
 import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -42,7 +43,16 @@ export function parseRoutineSpec(raw: string): InitiativeRoutineSpec {
   if (typeof p.name !== "string" || !p.name.trim()) {
     throw new InitiativeError("The routine spec needs a name");
   }
-  if (typeof p.cronExpr !== "string" || nextRunFor(p.cronExpr) === null) {
+  // Both halves, the way `routes/routines.ts` and the MCP routine tools do it.
+  // `cron-parser` alone accepts four-field expressions like `0 9 * *` and a
+  // bare `*`, which really do fire — so an accepted Initiative could create a
+  // live Routine whose schedule nothing else in the product can read or draw,
+  // leaving the human approving it looking at an expression and no sentence.
+  if (
+    typeof p.cronExpr !== "string" ||
+    !cron.validate(p.cronExpr) ||
+    nextRunFor(p.cronExpr) === null
+  ) {
     throw new InitiativeError("The routine spec's cron expression cannot be scheduled");
   }
   if (typeof p.body !== "string" || !p.body.trim()) {

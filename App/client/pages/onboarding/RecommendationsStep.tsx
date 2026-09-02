@@ -43,7 +43,7 @@ import {
   OnboardingRecommendations,
   OnboardingRoutineRecommendation,
 } from "../../lib/api";
-import { cronHuman } from "../../lib/cron";
+import { describeCronExpr } from "../../lib/scheduleBuilder";
 import {
   defaultOnboardingRoutineIds,
   healthyGrantedConnection,
@@ -754,7 +754,7 @@ function RoutineCard({
             </span>
           </div>
           <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-            <CalendarClock size={11} /> {cronHuman(routine.cronExpr)}
+            <CalendarClock size={11} /> {describeCronExpr(routine.cronExpr)}
           </div>
         </div>
       </div>

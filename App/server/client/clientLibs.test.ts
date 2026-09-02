@@ -43,7 +43,28 @@ import {
   type SectionItem,
   type SectionKey,
 } from "../../client/lib/sections.js";
-import { cronHuman, cronIsReadable, CRON_PRESETS, DEFAULT_CRON } from "../../client/lib/cron.js";
+import cron from "node-cron";
+import {
+  cronHuman,
+  cronIsReadable,
+  DEFAULT_CRON,
+  DEFAULT_SIGNAL_CRON,
+} from "../../client/lib/cron.js";
+import {
+  HOUR_STEPS,
+  MINUTE_STEPS,
+  SCHEDULE_PRESETS,
+  cronToSchedule,
+  defaultSchedule,
+  describeCronExpr,
+  normalizeSchedule,
+  scheduleToCron,
+  type Schedule,
+} from "../../client/lib/scheduleBuilder.js";
+import { nextRunFor } from "../services/cron.js";
+import { EMPLOYEE_TEMPLATES } from "../services/templates.js";
+import { ROUTINE_RECOMMENDATION_DEFINITIONS } from "../services/onboardingRecommendations.js";
+import { NODE_CATALOG } from "../services/pipelines/catalog.js";
 import {
   canRetryPublicSignatureFinalization,
   clampFieldGeometry,
@@ -513,10 +534,132 @@ describe("Routine cron helpers", () => {
     assert.equal(cronHuman("not cron"), "not cron");
   });
 
-  test("ships only readable, unique presets and uses one as the default", () => {
-    assert.equal(new Set(CRON_PRESETS.map((preset) => preset.expr)).size, CRON_PRESETS.length);
-    assert.ok(CRON_PRESETS.some((preset) => preset.expr === DEFAULT_CRON));
-    assert.ok(CRON_PRESETS.every((preset) => cronIsReadable(preset.expr)));
+  test("the default schedule a fresh routine starts on is one the picker can draw", () => {
+    assert.equal(cronIsReadable(DEFAULT_CRON), true);
+    assert.ok(cronToSchedule(DEFAULT_CRON), "the picker must be able to open the default");
+    assert.notEqual(nextRunFor(DEFAULT_CRON), null);
+  });
+});
+
+/**
+ * The picker's whole promise is that a person can no longer author a schedule
+ * the scheduler will not take. That promise is only worth anything if it is
+ * checked against the real `node-cron` validator and the real `nextRunFor()`
+ * the heartbeat schedules with — the two disagree (see `routes/routines.ts`),
+ * and the API rejects an expression that fails either one.
+ */
+describe("the schedule picker only ever emits schedulable cron", () => {
+  function everySchedule(): Schedule[] {
+    const base = defaultSchedule();
+    const out: Schedule[] = [];
+    for (const every of MINUTE_STEPS) out.push({ ...base, frequency: "minutes", every });
+    for (const every of HOUR_STEPS) {
+      for (const minute of [0, 29, 59]) out.push({ ...base, frequency: "hourly", every, minute });
+    }
+    for (const hour of [0, 9, 23]) {
+      for (const minute of [0, 59]) {
+        out.push({ ...base, frequency: "daily", hour, minute });
+        for (const weekdays of [[0], [6], [1, 2, 3, 4, 5], [0, 6], [0, 1, 2, 3, 4, 5, 6]]) {
+          out.push({ ...base, frequency: "weekly", hour, minute, weekdays });
+        }
+        for (const dayOfMonth of [1, 28, 31]) {
+          out.push({ ...base, frequency: "monthly", hour, minute, dayOfMonth });
+          for (const month of [1, 2, 12]) {
+            out.push({ ...base, frequency: "yearly", hour, minute, dayOfMonth, month });
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  test("node-cron validates every expression the controls can produce", () => {
+    for (const schedule of everySchedule()) {
+      const expr = scheduleToCron(schedule);
+      assert.equal(cron.validate(expr), true, expr);
+    }
+  });
+
+  test("the heartbeat can schedule every expression the controls can produce", () => {
+    for (const schedule of everySchedule()) {
+      const expr = scheduleToCron(schedule);
+      assert.notEqual(nextRunFor(expr), null, expr);
+    }
+  });
+
+  test("every one-click preset is schedulable, unique, and reads as a sentence", () => {
+    const exprs = SCHEDULE_PRESETS.map((preset) => scheduleToCron(preset.schedule));
+    assert.equal(new Set(exprs).size, exprs.length);
+    for (const [index, expr] of exprs.entries()) {
+      assert.equal(cron.validate(expr), true, expr);
+      assert.notEqual(nextRunFor(expr), null, expr);
+      assert.deepEqual(
+        cronToSchedule(expr),
+        normalizeSchedule(SCHEDULE_PRESETS[index].schedule),
+        expr,
+      );
+    }
+  });
+
+  test("every schedule the app itself ships opens in the friendly controls", () => {
+    // The other direction of the same promise. It is not enough that the
+    // picker cannot emit a bad expression — every expression the product
+    // hands it must open in the controls rather than dumping a new user into
+    // a raw cron box on their first routine. Covers the hire templates, the
+    // onboarding recommendations, and all three default constants.
+    const shipped: Array<[string, string]> = [
+      ["DEFAULT_CRON", DEFAULT_CRON],
+      ["DEFAULT_SIGNAL_CRON", DEFAULT_SIGNAL_CRON],
+    ];
+    for (const template of EMPLOYEE_TEMPLATES) {
+      for (const routine of template.routines) {
+        shipped.push([`template ${template.id}/${routine.name}`, routine.cronExpr]);
+      }
+    }
+    for (const definition of ROUTINE_RECOMMENDATION_DEFINITIONS) {
+      shipped.push([`recommendation ${definition.id}`, definition.cronExpr]);
+    }
+    for (const node of NODE_CATALOG) {
+      for (const field of node.fields) {
+        if (field.key === "cronExpr" && typeof field.default === "string") {
+          shipped.push([`pipeline node ${node.type}`, field.default]);
+        }
+      }
+    }
+
+    assert.ok(shipped.length > 25, `expected the seed catalogues, got ${shipped.length}`);
+    for (const [where, expr] of shipped) {
+      assert.notEqual(cronToSchedule(expr), null, `${where}: ${expr} lands in the escape hatch`);
+      assert.notEqual(nextRunFor(expr), null, `${where}: ${expr} cannot be scheduled`);
+    }
+  });
+
+  test("reads the cron shorthands the scheduler can actually honour", () => {
+    // node-cron validates all seven macros; cron-parser — which computes
+    // nextRunAt — throws on @annually and @midnight, so those two save and
+    // then never fire. The picker draws the five that work and leaves the two
+    // that do not in the escape hatch rather than dressing them up.
+    for (const macro of ["@hourly", "@daily", "@weekly", "@monthly", "@yearly"]) {
+      assert.notEqual(nextRunFor(macro), null, macro);
+      assert.notEqual(cronToSchedule(macro), null, macro);
+    }
+    for (const macro of ["@annually", "@midnight"]) {
+      assert.equal(cron.validate(macro), true, macro);
+      assert.equal(nextRunFor(macro), null, `${macro} is not schedulable`);
+      assert.equal(cronToSchedule(macro), null, macro);
+    }
+  });
+
+  test("expressions the picker refuses are still described, never shown as an error", () => {
+    // These come from the escape hatch and from AI Employees writing schedules
+    // through the MCP tools. The picker cannot draw them; the app still has to
+    // say what they do.
+    for (const expr of ["0 0 9 * * 1", "0 9,17 * * *", "0 9 13 * 5", "*/7 * * * *"]) {
+      assert.equal(cronToSchedule(expr), null, expr);
+      assert.equal(cron.validate(expr), true, expr);
+      assert.ok(describeCronExpr(expr).length > 0, expr);
+      assert.notEqual(describeCronExpr(expr), expr, expr);
+    }
   });
 });
 

@@ -17,7 +17,7 @@ import { FormError } from "../components/ui/FormError";
 import { Spinner } from "../components/ui/Spinner";
 import { Textarea } from "../components/ui/Textarea";
 import { clsx } from "../components/ui/clsx";
-import { cronHuman, cronIsReadable } from "../lib/cron";
+import { describeCronExpr } from "../lib/scheduleBuilder";
 
 /**
  * Initiatives — standing work AI employees proposed for the company (M54).
@@ -272,12 +272,14 @@ function InitiativeCard({
             <div className="flex flex-col gap-1.5 text-sm">
               <div className="font-medium text-slate-900 dark:text-slate-100">{spec.name}</div>
               <div className="text-xs text-slate-500 dark:text-slate-400">
-                <code className="rounded bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                {/* The schedule leads in English. A proposal reaching here can
+                    carry an expression nothing can read — `propose_initiative`
+                    validates loosely — and that is exactly when the person
+                    approving it must not be shown cron and nothing else. */}
+                <span>{describeCronExpr(spec.cronExpr)}</span>
+                <code className="ml-2 rounded bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                   {spec.cronExpr}
                 </code>
-                {cronIsReadable(spec.cronExpr) && (
-                  <span className="ml-2">{cronHuman(spec.cronExpr)}</span>
-                )}
               </div>
               <div className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50/60 px-3 py-2 font-mono text-xs leading-5 text-slate-700 dark:bg-slate-950/40 dark:text-slate-300">
                 {spec.body}

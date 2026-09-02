@@ -48,7 +48,12 @@ export function Pipelines() {
           },
           {
             term: "Schedule",
-            def: "Genosyn starts it automatically from a standard five-field cron schedule.",
+            def: (
+              <>
+                Genosyn starts it automatically, on a schedule you pick with the same control a{" "}
+                <DocLink to="/docs/routines#scheduling">Routine</DocLink> uses.
+              </>
+            ),
           },
           {
             term: "Webhook",

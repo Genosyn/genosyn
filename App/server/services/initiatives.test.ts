@@ -76,6 +76,30 @@ describe("proposeInitiative", () => {
     );
   });
 
+  test("refuses every shape the rest of the product cannot read or schedule", async () => {
+    // `cron-parser` alone is not the bar. It happily schedules a four-field
+    // expression and a bare `*`, which really do fire — and which `node-cron`,
+    // `cronstrue`, and the schedule picker all reject, so an accepted
+    // Initiative could create a live Routine that the reviewer approving it,
+    // and everyone after, sees as an unreadable expression with no sentence.
+    // The other direction is `node-cron`-only expressions that compute no next
+    // run and therefore never fire at all.
+    for (const cronExpr of ["0 9 * *", "*", "@annually", "0 9 1W * *", "5-1 9 * * *"]) {
+      await assert.rejects(
+        proposeInitiative({
+          companyId,
+          employeeId: employee.id,
+          title: `Initiative ${cronExpr}`,
+          evidence: "e",
+          proposal: "p",
+          routineSpec: spec({ cronExpr }),
+        }),
+        /cannot be scheduled/,
+        `${cronExpr} reached a reviewer`,
+      );
+    }
+  });
+
   test("pages the admins, bounds the queue, and refuses duplicate titles", async () => {
     await propose();
     const bells = await AppDataSource.getRepository(Notification).findBy({

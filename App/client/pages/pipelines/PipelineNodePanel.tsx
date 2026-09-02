@@ -18,7 +18,7 @@ import {
   type PipelineNodeField,
 } from "@/lib/api";
 import { copyToClipboard } from "@/lib/clipboard";
-import { CRON_PRESETS, cronHuman, cronIsReadable } from "@/lib/cron";
+import { ScheduleField } from "@/components/ScheduleField";
 import {
   useBaseTableFields,
   type PipelineIntegrationTool,
@@ -586,7 +586,19 @@ function FieldEditor({
   }
 
   const valueAsString = String(normalized);
-  const isCron = field.key === "cronExpr";
+
+  if (field.key === "cronExpr") {
+    return (
+      <ScheduleField
+        value={valueAsString}
+        onChange={onChange}
+        label={label}
+        hint={field.hint}
+        previewCount={2}
+      />
+    );
+  }
+
   return (
     <div>
       <Input
@@ -595,34 +607,6 @@ function FieldEditor({
         onChange={(event) => onChange(event.target.value)}
         placeholder={field.placeholder}
       />
-      {isCron && valueAsString && (
-        <p
-          className={
-            "mt-1 text-xs leading-5 " +
-            (cronIsReadable(valueAsString)
-              ? "text-emerald-700 dark:text-emerald-300"
-              : "text-rose-600 dark:text-rose-300")
-          }
-        >
-          {cronIsReadable(valueAsString)
-            ? cronHuman(valueAsString)
-            : "This schedule is not valid yet."}
-        </p>
-      )}
-      {isCron && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {CRON_PRESETS.map((preset) => (
-            <button
-              key={preset.expr}
-              type="button"
-              onClick={() => onChange(preset.expr)}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-600 hover:border-indigo-300 hover:text-indigo-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-indigo-700 dark:hover:text-indigo-300"
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-      )}
       {field.hint && (
         <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{field.hint}</p>
       )}

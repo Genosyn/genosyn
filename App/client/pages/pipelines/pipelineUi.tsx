@@ -27,7 +27,8 @@ import type {
   PipelineRunStatus,
   PipelineTriggerKind,
 } from "@/lib/api";
-import { cronHuman, cronIsReadable } from "@/lib/cron";
+import { cronIsReadable } from "@/lib/cron";
+import { describeCronExpr } from "@/lib/scheduleBuilder";
 
 export const PIPELINE_NODE_WIDTH = 248;
 export const PIPELINE_NODE_HEIGHT = 96;
@@ -196,7 +197,7 @@ export function getPipelineIssues(
         id: `cron-${node.id}`,
         severity: "error",
         title: `${label} has an invalid schedule`,
-        description: "Use a standard five-field cron expression such as 0 9 * * 1-5.",
+        description: "Open the node and pick a schedule, or fix the custom expression.",
         nodeId: node.id,
       });
     }
@@ -304,7 +305,7 @@ export function pipelineTriggerSummary(pipeline: Pick<Pipeline, "graph">): strin
   const labels = triggers.map((node) => {
     if (node.type === "trigger.schedule") {
       const expr = String(node.config.cronExpr ?? "").trim();
-      return expr ? cronHuman(expr) : "On a schedule";
+      return expr ? describeCronExpr(expr) : "On a schedule";
     }
     if (node.type === "trigger.webhook") return "When a webhook arrives";
     if (node.type === "trigger.emailReceived") return "When an email is received";

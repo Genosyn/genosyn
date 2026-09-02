@@ -90,11 +90,15 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
     description: "Start automatically at the times you choose.",
     fields: [
       {
+        // Rendered by the app's schedule picker rather than as a text field —
+        // `PipelineNodePanel` short-circuits on this key — so the label names
+        // the thing being chosen, not the syntax it compiles to. The hint is
+        // still worth its line: the times are the server's, not the viewer's.
         key: "cronExpr",
-        label: "Cron expression",
+        label: "Schedule",
         type: "text",
         placeholder: "0 9 * * 1-5",
-        hint: "Standard five-field cron, using the server timezone.",
+        hint: "Runs in the server's time zone.",
         required: true,
         default: "0 9 * * *",
       },
