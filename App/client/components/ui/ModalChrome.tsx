@@ -35,7 +35,12 @@ const widthClass: Record<ModalSize, string> = {
  * they did before.
  */
 
-type Overlay = { panel: React.RefObject<HTMLDivElement | null>; dismiss: () => void };
+type Overlay = {
+  panel: React.RefObject<HTMLDivElement | null>;
+  dismiss: () => void;
+  /** Consume Escape before it dismisses. True when the surface handled it. */
+  escape?: () => boolean;
+};
 
 const overlays: Overlay[] = [];
 
@@ -74,8 +79,18 @@ function onKeyDown(event: KeyboardEvent) {
   const panel = top?.panel.current;
   if (!panel) return;
 
+  // Mid-composition keys belong to the IME. Escape is how a Japanese, Chinese
+  // or Korean writer abandons a candidate, and closing the whole dialog on it
+  // is how they lose the message they were writing.
+  if (event.isComposing) return;
+
   if (event.key === "Escape") {
     event.preventDefault();
+    // A surface may own the key before the dialog does — an autocomplete
+    // inside a modal should close itself on the first Escape, not take the
+    // whole modal down with it. Deliberately Escape-only: a *click* on the X
+    // was aimed at Close, and must not be eaten by an open popup.
+    if (top.escape?.()) return;
     top.dismiss();
     return;
   }
@@ -151,16 +166,31 @@ function unlockPageScroll() {
  * to the close button (`data-modal-close`), and never at all if the content
  * already claimed it with `autoFocus`.
  */
-export function useModalChrome({ open, onDismiss }: { open: boolean; onDismiss: () => void }) {
+export function useModalChrome({
+  open,
+  onDismiss,
+  onEscape,
+}: {
+  open: boolean;
+  onDismiss: () => void;
+  /** Return true to swallow Escape — see {@link Overlay.escape}. */
+  onEscape?: () => boolean;
+}) {
   const titleId = React.useId();
   const panelRef = React.useRef<HTMLDivElement>(null);
   const dismissRef = React.useRef(onDismiss);
   dismissRef.current = onDismiss;
+  const escapeRef = React.useRef(onEscape);
+  escapeRef.current = onEscape;
 
   React.useEffect(() => {
     if (!open) return;
 
-    const entry: Overlay = { panel: panelRef, dismiss: () => dismissRef.current() };
+    const entry: Overlay = {
+      panel: panelRef,
+      dismiss: () => dismissRef.current(),
+      escape: () => escapeRef.current?.() ?? false,
+    };
     overlays.push(entry);
     if (overlays.length === 1) window.addEventListener("keydown", onKeyDown, true);
     lockPageScroll();
@@ -185,8 +215,11 @@ export function useModalChrome({ open, onDismiss }: { open: boolean; onDismiss: 
       // Only if it is still on the page: the action that closed the modal has
       // often re-rendered the row button that opened it, and focusing a
       // detached node silently drops focus to <body>, restarting the next Tab
-      // at the top of the app.
+      // at the top of the app. When it has genuinely gone — the Home row you
+      // opened and then resolved is the everyday case — fall back to the main
+      // region the skip link already targets, so focus lands somewhere real.
       if (restoreFocusTo?.isConnected) restoreFocusTo.focus({ preventScroll: true });
+      else document.getElementById("main-content")?.focus({ preventScroll: true });
     };
   }, [open]);
 
@@ -294,7 +327,7 @@ export function ModalCloseButton({ onClick }: { onClick: () => void }) {
       data-modal-close
       onClick={onClick}
       aria-label="Close"
-      className="-my-1 -mr-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+      className="-my-1 -mr-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
     >
       <X size={18} />
     </button>

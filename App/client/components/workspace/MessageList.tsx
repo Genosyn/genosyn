@@ -29,17 +29,10 @@ import type {
  * passes none of them and loses the hover toolbar, the edit affordance and the
  * clickable reactions along with them; the reactions themselves still render,
  * because who reacted is part of reading the message.
+ *
+ * The list *arithmetic* — merging pages, folding in a socket frame — lives in
+ * `lib/workspaceMessages.ts` instead, where it can be unit-tested without a DOM.
  */
-export function mergeWorkspaceMessages(...groups: WorkspaceMessage[][]): WorkspaceMessage[] {
-  const byId = new Map<string, WorkspaceMessage>();
-  for (const group of groups) {
-    for (const message of group) byId.set(message.id, message);
-  }
-  return Array.from(byId.values()).sort((a, b) => {
-    const timeDelta = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-    return timeDelta || a.id.localeCompare(b.id);
-  });
-}
 
 // ────────────────────────── Message list ────────────────────────────────
 
@@ -112,15 +105,21 @@ export function MessageList({
  * The line between what you have read and what you have not. Deliberately the
  * one loud thing in an otherwise quiet list — it is the answer to "where was
  * I", and a subtle version of it is a line nobody finds.
+ *
+ * A heading rather than a `role="separator"`: separator is on ARIA's
+ * children-presentational list, which strips the word "New" out of the
+ * accessibility tree and leaves a nameless rule that no quick-nav key can
+ * reach. As a heading it is both announced and jumpable. `data-unread-divider`
+ * is how a surface scrolls you to it instead of to the newest message.
  */
 function NewMessagesDivider() {
   return (
-    <div className="flex items-center gap-2 pt-3" role="separator" aria-label="New messages">
-      <span className="h-px flex-1 bg-rose-300 dark:bg-rose-500/50" />
-      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-rose-600 dark:text-rose-300">
-        New
-      </span>
-      <span className="h-px w-6 bg-rose-300 dark:bg-rose-500/50" />
+    <div data-unread-divider="" className="flex items-center gap-2 pt-3">
+      <span aria-hidden="true" className="h-px flex-1 bg-rose-400 dark:bg-rose-500/60" />
+      <h3 className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-300">
+        New<span className="sr-only"> messages below</span>
+      </h3>
+      <span aria-hidden="true" className="h-px w-6 bg-rose-400 dark:bg-rose-500/60" />
     </div>
   );
 }
@@ -137,7 +136,10 @@ export function isBundled(prev: WorkspaceMessage | null, m: WorkspaceMessage): b
 
 function authorId(a: WorkspaceAuthor | null): string | null {
   if (!a) return null;
-  if (a.kind === "system") return "system";
+  // A system author carries no id, so its *name* is its identity. Collapsing
+  // them all to "system" bundled a channel's incoming webhooks together — the
+  // release bot's post landed silently under the metrics bot's name.
+  if (a.kind === "system") return `system:${a.name}`;
   return a.id;
 }
 
@@ -201,7 +203,7 @@ function MessageRow({
       className={
         "group relative flex gap-3 rounded-md px-2 py-1 " +
         (bundled ? "" : "mt-3 ") +
-        "hover:bg-slate-50 dark:hover:bg-slate-900"
+        "hover:bg-slate-50 dark:hover:bg-slate-800/60"
       }
     >
       <div className="w-10 shrink-0">
@@ -215,7 +217,7 @@ function MessageRow({
       </div>
       <div className="min-w-0 flex-1">
         {!bundled && (
-          <div className="flex items-baseline gap-2">
+          <div className="flex flex-wrap items-baseline gap-x-2">
             <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
               {message.author?.name ?? "(unknown)"}
             </span>

@@ -46,6 +46,7 @@ import {
   TodoPriority,
   WorkEntry,
 } from "../lib/api";
+import { workspaceChannelHref } from "../lib/workspace";
 import { ContextualLayout } from "../components/AppShell";
 import { ApprovalPeekModal } from "../components/home/ApprovalPeekModal";
 import { ChannelPeekModal } from "../components/home/ChannelPeekModal";
@@ -1471,7 +1472,7 @@ function MessagesCard({
         {data.unreadChannels.map((c: HomeChannel) => (
           <li key={c.id}>
             <HomeRow
-              to={`/c/${company.slug}/workspace/${c.id}`}
+              to={workspaceChannelHref(company.slug, c.id)}
               onOpen={() => onOpen({ kind: "channel", channel: c })}
               className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
             >

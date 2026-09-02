@@ -90,6 +90,11 @@ export type Mentionable = {
   avatarUrl?: string | null;
 };
 
+/** Where a channel lives in the app. Hand-built in six places before this. */
+export function workspaceChannelHref(companySlug: string, channelId: string): string {
+  return `/c/${companySlug}/workspace/${channelId}`;
+}
+
 // ──────────────────────── REST wrappers ──────────────────────────────────
 
 const base = (companyId: string) => `/api/companies/${companyId}/workspace`;
@@ -257,6 +262,13 @@ export type WsInboundEvent =
 
 export type CompanySocket = {
   close: () => void;
+  /**
+   * Deliberately unwired. The server accepts and rebroadcasts a human typing
+   * frame (`services/realtime.ts`), and no client calls this — only AI
+   * employees announce that they are composing. Broadcasting every keystroke
+   * a person makes is a product decision, not a loose end; make it once, for
+   * both chat surfaces, rather than wiring the nearest composer to it.
+   */
   sendTyping: (channelId: string, name: string) => void;
   /** Register a handler. Returns an unsubscribe function. */
   subscribe: (handler: (event: WsInboundEvent) => void) => () => void;

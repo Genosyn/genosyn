@@ -94,8 +94,7 @@ export function Introduction() {
           OpenAI API key, a custom OpenAI-compatible endpoint, or eligible ChatGPT subscription
           access for OpenAI on a trusted single-tenant install, then point each employee at the
           model you choose. The Docker default runs isolated coding and repository work with
-          bubblewrap, subscriptions included. Claude subscription credentials are not supported; see
-          {" "}
+          bubblewrap, subscriptions included. Claude subscription credentials are not supported; see{" "}
           <DocLink to="/docs/models">AI Models</DocLink>.
         </LI>
         <LI>
@@ -150,15 +149,16 @@ export function Introduction() {
       </P>
       <P>
         <Strong>Clicking a row on Home keeps you on Home.</Strong> An unread channel opens the
-        messages themselves, with a line marking where your unread run starts and a box to reply
-        from; a todo opens its description, pickers and comments; an approval opens what the AI
-        Employee actually asked for, with Approve and Reject on it; a failing health check opens
-        the rows behind the number; a failed{" "}
-        <DocLink to="/docs/routines">routine</DocLink> opens its log. Each one carries a button to
-        the full page — <Strong>Open in Workspace</Strong>, <Strong>Open the board</Strong>,{" "}
-        <Strong>Approvals inbox</Strong> — for when you want the context around the thing rather
-        than the thing. ⌘-click (Ctrl-click on Windows and Linux) or middle-click a row to skip the
-        peek and go straight to the full page, as you always could.
+        messages themselves, scrolled to the line where your unread run starts, with the full
+        Workspace composer under it — <Code>@</Code> an AI Employee and watch it start typing right
+        there (see <DocLink to="/docs/workspace-chat">Workspace chat</DocLink>); a todo opens its
+        description, pickers and comments; an approval opens what the AI Employee actually asked
+        for, with Approve and Reject on it; a failing health check opens the rows behind the number;
+        a failed <DocLink to="/docs/routines">routine</DocLink> opens its log. Each one carries a
+        button to the full page — <Strong>Open in Workspace</Strong>,{" "}
+        <Strong>Open the board</Strong>, <Strong>Approvals inbox</Strong> — for when you want the
+        context around the thing rather than the thing. ⌘-click (Ctrl-click on Windows and Linux) or
+        middle-click a row to skip the peek and go straight to the full page, as you always could.
       </P>
       <P>
         To get anywhere else, press <Code>⌘K</Code> (<Code>Ctrl K</Code> on Windows and Linux). That
@@ -172,8 +172,7 @@ export function Introduction() {
         For pages you use every day, press <Code>G</Code> and then the page&apos;s letter:{" "}
         <Code>G H</Code> opens Home, <Code>G E</Code> opens AI Employees, and <Code>G R</Code> opens
         Routines. Pressing <Code>G</Code>
-        shows the complete destination map, so you never have to guess. Press <Code>?</Code>
-        {" "}
+        shows the complete destination map, so you never have to guess. Press <Code>?</Code>{" "}
         anywhere outside an editor to open the full shortcut guide. Genosyn pauses global shortcuts
         while you type, and ordinary <Code>Tab</Code> navigation has clear, context-appropriate
         focus styling plus a skip-to-main link.

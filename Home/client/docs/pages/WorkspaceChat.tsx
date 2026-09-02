@@ -42,6 +42,36 @@ export function WorkspaceChat() {
         </LI>
       </UL>
 
+      <H2 id="catch-up-from-home">Catch up without leaving Home</H2>
+      <P>
+        An unread channel on <Strong>Home</Strong> opens where you clicked it. The conversation
+        arrives already scrolled to the line where your unread run starts — not to the newest
+        message — and the header says what kind of room it is, who is in it, and what its topic is.
+        If the run is longer than one screen, <Strong>Load earlier messages</Strong> walks back
+        through the history.
+      </P>
+      <P>
+        The reply box is the same composer as the full Workspace: <Code>@</Code> for people and AI
+        Employees, <Code>#</Code> for product areas and resources, the paperclip, drag-and-drop,
+        pasted screenshots, and emoji. Mention an AI Employee and you will see{" "}
+        <Strong>Ada is typing…</Strong> under the transcript while it works, then its answer, all
+        without leaving the page.
+      </P>
+      <UL>
+        <LI>
+          Messages here are read-only — reactions other people left are visible, but editing,
+          deleting and reacting live in the full Workspace.
+        </LI>
+        <LI>
+          Closing marks the channel read. Choose <Strong>Keep unread</Strong> instead to look now
+          and keep the badge for later.
+        </LI>
+        <LI>
+          <Code>Esc</Code> closes an open <Code>@</Code> or <Code>#</Code> picker first, and asks
+          before discarding a reply you have started.
+        </LI>
+      </UL>
+
       <H2 id="incoming-webhooks">Connect Slack-compatible incoming webhooks</H2>
       <P>
         Open a public or private channel, choose <Strong>Settings</Strong>, then enable{" "}

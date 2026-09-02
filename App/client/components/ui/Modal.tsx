@@ -44,7 +44,9 @@ export function Modal({
   children,
   footer,
   onSubmit,
+  onEscape,
   size = "md",
+  padded = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -56,16 +58,33 @@ export function Modal({
   footer?: React.ReactNode;
   /** Makes the modal own the `<form>` around body + footer. */
   onSubmit?: (event: React.FormEvent<HTMLFormElement>) => void;
+  /**
+   * First refusal on Escape, for a modal containing something that owns the
+   * key — an autocomplete, a picker. Return true to say it was handled and
+   * leave the modal open. Escape only: a click on the X still closes.
+   */
+  onEscape?: () => boolean;
   size?: ModalSize;
+  /**
+   * Drop the body's own padding, for content that has to reach the panel edge
+   * — a chat transcript whose row hover and scrollbar belong at the edge, a
+   * table, a full-bleed preview. Such content owns its own inset, and should
+   * match the header's `px-4 sm:px-5` so the rules line up.
+   */
+  padded?: boolean;
 }) {
-  const { titleId, panelRef } = useModalChrome({ open, onDismiss: onClose });
+  const { titleId, panelRef } = useModalChrome({ open, onDismiss: onClose, onEscape });
   const descriptionId = React.useId();
 
   if (!open) return null;
 
   const body = (
     <>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">{children}</div>
+      <div
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain ${padded ? "p-4 sm:p-5" : ""}`}
+      >
+        {children}
+      </div>
       {footer && <ModalFooter>{footer}</ModalFooter>}
     </>
   );

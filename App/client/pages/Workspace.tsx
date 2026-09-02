@@ -10,21 +10,15 @@ import {
   Hash,
   Lock,
   MessagesSquare,
-  Paperclip,
   Plug,
   Plus,
   RefreshCw,
-  Send,
   Settings as SettingsIcon,
-  Smile,
   User as UserIcon,
-  X,
 } from "lucide-react";
 import { Company, Me } from "../lib/api";
-import { useComposerFileDrop } from "../lib/fileDrop";
 import {
   Mentionable,
-  WorkspaceAttachment,
   WorkspaceAuthor,
   WorkspaceChannel,
   WorkspaceChannelWebhookSettings,
@@ -32,31 +26,21 @@ import {
   WorkspaceMessage,
   WsInboundEvent,
   workspaceApi,
+  workspaceChannelHref,
 } from "../lib/workspace";
+import { applyWorkspaceMessageEvent, mergeWorkspaceMessages } from "../lib/workspaceMessages";
 import { copyToClipboard } from "../lib/clipboard";
 import { errorMessage } from "../lib/errors";
 import { useCompanySocket, useCompanySocketSubscription } from "../components/CompanySocket";
-import { EmojiPicker } from "../components/workspace/EmojiPicker";
-import {
-  formatBytes,
-  initials,
-  MessageList,
-  mergeWorkspaceMessages,
-} from "../components/workspace/MessageList";
-import { Avatar as UIAvatar } from "../components/ui/Avatar";
+import { ChannelComposer } from "../components/workspace/Composer";
+import { initials, MessageList } from "../components/workspace/MessageList";
+import { TypingPill, useChannelTyping } from "../components/workspace/TypingPill";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { Spinner } from "../components/ui/Spinner";
 import { FormError, FormSuccess } from "../components/ui/FormError";
 import { useDialog } from "../components/ui/Dialog";
 import { PlanLimitBanner } from "../components/FeatureGateCard";
-import {
-  ChatResourceReference,
-  insertResourceReference,
-  ResourceReferencePicker,
-  resourceQueryAtCaret,
-  useResourceReferences,
-} from "../components/chat/ResourceReferencePicker";
 import { SidebarLink } from "../components/AppShell";
 
 /**
@@ -103,9 +87,6 @@ export default function Workspace({ company, me }: WorkspaceProps) {
   );
   const [messageErrors, setMessageErrors] = React.useState<Record<string, string | null>>({});
   const [onlineUsers, setOnlineUsers] = React.useState<Set<string>>(new Set());
-  const [typing, setTyping] = React.useState<
-    Record<string, { kind: "user" | "ai"; id: string; name: string; until: number }[]>
-  >({});
   const [showNewChannel, setShowNewChannel] = React.useState(false);
   const [showNewDM, setShowNewDM] = React.useState(false);
 
@@ -214,7 +195,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     if (activeChannelId) return;
     const first = channels[0];
     setActiveChannelId(first.id);
-    navigate(`/c/${company.slug}/workspace/${first.id}`, { replace: true });
+    navigate(workspaceChannelHref(company.slug, first.id), { replace: true });
   }, [urlChannelId, channels, activeChannelId, company.slug, navigate]);
 
   // Keep activeChannelId in sync with the URL (e.g. browser back/forward
@@ -239,8 +220,8 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         countedMessageIdsRef.current.add(ev.message.id);
         setMessages((prev) => {
           const cur = prev[ev.channelId] ?? [];
-          if (cur.some((m) => m.id === ev.message.id)) return prev;
-          return { ...prev, [ev.channelId]: [...cur, ev.message] };
+          const next = applyWorkspaceMessageEvent(cur, ev, { meId: me.id });
+          return next === cur ? prev : { ...prev, [ev.channelId]: next };
         });
         const isActiveChannel = ev.channelId === activeChannelIdRef.current;
         if (!alreadyCounted) {
@@ -267,97 +248,17 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         if (isActiveChannel) {
           workspaceApi.markRead(company.id, ev.channelId).catch(() => {});
         }
-        // Clear the typing pill for the author — their message just landed.
-        const author = ev.message.author;
-        if (author && author.kind !== "system") {
-          setTyping((prev) => {
-            const cur = prev[ev.channelId];
-            if (!cur || cur.length === 0) return prev;
-            const pruned = cur.filter((t) => !(t.kind === author.kind && t.id === author.id));
-            if (pruned.length === cur.length) return prev;
-            return { ...prev, [ev.channelId]: pruned };
-          });
-        }
         return;
       }
-      case "message.edit": {
-        setMessages((prev) => {
-          const cur = prev[ev.channelId];
-          if (!cur) return prev;
-          return {
-            ...prev,
-            [ev.channelId]: cur.map((m) =>
-              m.id === ev.messageId ? { ...m, content: ev.content, editedAt: ev.editedAt } : m,
-            ),
-          };
-        });
-        return;
-      }
-      case "message.delete": {
-        setMessages((prev) => {
-          const cur = prev[ev.channelId];
-          if (!cur) return prev;
-          return {
-            ...prev,
-            [ev.channelId]: cur.map((m) =>
-              m.id === ev.messageId
-                ? {
-                    ...m,
-                    content: "",
-                    deletedAt: new Date().toISOString(),
-                    attachments: [],
-                  }
-                : m,
-            ),
-          };
-        });
-        return;
-      }
+      case "message.edit":
+      case "message.delete":
       case "reaction.add":
       case "reaction.remove": {
         setMessages((prev) => {
           const cur = prev[ev.channelId];
           if (!cur) return prev;
-          return {
-            ...prev,
-            [ev.channelId]: cur.map((m) => {
-              if (m.id !== ev.messageId) return m;
-              const rs = [...m.reactions];
-              const idx = rs.findIndex((r) => r.emoji === ev.emoji);
-              if (ev.type === "reaction.add") {
-                const isMe = ev.by.kind === "user" && ev.by.id === me.id;
-                if (idx === -1) {
-                  rs.push({
-                    emoji: ev.emoji,
-                    count: 1,
-                    byMe: isMe,
-                    actors: [ev.by],
-                  });
-                } else {
-                  rs[idx] = {
-                    ...rs[idx],
-                    count: rs[idx].count + 1,
-                    byMe: rs[idx].byMe || isMe,
-                    actors: [...rs[idx].actors, ev.by],
-                  };
-                }
-              } else if (idx !== -1) {
-                const remaining = rs[idx].actors.filter(
-                  (a) => !(a.kind === ev.by.kind && a.id === ev.by.id),
-                );
-                if (remaining.length === 0) rs.splice(idx, 1);
-                else {
-                  rs[idx] = {
-                    ...rs[idx],
-                    count: remaining.length,
-                    actors: remaining,
-                    byMe: remaining.some((a) => a.kind === "user" && a.id === me.id),
-                  };
-                }
-              }
-              return { ...m, reactions: rs };
-            }),
-          };
+          const next = applyWorkspaceMessageEvent(cur, ev, { meId: me.id });
+          return next === cur ? prev : { ...prev, [ev.channelId]: next };
         });
         return;
       }
@@ -370,28 +271,9 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         });
         return;
       }
-      case "typing": {
-        // Self-typing echoes back over the WS; suppress those so the user
-        // doesn't see their own name in the "Alice is typing…" pill.
-        if (ev.by.kind === "user" && ev.by.id === me.id) return;
-        setTyping((prev) => {
-          const cur = prev[ev.channelId] ?? [];
-          const without = cur.filter((t) => !(t.kind === ev.by.kind && t.id === ev.by.id));
-          return {
-            ...prev,
-            [ev.channelId]: [
-              ...without,
-              {
-                kind: ev.by.kind,
-                id: ev.by.id,
-                name: ev.by.name,
-                until: Date.now() + 6_000,
-              },
-            ],
-          };
-        });
-        return;
-      }
+      // `typing` is handled by `useChannelTyping` in the channel being
+      // viewed. The page used to keep a channel-keyed map of typers, but
+      // nothing ever rendered one for a channel you were not looking at.
       case "channel.archive": {
         const remaining = (channels ?? []).filter((channel) => channel.id !== ev.channelId);
         setChannels(remaining);
@@ -399,7 +281,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
           const next = remaining[0] ?? null;
           setActiveChannelId(next?.id ?? null);
           navigate(
-            next ? `/c/${company.slug}/workspace/${next.id}` : `/c/${company.slug}/workspace`,
+            next ? workspaceChannelHref(company.slug, next.id) : `/c/${company.slug}/workspace`,
             {
               replace: true,
             },
@@ -504,29 +386,9 @@ export default function Workspace({ company, me }: WorkspaceProps) {
     );
   }, [activeChannelId, company.id, channelsLoaded]);
 
-  // Sweep expired typing entries every second so pills fade out when a
-  // typer stops sending the event. Runs on the outer component to keep one
-  // timer for all channels.
-  React.useEffect(() => {
-    const t = setInterval(() => {
-      const now = Date.now();
-      setTyping((prev) => {
-        let changed = false;
-        const next: typeof prev = {};
-        for (const [cid, arr] of Object.entries(prev)) {
-          const alive = arr.filter((t) => t.until > now);
-          if (alive.length !== arr.length) changed = true;
-          if (alive.length > 0) next[cid] = alive;
-        }
-        return changed ? next : prev;
-      });
-    }, 1_000);
-    return () => clearInterval(t);
-  }, []);
-
   function selectChannel(id: string) {
     setActiveChannelId(id);
-    navigate(`/c/${company.slug}/workspace/${id}`);
+    navigate(workspaceChannelHref(company.slug, id));
   }
 
   async function archiveWorkspaceChannel(channelId: string) {
@@ -538,7 +400,7 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         const next = remaining[0] ?? null;
         setActiveChannelId(next?.id ?? null);
         navigate(
-          next ? `/c/${company.slug}/workspace/${next.id}` : `/c/${company.slug}/workspace`,
+          next ? workspaceChannelHref(company.slug, next.id) : `/c/${company.slug}/workspace`,
           { replace: true },
         );
       }
@@ -557,7 +419,6 @@ export default function Workspace({ company, me }: WorkspaceProps) {
         companySlug={company.slug}
         me={me}
         channels={channels}
-        directory={directory}
         activeChannelId={activeChannelId}
         onlineUsers={onlineUsers}
         onSelect={selectChannel}
@@ -585,7 +446,6 @@ export default function Workspace({ company, me }: WorkspaceProps) {
             onLoadOlderMessages={() => loadOlderChannelMessages(activeChannel.id)}
             directory={directory}
             mentionables={mentionables}
-            typing={typing[activeChannel.id] ?? []}
             onAttachmentUrl={(id) => workspaceApi.attachmentUrl(company.id, id)}
             onChannelUpdated={(updated) => {
               setChannels((prev) =>
@@ -641,7 +501,6 @@ function WorkspaceSidebar({
   companySlug,
   me,
   channels,
-  directory,
   activeChannelId,
   onlineUsers,
   onSelect,
@@ -652,7 +511,6 @@ function WorkspaceSidebar({
   companySlug: string;
   me: Me;
   channels: WorkspaceChannel[] | null;
-  directory: WorkspaceDirectory | null;
   activeChannelId: string | null;
   onlineUsers: Set<string>;
   onSelect: (id: string) => void;
@@ -866,7 +724,6 @@ function ChannelView({
   onLoadOlderMessages,
   directory,
   mentionables,
-  typing,
   onAttachmentUrl,
   onChannelUpdated,
   onArchive,
@@ -881,7 +738,6 @@ function ChannelView({
   onLoadOlderMessages: () => Promise<boolean>;
   directory: WorkspaceDirectory | null;
   mentionables: Mentionable[];
-  typing: { kind: "user" | "ai"; id: string; name: string; until: number }[];
   onAttachmentUrl: (id: string) => string;
   onChannelUpdated: (c: WorkspaceChannel) => void;
   onArchive: () => void;
@@ -898,6 +754,7 @@ function ChannelView({
   const [showMembers, setShowMembers] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
   const [editingMessageId, setEditingMessageId] = React.useState<string | null>(null);
+  const typers = useChannelTyping(channel.id, me.id);
 
   React.useLayoutEffect(() => {
     if (messages === null) return;
@@ -1065,16 +922,26 @@ function ChannelView({
         <div ref={endRef} />
       </div>
 
-      {typing.length > 0 && <TypingPill typers={typing} />}
+      {typers.length > 0 && (
+        <div className="shrink-0 border-t border-slate-100 px-6 py-1.5 dark:border-slate-800">
+          <TypingPill typers={typers} />
+        </div>
+      )}
 
-      <Composer
+      <ChannelComposer
         company={company}
-        channel={channel}
-        directory={directory}
+        channel={{
+          id: channel.id,
+          kind: channel.kind,
+          label: channel.kind === "dm" ? "your recipient" : `#${channel.name ?? "channel"}`,
+        }}
         mentionables={mentionables}
-        messages={messages ?? []}
-        meId={me.id}
-        onEditMessage={setEditingMessageId}
+        editLast={{
+          messages: messages ?? [],
+          meId: me.id,
+          onEdit: setEditingMessageId,
+        }}
+        className="shrink-0 border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950"
       />
 
       {channel.kind === "dm" && (
@@ -1122,521 +989,6 @@ function channelTitle(c: WorkspaceChannel, meId: string): string {
   }
   return c.name ?? "channel";
 }
-
-// ────────────────────────── Composer ────────────────────────────────────
-
-function findLastOwnMessage(messages: WorkspaceMessage[], meId: string): WorkspaceMessage | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.deletedAt) continue;
-    const a = m.author;
-    if (a && a.kind === "user" && "id" in a && a.id === meId) return m;
-  }
-  return null;
-}
-
-function Composer({
-  company,
-  channel,
-  directory,
-  mentionables,
-  messages,
-  meId,
-  onEditMessage,
-}: {
-  company: Company;
-  channel: WorkspaceChannel;
-  directory: WorkspaceDirectory | null;
-  mentionables: Mentionable[];
-  messages: WorkspaceMessage[];
-  meId: string;
-  onEditMessage: (id: string) => void;
-}) {
-  const [draft, setDraft] = React.useState("");
-  const [attachments, setAttachments] = React.useState<WorkspaceAttachment[]>([]);
-  const [sending, setSending] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [emojiOpen, setEmojiOpen] = React.useState(false);
-  const [mentionOpen, setMentionOpen] = React.useState(false);
-  const [mentionQuery, setMentionQuery] = React.useState("");
-  const [mentionIndex, setMentionIndex] = React.useState(0);
-  const [resourceQuery, setResourceQuery] = React.useState<string | null>(null);
-  const [resourceStart, setResourceStart] = React.useState<number | null>(null);
-  const fileRef = React.useRef<HTMLInputElement | null>(null);
-  const textRef = React.useRef<HTMLTextAreaElement | null>(null);
-  const { references, loading: referencesLoading } = useResourceReferences(
-    company.id,
-    resourceQuery,
-  );
-
-  // Reset the draft when the active channel changes — prevents leaking a
-  // half-written message into the next room.
-  React.useEffect(() => {
-    setDraft("");
-    setAttachments([]);
-    setError(null);
-    setResourceQuery(null);
-    setResourceStart(null);
-  }, [channel.id]);
-
-  // Drive the textarea height from the rendered value rather than from the
-  // input/keydown handler. Reading scrollHeight inside an event handler
-  // sees the pre-render DOM, so clearing the draft on Enter would leave
-  // the textarea pinned to the multi-line height it grew to while typing
-  // — which then squeezed out the message list and made new sends look
-  // like they hadn't scrolled.
-  React.useEffect(() => {
-    const el = textRef.current;
-    if (!el) return;
-    // "auto" lets the textarea fall back to its natural single-row height
-    // so scrollHeight reads the content's actual height. Setting it to
-    // "0px" makes scrollHeight return whatever space the flex parent
-    // offered up — which is huge — and the cap below pins it to 240px.
-    el.style.height = "auto";
-    el.style.height = `${Math.min(240, el.scrollHeight)}px`;
-  }, [draft]);
-
-  async function handleSend() {
-    const trimmed = draft.trim();
-    if (!trimmed && attachments.length === 0) return;
-    setSending(true);
-    setError(null);
-    try {
-      if (channel.kind === "dm" && trimmed === "/new" && attachments.length === 0) {
-        await workspaceApi.resetContext(company.id, channel.id);
-        setDraft("");
-        setMentionOpen(false);
-        setResourceQuery(null);
-        return;
-      }
-      await workspaceApi.sendMessage(company.id, channel.id, {
-        content: draft,
-        attachmentIds: attachments.map((a) => a.id),
-      });
-      setDraft("");
-      setAttachments([]);
-      setEmojiOpen(false);
-      setMentionOpen(false);
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setSending(false);
-    }
-  }
-
-  async function onFiles(files: FileList | File[] | null) {
-    if (!files || files.length === 0) return;
-    setError(null);
-    for (const f of Array.from(files)) {
-      try {
-        const a = await workspaceApi.uploadAttachment(company.id, f);
-        setAttachments((prev) => [...prev, a]);
-      } catch (err) {
-        setError(`Upload failed: ${errorMessage(err)}`);
-      }
-    }
-  }
-
-  // Paste a screenshot or drag a file onto the composer — routes straight to
-  // the same upload path as the paperclip button.
-  const { dragActive, onPaste, dragProps } = useComposerFileDrop((files) => {
-    void onFiles(files);
-  });
-
-  // Autocomplete fires as soon as the caret sits right after `@` or `#`.
-  // `mentionPrefix` carries the trigger char so the matcher can stay
-  // simple — `@` hits users+AI, `#` hits channels/bases/tables/connections.
-  const [mentionPrefix, setMentionPrefix] = React.useState<"@" | "#" | null>(null);
-
-  function updateDraft(next: string) {
-    setDraft(next);
-    // Height is reapplied by the useEffect on `draft` after React renders.
-    const el = textRef.current;
-    if (!el) return;
-    const caret = el.selectionStart ?? next.length;
-    const head = next.slice(0, caret);
-    const m = head.match(/([@#])([a-z0-9/_-]*)$/i);
-    const resource = resourceQueryAtCaret(next, caret);
-    if (m) {
-      setMentionOpen(true);
-      setMentionPrefix(m[1] as "@" | "#");
-      setMentionQuery(m[2].toLowerCase());
-      setMentionIndex(0);
-    } else {
-      setMentionOpen(false);
-      setMentionPrefix(null);
-    }
-    setResourceQuery(resource?.query ?? null);
-    setResourceStart(resource?.start ?? null);
-  }
-
-  function insertMention(handle: string) {
-    const el = textRef.current;
-    if (!el) return;
-    const caret = el.selectionStart ?? draft.length;
-    const head = draft.slice(0, caret);
-    const tail = draft.slice(caret);
-    const replaced = head.replace(/[@#][a-z0-9/_-]*$/i, `${handle} `);
-    setDraft(replaced + tail);
-    setMentionOpen(false);
-    requestAnimationFrame(() => {
-      el.focus();
-      const pos = replaced.length;
-      el.setSelectionRange(pos, pos);
-    });
-  }
-
-  function insertReference(reference: ChatResourceReference) {
-    const el = textRef.current;
-    if (!el || resourceStart === null) return;
-    const caret = el.selectionStart ?? draft.length;
-    const inserted = insertResourceReference({
-      value: draft,
-      caret,
-      start: resourceStart,
-      companySlug: company.slug,
-      reference,
-    });
-    setDraft(inserted.value);
-    setMentionOpen(false);
-    setResourceQuery(null);
-    setResourceStart(null);
-    setMentionIndex(0);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(inserted.caret, inserted.caret);
-    });
-  }
-
-  const mentionCandidates = React.useMemo(() => {
-    if (!mentionPrefix) return [] as Mentionable[];
-    const kinds =
-      mentionPrefix === "@"
-        ? new Set(["user", "ai"])
-        : new Set(["channel", "base", "base_table", "connection"]);
-    return mentionables
-      .filter((x) => kinds.has(x.kind))
-      .filter((x) => {
-        if (!mentionQuery) return true;
-        const q = mentionQuery;
-        return x.handle.toLowerCase().includes(q) || x.label.toLowerCase().includes(q);
-      })
-      .slice(0, 30);
-  }, [mentionables, mentionPrefix, mentionQuery]);
-
-  // Clamp the highlighted index back into range whenever the candidate list
-  // shrinks (e.g. the user keeps typing and narrows the matches).
-  React.useEffect(() => {
-    setMentionIndex((i) => {
-      const length = references.length || mentionCandidates.length;
-      if (length === 0) return 0;
-      if (i >= length) return length - 1;
-      if (i < 0) return 0;
-      return i;
-    });
-  }, [mentionCandidates.length, references.length]);
-
-  return (
-    <div className="shrink-0 border-t border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950">
-      {attachments.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
-          {attachments.map((a) => (
-            <div
-              key={a.id}
-              className="flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800"
-            >
-              <Paperclip size={12} className="text-slate-400" />
-              <span className="max-w-[180px] truncate">{a.filename}</span>
-              <span className="text-slate-400">{formatBytes(a.sizeBytes)}</span>
-              <button
-                onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
-                className="ml-1 rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-700"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <FormError message={error} className="mb-2" />
-      <div
-        {...dragProps}
-        className={
-          "relative flex items-start gap-2 rounded-xl border bg-white p-2 dark:bg-slate-900 " +
-          (dragActive
-            ? "border-indigo-500 ring-2 ring-indigo-500/30 "
-            : "border-slate-200 focus-within:border-indigo-400 dark:border-slate-700")
-        }
-      >
-        {dragActive && (
-          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-indigo-50/90 text-sm font-medium text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-200">
-            <Paperclip size={14} className="mr-1.5" /> Drop to attach
-          </div>
-        )}
-        <input
-          type="file"
-          ref={fileRef}
-          className="hidden"
-          multiple
-          onChange={(e) => onFiles(e.target.files)}
-        />
-        <button
-          onClick={() => fileRef.current?.click()}
-          className="mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-          title="Attach file"
-          aria-label="Attach file"
-        >
-          <Paperclip size={16} />
-        </button>
-        <textarea
-          ref={textRef}
-          value={draft}
-          onChange={(e) => updateDraft(e.target.value)}
-          onPaste={onPaste}
-          onKeyDown={(e) => {
-            if (resourceQuery !== null && references.length > 0) {
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setMentionIndex((i) => (i + 1) % references.length);
-                return;
-              }
-              if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setMentionIndex((i) => (i - 1 + references.length) % references.length);
-                return;
-              }
-              if (e.key === "Enter" || e.key === "Tab") {
-                e.preventDefault();
-                insertReference(references[mentionIndex] ?? references[0]);
-                return;
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setResourceQuery(null);
-                return;
-              }
-            }
-            if (mentionOpen && mentionCandidates.length > 0) {
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                setMentionIndex((i) => (i + 1) % mentionCandidates.length);
-                return;
-              }
-              if (e.key === "ArrowUp") {
-                e.preventDefault();
-                setMentionIndex(
-                  (i) => (i - 1 + mentionCandidates.length) % mentionCandidates.length,
-                );
-                return;
-              }
-              if (e.key === "Enter" || e.key === "Tab") {
-                e.preventDefault();
-                const pick = mentionCandidates[mentionIndex] ?? mentionCandidates[0];
-                if (pick) insertMention(pick.handle);
-                return;
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setMentionOpen(false);
-                return;
-              }
-            }
-            // Slack/iMessage convention: ↑ on an empty composer pulls up the
-            // most recent message you sent in this channel for editing.
-            if (
-              e.key === "ArrowUp" &&
-              !e.shiftKey &&
-              !e.metaKey &&
-              !e.ctrlKey &&
-              !e.altKey &&
-              draft === "" &&
-              attachments.length === 0
-            ) {
-              const lastOwn = findLastOwnMessage(messages, meId);
-              if (lastOwn) {
-                e.preventDefault();
-                onEditMessage(lastOwn.id);
-                return;
-              }
-            }
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void handleSend();
-            } else if (e.key === "Escape") {
-              setMentionOpen(false);
-              setEmojiOpen(false);
-            }
-          }}
-          placeholder={`Message ${channelPlaceholder(channel)}`}
-          className="min-h-[28px] min-w-0 flex-1 resize-none bg-transparent px-1 py-1 text-sm text-slate-800 outline-none placeholder:text-slate-400 dark:text-slate-100"
-          rows={1}
-        />
-        <div className="relative">
-          <button
-            onClick={() => setEmojiOpen((o) => !o)}
-            className="mt-1 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-            title="Emoji"
-            aria-label="Emoji"
-          >
-            <Smile size={16} />
-          </button>
-          {emojiOpen && (
-            <EmojiPicker
-              onPick={(e) => setDraft((d) => d + e)}
-              onClose={() => setEmojiOpen(false)}
-            />
-          )}
-        </div>
-        <Button size="sm" disabled={sending} onClick={handleSend}>
-          {sending ? <Spinner size={12} /> : <Send size={14} />}
-          Send
-        </Button>
-
-        {mentionOpen &&
-          mentionCandidates.length > 0 &&
-          (mentionPrefix === "@" || (!referencesLoading && references.length === 0)) && (
-            <div className="absolute bottom-full left-12 z-20 mb-2 w-80 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900">
-              <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-                {mentionPrefix === "@" ? "People" : "Resources"}
-              </div>
-              <div className="max-h-72 overflow-y-auto pb-1">
-                {mentionCandidates.map((x, i) => (
-                  <button
-                    key={`${x.kind}-${x.handle}`}
-                    onMouseDown={(ev) => {
-                      ev.preventDefault();
-                      insertMention(x.handle);
-                    }}
-                    onMouseEnter={() => setMentionIndex(i)}
-                    className={
-                      "flex w-full items-center gap-2.5 px-3 py-1.5 text-left " +
-                      (i === mentionIndex
-                        ? "bg-slate-100 dark:bg-slate-800"
-                        : "hover:bg-slate-50 dark:hover:bg-slate-800")
-                    }
-                  >
-                    {x.kind === "user" || x.kind === "ai" ? (
-                      <UIAvatar
-                        name={x.label}
-                        src={x.avatarUrl ?? null}
-                        kind={x.kind === "ai" ? "ai" : "human"}
-                        size="sm"
-                      />
-                    ) : (
-                      <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-100 dark:bg-slate-800">
-                        <MentionIcon kind={x.kind} />
-                      </span>
-                    )}
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
-                          {x.label}
-                        </span>
-                        {x.kind === "ai" && (
-                          <span className="shrink-0 rounded bg-indigo-50 px-1 text-[10px] font-medium uppercase tracking-wide text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
-                            AI
-                          </span>
-                        )}
-                      </span>
-                      <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
-                        <span className="font-mono">{x.handle}</span>
-                        {x.sublabel ? ` · ${x.sublabel}` : ""}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        {resourceQuery !== null && (referencesLoading || references.length > 0) && (
-          <ResourceReferencePicker
-            references={references}
-            loading={referencesLoading}
-            activeIndex={mentionIndex}
-            onHover={setMentionIndex}
-            onPick={insertReference}
-            className="absolute bottom-full left-12 z-20 mb-2 w-80"
-          />
-        )}
-      </div>
-      <div className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
-        Press{" "}
-        <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">Enter</kbd> to
-        send ·{" "}
-        <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">
-          Shift+Enter
-        </kbd>{" "}
-        newline ·{" "}
-        <kbd className="rounded border border-slate-200 px-1 dark:border-slate-700">↑</kbd> edit
-        last · <span className="font-mono">@</span> for people ·{" "}
-        <span className="font-mono">#</span> for product areas &amp; resources
-        {channel.kind === "dm" ? (
-          <>
-            {" "}
-            · <span className="font-mono">/new</span> for new context
-          </>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function MentionIcon({ kind }: { kind: Mentionable["kind"] }) {
-  const cls = "shrink-0";
-  switch (kind) {
-    case "user":
-      return <UserIcon size={14} className={cls + " text-emerald-500"} />;
-    case "ai":
-      return <Bot size={14} className={cls + " text-indigo-500"} />;
-    case "channel":
-      return <Hash size={14} className={cls + " text-sky-500"} />;
-    case "base":
-    case "base_table":
-      return <Hash size={14} className={cls + " text-amber-500"} />;
-    case "connection":
-      return <Hash size={14} className={cls + " text-violet-500"} />;
-  }
-}
-
-function channelPlaceholder(c: WorkspaceChannel): string {
-  if (c.kind === "dm") return "your recipient";
-  return `#${c.name ?? "channel"}`;
-}
-
-function TypingPill({
-  typers,
-}: {
-  typers: { kind: "user" | "ai"; id: string; name: string; until: number }[];
-}) {
-  const names = typers.map((t) => t.name).filter(Boolean);
-  if (names.length === 0) return null;
-  const label =
-    names.length === 1
-      ? `${names[0]} is typing`
-      : names.length === 2
-        ? `${names[0]} and ${names[1]} are typing`
-        : `${names.length} people are typing`;
-  return (
-    <div className="shrink-0 border-t border-slate-100 px-6 py-1.5 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-      <span className="inline-flex items-center gap-1">
-        <TypingDots />
-        {label}…
-      </span>
-    </div>
-  );
-}
-
-function TypingDots() {
-  return (
-    <span className="inline-flex items-center gap-0.5">
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:-0.3s]" />
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-400 [animation-delay:-0.15s]" />
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-400" />
-    </span>
-  );
-}
-
-// ────────────────────────── Empty state ─────────────────────────────────
 
 function WorkspaceLoading({ label }: { label: string }) {
   return (
