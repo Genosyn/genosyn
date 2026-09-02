@@ -18,6 +18,7 @@ import { IntegrationConnection } from "../db/entities/IntegrationConnection.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Run } from "../db/entities/Run.js";
 import { Standdown } from "../db/entities/Standdown.js";
+import { findLiveRunFailures } from "./runFailures.js";
 
 /**
  * System Health — a company-scoped roll-up of "is anything broken?" signals,
@@ -220,25 +221,12 @@ async function computeChecks(
     unverified,
     activeStanddowns,
   ] = await Promise.all([
-    routineIds.length
-      ? sampleOrCount(
-          runRepo,
-          {
-            where: {
-              routineId: In(routineIds),
-              status: In(["failed", "timeout", "interrupted"]),
-              startedAt: MoreThanOrEqual(recentSince),
-              // A retry is already scheduled — not yet something to act on.
-              retryAt: IsNull(),
-              // Stay in step with the Home "Failed routines" panel: a run a
-              // member dismissed there shouldn't keep this check red.
-              dismissedAt: IsNull(),
-            },
-            order: { startedAt: "DESC" },
-          },
-          itemLimit,
-        )
-      : Promise.resolve([[], 0] as [Run[], number]),
+    // Shares its filter with the Home "Failed routines" panel, so a failure a
+    // member dismissed there — or one the routine's next run already fixed by
+    // itself — does not keep this check red.
+    findLiveRunFailures({ routineIds, since: recentSince, take: itemLimit }).then(
+      ({ rows, count }) => [rows, count] as [Run[], number],
+    ),
     // Not windowed: a retry chain with a six-hour backoff can outlive the
     // 24-hour window it started in, and a pending retry stays actionable.
     routineIds.length

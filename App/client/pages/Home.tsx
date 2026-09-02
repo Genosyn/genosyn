@@ -339,10 +339,10 @@ function HomeOverlayHost({
       //
       // `onRetry` is deliberately not passed, which is what suppresses
       // RunLiveModal's own Retry button. Home already decides who may start a
-      // routine again and on what terms: only an `interrupted` run offers it,
-      // and only behind the confirm in {@link FailedRoutinesAlert} warning
-      // that the run may already have sent the email or moved the money. A
-      // second, unguarded Retry inside this modal would route around both.
+      // routine again and on what terms: the retry lives on the row in
+      // {@link FailedRoutinesAlert}, behind a confirm warning that the run may
+      // already have sent the email or moved the money. A second, unguarded
+      // Retry inside this modal would route around that.
       return (
         <RunLiveModal
           key={overlay.run.runId}
@@ -692,9 +692,12 @@ function failedRunBadge(r: HomeFailedRun): string {
 }
 
 /**
- * High-visibility alert listing routine runs that failed in the last 24h.
- * Only renders when something is broken — a clean day shows nothing here.
- * Each row deep-links into the routine's run history (on the failing run).
+ * High-visibility alert listing routine runs that failed in the last 24h and
+ * are still worth acting on — the server drops a failure the routine's next
+ * run already fixed by itself, so a stale red panel never trains people to
+ * scroll past a real one. Only renders when something is broken; a clean day
+ * shows nothing here. Each row deep-links into the routine's run history (on
+ * the failing run) and carries a retry.
  */
 function FailedRoutinesAlert({
   company,
@@ -704,13 +707,13 @@ function FailedRoutinesAlert({
 }: {
   company: Company;
   data: HomeData;
-  /** Refetch Home data after a run is rerun or dismissed so the panel updates. */
+  /** Refetch Home data after a run is retried or dismissed so the panel updates. */
   onChanged: () => Promise<void> | void;
   onOpen: (overlay: HomeOverlay) => void;
 }) {
   const dialog = useDialog();
   // Which row is mid-request, and which of its two buttons owns the spinner.
-  const [busy, setBusy] = React.useState<{ runId: string; action: "rerun" | "dismiss" } | null>(
+  const [busy, setBusy] = React.useState<{ runId: string; action: "retry" | "dismiss" } | null>(
     null,
   );
 
@@ -727,29 +730,32 @@ function FailedRoutinesAlert({
   }
 
   /**
-   * Start the routine again from here. Offered on interrupted runs only: the
-   * server died mid-run, so nothing about the routine is known to be broken and
-   * the work simply didn't happen. A `failed` or `timeout` run is a real
-   * failure whose cause a human should read the log for first, and anything
-   * with an automatic retry pending never reaches this panel.
+   * Start the routine again from here — offered on every row, because the
+   * commonest answer to a failed routine is "try it again" and the alternative
+   * was three clicks into the routine's own page. Anything with an automatic
+   * retry still pending never reaches this panel, so nothing here is racing the
+   * retry chain.
    *
-   * The run stopped somewhere unknown, so it may already have sent the email or
-   * moved the money — the same caution the run history prints before its "Run
-   * now" button, asked here as a confirm because this panel is one click from a
+   * Every row asks first. A run that failed part-way through, and an
+   * interrupted one especially, may already have sent the email or moved the
+   * money — the same caution the run history prints before its "Run now"
+   * button, asked here as a confirm because this panel is one click from a
    * page nobody opened to think about side effects.
    *
-   * Starting the rerun acknowledges the interrupted run, so the row drops off
+   * Starting the retry acknowledges the failed run, so the row drops off
    * instead of sitting there inviting a second, duplicate run.
    */
-  async function rerun(r: HomeFailedRun) {
+  async function retry(r: HomeFailedRun) {
     const ok = await dialog.confirm({
       title: `Run ${r.routineName} again?`,
       message:
-        "The server stopped part-way through, so nothing is known about work done after the log's last line. Run it again only if repeating that work is safe.",
-      confirmLabel: "Rerun",
+        r.status === "interrupted"
+          ? "The server stopped part-way through, so nothing is known about work done after the log's last line. Run it again only if repeating that work is safe."
+          : "The run stopped part-way through, so any work it had already done stands. Run it again only if repeating that work is safe — otherwise open the log first.",
+      confirmLabel: "Retry",
     });
     if (!ok) return;
-    setBusy({ runId: r.runId, action: "rerun" });
+    setBusy({ runId: r.runId, action: "retry" });
     try {
       await api.post(`/api/companies/${company.id}/routines/${r.routineId}/run`);
       await api.post(`/api/companies/${company.id}/runs/${r.runId}/dismiss`);
@@ -807,25 +813,23 @@ function FailedRoutinesAlert({
                 {failedRunBadge(r)}
               </span>
             </HomeRow>
-            {/* An interrupted run is work that never happened, not a routine
-                that misbehaved — offer the redo right where the failure is. */}
-            {r.status === "interrupted" && (
-              <button
-                type="button"
-                onClick={() => rerun(r)}
-                disabled={busy?.runId === r.runId}
-                title="Rerun"
-                aria-label={`Rerun ${r.routineName}`}
-                className="flex shrink-0 items-center gap-1 px-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
-              >
-                {busy?.runId === r.runId && busy.action === "rerun" ? (
-                  <Spinner size={14} />
-                ) : (
-                  <RotateCw size={14} />
-                )}
-                <span className="hidden sm:inline">Rerun</span>
-              </button>
-            )}
+            {/* Whatever went wrong, the next thing a person wants is another
+                attempt — so offer it right where the failure is. */}
+            <button
+              type="button"
+              onClick={() => retry(r)}
+              disabled={busy?.runId === r.runId}
+              title="Retry"
+              aria-label={`Retry ${r.routineName}`}
+              className="flex shrink-0 items-center gap-1 px-2 text-xs font-medium text-rose-700 transition hover:bg-rose-100/50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-500/10"
+            >
+              {busy?.runId === r.runId && busy.action === "retry" ? (
+                <Spinner size={14} />
+              ) : (
+                <RotateCw size={14} />
+              )}
+              <span className="hidden sm:inline">Retry</span>
+            </button>
             <button
               type="button"
               onClick={() => dismiss(r.runId)}

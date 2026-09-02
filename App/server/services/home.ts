@@ -1,11 +1,11 @@
-import { In, IsNull, MoreThanOrEqual } from "typeorm";
+import { In } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { Approval } from "../db/entities/Approval.js";
 import { Role } from "../db/entities/Membership.js";
 import { Project } from "../db/entities/Project.js";
 import { Routine } from "../db/entities/Routine.js";
-import { Run, RunStatus } from "../db/entities/Run.js";
+import { RunStatus } from "../db/entities/Run.js";
 import { Todo, TodoPriority } from "../db/entities/Todo.js";
 import {
   countUnreadForUser,
@@ -19,6 +19,7 @@ import { redactApprovalSummary } from "./approvalRedaction.js";
 import { isVaultCaptureApproval } from "./approvals.js";
 import { DecisionDTO, listPendingDecisions } from "./decisions.js";
 import { listHomeTldrs, type TldrDTO } from "./tldrs.js";
+import { findLiveRunFailures } from "./runFailures.js";
 
 /**
  * Aggregation behind the Home page — the landing surface after sign-in.
@@ -265,19 +266,12 @@ export async function getHomeData(params: {
   let failedRuns: HomeFailedRun[] = [];
   let failedRunCount = 0;
   if (compRoutineById.size > 0) {
-    const since = new Date(Date.now() - FAILED_RUN_WINDOW_MS);
-    const [rows, count] = await AppDataSource.getRepository(Run).findAndCount({
-      where: {
-        routineId: In([...compRoutineById.keys()]),
-        status: In(["failed", "timeout", "interrupted"]),
-        startedAt: MoreThanOrEqual(since),
-        // Runs a member has already acknowledged drop off the panel.
-        dismissedAt: IsNull(),
-        // So does a run with a retry already scheduled — it isn't a failure
-        // the company needs to act on until the last attempt has been spent.
-        retryAt: IsNull(),
-      },
-      order: { startedAt: "DESC" },
+    // Dismissed rows, rows still owed a retry, and failures a later successful
+    // run has already made history are all filtered out by the shared rule —
+    // see `findLiveRunFailures`.
+    const { rows, count } = await findLiveRunFailures({
+      routineIds: [...compRoutineById.keys()],
+      since: new Date(Date.now() - FAILED_RUN_WINDOW_MS),
       take: 6,
     });
     failedRunCount = count;

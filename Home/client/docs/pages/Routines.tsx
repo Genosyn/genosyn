@@ -529,15 +529,21 @@ This is read-only triage. Do not edit files, create branches, commit, push, or c
         count) so it stops nagging the whole team.
       </P>
       <P>
-        Rows marked <Code>interrupted</Code> also carry a <Strong>Rerun</Strong> button. Nothing is
-        wrong with the routine in that case — the server stopped part-way through and the work
-        simply didn&apos;t happen — so the button runs it again immediately and dismisses the
-        interrupted Run, which keeps the panel from inviting a second, duplicate Run. It confirms
-        first, because an interrupted Run may already have sent the email or moved the money before
-        the process died; read the log if you&apos;re not sure repeating the work is safe. Runs that
-        {" "}
-        <Code>failed</Code> or <Code>timed out</Code> get no button here — those broke for a reason
-        worth reading before you fire them off again.
+        Every row on that panel carries a <Strong>Retry</Strong> button too, so the commonest answer
+        to a broken Run doesn&apos;t cost a trip into the routine. It runs the routine again
+        immediately, outside the schedule, and dismisses the Run it came from — which keeps the
+        panel from inviting a second, duplicate Run. It confirms first, because a Run that stopped
+        part-way through may already have sent the email or moved the money; read the log if
+        you&apos;re not sure repeating the work is safe.
+      </P>
+      <P>
+        A failure the routine has already recovered from clears itself. If the routine has
+        completed a Run since — the next scheduled tick, an automatic retry, or a Retry you
+        clicked — the older failure drops off the panel and out of the System Health failed-runs
+        count without anyone dismissing it. It stays in the routine&apos;s run history, where the
+        Run log and the <Strong>Journal</Strong> still have it. The point is that a red panel on
+        Home always means something is broken <Strong>now</Strong>: a panel that is usually stale
+        is a panel people learn to scroll past.
       </P>
 
       <H2 id="outcome-check">The outcome check</H2>
