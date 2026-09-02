@@ -723,7 +723,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         cronExpr: {
           type: "string",
           description:
-            "5-field cron expression (minute hour day-of-month month day-of-week), read in the server's local time zone. Examples: '0 9 * * 1' = every Monday at 9:00, '0 9 * * 1-5' = every weekday at 9:00, '*/15 * * * *' = every 15 minutes. It must be schedulable, not merely well-formed: expressions like '@annually', '0 9 1W * *' and '5-1 9 * * *' are rejected because no next run can be computed from them, and a routine that saves but never fires is worse than an error. Prefer a plain 5-field expression — humans see this schedule as a picker, and anything more exotic shows them raw cron instead.",
+            "5-field cron expression (minute hour day-of-month month day-of-week), server-local. Must be schedulable, not just valid. Examples: '0 9 * * 1' = every Monday at 9:00, '*/15 * * * *' = every 15 minutes.",
         },
         brief: {
           type: "string",
@@ -766,7 +766,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         cronExpr: {
           type: "string",
           description:
-            "5-field cron expression (minute hour day-of-month month day-of-week), read in the server's local time zone. Examples: '0 9 * * 1' = every Monday at 9:00, '0 9 * * 1-5' = every weekday at 9:00, '*/15 * * * *' = every 15 minutes. It must be schedulable, not merely well-formed: expressions like '@annually', '0 9 1W * *' and '5-1 9 * * *' are rejected because no next run can be computed from them, and a routine that saves but never fires is worse than an error. Prefer a plain 5-field expression — humans see this schedule as a picker, and anything more exotic shows them raw cron instead.",
+            "5-field cron expression (minute hour day-of-month month day-of-week), server-local. Must be schedulable, not just valid. Examples: '0 9 * * 1' = every Monday at 9:00, '*/15 * * * *' = every 15 minutes.",
         },
         brief: {
           type: "string",
@@ -943,8 +943,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
             name: { type: "string" },
             cronExpr: {
               type: "string",
-              description:
-                "A schedulable 5-field cron expression in the server's local time zone, e.g. '0 9 * * 1-5'. Rejected if no next run can be computed from it. A human reviews this proposal, so prefer an ordinary cadence they will recognise.",
+              description: "A schedulable 5-field cron expression, server-local.",
             },
             body: { type: "string", description: "The Routine's markdown brief." },
             acceptanceCriteria: { type: "string", description: "Optional definition of done." },
