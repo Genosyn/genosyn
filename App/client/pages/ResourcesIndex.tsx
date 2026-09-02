@@ -20,6 +20,7 @@ import {
   Search,
   SlidersHorizontal,
   Sparkles,
+  TextSearch as MatchIcon,
   Upload,
   User,
   Video,
@@ -49,6 +50,12 @@ import { useLiveRefetch } from "../components/CompanySocket";
  * embeddings — grouping/vectorising waits for a later milestone once we
  * know what teams actually feed in.
  */
+/** One row of `GET /resources/search` — a list row plus why it matched. */
+type ResourceBodyHit = Resource & {
+  snippet: string | null;
+  matchedIn: ("title" | "summary" | "tags" | "body")[];
+};
+
 export default function ResourcesIndex({ company }: { company: Company }) {
   const navigate = useNavigate();
   const [items, setItems] = React.useState<Resource[] | null>(null);
@@ -59,6 +66,11 @@ export default function ResourcesIndex({ company }: { company: Company }) {
   const [selectedTagId, setSelectedTagId] = React.useState<string | null>(null);
   const [selectedKind, setSelectedKind] = React.useState<ResourceSourceKind | null>(null);
   const [failedOnly, setFailedOnly] = React.useState(false);
+  // Body hits come from the server: `hydrate` strips `bodyText` from every
+  // list response, so the client-side filter below can only ever see titles,
+  // summaries, URLs and tag names. Without this the people who filled the
+  // library were the only ones who could not search inside it.
+  const [bodyHits, setBodyHits] = React.useState<ResourceBodyHit[] | null>(null);
   const [sort, setSort] = React.useState<SortKey>(() => readPref("sort", SORT_KEYS, "updated"));
   const [view, setView] = React.useState<ViewMode>(() => readPref("view", VIEW_MODES, "grid"));
   const searchRef = React.useRef<HTMLInputElement>(null);
@@ -68,9 +80,7 @@ export default function ResourcesIndex({ company }: { company: Company }) {
 
   const reload = React.useCallback(async () => {
     try {
-      const rows = await api.get<Resource[]>(
-        `/api/companies/${company.id}/resources`,
-      );
+      const rows = await api.get<Resource[]>(`/api/companies/${company.id}/resources`);
       setItems(rows);
       setLoadError(null);
     } catch (err) {
@@ -84,6 +94,34 @@ export default function ResourcesIndex({ company }: { company: Company }) {
   }, [reload]);
 
   useLiveRefetch("resource", reload);
+
+  // Debounced so a typed word is one request, not six. A stale response is
+  // dropped rather than rendered — otherwise a slow early query overwrites the
+  // results of the one the person is actually looking at.
+  React.useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setBodyHits(null);
+      return;
+    }
+    let live = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        const found = await api.get<{ results: ResourceBodyHit[] }>(
+          `/api/companies/${company.id}/resources/search?q=${encodeURIComponent(q)}`,
+        );
+        if (live) setBodyHits(found.results);
+      } catch {
+        // A failed content search degrades to the client-side filter, which is
+        // still showing results. Nothing to interrupt the person with.
+        if (live) setBodyHits(null);
+      }
+    }, 220);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [query, company.id]);
 
   // Press "/" anywhere to jump to search — skip when the user is already
   // typing into a field so it doesn't hijack real input.
@@ -103,14 +141,28 @@ export default function ResourcesIndex({ company }: { company: Company }) {
     setShowNew(true);
   }
 
+  /** Snippet by resource id, for the rows the server matched on content. */
+  const snippetById = React.useMemo(() => {
+    const out = new Map<string, string>();
+    for (const hit of bodyHits ?? []) {
+      if (hit.snippet && hit.matchedIn?.includes("body")) out.set(hit.id, hit.snippet);
+    }
+    return out;
+  }, [bodyHits]);
+
   const filtered = React.useMemo(() => {
     if (!items) return null;
     const q = query.trim().toLowerCase();
+    const contentMatched = new Set(snippetById.keys());
     const matched = items.filter((r) => {
       if (failedOnly && r.status !== "failed") return false;
       if (selectedKind && r.sourceKind !== selectedKind) return false;
       if (selectedTagId && !r.tags.some((tag) => tag.id === selectedTagId)) return false;
       if (!q) return true;
+      // The metadata match stays instant and local; a content match arrives a
+      // moment later and widens the same list. Every other filter still
+      // applies to both, so a content hit cannot escape the tag or kind chip.
+      if (contentMatched.has(r.id)) return true;
       const hay =
         r.title.toLowerCase() +
         " " +
@@ -125,7 +177,7 @@ export default function ResourcesIndex({ company }: { company: Company }) {
       return hay.includes(q);
     });
     return [...matched].sort(SORTERS[sort]);
-  }, [items, query, selectedTagId, selectedKind, failedOnly, sort]);
+  }, [items, query, selectedTagId, selectedKind, failedOnly, sort, snippetById]);
 
   const availableTags = React.useMemo(() => {
     const byId = new Map((items ?? []).flatMap((item) => item.tags).map((tag) => [tag.id, tag]));
@@ -149,8 +201,7 @@ export default function ResourcesIndex({ company }: { company: Company }) {
     };
   }, [items, availableTags.length]);
 
-  const filtering =
-    query.trim().length > 0 || !!selectedTagId || !!selectedKind || failedOnly;
+  const filtering = query.trim().length > 0 || !!selectedTagId || !!selectedKind || failedOnly;
 
   function clearFilters() {
     setQuery("");
@@ -163,10 +214,7 @@ export default function ResourcesIndex({ company }: { company: Company }) {
     <div className="flex h-full min-w-0 flex-1 flex-col bg-slate-50 dark:bg-slate-900">
       <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 px-6 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/80">
         <Breadcrumbs
-          items={[
-            { label: company.name, to: `/c/${company.slug}` },
-            { label: "Resources" },
-          ]}
+          items={[{ label: company.name, to: `/c/${company.slug}` }, { label: "Resources" }]}
         />
       </div>
 
@@ -181,10 +229,9 @@ export default function ResourcesIndex({ company }: { company: Company }) {
                 {company.name}
               </h1>
               <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-                External material — articles, ebooks, transcripts — that AI
-                employees can study and search later. Paste a URL, drop a file,
-                or paste raw text. Each entry is searchable through the built-in
-                MCP tools.
+                External material — articles, ebooks, transcripts — that AI employees can study and
+                search later. Paste a URL, drop a file, or paste raw text. Search finds the passage
+                inside, for you here and for your AI employees through their tools.
               </p>
             </div>
             {items && items.length > 0 && (
@@ -209,12 +256,9 @@ export default function ResourcesIndex({ company }: { company: Company }) {
             >
               <AlertTriangle size={15} className="shrink-0" />
               <span className="flex-1">
-                {stats.failed} {stats.failed === 1 ? "resource" : "resources"} failed to
-                ingest.
+                {stats.failed} {stats.failed === 1 ? "resource" : "resources"} failed to ingest.
               </span>
-              <span className="shrink-0 font-medium">
-                {failedOnly ? "Show all" : "Review"}
-              </span>
+              <span className="shrink-0 font-medium">{failedOnly ? "Show all" : "Review"}</span>
             </button>
           )}
 
@@ -286,9 +330,9 @@ export default function ResourcesIndex({ company }: { company: Company }) {
                   </button>
                 </div>
               ) : view === "grid" ? (
-                <ResourceGrid company={company} items={filtered ?? []} />
+                <ResourceGrid company={company} items={filtered ?? []} snippets={snippetById} />
               ) : (
-                <ResourceList company={company} items={filtered ?? []} />
+                <ResourceList company={company} items={filtered ?? []} snippets={snippetById} />
               )}
             </>
           )}
@@ -337,10 +381,7 @@ function StatsStrip({
     {
       icon: <Layers size={14} />,
       label: stats.pending > 0 ? "Processing" : "Formats",
-      value:
-        stats.pending > 0
-          ? stats.pending.toLocaleString()
-          : stats.formats.toLocaleString(),
+      value: stats.pending > 0 ? stats.pending.toLocaleString() : stats.formats.toLocaleString(),
     },
     {
       icon: <Sparkles size={14} />,
@@ -406,7 +447,7 @@ function Toolbar({
           ref={searchRef}
           value={query}
           onChange={(e) => onQuery(e.target.value)}
-          placeholder="Search by title, summary, URL, or tag…"
+          placeholder="Search titles, tags, and everything inside…"
           className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-10 text-sm text-slate-700 placeholder:text-slate-400 hover:border-slate-300 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:placeholder:text-slate-500 dark:hover:border-slate-600 dark:focus:ring-indigo-500/25"
         />
         {query ? (
@@ -570,7 +611,15 @@ function KindChip({
 
 // ───────────────────────────── Grid view ────────────────────────────────
 
-function ResourceGrid({ company, items }: { company: Company; items: Resource[] }) {
+function ResourceGrid({
+  company,
+  items,
+  snippets,
+}: {
+  company: Company;
+  items: Resource[];
+  snippets: Map<string, string>;
+}) {
   const navigate = useNavigate();
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -596,10 +645,17 @@ function ResourceGrid({ company, items }: { company: Company; items: Resource[] 
           <h3 className="line-clamp-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
             {r.title}
           </h3>
-          {r.summary && (
-            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-              {r.summary}
+          {snippets.has(r.id) ? (
+            <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+              <MatchIcon size={11} className="mr-1 inline align-[-1px] text-indigo-500" />
+              {snippets.get(r.id)}
             </p>
+          ) : (
+            r.summary && (
+              <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                {r.summary}
+              </p>
+            )
           )}
           <div className="flex-1" />
           {r.tags.length > 0 && (
@@ -626,7 +682,15 @@ function ResourceGrid({ company, items }: { company: Company; items: Resource[] 
 
 // ───────────────────────────── List view ────────────────────────────────
 
-function ResourceList({ company, items }: { company: Company; items: Resource[] }) {
+function ResourceList({
+  company,
+  items,
+  snippets,
+}: {
+  company: Company;
+  items: Resource[];
+  snippets: Map<string, string>;
+}) {
   const navigate = useNavigate();
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
@@ -649,10 +713,17 @@ function ResourceList({ company, items }: { company: Company; items: Resource[] 
               </span>
               {r.status !== "ready" && <StatusBadge status={r.status} />}
             </span>
-            {r.summary && (
-              <span className="mt-0.5 line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
-                {r.summary}
+            {snippets.has(r.id) ? (
+              <span className="mt-0.5 line-clamp-2 text-xs text-slate-600 dark:text-slate-300">
+                <MatchIcon size={11} className="mr-1 inline align-[-1px] text-indigo-500" />
+                {snippets.get(r.id)}
               </span>
+            ) : (
+              r.summary && (
+                <span className="mt-0.5 line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
+                  {r.summary}
+                </span>
+              )
             )}
             <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400 dark:text-slate-500">
               <span>{KIND_LABEL[r.sourceKind]}</span>
@@ -725,9 +796,8 @@ function EmptyHero({ onPick }: { onPick: (kind: NewResourceTab) => void }) {
         Build a shelf for your team to study
       </h3>
       <p className="mx-auto mt-1.5 max-w-md text-sm text-slate-500 dark:text-slate-400">
-        Articles, ebooks, transcripts, briefs — anything you want every AI
-        employee to be able to read and search. Pick how you want to add the
-        first one.
+        Articles, ebooks, transcripts, briefs — anything you want every AI employee to be able to
+        read and search. Pick how you want to add the first one.
       </p>
       <div className="mx-auto mt-6 grid max-w-xl grid-cols-1 gap-2.5 sm:grid-cols-3">
         {tiles.map((t) => (
@@ -752,13 +822,7 @@ function EmptyHero({ onPick }: { onPick: (kind: NewResourceTab) => void }) {
 
 // ─────────────────────────── Shared helpers ─────────────────────────────
 
-export function SourceKindIcon({
-  kind,
-  size = 18,
-}: {
-  kind: ResourceSourceKind;
-  size?: number;
-}) {
+export function SourceKindIcon({ kind, size = 18 }: { kind: ResourceSourceKind; size?: number }) {
   if (kind === "url") return <Globe size={size} />;
   if (kind === "pdf") return <FileText size={size} />;
   if (kind === "epub") return <BookOpen size={size} />;
@@ -814,12 +878,7 @@ export function timeAgo(iso: string): string {
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
-  return (
-    tag === "INPUT" ||
-    tag === "TEXTAREA" ||
-    tag === "SELECT" ||
-    target.isContentEditable
-  );
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
 }
 
 // ─────────────────────────── Sort / view config ─────────────────────────
@@ -855,11 +914,7 @@ const KIND_LABEL: Record<ResourceSourceKind, string> = {
 
 const PREF_PREFIX = "genosyn.resources.";
 
-function readPref<T extends string>(
-  key: string,
-  allowed: readonly T[],
-  fallback: T,
-): T {
+function readPref<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
     const stored = window.localStorage.getItem(PREF_PREFIX + key);
@@ -1034,9 +1089,7 @@ function NewResourceModal({
         {tab === "file" && (
           <>
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                File
-              </label>
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">File</label>
               <label
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -1060,9 +1113,7 @@ function NewResourceModal({
                 {file ? (
                   <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
                     {file.name}{" "}
-                    <span className="font-normal text-slate-400">
-                      ({formatBytes(file.size)})
-                    </span>
+                    <span className="font-normal text-slate-400">({formatBytes(file.size)})</span>
                   </span>
                 ) : (
                   <span className="text-sm text-slate-600 dark:text-slate-300">
@@ -1080,9 +1131,8 @@ function NewResourceModal({
                 />
               </label>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                PDF, EPUB, TXT, MD, or HTML. 25 MB max. Video uploads are
-                stored but transcripts aren&apos;t auto-generated yet — paste
-                the transcript as text instead.
+                PDF, EPUB, TXT, MD, or HTML. 25 MB max. Video uploads are stored but transcripts
+                aren&apos;t auto-generated yet — paste the transcript as text instead.
               </p>
             </div>
             <Input

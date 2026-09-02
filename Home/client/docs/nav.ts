@@ -294,6 +294,12 @@ export const DOCS_NAV: DocsSection[] = [
           "Airtable-style tables with views, comments, attachments, and columns that link customers, projects, and more.",
       },
       {
+        path: "/docs/resources",
+        title: "Resources",
+        blurb:
+          "The library your AI Employees read from — URLs, PDFs, ebooks and transcripts, searched down to the passage.",
+      },
+      {
         path: "/docs/customers",
         title: "Customers",
         blurb: "Accounts, contacts, annual contract value, statements, and signed contracts.",

@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import multer from "multer";
 import unzipper from "unzipper";
 import { In } from "typeorm";
+import type { SelectQueryBuilder } from "typeorm";
 import { AppDataSource } from "../db/datasource.js";
 import { Resource } from "../db/entities/Resource.js";
 import type { ResourceSourceKind } from "../db/entities/Resource.js";
@@ -15,6 +16,8 @@ import {
 import type { ResourceAccessLevel } from "../db/entities/EmployeeResourceGrant.js";
 import { Company } from "../db/entities/Company.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
+import { andWhereTokens, orWhereTokens, scoreLabel, tokenizeQuery } from "./likeSearch.js";
+import { isBinary } from "../lib/binaryBytes.js";
 import { safeFetchBuffer } from "../lib/outboundUrl.js";
 import { companyDir, ensureDir } from "./paths.js";
 import { docxBufferToText } from "./docxRead.js";
@@ -318,35 +321,30 @@ export async function extractResourceText(
   try {
     if (sourceKind === "pdf") {
       const buf = await fs.promises.readFile(absPath);
-      return {
-        bodyText: trimBodyText(await pdfBufferToText(buf)),
-        status: "ready",
-        errorMessage: "",
-      };
+      return gradeExtraction(trimBodyText(await pdfBufferToText(buf)), "pdf");
     }
     if (sourceKind === "epub") {
-      return {
-        bodyText: trimBodyText(await epubFileToText(absPath)),
-        status: "ready",
-        errorMessage: "",
-      };
+      return gradeExtraction(trimBodyText(await epubFileToText(absPath)), "epub");
     }
+    const buf = await fs.promises.readFile(absPath);
     if (looksLikeWordDocument("", filename)) {
       // A Word document infers as `text`, and decoding a zip as UTF-8 filled
       // `bodyText` with mojibake that search then happily matched against.
-      const buf = await fs.promises.readFile(absPath);
-      return {
-        bodyText: trimBodyText(await docxBufferToText(buf)),
-        status: "ready",
-        errorMessage: "",
-      };
+      return gradeExtraction(trimBodyText(await docxBufferToText(buf)), "docx");
     }
-    // text / .txt / .md / .html — read as utf8.
-    const raw = (await fs.promises.readFile(absPath)).toString("utf8");
+    // Everything unrecognised infers as `text` (`inferSourceKindFromFilename`),
+    // so this branch is where a .png, .xlsx, .mp3 or .zip lands. Decoding those
+    // as UTF-8 used to store mojibake and stamp the row `ready` — the summary
+    // on the index card was literal PNG chunk names, and `search_resources`
+    // matched against them. Refuse the bytes instead of indexing them.
+    if (isBinary(buf)) {
+      return { bodyText: "", status: "failed", errorMessage: binaryRefusal(buf, filename) };
+    }
+    const raw = buf.toString("utf8");
     const ext = path.extname(filename).toLowerCase();
     const bodyText =
       ext === ".html" || ext === ".htm" ? trimBodyText(htmlToText(raw).text) : trimBodyText(raw);
-    return { bodyText, status: "ready", errorMessage: "" };
+    return gradeExtraction(bodyText, "text");
   } catch (err) {
     return {
       bodyText: "",
@@ -354,6 +352,65 @@ export async function extractResourceText(
       errorMessage: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+/**
+ * A Resource whose extraction produced nothing is not Ready.
+ *
+ * Nothing used to check. `pdf-parse` does not throw on a scanned contract with
+ * no text layer — it returns "\n\n" — so the row was saved `ready` with an
+ * empty body, the index card showed a blank summary, and `search_resources`
+ * silently never matched it. The employee then answered from nothing and
+ * nobody could tell the difference between "the library has no answer" and
+ * "the library has the answer and cannot read it". That second case is the
+ * expensive one, and it is the one this function exists to name.
+ *
+ * The message is source-specific because the remedy is: a scan needs OCR or a
+ * text copy, a JS-rendered page needs a PDF or a paste. Both are things a
+ * human can act on, which a bare "extraction failed" is not.
+ */
+export function gradeExtraction(
+  bodyText: string,
+  kind: "pdf" | "epub" | "docx" | "text" | "url",
+): { bodyText: string; status: "ready" | "failed"; errorMessage: string } {
+  if (bodyText.trim().length > 0) return { bodyText, status: "ready", errorMessage: "" };
+  const why: Record<typeof kind, string> = {
+    pdf: "This PDF has no text layer — it is probably a scan. The file is stored and can still be viewed and signed, but nothing will find it by searching. Run it through OCR and upload the result.",
+    epub: "No readable chapters came out of this EPUB. It may be DRM-protected or image-only.",
+    docx: "No text came out of this Word document. It may hold only images.",
+    text: "This file contained no readable text.",
+    url: "This page returned no text — it is most likely rendered by JavaScript. Open it and save it as a PDF, or paste the text in directly.",
+  };
+  return { bodyText: "", status: "failed", errorMessage: why[kind] };
+}
+
+/**
+ * Name the format we refused, when we can do it cheaply.
+ *
+ * Once the bytes are known to be binary, a zip signature plus a part name is
+ * enough to tell an Office file from an archive — and telling someone "that's
+ * a spreadsheet, Resources doesn't read those yet" is a different, actionable
+ * sentence from "that file is binary". Anything we can't name gets the
+ * generic line rather than a guess.
+ */
+function binaryRefusal(buf: Buffer, filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  const named: Record<string, string> = {
+    ".xlsx": "a spreadsheet",
+    ".xls": "a spreadsheet",
+    ".pptx": "a slide deck",
+    ".ppt": "a slide deck",
+    ".odt": "an OpenDocument file",
+    ".ods": "an OpenDocument spreadsheet",
+    ".pages": "a Pages document",
+    ".key": "a Keynote deck",
+    ".zip": "a zip archive",
+  };
+  const what = named[ext];
+  if (what) {
+    return `Resources can't read ${what} yet. Export it as PDF, Word, or plain text and upload that — the original is still stored here.`;
+  }
+  return "This file is binary, so no text could be extracted. It is stored and can be downloaded, but nothing will find it by searching. Upload a PDF, Word, or text version if you want it searchable.";
 }
 
 /**
@@ -461,9 +518,11 @@ export async function listResourcesByIds(companyId: string, ids: string[]): Prom
  * into the share modal before any employee could see it.
  *
  * Idempotent: per-employee grants are upserted, so calling this twice is
- * a no-op. New employees added *after* a Resource is ingested do not get
- * an automatic grant — that's a future "back-fill on hire"
- * decision; for now the human re-shares from the modal.
+ * a no-op. Its mirror image is {@link grantAllResourcesToEmployee}, which the
+ * hire route calls so an employee taken on *after* the library was filled
+ * sees the library too. Together they close the hole this comment used to
+ * describe as a future decision: neither order of operations now produces an
+ * employee that reads an empty shelf.
  */
 export async function grantResourceToAllEmployees(
   companyId: string,
@@ -477,4 +536,323 @@ export async function grantResourceToAllEmployees(
     await upsertResourceGrant(e.id, resourceId, "read");
   }
   return emps.length;
+}
+
+// ---------- Passage retrieval ----------
+
+/**
+ * Finding the passage, not the document.
+ *
+ * A Resource body is capped at 1 MiB, and until now every read of one was
+ * all-or-nothing: `get_resource` returned the whole column and the agent loop
+ * head-clipped it at `toolResultCap` (60,000 chars, or as little as 8,000 on a
+ * small context window — `services/agent/contextBudget.ts`). The model was
+ * handed the first few percent of a book, told how much had been thrown away,
+ * and given no second call that could reach the rest. Search had the mirror
+ * problem: it returned whole rows and no indication of *where* in a megabyte
+ * the query had matched.
+ *
+ * These helpers are the two halves of the fix. `buildMatchSnippet` says where
+ * a hit is; `windowText` reads from there. Both are pure functions over a
+ * string so they can be unit-tested without a database, and both are used by
+ * the MCP handlers rather than reimplemented in them.
+ */
+
+/** Default window for one `get_resource` read. Deliberately below the
+ *  smallest `toolResultCap` a real model resolves to, so the *server* decides
+ *  where the text ends rather than a blind clip in the loop. */
+export const RESOURCE_WINDOW_DEFAULT_CHARS = 15_000;
+/** Ceiling a caller may ask for in one read. */
+export const RESOURCE_WINDOW_MAX_CHARS = 40_000;
+/** Characters of context returned around a search hit. */
+export const RESOURCE_SNIPPET_CHARS = 240;
+/** Stop counting occurrences here. Twenty is enough to say "this document is
+ *  about the thing"; walking a megabyte for the exact total is not. */
+export const RESOURCE_MAX_MATCHES = 20;
+
+export type ResourceTextWindow = {
+  text: string;
+  bodyLength: number;
+  windowStart: number;
+  windowEnd: number;
+  nextOffset: number | null;
+  hasMore: boolean;
+};
+
+/**
+ * Never cut through a surrogate pair. `String.prototype.slice` works in UTF-16
+ * code units, so a naive boundary inside an emoji or an astral CJK character
+ * emits a lone surrogate — which survives JSON, reaches the model as U+FFFD,
+ * and corrupts the first character of the *next* window too.
+ */
+function safeBoundary(text: string, index: number): number {
+  if (index <= 0) return 0;
+  if (index >= text.length) return text.length;
+  const code = text.charCodeAt(index);
+  // A low surrogate here means the pair started at index - 1.
+  if (code >= 0xdc00 && code <= 0xdfff) return index - 1;
+  return index;
+}
+
+/** Pull a boundary back to the nearest earlier whitespace within `slack` so
+ *  a window ends on a word rather than mid-token. */
+function snapBackToWhitespace(text: string, index: number, slack: number): number {
+  if (index <= 0 || index >= text.length) return index;
+  const limit = Math.max(0, index - slack);
+  for (let i = index; i > limit; i -= 1) {
+    if (/\s/.test(text[i])) return i + 1;
+  }
+  return index;
+}
+
+/**
+ * Read one window of a body, and say how to read the next.
+ *
+ * `around` finds the first occurrence of a phrase at or after `offset` and
+ * centres the window on it, so an agent can go straight from a search hit to
+ * the passage without arithmetic. When the phrase isn't found the window falls
+ * back to `offset`, which is the honest degradation — the caller still gets
+ * text, and `windowStart` tells it where the text came from.
+ */
+export function windowText(
+  body: string,
+  opts: { offset?: number; maxChars?: number; around?: string } = {},
+): ResourceTextWindow {
+  const bodyLength = body.length;
+  const maxChars = Math.max(
+    1,
+    Math.min(opts.maxChars ?? RESOURCE_WINDOW_DEFAULT_CHARS, RESOURCE_WINDOW_MAX_CHARS),
+  );
+  let start = Math.max(0, Math.min(opts.offset ?? 0, bodyLength));
+
+  if (opts.around && opts.around.trim().length > 0) {
+    const needle = opts.around.trim().toLowerCase();
+    const at = body.toLowerCase().indexOf(needle, start);
+    if (at >= 0) {
+      // Centre the window on the hit, keeping a little lead-in.
+      start = Math.max(0, at - Math.floor(maxChars / 4));
+    }
+  }
+
+  // The start is taken exactly as asked. Nudging it forward to a word
+  // boundary was tried and is wrong twice over: it walks past the very hit an
+  // `around`/`bodyOffset` read exists to land on, and because `nextOffset` is
+  // the previous window's end, re-snapping on resume silently eats the
+  // characters in between — paging a body no longer reconstructs it.
+  // The end is snapped instead, which puts `nextOffset` on a word boundary
+  // for free.
+  start = safeBoundary(body, start);
+  let end = safeBoundary(body, Math.min(start + maxChars, bodyLength));
+  if (end < bodyLength) end = snapBackToWhitespace(body, end, 200);
+  if (end <= start) end = safeBoundary(body, Math.min(start + maxChars, bodyLength));
+
+  const hasMore = end < bodyLength;
+  return {
+    text: body.slice(start, end),
+    bodyLength,
+    windowStart: start,
+    windowEnd: end,
+    nextOffset: hasMore ? end : null,
+    hasMore,
+  };
+}
+
+export type ResourceMatch = {
+  snippet: string;
+  bodyOffset: number;
+  matchCount: number;
+};
+
+/**
+ * Where in the body did the query hit, and what does it say there?
+ *
+ * Case-insensitive without ever lowercasing the body: at fifty rows of a
+ * megabyte each, `body.toLowerCase()` would allocate 50 MiB and walk it, on
+ * the Express request thread, for every search. A sticky `RegExp` walked with
+ * `lastIndex` reads the same characters once and stops at
+ * {@link RESOURCE_MAX_MATCHES}.
+ */
+export function buildMatchSnippet(body: string, terms: string[]): ResourceMatch | null {
+  if (!body || terms.length === 0) return null;
+  let best: { at: number; length: number } | null = null;
+  let matchCount = 0;
+
+  for (const term of terms) {
+    const trimmed = term.trim();
+    if (!trimmed) continue;
+    const re = new RegExp(trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+    let hit: RegExpExecArray | null;
+    while ((hit = re.exec(body)) !== null) {
+      if (best === null || hit.index < best.at) best = { at: hit.index, length: hit[0].length };
+      matchCount += 1;
+      if (matchCount >= RESOURCE_MAX_MATCHES) break;
+      // A zero-length match would spin forever; terms are non-empty, but the
+      // guard costs nothing and the loop is unbounded otherwise.
+      if (hit.index === re.lastIndex) re.lastIndex += 1;
+    }
+    if (matchCount >= RESOURCE_MAX_MATCHES) break;
+  }
+
+  if (!best) return null;
+  const lead = Math.floor((RESOURCE_SNIPPET_CHARS - best.length) / 2);
+  const start = safeBoundary(body, Math.max(0, best.at - Math.max(0, lead)));
+  let end = safeBoundary(body, Math.min(body.length, start + RESOURCE_SNIPPET_CHARS));
+  if (end < body.length) end = snapBackToWhitespace(body, end, 40);
+
+  const raw = body.slice(start, end).replace(/\s+/g, " ").trim();
+  const snippet = `${start > 0 ? "…" : ""}${raw}${end < body.length ? "…" : ""}`;
+  return { snippet, bodyOffset: best.at, matchCount };
+}
+
+export type ResourceSearchHit = {
+  resource: Resource;
+  score: number;
+  matchedIn: ("title" | "summary" | "tags" | "body")[];
+  match: ResourceMatch | null;
+};
+
+export type ResourceSearchResult = {
+  hits: ResourceSearchHit[];
+  total: number;
+  hasMore: boolean;
+  /** True when the AND pass found nothing and the OR fallback answered. */
+  broadened: boolean;
+};
+
+const SEARCH_COLUMNS = ["r.title", "r.summary", "r.tags", "r.bodyText"];
+
+/**
+ * Grant-scoped, relevance-ranked resource search.
+ *
+ * The grant gate is a correlated subquery rather than an expanded
+ * `IN (:...ids)`: a company with more than 999 shared Resources would
+ * otherwise blow SQLite's bound-parameter ceiling the moment its library grew,
+ * and the fix is the same one line on both drivers.
+ *
+ * Two passes. Every token must hit some column (`andWhereTokens`); if that
+ * finds nothing we re-run OR-ed and say so, because "no row contains all four
+ * of your words" and "your library is empty" are different answers and the
+ * caller cannot tell them apart from a bare `[]`.
+ */
+export async function searchResources(
+  companyId: string,
+  /** Null searches the whole company — the shape a human Member gets, since
+   *  Members bypass the grant table entirely. */
+  employeeId: string | null,
+  opts: { query: string; limit: number; offset: number },
+): Promise<ResourceSearchResult> {
+  const tokens = tokenizeQuery(opts.query);
+  if (tokens.length === 0) return { hits: [], total: 0, hasMore: false, broadened: false };
+
+  const grantGate = (qb: SelectQueryBuilder<Resource>): SelectQueryBuilder<Resource> => {
+    const scoped = qb.where("r.companyId = :cid", { cid: companyId });
+    if (employeeId === null) return scoped;
+    return scoped
+      .andWhere((sub) => {
+        const inner = sub
+          .subQuery()
+          .select("g.resourceId")
+          .from(EmployeeResourceGrant, "g")
+          .where("g.employeeId = :eid")
+          .getQuery();
+        return `r.id IN ${inner}`;
+      })
+      .setParameter("eid", employeeId);
+  };
+
+  const repo = AppDataSource.getRepository(Resource);
+  const run = async (broaden: boolean) => {
+    const base = grantGate(repo.createQueryBuilder("r"));
+    const filtered = broaden
+      ? orWhereTokens(base, SEARCH_COLUMNS, tokens)
+      : andWhereTokens(base, SEARCH_COLUMNS, tokens);
+    // Count on the same predicate — the caller needs to know a page is a page.
+    const total = await filtered.clone().getCount();
+    const rows = await filtered
+      .orderBy("r.updatedAt", "DESC")
+      .skip(opts.offset)
+      .take(opts.limit)
+      .getMany();
+    return { total, rows };
+  };
+
+  let broadened = false;
+  let { total, rows } = await run(false);
+  if (total === 0) {
+    broadened = true;
+    ({ total, rows } = await run(true));
+  }
+
+  const q = opts.query.trim().toLowerCase();
+  const terms = [opts.query.trim(), ...tokens.map((t) => t.raw)];
+  const hits = rows.map((resource) => {
+    const matchedIn: ResourceSearchHit["matchedIn"] = [];
+    const title = resource.title.toLowerCase();
+    const summary = (resource.summary ?? "").toLowerCase();
+    const tags = (resource.tags ?? "").toLowerCase();
+    if (tokens.some((t) => title.includes(t.lo))) matchedIn.push("title");
+    if (tokens.some((t) => summary.includes(t.lo))) matchedIn.push("summary");
+    if (tokens.some((t) => tags.includes(t.lo))) matchedIn.push("tags");
+
+    // Snippet from the body first — that is the one the model cannot see
+    // anywhere else. Fall back to the summary so a title-only hit still
+    // explains itself.
+    const bodyMatch = buildMatchSnippet(resource.bodyText ?? "", terms);
+    if (bodyMatch) matchedIn.push("body");
+    const match = bodyMatch ?? buildMatchSnippet(resource.summary ?? "", terms);
+
+    let score = scoreLabel(resource.title, q, tokens);
+    if (matchedIn.includes("tags")) score += 6;
+    if (matchedIn.includes("summary")) score += 4;
+    if (bodyMatch) score += Math.min(bodyMatch.matchCount, 5);
+    return { resource, score, matchedIn, match };
+  });
+
+  hits.sort((a, b) => {
+    if (a.score !== b.score) return b.score - a.score;
+    return b.resource.updatedAt.getTime() - a.resource.updatedAt.getTime();
+  });
+
+  return { hits, total, hasMore: opts.offset + rows.length < total, broadened };
+}
+
+/**
+ * Grant `read` on every existing Resource to one employee. The hire-time
+ * mirror of `grantResourceToAllEmployees`.
+ *
+ * Without this, the order in which a company did two ordinary things decided
+ * whether its AI Employees could read anything: ingest first and then hire,
+ * and the new employee's `list_resources` returned `[]` forever — not an
+ * error, not a warning, just an empty shelf indistinguishable from a company
+ * that had never filed anything. The employee would then answer from its own
+ * guesses with total confidence.
+ *
+ * Written as three statements rather than a loop of upserts because a company
+ * with a real library and a growing roster would otherwise pay two queries per
+ * resource per hire.
+ */
+export async function grantAllResourcesToEmployee(
+  companyId: string,
+  employeeId: string,
+): Promise<number> {
+  const resources = await AppDataSource.getRepository(Resource).find({
+    where: { companyId },
+    select: ["id"],
+  });
+  if (resources.length === 0) return 0;
+  const grantRepo = AppDataSource.getRepository(EmployeeResourceGrant);
+  const existing = await grantRepo.find({ where: { employeeId }, select: ["resourceId"] });
+  const held = new Set(existing.map((g) => g.resourceId));
+  const missing = resources.filter((r) => !held.has(r.id));
+  if (missing.length === 0) return 0;
+  await grantRepo.save(
+    missing.map((r) => grantRepo.create({ employeeId, resourceId: r.id, accessLevel: "read" })),
+  );
+  return missing.length;
+}
+
+/** Drop every Resource grant an employee holds. Called when it is fired, so
+ *  the share modal stops listing a row for someone who no longer exists. */
+export async function deleteResourceGrantsForEmployee(employeeId: string): Promise<void> {
+  await AppDataSource.getRepository(EmployeeResourceGrant).delete({ employeeId });
 }

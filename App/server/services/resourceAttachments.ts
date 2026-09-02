@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { MIME_BY_EXT, safeFilename } from "./resourceFiles.js";
 import { AppDataSource } from "../db/datasource.js";
 import { Resource } from "../db/entities/Resource.js";
 import { Company } from "../db/entities/Company.js";
@@ -34,13 +35,7 @@ export const ATTACHMENT_MAX_COUNT = 10;
 
 /** `original` means "the file the human uploaded, byte for byte". The other
  *  four render `bodyText` through the same pipeline as the Download menu. */
-export const ATTACHMENT_FORMATS = [
-  "original",
-  "pdf",
-  "html",
-  "md",
-  "txt",
-] as const;
+export const ATTACHMENT_FORMATS = ["original", "pdf", "html", "md", "txt"] as const;
 export type AttachmentFormat = (typeof ATTACHMENT_FORMATS)[number];
 
 /** A file from the company's Resources, named by slug. */
@@ -62,49 +57,11 @@ const invoiceSpecSchema = z
 
 export const resourceAttachmentSpecsSchema = z
   .array(z.union([resourceSpecSchema, invoiceSpecSchema]))
-  .max(
-    ATTACHMENT_MAX_COUNT,
-    `At most ${ATTACHMENT_MAX_COUNT} attachments per message.`,
-  );
+  .max(ATTACHMENT_MAX_COUNT, `At most ${ATTACHMENT_MAX_COUNT} attachments per message.`);
 
 type ResourceSpec = z.infer<typeof resourceSpecSchema>;
 type InvoiceSpec = z.infer<typeof invoiceSpecSchema>;
 export type ResourceAttachmentSpec = ResourceSpec | InvoiceSpec;
-
-/** Content types for original uploads, keyed off the stored filename.
- *  Uploads only ever land as pdf / epub / video (`inferSourceKindFromFilename`). */
-const MIME_BY_EXT: Record<string, string> = {
-  ".pdf": "application/pdf",
-  ".epub": "application/epub+zip",
-  ".mp4": "video/mp4",
-  ".mov": "video/quicktime",
-  ".m4v": "video/x-m4v",
-  ".webm": "video/webm",
-};
-
-const DEL_CODE = 127;
-const FIRST_PRINTABLE_CODE = 32;
-
-/**
- * Strip anything that would forge a MIME header or walk a path: control
- * characters, quotes, backslashes. A stray CR/LF in a filename injects
- * headers exactly like an unvalidated address does, and the filename lands
- * in `Content-Disposition` verbatim.
- *
- * Written as a code-point filter rather than a regex so the source carries
- * no literal control bytes.
- */
-function safeFilename(name: string, fallback: string): string {
-  const cleaned = Array.from(path.basename(name))
-    .filter((ch) => {
-      const code = ch.codePointAt(0) ?? 0;
-      if (code < FIRST_PRINTABLE_CODE || code === DEL_CODE) return false;
-      return ch !== '"' && ch !== "\\";
-    })
-    .join("")
-    .trim();
-  return cleaned.length > 0 ? cleaned : fallback;
-}
 
 export function makeResourceAttachmentResolver(args: {
   companyId: string;
@@ -226,10 +183,7 @@ async function resolveOne(
   }
   const artifact = await exportResource(row, spec.format);
   return {
-    filename: safeFilename(
-      spec.filename ?? artifact.filename,
-      artifact.filename,
-    ),
+    filename: safeFilename(spec.filename ?? artifact.filename, artifact.filename),
     contentType: artifact.mime,
     content: artifact.buffer,
   };

@@ -657,7 +657,7 @@ export const PRODUCTS: ProductDef[] = [
         },
         {
           title: "New material is instantly usable",
-          body: "Every new Resource is automatically granted read to all AI Employees, so the primer you drop in at 9:00 informs the Routine that runs at 9:05.",
+          body: "Every new Resource is granted read to all AI Employees, and every employee you hire is granted the library that already exists — so the primer you drop in at 9:00 informs the Routine that runs at 9:05, and the employee you hire next month reads it too.",
         },
       ],
     },
@@ -680,10 +680,10 @@ export const PRODUCTS: ProductDef[] = [
       },
       {
         q: "Does it use embeddings or RAG?",
-        a: "v1 retrieval is deliberately simple: case-insensitive substring matching over titles, summaries, tags, and the full extracted text. Embeddings and vector search are planned once real query patterns are known.",
+        a: "Not yet, and retrieval no longer depends on it. Search matches every word of a query independently and in any order across titles, summaries, tags and the full extracted text, then returns the matching passage and its position — so an employee reads the paragraph that answers the question rather than the first chapter of the document that contains it. Embeddings and vector search are still planned once real query patterns are known.",
       },
     ],
-    docsPath: null,
+    docsPath: "/docs/resources",
     keywords: [
       "knowledge ingestion for AI agents",
       "give AI access to documents",

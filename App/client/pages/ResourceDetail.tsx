@@ -429,7 +429,8 @@ function TextContent({
           spellCheck={false}
         />
         <p className="text-xs text-slate-400 dark:text-slate-500">
-          Saved bodies are searchable through the MCP <code>search_resources</code> tool.
+          Saved text is searched from the Resources page and by your AI employees through{" "}
+          <code>search_resources</code> — both find the matching passage, not just the title.
         </p>
       </div>
     );

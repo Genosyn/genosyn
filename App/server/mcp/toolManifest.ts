@@ -548,7 +548,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_meeting_transcript",
     description:
-      "Read a meeting's transcript, with speakers and timings where the recording carried them. Long — prefer `get_meeting` for the summary and only read the transcript when you need an exact quote or something the summary left out. Needs a Grant to the calendar the meeting came from.",
+      "Read a meeting's transcript, with speakers and timings where the recording carried them. Long — prefer `get_meeting` for the summary and only read the transcript when you need an exact quote or something the summary left out. Returned one window at a time: call again with `nextOffset` as `offset` to keep reading, or pass `around` with a phrase to jump straight to where it was said. Needs a Grant to the calendar the meeting came from.",
     inputSchema: {
       type: "object",
       properties: {
@@ -557,7 +557,17 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "integer",
           minimum: 500,
           maximum: 100000,
-          description: "Truncate after this many characters. Default 20000.",
+          description: "Characters to return in this window. Default 20000.",
+        },
+        offset: {
+          type: "integer",
+          minimum: 0,
+          description: "Character to start reading at. Use `nextOffset` from the previous call.",
+        },
+        around: {
+          type: "string",
+          description:
+            "Centre the window on the first occurrence of this phrase at or after `offset`.",
         },
       },
       required: ["meetingId"],
@@ -737,8 +747,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         folder: {
           type: "string",
-          description:
-            "Folder path, e.g. 'Finance/Month-end'; created if missing.",
+          description: "Folder path, e.g. 'Finance/Month-end'; created if missing.",
         },
       },
       required: ["name", "cronExpr"],
@@ -779,8 +788,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
         },
         folder: {
           type: "string",
-          description:
-            "Folder path to move to; '' unfiles.",
+          description: "Folder path to move to; '' unfiles.",
         },
         enabled: {
           type: "boolean",
@@ -2151,20 +2159,36 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "list_resources",
     description:
-      "List the Resources (external material — articles, ebooks, transcripts — that the team has ingested for you to study) you have been granted access to in this company. Each row carries a title, sourceKind (url / text / pdf / epub / video), summary, tag list, and content length so you can decide whether to pull the full text via `get_resource`. Distinct from Memory (durable facts auto-injected into your prompt) and Notes (pages the team writes together) — Resources are someone else's words, ingested for you to study.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      "Browse the Resources (external material — articles, ebooks, transcripts — that the team has ingested for you to study) you have been granted access to in this company. Newest first, paginated: the reply carries `total` and `hasMore`, so raise `offset` to see more. Each row carries a title, slug, sourceKind (url / text / pdf / epub / video), a summary preview, tag list, `status`, and `bodyLength`. This is for browsing the shelf; to answer a question use `search_resources`, which tells you which passage matched. Distinct from Memory (durable facts auto-injected into your prompt) and Notes (pages the team writes together) — Resources are someone else's words, ingested for you to study.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "number",
+          description: "How many to return (1–200, default 50).",
+        },
+        offset: { type: "number", description: "Rows to skip. Default 0." },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "search_resources",
     description:
-      "Search Resources by title, summary, tags, and full extracted text using a substring match (case-insensitive). Use before answering domain questions — the team may have ingested a primer that already covers the topic. Returns up to 50 hits ordered by most-recently-updated. Only Resources you have been granted access to are searched.",
+      'Find the passage, not just the document. Searches titles, summaries, tags and the full extracted text of every Resource you can read, ranked by relevance. Words are matched independently and in any order, so "refund policy" finds a handbook that says "our policy for refunds". Each hit carries a `snippet` showing the matched text and a `bodyOffset` — pass that straight to `get_resource` as `offset` to read the passage in context. Also returns `matchedIn`, `matchCount`, `total` and `hasMore`. If no Resource contains every word, the reply falls back to partial matches and says so in `note`. Use this before answering any domain question — the team may have ingested a primer that already covers it.',
     inputSchema: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Substring to look for in titles, summaries, tags, and body text.",
+          description:
+            "The words to look for. Word order does not matter and every word must appear somewhere in the Resource.",
         },
+        limit: {
+          type: "number",
+          description: "How many hits to return (1–50, default 10).",
+        },
+        offset: { type: "number", description: "Hits to skip. Default 0." },
       },
       required: ["query"],
       additionalProperties: false,
@@ -2173,13 +2197,27 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "get_resource",
     description:
-      "Read a single Resource by its slug, including the full extracted plain text. Use this after `list_resources` / `search_resources` to pull in the actual material to read. Body text is capped at 1 MiB on ingestion; longer ebooks are truncated.",
+      "Read a Resource one window at a time. Returns a slice of the extracted text — not the whole document, which for a book would be discarded by the tool-result limit before you saw it. The reply carries `bodyLength` (the whole document), `windowStart`/`windowEnd`, and `nextOffset`: call again with that as `offset` to keep reading, and stop when `hasMore` is false. To jump straight to what you were looking for, pass the `bodyOffset` from a `search_resources` hit as `offset`, or pass `around` with a phrase to centre the window on its first occurrence. Body text is capped at 1 MiB at ingestion; longer ebooks are truncated there.",
     inputSchema: {
       type: "object",
       properties: {
         resourceSlug: {
           type: "string",
           description: "Slug from list_resources / search_resources.",
+        },
+        offset: {
+          type: "number",
+          description:
+            "Character to start reading at. Use `nextOffset` from a previous call, or `bodyOffset` from a search hit. Default 0.",
+        },
+        maxChars: {
+          type: "number",
+          description: "Characters to return (max 40000, default 15000).",
+        },
+        around: {
+          type: "string",
+          description:
+            "Centre the window on the first occurrence of this phrase at or after `offset`.",
         },
       },
       required: ["resourceSlug"],
@@ -2189,7 +2227,7 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "export_resource",
     description:
-      "Render a Resource's body in a downloadable format and return it as base64 — use this when a teammate asks for a Resource as a PDF, HTML, plain-text, or markdown file. PDFs go through Chromium so the result honours headings, tables, code blocks, and the same styling humans see in the browser, no manual layout required. The base64 in `contentBase64` plugs straight into `send_chat_attachment` (most common — the human gets a download chip on your reply) or `attach_file_to_record` (when filing the deliverable on a Base row). Capped at 8 MiB per export; large EPUBs may exceed that and have to be downloaded by a human from the resource page.",
+      "Render a Resource's body as a downloadable file — use this when a teammate asks for a Resource as a PDF, HTML, plain-text, or markdown file. PDFs go through Chromium so the result honours headings, tables, code blocks, and the same styling humans see in the browser, no manual layout required. **The rendered file is attached to your reply automatically** (`attachedToReply`), so you do not need to call `send_chat_attachment` after this — the human gets a download chip either way. Small renders also return `contentBase64` for `attach_file_to_record`; larger ones deliberately withhold it, because a base64 string that long is cut off by the tool-result limit and decodes to a corrupt file rather than an error. Capped at 8 MiB per export; large EPUBs may exceed that and have to be downloaded by a human from the resource page.",
     inputSchema: {
       type: "object",
       properties: {

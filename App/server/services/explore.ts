@@ -617,9 +617,10 @@ export async function hasChartAccess(
  * Grant `read` to every employee in the company on a freshly-created
  * Chart. Mirrors `grantResourceToAllEmployees` — without this a new
  * Chart would land invisible to every AI employee until a human walked
- * into the share modal. Idempotent (uses upsert) but does not retro-fit
- * employees hired after creation; humans re-share if they want a new
- * hire to see existing charts.
+ * into the share modal. Idempotent (uses upsert). Its hire-time mirror is
+ * `grantExploreToEmployee` below, added in M62 alongside the Resources one:
+ * a company that built its dashboards before hiring used to give the new
+ * employee nothing, and there was no symptom to notice.
  */
 export async function grantChartToAllEmployees(
   companyId: string,
@@ -699,4 +700,58 @@ export async function grantDashboardToAllEmployees(
     await upsertDashboardGrant(e.id, dashboardId, "read");
   }
   return emps.length;
+}
+
+/**
+ * Hand a newly-hired employee the company's existing Charts and Dashboards.
+ *
+ * The mirror of `grantChartToAllEmployees` / `grantDashboardToAllEmployees`,
+ * and the sibling of `grantAllResourcesToEmployee`. It exists here rather than
+ * only for Resources because the hire route fanning out one grant family and
+ * not the two adjacent ones is exactly how the two paths drift apart again.
+ *
+ * Batched: a company with a real Explore section and a growing roster would
+ * otherwise pay two queries per chart per hire.
+ */
+export async function grantExploreToEmployee(
+  companyId: string,
+  employeeId: string,
+): Promise<{ charts: number; dashboards: number }> {
+  const chartRepo = AppDataSource.getRepository(EmployeeChartGrant);
+  const dashRepo = AppDataSource.getRepository(EmployeeDashboardGrant);
+
+  const [charts, dashboards, heldCharts, heldDashboards] = await Promise.all([
+    AppDataSource.getRepository(Chart).find({ where: { companyId }, select: ["id"] }),
+    AppDataSource.getRepository(Dashboard).find({ where: { companyId }, select: ["id"] }),
+    chartRepo.find({ where: { employeeId }, select: ["chartId"] }),
+    dashRepo.find({ where: { employeeId }, select: ["dashboardId"] }),
+  ]);
+
+  const haveChart = new Set(heldCharts.map((g) => g.chartId));
+  const haveDash = new Set(heldDashboards.map((g) => g.dashboardId));
+  const missingCharts = charts.filter((c) => !haveChart.has(c.id));
+  const missingDashboards = dashboards.filter((d) => !haveDash.has(d.id));
+
+  if (missingCharts.length > 0) {
+    await chartRepo.save(
+      missingCharts.map((c) =>
+        chartRepo.create({ employeeId, chartId: c.id, accessLevel: "read" }),
+      ),
+    );
+  }
+  if (missingDashboards.length > 0) {
+    await dashRepo.save(
+      missingDashboards.map((d) =>
+        dashRepo.create({ employeeId, dashboardId: d.id, accessLevel: "read" }),
+      ),
+    );
+  }
+  return { charts: missingCharts.length, dashboards: missingDashboards.length };
+}
+
+/** Drop every Chart and Dashboard grant an employee holds. Called when it is
+ *  fired, for the same reason the Resource grants are. */
+export async function deleteExploreGrantsForEmployee(employeeId: string): Promise<void> {
+  await AppDataSource.getRepository(EmployeeChartGrant).delete({ employeeId });
+  await AppDataSource.getRepository(EmployeeDashboardGrant).delete({ employeeId });
 }

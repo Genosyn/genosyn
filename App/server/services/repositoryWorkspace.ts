@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { isBinary } from "../lib/binaryBytes.js";
 import { AppDataSource } from "../db/datasource.js";
 import { Repository } from "../db/entities/Repository.js";
 import { repositoryWorkspaceCheckout, repositoryWorkspaceRoot } from "./paths.js";
@@ -720,10 +721,10 @@ function describeBuffer(
   };
 }
 
-/** A NUL byte in the first 8 KB is how Git itself decides a blob is binary. */
-export function isBinary(buffer: Buffer): boolean {
-  return buffer.subarray(0, 8000).includes(0);
-}
+/** A NUL byte in the first 8 KB is how Git itself decides a blob is binary.
+ *  The implementation moved to `lib/binaryBytes.ts` when Resource ingestion
+ *  needed the same test; re-exported here so existing callers are unchanged. */
+export { isBinary };
 
 async function gitBuffer(repo: Repository, args: string[]): Promise<Buffer | null> {
   const out = await gitOrNull(repo, args);

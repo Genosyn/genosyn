@@ -1568,12 +1568,16 @@ not write**, ingested once, queried on demand via the MCP surface.
       browser viewer and the EPUB reader can fetch the bytes); pass
       `?disposition=attachment` to force a download.
 - [x] MCP tools — read (any grant): `list_resources`,
-      `search_resources`, `get_resource`. `create_resource` (text, URL, or —
-      since M47 — a file the employee already holds; video still needs a human)
-      is open to everyone and grants the author `delete` on the row. `update_resource` requires `edit` or
-      higher; `delete_resource` requires `delete`. Teammates start at
-      `read` on rows they didn't author and humans promote them from the
-      share modal.
+      `search_resources`, `get_resource`, `export_resource`. `create_resource`
+      (text, URL, or — since M47 — a file the employee already holds; video
+      still needs a human) is open to everyone and grants the author `delete`
+      on the row. `update_resource` requires `edit` or higher;
+      `delete_resource` requires `delete`. Teammates start at `read` on rows
+      they didn't author and humans promote them from the share modal. Both
+      directions of the automatic `read` grant landed in **M62**: a new
+      Resource is granted to every employee, and a new employee is granted the
+      existing library, so neither order of operations leaves an employee
+      reading an empty shelf.
 - [x] React UI under `/c/<co>/resources`: Notion-style centered layout
       with quick-add tiles (URL / Paste / Upload), search-as-you-type,
       compact list view, share modal. Detail page is type-aware —
@@ -3095,7 +3099,11 @@ was built from.
       still needs `send` on an `EmployeeSigningGrant`, and only the named
       recipient can consent or sign. A PDF whose text will not extract — the
       scanned-contract case — is still filed and still usable for signing, and
-      the tool says out loud that nobody will find it by searching.
+      the tool says out loud that nobody will find it by searching. (That last
+      sentence described an intent, not the code: the message was gated on a
+      `failed` status that a text-layerless PDF never reached, because
+      `pdf-parse` returns `"\n\n"` rather than throwing. **M62** made it
+      true.)
 - [x] **Docs and tests.** Word documents and Document signing both document the
       route in; the Resources copy no longer claims file uploads are a human's
       job. The rendition is asserted on the HTML rather than the printed page,
@@ -4434,6 +4442,115 @@ of the original V1 backlog has shipped — what remains is mostly
       connected model so a relaunched server's new limit lands on its own
       (`services/agent/contextWindowRefresh.ts`); a failed probe keeps the last
       known number and a hand-set window is never overwritten
+
+---
+
+### M62 — Resources: the passage, not the document ✅
+
+M18 shipped a library and said so plainly: retrieval is "substring matching
+over titles, summaries, and `bodyText`, same as `search_notes`", with embeddings
+deferred "once we know what the team actually queries". Three years of feature
+work later the deferral still held, but two things had changed underneath it —
+the bodies got long, and the agent loop grew a context budget. Together they
+turned an acknowledged simplification into a library nobody could read.
+
+The whole failure in one trace. An employee asks `get_resource` for a 1 MiB
+ebook. The handler returns the entire column. `loop.ts` clips every tool result
+at `toolResultCap` — 60,000 characters, or as few as 8,000 on a small window —
+and appends `… [truncated 940000 chars]`. The model is told, precisely, that
+94% of the document exists and that it cannot have it, because there is no
+second call that reaches page 300. Meanwhile `search_resources` wrapped the
+query in one `LIKE '%…%'`, so "refund policy" missed every handbook saying
+"our policy for refunds" — and since bare `LIKE` folds ASCII case on sqlite and
+not on postgres, the same search returned different rows on the two supported
+drivers while the tool description claimed "(case-insensitive)".
+
+This milestone is not embeddings. It is the lexical work that has to exist
+either way, and none of it is thrown away when vectors eventually land.
+
+- [x] **Search returns passages.** `services/likeSearch.ts` lifts the one
+      correct tokenizer in the tree out of `services/search.ts` — tokens AND
+      together, columns OR together, `LOWER()` on both sides so the two drivers
+      agree — with `search.ts` behaviour unchanged through the move. Every hit
+      now carries a `snippet`, the `bodyOffset` it came from, `matchedIn`,
+      `matchCount`, `total` and `hasMore`, ranked by relevance rather than by
+      `updatedAt` (a column re-tagging bumps). When no row contains every word
+      the query re-runs OR-ed and says so, because a bare `[]` cannot
+      distinguish "no match" from "empty library".
+- [x] **`get_resource` reads a window and says where it stopped.** `offset`,
+      `maxChars` (15,000 default — deliberately under the smallest cap a real
+      model resolves to, so the *server* decides where text ends rather than a
+      blind clip), and `around` to centre on a phrase. Returns `windowStart`,
+      `windowEnd`, `nextOffset` and `hasMore`, so a hit's `bodyOffset` feeds
+      straight back in and a book is reachable to its end. This is a behaviour
+      change, not an addition: a model with a 60k cap now receives less in one
+      call than it used to, and all of the rest instead of none of it.
+      `windowText` fixed `get_meeting_transcript`'s identical `slice(0, cap)`
+      in the same pass.
+- [x] **`search_notes` and `/notes/search` were on the same single-LIKE
+      shape** and move to the shared module too. Leaving them behind would have
+      been an inconsistency someone re-files next week.
+- [x] **An extraction that produced nothing is `failed`.** Nothing checked.
+      `pdf-parse` returns `"\n\n"` for a scan with no text layer rather than
+      throwing, so the row saved `ready` with an empty body: stored, listed,
+      and permanently invisible to search, with no symptom anywhere. Each
+      source kind now fails with the remedy — OCR the scan, save the
+      JS-rendered page as a PDF. Existing broken rows are **not** back-filled;
+      there is no re-ingest action yet, so they stay until re-added.
+- [x] **Binary uploads are refused rather than indexed.** Anything
+      `inferSourceKindFromFilename` doesn't recognise infers as `text`, so a
+      `.png`, `.xlsx` or `.mp3` was decoded as UTF-8 and its mojibake became
+      the card summary and a search target. Gated on `isBinary` — git's own
+      NUL-in-8-KB heuristic, moved to `lib/binaryBytes.ts` so both callers
+      share it — and named where naming is cheap.
+- [x] **Grants stop depending on the order you did things.** `services/
+      explore.ts` and `services/resources.ts` both carried comments calling the
+      hire back-fill a future decision; a company that filed its library before
+      hiring gave the new employee `{resources: []}` forever. The hire route
+      now grants the existing library (awaited, not fire-and-forget — a Run
+      started in the gap would read an empty shelf), firing deletes the grants
+      it left behind, and an employee with genuinely no grant gets a sentence
+      saying so instead of an empty array it will report as "we have nothing
+      on that".
+- [x] **Uploaded originals stop executing on the app's origin.** The `/file`
+      route defaulted to `inline` and pinned a Content-Type only for
+      `pdf`/`epub`, so Express typed everything else from the extension — an
+      uploaded `.html` or `.svg` ran on the origin holding the session cookie,
+      and since M47 those bytes can arrive on a stranger's email. Only the
+      three kinds with a viewer render; everything else is
+      `application/octet-stream` behind `attachment` and a `sandbox` CSP. The
+      route also gains the zod query schema it never had, and the
+      `Content-Disposition` filename is sanitized — a CR/LF in it made
+      `res.setHeader` throw inside an unguarded async handler, hanging the
+      request rather than answering it.
+- [x] **`export_resource` stages its bytes** the way every other
+      bytes-producing tool here does, instead of returning up to 8 MiB of
+      base64 through the model. Past ~44 KB the loop clipped the string,
+      `Buffer.from(prefix, "base64")` decoded the prefix without throwing, and
+      the human received a corrupt PDF with nothing logged anywhere. The render
+      is now attached to the reply directly; only payloads small enough to
+      survive the floor still carry `contentBase64`.
+- [x] **Docs.** `Home/client/docs/pages/Resources.tsx` — the section had 57
+      sibling pages and none of its own.
+
+**Deliberately not in this milestone.** Embeddings, and not for want of a
+dependency-free path: `AIModel` already holds an encrypted key and a custom
+base URL, and M44's `resolveTranscriptionTarget` proves the shape. The blocker
+is fit. Model credentials resolve **per employee**, but a vector index is one
+company-scoped artifact meaningful only inside a single model's vector space —
+two employees on different embedding models would write mutually meaningless
+numbers into the same table. Transcription escapes this because its output is
+plain text; embeddings are the opposite. There is also no background worker to
+index with, no re-index path, and no way to notice the library had gone stupid.
+Anthropic publishes no embeddings endpoint, so the default install would need
+lexical search anyway. Also deferred: moving ingestion off the request thread
+(the honest fix is `worker_threads`, not the meetings pattern, which is
+`void`-on-the-same-loop); human-side body search on the index page (it wants
+server-side filtering and pagination, which turns the page's stats strip into
+stats-of-the-current-page — much cheaper now that `buildMatchSnippet` exists);
+ASR for video Resources (Meetings already owns transcription and should keep
+it); xlsx/pptx extraction; and a re-ingest action, which is the missing
+prerequisite for repairing the rows this milestone stops creating.
 
 ---
 

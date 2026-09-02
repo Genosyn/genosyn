@@ -8,11 +8,9 @@ import type { ResourceSourceKind } from "../db/entities/Resource.js";
 import { Company } from "../db/entities/Company.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
 import { User } from "../db/entities/User.js";
-import {
-  EmployeeResourceGrant,
-} from "../db/entities/EmployeeResourceGrant.js";
+import { EmployeeResourceGrant } from "../db/entities/EmployeeResourceGrant.js";
 import type { ResourceAccessLevel } from "../db/entities/EmployeeResourceGrant.js";
-import { validateBody } from "../middleware/validate.js";
+import { validateBody, validateQuery } from "../middleware/validate.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { recordAudit } from "../services/audit.js";
@@ -22,22 +20,21 @@ import {
   deleteGrantsForResource,
   deleteResourceBytes,
   fetchUrlAsText,
+  gradeExtraction,
   grantResourceToAllEmployees,
   extractResourceText,
   inferSourceKindFromFilename,
   resourceUploadMiddleware,
   listDirectResourceGrants,
   resolveResourceFile,
+  searchResources,
   summarize,
   trimBodyText,
   uniqueResourceSlug,
   upsertResourceGrant,
 } from "../services/resources.js";
-import {
-  EXPORT_FORMATS,
-  exportResource,
-  isExportFormat,
-} from "../services/resourceExport.js";
+import { resourceFileHeaders } from "../services/resourceFiles.js";
+import { EXPORT_FORMATS, exportResource, isExportFormat } from "../services/resourceExport.js";
 import { Tag } from "../db/entities/Tag.js";
 import {
   deleteTagAssignments,
@@ -61,11 +58,13 @@ export const resourcesRouter = Router({ mergeParams: true });
 resourcesRouter.use(requireAuth);
 resourcesRouter.use(requireCompanyMember);
 
-const ACCESS_LEVELS: [ResourceAccessLevel, ...ResourceAccessLevel[]] = [
-  "read",
-  "edit",
-  "delete",
-];
+/** The one query parameter this router reads. It was read raw until M62,
+ *  which §12 names as a rejection cause on its own. */
+const fileQuerySchema = z
+  .object({ disposition: z.enum(["inline", "attachment"]).default("inline") })
+  .strict();
+
+const ACCESS_LEVELS: [ResourceAccessLevel, ...ResourceAccessLevel[]] = ["read", "edit", "delete"];
 
 type AuthorRef =
   | { kind: "human"; id: string; name: string; email: string | null }
@@ -90,15 +89,9 @@ async function hydrate(
   opts: { includeBody?: boolean } = {},
 ): Promise<HydratedResource[]> {
   if (rows.length === 0) return [];
-  const userIds = [
-    ...new Set(rows.map((r) => r.createdById).filter((x): x is string => !!x)),
-  ];
+  const userIds = [...new Set(rows.map((r) => r.createdById).filter((x): x is string => !!x))];
   const empIds = [
-    ...new Set(
-      rows
-        .map((r) => r.createdByEmployeeId)
-        .filter((x): x is string => !!x),
-    ),
+    ...new Set(rows.map((r) => r.createdByEmployeeId).filter((x): x is string => !!x)),
   ];
   const [users, emps] = await Promise.all([
     userIds.length
@@ -168,6 +161,53 @@ resourcesRouter.get("/resources", async (req, res) => {
   res.json(await hydrate(cid, rows));
 });
 
+/**
+ * Search inside the library.
+ *
+ * The index page filters the rows it already loaded, which can only ever see
+ * titles, summaries, URLs and tag names — `hydrate` strips `bodyText` from
+ * every list response, so the one field holding the actual content was
+ * unsearchable by the people who put it there. The AI could search bodies and
+ * the humans could not, which is a strange thing for a library to be.
+ *
+ * Additive on purpose: this returns *body* hits with the passage that matched,
+ * and the client unions them with its own client-side filter. The index keeps
+ * loading the full list, so its tag facets, kind filters and stats strip stay
+ * stats of the library rather than of the current page.
+ */
+const searchQuerySchema = z
+  .object({
+    q: z.string().min(2).max(200),
+    limit: z.coerce.number().int().min(1).max(50).default(25),
+  })
+  .strict();
+
+resourcesRouter.get("/resources/search", validateQuery(searchQuerySchema), async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const query = req.query as unknown as z.infer<typeof searchQuerySchema>;
+  // `null` employee: Members bypass the grant table, same as every other
+  // read on this router.
+  const found = await searchResources(cid, null, {
+    query: query.q,
+    limit: query.limit,
+    offset: 0,
+  });
+  const hydrated = await hydrate(
+    cid,
+    found.hits.map((h) => h.resource),
+  );
+  const byId = new Map(found.hits.map((h) => [h.resource.id, h]));
+  res.json({
+    results: hydrated.map((row) => ({
+      ...row,
+      snippet: byId.get(row.id)?.match?.snippet ?? null,
+      matchedIn: byId.get(row.id)?.matchedIn ?? [],
+    })),
+    total: found.total,
+    broadened: found.broadened,
+  });
+});
+
 // ----- CREATE: URL or paste -----
 
 const createUrlSchema = z.object({
@@ -217,7 +257,13 @@ resourcesRouter.post("/resources", validateBody(createBodySchema), async (req, r
     try {
       const fetched = await fetchUrlAsText(body.url);
       title = (body.title ?? fetched.title ?? body.url).slice(0, 200);
-      bodyText = trimBodyText(fetched.text);
+      // A page that fetches cleanly and extracts to nothing is a failure the
+      // human has to hear about — it is almost always a JS-rendered site, and
+      // the row would otherwise sit in the library claiming to be Ready.
+      const graded = gradeExtraction(trimBodyText(fetched.text), "url");
+      bodyText = graded.bodyText;
+      status = graded.status;
+      errorMessage = graded.errorMessage;
       bytes = bodyText.length;
       summary = summarize(bodyText, body.summary);
     } catch (err) {
@@ -301,16 +347,15 @@ resourcesRouter.post(
       return res.status(400).json({ error: "File exceeds the 25 MB cap" });
     }
 
-    const sourceKind: ResourceSourceKind = inferSourceKindFromFilename(
-      file.originalname,
-    );
+    const sourceKind: ResourceSourceKind = inferSourceKindFromFilename(file.originalname);
     const titleHint = path
       .basename(file.originalname, path.extname(file.originalname))
       .replace(/[-_]+/g, " ")
       .trim();
-    const title = (
-      (req.body as Record<string, string>)?.title ?? titleHint ?? "Untitled"
-    ).slice(0, 200);
+    const title = ((req.body as Record<string, string>)?.title ?? titleHint ?? "Untitled").slice(
+      0,
+      200,
+    );
 
     const { bodyText, status, errorMessage } = await extractResourceText(
       file.path,
@@ -390,10 +435,7 @@ resourcesRouter.post(
 
 // ----- DETAIL -----
 
-async function loadResource(
-  companyId: string,
-  slug: string,
-): Promise<Resource | null> {
+async function loadResource(companyId: string, slug: string): Promise<Resource | null> {
   return AppDataSource.getRepository(Resource).findOneBy({ companyId, slug });
 }
 
@@ -405,7 +447,19 @@ resourcesRouter.get("/resources/:slug", async (req, res) => {
   res.json(hydrated);
 });
 
-resourcesRouter.get("/resources/:slug/file", async (req, res) => {
+/**
+ * Serve the stored original.
+ *
+ * Renders in place only for the three kinds the product has a viewer for, and
+ * types every other upload as `application/octet-stream` behind an
+ * `attachment` disposition. Before M62 the default was inline for everything
+ * and the type was pinned only for `pdf`/`epub`, so Express typed the rest
+ * from the file extension — an uploaded `.html` or `.svg` executed on the
+ * origin holding the session cookie, and since M47 those bytes can arrive on
+ * an email from a stranger. `resourceFileHeaders` owns the decision so the
+ * mail path cannot drift away from this one.
+ */
+resourcesRouter.get("/resources/:slug/file", validateQuery(fileQuerySchema), async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const row = await loadResource(cid, req.params.slug);
   if (!row) return res.status(404).json({ error: "Resource not found" });
@@ -416,25 +470,19 @@ resourcesRouter.get("/resources/:slug/file", async (req, res) => {
   if (!co) return res.status(404).json({ error: "Company not found" });
   const abs = resolveResourceFile(co.slug, row.storageKey);
   if (!abs) return res.status(404).json({ error: "File missing on disk" });
-  // `disposition=attachment` forces a download; default is inline so the
-  // browser can render PDFs and our EPUB viewer can fetch the bytes via
-  // an in-page request without triggering the download dialog.
-  const filename = row.sourceFilename ?? path.basename(abs);
-  const disposition =
-    (req.query.disposition as string | undefined) === "attachment"
-      ? "attachment"
-      : "inline";
-  const contentType =
-    row.sourceKind === "pdf"
-      ? "application/pdf"
-      : row.sourceKind === "epub"
-        ? "application/epub+zip"
-        : undefined;
-  if (contentType) res.setHeader("Content-Type", contentType);
-  res.setHeader(
-    "Content-Disposition",
-    `${disposition}; filename="${filename.replace(/"/g, "")}"`,
-  );
+
+  const query = req.query as unknown as z.infer<typeof fileQuerySchema>;
+  const headers = resourceFileHeaders({
+    sourceKind: row.sourceKind,
+    storedFilename: row.sourceFilename,
+    storageKey: row.storageKey,
+    requested: query.disposition,
+  });
+  res.setHeader("Content-Type", headers.contentType);
+  res.setHeader("Content-Disposition", `${headers.disposition}; filename="${headers.filename}"`);
+  // Belt and braces on the branch that never renders: even if a future
+  // content type slips through, a sandboxed document has no origin.
+  if (headers.sandbox) res.setHeader("Content-Security-Policy", "sandbox");
   res.sendFile(abs);
 });
 
@@ -458,9 +506,7 @@ resourcesRouter.get("/resources/:slug/export", async (req, res) => {
   const row = await loadResource(cid, req.params.slug);
   if (!row) return res.status(404).json({ error: "Resource not found" });
   if (!row.bodyText || row.bodyText.length === 0) {
-    return res
-      .status(400)
-      .json({ error: "Resource has no body to export." });
+    return res.status(400).json({ error: "Resource has no body to export." });
   }
   try {
     const artifact = await exportResource(row, format);
@@ -612,11 +658,7 @@ resourcesRouter.post(
       companyId: cid,
     });
     if (!emp) return res.status(400).json({ error: "Unknown employee" });
-    const grant = await upsertResourceGrant(
-      emp.id,
-      row.id,
-      body.accessLevel ?? "read",
-    );
+    const grant = await upsertResourceGrant(emp.id, row.id, body.accessLevel ?? "read");
     const [hydrated] = await hydrateGrants(cid, [grant]);
     res.json(hydrated);
   },
@@ -647,46 +689,40 @@ resourcesRouter.patch(
   },
 );
 
-resourcesRouter.delete(
-  "/resources/:slug/grants/:grantId",
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const row = await loadResource(cid, req.params.slug);
-    if (!row) return res.status(404).json({ error: "Resource not found" });
-    const repo = AppDataSource.getRepository(EmployeeResourceGrant);
-    const grant = await repo.findOneBy({
-      id: req.params.grantId,
-      resourceId: row.id,
-    });
-    if (!grant) return res.status(404).json({ error: "Grant not found" });
-    await repo.delete({ id: grant.id });
-    res.json({ ok: true });
-  },
-);
+resourcesRouter.delete("/resources/:slug/grants/:grantId", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const row = await loadResource(cid, req.params.slug);
+  if (!row) return res.status(404).json({ error: "Resource not found" });
+  const repo = AppDataSource.getRepository(EmployeeResourceGrant);
+  const grant = await repo.findOneBy({
+    id: req.params.grantId,
+    resourceId: row.id,
+  });
+  if (!grant) return res.status(404).json({ error: "Grant not found" });
+  await repo.delete({ id: grant.id });
+  res.json({ ok: true });
+});
 
-resourcesRouter.get(
-  "/resources/:slug/grant-candidates",
-  async (req, res) => {
-    const cid = (req.params as Record<string, string>).cid;
-    const row = await loadResource(cid, req.params.slug);
-    if (!row) return res.status(404).json({ error: "Resource not found" });
-    const [emps, direct] = await Promise.all([
-      AppDataSource.getRepository(AIEmployee).find({
-        where: { companyId: cid },
-        order: { createdAt: "ASC" },
-      }),
-      listDirectResourceGrants(row.id),
-    ]);
-    const grantedSet = new Set(direct.map((g) => g.employeeId));
-    res.json(
-      emps.map((e) => ({
-        id: e.id,
-        name: e.name,
-        slug: e.slug,
-        role: e.role,
-        avatarKey: e.avatarKey ?? null,
-        alreadyGranted: grantedSet.has(e.id),
-      })),
-    );
-  },
-);
+resourcesRouter.get("/resources/:slug/grant-candidates", async (req, res) => {
+  const cid = (req.params as Record<string, string>).cid;
+  const row = await loadResource(cid, req.params.slug);
+  if (!row) return res.status(404).json({ error: "Resource not found" });
+  const [emps, direct] = await Promise.all([
+    AppDataSource.getRepository(AIEmployee).find({
+      where: { companyId: cid },
+      order: { createdAt: "ASC" },
+    }),
+    listDirectResourceGrants(row.id),
+  ]);
+  const grantedSet = new Set(direct.map((g) => g.employeeId));
+  res.json(
+    emps.map((e) => ({
+      id: e.id,
+      name: e.name,
+      slug: e.slug,
+      role: e.role,
+      avatarKey: e.avatarKey ?? null,
+      alreadyGranted: grantedSet.has(e.id),
+    })),
+  );
+});

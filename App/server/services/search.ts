@@ -17,6 +17,13 @@ import { Resource } from "../db/entities/Resource.js";
 import { Routine } from "../db/entities/Routine.js";
 import { Skill } from "../db/entities/Skill.js";
 import { Todo } from "../db/entities/Todo.js";
+import {
+  andWhereTokens,
+  escapeLike,
+  scoreLabel,
+  tokenizeQuery,
+} from "./likeSearch.js";
+import type { Token } from "./likeSearch.js";
 import { searchChatProductReferences } from "./chatReferences.js";
 import { listAccessibleProjectIds } from "./projects.js";
 
@@ -74,57 +81,6 @@ const PER_KIND_CAP = 5;
 /** How many results the whole response may carry. */
 const TOTAL_CAP = 30;
 /**
- * How many query tokens participate. Each token adds a LIKE per searched
- * column to fifteen table scans, so an unbounded 200-char query of 1-char
- * words would be an easy way to pin the (synchronous, on sqlite) driver.
- * Nobody types nine words to find a name.
- */
-const MAX_TOKENS = 8;
-
-/** One query token in both casings the SQL needs — see `andWhereTokens`. */
-type Token = { lo: string; raw: string };
-
-/** Escape `%`, `_`, and `\` so user input matches literally inside LIKE. */
-function escapeLike(term: string): string {
-  return term.replace(/[\\%_]/g, (c) => "\\" + c);
-}
-
-/**
- * Require every whitespace-separated token of the query to appear in at
- * least one of `cols`. Tokens AND together, columns OR together — "acme
- * invoice" should match a row named "Invoice run — Acme" regardless of
- * word order.
- *
- * Case-folding is two-pronged because SQLite's LOWER() (no ICU) folds only
- * ASCII: `LOWER(col) LIKE :lowercased` handles ASCII case on both drivers,
- * and `col LIKE :as-typed` lets a non-ASCII query ("Café", "Отчёт") match
- * verbatim on sqlite too. The one gap left: uppercase non-ASCII *stored*
- * text queried in lowercase won't match on sqlite (it will on postgres) —
- * closing that needs ICU or a normalized shadow column; not worth it here.
- */
-function andWhereTokens<T extends object>(
-  qb: SelectQueryBuilder<T>,
-  cols: string[],
-  tokens: Token[],
-): SelectQueryBuilder<T> {
-  tokens.forEach((tok, i) => {
-    const variants = [`LOWER(%c) LIKE :tokLo${i} ESCAPE '\\'`];
-    const params: Record<string, string> = {
-      [`tokLo${i}`]: `%${escapeLike(tok.lo)}%`,
-    };
-    if (tok.raw !== tok.lo) {
-      variants.push(`%c LIKE :tokRaw${i} ESCAPE '\\'`);
-      params[`tokRaw${i}`] = `%${escapeLike(tok.raw)}%`;
-    }
-    const clause = cols
-      .flatMap((col) => variants.map((v) => v.replaceAll("%c", col)))
-      .join(" OR ");
-    qb = qb.andWhere(`(${clause})`, params);
-  });
-  return qb;
-}
-
-/**
  * `getRawMany` bypasses TypeORM's hydration, and on sqlite datetime columns
  * come back as UTC strings without a timezone marker ("2026-07-17 10:00:00")
  * that `new Date()` would misread as *local* time. Re-attach the T/Z the
@@ -168,24 +124,6 @@ type Scored = CompanySearchResult & {
   score: number;
   updatedAt: Date | null;
 };
-
-/**
- * Rank a label against the query. Mirrors the tiers the palette uses for
- * sections (exact > prefix > word boundary > substring) so a section hit
- * and an entity hit for the same text sort the same way everywhere.
- */
-function scoreLabel(label: string, q: string, tokens: Token[]): number {
-  const l = label.toLowerCase();
-  if (l === q) return 100;
-  if (l.startsWith(q)) return 90;
-  const at = l.indexOf(q);
-  if (at > 0 && !/[a-z0-9]/.test(l[at - 1])) return 80;
-  if (at > 0) return 65;
-  // The full query missed but every token hit (SQL guarantees each token
-  // matched *some* searched column — this bonus is for all-in-the-label).
-  if (tokens.length > 1 && tokens.every((t) => l.includes(t.lo))) return 55;
-  return 40; // matched via a secondary column (email, topic, role, …)
-}
 
 // ─────────────────────────── per-kind queries ───────────────────────────
 
@@ -482,11 +420,7 @@ export async function searchCompany(opts: {
   const q = qRaw.toLowerCase();
   // One character matches half the database; the palette gates the same way.
   if (q.length < 2) return [];
-  const tokens: Token[] = qRaw
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, MAX_TOKENS)
-    .map((raw) => ({ raw, lo: raw.toLowerCase() }));
+  const tokens: Token[] = tokenizeQuery(qRaw);
   const ctx: Ctx = { companyId: opts.companyId, q, tokens };
 
   const accessibleProjects = await listAccessibleProjectIds(opts.companyId, {

@@ -104,6 +104,7 @@ import {
   resolveSearchLabelId,
 } from "../services/mail/searchQuery.js";
 import { ATTACHMENTS_MAX_BYTES, recordAttachmentBytes } from "../services/uploads.js";
+import { andWhereTokens, tokenizeQuery } from "../services/likeSearch.js";
 import { resolveAttachmentFile } from "../services/uploads.js";
 import { Attachment } from "../db/entities/Attachment.js";
 import { Conversation } from "../db/entities/Conversation.js";
@@ -275,17 +276,22 @@ import { hasNoteAccess, listAccessibleNoteIds, upsertNoteGrant } from "../servic
 import { ensureDefaultNotebook } from "../services/notebooks.js";
 import {
   RESOURCE_BODY_TEXT_CAP,
+  RESOURCE_WINDOW_DEFAULT_CHARS,
+  RESOURCE_WINDOW_MAX_CHARS,
   deleteGrantsForResource,
   deleteResourceBytes,
   extractResourceText,
   fetchUrlAsText,
+  gradeExtraction,
   hasResourceAccess,
   inferSourceKindFromFilename,
   listAccessibleResourceIds,
+  searchResources,
   summarize,
   trimBodyText,
   uniqueResourceSlug,
   upsertResourceGrant,
+  windowText,
   writeResourceBytes,
 } from "../services/resources.js";
 import {
@@ -12736,13 +12742,21 @@ mcpInternalRouter.post(
     const accessible = await listAccessibleNoteIds(co.id, self.id);
     if (accessible.size === 0) return res.json({ notes: [] });
 
-    const term = `%${body.query.replace(/[%_]/g, (c) => "\\" + c)}%`;
-    const rows = await AppDataSource.getRepository(Note)
-      .createQueryBuilder("n")
-      .where("n.companyId = :cid", { cid: co.id })
-      .andWhere("n.archivedAt IS NULL")
-      .andWhere("n.id IN (:...ids)", { ids: [...accessible] })
-      .andWhere("(n.title LIKE :term ESCAPE '\\' OR n.body LIKE :term ESCAPE '\\')", { term })
+    // Same tokenizer Resources and the ⌘K palette use: every word must appear
+    // somewhere, in any order, folded the same way on both drivers. The single
+    // `LIKE '%whole query%'` this replaces missed "meeting notes" on a page
+    // titled "Notes from the meeting".
+    const tokens = tokenizeQuery(body.query);
+    if (tokens.length === 0) return res.json({ notes: [] });
+    const rows = await andWhereTokens(
+      AppDataSource.getRepository(Note)
+        .createQueryBuilder("n")
+        .where("n.companyId = :cid", { cid: co.id })
+        .andWhere("n.archivedAt IS NULL")
+        .andWhere("n.id IN (:...ids)", { ids: [...accessible] }),
+      ["n.title", "n.body"],
+      tokens,
+    )
       .orderBy("n.updatedAt", "DESC")
       .limit(50)
       .getMany();
@@ -13061,27 +13075,83 @@ function serializeResource(r: Resource, opts: { includeBody?: boolean } = {}) {
   return out;
 }
 
-const listResourcesSchema = z.object({}).strict();
+/**
+ * Resource reads, M62.
+ *
+ * All three handlers used to hand back whole rows: `list_resources` returned
+ * every accessible Resource with its full summary, `search_resources` matched
+ * one literal `LIKE '%the entire query%'` and returned up to fifty rows
+ * ordered by *when they were last edited*, and `get_resource` returned the
+ * whole 1 MiB body. The agent loop then clipped whatever came back at
+ * `toolResultCap` — 60,000 characters, or 8,000 on a small window — so a book
+ * was 94% unreachable with no second call that could reach the rest, and a
+ * search for "refund policy" missed a document saying "our policy for
+ * refunds" because the phrase never appeared contiguously.
+ *
+ * They now return passages: a ranked hit with a snippet and the offset it came
+ * from, and a windowed read that says where it stopped and where to resume.
+ */
+
+const listResourcesSchema = z
+  .object({
+    limit: z.number().int().min(1).max(200).default(50),
+    offset: z.number().int().min(0).default(0),
+  })
+  .strict();
+
+/** No grant is a different answer from an empty library, and a bare `[]` is
+ *  the one shape that cannot say which. */
+const NO_GRANT_NOTE =
+  "You have not been granted access to any Resource in this company. This is not the same as the library being empty — ask a human to share one from the Resources page.";
+
+/** Summaries are prose a human wrote or we auto-generated from the body; a
+ *  listing of 200 of them at full length is a context bill for text the model
+ *  is only skimming. Mirrors the routine-brief preview. */
+const RESOURCE_SUMMARY_PREVIEW_CHARS = 280;
+
+function serializeResourceForList(r: Resource) {
+  const base = serializeResource(r) as Record<string, unknown>;
+  const summary = typeof base.summary === "string" ? base.summary : "";
+  if (summary.length > RESOURCE_SUMMARY_PREVIEW_CHARS) {
+    base.summary = summary.slice(0, RESOURCE_SUMMARY_PREVIEW_CHARS - 1) + "…";
+    base.summaryTruncated = true;
+  }
+  return base;
+}
 
 mcpInternalRouter.post(
   "/tools/list_resources",
   validateBody(listResourcesSchema),
   async (req: McpRequest, res) => {
+    const body = req.body as z.infer<typeof listResourcesSchema>;
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
     const accessible = await listAccessibleResourceIds(self.id);
-    if (accessible.size === 0) return res.json({ resources: [] });
-    const rows = await AppDataSource.getRepository(Resource).find({
-      where: { companyId: co.id, id: In([...accessible]) },
+    if (accessible.size === 0) {
+      return res.json({ resources: [], total: 0, hasMore: false, note: NO_GRANT_NOTE });
+    }
+    const repo = AppDataSource.getRepository(Resource);
+    const where = { companyId: co.id, id: In([...accessible]) };
+    const total = await repo.count({ where });
+    const rows = await repo.find({
+      where,
       order: { updatedAt: "DESC" },
+      skip: body.offset,
+      take: body.limit,
     });
-    res.json({ resources: rows.map((r) => serializeResource(r)) });
+    res.json({
+      resources: rows.map((r) => serializeResourceForList(r)),
+      total,
+      hasMore: body.offset + rows.length < total,
+    });
   },
 );
 
 const searchResourcesSchema = z
   .object({
     query: z.string().min(1).max(200),
+    limit: z.number().int().min(1).max(50).default(10),
+    offset: z.number().int().min(0).default(0),
   })
   .strict();
 
@@ -13093,27 +13163,47 @@ mcpInternalRouter.post(
     const co = req.mcpCompany!;
     const self = req.mcpEmployee!;
     const accessible = await listAccessibleResourceIds(self.id);
-    if (accessible.size === 0) return res.json({ resources: [] });
+    if (accessible.size === 0) {
+      return res.json({ resources: [], total: 0, hasMore: false, note: NO_GRANT_NOTE });
+    }
 
-    const term = `%${body.query.replace(/[%_]/g, (c) => "\\" + c)}%`;
-    const rows = await AppDataSource.getRepository(Resource)
-      .createQueryBuilder("r")
-      .where("r.companyId = :cid", { cid: co.id })
-      .andWhere("r.id IN (:...ids)", { ids: [...accessible] })
-      .andWhere(
-        "(r.title LIKE :term ESCAPE '\\' OR r.summary LIKE :term ESCAPE '\\' OR r.tags LIKE :term ESCAPE '\\' OR r.bodyText LIKE :term ESCAPE '\\')",
-        { term },
-      )
-      .orderBy("r.updatedAt", "DESC")
-      .limit(50)
-      .getMany();
-    res.json({ resources: rows.map((r) => serializeResource(r)) });
+    const found = await searchResources(co.id, self.id, {
+      query: body.query,
+      limit: body.limit,
+      offset: body.offset,
+    });
+    res.json({
+      resources: found.hits.map((hit) => ({
+        ...serializeResource(hit.resource),
+        matchedIn: hit.matchedIn,
+        snippet: hit.match?.snippet ?? null,
+        // Feed this straight back to `get_resource` as `offset` to read the
+        // passage the snippet came from.
+        bodyOffset: hit.match?.bodyOffset ?? null,
+        matchCount: hit.match?.matchCount ?? 0,
+      })),
+      total: found.total,
+      hasMore: found.hasMore,
+      ...(found.broadened
+        ? {
+            note: "No Resource contained every word of that query, so these are the rows matching at least one of them. Narrow the query or read one of these.",
+          }
+        : {}),
+    });
   },
 );
 
 const getResourceSchema = z
   .object({
     resourceSlug: z.string().min(1).max(160),
+    offset: z.number().int().min(0).default(0),
+    maxChars: z
+      .number()
+      .int()
+      .min(1)
+      .max(RESOURCE_WINDOW_MAX_CHARS)
+      .default(RESOURCE_WINDOW_DEFAULT_CHARS),
+    around: z.string().min(1).max(200).optional(),
   })
   .strict();
 
@@ -13132,7 +13222,21 @@ mcpInternalRouter.post(
     if (!(await hasResourceAccess(self.id, row.id, "read"))) {
       return res.status(403).json({ error: "No access to that resource" });
     }
-    res.json({ resource: serializeResource(row, { includeBody: true }) });
+    const win = windowText(row.bodyText ?? "", {
+      offset: body.offset,
+      maxChars: body.maxChars,
+      around: body.around,
+    });
+    res.json({
+      resource: {
+        ...serializeResource(row),
+        bodyText: win.text,
+        windowStart: win.windowStart,
+        windowEnd: win.windowEnd,
+        nextOffset: win.nextOffset,
+        hasMore: win.hasMore,
+      },
+    });
   },
 );
 
@@ -13143,7 +13247,24 @@ const exportResourceSchema = z
   })
   .strict();
 
-const EXPORT_RESOURCE_MAX_BYTES = 8 * 1024 * 1024; // 8 MiB cap on the base64 round-trip
+const EXPORT_RESOURCE_MAX_BYTES = 8 * 1024 * 1024; // 8 MiB cap on the render itself
+
+/**
+ * Above this, the rendered bytes are not handed to the model at all.
+ *
+ * `loop.ts` clips every tool result at `toolResultCap` — 60,000 characters,
+ * and as little as 8,000 on a small context window. A base64 string is a third
+ * larger than its source, so an export much past 40 KB came back as a
+ * truncated prefix; `Buffer.from(prefix, "base64")` does not throw, it decodes
+ * what it was given and drops the rest, so the human received a corrupt PDF
+ * and nothing anywhere errored. 4 KiB is the largest payload that survives
+ * even the 8,000-character floor.
+ *
+ * Nothing is lost above it: the render is staged for the turn either way, so
+ * the file reaches the human as a download chip on the reply without the model
+ * relaying a single byte.
+ */
+const EXPORT_RESOURCE_INLINE_MAX_BYTES = 4 * 1024;
 
 mcpInternalRouter.post(
   "/tools/export_resource",
@@ -13175,12 +13296,33 @@ mcpInternalRouter.post(
           error: `Rendered ${body.format} is ${artifact.buffer.length} bytes, over the 8 MiB MCP cap. Ask a human to download it from the resource page.`,
         });
       }
+      // Stage it the way every other bytes-producing tool here does
+      // (`fill_pdf_form`, `create_docx`, `convert_to_pdf`, `download_web_file`):
+      // the chat seam drains staged ids when the spawn ends and binds them to
+      // the assistant message, so the human gets the download chip without the
+      // model relaying the file through its own context.
+      const stored = await recordAttachmentBytes({
+        companyId: co.id,
+        companySlug: co.slug,
+        filename: artifact.filename,
+        mimeType: artifact.mime,
+        bytes: artifact.buffer,
+        uploadedByUserId: null,
+      });
+      stageAttachmentForToken(req.mcpToken!, stored.id);
+      const inlineable = artifact.buffer.length <= EXPORT_RESOURCE_INLINE_MAX_BYTES;
       res.json({
         format: artifact.ext,
         mimeType: artifact.mime,
         filename: artifact.filename,
         bytes: artifact.buffer.length,
-        contentBase64: artifact.buffer.toString("base64"),
+        attachmentId: stored.id,
+        attachedToReply: true,
+        ...(inlineable
+          ? { contentBase64: artifact.buffer.toString("base64") }
+          : {
+              note: "The rendered file is already attached to your reply — the human will see it as a download. Its bytes are withheld here because a file this size does not survive the tool-result limit, and a truncated base64 string decodes to a corrupt file rather than an error.",
+            }),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -13692,7 +13834,13 @@ mcpInternalRouter.post(
       try {
         const fetched = await fetchUrlAsText(body.url);
         title = (title || fetched.title || body.url).slice(0, 200);
-        bodyText = trimBodyText(fetched.text);
+        // A 200 that yields no text is a failure too — a JS-rendered page
+        // fetches fine and extracts to nothing. Saying so beats filing an
+        // empty row that reports itself Ready.
+        const graded = gradeExtraction(trimBodyText(fetched.text), "url");
+        bodyText = graded.bodyText;
+        status = graded.status;
+        errorMessage = graded.errorMessage;
         bytes = bodyText.length;
       } catch (err) {
         title = (title || body.url).slice(0, 200);
@@ -17895,6 +18043,8 @@ const meetingTranscriptSchema = z
   .object({
     meetingId: z.string().uuid(),
     maxChars: z.number().int().min(500).max(100_000).optional(),
+    offset: z.number().int().min(0).default(0),
+    around: z.string().min(1).max(200).optional(),
   })
   .strict();
 
@@ -17907,13 +18057,21 @@ mcpInternalRouter.post(
     if (!meeting) return;
     const cap = body.maxChars ?? 20_000;
     const full = meeting.transcriptText;
+    // An hour of speech is far past any one tool result, and `slice(0, cap)`
+    // made the tail of a long call permanently unreachable — the same defect
+    // M62 fixed on `get_resource`, and the same helper fixes it here.
+    const win = windowText(full, { offset: body.offset, maxChars: cap, around: body.around });
     res.json({
       meetingId: meeting.id,
       title: meeting.title,
       transcriptState: meeting.transcriptState,
-      truncated: full.length > cap,
-      transcript: full.slice(0, cap),
-      totalChars: full.length,
+      truncated: win.hasMore,
+      transcript: win.text,
+      totalChars: win.bodyLength,
+      windowStart: win.windowStart,
+      windowEnd: win.windowEnd,
+      nextOffset: win.nextOffset,
+      hasMore: win.hasMore,
     });
   },
 );

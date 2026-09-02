@@ -26,6 +26,11 @@ import { RevenueImportBatch } from "../db/entities/RevenueImportBatch.js";
 import { EmployeeSigningGrant } from "../db/entities/EmployeeSigningGrant.js";
 import { SignatureEnvelope } from "../db/entities/SignatureEnvelope.js";
 import { EmployeeVaultGrant } from "../db/entities/EmployeeVaultGrant.js";
+import {
+  deleteResourceGrantsForEmployee,
+  grantAllResourcesToEmployee,
+} from "../services/resources.js";
+import { deleteExploreGrantsForEmployee, grantExploreToEmployee } from "../services/explore.js";
 import { VaultItem } from "../db/entities/VaultItem.js";
 import { validateBody, validateParams } from "../middleware/validate.js";
 import {
@@ -189,6 +194,13 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
   });
   await repo.save(emp);
   await ensureDefaultTldrSchedule(co.id, emp.id);
+  // Hand the new hire the company's existing library. `grantResourceToAllEmployees`
+  // only ever ran from resource creation, so a company that filed its material
+  // before hiring gave the new employee an empty shelf and no way to notice.
+  // Awaited, not fire-and-forget: a Run started in the gap would read `[]` and
+  // confidently report that the company has nothing on the subject.
+  await grantAllResourcesToEmployee(co.id, emp.id);
+  await grantExploreToEmployee(co.id, emp.id);
 
   // Employee cwd is still needed on disk — the CLI spawns there, writes
   // artifacts, and resolves `.mcp.json` + credentials. Soul / Skills /
@@ -215,8 +227,7 @@ employeesRouter.post("/", validateBody(createSchema), async (req, res) => {
     // the seeded batch is capped at what the plan still allows, and the
     // remainder is silently skipped.
     const capacity = await routineCapacityRemaining(co.id);
-    const seedable =
-      capacity === null ? template.routines : template.routines.slice(0, capacity);
+    const seedable = capacity === null ? template.routines : template.routines.slice(0, capacity);
     const routineRepo = AppDataSource.getRepository(Routine);
     for (const r of seedable) {
       const rSlug = toSlug(r.name);
@@ -534,6 +545,11 @@ employeesRouter.delete("/:eid", async (req, res) => {
   await AppDataSource.getRepository(JournalEntry).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(EmployeeSigningGrant).delete({ employeeId: emp.id });
   await AppDataSource.getRepository(EmployeeVaultGrant).delete({ employeeId: emp.id });
+  // Resource grants outlived their employee until M62 — only company teardown
+  // ever cleared them — which left the share modal rendering a permanent
+  // "Unknown" row for everyone the company had ever fired.
+  await deleteResourceGrantsForEmployee(emp.id);
+  await deleteExploreGrantsForEmployee(emp.id);
   await AppDataSource.getRepository(VaultItem).update(
     { createdByEmployeeId: emp.id },
     { createdByEmployeeId: null },

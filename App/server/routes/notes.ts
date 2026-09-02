@@ -11,6 +11,7 @@ import {
   NoteAccessLevel,
 } from "../db/entities/EmployeeNoteGrant.js";
 import { validateBody } from "../middleware/validate.js";
+import { andWhereTokens, tokenizeQuery } from "../services/likeSearch.js";
 import { requireAuth, requireCompanyMember } from "../middleware/auth.js";
 import { toSlug } from "../lib/slug.js";
 import { ensureDefaultNotebook } from "../services/notebooks.js";
@@ -137,19 +138,27 @@ notesRouter.get("/notes", async (req, res) => {
 });
 
 /**
- * Crude LIKE-based search across title and body. SQLite + a few thousand
- * notes is fine; if this ever feels slow we can wire FTS5 in.
+ * Tokenized LIKE search across title and body, sharing `services/likeSearch`
+ * with the ⌘K palette and Resources. It used to be one `LIKE '%the whole
+ * query%'`, which missed every page whose words appear in a different order —
+ * and, because bare LIKE folds ASCII case on sqlite but not on postgres,
+ * returned different rows on the two supported drivers. SQLite plus a few
+ * thousand notes is still fine; if this ever feels slow we can wire FTS5 in.
  */
 notesRouter.get("/notes/search", async (req, res) => {
   const cid = (req.params as Record<string, string>).cid;
   const q = (req.query.q as string | undefined)?.trim() ?? "";
   if (!q) return res.json([]);
-  const term = `%${q.replace(/[%_]/g, (c) => "\\" + c)}%`;
-  const rows = await AppDataSource.getRepository(Note)
-    .createQueryBuilder("n")
-    .where("n.companyId = :cid", { cid })
-    .andWhere("n.archivedAt IS NULL")
-    .andWhere("(n.title LIKE :term ESCAPE '\\' OR n.body LIKE :term ESCAPE '\\')", { term })
+  const tokens = tokenizeQuery(q);
+  if (tokens.length === 0) return res.json([]);
+  const rows = await andWhereTokens(
+    AppDataSource.getRepository(Note)
+      .createQueryBuilder("n")
+      .where("n.companyId = :cid", { cid })
+      .andWhere("n.archivedAt IS NULL"),
+    ["n.title", "n.body"],
+    tokens,
+  )
     .orderBy("n.updatedAt", "DESC")
     .limit(50)
     .getMany();
