@@ -65,6 +65,22 @@ const ZipArchive = (
 const PART_SUFFIX = ".part";
 
 /**
+ * Prefix for the `VACUUM INTO` snapshot a run stages before zipping it.
+ * Hidden, and deliberately distinct from {@link PART_SUFFIX}, so
+ * {@link sweepOrphanedStagingArtifacts} can tell a stranded snapshot from a
+ * half-written archive without consulting the `backups` table.
+ */
+const STAGING_PREFIX = ".staging-";
+
+/**
+ * Sidecars SQLite can leave beside a database file. `VACUUM INTO` writes a
+ * rollback journal next to its destination, and the cleanup used to unlink
+ * only the `.sqlite` itself — so every single run, successful or not, left a
+ * `.staging-<id>.sqlite-journal` behind for good.
+ */
+const SQLITE_SIDECAR_SUFFIXES = ["-journal", "-wal", "-shm"] as const;
+
+/**
  * Hourly rather than daily so a window that lapses at 14:05 isn't enforced at
  * 03:00 the next morning. The prune is a cheap no-op when nothing is past the
  * cutoff.
@@ -84,6 +100,20 @@ let scheduledTask: ScheduledTask | null = null;
 let retentionTask: ScheduledTask | null = null;
 let runningBackup: Promise<Backup> | null = null;
 let runningPrune: Promise<number> | null = null;
+
+/**
+ * Staging paths owned by a run that is still in flight. {@link
+ * sweepOrphanedStagingArtifacts} consults this so it can never unlink the
+ * snapshot a live backup is part-way through zipping — the sweep runs from
+ * boot reconcile and from the start of each run, either of which could in
+ * principle overlap one.
+ *
+ * In-process is enough to be authoritative here: staging snapshots only exist
+ * under the SQLite driver ({@link snapshotSqlite} is a no-op otherwise), and
+ * that is the single-process self-hosted install. A Postgres deployment never
+ * stages one to begin with.
+ */
+const activeStagingPaths = new Set<string>();
 
 /**
  * True from the moment a restore is accepted until it finishes. Shared with
@@ -113,6 +143,82 @@ export function backupFilePath(filename: string): string {
 function ensureBackupDir(): void {
   fs.mkdirSync(backupDir(), { recursive: true });
   fs.chmodSync(backupDir(), 0o700);
+}
+
+/**
+ * Map a staging entry back to the snapshot path that owns it, so a sidecar and
+ * the `.sqlite` it belongs to answer {@link activeStagingPaths} identically.
+ */
+function stagingOwnerPath(abs: string): string {
+  for (const suffix of SQLITE_SIDECAR_SUFFIXES) {
+    if (abs.endsWith(suffix)) return abs.slice(0, -suffix.length);
+  }
+  return abs;
+}
+
+/**
+ * Unlink a staging snapshot together with every sidecar SQLite may have put
+ * beside it. Best-effort: this runs on the success path of a backup that has
+ * already been recorded, so a file that won't unlink must not fail the run.
+ */
+function removeStagingArtifact(stagingPath: string): void {
+  const paths = [stagingPath, ...SQLITE_SIDECAR_SUFFIXES.map((s) => `${stagingPath}${s}`)];
+  for (const p of paths) {
+    try {
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch {
+      // best-effort
+    }
+  }
+}
+
+/**
+ * Delete staging snapshots that no live run owns.
+ *
+ * `runBackupInner` unlinks its own snapshot in a `finally`, but that block
+ * never executes if the process dies between `VACUUM INTO` and the end of the
+ * run — a SIGKILL from a container restart or the OOM killer, which is exactly
+ * what a backup of a large database invites. Each stranded snapshot is a full
+ * copy of the database, so they dwarf the archives they were staged for and
+ * accumulate silently until the volume fills.
+ *
+ * Called from {@link reconcileBackupHistory} (so a restart clears the debris)
+ * and at the top of each run (so an install that never restarts still recovers
+ * the space, at the one moment it is about to need it).
+ *
+ * Returns how many files were removed.
+ */
+export function sweepOrphanedStagingArtifacts(): number {
+  const dir = backupDir();
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return 0;
+  }
+
+  let removed = 0;
+  let bytes = 0;
+  for (const entry of entries) {
+    if (!entry.startsWith(STAGING_PREFIX)) continue;
+    const abs = path.join(dir, entry);
+    if (activeStagingPaths.has(stagingOwnerPath(abs))) continue;
+    try {
+      const size = fs.statSync(abs).size;
+      fs.unlinkSync(abs);
+      removed += 1;
+      bytes += size;
+    } catch {
+      // best-effort — a snapshot we can't unlink is retried on the next sweep
+    }
+  }
+
+  if (removed > 0) {
+    const mb = Math.round(bytes / (1024 * 1024));
+    // eslint-disable-next-line no-console
+    console.log(`[backups] swept ${removed} orphaned staging file(s), reclaiming ~${mb} MB`);
+  }
+  return removed;
 }
 
 /**
@@ -480,6 +586,10 @@ export async function runBackup(kind: "manual" | "scheduled"): Promise<Backup> {
 
 async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
   ensureBackupDir();
+  // Reclaim debris from any previous run killed mid-flight before staging a
+  // fresh snapshot of our own. A long-lived install that never restarts would
+  // otherwise never sweep, and this is the moment the space is about to matter.
+  sweepOrphanedStagingArtifacts();
   const repo = AppDataSource.getRepository(Backup);
   const startedAt = new Date();
   const filename = `backup-${timestampSuffix(startedAt)}.zip`;
@@ -494,7 +604,8 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
   await repo.save(row);
 
   const outPath = backupFilePath(filename);
-  const stagingDbPath = path.join(backupDir(), `.staging-${row.id}.sqlite`);
+  const stagingDbPath = path.join(backupDir(), `${STAGING_PREFIX}${row.id}.sqlite`);
+  activeStagingPaths.add(stagingDbPath);
 
   try {
     await snapshotSqlite(stagingDbPath);
@@ -550,11 +661,11 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
     }
     throw err;
   } finally {
-    try {
-      if (fs.existsSync(stagingDbPath)) fs.unlinkSync(stagingDbPath);
-    } catch {
-      // best-effort
-    }
+    // Sidecars as well as the snapshot: `VACUUM INTO` leaves a rollback
+    // journal beside its destination, and unlinking only the `.sqlite` left
+    // one behind on every run.
+    removeStagingArtifact(stagingDbPath);
+    activeStagingPaths.delete(stagingDbPath);
   }
 
   return row;
@@ -567,7 +678,10 @@ async function runBackupInner(kind: "manual" | "scheduled"): Promise<Backup> {
  */
 async function snapshotSqlite(dest: string): Promise<void> {
   if (config.db.driver !== "sqlite") return;
-  if (fs.existsSync(dest)) fs.unlinkSync(dest);
+  // Clear the destination *and* its sidecars: `VACUUM INTO` refuses a path
+  // that already exists, and a journal stranded beside a fresh snapshot would
+  // be replayed into it the next time the file is opened.
+  removeStagingArtifact(dest);
   const runner = AppDataSource.createQueryRunner();
   try {
     await runner.query(`VACUUM INTO ?`, [dest]);
@@ -950,6 +1064,11 @@ async function reconcileBackupHistory(): Promise<void> {
   const dir = backupDir();
   if (!fs.existsSync(dir)) return;
   const repo = AppDataSource.getRepository(Backup);
+
+  // Snapshots stranded by a run that was killed before its `finally` could
+  // run. Nothing else ever collects these, and each one is the size of the
+  // whole database, so a restart is the first chance to get the space back.
+  sweepOrphanedStagingArtifacts();
 
   // Sweep debris from a backup killed mid-write. The `.part` name is what kept
   // it from being mistaken for an archive; nothing can resume one, so it is
