@@ -1,4 +1,4 @@
-import type { WorkEntry, WorkEntryKind } from "./api";
+import type { WorkEmployeeSummary, WorkEntry, WorkEntryDigest, WorkEntryKind } from "./api";
 
 /**
  * The presentation rules behind Home's AI Employee work timeline.
@@ -38,7 +38,7 @@ export const WORK_KIND_META: Record<WorkEntryKind, WorkKindMeta> = {
     tone: "bg-violet-50 text-violet-600 ring-violet-100 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-500/20",
   },
   approval: {
-    label: "Approval asked",
+    label: "Approval required",
     tone: "bg-amber-50 text-amber-600 ring-amber-100 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/20",
   },
   wakeup: {
@@ -67,6 +67,234 @@ export const WORK_ENTRY_KINDS: readonly WorkEntryKind[] = [
 ];
 
 export type WorkDayGroup = { key: string; label: string; items: WorkEntry[] };
+
+/**
+ * The small set of states Home needs to describe an employee at a glance.
+ *
+ * `working` is intentionally narrow: a missing `endedAt` does not make an
+ * ordinary chat reply, Wakeup, or ledger row live forever. Only source rows
+ * that carry an explicit in-flight state qualify. A pending Approval is
+ * separate because the employee is waiting for a Member, not still working.
+ */
+export type EmployeeWorkState = "working" | "waiting" | "recent" | "quiet";
+
+export type EmployeeWorkSummary = {
+  employeeId: string;
+  state: EmployeeWorkState;
+  /** The newest explicitly in-flight row, when there is one. */
+  currentEntry: WorkEntryDigest | null;
+  /** The newest pending Approval, when there is one. */
+  waitingEntry: WorkEntryDigest | null;
+  /** The newest row of any kind. */
+  latestEntry: WorkEntryDigest | null;
+  entryCount: number;
+};
+
+/** Whether a row represents work that is still happening right now. */
+export function isWorkEntryActive(entry: WorkEntry): boolean {
+  return entry.active;
+}
+
+/** Whether the employee has stopped at a human gate and is waiting. */
+export function isWorkEntryWaiting(entry: WorkEntry): boolean {
+  return (
+    entry.kind === "approval" &&
+    entry.endedAt === null &&
+    entry.detail.trim().toLowerCase() === "pending"
+  );
+}
+
+/**
+ * One employee's status from a newest-first timeline response.
+ *
+ * Working takes precedence over waiting: an employee can have an old pending
+ * Approval and still be making progress elsewhere. Waiting takes precedence
+ * over merely recent work so the roster does not make a human gate look idle.
+ */
+export function summarizeEmployeeWork(
+  employeeId: string,
+  entries: WorkEntry[],
+  rollup?: WorkEmployeeSummary,
+  window?: { nowIso: string; hours?: number },
+): EmployeeWorkSummary {
+  const own = entries.filter((entry) => entry.employee.id === employeeId);
+  const resolveDigest = (
+    value: WorkEntryDigest | null,
+    matches: (entry: WorkEntry) => boolean = () => true,
+  ): WorkEntryDigest | null =>
+    value ? (own.find((entry) => entry.id === value.id && matches(entry)) ?? value) : null;
+  const currentEntry = rollup
+    ? resolveDigest(rollup.current, (entry) => entry.active === rollup.current?.active)
+    : (own.find(isWorkEntryActive) ?? null);
+  const waitingEntry = rollup
+    ? resolveDigest(rollup.waiting, isWorkEntryWaiting)
+    : (own.find(isWorkEntryWaiting) ?? null);
+  const latest = rollup ? resolveDigest(rollup.latest) : (own[0] ?? null);
+  const latestEntry =
+    latest && window && !isWorkInsideWindow(latest.at, window.nowIso, window.hours) ? null : latest;
+  const state: EmployeeWorkState = currentEntry
+    ? "working"
+    : waitingEntry
+      ? "waiting"
+      : latestEntry
+        ? "recent"
+        : "quiet";
+  return {
+    employeeId,
+    state,
+    currentEntry,
+    waitingEntry,
+    latestEntry,
+    entryCount: rollup?.entryCount ?? own.length,
+  };
+}
+
+/** Whether a timestamp still belongs in the rolling work-history window. */
+export function isWorkInsideWindow(atIso: string, nowIso: string, hours = 24): boolean {
+  const at = new Date(atIso).getTime();
+  const now = new Date(nowIso).getTime();
+  if (Number.isNaN(at) || Number.isNaN(now)) return true;
+  return at >= now - hours * 60 * 60 * 1000;
+}
+
+/**
+ * Count the rows the rolling list can still claim truthfully.
+ *
+ * At the server's snapshot time, `total` includes hidden rows beyond the
+ * response limit. Once the local clock advances, their timestamps are unknown.
+ * If one visible row has aged out, every hidden row is older; even before that,
+ * a hidden row may already have crossed the boundary. Fall back to the visible
+ * count instead of showing a precise but stale overflow total.
+ */
+export function workDisplayEntryCount(
+  total: number,
+  returned: number,
+  visible: number,
+  snapshotUntilIso: string,
+  nowIso: string,
+): number {
+  const snapshotUntil = new Date(snapshotUntilIso).getTime();
+  const now = new Date(nowIso).getTime();
+  if (Number.isNaN(snapshotUntil) || Number.isNaN(now) || now > snapshotUntil) return visible;
+  return Math.max(visible, total - (returned - visible));
+}
+
+/** The row Home should feature when an employee bubble is selected. */
+export function employeeWorkFocus(summary: EmployeeWorkSummary): WorkEntryDigest | null {
+  return summary.currentEntry ?? summary.waitingEntry ?? summary.latestEntry;
+}
+
+/** Short relative time for a timeline row, deterministic when `nowIso` is supplied. */
+export function workRelativeTime(iso: string, nowIso = new Date().toISOString()): string {
+  const at = new Date(iso).getTime();
+  const now = new Date(nowIso).getTime();
+  if (Number.isNaN(at) || Number.isNaN(now)) return "";
+  const elapsed = Math.max(0, now - at);
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+/** The status line underneath one employee bubble. */
+export function employeeWorkStatusLabel(
+  summary: EmployeeWorkSummary,
+  nowIso = new Date().toISOString(),
+): string {
+  switch (summary.state) {
+    case "working":
+      return "Working now";
+    case "waiting":
+      return "Waiting for input";
+    case "recent": {
+      const relative = summary.latestEntry
+        ? workRelativeTime(summary.latestEntry.at, nowIso).toLowerCase()
+        : "";
+      return relative ? `Active ${relative}` : "Active today";
+    }
+    case "quiet":
+      return "Quiet today";
+  }
+}
+
+const ACTION_VERBS: Record<string, string> = {
+  add: "Added",
+  approve: "Approved",
+  archive: "Archived",
+  assign: "Assigned",
+  cancel: "Cancelled",
+  comment: "Commented on",
+  complete: "Completed",
+  connect: "Connected",
+  create: "Created",
+  delete: "Deleted",
+  disconnect: "Disconnected",
+  download: "Downloaded",
+  edit: "Updated",
+  invoke: "Used",
+  issue: "Issued",
+  link: "Linked",
+  read: "Read",
+  move: "Moved",
+  publish: "Published",
+  reject: "Rejected",
+  remove: "Removed",
+  restore: "Restored",
+  schedule: "Scheduled",
+  send: "Sent",
+  unlink: "Unlinked",
+  update: "Updated",
+  upload: "Uploaded",
+  use: "Used",
+  write: "Updated",
+};
+
+function readableWords(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[._-]+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** Turn an effect-ledger action such as `invoice.create` into reader-facing copy. */
+export function humanizeWorkAction(action: string, targetType: string): string {
+  const actionParts = action.split(/[.:/]/).filter(Boolean);
+  const operation = readableWords(actionParts.at(-1) ?? action);
+  const target = readableWords(targetType || actionParts.at(-2) || "record");
+  const verb =
+    ACTION_VERBS[operation] ?? `${operation.charAt(0).toUpperCase()}${operation.slice(1)}`;
+  return [verb, target].filter(Boolean).join(" ");
+}
+
+/** Reader-facing detail copy where a source stores a compact status token. */
+export function workDetailLabel(entry: Pick<WorkEntry, "kind" | "detail">): string {
+  if (entry.kind !== "approval") return entry.detail;
+  const approval: Record<string, string> = {
+    pending: "Waiting for input",
+    executing: "Applying the approved action",
+    approved: "Approved",
+    execution_failed: "Approved action failed",
+    rejected: "Rejected",
+    expired: "Expired",
+  };
+  return approval[entry.detail.trim().toLowerCase()] ?? readableWords(entry.detail);
+}
+
+/** Human-first title for a timeline row, including standalone Effects. */
+export function workDisplayTitle(entry: Pick<WorkEntry, "kind" | "title" | "detail">): string {
+  return entry.kind === "effect" ? humanizeWorkAction(entry.detail, "") : entry.title;
+}
+
+/** Supporting row copy after compact source tokens have been translated. */
+export function workDisplayDetail(entry: Pick<WorkEntry, "kind" | "title" | "detail">): string {
+  if (entry.kind === "effect") return entry.title === entry.detail ? "" : entry.title;
+  return workDetailLabel(entry);
+}
 
 export function workDayKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -168,11 +396,14 @@ export function workOverflowLabel(shown: number, total: number): string | null {
   return `Showing the ${shown} most recent of ${total}`;
 }
 
-/** "3 more" under a capped effects strip; null when nothing was withheld. */
-export function workEffectOverflowLabel(entry: WorkEntry): string | null {
-  const hidden = entry.effectCount - entry.effects.length;
+/** "3 more changes" under a capped effects strip; null when nothing was withheld. */
+export function workEffectOverflowLabel(
+  entry: WorkEntry,
+  shown = entry.effects.length,
+): string | null {
+  const hidden = entry.effectCount - shown;
   if (hidden <= 0) return null;
-  return `${hidden} more`;
+  return `${hidden} more ${hidden === 1 ? "change" : "changes"}`;
 }
 
 /** The empty-state line, which depends on whether a name was chosen. */

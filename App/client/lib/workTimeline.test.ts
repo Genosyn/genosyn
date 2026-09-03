@@ -1,17 +1,29 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { WorkEntry, WorkEntryKind } from "./api.js";
+import type { WorkEmployeeSummary, WorkEntry, WorkEntryKind } from "./api.js";
 import {
+  employeeWorkFocus,
+  employeeWorkStatusLabel,
   groupWorkByDay,
+  humanizeWorkAction,
+  isWorkEntryActive,
+  isWorkInsideWindow,
+  isWorkEntryWaiting,
+  summarizeEmployeeWork,
   workClock,
   workDayKey,
   workDayLabel,
+  workDetailLabel,
+  workDisplayDetail,
+  workDisplayEntryCount,
+  workDisplayTitle,
   workEffectOverflowLabel,
   workEmptyTitle,
   workEntryHref,
   workEntrySummary,
   workOverflowLabel,
+  workRelativeTime,
   WORK_ENTRY_KINDS,
   WORK_KIND_META,
 } from "./workTimeline.js";
@@ -35,6 +47,7 @@ function entryOf(over: Partial<WorkEntry> = {}): WorkEntry {
     kind: "run",
     at: new Date().toISOString(),
     endedAt: null,
+    active: false,
     employee: {
       id: "e1f6c1a2-0000-4000-8000-000000000002",
       name: "Rey",
@@ -146,6 +159,287 @@ describe("clock", () => {
   });
 });
 
+describe("employee work state", () => {
+  test("uses the explicit live flag rather than treating every open-ended row as active", () => {
+    for (const kind of ["chat", "wakeup", "lesson", "effect"] as WorkEntryKind[]) {
+      assert.equal(isWorkEntryActive(entryOf({ kind, endedAt: null, active: false })), false, kind);
+    }
+    assert.equal(isWorkEntryActive(entryOf({ kind: "chat", active: true })), true);
+    assert.equal(isWorkEntryActive(entryOf({ kind: "work_session", active: true })), true);
+    assert.equal(isWorkEntryActive(entryOf({ active: true })), true);
+  });
+
+  test("recognises only an undecided pending Approval as waiting", () => {
+    const pending = entryOf({ kind: "approval", run: null, detail: "pending", endedAt: null });
+    assert.equal(isWorkEntryWaiting(pending), true);
+    assert.equal(isWorkEntryWaiting(entryOf({ ...pending, detail: "approved" })), false);
+    assert.equal(
+      isWorkEntryWaiting(entryOf({ ...pending, endedAt: "2026-09-03T09:00:00.000Z" })),
+      false,
+    );
+    assert.equal(isWorkEntryWaiting(entryOf({ ...pending, kind: "chat" })), false);
+  });
+
+  test("filters to one employee and preserves the server's newest-first row", () => {
+    const reyNew = entryOf({ id: "new", title: "Newest" });
+    const reyOld = entryOf({ id: "old", title: "Older" });
+    const kaz = entryOf({
+      id: "other",
+      employee: { ...reyNew.employee, id: "kaz", name: "Kaz", slug: "kaz" },
+    });
+    const summary = summarizeEmployeeWork(reyNew.employee.id, [reyNew, kaz, reyOld]);
+    assert.equal(summary.entryCount, 2);
+    assert.equal(summary.latestEntry?.id, "new");
+    assert.equal(summary.state, "recent");
+  });
+
+  test("working takes precedence over waiting and merely recent work", () => {
+    const latest = entryOf({ id: "latest" });
+    const waiting = entryOf({
+      id: "waiting",
+      kind: "approval",
+      run: null,
+      detail: "pending",
+      endedAt: null,
+    });
+    const current = entryOf({ id: "current", active: true });
+    const summary = summarizeEmployeeWork(latest.employee.id, [latest, waiting, current]);
+    assert.equal(summary.state, "working");
+    assert.equal(summary.currentEntry?.id, "current");
+    assert.equal(summary.waitingEntry?.id, "waiting");
+    assert.equal(summary.latestEntry?.id, "latest");
+  });
+
+  test("waiting takes precedence over recent work when nothing is running", () => {
+    const latest = entryOf({ id: "latest" });
+    const waiting = entryOf({
+      id: "waiting",
+      kind: "approval",
+      run: null,
+      detail: "pending",
+      endedAt: null,
+    });
+    assert.equal(summarizeEmployeeWork(latest.employee.id, [latest, waiting]).state, "waiting");
+  });
+
+  test("an employee with no visible rows is quiet only when no server rollup says otherwise", () => {
+    const quiet = summarizeEmployeeWork("quiet", []);
+    assert.equal(quiet.state, "quiet");
+    assert.equal(quiet.entryCount, 0);
+
+    const digest = {
+      id: "run:hidden",
+      kind: "run" as const,
+      at: "2026-09-03T08:00:00.000Z",
+      title: "Ran the close",
+      detail: "",
+      active: true,
+    };
+    const rollup: WorkEmployeeSummary = {
+      employeeId: "quiet",
+      entryCount: 41,
+      latest: digest,
+      current: digest,
+      waiting: null,
+    };
+    const rolledUp = summarizeEmployeeWork("quiet", [], rollup);
+    assert.equal(rolledUp.state, "working");
+    assert.equal(rolledUp.entryCount, 41);
+    assert.equal(rolledUp.currentEntry?.id, "run:hidden");
+  });
+
+  test("resolves rollup digests back to the full visible row when possible", () => {
+    const row = entryOf({ id: "run:visible", active: true });
+    const rollup: WorkEmployeeSummary = {
+      employeeId: row.employee.id,
+      entryCount: 1,
+      latest: row,
+      current: row,
+      waiting: null,
+    };
+    const summary = summarizeEmployeeWork(row.employee.id, [row], rollup);
+    assert.equal(summary.currentEntry, row);
+    assert.equal(summary.latestEntry, row);
+  });
+
+  test("does not replace a live Chat digest with a terminal row from the same conversation", () => {
+    const visible = entryOf({
+      id: "chat:conversation-1",
+      kind: "chat",
+      run: null,
+      active: false,
+      title: "Replied in Launch plan",
+    });
+    const live = {
+      id: visible.id,
+      kind: "chat" as const,
+      at: "2026-09-03T11:00:00.000Z",
+      title: "Working on Launch plan",
+      detail: "Comparing risks · 60%",
+      active: true,
+    };
+    const rollup: WorkEmployeeSummary = {
+      employeeId: visible.employee.id,
+      entryCount: 1,
+      latest: visible,
+      current: live,
+      waiting: null,
+    };
+    const summary = summarizeEmployeeWork(visible.employee.id, [visible], rollup);
+    assert.equal(summary.state, "working");
+    assert.equal(summary.currentEntry, live);
+    assert.equal(summary.currentEntry.title, "Working on Launch plan");
+  });
+
+  test("ages terminal work out of the rolling window without hiding old current work", () => {
+    const nowIso = "2026-09-03T12:00:00.000Z";
+    const old = entryOf({ at: "2026-09-02T11:59:59.000Z" });
+    const recent = summarizeEmployeeWork(old.employee.id, [old], undefined, { nowIso });
+    assert.equal(recent.state, "quiet");
+    assert.equal(recent.latestEntry, null);
+
+    const current = summarizeEmployeeWork(old.employee.id, [{ ...old, active: true }], undefined, {
+      nowIso,
+    });
+    assert.equal(current.state, "working");
+  });
+
+  test("focus follows current work, then a waiting gate, then the latest row", () => {
+    const latest = entryOf({ id: "latest" });
+    const waiting = entryOf({ id: "waiting", kind: "approval", run: null });
+    const current = entryOf({ id: "current", active: true });
+    const base = summarizeEmployeeWork(latest.employee.id, [latest]);
+    assert.equal(employeeWorkFocus(base)?.id, "latest");
+    assert.equal(employeeWorkFocus({ ...base, waitingEntry: waiting })?.id, "waiting");
+    assert.equal(
+      employeeWorkFocus({ ...base, waitingEntry: waiting, currentEntry: current })?.id,
+      "current",
+    );
+    assert.equal(employeeWorkFocus({ ...base, latestEntry: null }), null);
+  });
+});
+
+describe("relative work copy", () => {
+  const now = "2026-09-03T12:00:00.000Z";
+  const before = (ms: number) => new Date(new Date(now).getTime() - ms).toISOString();
+
+  test("uses human time at the minute and hour boundaries", () => {
+    assert.equal(workRelativeTime(before(0), now), "Just now");
+    assert.equal(workRelativeTime(before(59_999), now), "Just now");
+    assert.equal(workRelativeTime(before(60_000), now), "1m ago");
+    assert.equal(workRelativeTime(before(59 * 60_000), now), "59m ago");
+    assert.equal(workRelativeTime(before(60 * 60_000), now), "1h ago");
+    assert.equal(workRelativeTime(before(23 * 3_600_000), now), "23h ago");
+  });
+
+  test("uses days before falling back to a calendar date", () => {
+    assert.equal(workRelativeTime(before(24 * 3_600_000), now), "1d ago");
+    assert.equal(workRelativeTime(before(6 * DAY), now), "6d ago");
+    const sevenDaysAgo = before(7 * DAY);
+    assert.equal(workRelativeTime(sevenDaysAgo, now), new Date(sevenDaysAgo).toLocaleDateString());
+  });
+
+  test("handles future and malformed timestamps without awkward negative copy", () => {
+    assert.equal(workRelativeTime("2026-09-03T12:05:00.000Z", now), "Just now");
+    assert.equal(workRelativeTime("not-a-date", now), "");
+    assert.equal(workRelativeTime(before(1000), "not-a-date"), "");
+  });
+
+  test("labels all four bubble states", () => {
+    const row = entryOf({ at: before(2 * 3_600_000) });
+    const recent = summarizeEmployeeWork(row.employee.id, [row]);
+    assert.equal(employeeWorkStatusLabel(recent, now), "Active 2h ago");
+    assert.equal(
+      employeeWorkStatusLabel({ ...recent, state: "working", currentEntry: row }, now),
+      "Working now",
+    );
+    assert.equal(
+      employeeWorkStatusLabel({ ...recent, state: "waiting", waitingEntry: row }, now),
+      "Waiting for input",
+    );
+    assert.equal(
+      employeeWorkStatusLabel({ ...recent, state: "quiet", latestEntry: null }, now),
+      "Quiet today",
+    );
+  });
+});
+
+describe("rolling work window", () => {
+  const now = "2026-09-03T12:00:00.000Z";
+
+  test("keeps the boundary and ages out the moment before it", () => {
+    assert.equal(isWorkInsideWindow("2026-09-02T12:00:00.000Z", now), true);
+    assert.equal(isWorkInsideWindow("2026-09-02T11:59:59.999Z", now), false);
+  });
+
+  test("fails open for malformed or future timestamps", () => {
+    assert.equal(isWorkInsideWindow("not-a-date", now), true);
+    assert.equal(isWorkInsideWindow("2026-09-03T12:01:00.000Z", now), true);
+  });
+
+  test("drops an unknowable hidden total after the server snapshot ages", () => {
+    assert.equal(workDisplayEntryCount(100, 40, 40, now, now), 100);
+    assert.equal(workDisplayEntryCount(100, 40, 30, now, "2026-09-03T12:01:00.000Z"), 30);
+    assert.equal(workDisplayEntryCount(100, 40, 30, "not-a-date", now), 30);
+  });
+});
+
+describe("human-readable effects", () => {
+  test("turns known ledger verbs into plain language", () => {
+    assert.equal(humanizeWorkAction("invoice.create", "invoice"), "Created invoice");
+    assert.equal(humanizeWorkAction("mail/send", "mail_message"), "Sent mail message");
+    assert.equal(humanizeWorkAction("todo:comment", "todo"), "Commented on todo");
+  });
+
+  test("humanises camelCase, snake_case, and kebab-case targets", () => {
+    assert.equal(
+      humanizeWorkAction("customer.update", "customerProfile"),
+      "Updated customer profile",
+    );
+    assert.equal(
+      humanizeWorkAction("customer.update", "customer_profile"),
+      "Updated customer profile",
+    );
+    assert.equal(
+      humanizeWorkAction("customer.update", "customer-profile"),
+      "Updated customer profile",
+    );
+  });
+
+  test("keeps unknown operations readable and derives a missing target", () => {
+    assert.equal(humanizeWorkAction("billing.reconcile", "bank_account"), "Reconcile bank account");
+    assert.equal(humanizeWorkAction("note.publish", ""), "Published note");
+    assert.equal(humanizeWorkAction("archive", ""), "Archived record");
+  });
+
+  test("turns Approval status tokens into human copy without rewriting other detail", () => {
+    assert.equal(
+      workDetailLabel(entryOf({ kind: "approval", detail: "pending" })),
+      "Waiting for input",
+    );
+    assert.equal(
+      workDetailLabel(entryOf({ kind: "approval", detail: "execution_failed" })),
+      "Approved action failed",
+    );
+    assert.equal(
+      workDetailLabel(entryOf({ kind: "run", detail: "manual trigger" })),
+      "manual trigger",
+    );
+  });
+
+  test("turns a standalone Effect into a readable action with its subject underneath", () => {
+    const effect = entryOf({
+      kind: "effect",
+      run: null,
+      title: "INV-4001",
+      detail: "invoice.create",
+    });
+    assert.equal(workDisplayTitle(effect), "Created invoice");
+    assert.equal(workDisplayDetail(effect), "INV-4001");
+    assert.equal(workDisplayTitle(entryOf()), "Ran Nightly digest");
+  });
+});
+
 describe("destinations", () => {
   test("a run deep-links to its own row in the routine's history", () => {
     const href = workEntryHref(entryOf(), "acme");
@@ -222,10 +516,7 @@ describe("kind metadata", () => {
 
 describe("summaries", () => {
   test("names the employee when the whole roster is on screen", () => {
-    assert.equal(
-      workEntrySummary(entryOf(), { withEmployee: true }),
-      "Rey — Ran Nightly digest",
-    );
+    assert.equal(workEntrySummary(entryOf(), { withEmployee: true }), "Rey — Ran Nightly digest");
   });
 
   test("drops the name once one employee is the subject", () => {
@@ -258,7 +549,33 @@ describe("overflow and empty copy", () => {
           })),
         }),
       ),
-      "3 more",
+      "3 more changes",
+    );
+  });
+
+  test("counts from what the UI displayed when it deliberately shows fewer effects", () => {
+    assert.equal(
+      workEffectOverflowLabel(
+        entryOf({
+          effectCount: 8,
+          effects: Array.from({ length: 8 }, () => ({
+            action: "invoice.create",
+            targetType: "invoice",
+            targetId: null,
+            targetLabel: "INV-1",
+            at: new Date().toISOString(),
+          })),
+        }),
+        3,
+      ),
+      "5 more changes",
+    );
+  });
+
+  test("uses singular copy for one withheld effect", () => {
+    assert.equal(
+      workEffectOverflowLabel(entryOf({ effectCount: 1, effects: [] })),
+      "1 more change",
     );
   });
 

@@ -109,8 +109,22 @@ type TimelineBody = {
   since: string;
   until: string;
   employeeId: string | null;
-  entries: { id: string; kind: string }[];
+  entries: {
+    id: string;
+    kind: string;
+    at: string;
+    title: string;
+    detail: string;
+    active: boolean;
+  }[];
   entryCount: number;
+  employeeSummaries: {
+    employeeId: string;
+    entryCount: number;
+    latest: { id: string; active: boolean } | null;
+    current: { id: string; active: boolean } | null;
+    waiting: { id: string; active: boolean } | null;
+  }[];
 };
 
 async function seedRun(): Promise<void> {
@@ -167,6 +181,23 @@ describe("work timeline responses", () => {
     assert.equal(body.employeeId, null);
     assert.equal(body.entryCount, 1);
     assert.equal(body.entries[0].kind, "run");
+    assert.equal(body.entries[0].active, false);
+    assert.deepEqual(body.employeeSummaries, [
+      {
+        employeeId: employee.id,
+        entryCount: 1,
+        latest: {
+          id: body.entries[0].id,
+          kind: "run",
+          at: body.entries[0].at,
+          title: "Ran Nightly digest",
+          detail: "",
+          active: false,
+        },
+        current: null,
+        waiting: null,
+      },
+    ]);
     assert.equal(
       new Date(body.until).getTime() - new Date(body.since).getTime(),
       24 * 60 * 60 * 1000,
@@ -193,6 +224,10 @@ describe("work timeline responses", () => {
     assert.equal(status, 200);
     assert.equal(body.employeeId, employee.id);
     assert.equal(body.entryCount, 1);
+    assert.deepEqual(
+      body.employeeSummaries.map((row) => row.employeeId),
+      [employee.id],
+    );
   });
 });
 

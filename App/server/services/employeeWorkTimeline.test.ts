@@ -83,9 +83,7 @@ beforeEach(async () => {
 });
 
 /** The timeline as the ordinary Member sees it, unless told otherwise. */
-async function timeline(
-  overrides: Partial<Parameters<typeof getEmployeeWorkTimeline>[0]> = {},
-) {
+async function timeline(overrides: Partial<Parameters<typeof getEmployeeWorkTimeline>[0]> = {}) {
   return getEmployeeWorkTimeline({
     companyId: company.id,
     userId: member.id,
@@ -195,12 +193,67 @@ describe("work timeline window", () => {
     assert.equal(span, 48 * HOUR);
   });
 
-  test("windows a run on when it started, not on whether it is still going", async () => {
-    // A run that began before the window and has not finished is not "today's
-    // work"; it is yesterday's, still in flight. The Journal is where a reader
-    // goes for the whole life of a long run.
-    await run({ startedAt: ago(30 * HOUR), status: "running", finishedAt: null, exitCode: null });
-    assert.equal((await timeline()).entryCount, 0);
+  test("keeps an old running Run out of recent history but marks the employee as working now", async () => {
+    const oldRun = await run({
+      startedAt: ago(30 * HOUR),
+      status: "running",
+      finishedAt: null,
+      exitCode: null,
+    });
+    const result = await timeline();
+    const summary = result.employeeSummaries.find((row) => row.employeeId === employee.id)!;
+    assert.equal(result.entryCount, 0);
+    assert.equal(summary.current?.id, `run:${oldRun.id}`);
+    assert.equal(summary.current?.active, true);
+  });
+
+  test("marks an old durable Chat turn as current without moving it into recent history", async () => {
+    const conv = await conversation();
+    await assistantMessage(conv.id, {
+      status: "working",
+      createdAt: ago(30 * HOUR),
+      updatedAt: ago(30 * HOUR),
+      progressLabel: "Still reconciling",
+      progressPercent: 80,
+    });
+    const result = await timeline();
+    const summary = result.employeeSummaries.find((row) => row.employeeId === employee.id)!;
+    assert.equal(result.entryCount, 0);
+    assert.equal(summary.current?.id, `chat:${conv.id}`);
+    assert.equal(summary.current?.detail, "Still reconciling · 80%");
+  });
+
+  test("marks old Repository work as current without moving it into recent history", async () => {
+    const session = await insert(RepositoryWorkSession, {
+      companyId: company.id,
+      repositoryId: testId("repo"),
+      employeeId: employee.id,
+      title: "Long migration",
+      instruction: "move the records",
+      status: "running",
+    });
+    const turn = await insert(RepositoryWorkSessionTurn, {
+      companyId: company.id,
+      sessionId: session.id,
+      ordinal: 1,
+      instruction: "move the records",
+      status: "running",
+      finishedAt: null,
+      createdAt: ago(30 * HOUR),
+    });
+    const result = await timeline();
+    const summary = result.employeeSummaries.find((row) => row.employeeId === employee.id)!;
+    assert.equal(result.entryCount, 0);
+    assert.equal(summary.current?.id, `work_session:${turn.id}`);
+  });
+
+  test("keeps an old unresolved Approval visible as waiting without changing recent history", async () => {
+    const pending = await approval({ requestedAt: ago(30 * HOUR) });
+    const result = await timeline();
+    const summary = result.employeeSummaries.find((row) => row.employeeId === employee.id)!;
+    assert.equal(result.entryCount, 0);
+    assert.equal(summary.waiting?.id, `approval:${pending.id}`);
+    assert.equal(summary.waiting?.title, "Approval required: Submit the form");
   });
 });
 
@@ -287,6 +340,30 @@ describe("work timeline sources", () => {
     assert.equal(result.entries[0].run?.routineId, routine.id);
   });
 
+  test("marks only a running Run as live, even when terminal rows have no finish timestamp", async () => {
+    const statuses = [
+      "running",
+      "completed",
+      "failed",
+      "skipped",
+      "timeout",
+      "interrupted",
+    ] as const;
+    const expected = new Map<string, boolean>();
+    for (const [index, status] of statuses.entries()) {
+      const row = await run({
+        status,
+        startedAt: ago((index + 1) * 10 * 60 * 1000),
+        finishedAt: null,
+        exitCode: status === "completed" ? 0 : null,
+      });
+      expected.set(`run:${row.id}`, status === "running");
+    }
+    const result = await timeline();
+    for (const entry of result.entries)
+      assert.equal(entry.active, expected.get(entry.id), entry.id);
+  });
+
   test("collapses many replies in one conversation into a single entry", async () => {
     const conv = await conversation();
     await assistantMessage(conv.id, { createdAt: ago(3 * HOUR) });
@@ -297,6 +374,63 @@ describe("work timeline sources", () => {
     assert.deepEqual(kinds(result.entries), ["chat"]);
     assert.equal(result.entries[0].detail, "3 replies");
     assert.equal(result.entries[0].title, "Replied in Invoice chase");
+  });
+
+  test("marks a durable chat turn as current work and carries its safe progress", async () => {
+    const conv = await conversation();
+    await assistantMessage(conv.id, {
+      status: "working",
+      progressPercent: 40,
+      progressLabel: "Researching the customer",
+    });
+
+    const result = await timeline();
+    const entry = result.entries[0];
+    assert.equal(entry.kind, "chat");
+    assert.equal(entry.active, true);
+    assert.equal(entry.endedAt, null);
+    assert.equal(entry.title, "Working on Invoice chase");
+    assert.equal(entry.detail, "Researching the customer · 40%");
+    assert.equal(
+      result.employeeSummaries.find((row) => row.employeeId === employee.id)?.current?.id,
+      entry.id,
+    );
+  });
+
+  test("does not disclose another Member's live conversation or progress", async () => {
+    const conv = await conversation({
+      ownerUserId: owner.id,
+      title: "Confidential acquisition",
+    });
+    await assistantMessage(conv.id, {
+      status: "working",
+      progressPercent: 70,
+      progressLabel: "Reading the confidential offer",
+    });
+
+    const asMember = await timeline();
+    assert.equal(asMember.entries[0].active, true);
+    assert.equal(asMember.entries[0].title, "Working on a private conversation");
+    assert.equal(asMember.entries[0].detail, "Working on a reply");
+    assert.ok(!JSON.stringify(asMember.employeeSummaries).includes("confidential"));
+
+    const asOwner = await timeline({ userId: owner.id, role: "owner" });
+    assert.equal(asOwner.entries[0].title, "Working on Confidential acquisition");
+    assert.equal(asOwner.entries[0].detail, "Reading the confidential offer · 70%");
+  });
+
+  test("marks a finished conversation as recent rather than live", async () => {
+    const conv = await conversation();
+    const finishedAt = ago(5 * 60 * 1000);
+    await assistantMessage(conv.id, {
+      status: "ok",
+      createdAt: ago(3 * HOUR),
+      updatedAt: finishedAt,
+    });
+    const entry = (await timeline()).entries[0];
+    assert.equal(entry.active, false);
+    assert.ok(entry.endedAt);
+    assert.equal(entry.at, finishedAt.toISOString());
   });
 
   test("says 'reply' in the singular for one turn", async () => {
@@ -325,11 +459,21 @@ describe("work timeline sources", () => {
     assert.equal((await timeline()).entries[0].detail, "1 reply · telegram");
   });
 
-  test("an approval the employee asked for is work", async () => {
+  test("an action that requires Approval appears as work waiting on the system gate", async () => {
     await approval();
     const result = await timeline();
     assert.deepEqual(kinds(result.entries), ["approval"]);
+    assert.equal(result.entries[0].title, "Approval required: Submit the form");
     assert.equal(result.entries[0].detail, "pending");
+  });
+
+  test("a decided Approval remains recent work but is no longer waiting", async () => {
+    await approval({ status: "approved", decidedAt: ago(30 * 60 * 1000) });
+    const result = await timeline();
+    const summary = result.employeeSummaries.find((row) => row.employeeId === employee.id)!;
+    assert.equal(summary.entryCount, 1);
+    assert.equal(summary.waiting, null);
+    assert.equal(summary.current, null);
   });
 
   test("a fired wakeup appears; a pending or cancelled one does not", async () => {
@@ -429,6 +573,11 @@ describe("work timeline sources", () => {
     const result = await timeline();
     assert.deepEqual(kinds(result.entries), ["work_session"]);
     assert.equal(result.entries[0].detail, "in progress");
+    assert.equal(result.entries[0].active, true);
+    assert.equal(
+      result.employeeSummaries.find((row) => row.employeeId === employee.id)?.current?.id,
+      result.entries[0].id,
+    );
   });
 });
 
@@ -508,7 +657,8 @@ describe("work timeline ordering and limits", () => {
   test("orders mixed kinds strictly newest first", async () => {
     await run({ startedAt: ago(3 * HOUR) });
     const conv = await conversation();
-    await assistantMessage(conv.id, { createdAt: ago(2 * HOUR) });
+    const chatAt = ago(2 * HOUR);
+    await assistantMessage(conv.id, { createdAt: chatAt, updatedAt: chatAt });
     await approval({ requestedAt: ago(HOUR) });
 
     const result = await timeline();
@@ -523,6 +673,60 @@ describe("work timeline ordering and limits", () => {
     assert.equal(result.entryCount, 5);
     const [newest, next] = result.entries;
     assert.ok(newest.at > next.at, `${newest.at} should be newer than ${next.at}`);
+  });
+
+  test("rolls up every employee before the visible timeline is sliced", async () => {
+    const quiet = await insert(AIEmployee, {
+      companyId: company.id,
+      name: "Mina",
+      slug: "mina",
+      role: "Research",
+      soulBody: "",
+    });
+    const otherRoutine = await insert(Routine, {
+      employeeId: other.id,
+      name: "Ledger close",
+      slug: "ledger-close",
+      cronExpr: "0 4 * * *",
+      body: "",
+    });
+    const activeRun = await insert(Run, {
+      routineId: otherRoutine.id,
+      status: "running",
+      logContent: "",
+      triggerKind: "schedule",
+      startedAt: ago(3 * HOUR),
+      exitCode: null,
+      finishedAt: null,
+    });
+    const pending = await approval({ requestedAt: ago(2 * HOUR) });
+    const latest = await run({ startedAt: ago(HOUR) });
+
+    const result = await timeline({ limit: 1 });
+    assert.equal(result.entries.length, 1);
+    assert.equal(result.entries[0].id, `run:${latest.id}`);
+    assert.equal(result.employeeSummaries.length, 3);
+
+    const reyActivity = result.employeeSummaries.find((row) => row.employeeId === employee.id)!;
+    assert.equal(reyActivity.entryCount, 2);
+    assert.equal(reyActivity.latest?.id, `run:${latest.id}`);
+    assert.equal(reyActivity.waiting?.id, `approval:${pending.id}`);
+    assert.equal(reyActivity.current, null);
+
+    const kazActivity = result.employeeSummaries.find((row) => row.employeeId === other.id)!;
+    assert.equal(kazActivity.current?.id, `run:${activeRun.id}`);
+    assert.equal(kazActivity.current?.active, true);
+
+    assert.deepEqual(
+      result.employeeSummaries.find((row) => row.employeeId === quiet.id),
+      {
+        employeeId: quiet.id,
+        entryCount: 0,
+        latest: null,
+        current: null,
+        waiting: null,
+      },
+    );
   });
 
   test("narrows to one employee across every source", async () => {
@@ -550,6 +754,10 @@ describe("work timeline ordering and limits", () => {
     const mine = await timeline({ employeeId: employee.id });
     assert.deepEqual(kinds(mine.entries), ["run"]);
     assert.equal(mine.employeeId, employee.id);
+    assert.deepEqual(
+      mine.employeeSummaries.map((row) => row.employeeId),
+      [employee.id],
+    );
   });
 
   test("an employee id from another company narrows to nothing rather than 404ing", async () => {
@@ -646,7 +854,9 @@ describe("work timeline visibility", () => {
   test("hides vault ledger rows from a Member and shows them to an admin", async () => {
     await auditRow({ action: "vault.item.use", targetType: "vault_item", targetLabel: "AWS root" });
 
-    assert.equal((await timeline()).entryCount, 0);
+    const asMember = await timeline();
+    assert.equal(asMember.entryCount, 0);
+    assert.ok(asMember.employeeSummaries.every((row) => row.entryCount === 0));
     assert.equal((await timeline({ userId: owner.id, role: "owner" })).entryCount, 1);
   });
 

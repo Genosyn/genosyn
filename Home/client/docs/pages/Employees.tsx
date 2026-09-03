@@ -193,8 +193,7 @@ export function Employees() {
       <H3 id="org-chart">Org chart</H3>
       <P>
         Set <Code>reportsTo</Code> on an employee to give them a manager. Genosyn renders this as an
-        org chart and surfaces it to the runner — useful when you want a <Strong>Handoff</Strong>
-        {" "}
+        org chart and surfaces it to the runner — useful when you want a <Strong>Handoff</Strong>{" "}
         from one employee to another to follow the reporting line.
       </P>
 
@@ -263,8 +262,7 @@ export function Employees() {
         </LI>
         <LI>
           <Strong>Settings → Skills / Routines.</Strong> These are company-wide sections, not
-          per-employee ones: they live at AI → <DocLink to="/docs/skills">Skills</DocLink> and AI →
-          {" "}
+          per-employee ones: they live at AI → <DocLink to="/docs/skills">Skills</DocLink> and AI →{" "}
           <DocLink to="/docs/routines">Routines</DocLink>. The two entries under Settings open those
           lists filtered to this employee, and are marked with a corner arrow to say so.
         </LI>
@@ -311,11 +309,14 @@ export function Employees() {
 
       <H2 id="work-timeline">The work timeline</H2>
       <P>
-        Your <DocLink to="/docs">Home page</DocLink> ends with the{" "}
-        <Strong>work timeline</Strong> — everything your AI Employees actually did in the last 24
-        hours, newest first, grouped under <Strong>Today</Strong> and <Strong>Yesterday</Strong>.
-        Pick a name from the dropdown in its header to narrow it to one employee; the heading
-        follows your choice, so you always know whose day you are looking at.
+        Your <DocLink to="/docs">Home page</DocLink> ends with the <Strong>work timeline</Strong> —
+        everything your AI Employees actually did in the last 24 hours, newest first, grouped under{" "}
+        <Strong>Today</Strong> and <Strong>Yesterday</Strong>. Every employee appears as a bubble
+        across the top. The status under their name distinguishes
+        <Strong> Working now</Strong>, <Strong>Waiting for input</Strong>, recent work, and a quiet
+        day. Choose a bubble to see that employee&apos;s current or latest work, then use
+        <Strong> Check in</Strong> to open their Chat or <Strong>Employee details</Strong> to
+        inspect their Settings. Choose <Strong>Everyone</Strong> to return to the company-wide view.
       </P>
       <P>Seven kinds of work land on it:</P>
       <UL>
@@ -326,16 +327,18 @@ export function Employees() {
         </LI>
         <LI>
           <Strong>Conversations.</Strong> One line per thread, saying how many times the employee
-          replied. A thread you did not start is reported without its subject — transcripts stay
-          private to the Member who asked for them.
+          replied. A reply still in flight is shown as current work, including its latest progress
+          label and percentage for the Member who started it. A thread you did not start is reported
+          without its subject or progress — transcripts stay private to the Member who asked for
+          them.
         </LI>
         <LI>
           <Strong>Repository work</Strong>, with the files, insertions and deletions each turn
           produced — see <DocLink to="/docs/repositories">Repositories</DocLink>.
         </LI>
         <LI>
-          <Strong>Approvals they asked for</Strong>, so a blocked employee is visible as work in
-          progress rather than only as a queue entry.
+          <Strong>Approvals required by actions they attempted</Strong>, so an employee waiting at a
+          system gate is visible rather than only as a queue entry.
         </LI>
         <LI>
           <Strong>Wakeups</Strong> that fired and <Strong>Lessons</Strong> taken from a graded run —
@@ -349,20 +352,26 @@ export function Employees() {
         </LI>
       </UL>
       <P>
-        The panel hides itself on a day when nothing happened, the same way every other Home panel
-        does. Choose an employee who has been idle, though, and it stays put and says so — a panel
-        that vanished after you picked a name would read as a fault rather than as quiet.
+        The roster stays visible even when the whole team is quiet, because it is also the quickest
+        way to reach an employee and check in. The recent-work side says plainly when the selected
+        employee has no recorded work in the window. A busy employee cannot crowd another
+        employee&apos;s status out of the list: the bubbles use a per-employee summary calculated
+        before the 40-row display limit is applied. Work still running — and an unresolved Approval
+        still waiting — remains in that summary even when it began before the 24-hour history
+        window; the recent-work list itself stays bounded to the window.
       </P>
-      <Callout kind="info" title="The timeline is what the server recorded. The Journal is what the employee wrote.">
+      <Callout
+        kind="info"
+        title="The timeline is what the server recorded. The Journal is what the employee wrote."
+      >
         Journal entries are the employee&apos;s own account of its work, written through the
         built-in MCP server. The work timeline is assembled at read time from the rows the server
         itself wrote at each write seam — run records, the effect ledger behind{" "}
         <DocLink to="/docs/verification">Checks and verdicts</DocLink>, approval rows — so an
         employee cannot narrate its way onto it. When the two disagree, the timeline is the one to
-        trust. It is also not the{" "}
-        <DocLink to="/docs/plans-billing">audit log</DocLink>: that is an admin tool covering every
-        actor and all of history and is a paid feature, while seeing what your own workforce did
-        today is available on every plan, to every Member.
+        trust. It is also not the <DocLink to="/docs/plans-billing">audit log</DocLink>: that is an
+        admin tool covering every actor and all of history and is a paid feature, while seeing what
+        your own workforce did today is available on every plan, to every Member.
       </Callout>
     </>
   );
