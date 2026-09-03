@@ -268,16 +268,20 @@ meetingsRouter.patch(
   validateBody(patchCalendarBody),
   h(async (req, res) => {
     const body = req.body as z.infer<typeof patchCalendarBody>;
-    const account = await updateCalendarAccount(
-      cid(req),
-      (req.params as Record<string, string>).id,
-      {
+    let account;
+    try {
+      account = await updateCalendarAccount(cid(req), (req.params as Record<string, string>).id, {
         status: body.status,
         autoRecord: body.autoRecord as "off" | "external" | "all" | undefined,
         notetakerEmployeeId: body.notetakerEmployeeId,
         windowDays: body.windowDays,
-      },
-    );
+      });
+    } catch (err) {
+      res
+        .status(400)
+        .json({ error: err instanceof Error ? err.message : "Could not update calendar." });
+      return;
+    }
     if (!account) {
       res.status(404).json({ error: "Calendar not found." });
       return;

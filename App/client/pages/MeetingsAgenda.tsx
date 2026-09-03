@@ -7,9 +7,11 @@ import { useDialog } from "../components/ui/Dialog";
 import { FormError } from "../components/ui/FormError";
 import { Input } from "../components/ui/Input";
 import { Modal } from "../components/ui/Modal";
+import { Select } from "../components/ui/Select";
 import { Spinner } from "../components/ui/Spinner";
 import { useLiveRefetch } from "../components/CompanySocket";
 import { Panel, ProviderChip } from "../components/meetings/MeetingChips";
+import { api, type Employee } from "../lib/api";
 import { errorMessage } from "../lib/errors";
 import {
   formatClock,
@@ -295,6 +297,12 @@ export default function MeetingsAgenda() {
  * The path that makes this feature work on day one: a call already happened,
  * somebody has the recording or the transcript, and they want it written up
  * and on the customer's timeline.
+ *
+ * It is also the only way to point the notetaker at a call with no calendar
+ * behind it — which is why the Meet link is here. Without it this modal could
+ * only ever produce a meeting with nothing to join, so the meeting page hid
+ * its "Start notetaker" button and the ad-hoc half of the feature could not
+ * record anything at all.
  */
 function NewMeetingModal({
   open,
@@ -309,6 +317,9 @@ function NewMeetingModal({
 }) {
   const [title, setTitle] = React.useState("");
   const [attendees, setAttendees] = React.useState("");
+  const [conferenceUrl, setConferenceUrl] = React.useState("");
+  const [notetakerEmployeeId, setNotetakerEmployeeId] = React.useState("");
+  const [employees, setEmployees] = React.useState<Employee[]>([]);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -316,9 +327,19 @@ function NewMeetingModal({
     if (open) {
       setTitle("");
       setAttendees("");
+      setConferenceUrl("");
+      setNotetakerEmployeeId("");
       setError(null);
     }
   }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    api
+      .get<Employee[]>(`/api/companies/${companyId}/employees`)
+      .then(setEmployees)
+      .catch(() => setEmployees([]));
+  }, [open, companyId]);
 
   const submit = async () => {
     if (!title.trim()) return;
@@ -327,6 +348,8 @@ function NewMeetingModal({
     try {
       await meetingsApi.createMeeting(companyId, {
         title: title.trim(),
+        conferenceUrl: conferenceUrl.trim(),
+        notetakerEmployeeId: notetakerEmployeeId || null,
         attendeeEmails: parseEmailList(attendees),
       });
       onCreated();
@@ -354,10 +377,35 @@ function NewMeetingModal({
           placeholder="sam@northwind.test, priya@acme.test"
           onChange={(e) => setAttendees(e.target.value)}
         />
+        <Input
+          label="Google Meet link (optional)"
+          value={conferenceUrl}
+          placeholder="https://meet.google.com/abc-defg-hij"
+          onChange={(e) => setConferenceUrl(e.target.value)}
+        />
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">
+            Notetaker
+          </span>
+          <Select
+            value={notetakerEmployeeId}
+            onChange={(e) => setNotetakerEmployeeId(e.target.value)}
+          >
+            <option value="">Nobody</option>
+            {employees.map((employee) => (
+              <option key={employee.id} value={employee.id}>
+                {employee.name}
+              </option>
+            ))}
+          </Select>
+        </label>
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Create the meeting, then upload its recording or paste a transcript. Attendees who are
-          already Contacts get the call on their timeline, and the assigned AI Employee writes it up.
-          You can add attendees later too.
+          Paste a Meet link and the meeting page offers <strong>Start notetaker</strong>, which
+          sends the disclosed guest to join it. Leave it empty and you can still upload the
+          recording or paste a transcript afterwards. The notetaker is also the employee whose AI
+          Model transcribes the audio and writes the meeting up, so a recording with nobody
+          assigned stays a recording. Attendees who are already Contacts get the call on their
+          timeline. You can add attendees later too.
         </p>
         <FormError message={error} />
         <div className="flex justify-end gap-2">

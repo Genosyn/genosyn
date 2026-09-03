@@ -74,16 +74,17 @@ export function Meetings() {
       <H2 id="recording">Capturing a meeting</H2>
       <P>
         Open any meeting from <Strong>Meetings → Recorded</Strong>, or press{" "}
-        <Strong>New meeting</Strong> on the agenda for a call that was never on a calendar. Then
-        either:
+        <Strong>New meeting</Strong> on the agenda for a call that was never on a calendar — that
+        form takes a Google Meet link and a notetaker, so an ad-hoc call can be joined and recorded
+        exactly like a calendar one. Then either:
       </P>
       <UL>
         <LI>
           <Strong>Start notetaker</Strong> — available on a scheduled Google Meet, or after a join
-          attempt failed before it saved a recording. Genosyn joins as a disclosed guest and waits
-          for somebody in the call to admit it. The meeting page shows the joining and recording
-          state while it works. Press <Strong>Stop notetaker</Strong> to make it leave; audio
-          already captured is saved and processed.
+          attempt failed or was skipped before it saved a recording. Genosyn joins as a disclosed
+          guest and waits for somebody in the call to admit it. The meeting page shows the joining
+          and recording state while it works. Press <Strong>Stop notetaker</Strong> to make it
+          leave; audio already captured is saved and processed.
         </LI>
         <LI>
           <Strong>Upload a recording</Strong> — mp3, m4a, wav, webm, ogg, flac, mp4, or mov, up to
@@ -141,18 +142,29 @@ export function Meetings() {
         </LI>
       </UL>
       <P>
-        A calendar also has to name a <Strong>notetaker</Strong> — the AI Employee that writes the
-        meeting up — and that employee needs a <Strong>Record</Strong> Grant for the calendar under
-        {" "}
-        <Strong>Meetings → AI access</Strong>. Without both, nothing is recorded automatically,
-        because a recording nobody reads is not worth taking.
+        A calendar also has to name a <Strong>notetaker</Strong> — the AI Employee that records the
+        call and writes it up. Naming one gives that employee a <Strong>Record</Strong> Grant for
+        this calendar, which is the authority the notetaker actually joins under; it appears under{" "}
+        <Strong>Meetings → AI access</Strong>, where you can review or revoke it like any other
+        Grant. Without a notetaker nothing is recorded automatically, because a recording nobody
+        reads is not worth taking.
       </P>
       <P>
         Shortly before a qualifying meeting starts, Genosyn opens its Google Meet link under the
-        selected employee&apos;s name followed by <Code>(AI notetaker — recording)</Code>. It waits
-        for the host to admit it, captures the call audio inside the App container, stores that
-        recording with the meeting, and transcribes it after the call ends. The notetaker does not
-        turn on a camera or present itself as a human attendee.
+        selected employee&apos;s name followed by <Code>(AI notetaker — recording)</Code>. It
+        dismisses Google&apos;s pre-join prompts, keeps its microphone and camera off, and waits to
+        be admitted for as long as the call is scheduled to run (up to 30 minutes), asking again if
+        Google times its first request out — so a host who joins late still gets a notetaker. Then
+        it captures the call audio inside the App container, stores that recording with the
+        meeting, and transcribes it after the call ends. The notetaker does not turn on a camera or
+        present itself as a human attendee.
+      </P>
+      <P>
+        If a join fails while the call is still running — the lobby was not ready, nobody had
+        started the meeting yet — Genosyn tries again a couple of times over the first few minutes
+        rather than writing the meeting off. A meeting it decided <em>not</em> to record says so on
+        the meeting page, and <Strong>Start notetaker</Strong> is still there if you disagree and
+        the call is still live.
       </P>
       <Callout kind="info" title="The standard Docker install includes meeting presence.">
         The App image includes Chrome, PulseAudio, and ffmpeg, so the normal Docker installation
@@ -225,6 +237,13 @@ export function Meetings() {
           live-join support for other conference platforms.
         </LI>
       </UL>
+      <P>
+        Naming an employee as a calendar&apos;s notetaker under{" "}
+        <Strong>Meetings → Calendars</Strong> gives it <Strong>Record</Strong> on that calendar, so
+        the two controls cannot disagree. The Grant shows up in this table and can be revoked here;
+        revoking it stops the notetaker joining that calendar&apos;s calls, and the meeting page
+        says so.
+      </P>
       <P>The tools an employee gets, once granted:</P>
       <UL>
         <LI>

@@ -661,6 +661,203 @@ describe("automatic notetaker dispatch", () => {
   });
 });
 
+describe("retrying a join that did not happen", () => {
+  /**
+   * The second half of the "it never joins" bug.
+   *
+   * Dispatch only ever claimed `scheduled` rows, and a claim that failed for
+   * any reason at all settled the meeting `failed` for good. So the first
+   * flake — a lobby that had not rendered, a host who had not opened the call
+   * — wrote off the whole meeting at second one, thirty minutes before it was
+   * due to end, and no later pass ever looked at it again. `skipped` was worse
+   * still: not even a human pressing the button could re-open it.
+   */
+  test("a human may re-open a meeting the automatic pass skipped", async () => {
+    const now = new Date();
+    const joined: string[] = [];
+    installRecorder(async (args) => {
+      joined.push(args.meetingId);
+      return { bytes: Buffer.from("audio"), mime: "audio/webm", durationMs: 1 };
+    });
+    setMeetingBackgroundProcessor(() => undefined);
+    const fixture = await calendarMeeting({ now });
+    await AppDataSource.getRepository(Meeting).update(
+      { id: fixture.meeting.id },
+      { status: "skipped", statusMessage: "Automatic recording was turned off for this event." },
+    );
+
+    const result = await startNotetaker({
+      companyId: CO,
+      meetingId: fixture.meeting.id,
+      retryFailed: true,
+    });
+
+    assert.equal(result.ok, true);
+    await waitForMeeting(fixture.meeting.id, (row) => row.status === "processing");
+    assert.deepEqual(joined, [fixture.meeting.id]);
+  });
+
+  test("a skipped meeting is still not re-opened without an explicit retry", async () => {
+    const now = new Date();
+    installRecorder(async () => ({ bytes: Buffer.from("a"), mime: "audio/webm", durationMs: 1 }));
+    const fixture = await calendarMeeting({ now });
+    await AppDataSource.getRepository(Meeting).update(
+      { id: fixture.meeting.id },
+      { status: "skipped", statusMessage: "Automatic recording was turned off for this event." },
+    );
+
+    const result = await startNotetaker({ companyId: CO, meetingId: fixture.meeting.id });
+
+    assert.equal(result.ok, false);
+    assert.equal(
+      (await AppDataSource.getRepository(Meeting).findOneByOrFail({ id: fixture.meeting.id }))
+        .status,
+      "skipped",
+    );
+  });
+
+  test("a skipped meeting that already has audio is never re-recorded", async () => {
+    const now = new Date();
+    installRecorder(async () => ({ bytes: Buffer.from("a"), mime: "audio/webm", durationMs: 1 }));
+    const fixture = await calendarMeeting({ now });
+    await AppDataSource.getRepository(Meeting).update(
+      { id: fixture.meeting.id },
+      { status: "skipped", recordingPath: "meetings/co/x.webm" },
+    );
+
+    const result = await startNotetaker({
+      companyId: CO,
+      meetingId: fixture.meeting.id,
+      retryFailed: true,
+    });
+
+    assert.equal(result.ok, false);
+  });
+
+  test("dispatch retries a failed join while the call is still running", async () => {
+    const now = new Date();
+    const joined: string[] = [];
+    installRecorder(async (args) => {
+      joined.push(args.meetingId);
+      return { bytes: Buffer.from("audio"), mime: "audio/webm", durationMs: 1 };
+    });
+    setMeetingBackgroundProcessor(() => undefined);
+    const fixture = await calendarMeeting({ now, eventStartAt: now });
+    await AppDataSource.getRepository(Meeting).update(
+      { id: fixture.meeting.id },
+      { status: "failed", statusMessage: "The notetaker could not open the Google Meet lobby." },
+    );
+
+    const result = await dispatchDueMeetings(new Date(now.getTime() + 3 * 60_000));
+
+    assert.equal(result.due, 1);
+    assert.equal(result.claimed, 1);
+    assert.equal(result.retried, 1);
+    await waitForMeeting(fixture.meeting.id, (row) => row.status === "processing");
+    assert.deepEqual(joined, [fixture.meeting.id]);
+  });
+
+  test("dispatch waits out the backoff rather than retrying every tick", async () => {
+    const now = new Date();
+    const joined: string[] = [];
+    installRecorder(async (args) => {
+      joined.push(args.meetingId);
+      return { bytes: Buffer.from("audio"), mime: "audio/webm", durationMs: 1 };
+    });
+    const fixture = await calendarMeeting({ now, eventStartAt: now });
+    await AppDataSource.getRepository(Meeting).update(
+      { id: fixture.meeting.id },
+      { status: "failed", statusMessage: "The notetaker could not open the Google Meet lobby." },
+    );
+
+    const result = await dispatchDueMeetings(new Date(now.getTime() + 30_000));
+
+    assert.deepEqual({ due: result.due, claimed: result.claimed, retried: result.retried }, {
+      due: 0,
+      claimed: 0,
+      retried: 0,
+    });
+    assert.deepEqual(joined, []);
+  });
+
+  test("dispatch stops retrying once the call is well under way", async () => {
+    const now = new Date();
+    installRecorder(async () => ({ bytes: Buffer.from("a"), mime: "audio/webm", durationMs: 1 }));
+    const fixture = await calendarMeeting({
+      now,
+      eventStartAt: new Date(now.getTime() - 30 * 60_000),
+      eventEndAt: new Date(now.getTime() + 30 * 60_000),
+    });
+    await AppDataSource.getRepository(Meeting).update(
+      { id: fixture.meeting.id },
+      { status: "failed", statusMessage: "The notetaker could not open the Google Meet lobby." },
+    );
+
+    const result = await dispatchDueMeetings(new Date(now.getTime() + 3 * 60_000));
+
+    assert.equal(result.due, 0);
+    assert.equal(result.retried, 0);
+  });
+
+  test("a Stop is a decision, not a flake — dispatch never undoes one", async () => {
+    const now = new Date();
+    const joined: string[] = [];
+    installRecorder(async (args) => {
+      joined.push(args.meetingId);
+      return { bytes: Buffer.from("audio"), mime: "audio/webm", durationMs: 1 };
+    });
+    const stopped = await calendarMeeting({ now, eventStartAt: now });
+    const policyStopped = await calendarMeeting({ now, eventStartAt: now });
+    await AppDataSource.getRepository(Meeting).update(
+      { id: stopped.meeting.id },
+      { status: "failed", statusMessage: STOP_NOTETAKER_MESSAGE },
+    );
+    await AppDataSource.getRepository(Meeting).update(
+      { id: policyStopped.meeting.id },
+      {
+        status: "failed",
+        statusMessage: "Notetaker stopping: Automatic recording was paused for this calendar.",
+      },
+    );
+
+    const result = await dispatchDueMeetings(new Date(now.getTime() + 3 * 60_000));
+
+    assert.equal(result.due, 0);
+    assert.deepEqual(joined, []);
+  });
+
+  test("a failed meeting that did save audio belongs in /process, not in a new call", async () => {
+    const now = new Date();
+    installRecorder(async () => ({ bytes: Buffer.from("a"), mime: "audio/webm", durationMs: 1 }));
+    const fixture = await calendarMeeting({ now, eventStartAt: now });
+    await AppDataSource.getRepository(Meeting).update(
+      { id: fixture.meeting.id },
+      {
+        status: "failed",
+        statusMessage: "Transcription failed.",
+        recordingPath: "meetings/co/kept.webm",
+      },
+    );
+
+    const result = await dispatchDueMeetings(new Date(now.getTime() + 3 * 60_000));
+
+    assert.equal(result.due, 0);
+  });
+
+  test("an ordinary scheduled meeting is still claimed as a fresh join", async () => {
+    const now = new Date();
+    installRecorder(async () => ({ bytes: Buffer.from("a"), mime: "audio/webm", durationMs: 1 }));
+    setMeetingBackgroundProcessor(() => undefined);
+    const fixture = await calendarMeeting({ now });
+
+    const result = await dispatchDueMeetings(now);
+
+    assert.equal(result.claimed, 1);
+    assert.equal(result.retried, 0, "a first attempt is not a retry");
+    await waitForMeeting(fixture.meeting.id, (row) => row.status !== "scheduled");
+  });
+});
+
 describe("stale notetaker recovery", () => {
   test("requeues a live calendar call and fails an unrecoverable ad-hoc call", async () => {
     const now = new Date();

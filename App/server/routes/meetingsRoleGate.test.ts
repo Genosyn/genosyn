@@ -279,6 +279,60 @@ describe("meetings routes — calendar configuration is admin-only", () => {
     assert.equal(allowed.body.calendar.notetakerEmployeeId, employee.id);
   });
 
+  test("assigning a notetaker over the API leaves a Record grant behind", async () => {
+    // The Grant is what `validateClaimedJoin` checks. Before this, the admin
+    // set a notetaker, the page said eligible Meets would be joined, and every
+    // call was skipped for want of an authority nothing in the flow created.
+    const account = await aCalendar();
+    const employee = await anEmployee();
+
+    actingUserId = adminId;
+    const patched = await call("PATCH", `/meetings/calendars/${account.id}`, {
+      autoRecord: "external",
+      notetakerEmployeeId: employee.id,
+    });
+    assert.equal(patched.status, 200);
+
+    const grants = await call<{ grants: Array<{ employeeId: string; accessLevel: string }> }>(
+      "GET",
+      "/meetings/ai-access",
+    );
+    assert.equal(grants.status, 200);
+    assert.deepEqual(
+      grants.body.grants.map((row) => [row.employeeId, row.accessLevel]),
+      [[employee.id, "record"]],
+    );
+  });
+
+  test("a notetaker from another company is a 400, not a silent skip an hour later", async () => {
+    const account = await aCalendar();
+    const otherCompany = await insert(Company, {
+      name: "Someone else",
+      slug: `other-${randomUUID()}`,
+      ownerId: ownerId,
+    });
+    const stranger = await insert(AIEmployee, {
+      companyId: otherCompany.id,
+      name: "Rook",
+      slug: `rook-${randomUUID()}`,
+      role: "Analyst",
+    });
+
+    actingUserId = ownerId;
+    const rejected = await call<{ error: string }>("PATCH", `/meetings/calendars/${account.id}`, {
+      notetakerEmployeeId: stranger.id,
+    });
+
+    assert.equal(rejected.status, 400);
+    assert.match(rejected.body.error, /not in this company/);
+    assert.equal(await grantCount(), 0);
+    assert.equal(
+      (await AppDataSource.getRepository(CalendarAccount).findOneByOrFail({ id: account.id }))
+        .notetakerEmployeeId,
+      null,
+    );
+  });
+
   test("a plain member cannot disconnect a calendar", async () => {
     const account = await aCalendar();
 
