@@ -8,12 +8,15 @@ import {
   CheckSquare,
   CheckCircle2,
   ChevronLeft,
+  ChevronRight,
   CircleUser,
   Clock3,
   Copy,
+  CopyPlus,
   Download,
   FileSignature,
   GripVertical,
+  Layers,
   Mail,
   Save,
   Send,
@@ -38,9 +41,12 @@ import { api, type Customer, type Employee } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import {
   SIGNATURE_FIELD_LABELS,
+  SIGNATURE_PAGE_SELECTOR,
   SIGNATURE_STATUS_LABELS,
   clampFieldGeometry,
+  clampSignaturePage,
   defaultFieldSize,
+  duplicateSignatureFieldGeometry,
   envelopeFilename,
   formatSignatureDate,
   formatSignatureDateTime,
@@ -50,16 +56,25 @@ import {
   recipientStatusClasses,
   signatureAiHandoffPrompt,
   signatureDateInputToEndOfDayIso,
+  signatureEditorShortcut,
+  signatureFieldPageSummary,
+  signatureFieldPagesToFill,
   signatureRecipientColor,
   signatureRecipientColorKey,
+  signatureRecipientEmailProblem,
+  signatureReadinessTarget,
+  signatureScrollAncestorIndex,
+  signatureShortcutTargetIsTextEntry,
   signatureIsoToDateInput,
   signatureDraftReadiness,
   signatureSendReviewIsCurrent,
   signatureStatusClasses,
+  visibleSignaturePage,
   type SignatureEnvelopeDetail,
   type SignatureAccessLevel,
   type SignatureField,
   type SignatureFieldType,
+  type SignaturePageSummary,
   type SignatureRecipient,
   type SignatureDraftReadinessIssue,
   type SignatureDraftSaveResult,
@@ -122,6 +137,7 @@ export default function SignatureDetail() {
   const [selectedAiEmployeeId, setSelectedAiEmployeeId] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [pageCount, setPageCount] = React.useState(0);
   const [dirty, setDirty] = React.useState(false);
   const [sendDispatching, setSendDispatching] = React.useState(false);
   const [autosaveError, setAutosaveError] = React.useState<string | null>(null);
@@ -195,6 +211,7 @@ export default function SignatureDetail() {
     setFields([]);
     setSelectedRecipientId("");
     setSelectedFieldId(null);
+    setPageCount(0);
     expectedUpdatedAtRef.current = null;
     latestSavedDetailRef.current = null;
     dirtyRef.current = false;
@@ -213,6 +230,9 @@ export default function SignatureDetail() {
 
   const selectedField = fields.find((field) => field.id === selectedFieldId) ?? null;
   const isDraft = detail?.envelope.status === "draft";
+  // The parsed PDF is authoritative once it loads; the stored count keeps page
+  // navigation available while it is still being fetched.
+  const documentPageCount = pageCount || Number(detail?.envelope.originalPageCount ?? 0);
   const readinessIssues = React.useMemo(
     () => (detail ? signatureDraftReadiness(detail.envelope, recipients, fields) : []),
     [detail, fields, recipients],
@@ -315,6 +335,73 @@ export default function SignatureDetail() {
       setSelectedFieldId(id);
     });
   }
+
+  function removeField(id: string) {
+    mutateDraft(() => {
+      setFields((current) => current.filter((field) => field.id !== id));
+      setSelectedFieldId(null);
+    });
+  }
+
+  /** Place a copy beside the original, so a second signature block is one action. */
+  function duplicateField(id: string) {
+    if (sendDispatchingRef.current) return;
+    const source = fields.find((field) => field.id === id);
+    if (!source) return;
+    const copyId = `tmp_field_${crypto.randomUUID()}`;
+    mutateDraft(() => {
+      setFields((current) => [
+        ...current,
+        {
+          ...source,
+          id: copyId,
+          ...duplicateSignatureFieldGeometry(source),
+          sortOrder: current.length,
+        },
+      ]);
+      setSelectedFieldId(copyId);
+    });
+  }
+
+  /** "Initial every page" in one action, skipping pages the signer already has. */
+  function addFieldToEveryPage(id: string) {
+    if (sendDispatchingRef.current) return;
+    const source = fields.find((field) => field.id === id);
+    if (!source) return;
+    const pages = signatureFieldPagesToFill(source, fields, documentPageCount);
+    if (!pages.length) return;
+    mutateDraft(() => {
+      setFields((current) => [
+        ...current,
+        ...pages.map((pageNumber, index) => ({
+          ...source,
+          id: `tmp_field_${crypto.randomUUID()}`,
+          pageNumber,
+          sortOrder: current.length + index,
+        })),
+      ]);
+    });
+  }
+
+  const runFieldShortcutRef = React.useRef<(shortcut: "duplicate" | "delete") => void>(() => {});
+  runFieldShortcutRef.current = (shortcut) => {
+    if (!selectedFieldId) return;
+    if (shortcut === "duplicate") duplicateField(selectedFieldId);
+    else removeField(selectedFieldId);
+  };
+
+  React.useEffect(() => {
+    if (!isDraft || !selectedFieldId || sendDispatching) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (signatureShortcutTargetIsTextEntry(event.target as HTMLElement | null)) return;
+      const shortcut = signatureEditorShortcut(event);
+      if (!shortcut) return;
+      event.preventDefault();
+      runFieldShortcutRef.current(shortcut);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isDraft, selectedFieldId, sendDispatching]);
 
   function draftPayload() {
     if (!detail) return null;
@@ -823,8 +910,8 @@ export default function SignatureDetail() {
   const sourceUrl = `${base}/source`;
 
   return (
-    <div className="flex min-h-full flex-col">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-6 dark:border-slate-700 dark:bg-slate-950/95">
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="z-30 shrink-0 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-6 dark:border-slate-700 dark:bg-slate-950/95">
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
@@ -834,7 +921,9 @@ export default function SignatureDetail() {
           >
             <ChevronLeft size={19} />
           </button>
-          <div className="min-w-0 flex-1">
+          {/* Full width on a phone so the title keeps its line and the
+              actions wrap beneath it instead of squeezing it to an ellipsis. */}
+          <div className="min-w-0 basis-[calc(100%-3rem)] sm:flex-1 sm:basis-auto">
             <div className="flex items-center gap-2">
               <h1 className="truncate text-base font-semibold text-slate-900 dark:text-slate-100">
                 {envelope.title}
@@ -966,6 +1055,10 @@ export default function SignatureDetail() {
           error={error}
           readinessIssues={readinessIssues}
           editingLocked={sendDispatching}
+          pageCount={documentPageCount}
+          onPageCountChange={setPageCount}
+          onDuplicateField={duplicateField}
+          onAddFieldToEveryPage={addFieldToEveryPage}
           onEnvelopeChange={updateEnvelope}
           onRecipientChange={updateRecipient}
           onRecipientsChange={(next) => {
@@ -999,12 +1092,7 @@ export default function SignatureDetail() {
           onSelectField={setSelectedFieldId}
           onMoveField={(id, position) => updateField(id, position)}
           onFieldChange={updateField}
-          onRemoveField={(id) => {
-            mutateDraft(() => {
-              setFields((current) => current.filter((field) => field.id !== id));
-              setSelectedFieldId(null);
-            });
-          }}
+          onRemoveField={removeField}
         />
       ) : (
         <SentEnvelope
@@ -1032,7 +1120,7 @@ export default function SignatureDetail() {
       )}
 
       {isDraft && (
-        <div className="border-t border-slate-200 bg-white px-4 py-3 sm:px-6 dark:border-slate-700 dark:bg-slate-950">
+        <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-6 dark:border-slate-700 dark:bg-slate-950">
           <div className="flex flex-wrap justify-between gap-2">
             <Button
               variant="ghost"
@@ -1105,6 +1193,10 @@ type DraftEditorProps = {
   error: string | null;
   readinessIssues: SignatureDraftReadinessIssue[];
   editingLocked: boolean;
+  pageCount: number;
+  onPageCountChange: (pageCount: number) => void;
+  onDuplicateField: (id: string) => void;
+  onAddFieldToEveryPage: (id: string) => void;
   onEnvelopeChange: (patch: Partial<SignatureEnvelopeDetail["envelope"]>) => void;
   onRecipientChange: (id: string, patch: Partial<DraftRecipient>) => void;
   onRecipientsChange: (recipients: DraftRecipient[]) => void;
@@ -1121,8 +1213,164 @@ type DraftEditorProps = {
 function DraftEditor(props: DraftEditorProps) {
   const { envelope } = props.detail;
   const editorRootRef = React.useRef<HTMLDivElement>(null);
+  const documentRef = React.useRef<HTMLElement>(null);
+  const toolbarRef = React.useRef<HTMLDivElement>(null);
   const [mobilePanel, setMobilePanel] = React.useState<"people" | "document" | "field">("people");
+  const [visiblePage, setVisiblePage] = React.useState(1);
+  const [toolbarHeight, setToolbarHeight] = React.useState(0);
+  const controlPrefix = React.useId();
   const signers = props.recipients.filter((recipient) => recipient.role === "signer");
+  const pageSummary = signatureFieldPageSummary(props.fields, props.pageCount);
+  const everyPagePages = props.selectedField
+    ? signatureFieldPagesToFill(props.selectedField, props.fields, props.pageCount)
+    : [];
+
+  function controlId(suffix: string): string {
+    return `${controlPrefix}${suffix}`;
+  }
+  function recipientInputId(recipientId: string, input: "name" | "email"): string {
+    return controlId(`recipient-${recipientId}-${input}`);
+  }
+  function smoothScroll(): ScrollBehavior {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  }
+
+  function documentScroller(): HTMLElement | null {
+    const ancestors: HTMLElement[] = [];
+    for (
+      let node: HTMLElement | null = documentRef.current;
+      node;
+      node = node.parentElement
+    ) {
+      ancestors.push(node);
+    }
+    const index = signatureScrollAncestorIndex(
+      ancestors.map((node) => ({
+        overflowY: window.getComputedStyle(node).overflowY,
+        scrollHeight: node.scrollHeight,
+        clientHeight: node.clientHeight,
+      })),
+    );
+    return index >= 0 ? ancestors[index] : null;
+  }
+
+  /** Visible document area: below the sticky toolbar, above the scroller's floor. */
+  function documentViewport(scroller: HTMLElement): { top: number; bottom: number } {
+    const box = scroller.getBoundingClientRect();
+    const toolbar = toolbarRef.current?.getBoundingClientRect();
+    return {
+      top: toolbar ? Math.max(box.top, toolbar.bottom) : box.top,
+      bottom: box.bottom,
+    };
+  }
+  function focusControl(id: string) {
+    window.requestAnimationFrame(() => {
+      const element = window.document.getElementById(id);
+      if (!(element instanceof HTMLElement)) return;
+      element.focus({ preventScroll: true });
+      element.scrollIntoView({ behavior: smoothScroll(), block: "center" });
+    });
+  }
+
+  // The field toolbar sticks over the document, so a page scrolled to the top
+  // of the scrollport must clear it. Its height changes as the toolbar wraps.
+  React.useLayoutEffect(() => {
+    const toolbar = toolbarRef.current;
+    if (!toolbar) return;
+    const measure = () => setToolbarHeight(toolbar.offsetHeight);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(toolbar);
+    return () => observer.disconnect();
+  }, []);
+
+  // Track the page under the reader so the navigator says where they are, not
+  // just how many pages exist.
+  React.useEffect(() => {
+    const scroller = documentScroller();
+    const column = documentRef.current;
+    if (!scroller || !column || props.pageCount < 1) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const pages = Array.from(
+        column.querySelectorAll<HTMLElement>(SIGNATURE_PAGE_SELECTOR),
+      ).map((element) => {
+        const box = element.getBoundingClientRect();
+        return {
+          pageNumber: Number(element.dataset.signaturePage ?? 1),
+          top: box.top,
+          bottom: box.bottom,
+        };
+      });
+      if (!pages.length) return;
+      setVisiblePage(visibleSignaturePage(pages, documentViewport(scroller)));
+    };
+    const onScroll = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(measure);
+    };
+    measure();
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      scroller.removeEventListener("scroll", onScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+    // documentScroller and documentViewport are re-created every render and
+    // read only refs, so listing them here would rebind the listener on each
+    // keystroke. Re-resolve the scroller when the page count or the visible
+    // mobile panel changes, which is when it can actually differ.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.pageCount, mobilePanel]);
+
+  function goToPage(page: number) {
+    const target = clampSignaturePage(page, props.pageCount);
+    const element = documentRef.current?.querySelector<HTMLElement>(
+      `[data-signature-page="${target}"]`,
+    );
+    if (!element) return;
+    // scrollIntoView resolves the real scrollport itself, and the column's
+    // scroll-margin keeps the page clear of the sticky field toolbar.
+    element.scrollIntoView({ behavior: smoothScroll(), block: "start" });
+    setVisiblePage(target);
+  }
+
+  function showField(field: SignatureField) {
+    setMobilePanel("document");
+    props.onSelectField(field.id);
+    window.requestAnimationFrame(() => goToPage(field.pageNumber));
+  }
+
+  /** Park the caret on a page so Enter drops the selected field type onto it. */
+  function focusDocumentPage(page: number) {
+    goToPage(page);
+    window.requestAnimationFrame(() => {
+      documentRef.current
+        ?.querySelector<HTMLElement>(
+          `[data-signature-page-surface="${clampSignaturePage(page, props.pageCount)}"]`,
+        )
+        ?.focus({ preventScroll: true });
+    });
+  }
+
+  /** Put the Member in front of the control that answers the checklist item. */
+  function resolveReadinessIssue(issue: SignatureDraftReadinessIssue) {
+    const target = signatureReadinessTarget(issue);
+    if (target.kind === "signature") {
+      props.onSelectedRecipientChange(target.recipientId);
+      props.onFieldToolChange("signature");
+      setMobilePanel("document");
+      focusDocumentPage(visiblePage);
+      return;
+    }
+    setMobilePanel("people");
+    if (target.kind === "title") focusControl(controlId("title"));
+    else if (target.kind === "expiry") focusControl(controlId("expires"));
+    else if (target.kind === "add-recipient") focusControl(controlId("add-recipient"));
+    else focusControl(recipientInputId(target.recipientId, target.input));
+  }
+
   function colorForSigner(recipientId: string) {
     const recipient = props.recipients.find((candidate) => candidate.id === recipientId);
     return signatureRecipientColor(recipient ? colorKeyForRecipient(recipient) : recipientId);
@@ -1137,14 +1385,14 @@ function DraftEditor(props: DraftEditorProps) {
   return (
     <div
       ref={editorRootRef}
-      className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden ${
+      className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${
         props.editingLocked ? "pointer-events-none opacity-70" : ""
       }`}
       aria-busy={props.editingLocked}
       aria-disabled={props.editingLocked}
     >
       <div
-        className="grid grid-cols-3 border-b border-slate-200 bg-white p-2 xl:hidden dark:border-slate-700 dark:bg-slate-950"
+        className="grid shrink-0 grid-cols-3 border-b border-slate-200 bg-white p-2 xl:hidden dark:border-slate-700 dark:bg-slate-950"
         role="tablist"
         aria-label="Request editor"
       >
@@ -1171,9 +1419,9 @@ function DraftEditor(props: DraftEditorProps) {
           </button>
         ))}
       </div>
-      <div className="grid min-h-0 min-w-0 flex-1 xl:grid-cols-[15rem_minmax(24rem,1fr)_15rem]">
+      <div className="grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)] xl:grid-cols-[15rem_minmax(24rem,1fr)_15rem]">
         <aside
-          className={`${mobilePanel === "people" ? "block" : "hidden"} border-b border-slate-200 bg-white p-4 xl:block xl:border-b-0 xl:border-r dark:border-slate-700 dark:bg-slate-950`}
+          className={`${mobilePanel === "people" ? "block" : "hidden"} min-h-0 overflow-y-auto border-b border-slate-200 bg-white p-4 xl:block xl:border-b-0 xl:border-r dark:border-slate-700 dark:bg-slate-950`}
         >
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
             Recipients
@@ -1181,6 +1429,7 @@ function DraftEditor(props: DraftEditorProps) {
           <div className="mt-3 space-y-3">
             {props.recipients.map((recipient) => {
               const signerIndex = signers.findIndex((signer) => signer.id === recipient.id);
+              const emailProblem = signatureRecipientEmailProblem(recipient, props.recipients);
               return (
                 <div
                   key={recipient.id}
@@ -1247,6 +1496,7 @@ function DraftEditor(props: DraftEditorProps) {
                   </div>
                   <div className="space-y-2">
                     <Input
+                      id={recipientInputId(recipient.id, "name")}
                       value={recipient.name}
                       onFocus={() => {
                         if (recipient.role === "signer")
@@ -1259,20 +1509,37 @@ function DraftEditor(props: DraftEditorProps) {
                       aria-label="Recipient name"
                       className="h-9"
                     />
-                    <Input
-                      value={recipient.email}
-                      type="email"
-                      onFocus={() => {
-                        if (recipient.role === "signer")
-                          props.onSelectedRecipientChange(recipient.id);
-                      }}
-                      onChange={(event) =>
-                        props.onRecipientChange(recipient.id, { email: event.target.value })
-                      }
-                      placeholder="name@company.com"
-                      aria-label="Recipient email"
-                      className="h-9"
-                    />
+                    <div>
+                      <Input
+                        id={recipientInputId(recipient.id, "email")}
+                        value={recipient.email}
+                        type="email"
+                        invalid={Boolean(emailProblem)}
+                        aria-describedby={
+                          emailProblem
+                            ? `${recipientInputId(recipient.id, "email")}-problem`
+                            : undefined
+                        }
+                        onFocus={() => {
+                          if (recipient.role === "signer")
+                            props.onSelectedRecipientChange(recipient.id);
+                        }}
+                        onChange={(event) =>
+                          props.onRecipientChange(recipient.id, { email: event.target.value })
+                        }
+                        placeholder="name@company.com"
+                        aria-label="Recipient email"
+                        className="h-9"
+                      />
+                      {emailProblem && (
+                        <p
+                          id={`${recipientInputId(recipient.id, "email")}-problem`}
+                          className="mt-1 text-[11px] leading-4 text-rose-600 dark:text-rose-300"
+                        >
+                          {emailProblem}
+                        </p>
+                      )}
+                    </div>
                     <div className="flex gap-2">
                       <Select
                         value={recipient.role}
@@ -1315,15 +1582,15 @@ function DraftEditor(props: DraftEditorProps) {
               );
             })}
             <Button
+              id={controlId("add-recipient")}
               variant="secondary"
               size="sm"
               className="w-full"
-              onClick={() =>
-                props.onRecipientsChange([
-                  ...props.recipients,
-                  freshRecipient(props.recipients.length),
-                ])
-              }
+              onClick={() => {
+                const next = freshRecipient(props.recipients.length);
+                props.onRecipientsChange([...props.recipients, next]);
+                focusControl(recipientInputId(next.id, "name"));
+              }}
             >
               <UserPlus size={14} /> Add recipient
             </Button>
@@ -1335,6 +1602,7 @@ function DraftEditor(props: DraftEditorProps) {
             </h2>
             <div className="mt-3 space-y-3">
               <Input
+                id={controlId("title")}
                 label="Title"
                 value={envelope.title}
                 onChange={(event) => props.onEnvelopeChange({ title: event.target.value })}
@@ -1366,6 +1634,7 @@ function DraftEditor(props: DraftEditorProps) {
                 <option value="ordered">In a set order</option>
               </Select>
               <Input
+                id={controlId("expires")}
                 label="Expires"
                 type="date"
                 value={signatureIsoToDateInput(envelope.expiresAt)}
@@ -1388,9 +1657,16 @@ function DraftEditor(props: DraftEditorProps) {
         </aside>
 
         <main
-          className={`${mobilePanel === "document" ? "block" : "hidden"} min-h-[70vh] min-w-0 overflow-y-auto bg-slate-200/60 xl:block dark:bg-slate-900`}
+          ref={documentRef}
+          style={
+            { "--signature-page-offset": `${toolbarHeight + 12}px` } as React.CSSProperties
+          }
+          className={`${mobilePanel === "document" ? "block" : "hidden"} min-h-0 min-w-0 overflow-y-auto bg-slate-200/60 xl:block dark:bg-slate-900`}
         >
-          <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white/95 p-3 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95">
+          <div
+            ref={toolbarRef}
+            className="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white/95 p-3 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95"
+          >
             <Select
               aria-label="Assign new fields to"
               value={props.selectedRecipientId}
@@ -1427,9 +1703,20 @@ function DraftEditor(props: DraftEditorProps) {
                 </button>
               ))}
             </div>
-            <span className="ml-auto text-xs text-slate-400">
-              Click to place · drag fields to move · drag the corner to resize
-            </span>
+            {props.fields.length === 0 && (
+              <span className="ml-auto text-xs text-slate-400">
+                Click to place · drag fields to move · drag the corner to resize
+              </span>
+            )}
+            {props.pageCount > 1 && (
+              <PageNavigator
+                pageCount={props.pageCount}
+                visiblePage={visiblePage}
+                summary={pageSummary}
+                inputId={controlId("page")}
+                onGoToPage={goToPage}
+              />
+            )}
             {signers.length > 0 && (
               <div className="flex w-full flex-wrap gap-x-3 gap-y-1 border-t border-slate-100 pt-2 text-[11px] text-slate-500 dark:border-slate-800 dark:text-slate-400">
                 {signers.map((recipient, index) => (
@@ -1451,6 +1738,7 @@ function DraftEditor(props: DraftEditorProps) {
             sourceUrl={props.sourceUrl}
             fields={props.fields}
             selectedFieldId={props.selectedField?.id}
+            onPageCountChange={props.onPageCountChange}
             onPageClick={props.onAddField}
             onFieldSelect={(id) => {
               props.onSelectField(id);
@@ -1475,18 +1763,22 @@ function DraftEditor(props: DraftEditorProps) {
         </main>
 
         <aside
-          className={`${mobilePanel === "field" ? "block" : "hidden"} border-t border-slate-200 bg-white p-4 xl:block xl:border-l xl:border-t-0 dark:border-slate-700 dark:bg-slate-950`}
+          className={`${mobilePanel === "field" ? "block" : "hidden"} min-h-0 overflow-y-auto border-t border-slate-200 bg-white p-4 xl:block xl:border-l xl:border-t-0 dark:border-slate-700 dark:bg-slate-950`}
         >
-          <SendReadiness issues={props.readinessIssues} />
+          <SendReadiness issues={props.readinessIssues} onResolve={resolveReadinessIssue} />
           <div className="mt-5 border-t border-slate-100 pt-5 dark:border-slate-800">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Field settings
+              {props.selectedField ? "Field settings" : "Placed fields"}
             </h2>
             {!props.selectedField ? (
-              <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
-                Select a field on the document to edit it. Drag the field to move it, or drag its
-                bottom-right handle to resize it.
-              </p>
+              <PlacedFields
+                fields={props.fields}
+                recipients={props.recipients}
+                signers={signers}
+                colorFor={colorForSigner}
+                colorStyleFor={colorStyleForSigner}
+                onShowField={showField}
+              />
             ) : (
               <div className="mt-4 space-y-4">
                 <div
@@ -1572,14 +1864,49 @@ function DraftEditor(props: DraftEditorProps) {
                     }
                   />
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
-                  onClick={() => props.onRemoveField(props.selectedField!.id)}
-                >
-                  <Trash2 size={14} /> Remove field
-                </Button>
+                <div className="space-y-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => props.onDuplicateField(props.selectedField!.id)}
+                  >
+                    <CopyPlus size={14} /> Duplicate field
+                    <kbd className="ml-1 rounded border border-slate-200 px-1 text-[10px] font-normal text-slate-400 dark:border-slate-700">
+                      {shortcutModifier()}D
+                    </kbd>
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full"
+                    disabled={everyPagePages.length === 0}
+                    title={
+                      everyPagePages.length === 0
+                        ? "Every page already has this field for this signer."
+                        : undefined
+                    }
+                    onClick={() => props.onAddFieldToEveryPage(props.selectedField!.id)}
+                  >
+                    <Layers size={14} />
+                    {everyPagePages.length === 0
+                      ? "On every page already"
+                      : `Add to ${everyPagePages.length} other ${
+                          everyPagePages.length === 1 ? "page" : "pages"
+                        }`}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                    onClick={() => props.onRemoveField(props.selectedField!.id)}
+                  >
+                    <Trash2 size={14} /> Remove field
+                    <kbd className="ml-1 rounded border border-rose-200 px-1 text-[10px] font-normal text-rose-400 dark:border-rose-900">
+                      Del
+                    </kbd>
+                  </Button>
+                </div>
               </div>
             )}
           </div>
@@ -1589,7 +1916,157 @@ function DraftEditor(props: DraftEditorProps) {
   );
 }
 
-function SendReadiness({ issues }: { issues: SignatureDraftReadinessIssue[] }) {
+/** ⌘ on Apple keyboards, Ctrl elsewhere, for the shortcut hints. */
+function shortcutModifier(): string {
+  if (typeof navigator === "undefined") return "Ctrl+";
+  return /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent) ? "⌘" : "Ctrl+";
+}
+
+function PageNavigator({
+  pageCount,
+  visiblePage,
+  summary,
+  inputId,
+  onGoToPage,
+}: {
+  pageCount: number;
+  visiblePage: number;
+  summary: SignaturePageSummary[];
+  inputId: string;
+  onGoToPage: (page: number) => void;
+}) {
+  const fieldsOnPage = summary.find((page) => page.pageNumber === visiblePage)?.fieldCount ?? 0;
+  return (
+    <div className="flex w-full items-center gap-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+      <button
+        type="button"
+        aria-label="Previous page"
+        disabled={visiblePage <= 1}
+        onClick={() => onGoToPage(visiblePage - 1)}
+        className="rounded-md p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-slate-800"
+      >
+        <ChevronLeft size={15} />
+      </button>
+      <label htmlFor={inputId} className="text-[11px] font-medium text-slate-500">
+        Page
+      </label>
+      <input
+        id={inputId}
+        type="number"
+        min={1}
+        max={pageCount}
+        value={visiblePage}
+        onChange={(event) => onGoToPage(Number(event.target.value))}
+        className="h-7 w-14 rounded-md border border-slate-200 bg-white px-2 text-center text-xs tabular-nums text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+      />
+      <span className="text-[11px] tabular-nums text-slate-400">of {pageCount}</span>
+      <button
+        type="button"
+        aria-label="Next page"
+        disabled={visiblePage >= pageCount}
+        onClick={() => onGoToPage(visiblePage + 1)}
+        className="rounded-md p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-slate-800"
+      >
+        <ChevronRight size={15} />
+      </button>
+      <span className="text-[11px] text-slate-400" aria-live="polite">
+        {fieldsOnPage
+          ? `${fieldsOnPage} ${fieldsOnPage === 1 ? "field" : "fields"} on this page`
+          : "No fields on this page"}
+      </span>
+      <div className="ml-auto hidden items-center gap-1 sm:flex">
+        {summary
+          .filter((page) => page.fieldCount > 0)
+          .slice(0, 12)
+          .map((page) => (
+            <button
+              key={page.pageNumber}
+              type="button"
+              onClick={() => onGoToPage(page.pageNumber)}
+              title={`Page ${page.pageNumber} · ${page.fieldCount} ${
+                page.fieldCount === 1 ? "field" : "fields"
+              }`}
+              className={`h-6 min-w-6 rounded px-1.5 text-[11px] font-medium tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                page.pageNumber === visiblePage
+                  ? "bg-indigo-600 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+              }`}
+            >
+              {page.pageNumber}
+            </button>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function PlacedFields({
+  fields,
+  recipients,
+  signers,
+  colorFor,
+  colorStyleFor,
+  onShowField,
+}: {
+  fields: SignatureField[];
+  recipients: DraftRecipient[];
+  signers: DraftRecipient[];
+  colorFor: (recipientId: string) => ReturnType<typeof signatureRecipientColor>;
+  colorStyleFor: (recipientId: string) => React.CSSProperties;
+  onShowField: (field: SignatureField) => void;
+}) {
+  if (fields.length === 0) {
+    return (
+      <p className="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
+        Pick a signer and a field type above, then click the document to place a field. Drag it to
+        move it, or drag its bottom-right handle to resize it.
+      </p>
+    );
+  }
+  return (
+    <>
+      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">
+        Select a field to edit it, or choose one here to jump to it on the document.
+      </p>
+      <div className="mt-3 space-y-1">
+        {fields.map((field) => {
+          const owner = recipients.find((recipient) => recipient.id === field.recipientId);
+          const signerIndex = signers.findIndex(
+            (recipient) => recipient.id === field.recipientId,
+          );
+          return (
+            <button
+              key={field.id}
+              type="button"
+              onClick={() => onShowField(field)}
+              style={colorStyleFor(field.recipientId)}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-slate-600 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:bg-slate-900"
+            >
+              <span
+                aria-hidden="true"
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: colorFor(field.recipientId).dotColor }}
+              />
+              <span className="min-w-0 flex-1 truncate">
+                {owner?.name || `Signer ${signerIndex + 1}`} ·{" "}
+                {field.label || SIGNATURE_FIELD_LABELS[field.type]}
+              </span>
+              <span className="shrink-0 tabular-nums text-slate-400">p. {field.pageNumber}</span>
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function SendReadiness({
+  issues,
+  onResolve,
+}: {
+  issues: SignatureDraftReadinessIssue[];
+  onResolve: (issue: SignatureDraftReadinessIssue) => void;
+}) {
   return (
     <div id="signature-readiness" aria-live="polite">
       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -1601,15 +2078,18 @@ function SendReadiness({ issues }: { issues: SignatureDraftReadinessIssue[] }) {
         Ready to send
       </div>
       {issues.length ? (
-        <div className="mt-3 space-y-2">
+        <div className="mt-3 space-y-1">
           {issues.map((issue, index) => (
-            <div
+            <button
+              type="button"
               key={`${issue.code}-${issue.recipientId ?? "request"}-${index}`}
-              className="flex gap-2 text-xs leading-5 text-slate-600 dark:text-slate-300"
+              onClick={() => onResolve(issue)}
+              className="flex w-full gap-2 rounded-lg px-2 py-1.5 text-left text-xs leading-5 text-slate-600 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:bg-amber-950/30"
             >
               <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
-              {issue.message}
-            </div>
+              <span className="min-w-0 flex-1">{issue.message}</span>
+              <ChevronRight size={13} className="mt-0.5 shrink-0 text-slate-300" />
+            </button>
           ))}
         </div>
       ) : (
@@ -1646,8 +2126,8 @@ function SentEnvelope({
     return recipientColorStyle(recipient ? colorKeyForRecipient(recipient) : recipientId);
   }
   return (
-    <div className="grid min-w-0 flex-1 overflow-x-hidden 2xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <main className="min-h-[70vh] min-w-0 overflow-y-auto bg-slate-200/60 dark:bg-slate-900">
+    <div className="grid min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)] overflow-x-hidden 2xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <main className="min-h-0 min-w-0 overflow-y-auto bg-slate-200/60 dark:bg-slate-900">
         <PdfCanvasRenderer
           sourceUrl={sourceUrl}
           fields={detail.fields}
@@ -1660,7 +2140,7 @@ function SentEnvelope({
           fieldStyle={(field) => signerColorStyle(field.recipientId)}
         />
       </main>
-      <aside className="border-t border-slate-200 bg-white p-5 2xl:border-l 2xl:border-t-0 dark:border-slate-700 dark:bg-slate-950">
+      <aside className="min-h-0 overflow-y-auto border-t border-slate-200 bg-white p-5 2xl:border-l 2xl:border-t-0 dark:border-slate-700 dark:bg-slate-950">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Recipients</h2>
           {detail.envelope.status === "completed" && (

@@ -146,6 +146,8 @@ export type SignatureDraftReadinessIssue = {
   code: "title" | "signer" | "recipient" | "duplicate_email" | "signature" | "expiry";
   message: string;
   recipientId?: string;
+  /** Which recipient input the issue is about, so the checklist can focus it. */
+  input?: "name" | "email";
 };
 
 export type SignatureDraftSaveResult = {
@@ -426,6 +428,28 @@ export function firstIncompleteRequiredSignatureField(
   );
 }
 
+export type SignatureCompletionProgress = { done: number; total: number; percent: number };
+
+/**
+ * How far through the required fields a signer is. A request with no required
+ * fields reads as complete rather than as an empty bar, because there is
+ * genuinely nothing left for the signer to fill in.
+ */
+export function signatureCompletionProgress(
+  fields: SignatureField[],
+  values: Record<string, unknown>,
+): SignatureCompletionProgress {
+  const required = fields.filter((field) => field.required);
+  const done = required.filter((field) =>
+    signatureFieldValueIsComplete(field, values[field.id]),
+  ).length;
+  return {
+    done,
+    total: required.length,
+    percent: required.length ? Math.round((done / required.length) * 100) : 100,
+  };
+}
+
 export function recipientProgress(envelope: SignatureEnvelope): { done: number; total: number } {
   return {
     done: Number(envelope.completedRecipientCount ?? 0),
@@ -455,6 +479,7 @@ export function signatureDraftReadiness(
       issues.push({
         code: "recipient",
         recipientId: recipient.id,
+        input: "name",
         message: `${label} needs a name`,
       });
     }
@@ -463,12 +488,14 @@ export function signatureDraftReadiness(
       issues.push({
         code: "recipient",
         recipientId: recipient.id,
+        input: "email",
         message: `${label} needs a valid email`,
       });
     } else if (emails.has(email)) {
       issues.push({
         code: "duplicate_email",
         recipientId: recipient.id,
+        input: "email",
         message: `${label} has the same email as ${emails.get(email)}`,
       });
     } else {
@@ -616,6 +643,192 @@ export function defaultFieldSize(type: SignatureFieldType): { width: number; hei
   if (type === "date" || type === "initials") return { width: 0.18, height: 0.055 };
   if (type === "signature") return { width: 0.3, height: 0.08 };
   return { width: 0.28, height: 0.055 };
+}
+
+/**
+ * Offset a copied field so it lands beside its original instead of hiding it.
+ * The copy moves down and right, or back up and left when the page edge is in
+ * the way, so a field placed at the very bottom of a page still yields a
+ * visibly separate duplicate.
+ */
+export function duplicateSignatureFieldGeometry(
+  geometry: SignatureFieldGeometry,
+  offset = 0.02,
+): SignatureFieldGeometry {
+  const current = clampFieldGeometry(geometry);
+  const step = Math.abs(finiteNumber(offset, 0.02));
+  const shift = (position: number, size: number): number => {
+    if (position + size + step <= 1) return position + step;
+    if (position - step >= 0) return position - step;
+    return position;
+  };
+  return clampFieldGeometry({
+    ...current,
+    x: shift(current.x, current.width),
+    y: shift(current.y, current.height),
+  });
+}
+
+/**
+ * Pages that still need a copy of this field. A page counts as covered when it
+ * already carries a field of the same type for the same recipient, so asking
+ * for "initials on every page" twice does not stack two fields on each page.
+ */
+export function signatureFieldPagesToFill(
+  field: Pick<SignatureField, "recipientId" | "type">,
+  fields: Pick<SignatureField, "recipientId" | "type" | "pageNumber">[],
+  pageCount: number,
+): number[] {
+  if (!Number.isInteger(pageCount) || pageCount < 1) return [];
+  const covered = new Set(
+    fields
+      .filter(
+        (candidate) =>
+          candidate.recipientId === field.recipientId && candidate.type === field.type,
+      )
+      .map((candidate) => candidate.pageNumber),
+  );
+  const pages: number[] = [];
+  for (let page = 1; page <= pageCount; page += 1) {
+    if (!covered.has(page)) pages.push(page);
+  }
+  return pages;
+}
+
+export type SignaturePageSummary = { pageNumber: number; fieldCount: number };
+
+/** Per-page field counts backing the editor's page navigator. */
+export function signatureFieldPageSummary(
+  fields: Pick<SignatureField, "pageNumber">[],
+  pageCount: number,
+): SignaturePageSummary[] {
+  if (!Number.isInteger(pageCount) || pageCount < 1) return [];
+  return Array.from({ length: pageCount }, (_, index) => ({
+    pageNumber: index + 1,
+    fieldCount: fields.filter((field) => field.pageNumber === index + 1).length,
+  }));
+}
+
+export function clampSignaturePage(page: number, pageCount: number): number {
+  if (!Number.isInteger(pageCount) || pageCount < 1) return 1;
+  if (!Number.isFinite(page)) return 1;
+  return Math.min(pageCount, Math.max(1, Math.round(page)));
+}
+
+export type SignaturePageBox = { pageNumber: number; top: number; bottom: number };
+
+/**
+ * The page a reader is actually looking at: the one sharing the most height
+ * with the viewport. Ties go to the lower page number so scrolling through a
+ * long document never reads backwards.
+ */
+export function visibleSignaturePage(
+  pages: SignaturePageBox[],
+  viewport: { top: number; bottom: number },
+): number {
+  let best: { pageNumber: number; overlap: number } | null = null;
+  for (const page of pages) {
+    const overlap =
+      Math.min(page.bottom, viewport.bottom) - Math.max(page.top, viewport.top);
+    if (!best || overlap > best.overlap) best = { pageNumber: page.pageNumber, overlap };
+  }
+  return best?.pageNumber ?? 1;
+}
+
+/** Marks a rendered PDF page so a caller can measure it or scroll to it. */
+export const SIGNATURE_PAGE_SELECTOR = "[data-signature-page]";
+export type SignatureScrollCandidate = {
+  overflowY: string;
+  scrollHeight: number;
+  clientHeight: number;
+};
+
+/**
+ * Which ancestor actually scrolls the document column. The editor column
+ * carries `overflow-y: auto` but is sized by its content, so the real scroller
+ * is further up the tree; an element that merely *may* scroll is not one that
+ * does, and scrolling the wrong one silently does nothing.
+ */
+export function signatureScrollAncestorIndex(
+  candidates: SignatureScrollCandidate[],
+): number {
+  return candidates.findIndex(
+    (candidate) =>
+      /auto|scroll|overlay/.test(candidate.overflowY) &&
+      candidate.scrollHeight > candidate.clientHeight + 1,
+  );
+}
+
+export type SignatureReadinessTarget =
+  | { kind: "title" }
+  | { kind: "expiry" }
+  | { kind: "add-recipient" }
+  | { kind: "recipient"; recipientId: string; input: "name" | "email" }
+  | { kind: "signature"; recipientId: string };
+
+/** What a readiness item should put the Member in front of when they click it. */
+export function signatureReadinessTarget(
+  issue: SignatureDraftReadinessIssue,
+): SignatureReadinessTarget {
+  if (issue.code === "title") return { kind: "title" };
+  if (issue.code === "expiry") return { kind: "expiry" };
+  if (issue.code === "signer" || !issue.recipientId) return { kind: "add-recipient" };
+  if (issue.code === "signature") {
+    return { kind: "signature", recipientId: issue.recipientId };
+  }
+  return {
+    kind: "recipient",
+    recipientId: issue.recipientId,
+    input: issue.input ?? "email",
+  };
+}
+
+/**
+ * Inline, per-input recipient feedback. A blank row stays quiet — the send
+ * checklist already says a recipient is incomplete, and marking a row someone
+ * has not finished typing as wrong is noise, not help.
+ */
+export function signatureRecipientEmailProblem(
+  recipient: Pick<SignatureRecipient, "id" | "email">,
+  recipients: Pick<SignatureRecipient, "id" | "name" | "email">[],
+): string | null {
+  if (!recipient.email.trim()) return null;
+  const email = normalizeSignatureEmail(recipient.email);
+  if (!email) return "This does not look like an email address.";
+  for (const candidate of recipients) {
+    if (candidate.id === recipient.id) break;
+    if (normalizeSignatureEmail(candidate.email) === email) {
+      return `Already used by ${candidate.name.trim() || "another recipient"}.`;
+    }
+  }
+  return null;
+}
+
+export type SignatureEditorShortcut = "duplicate" | "delete";
+
+/** Keyboard shortcuts the field editor answers when a field is selected. */
+export function signatureEditorShortcut(event: {
+  key: string;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+}): SignatureEditorShortcut | null {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") return "duplicate";
+  if (event.metaKey || event.ctrlKey) return null;
+  if (event.key === "Delete" || event.key === "Backspace") return "delete";
+  return null;
+}
+
+/**
+ * Shortcuts must not fire while someone is typing a label or a recipient name,
+ * where Backspace means "delete a character".
+ */
+export function signatureShortcutTargetIsTextEntry(
+  target: { tagName?: string; isContentEditable?: boolean } | null | undefined,
+): boolean {
+  if (!target) return false;
+  if (target.isContentEditable) return true;
+  const tagName = (target.tagName ?? "").toUpperCase();
+  return tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT";
 }
 
 /** Accept both the canonical detail DTO and a legacy flat envelope response. */

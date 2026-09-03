@@ -28,6 +28,7 @@ import {
   formatSignatureDate,
   publicSignatureRecipientIsComplete,
   signatureCalendarDateForOffset,
+  signatureCompletionProgress,
   signatureFieldValueIsComplete,
   type PublicSigningEnvelope,
   type SignatureField,
@@ -467,8 +468,9 @@ export default function PublicSigning() {
     );
   }
 
-  const requiredCount = data.fields.filter((field) => field.required).length;
-  const requiredDone = data.fields.filter((field) => field.required && fieldComplete(field)).length;
+  const progress = signatureCompletionProgress(data.fields, values);
+  const requiredCount = progress.total;
+  const requiredDone = progress.done;
   const nextRequiredField = firstIncompleteRequiredSignatureField(data.fields, values);
   const editorDisabled = submitting || editorFrozen;
   const documentDescription = [
@@ -515,7 +517,7 @@ export default function PublicSigning() {
             <div
               role="status"
               aria-live="polite"
-              className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-medium text-slate-600 sm:min-w-56 dark:bg-slate-800 dark:text-slate-300"
             >
               {requiredCount
                 ? `${requiredDone} of ${requiredCount} required fields complete`
@@ -583,6 +585,42 @@ export default function PublicSigning() {
               <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">
                 Complete every required field highlighted on the document, then agree and finish.
               </p>
+
+              {requiredCount > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-baseline justify-between text-xs font-medium text-slate-600 dark:text-slate-300">
+                    <span>
+                      {requiredDone} of {requiredCount} required
+                    </span>
+                    <span className="tabular-nums text-slate-400">{progress.percent}%</span>
+                  </div>
+                  <div
+                    className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={requiredCount}
+                    aria-valuenow={requiredDone}
+                    aria-label="Required fields complete"
+                  >
+                    <div
+                      className="h-full rounded-full bg-indigo-600 transition-[width] duration-300 dark:bg-indigo-400"
+                      style={{ width: `${progress.percent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {nextRequiredField && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-4 w-full"
+                  disabled={editorDisabled}
+                  onClick={() => navigateToField(nextRequiredField)}
+                >
+                  <ArrowDown size={15} /> Go to next required field
+                </Button>
+              )}
 
               <div className="mt-5 space-y-2">
                 {data.fields.map((field) => (

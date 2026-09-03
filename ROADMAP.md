@@ -2331,6 +2331,17 @@ Employee workflow in one company-scoped system.
       multi-signer field ownership obvious with recipient-specific colors and
       names, support direct pointer, touch and keyboard field resizing, and send
       clear company-branded invitation, reminder and completion emails.
+- [x] **A preparation surface that survives a long contract.** The editor's
+      three panes each scroll on their own, so recipients, the field toolbar and
+      the send checklist stay put instead of scrolling away with page 40. A page
+      navigator reports and jumps to any page and marks the ones already
+      carrying fields; the right pane lists every placed field and jumps to it.
+      Repeat a field with Duplicate (⌘/Ctrl+D) or place it on every page a
+      signer is still missing, and remove one with Delete — never while typing.
+      Every send-checklist item is a link to the control that answers it, a
+      malformed or repeated recipient address is marked on the row as it is
+      typed, and the signer's own panel carries a progress bar plus a jump to
+      the next required field.
 
 ### M37 — AI-native Vault ✅
 

@@ -47,8 +47,26 @@ export function Signatures() {
           <Strong> Shift</Strong> for larger steps.
         </LI>
         <LI>
-          Review the request and click <Strong>Send</Strong>. Genosyn freezes the source,
-          recipients, fields, and routing so the agreement cannot change under a signer.
+          Repeat a field without placing it again. With a field selected,{" "}
+          <Strong>Duplicate field</Strong> (or <Strong>⌘D</Strong> / <Strong>Ctrl+D</Strong>) drops
+          a copy beside it, and <Strong>Add to N other pages</Strong> puts the same field on every
+          page that signer does not already have one on — the way to ask for initials throughout a
+          long contract. <Strong>Delete</Strong> or <Strong>Backspace</Strong> removes the selected
+          field. Neither shortcut fires while you are typing in a field.
+        </LI>
+        <LI>
+          Move around a long document with the page navigator above the PDF: step through pages,
+          type a page number, or click one of the numbered chips, which mark the pages that already
+          carry fields. The panel on the right lists every placed field with its page; choose one to
+          jump straight to it.
+        </LI>
+        <LI>
+          Review the request and click <Strong>Send</Strong>. <Strong>Ready to send</Strong> lists
+          anything still missing, and each item is a link to the control that fixes it — a
+          recipient&apos;s name or address, the title, the expiry date, or the document itself when
+          a signer has no signature field yet. A malformed or repeated address is also marked on the
+          recipient row as you type. Genosyn freezes the source, recipients, fields, and routing so
+          the agreement cannot change under a signer.
         </LI>
       </OL>
       <Callout kind="info" title="Configure the public URL and transactional email first">
@@ -73,6 +91,13 @@ export function Signatures() {
         submits. They can also decline and give a reason. Signers do not need a Genosyn account.
         Date-signed fields use the signer&apos;s local calendar date; Genosyn binds the reported
         timezone and offset into the tamper-evident completion evidence.
+      </P>
+      <P>
+        The signing panel stays beside the document and tracks how far along the signer is: a
+        progress bar counts the required fields, a checklist marks off each one with its page
+        number, and <Strong>Go to next required field</Strong> jumps to whatever is still
+        outstanding — so nothing on page 40 of a contract is missed. On a phone the same control
+        sits in a bar at the bottom of the screen.
       </P>
       <Callout kind="warn" title="Treat the link like a password">
         A signer&apos;s private link remains their read-only receipt after completion, including

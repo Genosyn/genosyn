@@ -32,6 +32,8 @@ export type PdfCanvasRendererProps = {
   fieldLabel?: (field: SignatureField) => string;
   fieldClassName?: (field: SignatureField, selected: boolean) => string;
   fieldStyle?: (field: SignatureField) => React.CSSProperties;
+  /** Reported once the PDF is parsed, so callers can offer page navigation. */
+  onPageCountChange?: (pageCount: number) => void;
   readOnly?: boolean;
   className?: string;
 };
@@ -52,11 +54,18 @@ export function PdfCanvasRenderer({
   fieldLabel,
   fieldClassName,
   fieldStyle,
+  onPageCountChange,
   readOnly = false,
   className = "",
 }: PdfCanvasRendererProps) {
   const [document, setDocument] = React.useState<PDFDocumentProxy | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const reportPageCount = React.useRef(onPageCountChange);
+  reportPageCount.current = onPageCountChange;
+
+  React.useEffect(() => {
+    if (document) reportPageCount.current?.(document.numPages);
+  }, [document]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -267,11 +276,15 @@ function PdfPage({
   }
 
   return (
-    <div className="mx-auto max-w-[850px]">
+    <div
+      className="mx-auto max-w-[850px] scroll-mt-[var(--signature-page-offset,0px)]"
+      data-signature-page={pageNumber}
+    >
       <div
         ref={wrapperRef}
         role={!readOnly && onPageClick ? "button" : undefined}
         tabIndex={!readOnly && onPageClick ? 0 : undefined}
+        data-signature-page-surface={!readOnly && onPageClick ? pageNumber : undefined}
         aria-label={
           !readOnly && onPageClick
             ? `Page ${pageNumber}. Press Enter or Space to place the selected field in the center.`
