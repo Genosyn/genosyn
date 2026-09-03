@@ -18,14 +18,15 @@ import {
   streamChatWithEmployee,
 } from "./chat.js";
 import { createChatTurnContextUsageRecorder } from "./chatTurnContextUsage.js";
-import { createChatTurnProgressRecorder } from "./chatTurnProgress.js";
+import {
+  createChatTurnProgressRecorder,
+  createProgressRefreshNotifier,
+} from "./chatTurnProgress.js";
 import { historicalAttachmentSummaries, inlineAttachmentsForMessage } from "./attachmentText.js";
+import { emitResourceChange } from "./resourceEvents.js";
 import { captureTurnActionsForAuthority } from "./turnActions.js";
 import { bindAttachmentsToMessage } from "./uploads.js";
-import {
-  EmployeeWorkloadBusyError,
-  releaseChatWorkloadLeaseByOwner,
-} from "./workloadLeases.js";
+import { EmployeeWorkloadBusyError, releaseChatWorkloadLeaseByOwner } from "./workloadLeases.js";
 
 const MAX_REPLAY_TURNS = 20;
 const TURN_LEASE_MS = 15_000;
@@ -33,6 +34,7 @@ const TURN_HEARTBEAT_MS = 5_000;
 const RECOVERY_POLL_MS = 5_000;
 const BUSY_RETRY_MS = 15_000;
 const MAX_RECOVERIES_PER_SWEEP = 10;
+const WORK_PROGRESS_EVENT_INTERVAL_MS = 30_000;
 
 export type DurableChatTurnCallbacks = {
   onChunk?: (chunk: string) => void;
@@ -94,7 +96,7 @@ export async function enqueueDurableChatTurn(args: {
   assistantMessage: ConversationMessage;
   userAttachments: Attachment[];
 }> {
-  return AppDataSource.transaction(async (manager) => {
+  const turn = await AppDataSource.transaction(async (manager) => {
     const conversationRepo = manager.getRepository(Conversation);
     const messageRepo = manager.getRepository(ConversationMessage);
     const [conversation, requester, membership] = await Promise.all([
@@ -162,6 +164,27 @@ export async function enqueueDurableChatTurn(args: {
       userAttachments,
     };
   });
+  emitResourceChange(args.companyId, "employee_work", args.employeeId);
+  return turn;
+}
+
+/** Best-effort live refresh for terminal paths that no longer hold the employee row. */
+async function emitConversationWorkChange(conversationId: string): Promise<void> {
+  try {
+    const conversation = await AppDataSource.getRepository(Conversation).findOne({
+      where: { id: conversationId },
+      select: ["employeeId"],
+    });
+    if (!conversation) return;
+    const employee = await AppDataSource.getRepository(AIEmployee).findOne({
+      where: { id: conversation.employeeId },
+      select: ["id", "companyId"],
+    });
+    if (employee) emitResourceChange(employee.companyId, "employee_work", employee.id);
+  } catch {
+    // The durable row is already final. A missed refresh heals on focus; it
+    // must never turn completed employee work into a failed chat response.
+  }
 }
 
 /**
@@ -221,6 +244,15 @@ export async function executeDurableChatTurn(
   let lostClaim = false;
   let interrupted = false;
   let renewing = false;
+  let workScope: { companyId: string; employeeId: string } | null = null;
+  const workProgressEvents = createProgressRefreshNotifier({
+    intervalMs: WORK_PROGRESS_EVENT_INTERVAL_MS,
+    notify: () => {
+      if (workScope) {
+        emitResourceChange(workScope.companyId, "employee_work", workScope.employeeId);
+      }
+    },
+  });
 
   const loseClaim = () => {
     lostClaim = true;
@@ -272,6 +304,7 @@ export async function executeDurableChatTurn(
     messageId: claimedMessage.id,
     workerId,
     onProgress: callbacks.onProgress,
+    onPersisted: workProgressEvents.report,
     onPersistenceError: (error) => {
       // eslint-disable-next-line no-console
       console.error(
@@ -306,6 +339,10 @@ export async function executeDurableChatTurn(
         callbacks,
       );
     }
+    workScope = {
+      companyId: context.employee.companyId,
+      employeeId: context.employee.id,
+    };
 
     const deadline =
       claimedMessage.turnDeadlineAt ??
@@ -514,6 +551,7 @@ export async function executeDurableChatTurn(
 
     context.conversation.updatedAt = new Date();
     await AppDataSource.getRepository(Conversation).save(context.conversation);
+    emitResourceChange(context.employee.companyId, "employee_work", context.employee.id);
     const finalMessage = await messageRepo.findOneByOrFail({
       id: claimedMessage.id,
     });
@@ -543,6 +581,7 @@ export async function executeDurableChatTurn(
       callbacks,
     );
   } finally {
+    workProgressEvents.cancel();
     clearInterval(heartbeat);
     activeClaimAborters.delete(claimedMessage.id);
     activeTurnInterrupters.delete(claimedMessage.id);
@@ -586,6 +625,8 @@ export async function interruptDurableChatTurn(
   // the lease of a worker that died mid-turn, which is exactly the state a
   // Member is usually reacting to when they reach for Stop.
   await releaseChatWorkloadLeaseByOwner(messageId);
+  const message = await repo.findOne({ where: { id: messageId }, select: ["conversationId"] });
+  if (message) await emitConversationWorkChange(message.conversationId);
   return "interrupted";
 }
 
@@ -766,6 +807,7 @@ async function finalizeInterruptedTurn(
   if (!conversation) return "completed";
   conversation.updatedAt = new Date();
   await AppDataSource.getRepository(Conversation).save(conversation);
+  await emitConversationWorkChange(conversation.id);
   const finalMessage = await repo.findOneByOrFail({ id: message.id });
   safeFinalCallback(callbacks, {
     message: finalMessage,
@@ -810,6 +852,7 @@ async function finalizeInfrastructureError(
   if (!conversation) return "completed";
   conversation.updatedAt = new Date();
   await AppDataSource.getRepository(Conversation).save(conversation);
+  await emitConversationWorkChange(conversation.id);
   const finalMessage = await repo.findOneByOrFail({ id: message.id });
   safeFinalCallback(callbacks, {
     message: finalMessage,

@@ -75,12 +75,12 @@ import { clsx } from "../components/ui/clsx";
  * todos assigned to me, reviews waiting on my sign-off, pending approvals,
  * and unread channels. Every card deep-links into the full section.
  *
- * **Every panel here hides itself when it has nothing.** Each one is a queue,
- * and an empty queue is not news — a card that spends a grid slot to say
- * "nothing is waiting on you" pushes the things that *are* waiting further
- * down, and six of them turn a quiet day into a wall of reassurance nobody
- * reads. The decision stack and the failure alert have always worked this way;
- * the rest now match. When every panel is empty {@link AllClear} says it once.
+ * Every queue here hides itself when it has nothing. An empty queue is not
+ * news — a card that spends a grid slot to say "nothing is waiting on you"
+ * pushes the things that *are* waiting further down. When every queue is empty
+ * {@link AllClear} says it once. The AI employee work panel is not a
+ * queue: its bubble roster remains useful on a quiet day as the quickest way
+ * to see an employee and check in.
  */
 
 const PUSH_PROMPT_DISMISSED_KEY = "genosyn.pushPromptDismissed";
@@ -114,11 +114,15 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
   const background = useBackgroundAction();
 
   // The todo peek needs the company's people to fill its assignee and reviewer
-  // pickers. Fetched once beside the Home payload rather than on each open, so
-  // the modal has them the moment it appears; both are small reads and a
-  // failure just leaves the pickers listing nobody.
+  // pickers and the employee bubble roster. Fetched beside the Home payload
+  // rather than on each open, so the modal has them the moment it appears;
+  // both are small reads. Resource events keep the roster current.
+  // The work panel owns the roster's inline failure state, while the optional
+  // modal pickers simply remain empty.
   const [employees, setEmployees] = React.useState<Employee[]>([]);
+  const [employeesError, setEmployeesError] = React.useState<string | null>(null);
   const [members, setMembers] = React.useState<Member[]>([]);
+  const peopleRequest = React.useRef(0);
 
   const reload = React.useCallback(async () => {
     try {
@@ -135,21 +139,32 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     reload();
   }, [reload]);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [emps, mems] = await Promise.all([
-        api.get<Employee[]>(`/api/companies/${company.id}/employees`).catch(() => [] as Employee[]),
-        api.get<Member[]>(`/api/companies/${company.id}/members`).catch(() => [] as Member[]),
-      ]);
-      if (cancelled) return;
-      setEmployees(emps);
-      setMembers(mems);
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const reloadPeople = React.useCallback(async () => {
+    const request = ++peopleRequest.current;
+    const [emps, mems] = await Promise.allSettled([
+      api.get<Employee[]>(`/api/companies/${company.id}/employees`),
+      api.get<Member[]>(`/api/companies/${company.id}/members`),
+    ]);
+    if (request !== peopleRequest.current) return;
+    if (emps.status === "fulfilled") {
+      setEmployees(emps.value);
+      setEmployeesError(null);
+    } else {
+      setEmployees([]);
+      setEmployeesError(errorMessage(emps.reason, "Could not load your AI employees."));
+    }
+    setMembers(mems.status === "fulfilled" ? mems.value : []);
   }, [company.id]);
+
+  React.useEffect(() => {
+    setEmployees([]);
+    setEmployeesError(null);
+    setMembers([]);
+    void reloadPeople();
+    return () => {
+      peopleRequest.current += 1;
+    };
+  }, [reloadPeople]);
 
   // Live-refresh when something lands in my bell, and on tab focus so the
   // page is current when the user comes back to it.
@@ -162,15 +177,19 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
     }
   });
   React.useEffect(() => {
-    const onFocus = () => reload();
+    const onFocus = () => {
+      void reload();
+      void reloadPeople();
+    };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [reload]);
+  }, [reload, reloadPeople]);
   // The stack is the first thing on the page, so it has to be current: a
   // teammate answering in another tab should empty it here without a refresh.
   // `tldr_question` keeps the Discuss badge honest — a card asked from the
   // TLDRs page changes this count without touching the briefing row.
   useLiveRefetch(["decision", "tldr", "tldr_question"], reload);
+  useLiveRefetch("employee", reloadPeople);
 
   function dismissTldr(item: TldrItem) {
     const originalIndex = data?.tldrs.findIndex((row) => row.id === item.id) ?? -1;
@@ -245,6 +264,7 @@ export default function HomePage({ company, me }: { company: Company; me: Me }) 
             <WorkTimelinePanel
               company={company}
               employees={employees}
+              employeeLoadError={employeesError}
               onOpenRun={(entry) => setOverlay({ kind: "workRun", entry })}
             />
           </>
@@ -423,8 +443,9 @@ function HomeOverlayHost({
  * queue, and {@link AllClear} says the queues are empty — which stays true on a
  * night the roster worked straight through. Folding the timeline in here would
  * either hide a full day's work behind "Nothing needs you right now" or quietly
- * change what that sentence means. It keeps the rule the panels follow — it
- * hides itself when its own window is empty — and applies it to its own data.
+ * change what that sentence means. Its bubble roster deliberately stays below
+ * the all-clear even when the work window itself is empty, because choosing a
+ * teammate and checking in is still useful.
  */
 function hasAnythingToShow(data: HomeData): boolean {
   return (

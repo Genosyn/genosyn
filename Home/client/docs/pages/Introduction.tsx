@@ -129,8 +129,9 @@ export function Introduction() {
         and DMs, todos assigned to you, reviews and approvals waiting on your decision, the latest
         unread <DocLink to="/docs/tldrs">TLDR</DocLink>, the{" "}
         <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> of everything your AI
-        Employees did in the last 24 hours, and shortcuts to every section. When something needs you
-        — or a fresh recap is ready — it&apos;s the first thing you see.
+        Employees did in the last 24 hours, with employee bubbles that show who is working now and
+        open a direct check-in, plus shortcuts to every section. When something needs you — or a
+        fresh recap is ready — it&apos;s the first thing you see.
       </P>
       <P>
         Home only shows you what it actually has. Every queue — the{" "}
@@ -142,10 +143,9 @@ export function Introduction() {
         and colleagues keep seeing it until they dismiss it themselves. So the page is only ever as
         long as your day is busy, and on a quiet one it says{" "}
         <Strong>Nothing needs you right now</Strong> and leaves it at that. The one panel that is
-        not a queue is the{" "}
-        <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> — it sits below that
-        message rather than inside it, because a quiet day for you can still be a busy one for your
-        AI Employees.
+        not a queue is the <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> — it
+        sits below that message rather than inside it, because a quiet day for you can still be a
+        busy one for your AI Employees.
       </P>
       <P>
         <Strong>Clicking a row on Home keeps you on Home.</Strong> An unread channel opens the

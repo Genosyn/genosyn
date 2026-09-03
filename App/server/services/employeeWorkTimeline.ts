@@ -145,6 +145,8 @@ export type WorkEntry = {
   at: string;
   /** When it ended, where the source records one. Null while still in flight. */
   endedAt: string | null;
+  /** Explicit source-backed live state. Never infer this from `endedAt` alone. */
+  active: boolean;
   employee: WorkEmployeeRef;
   /** One line naming the work. Server-written, or redacted on the way out. */
   title: string;
@@ -158,6 +160,23 @@ export type WorkEntry = {
   effectCount: number;
 };
 
+/**
+ * The small, pre-limit preview Home needs for one employee bubble.
+ *
+ * Returning this separately matters when one noisy employee fills the
+ * response's visible timeline slice: the rest of the roster must not be
+ * labelled quiet merely because their newest row was number 41.
+ */
+export type WorkEntryDigest = Pick<WorkEntry, "id" | "kind" | "at" | "title" | "detail" | "active">;
+
+export type WorkEmployeeSummary = {
+  employeeId: string;
+  entryCount: number;
+  latest: WorkEntryDigest | null;
+  current: WorkEntryDigest | null;
+  waiting: WorkEntryDigest | null;
+};
+
 export type WorkTimeline = {
   /** Start of the window, inclusive. */
   since: string;
@@ -168,6 +187,8 @@ export type WorkTimeline = {
   entries: WorkEntry[];
   /** Entries in the window before `limit` sliced them. */
   entryCount: number;
+  /** One truthful pre-limit rollup for every employee in this response. */
+  employeeSummaries: WorkEmployeeSummary[];
 };
 
 /** The product promise: what the roster did today. */
@@ -272,6 +293,7 @@ export async function getEmployeeWorkTimeline(params: {
     employeeId,
     entries: [],
     entryCount: 0,
+    employeeSummaries: [],
   };
 
   // An employee id from another company narrows to nothing rather than 404ing.
@@ -312,59 +334,140 @@ export async function getEmployeeWorkTimeline(params: {
   const sessionById = new Map(sessions.map((s) => [s.id, s]));
 
   const take = WORK_TIMELINE_SOURCE_CAP;
-  const [runs, auditRows, chatTurns, approvals, wakeups, lessons, sessionTurns] =
-    await Promise.all([
-      routines.length
-        ? AppDataSource.getRepository(Run).find({
-            where: { routineId: In([...routineById.keys()]), startedAt: MoreThanOrEqual(since) },
-            order: { startedAt: "DESC" },
-            take,
-          })
-        : Promise.resolve([] as Run[]),
-      AppDataSource.getRepository(AuditEvent).find({
-        where: { companyId, actorEmployeeId: In(empIds), createdAt: MoreThanOrEqual(since) },
-        order: { createdAt: "DESC", id: "DESC" },
-        take,
-      }),
-      conversations.length
-        ? AppDataSource.getRepository(ConversationMessage).find({
-            where: {
+  const [
+    runs,
+    activeRuns,
+    auditRows,
+    chatTurns,
+    activeChatTurns,
+    approvals,
+    pendingApprovals,
+    wakeups,
+    lessons,
+    sessionTurns,
+    activeSessionTurns,
+  ] = await Promise.all([
+    routines.length
+      ? AppDataSource.getRepository(Run).find({
+          where: { routineId: In([...routineById.keys()]), startedAt: MoreThanOrEqual(since) },
+          order: { startedAt: "DESC" },
+          take,
+        })
+      : Promise.resolve([] as Run[]),
+    routines.length
+      ? AppDataSource.getRepository(Run).find({
+          where: { routineId: In([...routineById.keys()]), status: "running" },
+          select: [
+            "id",
+            "routineId",
+            "startedAt",
+            "status",
+            "triggerKind",
+            "attempt",
+            "missedSlots",
+          ],
+          order: { startedAt: "DESC" },
+        })
+      : Promise.resolve([] as Run[]),
+    AppDataSource.getRepository(AuditEvent).find({
+      where: { companyId, actorEmployeeId: In(empIds), createdAt: MoreThanOrEqual(since) },
+      order: { createdAt: "DESC", id: "DESC" },
+      take,
+    }),
+    conversations.length
+      ? AppDataSource.getRepository(ConversationMessage).find({
+          where: [
+            {
               conversationId: In([...convById.keys()]),
               role: "assistant",
               createdAt: MoreThanOrEqual(since),
             },
-            order: { createdAt: "DESC" },
-            take,
-          })
-        : Promise.resolve([] as ConversationMessage[]),
-      AppDataSource.getRepository(Approval).find({
-        where: { companyId, employeeId: In(empIds), requestedAt: MoreThanOrEqual(since) },
-        order: { requestedAt: "DESC" },
-        take,
-      }),
-      AppDataSource.getRepository(EmployeeWakeup).find({
-        where: {
-          companyId,
-          employeeId: In(empIds),
-          status: "fired",
-          firedAt: MoreThanOrEqual(since),
-        },
-        order: { firedAt: "DESC" },
-        take,
-      }),
-      AppDataSource.getRepository(RunLesson).find({
-        where: { companyId, employeeId: In(empIds), createdAt: MoreThanOrEqual(since) },
-        order: { createdAt: "DESC" },
-        take,
-      }),
-      sessions.length
-        ? AppDataSource.getRepository(RepositoryWorkSessionTurn).find({
-            where: { companyId, sessionId: In([...sessionById.keys()]) },
-            order: { createdAt: "DESC" },
-            take,
-          })
-        : Promise.resolve([] as RepositoryWorkSessionTurn[]),
-    ]);
+            {
+              conversationId: In([...convById.keys()]),
+              role: "assistant",
+              updatedAt: MoreThanOrEqual(since),
+            },
+          ],
+          order: { updatedAt: "DESC", createdAt: "DESC" },
+          take,
+        })
+      : Promise.resolve([] as ConversationMessage[]),
+    conversations.length
+      ? AppDataSource.getRepository(ConversationMessage).find({
+          where: {
+            conversationId: In([...convById.keys()]),
+            role: "assistant",
+            status: "working",
+          },
+          select: [
+            "id",
+            "conversationId",
+            "status",
+            "updatedAt",
+            "progressPercent",
+            "progressLabel",
+          ],
+          order: { updatedAt: "DESC" },
+        })
+      : Promise.resolve([] as ConversationMessage[]),
+    AppDataSource.getRepository(Approval).find({
+      where: { companyId, employeeId: In(empIds), requestedAt: MoreThanOrEqual(since) },
+      order: { requestedAt: "DESC" },
+      take,
+    }),
+    AppDataSource.getRepository(Approval).find({
+      where: { companyId, employeeId: In(empIds), status: "pending" },
+      select: [
+        "id",
+        "employeeId",
+        "kind",
+        "title",
+        "payloadJson",
+        "status",
+        "requestedAt",
+        "decidedAt",
+      ],
+      order: { requestedAt: "DESC" },
+      // `payloadJson` is opaque, so a Member's Vault-capture filter runs in
+      // memory just as it does on Home's Approval queue. Past this generous
+      // safety ceiling an unusually deep backlog may be summarized
+      // incompletely; it never leaks.
+      take,
+    }),
+    AppDataSource.getRepository(EmployeeWakeup).find({
+      where: {
+        companyId,
+        employeeId: In(empIds),
+        status: "fired",
+        firedAt: MoreThanOrEqual(since),
+      },
+      order: { firedAt: "DESC" },
+      take,
+    }),
+    AppDataSource.getRepository(RunLesson).find({
+      where: { companyId, employeeId: In(empIds), createdAt: MoreThanOrEqual(since) },
+      order: { createdAt: "DESC" },
+      take,
+    }),
+    sessions.length
+      ? AppDataSource.getRepository(RepositoryWorkSessionTurn).find({
+          where: { companyId, sessionId: In([...sessionById.keys()]) },
+          order: { createdAt: "DESC" },
+          take,
+        })
+      : Promise.resolve([] as RepositoryWorkSessionTurn[]),
+    sessions.length
+      ? AppDataSource.getRepository(RepositoryWorkSessionTurn).find({
+          where: {
+            companyId,
+            sessionId: In([...sessionById.keys()]),
+            status: "running",
+          },
+          select: ["id", "sessionId", "status", "createdAt"],
+          order: { createdAt: "DESC" },
+        })
+      : Promise.resolve([] as RepositoryWorkSessionTurn[]),
+  ]);
 
   const canSeeVaultRows = isAdminRole(role);
 
@@ -408,6 +511,26 @@ export async function getEmployeeWorkTimeline(params: {
 
   const entries: WorkEntry[] = [];
 
+  const describeChatTurn = (msg: ConversationMessage, conv: Conversation) => {
+    // A transcript is private to the Member who requested it — that is what
+    // stops a lower-privilege Member replaying context produced under somebody
+    // else's authority. The work is still reported; its subject is not.
+    const owned = conv.ownerUserId === userId;
+    const subject = owned && conv.title ? safe(conv.title) : "a private conversation";
+    const working = msg.status === "working";
+    const progress =
+      working && owned && msg.progressLabel
+        ? `${safe(msg.progressLabel)}${msg.progressPercent !== null ? ` · ${msg.progressPercent}%` : ""}`
+        : null;
+    return {
+      at: iso(msg.updatedAt),
+      endedAt: working ? null : iso(msg.updatedAt),
+      active: working,
+      title: working ? `Working on ${subject}` : `Replied in ${subject}`,
+      detail: progress ?? (working ? "Working on a reply" : ""),
+    };
+  };
+
   // ── Runs ─────────────────────────────────────────────────────────────────
   // Effects land on the entry that owns them, so the run index is built first.
   const runEntryById = new Map<string, WorkEntry>();
@@ -421,6 +544,7 @@ export async function getEmployeeWorkTimeline(params: {
       kind: "run",
       at: iso(run.startedAt),
       endedAt: run.finishedAt ? iso(run.finishedAt) : null,
+      active: run.status === "running",
       employee,
       title: runTitle(routine.name),
       detail: runDetail(run),
@@ -455,20 +579,17 @@ export async function getEmployeeWorkTimeline(params: {
     if (!conv) continue;
     const employee = empById.get(conv.employeeId);
     if (!employee) continue;
-    // A transcript is private to the Member who requested it — that is what
-    // stops a lower-privilege Member replaying context produced under somebody
-    // else's authority. The work is still reported; its subject is not.
-    const owned = conv.ownerUserId === userId;
-    const title = owned && conv.title ? safe(conv.title) : "a private conversation";
+    const presentation = describeChatTurn(msg, conv);
     const entry: WorkEntry = {
-      // Newest turn first, so this is the conversation's most recent activity.
+      // Newest turn first, so this is the conversation's most recent work.
       id: `chat:${conv.id}`,
       kind: "chat",
-      at: iso(msg.createdAt),
-      endedAt: null,
+      at: presentation.at,
+      endedAt: presentation.endedAt,
+      active: presentation.active,
       employee,
-      title: `Replied in ${title}`,
-      detail: "",
+      title: presentation.title,
+      detail: presentation.detail,
       run: null,
       effects: [],
       effectCount: 0,
@@ -479,10 +600,12 @@ export async function getEmployeeWorkTimeline(params: {
   for (const [conversationId, entry] of chatEntryByConversation) {
     const conv = convById.get(conversationId);
     const replies = plural(chatTurnCounts.get(conversationId) ?? 0, "reply", "replies");
-    entry.detail =
-      conv && conv.source !== "web" && conv.source !== "help"
-        ? `${replies} · ${conv.source}`
-        : replies;
+    if (!entry.active) {
+      entry.detail =
+        conv && conv.source !== "web" && conv.source !== "help"
+          ? `${replies} · ${conv.source}`
+          : replies;
+    }
   }
 
   // ── Repository work sessions ─────────────────────────────────────────────
@@ -499,6 +622,7 @@ export async function getEmployeeWorkTimeline(params: {
       kind: "work_session",
       at: iso(at),
       endedAt: turn.finishedAt ? iso(turn.finishedAt) : null,
+      active: turn.status === "running",
       employee,
       title: `Worked in ${safe(session.title) || "a repository"}`,
       detail: workSessionDetail(turn),
@@ -521,8 +645,9 @@ export async function getEmployeeWorkTimeline(params: {
       kind: "approval",
       at: iso(approval.requestedAt),
       endedAt: approval.decidedAt ? iso(approval.decidedAt) : null,
+      active: false,
       employee,
-      title: `Asked for approval: ${title || approval.kind.replaceAll("_", " ")}`,
+      title: `Approval required: ${title || approval.kind.replaceAll("_", " ")}`,
       detail: approval.status,
       run: null,
       effects: [],
@@ -540,6 +665,7 @@ export async function getEmployeeWorkTimeline(params: {
       kind: "wakeup",
       at: iso(wakeup.firedAt),
       endedAt: null,
+      active: false,
       employee,
       title: "Woke itself up to follow something through",
       detail: safe(wakeup.outcomeNote) || safe(wakeup.brief),
@@ -558,6 +684,7 @@ export async function getEmployeeWorkTimeline(params: {
       kind: "lesson",
       at: iso(lesson.createdAt),
       endedAt: null,
+      active: false,
       employee,
       title: `Took a lesson from a run: ${safe(lesson.cause) || "unnamed"}`,
       detail: safe(lesson.advice),
@@ -597,6 +724,7 @@ export async function getEmployeeWorkTimeline(params: {
       kind: "effect",
       at: effect.at,
       endedAt: null,
+      active: false,
       employee,
       title: effect.targetLabel || row.targetId || row.action,
       detail: row.action,
@@ -613,11 +741,116 @@ export async function getEmployeeWorkTimeline(params: {
     return a.id < b.id ? 1 : -1;
   });
 
+  const summaryByEmployee = new Map<string, WorkEmployeeSummary>(
+    employees.map((employee) => [
+      employee.id,
+      {
+        employeeId: employee.id,
+        entryCount: 0,
+        latest: null,
+        current: null,
+        waiting: null,
+      },
+    ]),
+  );
+  const digest = (entry: WorkEntry): WorkEntryDigest => ({
+    id: entry.id,
+    kind: entry.kind,
+    at: entry.at,
+    title: entry.title,
+    detail: entry.detail,
+    active: entry.active,
+  });
+  const isNewer = (candidate: WorkEntryDigest, current: WorkEntryDigest | null): boolean =>
+    !current ||
+    candidate.at > current.at ||
+    (candidate.at === current.at && candidate.id > current.id);
+  const rememberCurrent = (employeeId: string, candidate: WorkEntryDigest): void => {
+    const summary = summaryByEmployee.get(employeeId);
+    if (summary && isNewer(candidate, summary.current)) summary.current = candidate;
+  };
+  const rememberWaiting = (employeeId: string, candidate: WorkEntryDigest): void => {
+    const summary = summaryByEmployee.get(employeeId);
+    if (summary && isNewer(candidate, summary.waiting)) summary.waiting = candidate;
+  };
+  for (const entry of entries) {
+    const summary = summaryByEmployee.get(entry.employee.id);
+    if (!summary) continue;
+    summary.entryCount += 1;
+    summary.latest ??= digest(entry);
+    if (!summary.current && entry.active) {
+      summary.current = digest(entry);
+    }
+    if (
+      !summary.waiting &&
+      entry.kind === "approval" &&
+      entry.detail === "pending" &&
+      !entry.endedAt
+    ) {
+      summary.waiting = digest(entry);
+    }
+  }
+
+  // Current work and unresolved human gates outlive the 24-hour history
+  // window. They do not change `entryCount` or `latest` — those still describe
+  // the window — but they must keep the roster from calling someone quiet
+  // while they are visibly still working or waiting for a Member.
+  for (const run of activeRuns) {
+    const routine = routineById.get(run.routineId);
+    if (!routine) continue;
+    rememberCurrent(routine.employeeId, {
+      id: `run:${run.id}`,
+      kind: "run",
+      at: iso(run.startedAt),
+      title: runTitle(routine.name),
+      detail: runDetail(run),
+      active: true,
+    });
+  }
+  for (const msg of activeChatTurns) {
+    const conv = convById.get(msg.conversationId);
+    if (!conv) continue;
+    const presentation = describeChatTurn(msg, conv);
+    rememberCurrent(conv.employeeId, {
+      id: `chat:${conv.id}`,
+      kind: "chat",
+      at: presentation.at,
+      title: presentation.title,
+      detail: presentation.detail,
+      active: true,
+    });
+  }
+  for (const turn of activeSessionTurns) {
+    const session = sessionById.get(turn.sessionId);
+    if (!session) continue;
+    rememberCurrent(session.employeeId, {
+      id: `work_session:${turn.id}`,
+      kind: "work_session",
+      at: iso(turn.createdAt),
+      title: `Worked in ${safe(session.title) || "a repository"}`,
+      detail: workSessionDetail(turn),
+      active: true,
+    });
+  }
+  for (const approval of pendingApprovals) {
+    if (approval.decidedAt || (!canSeeVaultRows && isVaultCaptureApproval(approval))) continue;
+    const title = redactApprovalSummary(approval.title);
+    rememberWaiting(approval.employeeId, {
+      id: `approval:${approval.id}`,
+      kind: "approval",
+      at: iso(approval.requestedAt),
+      title: `Approval required: ${title || approval.kind.replaceAll("_", " ")}`,
+      detail: approval.status,
+      active: false,
+    });
+  }
+
   return {
     since: iso(since),
     until: iso(until),
     employeeId,
     entries: entries.slice(0, limit),
     entryCount: entries.length,
+    employeeSummaries: [...summaryByEmployee.values()],
   };
 }

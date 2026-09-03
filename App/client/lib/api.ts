@@ -3048,6 +3048,8 @@ export type WorkEntry = {
   kind: WorkEntryKind;
   at: string;
   endedAt: string | null;
+  /** Explicit source-backed live state. Never infer this from `endedAt` alone. */
+  active: boolean;
   employee: WorkEmployeeRef;
   title: string;
   detail: string;
@@ -3058,6 +3060,16 @@ export type WorkEntry = {
   effectCount: number;
 };
 
+export type WorkEntryDigest = Pick<WorkEntry, "id" | "kind" | "at" | "title" | "detail" | "active">;
+
+export type WorkEmployeeSummary = {
+  employeeId: string;
+  entryCount: number;
+  latest: WorkEntryDigest | null;
+  current: WorkEntryDigest | null;
+  waiting: WorkEntryDigest | null;
+};
+
 export type WorkTimeline = {
   since: string;
   until: string;
@@ -3066,6 +3078,8 @@ export type WorkTimeline = {
   entries: WorkEntry[];
   /** Entries in the window before `limit` sliced them. */
   entryCount: number;
+  /** Pre-response-limit rollups, so the 40 visible rows cannot crowd a bubble out. */
+  employeeSummaries: WorkEmployeeSummary[];
 };
 
 // ───────────────────────── System Health ────────────────────────────────
