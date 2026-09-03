@@ -89,9 +89,12 @@ export function VaultSources() {
           them afterwards.
         </LI>
         <LI>
-          Save. Genosyn signs in, unlocks the vault, and reports how many items it can read. Choose
-          {" "}
-          <Strong>Sync now</Strong> to bring them into the Vault.
+          Choose <Strong>Connect Vault source</Strong>. Genosyn proves the sign-in, and then runs
+          the first sync straight away — there is no separate step to bring the items in. The new
+          source appears in the list with the number of items it mirrors and when it last synced.{" "}
+          <Strong>Sync now</Strong> repeats that sync whenever you want it. If the sign-in worked
+          but the first sync did not, the source is still connected and its row says what went
+          wrong.
         </LI>
       </OL>
 
