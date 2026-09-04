@@ -69,6 +69,32 @@ const NOTETAKER_JOIN_LEAD_MS = 30_000;
 const ACTIVE_HEARTBEAT_MS = 15_000;
 const ACTIVE_STALE_MS = 60_000;
 const MAX_DUE_PER_PASS = 50;
+/**
+ * Automatic retry, and why it is bounded twice.
+ *
+ * A join can fail for reasons that have nothing to do with this meeting: the
+ * lobby had not rendered yet, Chrome lost a race with the display, the host
+ * had not opened the call. Dispatch used to claim `scheduled` rows only, so
+ * the first such failure was final — a thirty-minute call was written off at
+ * second one and nobody was told. Retrying is therefore the correct default,
+ * but a browser and a recording are expensive, so it is bounded by a backoff
+ * (never more than one attempt per interval) and a window (only while the
+ * call has recently started), which together cap a doomed meeting at a
+ * handful of attempts rather than one every dispatch tick for an hour.
+ */
+const AUTOMATIC_RETRY_BACKOFF_MS = 2 * 60_000;
+const AUTOMATIC_RETRY_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Which rows a claim may take.
+ *
+ *   - `fresh` — a `scheduled` meeting, the ordinary automatic path.
+ *   - `automatic-retry` — a `failed` meeting with no audio, retried by the
+ *     dispatcher inside the window above.
+ *   - `human-retry` — anything that never produced audio, including `skipped`,
+ *     because a person pressing the button has seen the reason and disagrees.
+ */
+type ClaimMode = "fresh" | "automatic-retry" | "human-retry";
 
 type ActiveNotetaker = {
   controller: AbortController;
@@ -749,7 +775,7 @@ async function runClaimedNotetaker(
 async function claimNotetaker(args: {
   companyId: string;
   meetingId: string;
-  retryFailed: boolean;
+  claim: ClaimMode;
 }): Promise<Meeting | null> {
   const query = AppDataSource.getRepository(Meeting)
     .createQueryBuilder()
@@ -762,12 +788,17 @@ async function claimNotetaker(args: {
     })
     .where("id = :meetingId", { meetingId: args.meetingId })
     .andWhere("companyId = :companyId", { companyId: args.companyId });
-  if (args.retryFailed) {
-    query.andWhere("(status = :scheduled OR (status = :failed AND recordingPath = :empty))", {
-      scheduled: "scheduled",
-      failed: "failed",
-      empty: "",
-    });
+  if (args.claim === "human-retry") {
+    // A human pressing the button may re-open anything that never produced
+    // audio, `skipped` included. Skipping used to be the end of the line, so
+    // a call the policy declined at 2:59 — for a Grant somebody has since
+    // fixed — could not be recorded at 3:05 even though it was still running.
+    query.andWhere(
+      "(status = :scheduled OR (status IN (:...reopenable) AND recordingPath = :empty))",
+      { scheduled: "scheduled", reopenable: ["failed", "skipped"], empty: "" },
+    );
+  } else if (args.claim === "automatic-retry") {
+    query.andWhere("status = :failed AND recordingPath = :empty", { failed: "failed", empty: "" });
   } else {
     query.andWhere("status = :scheduled", { scheduled: "scheduled" });
   }
@@ -782,7 +813,7 @@ async function claimNotetaker(args: {
 async function startNotetakerInternal(args: {
   companyId: string;
   meetingId: string;
-  retryFailed: boolean;
+  claim: ClaimMode;
   automatic: boolean;
   now?: Date;
 }): Promise<IngestResult> {
@@ -794,7 +825,11 @@ async function startNotetakerInternal(args: {
   }
 
   const driver = activeMeetingRecorder();
-  const claimed = await claimNotetaker(args);
+  const claimed = await claimNotetaker({
+    companyId: args.companyId,
+    meetingId: args.meetingId,
+    claim: args.claim,
+  });
   if (!claimed) {
     return {
       ok: false,
@@ -861,8 +896,9 @@ export async function startNotetaker(args: {
   retryFailed?: boolean;
 }): Promise<IngestResult> {
   return startNotetakerInternal({
-    ...args,
-    retryFailed: args.retryFailed === true,
+    companyId: args.companyId,
+    meetingId: args.meetingId,
+    claim: args.retryFailed === true ? "human-retry" : "fresh",
     automatic: false,
   });
 }
@@ -1020,6 +1056,8 @@ export async function recoverStaleNotetakers(
 export type DueDispatchResult = {
   due: number;
   claimed: number;
+  /** How many of `claimed` were second attempts at a call already in progress. */
+  retried: number;
   recovered: number;
   recoveryFailed: number;
 };
@@ -1028,6 +1066,8 @@ export type DueDispatchResult = {
 export async function dispatchDueMeetings(now = new Date()): Promise<DueDispatchResult> {
   const recovery = await recoverStaleNotetakers(now);
   const joinBy = new Date(now.getTime() + NOTETAKER_JOIN_LEAD_MS);
+  const retryBefore = new Date(now.getTime() - AUTOMATIC_RETRY_BACKOFF_MS);
+  const retryFrom = new Date(now.getTime() - AUTOMATIC_RETRY_WINDOW_MS);
   const due = await AppDataSource.getRepository(Meeting)
     .createQueryBuilder("meeting")
     .innerJoin(
@@ -1035,7 +1075,27 @@ export async function dispatchDueMeetings(now = new Date()): Promise<DueDispatch
       "event",
       "event.id = meeting.calendarEventId AND event.companyId = meeting.companyId",
     )
-    .where("meeting.status = :status", { status: "scheduled" })
+    .where(
+      `(meeting.status = :scheduled
+        OR (meeting.status = :failed
+            AND meeting.recordingPath = :noRecording
+            AND meeting.updatedAt <= :retryBefore
+            AND event.startAt >= :retryFrom
+            AND meeting.statusMessage <> :stopped
+            AND meeting.statusMessage NOT LIKE :policyStopped))`,
+      {
+        scheduled: "scheduled",
+        failed: "failed",
+        noRecording: "",
+        retryBefore,
+        retryFrom,
+        // A human Stop and a policy stop are decisions, not accidents. Retrying
+        // either would put the notetaker back into a call somebody removed it
+        // from, which is the one failure mode worse than not joining at all.
+        stopped: STOP_NOTETAKER_MESSAGE,
+        policyStopped: `${POLICY_STOP_PREFIX}%`,
+      },
+    )
     .andWhere("event.startAt <= :joinBy", { joinBy })
     .andWhere("event.endAt > :now", { now })
     .orderBy("event.startAt", "ASC")
@@ -1043,19 +1103,25 @@ export async function dispatchDueMeetings(now = new Date()): Promise<DueDispatch
     .getMany();
 
   let claimed = 0;
+  let retried = 0;
   for (const meeting of due) {
+    const claim: ClaimMode = meeting.status === "failed" ? "automatic-retry" : "fresh";
     const result = await startNotetakerInternal({
       companyId: meeting.companyId,
       meetingId: meeting.id,
-      retryFailed: false,
+      claim,
       automatic: true,
       now,
     });
-    if (result.ok) claimed += 1;
+    if (result.ok) {
+      claimed += 1;
+      if (claim === "automatic-retry") retried += 1;
+    }
   }
   return {
     due: due.length,
     claimed,
+    retried,
     recovered: recovery.recovered,
     recoveryFailed: recovery.failed,
   };

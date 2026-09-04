@@ -249,7 +249,7 @@ export default function MeetingsCalendars() {
                 {row.autoRecord === "off"
                   ? "Nothing on this calendar is recorded automatically. You can still record any meeting by hand."
                   : row.notetakerEmployeeId
-                    ? "Eligible Google Meets are joined by the notetaker, and follow-ups land in the Revenue queue."
+                    ? "Eligible Google Meets are joined by the notetaker, and follow-ups land in the Revenue queue. Naming a notetaker gives it Record access to this calendar; review it under AI access."
                     : "Pick a notetaker — without one, nothing is recorded automatically."}
               </p>
             </section>

@@ -204,11 +204,18 @@ export default function MeetingDetail() {
   const { meeting, participants, transcript } = data;
   const when = meeting.scheduledStartAt ?? meeting.startedAt ?? meeting.createdAt;
   const knownContacts = participants.filter((row) => row.contactId);
+  // `skipped` belongs here with `scheduled` and `failed`: the automatic pass
+  // declining a call at T-30s says nothing about whether a person, having read
+  // the reason and fixed it, may record the same call at T+5 while it is still
+  // running. The server makes the same allowance for an explicit human retry.
   const canStartNotetaker =
     meeting.conferenceProvider === "meet" &&
     Boolean(meeting.conferenceUrl) &&
     !meeting.hasRecording &&
-    (meeting.status === "scheduled" || meeting.status === "failed" || startingNotetaker);
+    (meeting.status === "scheduled" ||
+      meeting.status === "failed" ||
+      meeting.status === "skipped" ||
+      startingNotetaker);
   const canStopNotetaker = meeting.status === "joining" || meeting.status === "recording";
 
   return (
@@ -310,6 +317,18 @@ export default function MeetingDetail() {
       <FormSuccess message={notice} className="mb-4" />
       {meeting.statusMessage && meeting.status === "failed" && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+          {meeting.statusMessage}
+        </div>
+      )}
+      {/* A skip is a decision the notetaker made and wrote down, and until now
+          it wrote it down where nobody could read it: `statusMessage` was
+          rendered for `failed` alone. "The assigned AI Employee does not have
+          Record access to this calendar" is the difference between a fixable
+          setup mistake and a product that mysteriously never turns up. The
+          same goes for a deferral parked back on `scheduled`. */}
+      {meeting.statusMessage && (meeting.status === "skipped" || meeting.status === "scheduled") && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+          {meeting.status === "skipped" ? "The notetaker did not join. " : ""}
           {meeting.statusMessage}
         </div>
       )}

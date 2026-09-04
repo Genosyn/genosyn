@@ -1,9 +1,13 @@
 import { In } from "typeorm";
 
+import { AIEmployee } from "../../db/entities/AIEmployee.js";
 import { AppDataSource } from "../../db/datasource.js";
 import { CalendarAccount } from "../../db/entities/CalendarAccount.js";
 import { CalendarEvent } from "../../db/entities/CalendarEvent.js";
-import { EmployeeCalendarGrant } from "../../db/entities/EmployeeCalendarGrant.js";
+import {
+  CALENDAR_ACCESS_RANK,
+  EmployeeCalendarGrant,
+} from "../../db/entities/EmployeeCalendarGrant.js";
 import { Meeting } from "../../db/entities/Meeting.js";
 import { MeetingParticipant } from "../../db/entities/MeetingParticipant.js";
 import { MeetingTranscriptSegment } from "../../db/entities/MeetingTranscriptSegment.js";
@@ -202,13 +206,78 @@ export async function updateCalendarAccount(
     if (patch.status !== "error") row.statusMessage = "";
   }
   if (patch.autoRecord !== undefined) row.autoRecord = patch.autoRecord;
-  if (patch.notetakerEmployeeId !== undefined) row.notetakerEmployeeId = patch.notetakerEmployeeId;
+  if (patch.notetakerEmployeeId !== undefined) {
+    // An id that belongs to another company — or to a deleted employee — would
+    // otherwise be written happily and then fail at due time, an hour later,
+    // as an unexplained skip. Refuse it here, where the person who typed it is
+    // still looking at the screen.
+    if (patch.notetakerEmployeeId) {
+      const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
+        id: patch.notetakerEmployeeId,
+        companyId,
+      });
+      if (!employee) throw new Error("That AI Employee is not in this company.");
+    }
+    row.notetakerEmployeeId = patch.notetakerEmployeeId;
+  }
   if (patch.windowDays !== undefined) {
     // Clamped rather than validated away: a calendar mirror is a cache, and a
     // window somebody typed 100000 into is a slow full re-list every pass.
     row.windowDays = Math.max(1, Math.min(365, Math.trunc(patch.windowDays)));
   }
-  return repo.save(row);
+  const saved = await repo.save(row);
+  if (patch.notetakerEmployeeId) {
+    await ensureNotetakerCanRecord(companyId, saved.id, patch.notetakerEmployeeId);
+  }
+  return saved;
+}
+
+/**
+ * Naming an employee as a calendar's notetaker **is** granting it Record.
+ *
+ * These used to be two separate acts: a dropdown on Meetings → Calendars that
+ * wrote one column, and a Grant on Meetings → AI access that the join path
+ * actually checks. Nothing connected them, so the ordinary setup flow produced
+ * a calendar that said "eligible Google Meets are joined by the notetaker"
+ * while `validateClaimedJoin` refused every single call for want of a Grant
+ * nobody had been told to create — and refused it as a `skipped` row whose
+ * reason the UI never rendered. The notetaker simply never turned up, with no
+ * error anywhere a human would look.
+ *
+ * Deriving the Grant from the assignment closes that gap without weakening the
+ * authority model: both controls are gated on the same owner/admin role, both
+ * are per calendar, and the resulting Grant is listed — and revocable — on the
+ * AI access page exactly as a hand-made one is.
+ *
+ * Only ever an upgrade. An employee that already holds `record` is left alone,
+ * and un-assigning a notetaker revokes nothing: the Grant may have been made
+ * by hand for the meeting tools, and silently withdrawing authority a human
+ * granted elsewhere is its own bug.
+ */
+export async function ensureNotetakerCanRecord(
+  companyId: string,
+  accountId: string,
+  employeeId: string,
+): Promise<EmployeeCalendarGrant | null> {
+  const employee = await AppDataSource.getRepository(AIEmployee).findOneBy({
+    id: employeeId,
+    companyId,
+  });
+  if (!employee) return null;
+  const account = await AppDataSource.getRepository(CalendarAccount).findOneBy({
+    id: accountId,
+    companyId,
+  });
+  if (!account) return null;
+
+  const repo = AppDataSource.getRepository(EmployeeCalendarGrant);
+  const existing = await repo.findOneBy({ employeeId, accountId });
+  if (existing) {
+    if (CALENDAR_ACCESS_RANK[existing.accessLevel] >= CALENDAR_ACCESS_RANK.record) return existing;
+    existing.accessLevel = "record";
+    return repo.save(existing);
+  }
+  return repo.save(repo.create({ employeeId, accountId, accessLevel: "record" }));
 }
 
 /**

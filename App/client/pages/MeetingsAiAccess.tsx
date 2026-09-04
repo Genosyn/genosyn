@@ -108,7 +108,12 @@ export default function MeetingsAiAccess() {
         <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
           Choose which AI Employees may read which calendars. Without a Grant, an employee&apos;s
           meeting tools return nothing — they cannot see the agenda, the recordings, or the
-          transcripts.
+          transcripts. <strong>Record</strong> is the level the notetaker joins a call under;
+          naming an employee as a calendar&apos;s notetaker on{" "}
+          <Link className="underline" to={`${base}/calendars`}>
+            Calendars
+          </Link>{" "}
+          gives it that Grant here, and revoking it here stops the notetaker joining.
         </p>
       </div>
 

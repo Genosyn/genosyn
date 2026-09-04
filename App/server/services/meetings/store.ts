@@ -7,6 +7,7 @@ import { Meeting, type MeetingStatus } from "../../db/entities/Meeting.js";
 import { MeetingParticipant } from "../../db/entities/MeetingParticipant.js";
 import { MeetingTranscriptSegment } from "../../db/entities/MeetingTranscriptSegment.js";
 import { normalizeEmail } from "../../lib/emailAddress.js";
+import { providerForUrl } from "./conference.js";
 import { companyDomains, isInternalAddress } from "./domains.js";
 import type { StoredAttendee } from "./calendarSync.js";
 
@@ -297,6 +298,13 @@ export async function createAdHocMeeting(args: {
       title: args.title,
       scheduledStartAt: args.scheduledStartAt,
       conferenceUrl: args.conferenceUrl,
+      // Named from the link rather than left at `none`. The meeting page keys
+      // its "Start notetaker" affordance off the provider, so an ad-hoc call
+      // whose provider never got filled in reads as "there is nothing to
+      // join" even with a perfectly good Meet link sitting on the row.
+      conferenceProvider: args.conferenceUrl
+        ? (providerForUrl(args.conferenceUrl) ?? "other")
+        : "none",
       notetakerEmployeeId: args.notetakerEmployeeId,
       createdByUserId: args.createdByUserId,
       status: "scheduled",
