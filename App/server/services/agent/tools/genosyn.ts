@@ -77,6 +77,7 @@ export async function loadGenosynTools(
     name: t.name,
     description: t.description,
     inputSchema: t.inputSchema,
+    ...(t.readOnly ? { readOnly: true } : {}),
     run: (input) => callInternal(token, `/tools/${t.name}`, input, signal),
   }));
 

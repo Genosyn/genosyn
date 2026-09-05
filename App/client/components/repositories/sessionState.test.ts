@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import type {
   RepositoryForgeInfo,
   RepositoryWorkSession,
+  RepositoryWorkSessionEvent,
   RepositoryWorkSessionStatus,
 } from "../../lib/api";
 import {
@@ -11,17 +12,27 @@ import {
   SESSION_INBOX_GROUP_ORDER,
   SESSION_STATUS_LABEL,
   SESSION_STATUS_TONE,
+  appendSessionEvents,
+  buildSessionActivity,
   canRevise,
+  commandResultText,
+  describeSessionActivity,
+  eventSteps,
+  eventsByTurn,
   groupSessions,
   hasReviewableWork,
   isArchived,
+  lastEventOrdinal,
   matchesSessionSearch,
   sessionActions,
   sessionInboxGroup,
   sessionSearchText,
   sessionSubtitle,
   sessionTitle,
+  sessionToolFamily,
   sortSessions,
+  toolInput,
+  toolOutput,
 } from "./sessionState";
 
 /**
@@ -220,7 +231,8 @@ describe("filing a session away", () => {
   test("offered at every status except a turn in flight", () => {
     const offered = ALL_STATUSES.filter(
       (status) =>
-        sessionActions(session({ status }), { remote: false, pullRequests: false, admin: false }).archive,
+        sessionActions(session({ status }), { remote: false, pullRequests: false, admin: false })
+          .archive,
     );
     assert.deepEqual(offered, ["ready", "empty", "proposed", "published", "discarded", "failed"]);
   });
@@ -400,6 +412,322 @@ describe("session inbox search", () => {
     assert.equal(
       matchesSessionSearch(session({ employee: null, branch: null }), "removed employee"),
       false,
+    );
+  });
+});
+
+/**
+ * The activity feed.
+ *
+ * The server writes one event per thing that happened; the feed shows one row
+ * per *call*. Pairing results to calls, joining streamed narration, and
+ * keeping only the latest step list are the rules that turn one into the
+ * other — and a result matched to the wrong call shows a reviewer the wrong
+ * output under the right file name, which is worse than showing nothing.
+ */
+
+let nextOrdinal = 1;
+
+function event(
+  overrides: Partial<RepositoryWorkSessionEvent> & { kind: RepositoryWorkSessionEvent["kind"] },
+): RepositoryWorkSessionEvent {
+  const ordinal = overrides.ordinal ?? nextOrdinal++;
+  return {
+    id: `ev-${ordinal}`,
+    turnId: "t1",
+    ordinal,
+    name: "",
+    callId: "",
+    summary: "",
+    detail: null,
+    isError: false,
+    createdAt: "2026-08-19T09:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function call(name: string, callId: string, input: Record<string, unknown> = {}) {
+  return event({ kind: "tool_use", name, callId, summary: `Called ${name}`, detail: { input } });
+}
+
+function result(name: string, callId: string, output = "", isError = false) {
+  return event({
+    kind: "tool_result",
+    name,
+    callId,
+    summary: isError ? "Failed" : "Done",
+    detail: { output },
+    isError,
+  });
+}
+
+function text(value: string) {
+  return event({ kind: "text", detail: { text: value } });
+}
+
+describe("holding the feed incrementally", () => {
+  test("the cursor is the last ordinal held, and zero before anything is", () => {
+    assert.equal(lastEventOrdinal([]), 0);
+    assert.equal(
+      lastEventOrdinal([event({ kind: "text", ordinal: 3 }), event({ kind: "text", ordinal: 7 })]),
+      7,
+    );
+  });
+
+  test("appending nothing new returns the very same array", () => {
+    const held = [event({ kind: "text", ordinal: 1 }), event({ kind: "text", ordinal: 2 })];
+    assert.equal(appendSessionEvents(held, []), held);
+    assert.equal(appendSessionEvents(held, [event({ kind: "text", ordinal: 2 })]), held);
+  });
+
+  test("drops rows already held and keeps ordinal order whichever fetch landed first", () => {
+    const held = [event({ kind: "text", ordinal: 1 }), event({ kind: "text", ordinal: 2 })];
+    const merged = appendSessionEvents(held, [
+      event({ kind: "text", ordinal: 5 }),
+      event({ kind: "text", ordinal: 2 }),
+      event({ kind: "text", ordinal: 3 }),
+      event({ kind: "text", ordinal: 3 }),
+    ]);
+    assert.deepEqual(
+      merged.map((row) => row.ordinal),
+      [1, 2, 3, 5],
+    );
+    assert.equal(held.length, 2, "the held array is never mutated");
+  });
+
+  test("splits a session's events by turn without reordering them", () => {
+    const rows = [
+      event({ kind: "text", ordinal: 1, turnId: "t1" }),
+      event({ kind: "text", ordinal: 2, turnId: "t2" }),
+      event({ kind: "text", ordinal: 3, turnId: "t1" }),
+    ];
+    const byTurn = eventsByTurn(rows);
+    assert.deepEqual(
+      byTurn.get("t1")?.map((row) => row.ordinal),
+      [1, 3],
+    );
+    assert.deepEqual(
+      byTurn.get("t2")?.map((row) => row.ordinal),
+      [2],
+    );
+    assert.equal(byTurn.get("t3"), undefined);
+  });
+});
+
+describe("reading event detail without trusting it", () => {
+  test("accessors return empty values for detail of the wrong shape", () => {
+    const odd = event({ kind: "tool_use", detail: "not an object" });
+    assert.deepEqual(toolInput(odd), {});
+    assert.equal(toolOutput(odd), "");
+    assert.equal(eventSteps(odd), null);
+    assert.deepEqual(toolInput(event({ kind: "tool_use", detail: { input: [1, 2] } })), {});
+  });
+
+  test("a step list keeps only well-formed steps", () => {
+    const steps = eventSteps(
+      event({
+        kind: "steps",
+        detail: {
+          steps: [
+            { text: "Read the router", status: "completed" },
+            { text: "Add the route", status: "in_progress" },
+            { text: "Broken", status: "unknown" },
+            "not a step",
+            { text: 42, status: "pending" },
+          ],
+        },
+      }),
+    );
+    assert.deepEqual(steps, [
+      { text: "Read the router", status: "completed" },
+      { text: "Add the route", status: "in_progress" },
+    ]);
+  });
+
+  test("a command result is unwrapped to what it printed", () => {
+    assert.equal(
+      commandResultText('{"ran":true,"exitCode":1,"output":"FAIL src/a.test.ts"}'),
+      "FAIL src/a.test.ts",
+    );
+    assert.equal(
+      commandResultText('{"ran":false,"reason":"curl is not on the allowed list"}'),
+      "curl is not on the allowed list",
+    );
+    assert.equal(commandResultText("plain text"), "plain text");
+    assert.equal(commandResultText("{not json"), "{not json");
+    assert.equal(commandResultText('{"exitCode":0}'), '{"exitCode":0}');
+  });
+
+  test("every session tool has a family, and anything else is other", () => {
+    assert.equal(sessionToolFamily("repository_read_file"), "read");
+    assert.equal(sessionToolFamily("repository_edit_file"), "edit");
+    assert.equal(sessionToolFamily("repository_write_file"), "write");
+    assert.equal(sessionToolFamily("repository_delete_file"), "delete");
+    assert.equal(sessionToolFamily("repository_search"), "search");
+    assert.equal(sessionToolFamily("repository_glob"), "glob");
+    assert.equal(sessionToolFamily("repository_list_files"), "list");
+    assert.equal(sessionToolFamily("repository_status"), "status");
+    assert.equal(sessionToolFamily("repository_diff"), "diff");
+    assert.equal(sessionToolFamily("repository_run_command"), "command");
+    assert.equal(sessionToolFamily("repository_commit"), "commit");
+    assert.equal(sessionToolFamily("repository_update_steps"), "steps");
+    assert.equal(sessionToolFamily("find_tools"), "other");
+  });
+});
+
+describe("folding events into the feed", () => {
+  test("pairs a result with its call by id, even when results land out of order", () => {
+    const rows = [
+      call("repository_read_file", "a", { path: "src/a.ts" }),
+      call("repository_read_file", "b", { path: "src/b.ts" }),
+      result("repository_read_file", "b", "contents of b"),
+      result("repository_read_file", "a", "contents of a"),
+    ];
+    const { items } = buildSessionActivity(rows);
+    assert.equal(items.length, 2);
+    assert.ok(items[0].kind === "tool" && items[1].kind === "tool");
+    assert.equal(items[0].call?.callId, "a");
+    assert.equal(items[0].result && toolOutput(items[0].result), "contents of a");
+    assert.equal(items[1].call?.callId, "b");
+    assert.equal(items[1].result && toolOutput(items[1].result), "contents of b");
+  });
+
+  test("a call without a result yet stays open", () => {
+    const { items } = buildSessionActivity([
+      call("repository_run_command", "c", { command: "npm test" }),
+    ]);
+    assert.ok(items[0].kind === "tool");
+    assert.equal(items[0].result, null);
+  });
+
+  test("a result with no call id falls back to the oldest open call of the same name", () => {
+    const rows = [
+      call("repository_status", ""),
+      call("repository_diff", ""),
+      result("repository_diff", "", "diff"),
+      result("repository_status", "", "status"),
+    ];
+    const { items } = buildSessionActivity(rows);
+    assert.ok(items[0].kind === "tool" && items[1].kind === "tool");
+    assert.equal(items[0].result && toolOutput(items[0].result), "status");
+    assert.equal(items[1].result && toolOutput(items[1].result), "diff");
+  });
+
+  test("a result whose call never arrived is still shown rather than dropped", () => {
+    const { items } = buildSessionActivity([result("repository_commit", "orphan", "abc")]);
+    assert.equal(items.length, 1);
+    assert.ok(items[0].kind === "tool");
+    assert.equal(items[0].call, null);
+    assert.equal(items[0].result?.callId, "orphan");
+  });
+
+  test("joins streamed narration and keeps a tool call as a boundary", () => {
+    const rows = [
+      text("Let me look at "),
+      text("the router first."),
+      call("repository_read_file", "a", { path: "src/router.ts" }),
+      result("repository_read_file", "a", "…"),
+      text("Now the fix."),
+      event({ kind: "text", detail: { text: "   " } }),
+    ];
+    const { items } = buildSessionActivity(rows);
+    assert.deepEqual(
+      items.map((item) => item.kind),
+      ["text", "tool", "text"],
+    );
+    assert.ok(items[0].kind === "text");
+    assert.equal(items[0].text, "Let me look at the router first.");
+    assert.ok(items[2].kind === "text");
+    assert.equal(items[2].text, "Now the fix.");
+  });
+
+  test("keeps only the latest step list, and never shows it inline", () => {
+    const rows = [
+      event({
+        kind: "steps",
+        detail: {
+          steps: [
+            { text: "Read", status: "in_progress" },
+            { text: "Fix", status: "pending" },
+          ],
+        },
+      }),
+      call("repository_read_file", "a", { path: "src/a.ts" }),
+      event({
+        kind: "steps",
+        detail: {
+          steps: [
+            { text: "Read", status: "completed" },
+            { text: "Fix", status: "in_progress" },
+          ],
+        },
+      }),
+    ];
+    const { steps, items } = buildSessionActivity(rows);
+    assert.deepEqual(steps, [
+      { text: "Read", status: "completed" },
+      { text: "Fix", status: "in_progress" },
+    ]);
+    assert.deepEqual(
+      items.map((item) => item.kind),
+      ["tool"],
+    );
+    assert.equal(buildSessionActivity([]).steps, null);
+  });
+
+  test("compaction, retries, progress and a stop are one system line each", () => {
+    const rows = [
+      event({ kind: "compact", summary: "Dropped 3 older tool results" }),
+      event({ kind: "retry", summary: "Model call retried (1 of 3)" }),
+      event({ kind: "progress", summary: "40% — editing" }),
+      event({ kind: "stopped", summary: "Stopped by a Member" }),
+    ];
+    const { items } = buildSessionActivity(rows);
+    assert.deepEqual(
+      items.map((item) => (item.kind === "system" ? item.event.kind : item.kind)),
+      ["compact", "retry", "progress", "stopped"],
+    );
+  });
+
+  test("counts calls, distinct files touched, commands and commits — skipping failures", () => {
+    const rows = [
+      call("repository_read_file", "r1", { path: "src/a.ts" }),
+      result("repository_read_file", "r1"),
+      call("repository_edit_file", "e1", { path: "src/a.ts" }),
+      result("repository_edit_file", "e1"),
+      call("repository_edit_file", "e2", { path: "src/a.ts" }),
+      result("repository_edit_file", "e2"),
+      call("repository_write_file", "w1", { path: "src/b.ts" }),
+      result("repository_write_file", "w1"),
+      call("repository_delete_file", "d1", { path: "src/c.ts" }),
+      result("repository_delete_file", "d1", "old_string was not found", true),
+      call("repository_run_command", "c1", { command: "npm test" }),
+      result("repository_run_command", "c1"),
+      call("repository_run_command", "c2", { command: "npm run lint" }),
+      result("repository_run_command", "c2", "refused", true),
+      call("repository_commit", "k1", { message: "Fix" }),
+      result("repository_commit", "k1"),
+    ];
+    const { summary } = buildSessionActivity(rows);
+    assert.deepEqual(summary, { toolCalls: 8, filesEdited: 2, commandsRun: 1, commits: 1 });
+    assert.equal(
+      describeSessionActivity(summary),
+      "8 tool calls · 2 files edited · 1 command run · 1 commit",
+    );
+  });
+
+  test("the one-line summary drops what did not happen and handles singulars", () => {
+    assert.equal(
+      describeSessionActivity({ toolCalls: 0, filesEdited: 0, commandsRun: 0, commits: 0 }),
+      "No tool calls",
+    );
+    assert.equal(
+      describeSessionActivity({ toolCalls: 1, filesEdited: 0, commandsRun: 0, commits: 0 }),
+      "1 tool call",
+    );
+    assert.equal(
+      describeSessionActivity({ toolCalls: 14, filesEdited: 3, commandsRun: 2, commits: 0 }),
+      "14 tool calls · 3 files edited · 2 commands run",
     );
   });
 });

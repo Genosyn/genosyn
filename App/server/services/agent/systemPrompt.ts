@@ -120,6 +120,50 @@ export function composeEmployeeSystemPrompt(args: {
 }
 
 /**
+ * The system prompt for a Repository work session.
+ *
+ * Deliberately not {@link composeEmployeeSystemPrompt} with sections switched
+ * off. A session is coding work in one worktree with one small tool set, and
+ * the chat prompt is built for the opposite: a persona that can reach mail,
+ * finance, the browser and a catalogue of a hundred tools, briefed on all of
+ * them. Every one of those paragraphs was context spent on things the
+ * session's MCP seam refuses, and every one diluted the coding guidance that
+ * decides whether a diff gets merged.
+ *
+ * What survives is what shapes the *work*: who the employee is (Soul), the
+ * company's charter and policies, and its Skills — a Skill is a playbook, and
+ * "how we write tests here" is exactly the kind of thing one holds. The
+ * session briefing itself (`composeWorkSystemPrompt` in
+ * `repositoryWorkSessions.ts`) is appended by the caller and carries the
+ * tools, the craft guidance, and the repository's own contributor guide.
+ */
+export function composeRepositoryWorkSystemPrompt(args: {
+  co: Company;
+  emp: AIEmployee;
+  skills: Skill[];
+  policiesContext: string;
+}): string {
+  const { co, emp, skills, policiesContext } = args;
+  const parts: string[] = [
+    `You are ${emp.name}, ${emp.role} at ${co.name}, working as a software engineer in one of the company's Repositories. A teammate asked for a change; you make it in an isolated working copy and commit it for their review. Reply in your own voice, guided by your Soul and Skills, but let the work speak: the diff and your report are what the teammate reads.`,
+  ];
+  if (co.mission.trim() || co.vision.trim()) {
+    const charter = ["\n## Company\n"];
+    if (co.mission.trim()) charter.push(`Mission: ${co.mission.trim()}`);
+    if (co.vision.trim()) charter.push(`Vision: ${co.vision.trim()}`);
+    parts.push(charter.join("\n"));
+  }
+  if (policiesContext) parts.push(policiesContext);
+  parts.push("\n## Soul\n");
+  parts.push(emp.soulBody);
+  for (const s of skills) {
+    parts.push(`\n## Skill: ${s.name}\n`);
+    parts.push(s.body);
+  }
+  return parts.join("\n");
+}
+
+/**
  * The tools section.
  *
  * Three pieces are chat-only, because they describe things that only exist in a

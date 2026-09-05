@@ -95,6 +95,11 @@ export function spawnSandboxedCommand(
         // Own process group so the kill below reaches anything the command
         // forked or backgrounded, rather than orphaning it.
         detached: true,
+        // Nothing will ever type into this command. Closing stdin makes an
+        // interactive prompt — `npm init`, a confirmation, a pager — fail at
+        // once with EOF instead of sitting on a read until the timeout kills
+        // it and the employee is told the command was stopped.
+        stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {
       resolve({

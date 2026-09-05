@@ -176,8 +176,17 @@ const SINGLE_RESIDENT_TOOL_CHARS_MAX = 2_000;
  * by name because "why did it fail" and "what did that run actually change"
  * match nothing else lexically. ~2,880 characters remain for the six returned
  * schemas inside the 8,000-char envelope.
+ *
+ * Raised to 5,300 for the five tools that brought Repository work sessions to
+ * parity with a coding harness (`repository_edit_file`, `repository_glob`,
+ * `repository_status`, `repository_diff`, `repository_update_steps`) — about
+ * 130 characters. They are listed here for the catalogue's completeness, not
+ * for recall: inside a session every one of them is resident and the footer
+ * is never shown, and outside a session all of them are refused, so the cost
+ * is paid on the miss case of an unrelated search and buys an accurate
+ * inventory. ~2,700 characters remain for the returned schemas.
  */
-const DOMAIN_FOOTER_CHARS_MAX = 5_120;
+const DOMAIN_FOOTER_CHARS_MAX = 5_300;
 
 function size(tools: { name: string; description: string; inputSchema: unknown }[]): number {
   return JSON.stringify(

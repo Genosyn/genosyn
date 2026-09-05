@@ -54,6 +54,7 @@ export function createFindToolsTool(ctx: DiscoveryContext): AgentTool {
 
   return {
     name: "find_tools",
+    readOnly: true,
     description:
       "Search your full tool catalogue and get back exact schemas for the tools that match. " +
       "Your visible tool list is a working set, not everything you have — most tools live in " +

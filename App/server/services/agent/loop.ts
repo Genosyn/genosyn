@@ -8,6 +8,7 @@ import {
 import { contextUsage } from "./contextUsage.js";
 import type {
   AgentMessage,
+  AssistantBlock,
   ModelClient,
   StreamCallbacks,
   ToolResult,
@@ -153,75 +154,14 @@ export async function runAgentLoop(params: {
     // consumer so tool activity reads cleanly under the text.
     if (turnText.trim() && !separatedText) separatedText = true;
 
-    const results: ToolResultBlock[] = [];
-    for (const tu of toolUses) {
-      // Honor cancellation promptly — don't start further tool work once the
-      // turn has been aborted (a timeout, or a user cancel). Tools that don't
-      // observe the signal themselves are short-circuited here.
-      if (signal?.aborted) {
-        results.push({
-          type: "tool_result",
-          toolUseId: tu.id,
-          content: "Aborted before running.",
-          isError: true,
-        });
-        continue;
-      }
-      // Lenient dispatch: `resolve` reads the whole registry, not just what we
-      // advertised. A model naming a deferred tool directly — from a Skill,
-      // from find_tools, or from memory — is right, and answering "unknown
-      // tool" would punish it for being right.
-      const tool = registry.resolve(tu.name);
-      // A dispatching tool (`call_tool`, a retired family alias) reports the
-      // target it is really running, so the transcript names the tool the model
-      // reached for rather than the door it came through.
-      const described = tool?.describeCall?.(tu.input);
-      const reportedName = described?.name ?? tu.name;
-      callbacks?.onToolUse?.(reportedName, described?.input ?? tu.input);
+    const execute = (tu: (typeof toolUses)[number]): Promise<ToolResultBlock> =>
+      executeToolUse({ tu, registry, resultCap, signal, callbacks });
 
-      let result: ToolResult;
-      // The OpenAI-shaped clients stamp a malformed argument blob here rather
-      // than silently passing `{}`. Answer it before dispatch: every tool's zod
-      // is `.strict()`, so letting the stamp through would trade a misleading
-      // "field is required" for an equally misleading "unrecognized key".
-      const parseError = tu.input[PARSE_ERROR_KEY];
-      if (typeof parseError === "string") {
-        result = {
-          content:
-            `Your arguments for ${reportedName} did not parse: ${parseError}\n` +
-            "Re-send the call with valid JSON.",
-          isError: true,
-        };
-      } else if (!tool) {
-        // Only point at find_tools when it actually exists — with discovery off
-        // every tool is resident, so advising the model to call a tool that
-        // isn't there would just invite it to retry until the step limit.
-        const hint = registry.resolve("find_tools")
-          ? " Call find_tools to see what is available."
-          : "";
-        result = { content: `Unknown tool: ${tu.name}.${hint}`, isError: true };
-      } else {
-        try {
-          result = await tool.run(tu.input);
-        } catch (err) {
-          result = {
-            content: `Tool ${reportedName} threw: ${err instanceof Error ? err.message : String(err)}`,
-            isError: true,
-          };
-        }
-      }
-      const clipped = clip(result.content, resultCap);
-      const images = result.images;
-      callbacks?.onToolResult?.(reportedName, { content: clipped, isError: result.isError, images });
-      results.push({
-        type: "tool_result",
-        toolUseId: tu.id,
-        // An image-only result (a screenshot) legitimately has empty text.
-        content: clipped || (images && images.length > 0 ? "" : "(no output)"),
-        isError: result.isError,
-        ...(images && images.length > 0 ? { images } : {}),
-      });
-    }
+    // A batch of reads runs at once; a batch with a write in it runs in the
+    // order the model gave. See `AgentTool.readOnly` for why that is the line.
+    const results: ToolResultBlock[] = toolUses.every((tu) => registry.resolve(tu.name)?.readOnly)
+      ? await runConcurrently(toolUses, execute, MAX_CONCURRENT_TOOL_CALLS)
+      : await runSequentially(toolUses, execute);
 
     messages.push({ role: "user", content: results });
   }
@@ -326,6 +266,133 @@ async function streamTurnWithRecovery(params: {
       await waitForModelRetry(delayMs, signal);
     }
   }
+}
+
+/**
+ * How many read-only tool calls from one model turn run at the same time.
+ *
+ * Bounded because every one of them is a loopback HTTP request or a file read
+ * on the App's own event loop, and a model asking for forty files in one turn
+ * should not be able to fan forty of those out at once.
+ */
+export const MAX_CONCURRENT_TOOL_CALLS = 8;
+
+/**
+ * Run one tool call to a result block the model can read.
+ *
+ * Every failure mode ends here as an error *result* rather than a thrown
+ * error: unknown tool, malformed arguments, an exception from the tool, a turn
+ * aborted before the call started. The model reads the result and decides
+ * what to do next, which is the whole point of the loop — a thrown error would
+ * end the run over one bad call.
+ */
+async function executeToolUse(params: {
+  tu: Extract<AssistantBlock, { type: "tool_use" }>;
+  registry: ToolRegistry;
+  resultCap: number;
+  signal?: AbortSignal;
+  callbacks?: StreamCallbacks;
+}): Promise<ToolResultBlock> {
+  const { tu, registry, resultCap, signal, callbacks } = params;
+  // Honor cancellation promptly — don't start further tool work once the
+  // turn has been aborted (a timeout, or a user cancel). Tools that don't
+  // observe the signal themselves are short-circuited here.
+  if (signal?.aborted) {
+    return {
+      type: "tool_result",
+      toolUseId: tu.id,
+      content: "Aborted before running.",
+      isError: true,
+    };
+  }
+  // Lenient dispatch: `resolve` reads the whole registry, not just what we
+  // advertised. A model naming a deferred tool directly — from a Skill,
+  // from find_tools, or from memory — is right, and answering "unknown
+  // tool" would punish it for being right.
+  const tool = registry.resolve(tu.name);
+  // A dispatching tool (`call_tool`, a retired family alias) reports the
+  // target it is really running, so the transcript names the tool the model
+  // reached for rather than the door it came through.
+  const described = tool?.describeCall?.(tu.input);
+  const reportedName = described?.name ?? tu.name;
+  callbacks?.onToolUse?.(reportedName, described?.input ?? tu.input, tu.id);
+
+  let result: ToolResult;
+  // The OpenAI-shaped clients stamp a malformed argument blob here rather
+  // than silently passing `{}`. Answer it before dispatch: every tool's zod
+  // is `.strict()`, so letting the stamp through would trade a misleading
+  // "field is required" for an equally misleading "unrecognized key".
+  const parseError = tu.input[PARSE_ERROR_KEY];
+  if (typeof parseError === "string") {
+    result = {
+      content:
+        `Your arguments for ${reportedName} did not parse: ${parseError}\n` +
+        "Re-send the call with valid JSON.",
+      isError: true,
+    };
+  } else if (!tool) {
+    // Only point at find_tools when it actually exists — with discovery off
+    // every tool is resident, so advising the model to call a tool that
+    // isn't there would just invite it to retry until the step limit.
+    const hint = registry.resolve("find_tools") ? " Call find_tools to see what is available." : "";
+    result = { content: `Unknown tool: ${tu.name}.${hint}`, isError: true };
+  } else {
+    try {
+      result = await tool.run(tu.input);
+    } catch (err) {
+      result = {
+        content: `Tool ${reportedName} threw: ${err instanceof Error ? err.message : String(err)}`,
+        isError: true,
+      };
+    }
+  }
+  const clipped = clip(result.content, resultCap);
+  const images = result.images;
+  callbacks?.onToolResult?.(
+    reportedName,
+    { content: clipped, isError: result.isError, images },
+    tu.id,
+  );
+  return {
+    type: "tool_result",
+    toolUseId: tu.id,
+    // An image-only result (a screenshot) legitimately has empty text.
+    content: clipped || (images && images.length > 0 ? "" : "(no output)"),
+    isError: result.isError,
+    ...(images && images.length > 0 ? { images } : {}),
+  };
+}
+
+async function runSequentially<T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = [];
+  for (const item of items) out.push(await fn(item));
+  return out;
+}
+
+/**
+ * Run `fn` over `items` with at most `limit` in flight, keeping result order.
+ *
+ * Order matters more than it looks: both wire formats pair each result with
+ * its call by id, and the Anthropic one additionally wants the results in the
+ * order the calls were made. Finishing out of order is fine; *reporting* out
+ * of order is a 400.
+ */
+async function runConcurrently<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  limit: number,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      out[index] = await fn(items[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 function clip(s: string, cap: number): string {

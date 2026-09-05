@@ -103,8 +103,13 @@ const MEMBER_TOOLS = [
   "repository_list_files",
   "repository_read_file",
   "repository_write_file",
+  "repository_edit_file",
   "repository_delete_file",
   "repository_search",
+  "repository_glob",
+  "repository_status",
+  "repository_diff",
+  "repository_update_steps",
   // Running a command is member-level for the same reason, plus one of its
   // own: what may run is a repository setting an owner or admin made, not an
   // argument this turn chose. A Member cannot widen it from here, and the

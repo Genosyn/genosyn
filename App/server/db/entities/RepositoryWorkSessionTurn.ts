@@ -13,9 +13,12 @@ import {
  *   - `running` → the employee is working on this instruction now.
  *   - `ok`      → the turn completed. It may still have committed nothing;
  *                 that is a legitimate answer and the commit stats say so.
+ *   - `stopped` → a Member stopped it before the employee finished. Whatever
+ *                 was committed before the stop is kept and reviewable, and
+ *                 the session accepts another instruction.
  *   - `failed`  → the turn errored, and `error` says why.
  */
-export type RepositoryWorkSessionTurnStatus = "running" | "ok" | "failed";
+export type RepositoryWorkSessionTurnStatus = "running" | "ok" | "stopped" | "failed";
 
 /**
  * One exchange inside a {@link RepositoryWorkSession}: what a Member asked for

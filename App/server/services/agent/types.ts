@@ -68,6 +68,18 @@ export type ToolResult = {
 export type AgentTool = ToolDef & {
   run(input: Record<string, unknown>): Promise<ToolResult>;
   /**
+   * The tool observes state and never changes it — a file read, a search, a
+   * listing, a diff.
+   *
+   * The loop runs a batch of tool calls concurrently only when every call in
+   * it is read-only. A model that asks for five files at once is asking a
+   * question with five parts, and answering them one after another spends
+   * wall-clock on nothing; a batch with a write in it stays sequential, because
+   * the model's own ordering is the only statement of intent about which read
+   * should see which write. Unset means "assume it writes".
+   */
+  readOnly?: boolean;
+  /**
    * What this call *really* is, for logs and the run transcript.
    *
    * Only dispatching tools implement it. `call_tool` runs every deferred tool
@@ -91,10 +103,17 @@ export type StreamCallbacks = {
   onProgress?: (progress: AgentProgress) => void;
   /** Fired before retrying a transient model-service or transport failure. */
   onModelRetry?: (info: ModelRetryInfo) => void;
-  /** Fired when the model decides to call a tool (before we execute it). */
-  onToolUse?: (name: string, input: Record<string, unknown>) => void;
+  /**
+   * Fired when the model decides to call a tool (before we execute it).
+   *
+   * `callId` is the provider's id for the call, so a consumer that records
+   * activity can pair this with its {@link onToolResult} — which matters once
+   * read-only calls run concurrently and results no longer arrive in the
+   * order the calls were announced.
+   */
+  onToolUse?: (name: string, input: Record<string, unknown>, callId?: string) => void;
   /** Fired after a tool returns, before the result is fed back to the model. */
-  onToolResult?: (name: string, result: ToolResult) => void;
+  onToolResult?: (name: string, result: ToolResult, callId?: string) => void;
   /** Fired once per turn with what the provider says the turn cost. */
   onUsage?: (usage: TurnUsage) => void;
   /**

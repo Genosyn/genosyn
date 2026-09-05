@@ -63,8 +63,10 @@ import {
   repositoryWorkSessionTurns,
   runRepositoryWorkSession,
   setRepositoryWorkSessionArchived,
+  stopRepositoryWorkSession,
   WORK_SESSION_TITLE_MAX,
 } from "../services/repositoryWorkSessions.js";
+import { listSessionEvents } from "../services/repositoryWorkSessionActivity.js";
 
 /**
  * Working with a Repository's *contents* — the file tree, the editor, history,
@@ -812,6 +814,95 @@ repositoryContentRouter.post(
     const [hydrated] = await hydrateSessions(repo.companyId, [finished ?? prepared.session]);
     res.json({ session: hydrated, turns: await repositoryWorkSessionTurns(session.id) });
   }),
+);
+
+const listEventsQuerySchema = z
+  .object({
+    after: z.coerce.number().int().min(0).optional(),
+    limit: z.coerce.number().int().min(1).max(1000).optional(),
+  })
+  .strict();
+
+/**
+ * The session's activity feed, incrementally.
+ *
+ * A running turn writes an event per tool call, and the open session is told
+ * of each by the resource-change socket (plus a slow poll). Rather than
+ * re-send hundreds of rows every time, the client asks for what it has not
+ * seen: `after` is the last ordinal it holds. Everything is Member-readable
+ * for the reason the transcript is — it is how the diff came to be, and a
+ * reviewer is entitled to it.
+ */
+repositoryContentRouter.get(
+  "/repositories/:slug/sessions/:sessionId/events",
+  withRepository(
+    async (repo, req, res) => {
+      const parsed = listEventsQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({ error: "ValidationError", issues: parsed.error.issues });
+        return;
+      }
+      const session = await loadSession(repo, req.params.sessionId);
+      if (!session) throw new Error("Work session not found.");
+      const limit = parsed.data.limit ?? 500;
+      const rows = await listSessionEvents(session.id, parsed.data.after ?? 0, limit + 1);
+      const events = rows.slice(0, limit).map((row) => ({
+        id: row.id,
+        turnId: row.turnId,
+        ordinal: row.ordinal,
+        kind: row.kind,
+        name: row.name,
+        callId: row.callId,
+        summary: row.summary,
+        detail: parseDetail(row.detailJson),
+        isError: row.isError,
+        createdAt: row.createdAt,
+      }));
+      res.json({ events, more: rows.length > limit });
+    },
+    { workspace: false },
+  ),
+);
+
+function parseDetail(json: string): unknown {
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stop the employee mid-turn.
+ *
+ * Member-level, like sending an instruction: whoever can ask for work can
+ * call it off. Whatever was committed before the stop stays on the branch and
+ * is reviewable; the session lands on `ready` or `empty` and accepts another
+ * instruction, so a stop is a pause with a chance to redirect, not a discard.
+ */
+repositoryContentRouter.post(
+  "/repositories/:slug/sessions/:sessionId/stop",
+  withRepository(
+    async (repo, req, res) => {
+      if (!req.userId) throw new Error("Sign in again to stop a work session.");
+      const session = await loadSession(repo, req.params.sessionId);
+      if (!session) throw new Error("Work session not found.");
+      const stopped = await stopRepositoryWorkSession(repo.companyId, session.id, req.userId);
+      await recordAudit({
+        companyId: repo.companyId,
+        actorUserId: req.userId,
+        action: "repository.work_session_stop",
+        targetType: "repository",
+        targetId: repo.id,
+        targetLabel: repo.name,
+        metadata: { sessionId: session.id, employeeId: session.employeeId },
+      });
+      const [hydrated] = await hydrateSessions(repo.companyId, [stopped]);
+      res.json(hydrated);
+    },
+    { workspace: false },
+  ),
 );
 
 const renameSessionSchema = z.object({ title: z.string().min(1).max(200) }).strict();

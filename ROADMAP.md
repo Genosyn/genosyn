@@ -1478,10 +1478,96 @@ created empty inside Genosyn for a quarter's strategy or a set of policies.
       at all. See `services/repositoryForge.ts`.
 - [ ] Conflict resolution in the browser (a conflicting merge is refused, not
       surfaced for editing)
-- [ ] Streaming a work session's progress instead of polling it
+- [x] Streaming a work session's progress instead of polling it — see M63.
 - [ ] Connecting to GitLab / Bitbucket the same way (the forge client's three
       axes should carry GitLab too, but its REST shape is further from
       GitHub's than Forgejo's is and nothing has been tested against it)
+
+### M63 — AI work at parity with a coding harness ✅
+
+M21.5 gave an AI Employee a worktree and five verbs — list one level, read a
+whole file, write a whole file, delete, substring-search — and the same model
+that produces good work in Claude Code, Codex or OpenCode produced worse work
+here. The reasons were all in the runtime, none in the model, and this
+milestone closes them one by one.
+
+- [x] **Editing by exact replacement** (`repository_edit_file`). Rewriting a
+      whole file to change three lines is how content gets lost, how
+      `// … rest unchanged` ends up committed, and how every edit costs the
+      whole file in output tokens. The edit tool takes the exact text to
+      replace, refuses an ambiguous match with a count, and returns the edited
+      region numbered so the employee can confirm it landed.
+      `repository_write_file` is now for new files and deliberate rewrites.
+- [x] **Reading with line numbers and a window.** `repository_read_file`
+      returns `cat -n` style lines, takes `offset` / `limit`, defaults to
+      2,000 lines, and ends a partial read with a trailer that says where to
+      continue — so a long file is readable in pieces and an edit can name the
+      span it copied.
+- [x] **Finding things the way a harness does.** `repository_search` is a
+      regular-expression search with `path`, `glob`, `context`, `ignore_case`
+      and ripgrep's three output modes; `repository_glob` finds files by
+      pattern; `repository_list_files` is an indented tree with `depth`. All
+      three honour `.gitignore` through one `git ls-files`, so `node_modules`
+      never floods a result and a search never reads it.
+- [x] **Seeing its own work.** `repository_status` and `repository_diff` show
+      what is changed and not yet committed, and what the branch has recorded,
+      so an employee reviews its diff before `repository_commit` records it
+      — which now takes `paths` and reports what it committed.
+- [x] **A visible plan** (`repository_update_steps`) — the same device as
+      Claude Code's todo list and Codex's plan: a short step list the
+      employee keeps current, shown live to the Member.
+- [x] **Concurrent reads.** The agent loop runs a model turn's tool calls at
+      once when every call is read-only (`AgentTool.readOnly`, declared on the
+      manifest), and in the model's order otherwise. Asking for five files is
+      one round-trip, not five.
+- [x] **A focused runtime.** A session turn used to inherit the entire chat
+      persona — memory, goals, finance, revenue and marketing context, and a
+      tool briefing about `find_tools`, mail and the browser — and, for an
+      admin-started session, the employee-cwd `bash`, the browser and every
+      configured MCP server, none of which its briefing admitted to. It now
+      runs on a coding prompt (Soul, Skills, policies, the session briefing)
+      with exactly the `repository_*` tools (`ChatOptions.workSurface`,
+      `ToolScope`), does not materialize the employee's other checkouts, and
+      gets 400 model turns instead of chat's 100.
+- [x] **A briefing with the craft in it.** `composeWorkSystemPrompt` now says
+      what every good harness's system prompt says: understand before you
+      change, plan, follow the surrounding conventions, change only what was
+      asked, no narrating comments or leftover debug output, fix causes not
+      symptoms, verify with the repository's own commands, review your diff,
+      commit with a reason, and report exactly what was and was not verified.
+      A `CLAUDE.md` is read when there is no `AGENTS.md`.
+- [x] **Memory across turns.** A revision's history now carries what each
+      earlier turn committed — the commit list and the files — not only what
+      the employee said about it.
+- [x] **The work is visible while it happens** (`RepositoryWorkSessionEvent`).
+      Every tool call, its result, the employee's narration between calls,
+      step-list updates, compaction and retries are recorded as they happen
+      and rendered live in Activity — and kept, so a reviewer can read how the
+      diff came to be. The reply beside the diff is the employee's closing
+      report, not its whole stream of thought. Delivered by the existing
+      resource-change socket plus an incremental `?after=<ordinal>` read;
+      no second transport.
+- [x] **Stop.** A Member can stop a running turn. Committed work is kept, the
+      turn is marked `stopped`, and the session accepts another instruction.
+- [x] **Nothing the employee wrote is lost.** A turn that ends with edits
+      still uncommitted — it hit the step limit, was stopped, the provider
+      failed, the deadline passed — has them committed for it as a checkpoint
+      named as such (`CHECKPOINT_COMMIT_MESSAGE`), so they are in the diff and
+      in the next turn's history rather than pruned with the worktree. A turn
+      the step limit cut off is filed as finished with a notice saying so
+      (`ChatResult.stopReason`), not as a success. Each `repository_commit`
+      updates the session's head as it lands, so Changes follows the work.
+- [x] **Commands behave like CI.** A session command runs with `HOME` on the
+      sandbox's private `/tmp` — so a package manager's cache can no longer
+      land inside the worktree and be committed by `git add --all` — with
+      stdin closed so an interactive prompt fails at once instead of hanging
+      to the timeout, with `CI`, `TERM=dumb`, `NO_COLOR` and friends set, and
+      with its output capped under the loop's own clip so the failing tail of
+      a test run survives instead of being cut a second time.
+- [ ] **Dependencies for a session's checks** stays open (see M21.5): the
+      briefing and the tool now say plainly when a check could not run for
+      want of `node_modules` or the network, but the cache that would let it
+      run is still to build.
 
 ### M13 — Lightning ✅ → retired in 1.132.0
 
