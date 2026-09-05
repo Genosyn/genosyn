@@ -48,6 +48,16 @@ export type SandboxShellOptions = {
    * Used for a worktree's `.git` pointer, which the App reads afterwards.
    */
   readOnlyPaths?: string[];
+  /**
+   * Where `$HOME` points inside the sandbox. Defaults to the workspace root,
+   * which is right for the employee's own working directory and wrong for a
+   * Repository work session: package managers write their caches under
+   * `$HOME` (`~/.npm`, `~/.cache`, `~/.cargo`), and a worktree whose home is
+   * itself ends up with those directories inside it — where the next
+   * `repository_commit`'s `git add --all` records them. A session passes the
+   * sandbox's private `/tmp`, so a cache lives exactly as long as the command.
+   */
+  home?: string;
 };
 
 export type SandboxShellInvocation = {
@@ -84,7 +94,8 @@ export function buildSandboxShellInvocation(
   const childEnv = {
     ...options.env,
     PATH: safePath,
-    HOME: executionMode === "bubblewrap" ? "/workspace" : options.cwd,
+    HOME:
+      executionMode === "bubblewrap" ? (options.home ?? "/workspace") : (options.home ?? options.cwd),
     LANG: "C.UTF-8",
   };
 

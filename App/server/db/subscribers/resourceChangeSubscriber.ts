@@ -175,6 +175,10 @@ const REGISTRY: Record<string, Mapping> = {
   // A turn has no repository id of its own; announcing it company-wide still
   // wakes the AI work page, which reloads the session it is showing.
   RepositoryWorkSessionTurn: { kind: "repository", company: "direct" },
+  // The activity feed. Written once per tool call while a turn runs, so the
+  // open session's page learns of each step as it happens; the coalescing in
+  // `resourceEvents.ts` keeps a burst of calls to one frame.
+  RepositoryWorkSessionEvent: { kind: "repository", company: "direct", scopeFk: "repositoryId" },
 
   // ── Pipelines ────────────────────────────────────────────────────────────
   Pipeline: { kind: "pipeline", company: "direct" },

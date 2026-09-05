@@ -1,7 +1,9 @@
 import {
   REVISABLE_WORK_SESSION_STATUSES,
   RepositoryWorkSession,
+  RepositoryWorkSessionEvent,
   RepositoryWorkSessionStatus,
+  RepositoryWorkSessionStep,
 } from "../../lib/api";
 
 /**
@@ -231,4 +233,302 @@ export function sessionTitle(
   const flat = session.instruction.replace(/\s+/g, " ").trim();
   if (!flat) return "Untitled session";
   return flat.length > 72 ? `${flat.slice(0, 71).trimEnd()}…` : flat;
+}
+
+// ───────────────────────── the activity feed ─────────────────────────
+
+/**
+ * The live record of a turn, as the feed shows it.
+ *
+ * The server writes one append-only event per thing that happened — a tool
+ * call, its result, a stretch of narration, a step-list update — and the
+ * client reads them incrementally by ordinal. What a person wants to see is
+ * not that stream but a list of *calls*: each tool call as one row that fills
+ * in when its result lands, narration as prose between them, the step list
+ * once (its latest state), and the rest as one-line notes. The functions
+ * below do that folding, so the component only renders.
+ */
+
+/** The last ordinal a list of events holds — the cursor for the next fetch. */
+export function lastEventOrdinal(events: readonly RepositoryWorkSessionEvent[]): number {
+  return events.length === 0 ? 0 : events[events.length - 1].ordinal;
+}
+
+/**
+ * Add a fetched page to the events already held.
+ *
+ * Returns the very same array when nothing was new, so a state setter can
+ * bail out and a memo keyed on it stays put. Duplicates are dropped by
+ * ordinal — two fetches overlapping in flight both return the same rows —
+ * and the result is kept in ordinal order whichever landed first.
+ */
+export function appendSessionEvents(
+  current: RepositoryWorkSessionEvent[],
+  incoming: readonly RepositoryWorkSessionEvent[],
+): RepositoryWorkSessionEvent[] {
+  if (incoming.length === 0) return current;
+  const held = new Set(current.map((event) => event.ordinal));
+  const fresh: RepositoryWorkSessionEvent[] = [];
+  for (const event of incoming) {
+    if (held.has(event.ordinal)) continue;
+    held.add(event.ordinal);
+    fresh.push(event);
+  }
+  if (fresh.length === 0) return current;
+  return [...current, ...fresh].sort((a, b) => a.ordinal - b.ordinal);
+}
+
+/** The session's events split by the turn they belong to, order preserved. */
+export function eventsByTurn(
+  events: readonly RepositoryWorkSessionEvent[],
+): Map<string, RepositoryWorkSessionEvent[]> {
+  const byTurn = new Map<string, RepositoryWorkSessionEvent[]>();
+  for (const event of events) {
+    const list = byTurn.get(event.turnId);
+    if (list) list.push(event);
+    else byTurn.set(event.turnId, [event]);
+  }
+  return byTurn;
+}
+
+/** What kind of thing a tool does — the feed picks its icon from this. */
+export type SessionToolFamily =
+  | "read"
+  | "edit"
+  | "write"
+  | "delete"
+  | "search"
+  | "glob"
+  | "list"
+  | "status"
+  | "diff"
+  | "command"
+  | "commit"
+  | "steps"
+  | "other";
+
+export function sessionToolFamily(name: string): SessionToolFamily {
+  switch (name) {
+    case "repository_read_file":
+      return "read";
+    case "repository_edit_file":
+      return "edit";
+    case "repository_write_file":
+      return "write";
+    case "repository_delete_file":
+      return "delete";
+    case "repository_search":
+      return "search";
+    case "repository_glob":
+      return "glob";
+    case "repository_list_files":
+      return "list";
+    case "repository_status":
+      return "status";
+    case "repository_diff":
+      return "diff";
+    case "repository_run_command":
+      return "command";
+    case "repository_commit":
+      return "commit";
+    case "repository_update_steps":
+      return "steps";
+    default:
+      return "other";
+  }
+}
+
+function detailRecord(event: RepositoryWorkSessionEvent): Record<string, unknown> | null {
+  const detail = event.detail;
+  return detail && typeof detail === "object" && !Array.isArray(detail)
+    ? (detail as Record<string, unknown>)
+    : null;
+}
+
+/** The narration a `text` event carries. */
+export function eventText(event: RepositoryWorkSessionEvent): string {
+  const text = detailRecord(event)?.text;
+  return typeof text === "string" ? text : "";
+}
+
+/** The arguments a `tool_use` event was called with. */
+export function toolInput(event: RepositoryWorkSessionEvent): Record<string, unknown> {
+  const input = detailRecord(event)?.input;
+  return input && typeof input === "object" && !Array.isArray(input)
+    ? (input as Record<string, unknown>)
+    : {};
+}
+
+/** The clipped output a `tool_result` event carries. */
+export function toolOutput(event: RepositoryWorkSessionEvent): string {
+  const output = detailRecord(event)?.output;
+  return typeof output === "string" ? output : "";
+}
+
+const STEP_STATUSES = new Set(["pending", "in_progress", "completed"]);
+
+/** The step list a `steps` event carries, or null when it is not one. */
+export function eventSteps(event: RepositoryWorkSessionEvent): RepositoryWorkSessionStep[] | null {
+  const steps = detailRecord(event)?.steps;
+  if (!Array.isArray(steps)) return null;
+  const out: RepositoryWorkSessionStep[] = [];
+  for (const step of steps) {
+    if (!step || typeof step !== "object") continue;
+    const { text, status } = step as { text?: unknown; status?: unknown };
+    if (typeof text !== "string" || typeof status !== "string" || !STEP_STATUSES.has(status)) {
+      continue;
+    }
+    out.push({ text, status: status as RepositoryWorkSessionStep["status"] });
+  }
+  return out;
+}
+
+/**
+ * What a `repository_run_command` result prints.
+ *
+ * The tool answers the model with a JSON object — `output`, `exitCode`,
+ * `timedOut`, or `ran: false` with a `reason` — because the model needs the
+ * exit code as a number. A person needs the output as text and the rest as
+ * the row's one-line summary, so this unwraps it and falls back to the raw
+ * text for anything that is not that shape.
+ */
+export function commandResultText(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) return raw;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return raw;
+    const record = parsed as Record<string, unknown>;
+    if (record.ran === false && typeof record.reason === "string") return record.reason;
+    if (typeof record.output === "string") return record.output;
+    return raw;
+  } catch {
+    return raw;
+  }
+}
+
+export type SessionActivityItem =
+  | {
+      kind: "tool";
+      key: string;
+      /** The call. Null only for a result whose call never arrived. */
+      call: RepositoryWorkSessionEvent | null;
+      /** The result, once it has landed. */
+      result: RepositoryWorkSessionEvent | null;
+    }
+  | { kind: "text"; key: string; text: string }
+  | { kind: "system"; key: string; event: RepositoryWorkSessionEvent };
+
+export type SessionActivitySummary = {
+  toolCalls: number;
+  /** Distinct paths edited, written, or deleted by a call that did not fail. */
+  filesEdited: number;
+  commandsRun: number;
+  commits: number;
+};
+
+export type SessionActivity = {
+  /** The latest step list, or null when the employee never wrote one. */
+  steps: RepositoryWorkSessionStep[] | null;
+  items: SessionActivityItem[];
+  summary: SessionActivitySummary;
+};
+
+/**
+ * Fold one turn's events into what the feed renders.
+ *
+ * A `tool_result` is matched to its `tool_use` by `callId`, not by position:
+ * read-only calls run concurrently on the server, so results arrive in
+ * whatever order they finish. A result whose call carried no id is matched
+ * to the oldest open call of the same name. Consecutive narration is joined
+ * — the server flushes it in pieces so it streams, and the pieces are one
+ * paragraph.
+ */
+export function buildSessionActivity(
+  events: readonly RepositoryWorkSessionEvent[],
+): SessionActivity {
+  const items: SessionActivityItem[] = [];
+  let steps: RepositoryWorkSessionStep[] | null = null;
+  const openByCallId = new Map<string, number>();
+  const openByName = new Map<string, number[]>();
+
+  for (const event of events) {
+    switch (event.kind) {
+      case "tool_use": {
+        items.push({ kind: "tool", key: event.id, call: event, result: null });
+        const index = items.length - 1;
+        if (event.callId) openByCallId.set(event.callId, index);
+        else {
+          const queue = openByName.get(event.name);
+          if (queue) queue.push(index);
+          else openByName.set(event.name, [index]);
+        }
+        break;
+      }
+      case "tool_result": {
+        let index: number | undefined;
+        if (event.callId && openByCallId.has(event.callId)) {
+          index = openByCallId.get(event.callId);
+          openByCallId.delete(event.callId);
+        } else {
+          index = openByName.get(event.name)?.shift();
+        }
+        const item = index === undefined ? undefined : items[index];
+        if (item && item.kind === "tool" && !item.result) item.result = event;
+        else items.push({ kind: "tool", key: event.id, call: null, result: event });
+        break;
+      }
+      case "text": {
+        const text = eventText(event);
+        if (!text.trim()) break;
+        const last = items[items.length - 1];
+        if (last && last.kind === "text") last.text += text;
+        else items.push({ kind: "text", key: event.id, text });
+        break;
+      }
+      case "steps": {
+        steps = eventSteps(event) ?? steps;
+        break;
+      }
+      default:
+        items.push({ kind: "system", key: event.id, event });
+    }
+  }
+
+  const summary: SessionActivitySummary = {
+    toolCalls: 0,
+    filesEdited: 0,
+    commandsRun: 0,
+    commits: 0,
+  };
+  const paths = new Set<string>();
+  for (const item of items) {
+    if (item.kind !== "tool" || !item.call) continue;
+    summary.toolCalls += 1;
+    const family = sessionToolFamily(item.call.name);
+    const failed = item.result?.isError === true;
+    if (family === "command" && !failed) summary.commandsRun += 1;
+    if (family === "commit" && !failed) summary.commits += 1;
+    if ((family === "edit" || family === "write" || family === "delete") && !failed) {
+      const path = toolInput(item.call).path;
+      paths.add(typeof path === "string" && path ? path : item.call.id);
+    }
+  }
+  summary.filesEdited = paths.size;
+
+  return { steps, items, summary };
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/** "14 tool calls · 3 files edited · 2 commands run" — the collapsed feed's one line. */
+export function describeSessionActivity(summary: SessionActivitySummary): string {
+  if (summary.toolCalls === 0) return "No tool calls";
+  const parts = [plural(summary.toolCalls, "tool call")];
+  if (summary.filesEdited > 0) parts.push(`${plural(summary.filesEdited, "file")} edited`);
+  if (summary.commandsRun > 0) parts.push(`${plural(summary.commandsRun, "command")} run`);
+  if (summary.commits > 0) parts.push(plural(summary.commits, "commit"));
+  return parts.join(" · ");
 }

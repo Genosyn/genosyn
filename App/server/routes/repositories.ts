@@ -6,6 +6,7 @@ import { Repository } from "../db/entities/Repository.js";
 import { EmployeeRepositoryGrant } from "../db/entities/EmployeeRepositoryGrant.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
+import { RepositoryWorkSessionEvent } from "../db/entities/RepositoryWorkSessionEvent.js";
 import type { RepositoryAccessLevel } from "../db/entities/EmployeeRepositoryGrant.js";
 import { EmployeeConnectionGrant } from "../db/entities/EmployeeConnectionGrant.js";
 import { AIEmployee } from "../db/entities/AIEmployee.js";
@@ -347,6 +348,9 @@ repositoriesRouter.delete("/repositories/:slug", async (req, res) => {
       sessionId: In(sessionIds),
     });
   }
+  // The activity feed carries the repository id itself, so it goes in one
+  // statement whether or not any session row survived.
+  await AppDataSource.getRepository(RepositoryWorkSessionEvent).delete({ repositoryId: row.id });
   await AppDataSource.getRepository(RepositoryWorkSession).delete({ repositoryId: row.id });
   // The App-owned checkout is derived state; it goes with the row it mirrors.
   removeRepositoryWorkspace(row.companyId, row.id);

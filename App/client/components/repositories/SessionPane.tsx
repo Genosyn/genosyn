@@ -15,7 +15,9 @@ import {
   GitPullRequest,
   Lock,
   MessageSquareText,
+  OctagonX,
   Pencil,
+  Square,
   Trash2,
   Upload,
   X,
@@ -28,13 +30,17 @@ import { useLiveRefetch } from "../CompanySocket";
 import { ChatMarkdown } from "../ChatMarkdown";
 import { formatRelative } from "../decisions/relative";
 import { DiffStats, DiffView } from "./DiffView";
+import { SessionActivity } from "./SessionActivity";
 import { InlineRetry, TONE_CLASS } from "./sessionChrome";
 import { usePersistedDraft } from "./persistedDraft";
 import {
   SESSION_STATUS_LABEL,
   SESSION_STATUS_TONE,
+  appendSessionEvents,
+  eventsByTurn,
   hasReviewableWork,
   isArchived,
+  lastEventOrdinal,
   sessionActions,
   sessionTitle,
 } from "./sessionState";
@@ -44,6 +50,8 @@ import {
   RepositoryWorkSession,
   RepositoryWorkSessionDetail,
   RepositoryWorkSessionDiff,
+  RepositoryWorkSessionEvent,
+  RepositoryWorkSessionEventsResponse,
   RepositoryWorkSessionTurn,
 } from "../../lib/api";
 import { errorMessage } from "../../lib/errors";
@@ -67,6 +75,28 @@ export type SessionPaneLayout = "page" | "panel";
 
 /** A running turn can take minutes, so the open session is polled as well. */
 const RUNNING_POLL_MS = 4000;
+
+/** Events fetched per request; a `more` answer asks again from the new cursor. */
+const EVENT_PAGE = 500;
+
+/** How close to the end of the transcript still counts as "following along". */
+const NEAR_BOTTOM_PX = 96;
+
+/** No events yet for a turn — one shared instance so the memo stays stable. */
+const NO_EVENTS: RepositoryWorkSessionEvent[] = [];
+
+/**
+ * Whether the reader is at the end of the transcript, whichever element is
+ * scrolling it: the activity pane itself in a docked panel and on a wide
+ * page, the window on a narrow one where the pane just grows.
+ */
+function isNearBottom(container: HTMLElement | null): boolean {
+  if (container && container.scrollHeight > container.clientHeight + 1) {
+    return container.scrollHeight - container.scrollTop - container.clientHeight < NEAR_BOTTOM_PX;
+  }
+  const doc = document.documentElement;
+  return doc.scrollHeight - window.scrollY - window.innerHeight < NEAR_BOTTOM_PX;
+}
 
 type WorkspaceView = "activity" | "changes";
 
@@ -142,12 +172,25 @@ export function SessionPane({
    * a notice — it has to stay put while someone acts on it.
    */
   const [failure, setFailure] = React.useState<string | null>(null);
+  /**
+   * The activity feed, every turn's events in one ordinal-ordered list. Only
+   * ever appended to — each fetch asks for what comes after the last ordinal
+   * held — so a turn producing hundreds of events costs one small request per
+   * tick, not a re-read of the whole session.
+   */
+  const [events, setEvents] = React.useState<RepositoryWorkSessionEvent[]>([]);
+  const [eventsError, setEventsError] = React.useState<string | null>(null);
+  const eventsHeld = React.useRef<RepositoryWorkSessionEvent[]>([]);
   const transcriptEnd = React.useRef<HTMLDivElement | null>(null);
+  const transcriptScroller = React.useRef<HTMLDivElement | null>(null);
+  /** Measured just before new events are applied, while the old height stands. */
+  const wasNearBottom = React.useRef(false);
   const detailRequest = React.useRef(0);
+  const eventsRequest = React.useRef(0);
   const diffRequest = React.useRef(0);
   const previousStatus = React.useRef<RepositoryWorkSession["status"] | null>(null);
 
-  const reload = React.useCallback(async () => {
+  const loadDetail = React.useCallback(async () => {
     const request = ++detailRequest.current;
     try {
       const next = await api.get<RepositoryWorkSessionDetail>(`${base}/sessions/${sessionId}`);
@@ -160,15 +203,48 @@ export function SessionPane({
     }
   }, [base, sessionId]);
 
+  const loadEvents = React.useCallback(async () => {
+    const request = ++eventsRequest.current;
+    try {
+      for (;;) {
+        const after = lastEventOrdinal(eventsHeld.current);
+        const page = await api.get<RepositoryWorkSessionEventsResponse>(
+          `${base}/sessions/${sessionId}/events?after=${after}&limit=${EVENT_PAGE}`,
+        );
+        if (request !== eventsRequest.current) return;
+        const merged = appendSessionEvents(eventsHeld.current, page.events);
+        if (merged !== eventsHeld.current) {
+          wasNearBottom.current = isNearBottom(transcriptScroller.current);
+          eventsHeld.current = merged;
+          setEvents(merged);
+        }
+        setEventsError(null);
+        if (!page.more) return;
+      }
+    } catch (err) {
+      if (request !== eventsRequest.current) return;
+      // The transcript already on screen stays; only the catch-up failed.
+      setEventsError(errorMessage(err));
+    }
+  }, [base, sessionId]);
+
+  const reload = React.useCallback(async () => {
+    await Promise.all([loadDetail(), loadEvents()]);
+  }, [loadDetail, loadEvents]);
+
   // Opening a *different* session blanks the pane; re-reading the same one
   // must not, or a background refresh replaces what someone is reading with a
   // spinner.
   React.useEffect(() => {
     detailRequest.current += 1;
+    eventsRequest.current += 1;
     diffRequest.current += 1;
+    eventsHeld.current = [];
     setDetail(null);
+    setEvents([]);
     setDiff(undefined);
     setDetailError(null);
+    setEventsError(null);
     setDiffError(null);
   }, [sessionId]);
 
@@ -229,6 +305,25 @@ export function SessionPane({
     }
     lastTurnCount.current = turnCount;
   }, [turnCount]);
+
+  // The live feed follows along only for someone already at the end of it.
+  // A reader who scrolled up to re-read the brief, or an earlier tool call,
+  // is left exactly where they are — the feed keeps filling in below them.
+  const eventCount = events.length;
+  const lastEventCount = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (
+      running &&
+      lastEventCount.current !== null &&
+      eventCount > lastEventCount.current &&
+      wasNearBottom.current
+    ) {
+      transcriptEnd.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+    lastEventCount.current = eventCount;
+  }, [eventCount, running]);
+
+  const turnEvents = React.useMemo(() => eventsByTurn(events), [events]);
 
   // A session opened after it finished lands directly in Changes. If a live
   // turn finishes while someone watches, take them to the result once; after
@@ -404,6 +499,35 @@ export function SessionPane({
     }
   }
 
+  /**
+   * Call the turn off. What was committed before the stop stays on the branch
+   * and is reviewable; the session lands on ready or empty and takes another
+   * instruction — so this is a pause with a chance to redirect, not a discard,
+   * and the dialog says so.
+   */
+  async function stop() {
+    const ok = await dialog.confirm({
+      title: `Stop ${employeeName}?`,
+      message: "What has been committed so far is kept and you can ask for another pass.",
+      confirmLabel: "Stop",
+    });
+    if (!ok) return;
+    setFailure(null);
+    setActing(true);
+    try {
+      await api.post<RepositoryWorkSession>(`${base}/sessions/${sessionId}/stop`);
+      await reload();
+      await onChanged();
+    } catch (err) {
+      // The banner, not the error modal: the person is looking at the header
+      // they just clicked in, and the message may say the turn is not running
+      // here — which is an instruction to do something else, not a notice.
+      setFailure(errorMessage(err));
+    } finally {
+      setActing(false);
+    }
+  }
+
   const hasActions =
     actions.accept || actions.acceptAndSend || actions.pullRequest || actions.discard;
   const changesReady = !!session.headCommit;
@@ -480,6 +604,18 @@ export function SessionPane({
               </div>
             )}
             <div className="flex shrink-0 items-center gap-1.5">
+              {running && (
+                <button
+                  type="button"
+                  onClick={() => void stop()}
+                  disabled={acting}
+                  title="Stop this turn — committed work is kept"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  {acting ? <Spinner size={12} /> : <Square size={11} />}
+                  Stop
+                </button>
+              )}
               {/* The status is what happened to the work; this is where the
                 Member filed it. Two separate facts, so two separate chips —
                 an archived session that is still waiting on review must not
@@ -609,6 +745,7 @@ export function SessionPane({
           </div>
 
           <div
+            ref={transcriptScroller}
             className={
               "flex-1 space-y-6 px-4 py-5 sm:px-5 " +
               (docked
@@ -616,10 +753,18 @@ export function SessionPane({
                 : "min-h-[20rem] min-[1800px]:max-h-[calc(100vh-21rem)] min-[1800px]:overflow-y-auto")
             }
           >
+            {eventsError && (
+              <InlineRetry
+                message={`The activity feed could not catch up: ${eventsError}`}
+                onRetry={loadEvents}
+                compact
+              />
+            )}
             {(detail?.turns ?? []).map((turn) => (
               <TurnBlock
                 key={turn.id}
                 turn={turn}
+                events={turnEvents.get(turn.id) ?? NO_EVENTS}
                 employeeName={employeeName}
                 avatarSrc={avatarSrc}
               />
@@ -833,7 +978,7 @@ function SessionClosedNotice({
 }) {
   const message =
     session.status === "running"
-      ? `${employeeName} is working. Another instruction can be sent as soon as this turn finishes.`
+      ? `${employeeName} is working. Another instruction can be sent as soon as this turn finishes — or use Stop in the header to end it now and keep what has been committed.`
       : session.status === "published"
         ? "This work has been accepted. Start a new session for another outcome."
         : "This session was thrown away. Start a new session for another outcome.";
@@ -970,15 +1115,20 @@ function DiffSkeleton() {
 /** One instruction and what came back — the unit the transcript is made of. */
 function TurnBlock({
   turn,
+  events,
   employeeName,
   avatarSrc,
 }: {
   turn: RepositoryWorkSessionTurn;
+  /** This turn's slice of the session's activity feed, in order. */
+  events: RepositoryWorkSessionEvent[];
   employeeName: string;
   avatarSrc: string | null;
 }) {
+  const running = turn.status === "running";
+  const stopped = turn.status === "stopped";
   return (
-    <article className="flex flex-col gap-3">
+    <article className="flex min-w-0 flex-col gap-3">
       {/* The instruction reads as a quotation of what was asked, not as a chat
         bubble: it is the heading for the work below it, and a right-aligned
         bubble put the two halves of one exchange on opposite sides of the
@@ -992,61 +1142,72 @@ function TurnBlock({
         </div>
       </div>
 
-      <div className="flex items-start gap-2.5">
-        <Avatar
-          name={employeeName}
-          kind="ai"
-          size="sm"
-          src={avatarSrc}
-          className="mt-0.5 shrink-0"
-        />
-        <div className="min-w-0 flex-1">
-          {turn.status === "running" ? (
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
-              <Spinner size={14} />
-              <span>{employeeName} is working. This updates itself when the turn ends.</span>
-            </div>
-          ) : (
-            <>
-              {turn.error && (
-                <div className="mb-2 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/5 dark:text-rose-300">
-                  <AlertCircle size={15} className="mt-0.5 shrink-0" />
-                  <span className="break-words">{turn.error}</span>
-                </div>
-              )}
-              {turn.reply.trim() ? (
-                <div className="text-sm leading-6 text-slate-700 dark:text-slate-200">
-                  <ChatMarkdown content={turn.reply} />
-                </div>
-              ) : (
-                !turn.error && (
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    {employeeName} finished without saying anything.
-                  </p>
-                )
-              )}
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400 dark:text-slate-500">
-                {turn.headCommit && (
-                  <span className="inline-flex items-center gap-1 font-mono">
-                    <CircleCheck size={11} className="text-emerald-500" />
-                    checkpoint {turn.headCommit.slice(0, 7)}
-                  </span>
-                )}
-                {turn.filesChanged > 0 ? (
-                  <DiffStats
-                    filesChanged={turn.filesChanged}
-                    insertions={turn.insertions}
-                    deletions={turn.deletions}
-                    className="text-[11px]"
-                  />
-                ) : (
-                  turn.status === "ok" && <span>Committed nothing on this turn</span>
-                )}
+      {/* How the work was done sits between what was asked and what was
+        reported: open while the turn runs, folded to one line afterwards. */}
+      <SessionActivity events={events} running={running} />
+
+      {!running && (
+        <div className="flex items-start gap-2.5">
+          <Avatar
+            name={employeeName}
+            kind="ai"
+            size="sm"
+            src={avatarSrc}
+            className="mt-0.5 shrink-0"
+          />
+          <div className="min-w-0 flex-1">
+            {stopped && (
+              <span
+                className={
+                  "mb-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold " +
+                  TONE_CLASS.review
+                }
+              >
+                <OctagonX size={10} /> Stopped
+              </span>
+            )}
+            {turn.error && (
+              <div className="mb-2 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/25 dark:bg-rose-500/5 dark:text-rose-300">
+                <AlertCircle size={15} className="mt-0.5 shrink-0" />
+                <span className="break-words">{turn.error}</span>
               </div>
-            </>
-          )}
+            )}
+            {turn.reply.trim() ? (
+              <div className="text-sm leading-6 text-slate-700 dark:text-slate-200">
+                <ChatMarkdown content={turn.reply} />
+              </div>
+            ) : (
+              !turn.error && (
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  {stopped
+                    ? `${employeeName} was stopped before it reported back.`
+                    : `${employeeName} finished without saying anything.`}
+                </p>
+              )
+            )}
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400 dark:text-slate-500">
+              {turn.headCommit && (
+                <span className="inline-flex items-center gap-1 font-mono">
+                  <CircleCheck size={11} className="text-emerald-500" />
+                  checkpoint {turn.headCommit.slice(0, 7)}
+                </span>
+              )}
+              {turn.filesChanged > 0 ? (
+                <DiffStats
+                  filesChanged={turn.filesChanged}
+                  insertions={turn.insertions}
+                  deletions={turn.deletions}
+                  className="text-[11px]"
+                />
+              ) : turn.status === "ok" ? (
+                <span>Committed nothing on this turn</span>
+              ) : (
+                stopped && <span>Stopped before anything was committed</span>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </article>
   );
 }

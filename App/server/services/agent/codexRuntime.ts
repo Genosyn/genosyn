@@ -430,7 +430,7 @@ async function invokeRegistryTool(
   } catch {
     // Logging metadata must not prevent the actual tool call.
   }
-  safeCallback(() => callbacks?.onToolUse?.(described.name, described.input));
+  safeCallback(() => callbacks?.onToolUse?.(described.name, described.input, call.callId));
 
   let result: ToolResult;
   try {
@@ -443,7 +443,7 @@ async function invokeRegistryTool(
   }
   const content = clip(result.content, toolResultCap(contextWindow));
   const reportedResult = { ...result, content };
-  safeCallback(() => callbacks?.onToolResult?.(described.name, reportedResult));
+  safeCallback(() => callbacks?.onToolResult?.(described.name, reportedResult, call.callId));
 
   const contentItems: DynamicToolCallResponse["contentItems"] = [
     {

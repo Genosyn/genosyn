@@ -5,6 +5,7 @@ import {
   gatherEmployeeTools,
   guardPrivilegedTools,
   selectSurfaceTools,
+  type ToolScope,
 } from "./tools/index.js";
 import type { AgentMessage, AgentTool, StreamCallbacks } from "./types.js";
 import type { PrivilegedToolCallAuthorizer } from "../memberTurnAuthority.js";
@@ -78,6 +79,12 @@ export type EmployeeAgentParams = {
   allowPrivilegedToolSources?: boolean;
   /** Re-check administrative Member authority before every ambient tool call. */
   authorizePrivilegedToolCall?: PrivilegedToolCallAuthorizer;
+  /**
+   * Confine the turn to one surface's tools — a Repository work session gets
+   * the `repository_*` tools and nothing else, delegation included. See
+   * {@link ToolScope}.
+   */
+  toolScope?: ToolScope;
 };
 
 export type EmployeeAgentResult =
@@ -157,6 +164,7 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
   }
   if (
     allowPrivileged &&
+    !params.toolScope?.surfaceOnly &&
     supportsParallelDelegation(params.model.authMode, delegationDepth)
   ) {
     localTools.push(
@@ -194,6 +202,7 @@ export async function runEmployeeAgent(params: EmployeeAgentParams): Promise<Emp
     signal: params.signal,
     allowPrivilegedToolSources: params.allowPrivilegedToolSources,
     authorizePrivilegedToolCall: params.authorizePrivilegedToolCall,
+    toolScope: params.toolScope,
     onDeprecatedFamily: (family, target) => {
       console.warn(
         `[genosyn] employee=${params.employeeId} used the deprecated family tool "${family}" ` +
@@ -318,6 +327,7 @@ async function runSubscriptionEmployeeAgent(
       requireIsolatedBash: true,
       allowPrivilegedToolSources: params.allowPrivilegedToolSources,
       authorizePrivilegedToolCall: params.authorizePrivilegedToolCall,
+      toolScope: params.toolScope,
       onDeprecatedFamily: (family, target) => {
         console.warn(
           `[genosyn] employee=${params.employeeId} used the deprecated family tool "${family}" ` +
@@ -392,10 +402,10 @@ async function runDelegatedBrief(
 
   const workerLabel = brief.label.replace(/\s+/g, " ").slice(0, 40);
   const callbacks: StreamCallbacks = {
-    onToolUse: (name, input) =>
-      parent.callbacks?.onToolUse?.(`[worker:${workerLabel}] ${name}`, input),
-    onToolResult: (name, result) =>
-      parent.callbacks?.onToolResult?.(`[worker:${workerLabel}] ${name}`, result),
+    onToolUse: (name, input, callId) =>
+      parent.callbacks?.onToolUse?.(`[worker:${workerLabel}] ${name}`, input, callId),
+    onToolResult: (name, result, callId) =>
+      parent.callbacks?.onToolResult?.(`[worker:${workerLabel}] ${name}`, result, callId),
     onModelRetry: parent.callbacks?.onModelRetry,
     onUsage: parent.callbacks?.onUsage,
     onCompact: parent.callbacks?.onCompact,

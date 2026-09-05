@@ -23,9 +23,17 @@ import { composeRevenueContext } from "./revenue/grants.js";
 import { composeMarketingContext } from "./marketing.js";
 import { composeTaggedChatReferenceContext } from "./chatReferences.js";
 import { runEmployeeAgent, runRestrictedEmployeeAgent } from "./agent/runEmployee.js";
-import type { AgentMessage, AgentProgress, ContextUsage } from "./agent/types.js";
+import type {
+  AgentMessage,
+  AgentProgress,
+  ContextUsage,
+  StreamCallbacks,
+} from "./agent/types.js";
 import { config } from "../../config.js";
-import { composeEmployeeSystemPrompt } from "./agent/systemPrompt.js";
+import {
+  composeEmployeeSystemPrompt,
+  composeRepositoryWorkSystemPrompt,
+} from "./agent/systemPrompt.js";
 import { residentNamesForSkills, skillToolsetMap } from "./skillToolset.js";
 import {
   acquireChatWorkloadLease,
@@ -75,7 +83,20 @@ export type ChatTurn = { role: "user" | "assistant"; content: string };
  * that don't know a kind just ignore it.
  */
 export type ChatResult =
-  | { status: "ok"; reply: string; attachmentIds: string[]; sidecars: Record<string, unknown[]> }
+  | {
+      status: "ok";
+      reply: string;
+      attachmentIds: string[];
+      sidecars: Record<string, unknown[]>;
+      /**
+       * Why the loop ended, when the runtime reports one: `"end_turn"`,
+       * `"max_steps"`, `"aborted"`, or a provider reason. A caller that owns a
+       * durable record of the work reads `"max_steps"` as unfinished — the
+       * runaway backstop stopped the employee, not the employee deciding it
+       * was done — and says so rather than filing the turn as complete.
+       */
+      stopReason?: string;
+    }
   | {
       status: "skipped";
       reply: string;
@@ -152,6 +173,32 @@ type ChatBaseOptions = {
    * Omit it on chat surfaces that cannot display ephemeral progress.
    */
   onProgress?: (progress: AgentProgress) => void;
+  /**
+   * The loop's activity as it happens — narration, each tool call and its
+   * result, compaction, retries. A Repository work session records these to
+   * its activity feed so a Member can watch the work rather than a spinner.
+   * Omit it on surfaces with nowhere to show them.
+   */
+  activity?: Pick<
+    StreamCallbacks,
+    "onText" | "onToolUse" | "onToolResult" | "onCompact" | "onModelRetry"
+  >;
+  /**
+   * Ceiling on model turns for this call. Chat's default suits a reply; a
+   * work session, which reads, edits, runs and re-runs, needs more room.
+   */
+  maxSteps?: number;
+  /**
+   * The turn is a Repository work session. Two things follow. The system
+   * prompt is composed for coding work — Soul, Skills, company policies, and
+   * the session briefing — rather than the whole chat persona with its
+   * memory, finance, revenue and marketing context and a tool briefing about
+   * tools the session cannot reach. And the tool set is exactly the
+   * `repository_*` tools: no employee-cwd shell, no browser, no configured
+   * MCP servers, no delegation, no discovery catalogue of tools the MCP seam
+   * would refuse anyway. See `agent/tools/index.ts` for the scope.
+   */
+  workSurface?: "repository";
   /**
    * Receives how full the model's context window is after every model turn.
    * Unlike `onProgress` this is not a control the employee can reach — it is
@@ -586,19 +633,28 @@ export async function streamChatWithEmployee(
       ...(parallelDelegationAvailable ? [] : ["delegate_parallel_work"]),
       ...unavailableCodingTools,
     ];
+    // A Repository work session gets none of the company context below and
+    // does not materialize the employee's other checkouts: it works in one
+    // worktree through one tool set, and everything else is prompt spent on
+    // things its MCP seam refuses. See `composeRepositoryWorkSystemPrompt`.
+    const repositoryWork = options.workSurface === "repository";
     const repositoryMaterializationAllowed =
-      privilegedToolSourcesAllowed && shouldMaterializeRepositoriesForTurn(model.authMode);
+      !repositoryWork &&
+      privilegedToolSourcesAllowed &&
+      shouldMaterializeRepositoriesForTurn(model.authMode);
     // Memory has no resource provenance yet. It may contain facts learned in
     // a Finance, Project, mailbox, or Connection context broader than the
     // requesting Member can see, so only employee automation and owner/admin
     // chat may receive it. The Member tool registry applies the same rule to
     // list/add/update/delete_memory.
-    const memoryContext = contextAccess.memory ? await composeMemoryContext(emp.id) : "";
+    const memoryContext =
+      contextAccess.memory && !repositoryWork ? await composeMemoryContext(emp.id) : "";
     // Goals are company-visible rows every Member can already read from the
     // Goals page, so the trusted-prompt branch below is the only gate needed.
-    const goalsContext = contextAccess.soulAndSkills
-      ? await composeGoalsContext(co.id, emp.id)
-      : "";
+    const goalsContext =
+      contextAccess.soulAndSkills && !repositoryWork
+        ? await composeGoalsContext(co.id, emp.id)
+        : "";
     const policiesContext = contextAccess.soulAndSkills
       ? await composePoliciesContext(co.id)
       : "";
@@ -606,19 +662,30 @@ export async function streamChatWithEmployee(
       contextAccess.repositories && repositoryMaterializationAllowed
         ? await composeRepositoriesContext(emp.id)
         : "";
-    const financeContext = contextAccess.finance ? await composeFinanceContext(emp.id) : "";
+    const financeContext =
+      contextAccess.finance && !repositoryWork ? await composeFinanceContext(emp.id) : "";
     const [signingContext, revenueContext, marketingContext] = await Promise.all([
-      contextAccess.signing
+      contextAccess.signing && !repositoryWork
         ? composeSigningContext({ companyId: co.id, employeeId: emp.id })
         : Promise.resolve(""),
-      contextAccess.revenue ? composeRevenueContext(emp.id) : Promise.resolve(""),
-      contextAccess.marketing ? composeMarketingContext(emp.id) : Promise.resolve(""),
+      contextAccess.revenue && !repositoryWork ? composeRevenueContext(emp.id) : Promise.resolve(""),
+      contextAccess.marketing && !repositoryWork
+        ? composeMarketingContext(emp.id)
+        : Promise.resolve(""),
     ]);
     const effectiveSkills = contextAccess.soulAndSkills ? skills : [];
     const helpSource =
       contextAccess.soulAndSkills && options.surface === "help" ? createGenosynHelpSource() : null;
-    let system = contextAccess.soulAndSkills
-      ? composeEmployeeSystemPrompt({
+    let system = !contextAccess.soulAndSkills
+      ? composeUntrustedChatSystemPrompt()
+      : repositoryWork
+        ? composeRepositoryWorkSystemPrompt({
+            co,
+            emp,
+            skills: effectiveSkills,
+            policiesContext,
+          })
+        : composeEmployeeSystemPrompt({
           co,
           emp,
           skills: effectiveSkills,
@@ -641,11 +708,10 @@ export async function streamChatWithEmployee(
                 `directly. Reply in your own voice, guided by your Soul, Memory, and Skills below. ` +
                 `Keep replies focused and grounded — ask clarifying questions when needed.`,
           skillToolsets: skillToolsetMap(effectiveSkills, unavailableSkillTools),
-        })
-      : composeUntrustedChatSystemPrompt();
+        });
     if (helpSource) system += `\n${helpSource.prompt}`;
     if (contextAccess.extraSystem && options.extraSystem) system += `\n${options.extraSystem}`;
-    if (contextAccess.taggedReferences) {
+    if (contextAccess.taggedReferences && !repositoryWork) {
       system += composeTaggedChatReferenceContext(message, co.slug);
     }
     if (options.onProgress) {
@@ -730,7 +796,7 @@ export async function streamChatWithEmployee(
         toolEnv,
         genosynToken: mcpToken,
         bashTimeoutMs: 5 * 60 * 1000,
-        maxSteps: CHAT_MAX_STEPS,
+        maxSteps: options.maxSteps ?? CHAT_MAX_STEPS,
         skillToolset: [
           ...residentNamesForSkills(effectiveSkills, unavailableSkillTools),
           ...(contextAccess.extraSystem ? (options.extraToolset ?? []) : []),
@@ -740,6 +806,9 @@ export async function streamChatWithEmployee(
         conversationId: options.conversationId,
         allowPrivilegedToolSources: privilegedToolSourcesAllowed,
         authorizePrivilegedToolCall,
+        toolScope: repositoryWork
+          ? { genosynTools: options.extraToolset ?? [], surfaceOnly: true }
+          : undefined,
         signal: controller.signal,
         callbacks: {
           onModelRetry: (retry) => {
@@ -747,7 +816,11 @@ export async function streamChatWithEmployee(
               `[chat:model] employee=${emp.id} ${retry.reason}; retrying attempt ` +
                 `${retry.attempt} of ${retry.maxAttempts} in ${retry.delayMs}ms`,
             );
+            options.activity?.onModelRetry?.(retry);
           },
+          onToolUse: options.activity?.onToolUse,
+          onToolResult: options.activity?.onToolResult,
+          onCompact: options.activity?.onCompact,
           // A chat turn that lost a capability should not be invisible either.
           onToolsDeferred: (d) => {
             if (d.deferred > 0) {
@@ -763,6 +836,11 @@ export async function streamChatWithEmployee(
             } catch {
               // never let a consumer callback break the turn
             }
+            try {
+              options.activity?.onText?.(delta);
+            } catch {
+              // same: an activity recorder must never break the turn
+            }
           },
           onProgress: options.onProgress,
           onContextUsage: options.onContextUsage,
@@ -777,7 +855,13 @@ export async function streamChatWithEmployee(
         return { status: "error", reply: result.error, attachmentIds, sidecars };
       }
       const reply = buffered.trim() || result.finalText.trim() || "(no reply)";
-      return { status: "ok", reply, attachmentIds, sidecars };
+      return {
+        status: "ok",
+        reply,
+        attachmentIds,
+        sidecars,
+        ...(result.stopReason ? { stopReason: result.stopReason } : {}),
+      };
     } finally {
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", abortFromClaim);

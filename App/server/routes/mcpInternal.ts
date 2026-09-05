@@ -39,13 +39,25 @@ import {
   resolveSessionCheckout,
   runRepositoryWorkSession,
   sessionCommit,
+  noteSessionCommit,
   sessionDeleteFile,
-  sessionListFiles,
-  sessionReadFile,
-  sessionSearch,
   sessionWriteFile,
   type SessionCheckout,
 } from "../services/repositoryWorkSessions.js";
+import {
+  MAX_GREP_CONTEXT,
+  MAX_SESSION_STEPS,
+  MAX_TREE_DEPTH,
+  normalizeSessionSteps,
+  sessionDiff,
+  sessionEditFile,
+  sessionGlob,
+  sessionGrep,
+  sessionReadNumbered,
+  sessionStatus,
+  sessionTree,
+} from "../services/repositorySessionTools.js";
+import { runningSessionTurn } from "../services/repositoryWorkSessionActivity.js";
 import { MAX_SESSION_COMMAND_LENGTH } from "../services/repositoryCommandPolicy.js";
 import {
   MAX_SESSION_COMMAND_MS,
@@ -13582,23 +13594,46 @@ function respondWithSessionError(res: Response, error: unknown): void {
   res.status(400).json({ error: message });
 }
 
-const repositoryListFilesSchema = z.object({ path: z.string().max(1000).optional() }).strict();
+/**
+ * Text-shaped results go back as the MCP text envelope rather than as a JSON
+ * field. `agent/tools/genosyn.ts` flattens the envelope to the bare text, so
+ * the model reads a file as a file — numbered lines, real newlines — instead
+ * of one JSON string with every newline and quote escaped, which costs
+ * tokens and is measurably harder for a model to copy an exact span out of.
+ */
+function respondWithText(res: Response, text: string): void {
+  res.json({ content: [{ type: "text", text }] });
+}
+
+const repositoryListFilesSchema = z
+  .object({
+    path: z.string().max(1000).optional(),
+    depth: z.number().int().min(1).max(MAX_TREE_DEPTH).optional(),
+  })
+  .strict();
 
 mcpInternalRouter.post(
   "/tools/repository_list_files",
   validateBody(repositoryListFilesSchema),
   async (req: McpRequest, res) => {
     try {
-      const { directory } = await sessionCheckoutFor(req);
+      const { repo, directory } = await sessionCheckoutFor(req);
       const body = req.body as z.infer<typeof repositoryListFilesSchema>;
-      res.json({ entries: sessionListFiles(directory, body.path ?? "") });
+      const tree = await sessionTree(repo, directory, body.path ?? "", body.depth ?? 1);
+      respondWithText(res, tree.text);
     } catch (error) {
       respondWithSessionError(res, error);
     }
   },
 );
 
-const repositoryReadFileSchema = z.object({ path: z.string().min(1).max(1000) }).strict();
+const repositoryReadFileSchema = z
+  .object({
+    path: z.string().min(1).max(1000),
+    offset: z.number().int().min(1).optional(),
+    limit: z.number().int().min(1).optional(),
+  })
+  .strict();
 
 mcpInternalRouter.post(
   "/tools/repository_read_file",
@@ -13607,7 +13642,47 @@ mcpInternalRouter.post(
     try {
       const { directory } = await sessionCheckoutFor(req);
       const body = req.body as z.infer<typeof repositoryReadFileSchema>;
-      res.json({ path: body.path, content: sessionReadFile(directory, body.path) });
+      const read = sessionReadNumbered(directory, body.path, {
+        offset: body.offset,
+        limit: body.limit,
+      });
+      respondWithText(res, read.text);
+    } catch (error) {
+      respondWithSessionError(res, error);
+    }
+  },
+);
+
+const repositoryEditFileSchema = z
+  .object({
+    path: z.string().min(1).max(1000),
+    old_string: z.string().min(1).max(MAX_SESSION_WRITE_BYTES),
+    new_string: z.string().max(MAX_SESSION_WRITE_BYTES),
+    replace_all: z.boolean().optional(),
+  })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/repository_edit_file",
+  validateBody(repositoryEditFileSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const { directory } = await sessionCheckoutFor(req);
+      const body = req.body as z.infer<typeof repositoryEditFileSchema>;
+      const edited = sessionEditFile(
+        directory,
+        body.path,
+        body.old_string,
+        body.new_string,
+        body.replace_all === true,
+      );
+      res.json({
+        ok: true,
+        path: edited.path,
+        replacements: edited.replacements,
+        line: edited.line,
+        snippet: edited.snippet,
+      });
     } catch (error) {
       respondWithSessionError(res, error);
     }
@@ -13629,7 +13704,8 @@ mcpInternalRouter.post(
       const { directory } = await sessionCheckoutFor(req);
       const body = req.body as z.infer<typeof repositoryWriteFileSchema>;
       sessionWriteFile(directory, body.path, body.content);
-      res.json({ ok: true, path: body.path, bytes: Buffer.byteLength(body.content) });
+      const lines = body.content === "" ? 0 : body.content.replace(/\n$/, "").split("\n").length;
+      res.json({ ok: true, path: body.path, bytes: Buffer.byteLength(body.content), lines });
     } catch (error) {
       respondWithSessionError(res, error);
     }
@@ -13653,16 +13729,152 @@ mcpInternalRouter.post(
   },
 );
 
-const repositorySearchSchema = z.object({ query: z.string().min(1).max(500) }).strict();
+const repositorySearchSchema = z
+  .object({
+    pattern: z.string().min(1).max(500),
+    path: z.string().max(1000).optional(),
+    glob: z.string().max(200).optional(),
+    ignore_case: z.boolean().optional(),
+    context: z.number().int().min(0).max(MAX_GREP_CONTEXT).optional(),
+    output_mode: z.enum(["content", "files", "count"]).optional(),
+  })
+  .strict();
 
 mcpInternalRouter.post(
   "/tools/repository_search",
   validateBody(repositorySearchSchema),
   async (req: McpRequest, res) => {
     try {
-      const { directory } = await sessionCheckoutFor(req);
+      const { repo, directory } = await sessionCheckoutFor(req);
       const body = req.body as z.infer<typeof repositorySearchSchema>;
-      res.json({ matches: sessionSearch(directory, body.query) });
+      const found = await sessionGrep(repo, directory, {
+        pattern: body.pattern,
+        path: body.path,
+        glob: body.glob,
+        ignoreCase: body.ignore_case === true,
+        context: body.context,
+        outputMode: body.output_mode,
+      });
+      respondWithText(res, found.text);
+    } catch (error) {
+      respondWithSessionError(res, error);
+    }
+  },
+);
+
+const repositoryGlobSchema = z
+  .object({ pattern: z.string().min(1).max(500), path: z.string().max(1000).optional() })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/repository_glob",
+  validateBody(repositoryGlobSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const { repo, directory } = await sessionCheckoutFor(req);
+      const body = req.body as z.infer<typeof repositoryGlobSchema>;
+      const found = await sessionGlob(repo, directory, body.pattern, body.path ?? "");
+      const text =
+        found.matches.length === 0
+          ? "(no matches)"
+          : found.matches.join("\n") +
+            (found.truncated
+              ? "\n\n[Stopped after 500 files. Narrow the pattern or the path.]"
+              : "");
+      respondWithText(res, text);
+    } catch (error) {
+      respondWithSessionError(res, error);
+    }
+  },
+);
+
+mcpInternalRouter.post(
+  "/tools/repository_status",
+  validateBody(z.object({}).strict()),
+  async (req: McpRequest, res) => {
+    try {
+      const { repo, directory, session } = await sessionCheckoutFor(req);
+      const status = await sessionStatus(repo, directory, session.baseCommit);
+      respondWithText(res, status.text);
+    } catch (error) {
+      respondWithSessionError(res, error);
+    }
+  },
+);
+
+const repositoryDiffSchema = z
+  .object({ committed: z.boolean().optional(), path: z.string().max(1000).optional() })
+  .strict();
+
+mcpInternalRouter.post(
+  "/tools/repository_diff",
+  validateBody(repositoryDiffSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const { repo, directory, session } = await sessionCheckoutFor(req);
+      const body = req.body as z.infer<typeof repositoryDiffSchema>;
+      const diff = await sessionDiff(repo, directory, {
+        committed: body.committed === true,
+        baseCommit: session.baseCommit,
+        path: body.path,
+      });
+      const header =
+        diff.filesChanged > 0
+          ? `${diff.filesChanged} file${diff.filesChanged === 1 ? "" : "s"} changed, +${diff.insertions} −${diff.deletions}\n\n`
+          : "";
+      respondWithText(res, header + diff.text);
+    } catch (error) {
+      respondWithSessionError(res, error);
+    }
+  },
+);
+
+const repositoryUpdateStepsSchema = z
+  .object({
+    steps: z
+      .array(
+        z
+          .object({
+            text: z.string().min(1).max(200),
+            status: z.enum(["pending", "in_progress", "completed"]),
+          })
+          .strict(),
+      )
+      .max(MAX_SESSION_STEPS),
+  })
+  .strict();
+
+/**
+ * The employee's own step list for the turn.
+ *
+ * Recorded as an activity event rather than a column: the latest `steps`
+ * event *is* the current list, the Member sees it change live, and the
+ * history of how the plan evolved stays readable afterwards. It is scoped
+ * to the running turn in this process; a turn nobody is running has no list
+ * to update, and says so.
+ */
+mcpInternalRouter.post(
+  "/tools/repository_update_steps",
+  validateBody(repositoryUpdateStepsSchema),
+  async (req: McpRequest, res) => {
+    try {
+      const { session } = await sessionCheckoutFor(req);
+      const body = req.body as z.infer<typeof repositoryUpdateStepsSchema>;
+      const steps = normalizeSessionSteps(body.steps);
+      const live = runningSessionTurn(session.id);
+      if (!live) {
+        return res.status(400).json({
+          error: "This turn is not running in a way that can show steps, so the list was not recorded.",
+        });
+      }
+      live.recorder.steps(steps);
+      const done = steps.filter((step) => step.status === "completed").length;
+      res.json({
+        ok: true,
+        done,
+        total: steps.length,
+        steps: steps.map((step, index) => `${index + 1}. [${step.status}] ${step.text}`),
+      });
     } catch (error) {
       respondWithSessionError(res, error);
     }
@@ -13731,23 +13943,37 @@ mcpInternalRouter.post(
   },
 );
 
-const repositoryCommitSchema = z.object({ message: z.string().min(1).max(2000) }).strict();
+const repositoryCommitSchema = z
+  .object({
+    message: z.string().min(1).max(2000),
+    paths: z.array(z.string().min(1).max(1000)).max(200).optional(),
+  })
+  .strict();
 
 mcpInternalRouter.post(
   "/tools/repository_commit",
   validateBody(repositoryCommitSchema),
   async (req: McpRequest, res) => {
     try {
-      const { repo, directory } = await sessionCheckoutFor(req);
+      const { repo, directory, session } = await sessionCheckoutFor(req);
       const body = req.body as z.infer<typeof repositoryCommitSchema>;
-      const result = await sessionCommit(repo, directory, body.message);
+      const result = await sessionCommit(repo, directory, body.message, body.paths);
       if (!result) {
         return res.json({
           committed: false,
           message: "Nothing had changed since your last commit, so no commit was made.",
         });
       }
-      res.json({ committed: true, commit: result.sha });
+      // The Changes view follows each checkpoint as it lands, not only the
+      // last one. Best-effort: a commit that was made is made.
+      await noteSessionCommit(session.id, repo, directory).catch(() => {});
+      res.json({
+        committed: true,
+        commit: result.sha,
+        filesChanged: result.filesChanged,
+        insertions: result.insertions,
+        deletions: result.deletions,
+      });
     } catch (error) {
       respondWithSessionError(res, error);
     }

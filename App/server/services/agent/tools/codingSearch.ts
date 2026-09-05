@@ -20,6 +20,7 @@ const GREP_REGEX_TIMEOUT_MS = 250;
 export function globTool(ctx: CodingToolContext): AgentTool {
   return {
     name: "glob",
+    readOnly: true,
     description:
       "Find files matching a glob pattern (supports **, *, ?) under the working directory. Returns matching paths.",
     inputSchema: {
@@ -64,6 +65,7 @@ export function globTool(ctx: CodingToolContext): AgentTool {
 export function grepTool(ctx: CodingToolContext): AgentTool {
   return {
     name: "grep",
+    readOnly: true,
     description:
       "Search file contents for a JavaScript regular expression under the working directory. Returns `path:line: text` matches.",
     inputSchema: {
@@ -188,18 +190,28 @@ parentPort.on("message", ({ id, text, limit }) => {
 });
 `;
 
-type RegexMatchResult = { matches: Array<[number, string]> } | { error: string };
+export type RegexMatchResult = { matches: Array<[number, string]> } | { error: string };
 type PendingRegexMatch = {
   id: number;
   resolve: (result: RegexMatchResult) => void;
-  timer: NodeJS.Timeout;
+  /** Unset until the worker is online — see {@link RegexLineMatcher.online}. */
+  timer?: NodeJS.Timeout;
   signal?: AbortSignal;
   onAbort?: () => void;
 };
 
 /** Keep model-supplied regex execution off the App event loop. */
-class RegexLineMatcher {
+export class RegexLineMatcher {
   private readonly worker: Worker;
+  /**
+   * Resolves once the worker thread is running (or has died trying). The
+   * per-file time limit is measured from here, not from construction: a
+   * worker takes a few hundred milliseconds to boot on a busy machine, and
+   * charging that to the first file made a trivial pattern like `todo` fail
+   * with "exceeded the 250ms safety limit" whenever the App was under load.
+   * The limit exists to catch catastrophic patterns, not slow thread starts.
+   */
+  private readonly online: Promise<void>;
   private nextId = 1;
   private pending?: PendingRegexMatch;
   private fatalError?: string;
@@ -211,6 +223,11 @@ class RegexLineMatcher {
       env: {},
       workerData: { pattern, flags },
       resourceLimits: { maxOldGenerationSizeMb: 32 },
+    });
+    this.online = new Promise((resolve) => {
+      this.worker.once("online", () => resolve());
+      this.worker.once("error", () => resolve());
+      this.worker.once("exit", () => resolve());
     });
     this.worker.on("message", (message: unknown) => this.onMessage(message));
     this.worker.on("error", (error) => {
@@ -240,22 +257,36 @@ class RegexLineMatcher {
             void this.worker.terminate();
           }
         : undefined;
-      const timer = setTimeout(() => {
-        this.settle({
-          error: `Regular expression exceeded the ${GREP_REGEX_TIMEOUT_MS}ms per-file safety limit. Use a simpler pattern.`,
-        });
-        this.closed = true;
-        void this.worker.terminate();
-      }, GREP_REGEX_TIMEOUT_MS);
-      this.pending = { id, resolve, timer, signal, onAbort };
+      // Reserve the slot now, so an overlapping call is refused while the
+      // worker is still booting, but only start the clock once it is up.
+      const reservation: PendingRegexMatch = { id, resolve, signal, onAbort };
+      this.pending = reservation;
       signal?.addEventListener("abort", onAbort as () => void, { once: true });
-      try {
-        this.worker.postMessage({ id, text, limit });
-      } catch (err) {
-        this.fail(
-          `Regular expression worker failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+      void this.online.then(() => {
+        if (this.pending !== reservation) return;
+        if (this.fatalError) {
+          this.settle({ error: this.fatalError });
+          return;
+        }
+        if (this.closed) {
+          this.settle({ error: "Regular expression worker is closed." });
+          return;
+        }
+        reservation.timer = setTimeout(() => {
+          this.settle({
+            error: `Regular expression exceeded the ${GREP_REGEX_TIMEOUT_MS}ms per-file safety limit. Use a simpler pattern.`,
+          });
+          this.closed = true;
+          void this.worker.terminate();
+        }, GREP_REGEX_TIMEOUT_MS);
+        try {
+          this.worker.postMessage({ id, text, limit });
+        } catch (err) {
+          this.fail(
+            `Regular expression worker failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      });
     });
   }
 
@@ -309,7 +340,7 @@ class RegexLineMatcher {
 }
 
 /** Convert a shell-style glob to an anchored RegExp. Supports **, *, ?. */
-function globToRegExp(glob: string): RegExp {
+export function globToRegExp(glob: string): RegExp {
   let regex = "^";
   for (let index = 0; index < glob.length; index += 1) {
     const character = glob[index];

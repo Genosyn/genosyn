@@ -46,6 +46,7 @@ import { Chart } from "../db/entities/Chart.js";
 import { Repository } from "../db/entities/Repository.js";
 import { RepositoryWorkSession } from "../db/entities/RepositoryWorkSession.js";
 import { RepositoryWorkSessionTurn } from "../db/entities/RepositoryWorkSessionTurn.js";
+import { RepositoryWorkSessionEvent } from "../db/entities/RepositoryWorkSessionEvent.js";
 import { Company } from "../db/entities/Company.js";
 import { CompanyFinanceSettings } from "../db/entities/CompanyFinanceSettings.js";
 import { Conversation } from "../db/entities/Conversation.js";
@@ -566,6 +567,7 @@ export async function deleteCompanyCascade(args: {
     await m.delete(Dashboard, { companyId });
     // Sessions before the repositories they belong to, so a failure halfway
     // cannot leave a session row pointing at a repository that is gone.
+    await m.delete(RepositoryWorkSessionEvent, { companyId });
     await m.delete(RepositoryWorkSessionTurn, { companyId });
     await m.delete(RepositoryWorkSession, { companyId });
     await m.delete(Repository, { companyId });

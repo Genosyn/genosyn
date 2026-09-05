@@ -2822,7 +2822,12 @@ export type RepositoryWorkSession = {
   employee: RepositoryWorkSessionEmployee | null;
 };
 
-export type RepositoryWorkSessionTurnStatus = "running" | "ok" | "failed";
+/**
+ * `stopped` is a Member calling the turn off mid-way. Whatever was committed
+ * before the stop stays on the branch, and the session accepts another
+ * instruction — it is a pause with a chance to redirect, not a failure.
+ */
+export type RepositoryWorkSessionTurnStatus = "running" | "ok" | "stopped" | "failed";
 
 /** One instruction and what the employee did about it. */
 export type RepositoryWorkSessionTurn = {
@@ -2853,6 +2858,65 @@ export type RepositoryWorkSessionCandidatesResponse = {
   employees: Array<RepositoryWorkSessionEmployee & { role: string }>;
 };
 export type RepositoryWorkSessionDiff = RepositoryDiff & { commits: RepositoryCommit[] };
+
+/**
+ * One thing that happened while an AI Employee worked on a turn — see the
+ * server's `RepositoryWorkSessionEvent` for what each kind means.
+ *
+ *   - `text`        → narration between tool calls; `detail.text`.
+ *   - `tool_use`    → a tool was called; `detail.input` holds its arguments,
+ *                     with long strings clipped.
+ *   - `tool_result` → that call returned, paired to its `tool_use` by
+ *                     `callId`; `detail.output` holds the clipped output.
+ *   - `steps`       → the employee's step list; `detail.steps`. The latest one
+ *                     is the current state.
+ *   - `progress`, `compact`, `retry`, `stopped` → one-line system notes.
+ */
+export type RepositoryWorkSessionEventKind =
+  | "text"
+  | "tool_use"
+  | "tool_result"
+  | "steps"
+  | "progress"
+  | "compact"
+  | "retry"
+  | "stopped";
+
+export type RepositoryWorkSessionStepStatus = "pending" | "in_progress" | "completed";
+
+export type RepositoryWorkSessionStep = {
+  text: string;
+  status: RepositoryWorkSessionStepStatus;
+};
+
+export type RepositoryWorkSessionEvent = {
+  id: string;
+  turnId: string;
+  /** Position in the session, across turns — the cursor for `?after=`. */
+  ordinal: number;
+  kind: RepositoryWorkSessionEventKind;
+  /** The tool name for `tool_use` / `tool_result`; empty otherwise. */
+  name: string;
+  /** Pairs a `tool_result` with its `tool_use`. Empty for other kinds. */
+  callId: string;
+  /** One line a person can read in a list. */
+  summary: string;
+  /**
+   * Bounded structured detail, shaped by `kind`. Left loose here and read
+   * through the accessors in `components/repositories/sessionState.ts`, which
+   * check the shape rather than trust it.
+   */
+  detail: unknown;
+  /** True when a `tool_result` reported an error. */
+  isError: boolean;
+  createdAt: string;
+};
+
+export type RepositoryWorkSessionEventsResponse = {
+  events: RepositoryWorkSessionEvent[];
+  /** More rows exist past the last one returned — ask again with `after`. */
+  more: boolean;
+};
 
 // ───────────────────────── Finance AI access ────────────────────────────
 

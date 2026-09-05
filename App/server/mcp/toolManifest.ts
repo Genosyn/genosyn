@@ -33,6 +33,12 @@ export type McpToolSpec = {
   name: string;
   description: string;
   inputSchema: McpToolInputSchema;
+  /**
+   * The tool only observes state. The in-process agent runs a model turn's
+   * read-only calls concurrently; anything unmarked is treated as a write and
+   * keeps the model's ordering. See `AgentTool.readOnly`.
+   */
+  readOnly?: boolean;
 };
 
 /**
@@ -2276,8 +2282,9 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   },
   {
     name: "repository_list_files",
+    readOnly: true,
     description:
-      "List the files and folders in your Repository work session's working copy. Pass `path` to look inside a folder; omit it for the top level. Only available inside a repository work session — one a Member started from the Repository page, or one you started with `start_repository_work_session`. It always acts on that session's own working copy.",
+      "List the files and folders in your Repository work session's working copy, as an indented tree with file sizes. Pass `path` to look inside a folder (omit it for the root) and `depth` (1–4, default 1) to see nested folders at once. Entries `.gitignore` covers — `node_modules`, build output — are marked `(ignored)` at the top level and never expanded. To find files by name pattern use `repository_glob`; to find files by content use `repository_search`. Only available inside a repository work session; it always acts on that session's own working copy.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2285,27 +2292,69 @@ export const STATIC_TOOLS: McpToolSpec[] = [
           type: "string",
           description: "Folder to list, relative to the repository root. Omit for the root.",
         },
+        depth: {
+          type: "integer",
+          minimum: 1,
+          maximum: 4,
+          description: "How many levels of nested folders to show. Default 1.",
+        },
       },
       additionalProperties: false,
     },
   },
   {
     name: "repository_read_file",
+    readOnly: true,
     description:
-      "Read one text file from your Repository work session's working copy. Read a file before you rewrite it — `repository_write_file` replaces the whole file, so you need to know what is already in it.",
+      "Read a text file from your Repository work session's working copy, returned with line numbers (`   12\\tcode`) so you can refer to and edit exact ranges. Reads up to 2000 lines by default; pass `offset` (1-based line) and `limit` to read a window of a long file, and follow the trailer that says where a read stopped. Always read a file before editing it — `repository_edit_file` needs the exact existing text. You can read several files in one turn; independent reads run at the same time.",
     inputSchema: {
       type: "object",
       properties: {
         path: { type: "string", description: "File path relative to the repository root." },
+        offset: {
+          type: "integer",
+          minimum: 1,
+          description: "1-based line number to start from. Omit to start at the top.",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          description: "Maximum number of lines to return. Default 2000.",
+        },
       },
       required: ["path"],
       additionalProperties: false,
     },
   },
   {
+    name: "repository_edit_file",
+    description:
+      "Make a precise change to an existing file in your Repository work session's working copy by replacing `old_string` with `new_string`. This is how you change code: it edits only the text you name and leaves the rest of the file exactly as it was. `old_string` must be copied exactly from a `repository_read_file` result — same whitespace, same indentation, without the line-number prefix — and must occur exactly once in the file; include a few surrounding lines to make it unique, or set `replace_all` to change every occurrence (renaming a symbol). Returns the edited region with line numbers so you can confirm the change. Prefer this over `repository_write_file` for any file that already exists. Editing does not commit — call `repository_commit` when a coherent piece of work is done.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path relative to the repository root." },
+        old_string: {
+          type: "string",
+          description: "The exact existing text to replace, verbatim from the file.",
+        },
+        new_string: {
+          type: "string",
+          description: "The text to put in its place. May be empty to delete the old text.",
+        },
+        replace_all: {
+          type: "boolean",
+          description: "Replace every occurrence instead of requiring exactly one. Default false.",
+        },
+      },
+      required: ["path", "old_string", "new_string"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "repository_write_file",
     description:
-      "Write one text file in your Repository work session's working copy, creating it and any missing folders if needed. This replaces the entire file: include everything you want to keep, not just your changes. Writing does not commit — call `repository_commit` when a piece of work is finished, or the human sees nothing.",
+      "Create a new text file in your Repository work session's working copy, or replace the entire contents of a small one. Missing folders are created. For a file that already exists, use `repository_edit_file` instead — rewriting a whole file to change part of it is how content gets lost and is far more expensive; reserve a full write for new files and total rewrites. Writing does not commit — call `repository_commit` when a piece of work is finished, or the human sees nothing.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2331,14 +2380,112 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   },
   {
     name: "repository_search",
+    readOnly: true,
     description:
-      "Find which files in your Repository work session mention some text. Returns the path, line number, and the matching line. Case-insensitive substring match, capped at 100 matches — use it to locate what to read rather than as a substitute for reading.",
+      "Search file contents in your Repository work session's working copy with a regular expression (JavaScript syntax — escape literal dots, brackets and parentheses). Honours `.gitignore`, skips binary files. `output_mode` is `content` (default: `path:line:text` matches, with `context` lines around each), `files` (just the paths that match — the fastest way to find where something lives), or `count` (matches per file). Narrow with `path` (a folder or one file) and `glob` (a filename pattern like `*.test.ts`). Capped at 200 matches; use it to locate what to read, then read it. You can run several searches in one turn; they run at the same time.",
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Text to look for." },
+        pattern: {
+          type: "string",
+          description: "Regular expression to search for, e.g. `function\\s+handleLogin` or `TODO`.",
+        },
+        path: {
+          type: "string",
+          description: "Folder or file to search within, relative to the root. Omit for everything.",
+        },
+        glob: {
+          type: "string",
+          description: "Only search files whose name or path matches this glob, e.g. `*.ts` or `src/**/*.py`.",
+        },
+        ignore_case: { type: "boolean", description: "Case-insensitive match. Default false." },
+        context: {
+          type: "integer",
+          minimum: 0,
+          maximum: 5,
+          description: "Lines of context to show around each match in content mode. Default 0.",
+        },
+        output_mode: {
+          type: "string",
+          enum: ["content", "files", "count"],
+          description: "What to return. Default `content`.",
+        },
       },
-      required: ["query"],
+      required: ["pattern"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "repository_glob",
+    readOnly: true,
+    description:
+      "Find files in your Repository work session's working copy whose path matches a glob pattern — `**/*.test.ts`, `src/**/*.py`, `*.md`. `**` crosses folders; a pattern with no `/` matches file names anywhere. Honours `.gitignore`. Use it to learn the shape of a codebase and to find the files a change must touch; use `repository_search` to find files by what they contain.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "Glob pattern to match against file paths." },
+        path: {
+          type: "string",
+          description: "Folder to search within, relative to the root. Omit for the whole repository.",
+        },
+      },
+      required: ["pattern"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "repository_status",
+    readOnly: true,
+    description:
+      "What `git status` would say in your Repository work session's working copy: the branch you are on, the commits you have made on it so far, and every file changed since your last commit (modified, added, deleted, untracked). Check it before `repository_commit` so you know exactly what you are about to record, and after a command that may have generated files.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "repository_diff",
+    readOnly: true,
+    description:
+      "The diff of your own work in this Repository work session. By default it shows what you have changed and not yet committed (new files appear as additions); pass `committed: true` to see everything the session branch has recorded since it was cut from the trunk — the diff the human will review. Pass `path` to limit it to one file or folder. Review your diff before committing, the way you would read a change before sending it for review: it is where accidental edits, leftover debug output and half-finished work show up.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        committed: {
+          type: "boolean",
+          description: "Show the committed work on this branch instead of the uncommitted changes. Default false.",
+        },
+        path: {
+          type: "string",
+          description: "Limit the diff to one file or folder, relative to the root.",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "repository_update_steps",
+    description:
+      "Keep a short, visible list of the steps you are taking on this piece of work. The human watching your session sees it update live, and it keeps you on track across a long turn. Send the whole list each time: each step has `text` and a `status` of `pending`, `in_progress` (at most one at a time), or `completed`. Write it once you understand the work — usually after reading the relevant code — with three to ten concrete steps; mark each in_progress when you start it and completed as soon as it is done; add steps when you discover more to do. Skip it for a trivial change that needs one edit.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        steps: {
+          type: "array",
+          maxItems: 30,
+          description: "The complete, ordered list of steps with their current statuses.",
+          items: {
+            type: "object",
+            properties: {
+              text: { type: "string", description: "What this step does, in a few words." },
+              status: {
+                type: "string",
+                enum: ["pending", "in_progress", "completed"],
+              },
+            },
+            required: ["text", "status"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["steps"],
       additionalProperties: false,
     },
   },
@@ -2367,11 +2514,17 @@ export const STATIC_TOOLS: McpToolSpec[] = [
   {
     name: "repository_commit",
     description:
-      "Record everything you have written or deleted in this Repository work session as a git commit. Write the message in the imperative mood and say why the change exists, not what the diff already shows. Commit whenever you finish a coherent piece of work; anything left uncommitted when the session ends is discarded. The commit stays on your session's own branch — a human reviews the diff and decides whether it is merged or pushed, so you never need to (and cannot) push.",
+      "Record your changes in this Repository work session as a git commit on the session's branch. By default everything changed since the last commit is included; pass `paths` to commit only some files. Write the message in the imperative mood — a short summary line, then a blank line and a sentence or two on why the change exists, not what the diff already shows. Review `repository_diff` first. Commit whenever you finish a coherent piece of work; anything left uncommitted when the session ends is discarded and the human sees nothing. The commit stays on your branch — a human reviews the diff and decides whether it is merged, pushed, or opened as a pull request, so you never need to (and cannot) push.",
     inputSchema: {
       type: "object",
       properties: {
         message: { type: "string", description: "Commit message." },
+        paths: {
+          type: "array",
+          maxItems: 200,
+          items: { type: "string" },
+          description: "Only commit these files or folders, relative to the root. Omit to commit everything that changed.",
+        },
       },
       required: ["message"],
       additionalProperties: false,

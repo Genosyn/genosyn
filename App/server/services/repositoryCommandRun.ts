@@ -43,12 +43,43 @@ export const DEFAULT_SESSION_COMMAND_MS = 5 * 60 * 1000;
 export const MAX_SESSION_COMMAND_MS = 10 * 60 * 1000;
 
 /**
- * Output kept from one command. Generous, because the thing a human is about
- * to read the diff for is usually the failing test that scrolled past.
- * `sandboxCommandRun.ts` explains why both ends of it survive truncation.
+ * Output kept from one command, head and tail — see `sandboxCommandRun.ts`
+ * for why both ends survive.
+ *
+ * Sized to fit under the agent loop's own clip on a tool result (60,000
+ * characters on any window that is not tiny, `contextBudget.ts`). It used to
+ * be 120 KB, which meant a long test run was cut twice: this module kept the
+ * head and the tail, and the loop then kept only the head of that — throwing
+ * away the failure summary the tail had been kept for. The tail gets the
+ * larger share because that is where a test runner prints what failed.
  */
-export const MAX_SESSION_COMMAND_OUTPUT = 120 * 1024;
-const HEAD_OUTPUT_BYTES = 40 * 1024;
+export const MAX_SESSION_COMMAND_OUTPUT = 48 * 1024;
+const HEAD_OUTPUT_BYTES = 16 * 1024;
+
+/**
+ * What every session command runs with, on top of the runner-owned `PATH`,
+ * `HOME` and `LANG`. These are the hints a CI system gives a tool so it
+ * behaves like a tool and not like a terminal: no colour codes in the output
+ * the model reads, no interactive prompts, no spinners, no update nags.
+ */
+export const SESSION_COMMAND_ENV: Record<string, string> = {
+  CI: "1",
+  TERM: "dumb",
+  NO_COLOR: "1",
+  FORCE_COLOR: "0",
+  GIT_TERMINAL_PROMPT: "0",
+  DEBIAN_FRONTEND: "noninteractive",
+  npm_config_update_notifier: "false",
+  npm_config_fund: "false",
+  npm_config_audit: "false",
+  PYTHONUNBUFFERED: "1",
+};
+
+/**
+ * `$HOME` for a session command: the sandbox's private `/tmp`, which exists
+ * for exactly one command. See `SandboxShellOptions.home`.
+ */
+export const SESSION_COMMAND_HOME = "/tmp";
 
 export type SessionCommandResult = SandboxCommandResult;
 
@@ -134,12 +165,15 @@ export async function runWorkSessionCommand(args: {
       // human as a diff, and a secret that entered the sandbox could leave in
       // one. The employee's own `bash` in its own working directory is where
       // that trade was made deliberately; this surface has not made it.
-      env: {},
-      // Not a login shell. `$HOME` is this worktree, which the employee writes
-      // through `repository_write_file`, so `bash -lc` would source a
-      // `.bash_profile` the employee had just written — running code that
-      // never appeared in the command and never met the repository's list.
+      env: { ...SESSION_COMMAND_ENV },
+      // Not a login shell. The worktree is what the employee writes through
+      // `repository_write_file`, so `bash -lc` sourcing a `.bash_profile` it
+      // had just written would run code that never appeared in the command
+      // and never met the repository's list.
       login: false,
+      // And `$HOME` is not the worktree either, or every package manager's
+      // cache would land inside it and be committed. See `SESSION_COMMAND_HOME`.
+      home: SESSION_COMMAND_HOME,
       readOnlyPaths: gitPointerOverlay(args.directory),
     });
     executable = invocation.executable;

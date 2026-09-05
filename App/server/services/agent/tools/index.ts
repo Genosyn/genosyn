@@ -59,6 +59,28 @@ import type { PrivilegedToolCallAuthorizer } from "../../memberTurnAuthority.js"
  * Coding and browser tools are resident too, but for a different reason — see
  * where they are added below.
  */
+/**
+ * A turn confined to one surface's tools.
+ *
+ * A Repository work session is the case this exists for. The MCP seam already
+ * refuses every genosyn tool outside the `repository_*` set inside a session
+ * (`routes/mcpInternal.ts`), but the seam only governs genosyn tools: the
+ * employee-cwd `bash`, the browser, company MCP servers and delegation are
+ * in-process, so a session started by an admin used to receive all of them —
+ * a shell in a *different* checkout, in a turn whose briefing promises that
+ * nothing it does reaches outside its worktree. And the deferred catalogue
+ * plus `find_tools` sat in the prompt advertising a hundred tools that would
+ * all be refused.
+ *
+ * `genosynTools` is the exact genosyn set the turn gets; `surfaceOnly` drops
+ * every other source. What remains is small enough that discovery never
+ * engages and the model sees the whole set on every step.
+ */
+export type ToolScope = {
+  genosynTools: string[];
+  surfaceOnly: boolean;
+};
+
 export const RESIDENT_GENOSYN_TOOLS = [
   // writes — deferring these makes narrating cheaper than doing
   "create_routine",
@@ -110,6 +132,10 @@ export async function gatherEmployeeTools(params: {
   authorizePrivilegedToolCall?: PrivilegedToolCallAuthorizer;
   /** Called when a Soul, Skill or brief reached for a retired family name. */
   onDeprecatedFamily?: (family: string, target: string) => void;
+  /**
+   * Narrow the turn to one surface's tools. See {@link ToolScope}.
+   */
+  toolScope?: ToolScope;
 }): Promise<{ registry: ToolRegistry; browser: BrowserConfig; close: () => Promise<void> }> {
   const codingProcessCleanups = new Set<() => void>();
   const codingCtx: CodingToolContext = {
@@ -124,8 +150,9 @@ export async function gatherEmployeeTools(params: {
   };
 
   // 1 + 2: in-process tools (no teardown needed).
-  const allowPrivileged = params.allowPrivilegedToolSources ?? true;
-  const [genosyn, browser, userServers] = await Promise.all([
+  const scope = params.toolScope ?? null;
+  const allowPrivileged = (params.allowPrivilegedToolSources ?? true) && !scope?.surfaceOnly;
+  const [genosynAll, browser, userServers] = await Promise.all([
     loadGenosynTools(params.genosynToken, params.signal, params.onDeprecatedFamily),
     allowPrivileged
       ? loadBrowserConfig(params.employeeId, {
@@ -144,6 +171,15 @@ export async function gatherEmployeeTools(params: {
         }),
     allowPrivileged ? loadUserServerSpecs(params.employeeId) : Promise.resolve([]),
   ]);
+  // A scoped turn keeps exactly the genosyn tools it names, and none of the
+  // retired family aliases — a Skill telling a session to call `mail` with an
+  // op would only reach a refusal at the seam either way.
+  const genosyn = scope
+    ? {
+        tools: genosynAll.tools.filter((t) => scope.genosynTools.includes(t.name)),
+        aliases: [] as AgentTool[],
+      }
+    : genosynAll;
 
   const codingEnabled = allowPrivileged && codingRuntimeAvailability().available;
   const coding = codingEnabled

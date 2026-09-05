@@ -20,6 +20,7 @@ const MAX_LIST_RESULTS = 500;
 export function readFileTool(ctx: CodingToolContext): AgentTool {
   return {
     name: "read_file",
+    readOnly: true,
     description:
       "Read a UTF-8 text file from the working directory. Returns the file contents; optionally slice by line range.",
     inputSchema: {
@@ -224,6 +225,7 @@ export function editFileTool(ctx: CodingToolContext): AgentTool {
 export function listDirTool(ctx: CodingToolContext): AgentTool {
   return {
     name: "list_dir",
+    readOnly: true,
     description: "List the entries of a directory in the working directory.",
     inputSchema: {
       type: "object",

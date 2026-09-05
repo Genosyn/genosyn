@@ -35,6 +35,7 @@ import {
   MAX_AGENTS_GUIDE_BYTES,
   MAX_REPLAYED_TURNS,
   composeTurnHistory,
+  CHECKPOINT_COMMIT_MESSAGE,
   composeWorkSystemPrompt,
   createRepositoryWorkSession,
   deriveWorkSessionTitle,
@@ -371,12 +372,23 @@ describe("a session that does work", () => {
     );
   });
 
-  test("records uncommitted work as empty — it is discarded, and the row says so", async () => {
+  test("keeps uncommitted work as a checkpoint commit rather than discarding it", async () => {
     const session = await start(
       stubChat((directory) => {
         sessionWriteFile(directory, "forgotten.md", "never committed\n");
       }),
     );
+    // The employee forgot to commit; the App did it for it, under a name that
+    // says so, and the work is reviewable like any other.
+    assert.equal(session.status, "ready");
+    const diff = await repositoryWorkSessionDiff(session);
+    assert.equal(diff.commits.length, 1);
+    assert.equal(diff.commits[0].subject, CHECKPOINT_COMMIT_MESSAGE);
+    assert.match(diff.patch, /never committed/);
+  });
+
+  test("records a turn that changed nothing as empty", async () => {
+    const session = await start(stubChat(() => {}));
     assert.equal(session.status, "empty");
   });
 
@@ -638,10 +650,14 @@ describe("revising a session", () => {
       }),
     );
 
-    assert.deepEqual(seen.history, [
-      { role: "user", content: "Update the plan" },
-      { role: "assistant", content: "Done." },
-    ]);
+    assert.equal(seen.history?.length, 2);
+    assert.deepEqual(seen.history?.[0], { role: "user", content: "Update the plan" });
+    assert.equal(seen.history?.[1].role, "assistant");
+    // The report it gave, then what it actually recorded — the commit list is
+    // the memory a revision needs and the reply alone never carried.
+    assert.match(seen.history?.[1].content ?? "", /^Done\./);
+    assert.match(seen.history?.[1].content ?? "", /Committed on this turn \(1 file/);
+    assert.match(seen.history?.[1].content ?? "", /Files: docs\/plan\.md/);
     assert.match(seen.message ?? "", /Continue your work/);
     assert.match(seen.message ?? "", /Also mention the risks/);
   });
@@ -1353,6 +1369,17 @@ describe("the briefing an employee receives", () => {
     assert.match(prompt, /session-123/);
     assert.match(prompt, /You must commit/);
     assert.match(prompt, /repository_write_file/);
+    // The edit tool is the one that makes a diff reviewable; the briefing
+    // must steer the employee to it for every file that already exists.
+    assert.match(prompt, /repository_edit_file/);
+    assert.match(prompt, /repository_diff/);
+    assert.match(prompt, /repository_update_steps/);
+    // The craft guidance is for code; a documents repository is briefed
+    // about its prose instead.
+    const code = composeWorkSystemPrompt({ ...repository, kind: "code" }, "session-123");
+    assert.match(code, /no unrequested refactors/);
+    assert.match(code, /Review your own diff/);
+    assert.ok(!prompt.includes("no unrequested refactors"));
   });
 
   test("briefs a documents repository differently from a code one", () => {

@@ -221,19 +221,19 @@ describe("running one", () => {
 
   test("does not corrupt a multi-byte character that lands on the head ceiling", async (t) => {
     const directory = await worktree(t);
-    // Well over HEAD_OUTPUT_BYTES of a 3-byte character, so one of them
-    // straddles the internal head/tail split. Nothing was dropped, so the
-    // output must decode as if it had never been split at all.
+    // Well over the 16 KB head of a 3-byte character (24 KB), and under the
+    // 48 KB total, so one of them straddles the internal head/tail split while
+    // nothing is dropped. The output must decode as if it had never been split.
     const result = await runWorkSessionCommand({
       repo: OPEN_REPO,
       directory,
-      command: `node -e 'process.stdout.write("\u4f60".repeat(20000))'`,
+      command: `node -e 'process.stdout.write("\u4f60".repeat(8000))'`,
       timeoutMs: 60_000,
     });
     assert.ok(!isCommandRefusal(result));
     if (isCommandRefusal(result)) return;
     assert.equal(result.truncated, false);
-    assert.equal(result.output, "\u4f60".repeat(20000));
+    assert.equal(result.output, "\u4f60".repeat(8000));
   });
 
   test("keeps both ends of very long output and says what it dropped", async (t) => {

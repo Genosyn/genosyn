@@ -419,7 +419,15 @@ into an employee working tree or injected into model coding tools.
       bubblewrap-only for the same reason `bash` is — host mode never gives an
       AI Employee a same-UID shell — and what it may run is a company decision
       on the Repository row (`commandMode` + `allowedCommands`). Everything
-      else a session does still needs no execution at all;
+      else a session does still needs no execution at all. A session turn
+      receives **only** the `repository_*` tools (`ToolScope` in
+      `agent/tools/index.ts`, set by `ChatOptions.workSurface`): no employee-cwd
+      `bash`, no browser, no company MCP servers, no delegation, no discovery
+      catalogue — the MCP seam refuses everything else anyway, and the tool
+      list must not promise what the seam refuses. Its activity (every tool
+      call, result, narration and step-list update) is recorded as
+      `RepositoryWorkSessionEvent` rows and shown live; a Member can stop a
+      running turn, keeping whatever it had committed;
     * the built-in **genosyn** tools, dispatched in-process to the loopback
       internal API (`server/mcp/toolManifest.ts` + `routes/mcpInternal.ts`)
       with a short-lived MCP token. The model is shown a **working set** of
