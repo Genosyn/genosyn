@@ -118,8 +118,11 @@ async function draftInvoice(): Promise<Invoice> {
     numberSeq: 0,
     status: "draft",
     currency: "USD",
-    issueDate: new Date("2026-08-06T00:00:00.000Z"),
-    dueDate: new Date("2026-09-05T00:00:00.000Z"),
+    // Relative to now, not fixed: a fixed due date became "today" a month
+    // after this was written and every send read as `overdue` instead of
+    // `sent`. The invoice must still be open when the test sends it.
+    issueDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+    dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     subtotalCents: 25_000,
     totalCents: 25_000,
     balanceCents: 25_000,
