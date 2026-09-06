@@ -129,9 +129,10 @@ export function Introduction() {
         and DMs, todos assigned to you, reviews and approvals waiting on your decision, the latest
         unread <DocLink to="/docs/tldrs">TLDR</DocLink>, the{" "}
         <DocLink to="/docs/employees#work-timeline">work timeline</DocLink> of everything your AI
-        Employees did in the last 24 hours, with employee bubbles that show who is working now and
-        open a direct check-in, plus shortcuts to every section. When something needs you — or a
-        fresh recap is ready — it&apos;s the first thing you see.
+        Employees did in the last 24 hours — a circle per employee saying who is working now, and a
+        chart of the day with one lane each, where every bar opens a plain-English account of what
+        that piece of work actually did — plus shortcuts to every section. When something needs you
+        — or a fresh recap is ready — it&apos;s the first thing you see.
       </P>
       <P>
         Home only shows you what it actually has. Every queue — the{" "}

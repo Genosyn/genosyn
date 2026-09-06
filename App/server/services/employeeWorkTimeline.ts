@@ -150,6 +150,14 @@ export type WorkEntry = {
   employee: WorkEmployeeRef;
   /** One line naming the work. Server-written, or redacted on the way out. */
   title: string;
+  /**
+   * What the work was *about*, on its own: the Routine's name, the
+   * conversation's subject, the repository session, the record that changed.
+   * It is already inside `title`; it is repeated here so a reader-facing
+   * sentence can be composed around it without parsing English back out of a
+   * server-written string. Empty when the source names nothing.
+   */
+  subject: string;
   /** A status word, a verdict, a diff stat. Empty when there is none. */
   detail: string;
   /** Present only on `kind: "run"`. */
@@ -527,6 +535,7 @@ export async function getEmployeeWorkTimeline(params: {
       endedAt: working ? null : iso(msg.updatedAt),
       active: working,
       title: working ? `Working on ${subject}` : `Replied in ${subject}`,
+      subject,
       detail: progress ?? (working ? "Working on a reply" : ""),
     };
   };
@@ -547,6 +556,7 @@ export async function getEmployeeWorkTimeline(params: {
       active: run.status === "running",
       employee,
       title: runTitle(routine.name),
+      subject: routine.name,
       detail: runDetail(run),
       run: {
         id: run.id,
@@ -589,6 +599,7 @@ export async function getEmployeeWorkTimeline(params: {
       active: presentation.active,
       employee,
       title: presentation.title,
+      subject: presentation.subject,
       detail: presentation.detail,
       run: null,
       effects: [],
@@ -625,6 +636,7 @@ export async function getEmployeeWorkTimeline(params: {
       active: turn.status === "running",
       employee,
       title: `Worked in ${safe(session.title) || "a repository"}`,
+      subject: safe(session.title),
       detail: workSessionDetail(turn),
       run: null,
       effects: [],
@@ -648,6 +660,7 @@ export async function getEmployeeWorkTimeline(params: {
       active: false,
       employee,
       title: `Approval required: ${title || approval.kind.replaceAll("_", " ")}`,
+      subject: title || approval.kind.replaceAll("_", " "),
       detail: approval.status,
       run: null,
       effects: [],
@@ -668,6 +681,7 @@ export async function getEmployeeWorkTimeline(params: {
       active: false,
       employee,
       title: "Woke itself up to follow something through",
+      subject: "",
       detail: safe(wakeup.outcomeNote) || safe(wakeup.brief),
       run: null,
       effects: [],
@@ -687,6 +701,7 @@ export async function getEmployeeWorkTimeline(params: {
       active: false,
       employee,
       title: `Took a lesson from a run: ${safe(lesson.cause) || "unnamed"}`,
+      subject: safe(lesson.cause),
       detail: safe(lesson.advice),
       run: null,
       effects: [],
@@ -727,6 +742,7 @@ export async function getEmployeeWorkTimeline(params: {
       active: false,
       employee,
       title: effect.targetLabel || row.targetId || row.action,
+      subject: effect.targetLabel,
       detail: row.action,
       run: null,
       effects: [],

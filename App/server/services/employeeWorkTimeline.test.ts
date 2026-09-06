@@ -963,3 +963,92 @@ describe("work timeline is a record, not a queue", () => {
     assert.equal((await timeline()).entries[0].detail, "manual trigger · attempt 2");
   });
 });
+
+// ─────────────────────────── the subject ─────────────────────────────────
+
+describe("what each entry was about", () => {
+  /**
+   * `subject` exists so the client can build a sentence around the thing the
+   * work was *about* without parsing English back out of a server-written
+   * `title`. Every branch has to fill it, or the reader gets "ran a routine"
+   * where the routine's name belongs — and the one branch with nothing to name
+   * has to leave it empty rather than invent a placeholder.
+   */
+  test("a run names its Routine", async () => {
+    await run();
+    assert.equal((await timeline()).entries[0].subject, "Nightly digest");
+  });
+
+  test("a conversation names its own subject", async () => {
+    const conv = await conversation({ ownerUserId: member.id, title: "Invoice chase" });
+    await assistantMessage(conv.id);
+    assert.equal((await timeline()).entries[0].subject, "Invoice chase");
+  });
+
+  test("a conversation the reader did not start is named without its subject", async () => {
+    const conv = await conversation({ ownerUserId: owner.id, title: "Salary review for Dana" });
+    await assistantMessage(conv.id);
+    const entry = (await timeline()).entries[0];
+    assert.equal(entry.subject, "a private conversation");
+    assert.doesNotMatch(entry.subject, /Dana/);
+  });
+
+  test("an approval names the action it is gating", async () => {
+    await approval({ title: "Submit the form" });
+    assert.equal((await timeline()).entries[0].subject, "Submit the form");
+  });
+
+  test("a repository turn names its session", async () => {
+    const session = await insert(RepositoryWorkSession, {
+      companyId: company.id,
+      repositoryId: testId("repo"),
+      employeeId: employee.id,
+      title: "Retry the webhook",
+      instruction: "fix it",
+      status: "completed",
+    });
+    await insert(RepositoryWorkSessionTurn, {
+      companyId: company.id,
+      sessionId: session.id,
+      ordinal: 1,
+      instruction: "fix it",
+      status: "completed",
+      createdAt: ago(HOUR),
+      finishedAt: ago(HOUR),
+      filesChanged: 1,
+      insertions: 2,
+      deletions: 0,
+    });
+    assert.equal((await timeline()).entries[0].subject, "Retry the webhook");
+  });
+
+  test("a lesson names its cause", async () => {
+    await insert(RunLesson, {
+      companyId: company.id,
+      employeeId: employee.id,
+      routineId: routine.id,
+      runId: testId("run"),
+      cause: "The mailbox was rate limited",
+      advice: "Back off and retry",
+      createdAt: ago(HOUR),
+    });
+    assert.equal((await timeline()).entries[0].subject, "The mailbox was rate limited");
+  });
+
+  test("a standalone change names the record it touched", async () => {
+    await auditRow({ targetLabel: "INV-1001" });
+    assert.equal((await timeline()).entries[0].subject, "INV-1001");
+  });
+
+  test("a subject the source does not name is empty rather than invented", async () => {
+    await insert(EmployeeWakeup, {
+      companyId: company.id,
+      employeeId: employee.id,
+      at: ago(2 * HOUR),
+      brief: "Check whether the invoice cleared",
+      status: "fired",
+      firedAt: ago(HOUR),
+    });
+    assert.equal((await timeline()).entries[0].subject, "");
+  });
+});

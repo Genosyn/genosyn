@@ -310,19 +310,48 @@ export function Employees() {
       <H2 id="work-timeline">The work timeline</H2>
       <P>
         Your <DocLink to="/docs">Home page</DocLink> ends with the <Strong>work timeline</Strong> —
-        everything your AI Employees actually did in the last 24 hours, newest first, grouped under{" "}
-        <Strong>Today</Strong> and <Strong>Yesterday</Strong>. Every employee appears as a bubble
-        across the top. The status under their name distinguishes
+        everything your AI Employees actually did in the last 24 hours. It opens with one line
+        saying who is working right now and what the roster added up to, then a{" "}
+        <Strong>circle for each employee</Strong>: the status under their name distinguishes
         <Strong> Working now</Strong>, <Strong>Waiting for input</Strong>, recent work, and a quiet
-        day. Choose a bubble to see that employee&apos;s current or latest work, then use
-        <Strong> Check in</Strong> to open their Chat or <Strong>Employee details</Strong> to
-        inspect their Settings. Choose <Strong>Everyone</Strong> to return to the company-wide view.
+        day.
       </P>
+      <P>
+        Under that is the <Strong>day chart</Strong> — one lane per employee, time running left to
+        right across the window, and one bar for every piece of work. It answers the question a
+        list cannot: whether the whole team was busy at four in the morning or one employee did all
+        of it, what overlapped, what ran long, and who was idle. Work still in flight runs to the
+        right-hand edge and pulses; work the server stamped with a single moment, such as a change
+        to one record, is drawn as a marker rather than a bar claiming a length it never had. An
+        employee with nothing to show keeps their lane and says <Strong>Nothing recorded</Strong>,
+        because a roster that hides its quiet members is one you cannot count.
+      </P>
+      <P>
+        Nothing is written out until you ask for it, and then it is written out in sentences:
+      </P>
+      <UL>
+        <LI>
+          <Strong>Choose a bar</Strong> and a popup says who did it, what they did it to, when it
+          started, how long it took, what it changed and how it ended — &quot;Ada ran the routine
+          &lsquo;Nightly invoice sweep&rsquo; at 00:56, taking 22 minutes. It created 5 invoices,
+          sent 3 emails and made 1 other change. It finished, and a grader found it met the
+          routine&apos;s acceptance criteria.&quot; Underneath, <Strong>What changed</Strong> lists
+          the individual records, each with its own time.
+        </LI>
+        <LI>
+          <Strong>Choose a circle</Strong> — or an employee&apos;s name on the chart — and their
+          whole day opens the way a calendar&apos;s day view does: the clock down the left, every
+          entry written out beside it, grouped under <Strong>Today</Strong> and{" "}
+          <Strong>Yesterday</Strong>. <Strong>Check in</Strong> opens their Chat and{" "}
+          <Strong>Employee details</Strong> opens their Settings.
+        </LI>
+      </UL>
       <P>Seven kinds of work land on it:</P>
       <UL>
         <LI>
           <Strong>Routine runs</Strong>, carrying the same status, outcome and checks badges the{" "}
-          <DocLink to="/docs/routines">Routines</DocLink> pages use. Clicking one opens the run
+          <DocLink to="/docs/routines">Routines</DocLink> pages use, and naming the routine, the
+          trigger and the attempt in words. <Strong>Open the run log</Strong> brings up the run
           viewer over Home rather than navigating away.
         </LI>
         <LI>
@@ -347,18 +376,20 @@ export function Employees() {
         </LI>
         <LI>
           <Strong>Changes</Strong> — the individual records an employee created, edited or sent.
-          Changes made inside a run or a conversation are listed underneath it; the rest stand on
-          their own line.
+          Changes made inside a run or a conversation are counted in that entry&apos;s own sentence
+          and listed underneath it; the rest stand on their own.
         </LI>
       </UL>
       <P>
         The roster stays visible even when the whole team is quiet, because it is also the quickest
-        way to reach an employee and check in. The recent-work side says plainly when the selected
-        employee has no recorded work in the window. A busy employee cannot crowd another
-        employee&apos;s status out of the list: the bubbles use a per-employee summary calculated
-        before the 40-row display limit is applied. Work still running — and an unresolved Approval
-        still waiting — remains in that summary even when it began before the 24-hour history
-        window; the recent-work list itself stays bounded to the window.
+        way to reach an employee and check in, and an employee&apos;s own day says plainly when
+        there is nothing in the window to show. A busy employee cannot crowd another
+        employee&apos;s status out of the roster: the circles use a per-employee summary the server
+        calculates before any display limit is applied, and opening one employee&apos;s day asks
+        for that employee alone so their window is complete. Work still running — and an unresolved
+        Approval still waiting — remains in that summary even when it began before the 24-hour
+        window; the chart and the day view themselves stay bounded to the window, and say so when
+        there was more in it than they drew.
       </P>
       <Callout
         kind="info"

@@ -3116,6 +3116,13 @@ export type WorkEntry = {
   active: boolean;
   employee: WorkEmployeeRef;
   title: string;
+  /**
+   * What the work was about on its own — the Routine's name, the
+   * conversation's subject, the record that changed. Already inside `title`,
+   * repeated so the client can compose a sentence around it instead of
+   * parsing English back out. Empty when the source names nothing.
+   */
+  subject: string;
   detail: string;
   /** Present only on `kind: "run"`. */
   run: WorkEntryRun | null;

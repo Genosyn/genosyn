@@ -3,25 +3,33 @@ import { describe, test } from "node:test";
 
 import type { WorkEmployeeSummary, WorkEntry, WorkEntryKind } from "./api.js";
 import {
-  employeeWorkFocus,
+  buildWorkChartLanes,
   employeeWorkStatusLabel,
   groupWorkByDay,
   humanizeWorkAction,
   isWorkEntryActive,
   isWorkInsideWindow,
   isWorkEntryWaiting,
+  packWorkChartTracks,
   summarizeEmployeeWork,
+  workChartTicks,
+  workChartTile,
+  workChartWindow,
   workClock,
+  workCountsSentence,
   workDayKey,
   workDayLabel,
   workDetailLabel,
   workDisplayDetail,
   workDisplayEntryCount,
-  workDisplayTitle,
+  workDurationLabel,
   workEffectOverflowLabel,
+  workEffectPhrase,
   workEmptyTitle,
   workEntryHref,
-  workEntrySummary,
+  workEntryLinkLabel,
+  workNarrative,
+  workNarrativeText,
   workOverflowLabel,
   workRelativeTime,
   WORK_ENTRY_KINDS,
@@ -55,6 +63,7 @@ function entryOf(over: Partial<WorkEntry> = {}): WorkEntry {
       avatarKey: null,
     },
     title: "Ran Nightly digest",
+    subject: "Nightly digest",
     detail: "",
     run: {
       id: "r1f6c1a2-0000-4000-8000-000000000003",
@@ -76,11 +85,7 @@ function entryOf(over: Partial<WorkEntry> = {}): WorkEntry {
 
 /** Everything a row puts in front of a reader, as one blob. */
 function rowText(entry: WorkEntry): string {
-  return [
-    workEntrySummary(entry, { withEmployee: true }),
-    entry.detail,
-    WORK_KIND_META[entry.kind].label,
-  ].join(" ");
+  return [workNarrativeText(entry), entry.detail, WORK_KIND_META[entry.kind].label].join(" ");
 }
 
 describe("day grouping", () => {
@@ -303,20 +308,6 @@ describe("employee work state", () => {
     });
     assert.equal(current.state, "working");
   });
-
-  test("focus follows current work, then a waiting gate, then the latest row", () => {
-    const latest = entryOf({ id: "latest" });
-    const waiting = entryOf({ id: "waiting", kind: "approval", run: null });
-    const current = entryOf({ id: "current", active: true });
-    const base = summarizeEmployeeWork(latest.employee.id, [latest]);
-    assert.equal(employeeWorkFocus(base)?.id, "latest");
-    assert.equal(employeeWorkFocus({ ...base, waitingEntry: waiting })?.id, "waiting");
-    assert.equal(
-      employeeWorkFocus({ ...base, waitingEntry: waiting, currentEntry: current })?.id,
-      "current",
-    );
-    assert.equal(employeeWorkFocus({ ...base, latestEntry: null }), null);
-  });
 });
 
 describe("relative work copy", () => {
@@ -434,9 +425,8 @@ describe("human-readable effects", () => {
       title: "INV-4001",
       detail: "invoice.create",
     });
-    assert.equal(workDisplayTitle(effect), "Created invoice");
     assert.equal(workDisplayDetail(effect), "INV-4001");
-    assert.equal(workDisplayTitle(entryOf()), "Ran Nightly digest");
+    assert.match(workNarrative(effect).headline, /^Rey created invoice/);
   });
 });
 
@@ -514,13 +504,17 @@ describe("kind metadata", () => {
   });
 });
 
-describe("summaries", () => {
-  test("names the employee when the whole roster is on screen", () => {
-    assert.equal(workEntrySummary(entryOf(), { withEmployee: true }), "Rey — Ran Nightly digest");
-  });
-
-  test("drops the name once one employee is the subject", () => {
-    assert.equal(workEntrySummary(entryOf()), "Ran Nightly digest");
+describe("leaving an entry", () => {
+  test("every kind that has a destination also has a word for it", () => {
+    for (const kind of WORK_ENTRY_KINDS) {
+      const entry = entryOf({ kind, run: kind === "run" ? entryOf().run : null });
+      const href = workEntryHref(entry, "acme");
+      assert.equal(
+        Boolean(workEntryLinkLabel(entry)),
+        Boolean(href),
+        `${kind} must label its destination`,
+      );
+    }
   });
 });
 
@@ -586,5 +580,345 @@ describe("overflow and empty copy", () => {
 
   test("says the real window when it is not the usual one", () => {
     assert.match(workEmptyTitle("Rey", 48), /last 48 hours/);
+  });
+});
+
+describe("durations in words", () => {
+  const start = "2026-09-03T12:00:00.000Z";
+  const after = (ms: number) => new Date(new Date(start).getTime() + ms).toISOString();
+
+  test("says nothing when the source recorded no end", () => {
+    assert.equal(workDurationLabel(start, null), "");
+  });
+
+  test("never invents a negative or unparseable length", () => {
+    assert.equal(workDurationLabel(start, after(-60_000)), "");
+    assert.equal(workDurationLabel(start, "not a date"), "");
+  });
+
+  test("a single stamped instant is no duration, not a very short one", () => {
+    // A repository turn windows on the moment it finished, so its start and
+    // end are the same instant; "under a minute" would be a claim the source
+    // never made about work that ran for half an hour.
+    assert.equal(workDurationLabel(start, start), "");
+  });
+
+  test("crosses the minute, hour and day boundaries in plain words", () => {
+    assert.equal(workDurationLabel(start, after(45_000)), "under a minute");
+    assert.equal(workDurationLabel(start, after(60_000)), "1 minute");
+    assert.equal(workDurationLabel(start, after(23 * 60_000)), "23 minutes");
+    assert.equal(workDurationLabel(start, after(60 * 60_000)), "1 hour");
+    assert.equal(workDurationLabel(start, after(135 * 60_000)), "2 hours 15 minutes");
+    assert.equal(workDurationLabel(start, after(50 * 60 * 60_000)), "2 days");
+  });
+});
+
+describe("what an entry changed", () => {
+  const effect = (action: string, targetType: string, targetLabel = "") => ({
+    action,
+    targetType,
+    targetId: null,
+    targetLabel,
+    at: "2026-09-03T12:00:00.000Z",
+  });
+
+  test("counts repeated actions rather than listing them one by one", () => {
+    const phrase = workEffectPhrase(
+      entryOf({
+        effects: [
+          effect("invoice.create", "invoice"),
+          effect("invoice.create", "invoice"),
+          effect("mail.send", "email"),
+        ],
+        effectCount: 3,
+      }),
+    );
+    assert.equal(phrase, "created 2 invoices and sent an email");
+  });
+
+  test("pluralises awkward nouns without inventing letters", () => {
+    const phrase = workEffectPhrase(
+      entryOf({
+        effects: [
+          effect("company.edit", "company"),
+          effect("company.edit", "company"),
+          effect("address.add", "address"),
+          effect("address.add", "address"),
+        ],
+        effectCount: 4,
+      }),
+    );
+    assert.match(phrase, /updated 2 companies/);
+    assert.match(phrase, /added 2 addresses/);
+  });
+
+  test("stays honest about rows the server capped and groups it did not name", () => {
+    const phrase = workEffectPhrase(
+      entryOf({
+        effects: [
+          effect("invoice.create", "invoice"),
+          effect("mail.send", "email"),
+          effect("todo.complete", "todo"),
+          effect("note.write", "note"),
+        ],
+        // Four groups drawn from three slots, plus six rows the cap withheld.
+        effectCount: 10,
+      }),
+    );
+    assert.match(phrase, /made 7 other changes$/);
+  });
+
+  test("says nothing at all when the ledger recorded nothing", () => {
+    assert.equal(workEffectPhrase(entryOf()), "");
+  });
+});
+
+describe("an entry in sentences", () => {
+  const nowIso = "2026-09-03T12:00:00.000Z";
+  const at = "2026-09-03T11:00:00.000Z";
+  const ended = "2026-09-03T11:03:00.000Z";
+
+  test("a finished run names the routine, the length, the changes and the verdict", () => {
+    const narrative = workNarrative(
+      entryOf({
+        at,
+        endedAt: ended,
+        effects: [
+          {
+            action: "invoice.create",
+            targetType: "invoice",
+            targetId: null,
+            targetLabel: "INV-1",
+            at,
+          },
+        ],
+        effectCount: 1,
+        run: {
+          ...entryOf().run!,
+          status: "completed",
+          outcomeVerdict: "achieved",
+          checksVerdict: "passed",
+        },
+      }),
+      { nowIso },
+    );
+    assert.match(narrative.headline, /^Rey ran the routine “Nightly digest”/);
+    assert.match(narrative.headline, /taking 3 minutes\.$/);
+    assert.equal(narrative.body[0], "It created an invoice.");
+    assert.match(narrative.body[1], /met the routine's acceptance criteria/);
+    assert.match(narrative.body[1], /Every Check on the routine passed\./);
+  });
+
+  test("a run still going is described in the present tense, never as finished", () => {
+    const narrative = workNarrative(
+      entryOf({
+        at,
+        endedAt: null,
+        active: true,
+        run: { ...entryOf().run!, status: "running", exitCode: null },
+      }),
+      { nowIso },
+    );
+    assert.match(narrative.headline, /is still running, 1 hour so far\.$/);
+    assert.doesNotMatch(narrative.headline, /taking/);
+    assert.deepEqual(narrative.body, []);
+  });
+
+  test("a run that changed nothing says so instead of leaving it to be assumed", () => {
+    const narrative = workNarrative(entryOf({ at, endedAt: ended }), { nowIso });
+    assert.equal(narrative.body[0], "No changes were recorded for this run.");
+  });
+
+  test("a skipped run says only that nothing ran, not that nothing changed", () => {
+    const narrative = workNarrative(
+      entryOf({ at, endedAt: ended, run: { ...entryOf().run!, status: "skipped" } }),
+      { nowIso },
+    );
+    assert.equal(narrative.body.length, 1);
+    assert.match(narrative.body[0], /no model was connected/);
+  });
+
+  test("an ungraded outcome is never reported as a clean one", () => {
+    const unverified = workNarrative(
+      entryOf({
+        at,
+        endedAt: ended,
+        run: { ...entryOf().run!, outcomeVerdict: "unverified" },
+      }),
+      { nowIso },
+    );
+    const unclear = workNarrative(
+      entryOf({ at, endedAt: ended, run: { ...entryOf().run!, outcomeVerdict: "unclear" } }),
+      { nowIso },
+    );
+    assert.match(unverified.body[1], /nothing graded the outcome/);
+    assert.match(unclear.body[1], /could not tell/);
+    assert.notEqual(unverified.body[1], unclear.body[1]);
+  });
+
+  test("a failure carries its exit code and a broken Check carries its warning", () => {
+    const narrative = workNarrative(
+      entryOf({
+        at,
+        endedAt: ended,
+        run: { ...entryOf().run!, status: "failed", exitCode: 2, checksVerdict: "failed" },
+      }),
+      { nowIso },
+    );
+    assert.match(narrative.body[1], /failed with exit code 2/);
+    assert.match(narrative.body[1], /required Check did not hold/);
+  });
+
+  test("a pending Approval says a person still has to answer", () => {
+    const narrative = workNarrative(
+      entryOf({
+        at,
+        kind: "approval",
+        run: null,
+        title: "Approval required: Send the invoice",
+        subject: "Send the invoice",
+        detail: "pending",
+      }),
+      { nowIso },
+    );
+    assert.match(narrative.headline, /^Rey stopped and asked for approval/);
+    assert.match(narrative.headline, /“Send the invoice”/);
+    assert.equal(
+      narrative.body[0],
+      "Nobody has answered yet, so that piece of work is still on hold.",
+    );
+  });
+
+  test("every kind produces a sentence that names the employee and ends in a full stop", () => {
+    for (const kind of WORK_ENTRY_KINDS) {
+      const narrative = workNarrative(
+        entryOf({ kind, at, run: kind === "run" ? entryOf().run : null }),
+        { nowIso },
+      );
+      assert.match(narrative.headline, /^Rey /, kind);
+      assert.match(narrative.headline, /\.$/, kind);
+    }
+  });
+});
+
+describe("counting a window", () => {
+  test("names each kind and rolls every ledger row into one total", () => {
+    const sentence = workCountsSentence([
+      entryOf({ id: "a", effectCount: 3 }),
+      entryOf({ id: "b", kind: "chat", run: null, effectCount: 1 }),
+      entryOf({ id: "c", kind: "effect", run: null, effectCount: 0 }),
+    ]);
+    assert.equal(sentence, "1 routine run, 1 conversation and 5 recorded changes");
+  });
+
+  test("is empty rather than zeroed when nothing happened", () => {
+    assert.equal(workCountsSentence([]), "");
+  });
+});
+
+describe("the day chart", () => {
+  const nowIso = "2026-09-03T12:00:00.000Z";
+  const window = workChartWindow(nowIso, 24);
+  const hoursAgo = (n: number) => new Date(window.endMs - n * 3_600_000).toISOString();
+
+  test("the window is exactly the hours asked for, ending now", () => {
+    assert.equal(window.endMs - window.startMs, 24 * 3_600_000);
+    assert.equal(window.endMs, new Date(nowIso).getTime());
+  });
+
+  test("ticks land on local hour boundaries and stay inside the axis", () => {
+    const ticks = workChartTicks(window, 3);
+    assert.ok(ticks.length >= 8 && ticks.length <= 9);
+    for (const tick of ticks) {
+      assert.ok(tick.leftPct >= 0 && tick.leftPct <= 100);
+      assert.equal(new Date(Number(tick.key)).getMinutes(), 0);
+      assert.equal(new Date(Number(tick.key)).getHours() % 3, 0);
+    }
+  });
+
+  test("a span is placed and measured against the window", () => {
+    const tile = workChartTile(entryOf({ at: hoursAgo(12), endedAt: hoursAgo(6) }), window);
+    assert.ok(tile);
+    assert.equal(Math.round(tile!.leftPct), 50);
+    assert.equal(Math.round(tile!.widthPct), 25);
+    assert.equal(tile!.instant, false);
+  });
+
+  test("a moment keeps a legible width without claiming a duration", () => {
+    const tile = workChartTile(entryOf({ at: hoursAgo(6), endedAt: null }), window);
+    assert.ok(tile);
+    assert.equal(tile!.instant, true);
+    assert.equal(tile!.widthPct, 1.2);
+  });
+
+  test("work still in flight runs to the right edge", () => {
+    const tile = workChartTile(entryOf({ at: hoursAgo(2), endedAt: null, active: true }), window);
+    assert.ok(tile);
+    assert.equal(tile!.instant, false);
+    assert.equal(Math.round(tile!.leftPct + tile!.widthPct), 100);
+  });
+
+  test("a tile is clipped to the window rather than overflowing its lane", () => {
+    const tile = workChartTile(entryOf({ at: hoursAgo(40), endedAt: hoursAgo(20) }), window);
+    assert.ok(tile);
+    assert.equal(tile!.leftPct, 0);
+    assert.ok(tile!.leftPct + tile!.widthPct <= 100);
+  });
+
+  test("work entirely outside the window is dropped, not squashed onto the edge", () => {
+    assert.equal(workChartTile(entryOf({ at: hoursAgo(40), endedAt: hoursAgo(30) }), window), null);
+  });
+
+  test("overlapping work stacks instead of hiding under the longest bar", () => {
+    const tiles = [
+      workChartTile(entryOf({ id: "a", at: hoursAgo(12), endedAt: hoursAgo(4) }), window)!,
+      workChartTile(entryOf({ id: "b", at: hoursAgo(11), endedAt: hoursAgo(10) }), window)!,
+      workChartTile(entryOf({ id: "c", at: hoursAgo(3), endedAt: hoursAgo(2) }), window)!,
+    ];
+    const { tracks, hidden } = packWorkChartTracks(tiles);
+    assert.equal(hidden, 0);
+    assert.equal(tracks.length, 2);
+    assert.deepEqual(
+      tracks[0].map((tile) => tile.entry.id),
+      ["a", "c"],
+    );
+    assert.deepEqual(
+      tracks[1].map((tile) => tile.entry.id),
+      ["b"],
+    );
+  });
+
+  test("what will not fit is counted rather than silently dropped", () => {
+    const tiles = ["a", "b", "c", "d"].map(
+      (id) => workChartTile(entryOf({ id, at: hoursAgo(6), endedAt: hoursAgo(5) }), window)!,
+    );
+    const { tracks, hidden } = packWorkChartTracks(tiles, { maxTracks: 2 });
+    assert.equal(tracks.length, 2);
+    assert.equal(hidden, 2);
+  });
+
+  test("every employee keeps a lane, busiest first and the quiet ones last", () => {
+    const employees = [
+      { id: "quiet", name: "Zoe" },
+      { id: "busy", name: "Ada" },
+      { id: "live", name: "Bo" },
+    ];
+    const own = (employeeId: string, over: Partial<WorkEntry>) =>
+      entryOf({ ...over, employee: { ...entryOf().employee, id: employeeId } });
+    const lanes = buildWorkChartLanes(
+      employees,
+      [
+        own("live", { id: "l", at: hoursAgo(1), endedAt: null, active: true }),
+        own("busy", { id: "b", at: hoursAgo(3), endedAt: hoursAgo(2) }),
+      ],
+      window,
+    );
+    assert.deepEqual(
+      lanes.map((lane) => lane.employee.id),
+      ["live", "busy", "quiet"],
+    );
+    assert.equal(lanes[2].entries.length, 0);
+    assert.deepEqual(lanes[2].tracks, []);
+    assert.equal(lanes[0].active, true);
   });
 });

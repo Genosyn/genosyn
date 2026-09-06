@@ -1,4 +1,10 @@
-import type { WorkEmployeeSummary, WorkEntry, WorkEntryDigest, WorkEntryKind } from "./api";
+import type {
+  WorkEmployeeSummary,
+  WorkEntry,
+  WorkEntryDigest,
+  WorkEntryKind,
+  WorkEntryRun,
+} from "./api";
 
 /**
  * The presentation rules behind Home's AI Employee work timeline.
@@ -179,11 +185,6 @@ export function workDisplayEntryCount(
   return Math.max(visible, total - (returned - visible));
 }
 
-/** The row Home should feature when an employee bubble is selected. */
-export function employeeWorkFocus(summary: EmployeeWorkSummary): WorkEntryDigest | null {
-  return summary.currentEntry ?? summary.waitingEntry ?? summary.latestEntry;
-}
-
 /** Short relative time for a timeline row, deterministic when `nowIso` is supplied. */
 export function workRelativeTime(iso: string, nowIso = new Date().toISOString()): string {
   const at = new Date(iso).getTime();
@@ -261,13 +262,19 @@ function readableWords(value: string): string {
     .toLowerCase();
 }
 
-/** Turn an effect-ledger action such as `invoice.create` into reader-facing copy. */
-export function humanizeWorkAction(action: string, targetType: string): string {
+/** An effect-ledger action split into the two words a sentence needs. */
+function splitWorkAction(action: string, targetType: string): { verb: string; target: string } {
   const actionParts = action.split(/[.:/]/).filter(Boolean);
   const operation = readableWords(actionParts.at(-1) ?? action);
   const target = readableWords(targetType || actionParts.at(-2) || "record");
   const verb =
     ACTION_VERBS[operation] ?? `${operation.charAt(0).toUpperCase()}${operation.slice(1)}`;
+  return { verb, target };
+}
+
+/** Turn an effect-ledger action such as `invoice.create` into reader-facing copy. */
+export function humanizeWorkAction(action: string, targetType: string): string {
+  const { verb, target } = splitWorkAction(action, targetType);
   return [verb, target].filter(Boolean).join(" ");
 }
 
@@ -283,11 +290,6 @@ export function workDetailLabel(entry: Pick<WorkEntry, "kind" | "detail">): stri
     expired: "Expired",
   };
   return approval[entry.detail.trim().toLowerCase()] ?? readableWords(entry.detail);
-}
-
-/** Human-first title for a timeline row, including standalone Effects. */
-export function workDisplayTitle(entry: Pick<WorkEntry, "kind" | "title" | "detail">): string {
-  return entry.kind === "effect" ? humanizeWorkAction(entry.detail, "") : entry.title;
 }
 
 /** Supporting row copy after compact source tokens have been translated. */
@@ -378,13 +380,23 @@ export function workEntryHref(entry: WorkEntry, companySlug: string): string | n
   }
 }
 
-/**
- * The row's headline, with the employee's name in front when the timeline is
- * showing the whole roster. One employee selected and the name is the panel's
- * subject already, so repeating it on every line is noise.
- */
-export function workEntrySummary(entry: WorkEntry, opts: { withEmployee?: boolean } = {}): string {
-  return opts.withEmployee ? `${entry.employee.name} — ${entry.title}` : entry.title;
+/** What the button leading away from an entry should say. */
+export function workEntryLinkLabel(entry: Pick<WorkEntry, "kind">): string {
+  switch (entry.kind) {
+    case "run":
+      return "Open the run";
+    case "chat":
+      return "Open the conversation";
+    case "work_session":
+      return "Open Repositories";
+    case "approval":
+      return "Open Approvals";
+    case "wakeup":
+    case "lesson":
+      return "Open the employee";
+    case "effect":
+      return "";
+  }
 }
 
 /**
@@ -412,4 +424,471 @@ export function workEmptyTitle(employeeName: string | null, hours: number): stri
   return employeeName
     ? `${employeeName} has not done anything in ${window}.`
     : `Nothing has been done in ${window}.`;
+}
+
+// ─────────────────────────── plain English ──────────────────────────────────
+//
+// Everything below turns one entry into sentences. The panel used to print the
+// server's own compact strings — `Ran Nightly digest`, `3 replies`, `pending`,
+// `4 files · +120 · −33` — beside a coloured chip whose meaning was the legend
+// nobody had. A reader had to already know the product to know what happened.
+// These functions answer, in order: who did it, what they did it to, when, how
+// long it took, what it changed, and how it ended.
+
+/** The window every surface here describes. The server's own default. */
+export const WORK_WINDOW_HOURS = 24;
+
+/** "a", "b and c" — an Oxford-comma-free list, because these are prose. */
+function joinList(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? "";
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+function pluralNoun(noun: string): string {
+  const words = noun.split(" ");
+  const last = words[words.length - 1] ?? "";
+  if (!last) return noun;
+  const plural = /(?:s|x|z|ch|sh)$/.test(last)
+    ? `${last}es`
+    : /[^aeiou]y$/.test(last)
+      ? `${last.slice(0, -1)}ies`
+      : `${last}s`;
+  return [...words.slice(0, -1), plural].join(" ");
+}
+
+function withArticle(noun: string): string {
+  return `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
+}
+
+function capitalize(text: string): string {
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : text;
+}
+
+/** A model- or human-written fragment, made to stand as its own sentence. */
+function asSentence(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  return /[.!?]$/.test(trimmed) ? capitalize(trimmed) : `${capitalize(trimmed)}.`;
+}
+
+/**
+ * How long a piece of work took, in words rather than in a duration format.
+ *
+ * Empty when the source recorded no end, which is not the same as zero — and
+ * empty for a zero-length span too, because that is what a source that stamps
+ * one instant looks like. A repository turn windows on the moment it finished,
+ * so reading its span as a duration would report every one of them as having
+ * taken "under a minute".
+ */
+export function workDurationLabel(startIso: string, endIso: string | null): string {
+  if (!endIso) return "";
+  const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  if (ms < 60_000) return "under a minute";
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  const hours = Math.floor(minutes / 60);
+  if (hours >= 24) {
+    const days = Math.round(hours / 24);
+    return `${days} ${days === 1 ? "day" : "days"}`;
+  }
+  const rest = minutes % 60;
+  const hourPart = `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  return rest ? `${hourPart} ${rest} ${rest === 1 ? "minute" : "minutes"}` : hourPart;
+}
+
+/**
+ * The ledger rows under one entry, counted and named: "created 2 invoices,
+ * sent an email and made 4 other changes".
+ *
+ * Grouped in first-appearance order because `effects` arrive oldest-first and
+ * a run's ledger reads as a sequence. The tail stays honest about both kinds
+ * of omission — groups this phrase did not name, and rows the server capped
+ * before sending.
+ */
+export function workEffectPhrase(
+  entry: Pick<WorkEntry, "effects" | "effectCount">,
+  maxGroups = 3,
+): string {
+  const groups = new Map<string, { verb: string; target: string; count: number }>();
+  for (const effect of entry.effects) {
+    const { verb, target } = splitWorkAction(effect.action, effect.targetType);
+    const key = `${verb}|${target}`;
+    const seen = groups.get(key);
+    if (seen) seen.count += 1;
+    else groups.set(key, { verb, target, count: 1 });
+  }
+  const ordered = [...groups.values()];
+  const shown = ordered.slice(0, maxGroups);
+  const withheld =
+    ordered.slice(maxGroups).reduce((total, group) => total + group.count, 0) +
+    Math.max(0, entry.effectCount - entry.effects.length);
+  const parts = shown.map((group) =>
+    group.count === 1
+      ? `${group.verb.toLowerCase()} ${withArticle(group.target)}`
+      : `${group.verb.toLowerCase()} ${group.count} ${pluralNoun(group.target)}`,
+  );
+  if (withheld > 0) {
+    parts.push(`made ${withheld} other ${withheld === 1 ? "change" : "changes"}`);
+  }
+  return joinList(parts);
+}
+
+/** How a Run ended, in a sentence. Empty while it is still going. */
+function runOutcomeSentence(run: WorkEntryRun): string {
+  const checks =
+    run.checksVerdict === "passed"
+      ? " Every Check on the routine passed."
+      : run.checksVerdict === "failed"
+        ? " A required Check did not hold, so this is not a green run however its transcript reads."
+        : "";
+  switch (run.status) {
+    case "running":
+      return "";
+    case "failed":
+      return `The run failed${run.exitCode !== null ? ` with exit code ${run.exitCode}` : ""}.${checks}`;
+    case "timeout":
+      return `The run ran out of time and was stopped.${checks}`;
+    case "skipped":
+      return "The routine fired but no model was connected, so nothing actually ran.";
+    case "interrupted":
+      return "The server stopped the run part-way, so what happened after that is unknown.";
+    case "completed": {
+      // `unclear` is a judgement and `unverified` is the absence of one, and a
+      // clean run is neither. Saying so in full is the whole point of this
+      // surface — see AGENTS.md §3.
+      const verdict =
+        run.outcomeVerdict === "achieved"
+          ? "It finished, and a grader found it met the routine's acceptance criteria."
+          : run.outcomeVerdict === "off_goal"
+            ? "It finished, but a grader found it missed the routine's acceptance criteria."
+            : run.outcomeVerdict === "unclear"
+              ? "It finished, but a grader read the evidence and could not tell whether the goal was met."
+              : run.outcomeVerdict === "unverified"
+                ? "It finished, but nothing graded the outcome — that is the absence of a verdict, not a clean one."
+                : "It finished without errors.";
+      return `${verdict}${checks}`;
+    }
+  }
+}
+
+/** How an Approval ended, in a sentence. */
+function approvalStatusSentence(status: string): string {
+  switch (status.trim().toLowerCase()) {
+    case "pending":
+      return "Nobody has answered yet, so that piece of work is still on hold.";
+    case "executing":
+      return "A Member approved it, and the server is applying the action now.";
+    case "approved":
+      return "A Member approved it.";
+    case "execution_failed":
+      return "A Member approved it, but the action failed when the server replayed it.";
+    case "rejected":
+      return "A Member rejected it, so the action never ran.";
+    case "expired":
+      return "Nobody answered in time, so the request expired.";
+    default:
+      return status ? `Its status is ${readableWords(status)}.` : "";
+  }
+}
+
+/**
+ * One entry as prose: a headline sentence, then up to three supporting ones.
+ *
+ * The employee's name is always the grammatical subject, including inside a
+ * single employee's own timeline. Dropping it there would leave live work
+ * reading "Is working on a reply", and an activity line that names who did the
+ * work is the one thing every reader gets right without being taught.
+ */
+export type WorkNarrative = {
+  /** Who did what, to what, and when. Always present. */
+  headline: string;
+  /** What it changed and how it ended. Zero to three sentences. */
+  body: string[];
+};
+
+export function workNarrative(entry: WorkEntry, opts: { nowIso?: string } = {}): WorkNarrative {
+  const nowIso = opts.nowIso ?? new Date().toISOString();
+  const who = entry.employee.name;
+  const clock = workClock(entry.at);
+  const when = clock ? ` at ${clock}` : "";
+  const subject = entry.subject.trim();
+  const named = subject ? `“${subject}”` : "";
+  const took = workDurationLabel(entry.at, entry.endedAt);
+  const forSoFar = workDurationLabel(entry.at, nowIso);
+  const stat = workDisplayDetail(entry);
+  const effects = workEffectPhrase(entry);
+  const body: string[] = [];
+  let clause = "";
+
+  switch (entry.kind) {
+    case "run": {
+      const routine = named || "a routine";
+      const trigger =
+        entry.run && entry.run.triggerKind !== "schedule"
+          ? ` on a ${entry.run.triggerKind} trigger`
+          : "";
+      const attempt = entry.run && entry.run.attempt > 1 ? ` (attempt ${entry.run.attempt})` : "";
+      clause = entry.active
+        ? `started the routine ${routine}${when}${trigger}${attempt} and is still running${forSoFar ? `, ${forSoFar} so far` : ""}.`
+        : `ran the routine ${routine}${when}${trigger}${attempt}${took ? `, taking ${took}` : ""}.`;
+      if (effects) body.push(`It ${effects}.`);
+      // A skipped run never started, so "no changes were recorded" would be a
+      // second way of saying the sentence the outcome is about to say better.
+      else if (!entry.active && entry.run?.status !== "skipped") {
+        body.push("No changes were recorded for this run.");
+      }
+      // `active` is the source-backed live flag; a stale `status` on a row the
+      // server still calls live must not let this announce an outcome.
+      if (entry.run && !entry.active) {
+        const outcome = runOutcomeSentence(entry.run);
+        if (outcome) body.push(outcome);
+        if (entry.run.outcomeNote)
+          body.push(`The grader's note: ${asSentence(entry.run.outcomeNote)}`);
+      }
+      break;
+    }
+    case "chat": {
+      const thread = named || "a conversation";
+      clause = entry.active
+        ? `is working on a reply in ${thread}, started ${workRelativeTime(entry.at, nowIso).toLowerCase()}.`
+        : `replied in ${thread}${when}${stat ? ` (${stat})` : ""}.`;
+      if (entry.active && stat && stat !== "Working on a reply")
+        body.push(`Progress so far: ${stat}.`);
+      if (effects) body.push(`In that thread it ${effects}.`);
+      break;
+    }
+    case "work_session": {
+      const repository = named || "a repository";
+      clause = entry.active
+        ? `is working in ${repository}, started${when}${forSoFar ? `, ${forSoFar} so far` : ""}.`
+        : `worked in ${repository}${when}${took ? ` for ${took}` : ""}${stat ? ` (${stat})` : ""}.`;
+      if (effects) body.push(`It ${effects}.`);
+      break;
+    }
+    case "approval": {
+      clause = `stopped and asked for approval${when}: ${named || "an action it could not take on its own"}.`;
+      const status = approvalStatusSentence(entry.detail);
+      if (status) body.push(status);
+      break;
+    }
+    case "wakeup": {
+      clause = `woke itself up${when} to follow something through.`;
+      if (stat) body.push(asSentence(stat));
+      break;
+    }
+    case "lesson": {
+      clause = `took a lesson from a graded run${when}${subject ? `: ${subject}` : ""}.`;
+      if (stat) body.push(`What it will do differently: ${asSentence(stat)}`);
+      break;
+    }
+    case "effect": {
+      const action = humanizeWorkAction(entry.detail, "");
+      clause = `${action.charAt(0).toLowerCase()}${action.slice(1)}${named ? ` ${named}` : ""}${when}.`;
+      break;
+    }
+  }
+
+  return { headline: `${who} ${clause}`, body };
+}
+
+/** The whole narrative as one string, for a tooltip or an accessible label. */
+export function workNarrativeText(entry: WorkEntry, opts: { nowIso?: string } = {}): string {
+  const narrative = workNarrative(entry, opts);
+  return [narrative.headline, ...narrative.body].join(" ");
+}
+
+/**
+ * What a set of entries adds up to: "6 routine runs, 2 conversations and 41
+ * recorded changes". Empty when there is nothing to count.
+ */
+export function workCountsSentence(entries: WorkEntry[]): string {
+  const count = (kind: WorkEntryKind) => entries.filter((entry) => entry.kind === kind).length;
+  const runs = count("run");
+  const chats = count("chat");
+  const sessions = count("work_session");
+  const approvals = count("approval");
+  const wakeups = count("wakeup");
+  const lessons = count("lesson");
+  // A standalone Effect *is* one change; every other entry carries its own.
+  const changes = entries.reduce(
+    (total, entry) => total + (entry.kind === "effect" ? 1 : entry.effectCount),
+    0,
+  );
+  const parts: string[] = [];
+  if (runs) parts.push(`${runs} routine ${runs === 1 ? "run" : "runs"}`);
+  if (chats) parts.push(`${chats} ${chats === 1 ? "conversation" : "conversations"}`);
+  if (sessions) parts.push(`${sessions} repository ${sessions === 1 ? "session" : "sessions"}`);
+  if (approvals) parts.push(`${approvals} approval ${approvals === 1 ? "request" : "requests"}`);
+  if (wakeups) parts.push(`${wakeups} ${wakeups === 1 ? "wakeup" : "wakeups"}`);
+  if (lessons) parts.push(`${lessons} ${lessons === 1 ? "lesson" : "lessons"}`);
+  if (changes) parts.push(`${changes} recorded ${changes === 1 ? "change" : "changes"}`);
+  return joinList(parts);
+}
+
+// ───────────────────────────── the day chart ────────────────────────────────
+//
+// One lane per employee, time running left to right. Geometry lives here for
+// the same reason the wording does: percentages, clamping and overlap packing
+// are the parts that break silently, and they are unreachable inside the JSX.
+
+export type WorkChartWindow = { startMs: number; endMs: number };
+
+/** The chart's span: `hours` back from now, ending now. */
+export function workChartWindow(nowIso: string, hours = WORK_WINDOW_HOURS): WorkChartWindow {
+  const parsed = new Date(nowIso).getTime();
+  const endMs = Number.isNaN(parsed) ? Date.now() : parsed;
+  return { startMs: endMs - hours * 3_600_000, endMs };
+}
+
+export type WorkChartTick = { key: string; leftPct: number; label: string };
+
+/**
+ * Hour marks across the axis, on local hour boundaries so they read as clock
+ * times rather than as "5 hours and 12 minutes ago". Stepped through a `Date`
+ * rather than by adding milliseconds, so a DST change does not slide every
+ * later label half an hour off its own line.
+ */
+export function workChartTicks(window: WorkChartWindow, stepHours = 3): WorkChartTick[] {
+  const span = window.endMs - window.startMs;
+  if (span <= 0 || stepHours <= 0) return [];
+  const cursor = new Date(window.startMs);
+  cursor.setMinutes(0, 0, 0);
+  while (cursor.getTime() < window.startMs || cursor.getHours() % stepHours !== 0) {
+    cursor.setHours(cursor.getHours() + 1);
+    if (cursor.getTime() > window.endMs) return [];
+  }
+  const ticks: WorkChartTick[] = [];
+  while (cursor.getTime() <= window.endMs) {
+    const at = cursor.getTime();
+    ticks.push({
+      key: String(at),
+      leftPct: ((at - window.startMs) / span) * 100,
+      label: cursor.toLocaleTimeString(undefined, { hour: "numeric" }),
+    });
+    cursor.setHours(cursor.getHours() + stepHours);
+  }
+  return ticks;
+}
+
+export type WorkChartTile = {
+  entry: WorkEntry;
+  /** Percent of the lane's width, already clamped inside it. */
+  leftPct: number;
+  widthPct: number;
+  /** The source recorded a moment, not a span, so the width is only legibility. */
+  instant: boolean;
+};
+
+/**
+ * Place one entry on the axis, or return null when it falls outside the window.
+ *
+ * Work still in flight runs to the right edge — that is what "still running"
+ * looks like — and a row whose source records no end is a marker at its own
+ * moment rather than a bar of invented length.
+ */
+export function workChartTile(
+  entry: WorkEntry,
+  window: WorkChartWindow,
+  opts: { nowMs?: number; minWidthPct?: number } = {},
+): WorkChartTile | null {
+  const span = window.endMs - window.startMs;
+  if (span <= 0) return null;
+  const startMs = new Date(entry.at).getTime();
+  if (Number.isNaN(startMs)) return null;
+  const nowMs = opts.nowMs ?? window.endMs;
+  const minWidthPct = opts.minWidthPct ?? 1.2;
+  const endedMs = entry.endedAt ? new Date(entry.endedAt).getTime() : NaN;
+  const instant = !entry.active && (Number.isNaN(endedMs) || endedMs <= startMs);
+  const rawEndMs = entry.active ? Math.max(startMs, nowMs) : instant ? startMs : endedMs;
+  if (startMs > window.endMs || rawEndMs < window.startMs) return null;
+
+  const from = Math.max(startMs, window.startMs);
+  const to = Math.min(Math.max(rawEndMs, from), window.endMs);
+  const widthPct = Math.min(100, Math.max(minWidthPct, ((to - from) / span) * 100));
+  const leftPct = Math.min(
+    Math.max(0, ((from - window.startMs) / span) * 100),
+    Math.max(0, 100 - widthPct),
+  );
+  return { entry, leftPct, widthPct, instant };
+}
+
+/**
+ * Fit a lane's tiles into non-overlapping tracks, greedily and left to right.
+ *
+ * A lane could simply overlay them, and then a two-second ledger row sitting
+ * inside a forty-minute run would be unclickable and invisible. Tracks past
+ * `maxTracks` are counted rather than drawn, so the lane cannot grow without
+ * bound on an employee having a busy hour.
+ */
+export function packWorkChartTracks(
+  tiles: WorkChartTile[],
+  opts: { maxTracks?: number; gapPct?: number } = {},
+): { tracks: WorkChartTile[][]; hidden: number } {
+  const maxTracks = opts.maxTracks ?? 3;
+  const gapPct = opts.gapPct ?? 0.4;
+  const ordered = [...tiles].sort((a, b) =>
+    a.leftPct !== b.leftPct ? a.leftPct - b.leftPct : a.entry.id < b.entry.id ? -1 : 1,
+  );
+  const tracks: WorkChartTile[][] = [];
+  let hidden = 0;
+  for (const tile of ordered) {
+    const track = tracks.find((row) => {
+      const last = row[row.length - 1];
+      return !last || last.leftPct + last.widthPct + gapPct <= tile.leftPct;
+    });
+    if (track) {
+      track.push(tile);
+      continue;
+    }
+    if (tracks.length < maxTracks) tracks.push([tile]);
+    else hidden += 1;
+  }
+  return { tracks, hidden };
+}
+
+export type WorkChartLane<T> = {
+  employee: T;
+  tracks: WorkChartTile[][];
+  /** Tiles the lane could not fit into its tracks. Counted, never dropped silently. */
+  hidden: number;
+  /** Every entry that landed in the window, newest first. */
+  entries: WorkEntry[];
+  active: boolean;
+};
+
+/**
+ * One lane per employee, busiest first: whoever is working now, then whoever
+ * worked most recently, then everyone else by name. A quiet employee keeps
+ * their lane — an empty row is the honest answer to "what did they do today",
+ * and a roster that hides its quiet members is one you cannot count.
+ */
+export function buildWorkChartLanes<T extends { id: string; name: string }>(
+  employees: T[],
+  entries: WorkEntry[],
+  window: WorkChartWindow,
+  opts: { nowMs?: number; maxTracks?: number; minWidthPct?: number } = {},
+): WorkChartLane<T>[] {
+  const lanes = employees.map((employee) => {
+    const own = entries.filter((entry) => entry.employee.id === employee.id);
+    const tiles = own
+      .map((entry) =>
+        workChartTile(entry, window, { nowMs: opts.nowMs, minWidthPct: opts.minWidthPct }),
+      )
+      .filter((tile): tile is WorkChartTile => tile !== null);
+    const { tracks, hidden } = packWorkChartTracks(tiles, { maxTracks: opts.maxTracks });
+    return {
+      employee,
+      tracks,
+      hidden,
+      entries: own,
+      active: own.some((entry) => entry.active),
+    };
+  });
+  return lanes.sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    const latest = (lane: WorkChartLane<T>) => lane.entries[0]?.at ?? "";
+    if (latest(a) !== latest(b)) return latest(a) < latest(b) ? 1 : -1;
+    return a.employee.name.localeCompare(b.employee.name);
+  });
 }

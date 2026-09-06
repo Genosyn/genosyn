@@ -4649,6 +4649,63 @@ ASR for video Resources (Meetings already owns transcription and should keep
 it); xlsx/pptx extraction; and a re-ingest action, which is the missing
 prerequisite for repairing the rows this milestone stops creating.
 
+### M64 — The day, at a glance ✅
+
+M61 got the work timeline's *data* right and its *reading* wrong. The panel
+printed the strings the server writes for its own purposes, one under the next:
+`Ran Nightly digest`, `3 replies`, `pending`, `4 files · +120 · −33`, a coloured
+chip whose legend was nowhere, and a status word — `unverified` — whose whole
+meaning is the distinction between two things it does not spell out. Every one
+of those is accurate. Together they told a reader who already knew the product
+what had happened, and told everyone else nothing. The complaint that opened
+this milestone was three words long: it shows two users.
+
+Two shapes replace the list, and there is deliberately no third.
+
+- [x] **Sentences, not fragments.** `workNarrative()` composes each entry into
+      one headline and up to three supporting sentences — who did it, what they
+      did it to, when it started, how long it took, what it changed, and how it
+      ended. "Ada ran the routine 'Nightly invoice sweep' at 00:56, taking 22
+      minutes. It created 5 invoices, sent 3 emails and made 1 other change. It
+      finished, and a grader found it met the routine's acceptance criteria."
+      The effect ledger is *counted and named* rather than listed
+      (`workEffectPhrase`), and the tail stays honest about both kinds of
+      omission — groups the phrase did not name, and rows the server capped.
+      Every verdict keeps its own sentence: `unclear` is a grader who could not
+      tell, `unverified` is the absence of a grader, and neither reads as a
+      clean run.
+- [x] **A `subject` on the entry.** The one server change. The thing the work
+      was about is already inside `title`, and composing a sentence around it
+      meant either parsing English back out of a server-written string or
+      carrying the noun separately. Every branch fills it; a Wakeup, which
+      names nothing, leaves it empty rather than inventing a placeholder, and a
+      conversation the reader did not start still reports "a private
+      conversation" and not its subject.
+- [x] **A day chart, one lane per employee.** Time left to right, one tile per
+      piece of work, overlapping tiles packed into tracks so a two-second
+      ledger row cannot vanish under a forty-minute run. Live work runs to the
+      right-hand edge and pulses; a source that stamps one instant is drawn as
+      a marker rather than a bar claiming a length it never had — which is also
+      why `workDurationLabel` returns nothing for a zero-length span, since a
+      repository turn windows on the moment it finished and every one of them
+      would otherwise report "under a minute". A quiet employee keeps their
+      lane. The geometry is pure functions in `lib/workTimeline.ts`, tested
+      without a DOM, for the same reason the wording is.
+- [x] **The roster is circles, and the detail is a popup.** Each employee is a
+      small circle with the one word for their state. Choosing a tile opens
+      what that piece of work was; choosing a circle opens that employee's day
+      as a calendar day view — the clock down the left, sticky Today/Yesterday
+      headers, each entry written out beside its time. The day view asks for
+      that employee alone, so one noisy colleague cannot crowd their window.
+      Detail asked for is worth a whole panel; detail volunteered is a wall of
+      text on a page whose other job is to be short.
+
+Deliberately **not** in this milestone. A window control — the chart is a
+glance at today, the route already refuses to be a paging tool, and Settings →
+Audit log is still where history lives. A second timeline *page*, for the reason
+M61 gave. And any change to what the timeline reads: the seven sources, the
+scoping, and the redaction are M61's and are untouched.
+
 ---
 
 ## V2+ wild ideas
