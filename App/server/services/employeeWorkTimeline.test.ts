@@ -1005,14 +1005,14 @@ describe("what each entry was about", () => {
       employeeId: employee.id,
       title: "Retry the webhook",
       instruction: "fix it",
-      status: "completed",
+      status: "ready",
     });
     await insert(RepositoryWorkSessionTurn, {
       companyId: company.id,
       sessionId: session.id,
       ordinal: 1,
       instruction: "fix it",
-      status: "completed",
+      status: "ok",
       createdAt: ago(HOUR),
       finishedAt: ago(HOUR),
       filesChanged: 1,
