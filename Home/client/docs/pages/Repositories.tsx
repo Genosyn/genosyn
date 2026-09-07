@@ -126,13 +126,56 @@ export function Repositories() {
         and it is written to the audit log.
       </P>
 
+      <H2 id="overview">The Overview: what the AI has been doing</H2>
+      <P>
+        Opening a repository lands on its <Strong>Overview</Strong>, and the subject of that page is
+        the work rather than the settings. It opens with one sentence about the state of AI work
+        here — who is working right now, how many sessions are waiting for you to decide, or that
+        nothing has run yet — and the button that starts the next one.
+      </P>
+      <P>
+        Under it are four numbers: what is running, what is waiting for you, how many sessions you
+        have accepted out of everything ever asked for, and the lines those accepted sessions
+        actually put into the repository. Only accepted work counts toward the last two. A branch
+        nobody merged changed nothing here, and counting it would measure how much the employees
+        typed rather than how much of it was any good.
+      </P>
+      <P>Then the sessions themselves, in three bands that hide when they are empty.</P>
+      <UL>
+        <LI>
+          <Strong>Working now.</Strong> Each running session with the line its employee is on this
+          second — <em>Ran npm test → Exit 1</em> — its progress through its own step list, and how
+          many tool calls it has made. It updates live, without a reload.
+        </LI>
+        <LI>
+          <Strong>Needs you.</Strong> What has come back. Each row says what to do about it —{" "}
+          <em>Read the diff and decide</em>, <em>The last turn failed — ask again</em> — rather than
+          naming a status, and opens in <Strong>AI work</Strong>.
+        </LI>
+        <LI>
+          <Strong>Recently decided.</Strong> A short tail of the work you accepted or threw away, so
+          a repository where everything has been settled still says something.
+        </LI>
+      </UL>
+      <P>
+        <Strong>Who works here</Strong> closes the page: the AI Employees you granted access, each
+        with what it has actually done in this repository rather than only the fact that it may. A
+        repository nobody has been granted says so, and links to the page that fixes it.
+      </P>
+      <P>
+        The repository&apos;s own settings — default branch, sign-in, what an employee may run, and
+        the connection check for a remote — are still here, one disclosure down under{" "}
+        <Strong>Repository details</Strong>. A <Code>README</Code> at the root is rendered above
+        them.
+      </P>
+
       <H2 id="files">Browse and edit files</H2>
       <P>
-        Opening a repository shows the working tree of a checkout Genosyn keeps on the server. The
-        tree is read from disk rather than from git, so a file you just created appears before you
-        have committed it. Symlinks and the <Code>.git</Code> directory are never listed, one
-        directory shows at most 2,000 entries, and <Code>.gitignore</Code> is respected — ignored
-        entries are hidden, with a toggle that brings them back dimmed.
+        The <Strong>Files</Strong> page shows the working tree of a checkout Genosyn keeps on the
+        server. The tree is read from disk rather than from git, so a file you just created appears
+        before you have committed it. Symlinks and the <Code>.git</Code> directory are never listed,
+        one directory shows at most 2,000 entries, and <Code>.gitignore</Code> is respected —
+        ignored entries are hidden, with a toggle that brings them back dimmed.
       </P>
       <P>
         Open a file to edit it in place, with syntax highlighting. You can create, rename, move, and
@@ -183,7 +226,9 @@ export function Repositories() {
         session has its own URL, so you can send a colleague straight to the work you want them to
         review. Rename a session from its header when the instruction it was opened with stops
         describing it, and <Strong>archive</Strong> one you are finished with. On a narrow window
-        the inbox becomes a compact switcher above the open session.
+        the inbox becomes a compact switcher above the open session. For the short version — what is
+        running, what is waiting for you, and what has been accepted — the{" "}
+        <DocLink to="#overview">Overview</DocLink> summarises the same sessions.
       </P>
 
       <H3 id="quick-start">Start with a useful brief</H3>

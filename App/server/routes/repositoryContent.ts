@@ -75,6 +75,7 @@ import {
   serializeWorkSessionAttachment,
   WORK_SESSION_ATTACHMENTS_MAX,
 } from "../services/repositoryWorkSessionAttachments.js";
+import { repositoryAiOverview } from "../services/repositoryAiOverview.js";
 
 /**
  * Working with a Repository's *contents* — the file tree, the editor, history,
@@ -649,6 +650,26 @@ repositoryContentRouter.get(
     });
     res.json({ sessions: await hydrateSessions(repo.companyId, sessions) });
   }),
+);
+
+/**
+ * What AI Employees have done in this repository, digested.
+ *
+ * The Overview page's whole subject. It takes no parameters — there is
+ * deliberately nothing to page through here, because a digest that can be
+ * paged is a list, and the list is the AI work inbox one click away. Mounted
+ * with `workspace: false` for the reason the session reads are: this answers a
+ * question *about* the repository, and a remote that cannot be reached must
+ * not be able to hide the answer behind a clone error.
+ */
+repositoryContentRouter.get(
+  "/repositories/:slug/ai-overview",
+  withRepository(
+    async (repo, _req, res) => {
+      res.json(await repositoryAiOverview(repo));
+    },
+    { workspace: false },
+  ),
 );
 
 /** The AI Employees a Member can send at this repository — those granted it. */
